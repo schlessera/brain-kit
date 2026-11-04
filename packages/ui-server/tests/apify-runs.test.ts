@@ -22,7 +22,7 @@ import { SEA_CHARTS_PRICING, SEA_CHARTS_SCHEMA, seaChartsProfile } from "./fixtu
 const SENTINEL = "apify_api_ODYSSEUS_SENTINEL_0f1e2d3c";
 const ACCOUNT = { id: "IthacaHousehold01", username: "penelope" };
 
-interface Step { status: string; counts?: Record<string, number>; pricingInfo?: unknown; metamorphs?: unknown[] }
+interface Step { status: string; counts?: Record<string, number>; pricingInfo?: unknown; usageTotalUsd?: number; metamorphs?: unknown[] }
 interface Seen { method: string; path: string; query: URLSearchParams; authorization: string | null; body: unknown }
 interface Fake {
   origin: string; seen: Seen[];
@@ -47,6 +47,7 @@ function fakeApify(): Fake {
     defaultDatasetId: `VoyageData${id.slice(-2)}`, defaultKeyValueStoreId: "VoyageStore01", defaultRequestQueueId: "VoyageQueue01",
     // A signed link the host must never follow.
     output: { results: "https://api.apify.com/v2/key-value-stores/VoyageStore01/records/OUTPUT?signature=ODYSSEUS" },
+    ...(step.usageTotalUsd !== undefined ? { usageTotalUsd: step.usageTotalUsd } : {}),
     ...(step.counts ? { chargedEventCounts: step.counts } : {}),
     ...(step.pricingInfo ? { pricingInfo: step.pricingInfo } : {}),
     ...(step.metamorphs ? { metamorphs: step.metamorphs } : {}),
@@ -117,8 +118,8 @@ const LIMITS = { run_usd: 3, turn_usd: 5, session_usd: 10, day_usd: 20, max_runs
   max_concurrent_runs: 2, max_runtime_seconds: 600, max_result_items: 50, max_result_bytes: 262_144, max_retention_seconds: 86_400 };
 const START = Date.parse("2026-07-12T09:00:00.000Z");
 const INPUT = { startUrls: [{ url: "https://ithaca.example/charts" }], maxPages: 3 };
-/** $2 cap + 20 lifecycle requests at $0.0004 + 3 items x 4096 B kept 7 days at $0.5/GB-day (44 micro-USD, rounded up). */
-const RESERVED = 2 + 0.008 + 0.000044;
+/** $2 cap + 20 lifecycle requests at $0.0004 + 50 estimated items x 4096 B kept 7 days at $0.5/GB-day (717 micro-USD, rounded up). */
+const RESERVED = 2 + 0.008 + 0.000717;
 /** One start at $0.05 and three chart pages at $0.01. */
 const SETTLED_EVENTS = 0.08;
 
@@ -151,7 +152,7 @@ function harness(overrides: Partial<ApifyRunsOptions> & { brainPath?: string; br
   const factory = overrides.ledgerFactory ?? (() => ledger);
   const brainId = overrides.brainId ?? "brain-ithaca";
   const runPolicy = governanceApifyRunPolicy(path);
-  const consent = createApifyConsent({ authority: overrides.authority ?? authority, policy: governanceApifyConsentPolicy(path), profiles: [PROFILE],
+  const consent = createApifyConsent({ authority: overrides.authority ?? authority, policy: governanceApifyConsentPolicy(path), profiles: overrides.profiles ?? [PROFILE], ledger: factory, brain_id: brainId, budgetAvailability: (context, account) => runs.budgetAvailability(context, account),
     now: () => clock, meter: createApifyRequestMeter({ ledger: factory, policy: runPolicy, brain_id: brainId }) });
   const runs = createApifyRuns({ authority, consent, ledger: factory, policy: runPolicy, brain_id: brainId, profiles: [PROFILE],
     inference: async () => spent, now: () => clock, sleep: async ms => { clock += ms; }, ...overrides });
@@ -219,42 +220,60 @@ describe("qualified profiles", () => {
     expect(() => qualifyProfile(seaChartsProfile({}, unknownKeyword)), "APIFY_PROFILE_FULL_SCHEMA").toThrow(/cannot validate/);
   });
 
-  test("prepare validates the whole input against the profile and the minimum charge", async () => {
+  test("prepare preserves ordinary Actor inputs without profile restrictions and still applies the monetary cap", async () => {
     const h = harness();
     const ctx = context();
     const found = await h.consent.discover(ctx, { query: "sea charts" });
     const candidate = found.candidates[0]!.candidate;
     await h.consent.inspect(ctx, { candidate });
-    const bad: Array<[string, unknown, RegExp]> = [
-      ["range", { ...INPUT, maxPages: 101 }, /above 100/],
-      ["enum", { ...INPUT, harbour: "troy" }, /allowed values/],
-      ["work bound", { startUrls: INPUT.startUrls }, /required fields: maxPages/],
-      ["policy item bound", { ...INPUT, maxPages: 60 }, /max_result_items/],
-      ["request extras", { ...INPUT, startUrls: [{ url: "https://ithaca.example/charts", method: "POST" }] }, /\{ url \} only/],
-      ["unpermitted site", { ...INPUT, startUrls: [{ url: "https://troy.example/walls" }] }, /written site permission/],
-    ];
-    for (const [label, input, message] of bad) {
-      const error = await refusal(h.consent.prepare(ctx, { candidate, input, max_charge_usd: 2 }), label).catch(error => error);
-      expect(error, `APIFY_PREPARE_PROFILE: ${label}`).toBeInstanceOf(ApifyInputError);
-      expect((error as Error).message, label).toMatch(message);
-    }
-    const low = await h.consent.prepare(ctx, { candidate, input: INPUT, max_charge_usd: 0.25 }).catch(error => error);
-    expect(low, "APIFY_MINIMUM_CHARGE").toBeInstanceOf(ApifyInputError);
-    expect((low as Error).message).toMatch(/minimum run charge of \$0\.5/);
+    const inputs = [ { ...INPUT, maxPages: 101 }, { harbour: "troy" }, { startUrls: [{ url: "https://troy.example/walls", method: "POST" }] },
+      { proxyConfiguration: { useApifyProxy: true }, outputMode: "full", ordinarySecretLabel: "an ordinary label" } ];
+    for (const input of inputs) expect((await h.consent.prepare(ctx, { candidate, input, max_charge_usd: 2 })).review.input).toEqual(input);
+    await expect(h.consent.prepare(ctx, { candidate, input: INPUT, max_charge_usd: 0.25 })).rejects.toThrow(/minimum run charge/);
   });
 
-  test("a changed price list unqualifies the build before anything is reserved", async () => {
+  test("a changed price list is visible without requiring a qualified build", async () => {
     const h = harness();
     (fake.pricing[0] as { pricingPerEvent: { actorChargeEvents: Record<string, { eventPriceUsd: number }> } }).pricingPerEvent.actorChargeEvents["chart-page"]!.eventPriceUsd = 0.02;
     const ctx = context();
     const found = await h.consent.discover(ctx, { query: "sea charts" });
     const inspected = await h.consent.inspect(ctx, { candidate: found.candidates[0]!.candidate });
-    expect(inspected.eligibility.reasons, "APIFY_PROFILE_PRICE_PINNED").toContain("profile_pricing_mismatch");
+    expect(inspected.eligibility, "APIFY_APPROVED_ACTOR_NOT_PROFILE_GATED").toEqual({ executable: true, reasons: [] });
     expect(inspected.profile_id).toBeNull();
   });
 });
 
 describe("dispatch", () => {
+  test("terminal preliminary counts retain liability until a later billing observation, including after restart", async () => {
+    fake.script = [{ status: "SUCCEEDED", counts: { "apify-actor-start": 0, "chart-page": 0 } },
+      { status: "SUCCEEDED", counts: { "apify-actor-start": 1, "chart-page": 3 } }];
+    const h = harness({ waitSeconds: 0 });
+    const view = await h.runs.run(context(), { proposal: await proposal(h) });
+    await h.runs.status(context(), { run: view.run });
+    expect(h.runs.accounting(view.run).settled, "APIFY_PRELIMINARY_HOLDS_RESERVATION").toBe(false);
+    close(h.runs.accounting(view.run).liability_usd, RESERVED);
+    clock += 11_000;
+    const restarted = harness({ waitSeconds: 0 });
+    await restarted.runs.reconcile();
+    expect(restarted.runs.accounting(view.run).settled, "APIFY_LATE_BILLING_RECONCILED").toBe(true);
+    close(restarted.runs.accounting(view.run).charged_usd!, SETTLED_EVENTS);
+  });
+
+  test("authenticated run totals cover pay-per-usage without an event profile and later totals raise liability", async () => {
+    fake.script = [{ status: "SUCCEEDED", usageTotalUsd: 0 }, { status: "SUCCEEDED", usageTotalUsd: 0.125 }];
+    const h = harness({ profiles: [], waitSeconds: 0 });
+    const view = await h.runs.run(context(), { proposal: await proposal(h) });
+    await h.runs.status(context(), { run: view.run });
+    expect(h.runs.accounting(view.run).settled).toBe(false);
+    clock += 11_000;
+    await h.runs.reconcile();
+    close(h.runs.accounting(view.run).charged_usd!, 0.125);
+    expect(h.runs.accounting(view.run).settled).toBe(true);
+    const before = h.runs.accounting(view.run).liability_usd;
+    h.ledger.charge(view.run, { counts: {}, status: "SUCCEEDED", micro: 150_000, price_changed: false }, clock);
+    close(h.runs.accounting(view.run).liability_usd, before + 0.025);
+  });
+
   test("reserves before one start request that carries the limits as run options, then settles from the charge report", async () => {
     fake.script = [{ status: "RUNNING", counts: { "apify-actor-start": 1, "chart-page": 1 } }, { status: "SUCCEEDED", counts: { "apify-actor-start": 1, "chart-page": 3 } }];
     fake.items = [{ chart: "Ithaca harbour", depth_fathoms: 12 }, { chart: "Pylos approach", depth_fathoms: 9 }, { chart: "Sparta coast", depth_fathoms: 4 }];
@@ -277,9 +296,9 @@ describe("dispatch", () => {
     close(account.reserved_usd, RESERVED);
     close(account.charged_usd!, SETTLED_EVENTS);
     // Lifecycle requests and remote storage stay owed after the run.
-    close(account.liability_usd, SETTLED_EVENTS + 0.008 + 0.000044);
+    close(account.liability_usd, SETTLED_EVENTS + 0.008 + 0.000717);
     const turn = usdOf(h, "turn");
-    close(turn.residual_usd, 0.008 + 0.000044);
+    close(turn.residual_usd, 0.008 + 0.000717);
     expect(h.runs.coverage(scope()).coverage, "APIFY_COVERAGE_STATED").toBe(APIFY_COVERAGE);
 
     const page = await h.runs.results(ctx, { run: view.run, limit: 2 });
@@ -329,24 +348,13 @@ describe("dispatch", () => {
     expect(starts(), "APIFY_REFUSED_NOTHING_STARTED").toEqual([]);
   });
 
-  test("site permission: robots profiles need the host's check and its yes for every target", async () => {
-    const robots = qualifyProfile(seaChartsProfile({ id: "odysseus-sea-charts-robots@1", site: { expansion: "none", redirects: "same_origin", authorization: "robots", permitted_origins: [] } }));
-    const checked: string[] = [];
-    const h = harness({ profiles: [robots], sitePermission: async url => { checked.push(url); return !url.includes("/private"); } });
-    const consent = createApifyConsent({ authority, policy: governanceApifyConsentPolicy(brain), profiles: [robots], now: () => clock });
-    const runs = createApifyRuns({ authority, consent, ledger: () => h.ledger, policy: governanceApifyRunPolicy(brain), brain_id: "brain-ithaca",
-      profiles: [robots], sitePermission: async url => { checked.push(url); return !url.includes("/private"); }, now: () => clock, sleep: async ms => { clock += ms; } });
-    const ctx = context({ turn_id: "t-robots" });
-    const denied = await refusal(runs.run(ctx, { proposal: await proposal({ ...h, consent }, ctx, { startUrls: [{ url: "https://sparta.example/private/plans" }], maxPages: 1 }) }), "APIFY_ROBOTS");
-    expect([denied.code, denied.reason], "APIFY_ROBOTS_DISALLOWED").toEqual(["policy_denied", "robots_disallowed"]);
-    expect(checked).toEqual(["https://sparta.example/private/plans"]);
-
-    const unchecked = createApifyRuns({ authority, consent, ledger: () => h.ledger, policy: governanceApifyRunPolicy(brain), brain_id: "brain-ithaca",
-      profiles: [robots], now: () => clock });
-    const ctx2 = context({ turn_id: "t-robots-2" });
-    const unproven = await refusal(unchecked.run(ctx2, { proposal: await proposal({ ...h, consent }, ctx2, { startUrls: [{ url: "https://sparta.example/charts" }], maxPages: 1 }) }), "APIFY_ROBOTS_UNPROVEN");
-    expect([unproven.code, unproven.reason], "APIFY_SITE_PERMISSION_UNPROVEN").toEqual(["policy_denied", "site_permission_unproven"]);
-    expect(starts()).toEqual([]);
+  test("user-approved Actors do not require a host robots or input-target qualification", async () => {
+    const h = harness({ profiles: [], waitSeconds: 0, sitePermission: async () => { throw new Error("A host crawler check must not gate the remote service"); } });
+    const ctx = context();
+    const input = { identifiers: ["odysseus"], mode: "complete", extra: { arbitrary: true } };
+    const view = await h.runs.run(ctx, { proposal: await proposal(h, ctx, input) });
+    expect(view.state).toBe("running");
+    expect(starts()[0]!.body, "APIFY_GENERIC_INPUT_UNCHANGED").toEqual(input);
   });
 
   test("a run whose returned identity or options differ is aborted and its results withheld", async () => {
@@ -455,7 +463,10 @@ describe("lifecycle evidence", () => {
     const h = harness();
     const [row] = h.ledger.unsettled("brain-ithaca");
     const attached = await h.runs.resolveUnknown(row!.handle, { remote_run: "VoyageRun01" });
-    expect(attached).toMatchObject({ remote_run_id: "VoyageRun01", settled: true, cost_basis: "events" });
+    expect(attached).toMatchObject({ remote_run_id: "VoyageRun01", settled: false });
+    clock += 11_000;
+    await h.runs.reconcile();
+    expect(h.runs.accounting(row!.handle)).toMatchObject({ settled: true, cost_basis: "events" });
     expect(starts(), "APIFY_AMBIGUOUS_NOT_RETRIED").toHaveLength(2);
   });
 
@@ -496,14 +507,14 @@ describe("lifecycle evidence", () => {
     await h.runs.reconcile();
     const duplicate = h.ledger.charge(view.run, { counts: { "apify-actor-start": 1, "chart-page": 3 }, status: "SUCCEEDED", micro: 80_000, price_changed: false }, clock);
     expect(duplicate.fresh, "APIFY_DUPLICATE_RECEIPT").toBe(false);
-    close(h.runs.accounting(view.run).liability_usd, SETTLED_EVENTS + 0.008 + 0.000044);
+    close(h.runs.accounting(view.run).liability_usd, SETTLED_EVENTS + 0.008 + 0.000717);
     // A late report with two more pages raises it by their price only.
     h.ledger.charge(view.run, { counts: { "apify-actor-start": 1, "chart-page": 5 }, status: "SUCCEEDED", micro: 100_000, price_changed: false }, clock);
-    close(h.runs.accounting(view.run).liability_usd, 0.1 + 0.008 + 0.000044);
+    close(h.runs.accounting(view.run).liability_usd, 0.1 + 0.008 + 0.000717);
     // A stale, lower report never lowers it.
     h.ledger.charge(view.run, { counts: { "apify-actor-start": 1, "chart-page": 2 }, status: "RUNNING", micro: 70_000, price_changed: false }, clock);
-    close(h.runs.accounting(view.run).liability_usd, 0.1 + 0.008 + 0.000044);
-    close(usdOf(h, "session").liability_usd, 0.1 + 0.008 + 0.000044);
+    close(h.runs.accounting(view.run).liability_usd, 0.1 + 0.008 + 0.000717);
+    close(usdOf(h, "session").liability_usd, 0.1 + 0.008 + 0.000717);
   });
 
   test("a price the run reports above the qualified one settles at the higher price", async () => {
@@ -547,6 +558,8 @@ describe("lifecycle evidence", () => {
     const refused = await refusal(second.runs.run(next, { proposal: await proposal(second, next) }), "APIFY_ROLLOVER_HELD");
     expect([refused.code, refused.reason], "APIFY_ROLLOVER_HELD").toEqual(["budget_exceeded", "day_usd"]);
     fake.script = [{ status: "SUCCEEDED", counts: { "apify-actor-start": 1, "chart-page": 3 } }];
+    await second.runs.reconcile();
+    clock += 11_000;
     const summary = await second.runs.reconcile();
     expect(summary.settled).toBe(1);
     // Settled, it belongs to the day it started; the new day is free again.
@@ -623,9 +636,10 @@ describe("results", () => {
     const ctx = context();
     const view = await h.runs.run(ctx, { proposal: await proposal(h, ctx) });
     const page = await h.runs.results(ctx, { run: view.run, limit: 3 });
-    expect(page.items, "APIFY_RESULT_BYTES_BOUND").toHaveLength(1);
-    expect(page.truncated).toBe(true);
-    expect(page.next_cursor).toBeNull();
+    expect(page.items, "APIFY_RESULTS_NOT_CONTENT_LIMITED").toHaveLength(3);
+    expect(page.truncated).toBe(false);
+    expect(page.next_cursor).toEqual(expect.any(String));
+    expect((await h.runs.results(ctx, { run: view.run, cursor: page.next_cursor! })).items).toEqual([]);
 
     const fork = context({ session_id: "s-forked" });
     const foreign = await refusal(h.runs.results(fork, { run: view.run }), "APIFY_RESULT_OWNERSHIP");
@@ -676,5 +690,96 @@ describe("results", () => {
     const concurrent = await refusal(h.runs.run(other, { proposal: await proposal(h, other) }), "APIFY_CONCURRENT");
     expect([concurrent.code, concurrent.reason]).toEqual(["budget_exceeded", "max_concurrent_runs"]);
     expect(starts()).toHaveLength(1);
+  });
+});
+
+describe("Actor-scoped approval and module availability", () => {
+  test("approve always persists for one Actor across sessions and restarts, revokes, and stays principal/brain scoped", async () => {
+    policy({ limits: { ...LIMITS, max_concurrent_runs: 10 } });
+    const h = harness({ profiles: [], waitSeconds: 0 });
+    const first = context();
+    expect(await h.consent.availability(first, "SeaCharts01")).toMatchObject({ state: "approval_required" });
+    expect(starts()).toHaveLength(0);
+    answer = () => ({ behavior: "allow", always: true });
+    await h.runs.run(first, { proposal: await proposal(h, first, { publicIdentifiers: ["odysseus"] }) });
+    expect(asked.at(-1)?.kind, "APIFY_ACTOR_SPECIFIC_CARD").toBe("actor");
+    const before = asked.length;
+    answer = () => ({ behavior: "deny", message: "An unexpected card must not be accepted" });
+    const restarted = harness({ profiles: [], waitSeconds: 0 });
+    const next = context({ session_id: "s-pylos", turn_id: "t-pylos" });
+    expect(await restarted.consent.availability(next, "SeaCharts01")).toMatchObject({ state: "ready" });
+    await restarted.runs.run(next, { proposal: await proposal(restarted, next, { mode: "another input", nested: { value: 1 } }) });
+    expect(asked.length, "APIFY_ALWAYS_SURVIVES_SESSION_RESTART").toBe(before);
+    expect(h.ledger.actorApprovals({ brain_id: "brain-ithaca", principal_id: first.principal_id, account_id: "SuitorsHall02" })).toEqual([]);
+    expect(await restarted.consent.availability(next, "SirenSong02")).toMatchObject({ state: "approval_required" });
+    expect(await restarted.consent.availability(context({ principal_id: "p-antinous" }), "SeaCharts01")).toMatchObject({ state: "approval_required" });
+    expect(await harness({ brainId: "brain-pylos" }).consent.availability(next, "SeaCharts01")).toMatchObject({ state: "approval_required" });
+    await restarted.consent.revoke(next, "SeaCharts01");
+    expect(await h.consent.availability(first, "SeaCharts01")).toMatchObject({ state: "approval_required" });
+    expect(await restarted.consent.approvals(next)).toEqual([]);
+  });
+
+  test("revocation racing admission is checked inside the reservation transaction", async () => {
+    const h = harness({ profiles: [], waitSeconds: 0 });
+    answer = () => ({ behavior: "allow", always: true });
+    await h.runs.run(context(), { proposal: await proposal(h) });
+    const scope = { brain_id: "brain-ithaca", principal_id: "p-penelope", account_id: ACCOUNT.id };
+    const racing = harness({ profiles: [], waitSeconds: 0, ledgerFactory: () => {
+      const store = openLedger();
+      return { ...store, reserve(...args: Parameters<ApifyLedger["reserve"]>) {
+        store.setActorApproval(scope, { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: clock }, false);
+        return store.reserve(...args);
+      } };
+    } });
+    const ctx = context({ session_id: "s-race", turn_id: "t-race" });
+    const pending = await proposal(racing, ctx);
+    await expect(racing.runs.run(ctx, { proposal: pending }), "APIFY_REVOKE_BEFORE_RESERVE").rejects.toMatchObject({ reason: "approval_revoked" });
+    expect(starts()).toHaveLength(1);
+    expect(asked).toHaveLength(1);
+  });
+
+  test("approve once and deny create no remembered Actor grant", async () => {
+    const h = harness({ profiles: [], waitSeconds: 0 });
+    const ctx = context();
+    await h.runs.run(ctx, { proposal: await proposal(h, ctx, {}) });
+    expect(await h.consent.availability(ctx, "SeaCharts01")).toMatchObject({ state: "approval_required" });
+    answer = () => ({ behavior: "deny", message: "No" });
+    const pending = await proposal(h, ctx, { arbitrary: true });
+    await expect(h.runs.run(ctx, { proposal: pending })).rejects.toMatchObject({ reason: "declined" });
+    expect(starts()).toHaveLength(1);
+    expect(await h.consent.approvals(ctx)).toEqual([]);
+  });
+
+  test("credential extraction is blocked in inputs and outputs without filtering ordinary Actor fields", async () => {
+    const h = harness({ profiles: [], waitSeconds: 0 });
+    const ctx = context();
+    const found = await h.consent.discover(ctx, { query: "sea charts" });
+    const candidate = found.candidates[0]!.candidate;
+    await h.consent.inspect(ctx, { candidate });
+    for (const input of [{ token: SENTINEL }, { script: "cat /proc/self/environ" }])
+      await expect(h.consent.prepare(ctx, { candidate, input, max_charge_usd: 2 })).rejects.toMatchObject({ reason: "credential_extraction" });
+    expect(starts(), "APIFY_CREDENTIAL_INPUT_NEVER_DISPATCHED").toHaveLength(0);
+    const input = { credentialLabel: "Authentication configuration", harbourKey: "an ordinary user-supplied value", extra: ["odysseus"] };
+    const view = await h.runs.run(ctx, { proposal: await proposal(h, ctx, input) });
+    const ordinary = { captain: "Odysseus", details: "x".repeat(10_000), fields: ["email", "authentication"] };
+    fake.items = [ordinary];
+    expect((await h.runs.results(ctx, { run: view.run })).items, "APIFY_ORDINARY_OUTPUT_UNCHANGED").toEqual([ordinary]);
+    fake.items = [{ recovered: SENTINEL }];
+    await expect(h.runs.results(ctx, { run: view.run })).rejects.toMatchObject({ reason: "credential_extraction" });
+  });
+
+  test("module availability exposes disabled, missing authentication, approval and budget states without dispatch", async () => {
+    const h = harness({ profiles: [], waitSeconds: 0 });
+    const ctx = context();
+    policy({ enabled: false });
+    expect(await h.consent.availability(ctx)).toMatchObject({ state: "unavailable", reason: "not_enabled" });
+    policy(); token = undefined;
+    expect(await h.consent.availability(ctx)).toMatchObject({ state: "unavailable", reason: "token_missing" });
+    token = SENTINEL;
+    expect(await h.consent.availability(ctx, "SeaCharts01")).toMatchObject({ state: "approval_required" });
+    policy({ limits: { ...LIMITS, day_usd: 0 } });
+    expect(await h.consent.availability(ctx)).toMatchObject({ state: "unavailable", reason: "budget_exhausted" });
+    expect(starts()).toHaveLength(0);
+    expect(asked).toEqual([]);
   });
 });

@@ -981,6 +981,9 @@ every input bound and `data` shape).
 | `brain_apify_status` | `run` |
 | `brain_apify_results` | `run`, `cursor?` (1–64 characters), `limit?` (integer 1–100) |
 | `brain_apify_abort` | `run` |
+| `brain_apify_availability` | `actor_id?` (immutable id) |
+| `brain_apify_approvals` | empty object |
+| `brain_apify_revoke` | `actor_id` (immutable id) |
 
 Inputs are strict objects: an Actor id, URL, token, run option or any other
 field is invalid. The result is the envelope `{ ok, operation, data }` or
@@ -993,13 +996,13 @@ roster is fixed for a server process and for a chat session.
 
 On the core server the operator's own policy, `APIFY_TOKEN` and
 `BRAIN_APIFY_LEDGER` apply, as for the CLI; the session is `default` and
-nobody can be asked, so a run needs an exact standing grant. In the chat
+nobody can be asked, so a run needs a remembered Actor approval for its principal. In the chat
 backends the host takes principal, session, turn, posture and approvals from
 the authenticated turn and holds the credential and the ledger; the worker
 sends the input only. The tools are in every interactive session's fixed
 roster, after the reference tools, and auto-allowed: the host raises a per-use
-`command` approval for each discovery or inspection under `ask` and for each
-run without an exact grant. A remembered tool grant authorizes none of them.
+`command` approval for each discovery or inspection under `ask`, and an
+`actor` approval for a run without a remembered Actor approval. A remembered tool grant authorizes none of them.
 Voice and no-grant-surface turns refuse them at call time; restricted
 autonomous rosters do not include them; the host refuses any non-interactive
 turn with `policy_denied`. A chat worker that also loads the
@@ -1009,6 +1012,14 @@ the token nor the ledger. A run is refused as `accounting_unavailable`
 (`session_unbound`) until the conversation is named, so the turn budgets can
 attribute its liability. A turn's cancellation, timeout or budget stop aborts
 the runs it started.
+
+Three additive tools complete the fixed roster in #3580:
+`brain_apify_availability` accepts `{ actor_id? }`, `brain_apify_approvals`
+accepts `{}`, and `brain_apify_revoke` accepts `{ actor_id }`. Actor ids are
+immutable, 1–64 alphanumeric characters. Results use the same envelope and
+[operation shapes](cli.md#apify-operations-additive-0450-3162). Availability
+is advisory and consumes no run approval. Actor schemas and outputs remain
+data; credential-extraction scanning applies to Actor input and output.
 
 ## Reference source and managed worktree tools (additive, 0.44.0, #2432)
 

@@ -3,7 +3,7 @@ import type { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { APIFY_TOOL_CONTRACTS, handleApifyTool, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
 /**
- * The seven fixed Apify operations (#3162), forwarded to the host, which binds
+ * The ten fixed Apify operations (#3162), forwarded to the host, which binds
  * principal, session, turn and approvals and holds the credential. Registered
  * as full strict objects (the SDK's raw-shape helper strips extra keys). A
  * missing host handler is an executable refusal, never a schema removal, so

@@ -1193,6 +1193,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });
   bootCleanup.push(() => apifyEdits.close());
   app.route("/api", createApifyRoutes({ authority: apify, authorized: apifyOwner, brainPath: config.brainPath, edits: apifyEdits,
+    actorApprovals: principalId => apifyHost.actorApprovals(principalId), revokeActor: (principalId, actor_id) => apifyHost.revokeActor(principalId, actor_id),
     spend: { ledgerPath: apifyLedgerFile, ledger: openApifyLedgerOnce, runs: apifyHost.runs, brain_id: apifyHost.brain_id },
     reconcile: () => apifyHost.reconcile() }));
   app.route("/api", createToolPermissionRoutes({ db, settingsWrites, log: dbLog }));

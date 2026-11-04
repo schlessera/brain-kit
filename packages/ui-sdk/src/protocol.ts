@@ -1186,7 +1186,7 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * "command" — a destructive-pattern confirmation for an otherwise
    * auto-allowed tool (bash); always per-use, never rememberable.
    */
-  kind?: "tool" | "command" | "policy";
+  kind?: "tool" | "command" | "policy" | "actor";
   /**
    * Whether the host will keep an "always allow" given on this card (rev 4,
    * additive). Sent as `false` when the host will refuse to remember the

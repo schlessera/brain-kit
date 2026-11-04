@@ -17,6 +17,8 @@ export "./internal/apify" (./src/internal-apify.ts)
   APIFY_TERMINAL_STATES
   type ApifyAbortView
   type ApifyAccount
+  type ApifyActorApproval
+  type ApifyActorApprovalScope
   type ApifyActorFacts
   type ApifyActorGrant
   type ApifyActorReview
@@ -28,6 +30,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyAuthorityOptions
   type ApifyAuthorityRecord
   type ApifyAuthorityStore
+  type ApifyAvailability
   type ApifyBinding
   type ApifyCallContext
   type ApifyCandidateSummary
@@ -66,6 +69,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyQualifiedProfile
   type ApifyRefusalCode
   type ApifyRequest
+  type ApifyRequestEstimate
   type ApifyRequestMeter
   type ApifyReservation
   type ApifyResponse
@@ -90,9 +94,11 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyStoredCandidate
   type ApifyStoredProposal
   apifyBrainId
+  apifyCredentialRisk
   apifyRefusal
   callApifyOperation
   canonicalJson
+  checkApifyAvailability
   createApifyAuthority
   createApifyConsent
   createApifyRequestMeter

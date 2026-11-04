@@ -3045,16 +3045,19 @@ signatures (every public export and the types it is made of)
   APIFY_GUIDANCE (packages/common/src/apify-operations.ts)
     const APIFY_GUIDANCE: string;
   APIFY_OPERATIONS (packages/common/src/apify-operations.ts)
-    const APIFY_OPERATIONS: readonly ["discover", "inspect", "prepare", "run", "status", "results", "abort"];
+    const APIFY_OPERATIONS: readonly ["discover", "inspect", "prepare", "run", "status", "results", "abort", "availability", "approvals", "revoke"];
   APIFY_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/apify.ts)
     const APIFY_TOOL_CONTRACTS: readonly ToolContract<ApifyToolName>[];
   APIFY_TOOL_NAMES (packages/common/src/apify-operations.ts)
     const APIFY_TOOL_NAMES: Readonly<{
         abort: "brain_apify_abort";
+        approvals: "brain_apify_approvals";
+        availability: "brain_apify_availability";
         discover: "brain_apify_discover";
         inspect: "brain_apify_inspect";
         prepare: "brain_apify_prepare";
         results: "brain_apify_results";
+        revoke: "brain_apify_revoke";
         run: "brain_apify_run";
         status: "brain_apify_status";
     }>;
@@ -3961,6 +3964,11 @@ signatures (every public export and the types it is made of)
     export type ApifyProviderState = "disabled" | "authentication_required" | "configured" | "unavailable";
   ApifySettingsRead (packages/ui-sdk/src/apify-settings.ts)
     export interface ApifySettingsRead {
+        actor_approvals?: Array<{
+            actor_id: string;
+            actor: string;
+            approved_at: number;
+        }>;
         state: ApifyProviderState;
         reason: ApifyProviderReason | null;
         account: ApifyAccountRead | null;
@@ -5716,7 +5724,7 @@ signatures (every public export and the types it is made of)
     } | {
         kind: "permission_denied";
         toolUseId: string;
-        requestKind: "tool" | "command" | "policy";
+        requestKind: "tool" | "command" | "policy" | "actor";
         reason: string;
     } | {
         kind: "outward_classification";
@@ -8547,6 +8555,7 @@ signatures (every public export and the types it is made of)
     export type PermissionDecision = {
         behavior: "allow";
         updatedInput?: Record<string, unknown>;
+        always?: boolean;
     } | {
         behavior: "deny";
         message: string;
@@ -8566,7 +8575,7 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
         description?: string;
-        kind?: "tool" | "command" | "policy";
+        kind?: "tool" | "command" | "policy" | "actor";
         outsideEnforcedAllowlist?: boolean;
     }
   PermissionScenario (packages/ui-sdk/src/testing/index.ts)
@@ -10861,7 +10870,7 @@ signatures (every public export and the types it is made of)
         toolName: string;
         input: Record<string, unknown>;
         description?: string;
-        kind?: "tool" | "command" | "policy";
+        kind?: "tool" | "command" | "policy" | "actor";
         rememberable?: boolean;
     }
   ServerToolInputDelta (packages/ui-sdk/src/protocol.ts)
@@ -19357,6 +19366,7 @@ signatures (every public export and the types it is made of)
         description: z.ZodOptional<z.ZodString>;
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         kind: z.ZodOptional<z.ZodEnum<{
+            actor: "actor";
             command: "command";
             policy: "policy";
             tool: "tool";
@@ -23038,6 +23048,7 @@ signatures (every public export and the types it is made of)
         description: z.ZodOptional<z.ZodString>;
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         kind: z.ZodOptional<z.ZodEnum<{
+            actor: "actor";
             command: "command";
             policy: "policy";
             tool: "tool";

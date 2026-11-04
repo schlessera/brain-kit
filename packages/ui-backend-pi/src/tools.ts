@@ -141,7 +141,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_compute_health: "read", brain_compute_plan: "read", brain_compute_run: "mutate",
   brain_compute_status: "read", brain_compute_cancel: "mutate", brain_compute_collect: "read",
   // Apify (#3162): reads of the catalog and of owned runs; prepare spends
-  // nothing; run and abort change remote and ledger state.
+  // no Actor run; run and abort change remote and ledger state.
+  brain_apify_availability: "read", brain_apify_approvals: "read", brain_apify_revoke: "mutate",
   brain_apify_discover: "read", brain_apify_inspect: "read", brain_apify_prepare: "read",
   brain_apify_run: "mutate", brain_apify_status: "read", brain_apify_results: "read", brain_apify_abort: "mutate",
   // Attachment reads (#3154): the host authorizes each id against the session's own references.

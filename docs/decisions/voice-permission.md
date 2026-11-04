@@ -505,7 +505,7 @@ provenance.
 
 The wire needs nothing new: a spoken refusal is an ordinary `tool_denial`
 (its handler `handleToolDenial`,
-`packages/ui-server/src/ws/handlers/tool-permission.ts:127-140`) with a message naming the
+`packages/ui-server/src/ws/handlers/tool-permission.ts:128-141`) with a message naming the
 phrase that produced it.
 
 ## Containment: shared with #51, deliberately not identical
@@ -620,7 +620,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:614`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:627`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

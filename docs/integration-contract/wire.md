@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1097-1115`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1105-1123`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -131,8 +131,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4200-4206`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1973-1975`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4228-4234`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1979-1981`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -2809,3 +2809,14 @@ are shown only from an actual post-Start opened receipt, not pre-Start estimates
 Legacy undisclosed starts now refuse intentionally under the
 [parent direction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935);
 this is a breaking pre-1.0 privacy admission correction shipped in a minor.
+
+### Actor-specific approval (additive, #3580)
+
+`tool_approval_request.kind` additionally accepts `actor`. For this kind,
+`rememberable` offers the existing `Always allow` choice even when generic
+tool permission storage is unavailable. A `tool_approval` with `always: true`
+returns that choice to the host-owned Actor consent service. It never creates
+a generic tool grant and a generic remembered tool permission never answers an
+Actor request. Once and deny retain their existing wire shapes. The host stores
+Actor approval by brain, principal, account and immutable Actor id, and the
+owner can revoke it in Apify settings.

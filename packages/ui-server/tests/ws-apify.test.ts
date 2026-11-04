@@ -52,10 +52,14 @@ async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unk
   const sent: string[] = [];
   try {
     const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus Apify", ttlSeconds: 60 });
-    const handlers = createWsHandlers(app.wsHost, principal), ws = { send: (text: string) => sent.push(text), close() {}, readyState: 1 } as WSContext;
+    const handlers = createWsHandlers(app.wsHost, principal), ws = { send: (text: string) => {
+      sent.push(text);
+      const frame = JSON.parse(text);
+      if (frame.type === "tool_approval_request" && frame.kind === "actor") queueMicrotask(() => handlers.onMessage({ data: JSON.stringify({ type: "tool_approval", toolUseId: frame.toolUseId, turnId: frame.turnId, always: true, channel: "card" }) } as MessageEvent, ws));
+    }, close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Chart the way home", requestId: "apify-request" }) } as MessageEvent, ws);
-    const until = Date.now() + 20_000;
+    const until = Date.now() + 45_000;
     while (!finished) { if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`); await Bun.sleep(10); }
     await Bun.sleep(50);
     const taint = app.db.query("SELECT session_id, turn_id, payload FROM governance_events WHERE kind = 'taint'").all() as Array<{ session_id: string | null; turn_id: string | null; payload: string }>;
@@ -67,7 +71,7 @@ async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unk
   }
 }
 
-test("a pi turn reaches the hosted operations with its own context, ledger and taint; no build is qualified, so nothing runs", async () => {
+test("a pi turn reaches the hosted operations with its own context, ledger and taint; an Actor-specific always approval admits the run", async () => {
   const envelopes: ApifyEnvelope[] = [];
   const outcome = await hostedTurn("pi", { enabled: true, discovery: "allow", actors: "ask", limits: APIFY_LIMITS }, async apify => {
     const found = await apify("brain_apify_discover", { query: "sea charts" });
@@ -79,9 +83,10 @@ test("a pi turn reaches the hosted operations with its own context, ledger and t
     envelopes.push(await apify("brain_apify_run", { proposal: (prepared as { data: { proposal: string } }).data.proposal }));
   });
   try {
-    expect(envelopes.map(envelope => envelope.ok ? "ok" : envelope.error.code), "APIFY_APP_WIRING_SEQUENCE").toEqual(["ok", "ok", "ok", "actor_unsupported"]);
-    expect((envelopes[1] as { data: { eligibility: { reasons: string[] } } }).data.eligibility.reasons, "APIFY_NO_PRODUCTION_PROFILE").toContain("no_qualified_profile");
-    expect(outcome.fake.starts(), "APIFY_APP_NOTHING_STARTED").toBe(0);
+    expect(envelopes.map(envelope => envelope.ok ? "ok" : envelope.error.code), "APIFY_APP_WIRING_SEQUENCE").toEqual(["ok", "ok", "ok", "ok"]);
+    expect((envelopes[1] as { data: { eligibility: { executable: boolean } } }).data.eligibility.executable, "APIFY_NO_PROFILE_GATE").toBe(true);
+    expect(outcome.fake.starts(), "APIFY_APP_APPROVED_ACTOR_STARTED").toBe(1);
+    expect(outcome.sent.some(text => { const frame = JSON.parse(text); return frame.type === "tool_approval_request" && frame.kind === "actor"; }), "APIFY_ACTOR_APPROVAL_CARD").toBe(true);
     // G6: the first untrusted Apify text tainted the named session, before it reached the turn.
     expect(outcome.taint.map(row => ({ session: row.session_id, source: JSON.parse(row.payload).source })), "APIFY_TAINTS_SESSION")
       .toEqual([{ session: "sess-ithaca-apify", source: "apify_result" }]);
