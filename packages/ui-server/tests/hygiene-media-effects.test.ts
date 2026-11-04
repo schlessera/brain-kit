@@ -117,6 +117,24 @@ test("Persist here edits the config; Undo restores its exact bytes", async () =>
   expect(read(f.root, "brain.config.json"), "MEDIA_PERSIST_UNDO_CONFIG").toBe("{}\n");
 });
 
+test("a conflicting exact-path ignore is removed in the same edit as the rule it conflicts with; Undo restores the config's exact bytes", async () => {
+  // Ignored media is never a finding, so the conflict an effect meets is its copy's destination.
+  const f = await setup();
+  const config = '{ "media": { "ignore": ["places/ithaca/harbour-dawn.jpg", "*.psd"] } }\n';
+  put(f.root, "brain.config.json", config);
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  const { plan } = await f.plan(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg");
+  expect(plan, "MEDIA_EXACT_IGNORE_PLAN").toMatchObject({ refusals: [], scope: "exact", ignoreAdjust: null, approvalDigest: null });
+  const receipt = await f.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg");
+  expect(receipt.outcome).toBe("kept");
+  expect(read(f.root, "brain.config.json"), "MEDIA_EXACT_IGNORE_CONFIG").toBe('{ "media": { "ignore": ["*.psd"], "track": ["places/ithaca/harbour-dawn.jpg"] } }\n');
+  expect((await f.undo(receipt.journalId)).outcome).toBe("undone");
+  expect(read(f.root, "brain.config.json"), "MEDIA_EXACT_IGNORE_UNDO_CONFIG").toBe(config);
+  expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg"))).toBe(false);
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+});
+
 test("Keep a permanent copy records the kept entry after the copy verifies; Undo removes the copy and keeps the original", async () => {
   const f = await setup();
   put(f.root, SCRATCH, "dawn bytes");
@@ -132,6 +150,7 @@ test("Keep a permanent copy records the kept entry after the copy verifies; Undo
   expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg"))).toBe(false);
   expect(read(f.root, "brain.config.json")).toBe("{}\n");
   expect(read(f.root, SCRATCH), "MEDIA_KEEP_UNDO_ORIGINAL").toBe("dawn bytes");
+  expect(read(f.root, ".brain/scratch-pins/pins.json"), "MEDIA_KEEP_UNDO_PINS").toBe(pins);
   // The kept entry goes in the same Undo (rev 5 §5.7): the original is pending again, never reopened as copy-missing.
   expect(read(f.root, "context/hygiene/kept.md"), "MEDIA_KEEP_UNDO_UNKEPT").not.toContain("harbour-dawn");
   const entries = run(f.root, process.execPath, CORE_CLI, "hygiene", "--json", "list").stdout;
@@ -392,6 +411,15 @@ test("a copy destination under a broader ignore is previewed with that ignore ad
   expect(read(f.root, "brain.config.json"), "MEDIA_ADJUST_CONFIG").toBe('{ "media": { "ignore": [], "track": ["places/renders/harbour-dawn.jpg"] } }\n');
   expect(read(f.root, "places/renders/harbour-dawn.jpg")).toBe("dawn bytes");
   expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+  const pins = read(f.root, ".brain/scratch-pins/pins.json");
+  const undone = await f.review.undoMedia(f.reviewer.id, createInboxStoreRead(f.db, card.id)!.hygiene!.outcome!.media!.journalId);
+  expect(undone.mediaUndo, "MEDIA_ADJUST_UNDONE").toMatchObject({ outcome: "undone", action: "keep-copy" });
+  expect(read(f.root, "brain.config.json"), "MEDIA_ADJUST_UNDO_CONFIG").toBe('{ "media": { "ignore": ["places/renders/*"] } }\n');
+  expect(existsSync(join(f.root, "places/renders/harbour-dawn.jpg")), "MEDIA_ADJUST_UNDO_COPY").toBe(false);
+  expect(read(f.root, "places/renders/ithaca-sketch.png"), "MEDIA_ADJUST_UNDO_MATCH").toBe("sketch bytes");
+  expect(read(f.root, "context/hygiene/kept.md"), "MEDIA_ADJUST_UNDO_UNKEPT").not.toContain("harbour-dawn");
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+  expect(read(f.root, ".brain/scratch-pins/pins.json")).toBe(pins);
 });
 
 test("POST /hygiene/review routes undo-media: a refusal is a 200 result, a malformed body 400, an unknown receipt 500", async () => {
@@ -577,4 +605,131 @@ test("a restart after an interrupted Move leaves an edit made since as a conflic
   expect(read(f.root, NOTE), "MEDIA_RECOVERY_NO_OVERWRITE").toBe("Telemachus wrote this after the move\n");
   expect(read(f.root, LOOM), "MEDIA_RECOVERY_PARTIAL_SOURCE").toBe("loom bytes");
   expect(existsSync(join(f.root, "places/loom.png")), "MEDIA_RECOVERY_PARTIAL_DESTINATION").toBe(false);
+});
+
+/** A linked scratch original, kept as a copy, then the server dies before the outcome commits. */
+async function keptThenCrashed() {
+  const f = await setup();
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  const pins = read(f.root, ".brain/scratch-pins/pins.json");
+  const kept = await f.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg");
+  expect(kept.outcome).toBe("kept");
+  await crashAfterWrite(f, kept.journalId);
+  return { f, kept, pins };
+}
+
+test("a restart after an interrupted copy leaves a copy edited since as a conflict (partial) and restores everything else", async () => {
+  const { f, kept, pins } = await keptThenCrashed();
+  // Penelope retouches the copy before the server comes back.
+  put(f.root, "places/ithaca/harbour-dawn.jpg", "Penelope retouched the dawn\n");
+  await f.effects.recover();
+  const receipt = f.effects.receipt(kept.journalId, "odysseus")!;
+  expect(receipt.outcome, "MEDIA_RECOVERY_COPY_PARTIAL").toBe("partial");
+  expect(receipt.files.find(x => x.path === "places/ithaca/harbour-dawn.jpg")?.state, "MEDIA_RECOVERY_COPY_CONFLICT").toBe("conflict");
+  expect(read(f.root, "places/ithaca/harbour-dawn.jpg"), "MEDIA_RECOVERY_COPY_NO_OVERWRITE").toBe("Penelope retouched the dawn\n");
+  expect(read(f.root, "brain.config.json"), "MEDIA_RECOVERY_COPY_PARTIAL_CONFIG").toBe("{}\n");
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+  expect(read(f.root, ".brain/scratch-pins/pins.json")).toBe(pins);
+  // Partial is final: a second restart changes nothing.
+  await f.effects.recover();
+  expect(read(f.root, "places/ithaca/harbour-dawn.jpg"), "MEDIA_RECOVERY_COPY_PARTIAL_ONCE").toBe("Penelope retouched the dawn\n");
+});
+
+test("a restart after an interrupted copy leaves a config edited since as a conflict (partial) and removes the copy", async () => {
+  const { f, kept, pins } = await keptThenCrashed();
+  const edited = '{ "media": { "track": ["places/ithaca/harbour-dawn.jpg", "places/sparta/*"] } }\n';
+  put(f.root, "brain.config.json", edited);
+  await f.effects.recover();
+  const receipt = f.effects.receipt(kept.journalId, "odysseus")!;
+  expect(receipt.outcome, "MEDIA_RECOVERY_CONFIG_PARTIAL").toBe("partial");
+  expect(receipt.files.find(x => x.path === "brain.config.json")?.state, "MEDIA_RECOVERY_CONFIG_CONFLICT").toBe("conflict");
+  expect(read(f.root, "brain.config.json"), "MEDIA_RECOVERY_CONFIG_NO_OVERWRITE").toBe(edited);
+  expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg")), "MEDIA_RECOVERY_CONFIG_COPY_REMOVED").toBe(false);
+  expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+  expect(read(f.root, ".brain/scratch-pins/pins.json")).toBe(pins);
+});
+
+/**
+ * Review keeps a copy, and the server dies after the effect committed `kept`
+ * but before review recorded the outcome; `tamper` runs before the restart.
+ */
+type Tamper = (f: Awaited<ReturnType<typeof setup>>, relist: (edit: (entry: Record<string, unknown>) => Record<string, unknown>) => void) => void;
+async function reviewKeptThenCrashed(tamper: Tamper) {
+  let edit: ((entry: Record<string, unknown>) => Record<string, unknown>) | null = null;
+  const f = await setup({ wrap: (args, real) => {
+    const out = real(args) as { entries?: Array<Record<string, unknown>> };
+    return args[0] === "list" && edit ? { ...out, entries: out.entries!.map(edit) } : out;
+  } });
+  rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md")); rmSync(join(f.root, LOOM));
+  put(f.root, SCRATCH, "dawn bytes");
+  put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+  const dying = createHygieneReview(f.db, { brain: f.brain, media: { ...f.effects, apply: async (operation: Parameters<typeof f.effects.apply>[0]) => { await f.effects.apply(operation); throw new Error("the server died"); } } });
+  const card = (await dying.command(f.reviewer.id, "start")).action!;
+  await dying.preview(f.reviewer.id, { itemId: card.id, optionId: "media-keep-copy", expectedVersion: card.version, input: "places/ithaca/harbour-dawn.jpg" });
+  await dying.resolver.resolveAsync(f.reviewer.id, { type: "inbox_resolve", itemId: card.id, optionId: "media-keep-copy" });
+  const attempt = f.db.query("SELECT id FROM hygiene_effect_attempts WHERE status = 'started'").get() as { id: string } | null;
+  expect(attempt, "MEDIA_RECOVER_KEPT_STARTED").not.toBeNull();
+  expect(read(f.root, "places/ithaca/harbour-dawn.jpg")).toBe("dawn bytes");
+  tamper(f, e => { edit = e; });
+  const restarted = createHygieneReview(f.db, { brain: f.brain, media: f.effects });
+  await restarted.recover();
+  return { f, card, restarted, item: createInboxStoreRead(f.db, card.id)! };
+}
+
+test("recover() confirms a kept copy when its entry, fingerprint and copy SHA-256 all match", async () => {
+  const { f, item, restarted } = await reviewKeptThenCrashed(() => {});
+  expect(item.hygiene?.outcome, "MEDIA_RECOVER_KEPT").toMatchObject({ status: "kept", media: { outcome: "kept", copySha256: sha("dawn bytes") } });
+  expect(item.status, "MEDIA_RECOVER_KEPT_RESOLVED").toBe("resolved");
+  expect(restarted.read().review.kept, "MEDIA_RECOVER_KEPT_COUNTER").toBe(1);
+  expect(read(f.root, "places/ithaca/harbour-dawn.jpg")).toBe("dawn bytes");
+});
+
+const tampers: Array<[string, Tamper]> = [
+  // Only the recorded SHA-256 differs: the entry stays kept, as the copy's own bytes are never compared.
+  ["copy-sha256", f => put(f.root, "context/hygiene/kept.md", read(f.root, "context/hygiene/kept.md").replace(/(- copy-sha256: )[0-9a-f]{64}/, `$1${"0".repeat(64)}`))],
+  // Only the fingerprint the review admitted differs from the entry's.
+  // Only the entry's fingerprint differs from the one the review admitted.
+  ["fingerprint", f => put(f.root, "context/hygiene/kept.md", read(f.root, "context/hygiene/kept.md").replace(/(\*\*Fingerprint\*\*: )[0-9a-f]{12}/, `$1${"0".repeat(12)}`))],
+  // Only the state differs: the CLI lists the entry as no longer kept, with the same fingerprint and SHA-256.
+  ["entry state", (_f, relist) => relist(e => e.path === SCRATCH ? { ...e, state: "dismissed" } : e)],
+  // The copy went before the restart, so reconcile reopened the original: the entry is no longer kept.
+  ["copy, so the entry was reopened,", f => { rmSync(join(f.root, "places/ithaca/harbour-dawn.jpg")); run(f.root, process.execPath, CORE_CLI, "hygiene", "--json", "reconcile"); }],
+];
+for (const [what, tamper] of tampers) {
+  test(`recover() reports receipt-unknown for a kept copy whose ${what} differs, and never re-copies it`, async () => {
+    const { f, item, restarted } = await reviewKeptThenCrashed(tamper);
+    expect(item.hygiene?.outcome, `MEDIA_RECOVER_KEPT_MISMATCH ${what}`).toMatchObject({ status: "check_failed", code: "receipt-unknown", media: { outcome: "kept" } });
+    expect(item.status, `MEDIA_RECOVER_KEPT_NOT_RESOLVED ${what}`).not.toBe("resolved");
+    expect(restarted.read().review.kept, `MEDIA_RECOVER_KEPT_NOT_COUNTED ${what}`).toBe(0);
+    expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg")), `MEDIA_RECOVER_KEPT_NO_RECOPY ${what}`).toBe(!what.startsWith("copy,"));
+    expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+  });
+}
+
+test("mixed versions: a keep-copy answer this server does not know as kept is never resolved, and the copy is compensated", async () => {
+  for (const answer of [{ status: "kept-v2" }, { outcome: "kept" }]) {
+    // The effect itself: only an exact `kept` answer keeps the copy.
+    const e = await setup({ wrap: (args, real) => args[0] === "keep-copy" ? answer : real(args) });
+    put(e.root, SCRATCH, "dawn bytes");
+    put(e.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+    const receipt = await e.apply(SCRATCH, "keep-copy", "places/ithaca/harbour-dawn.jpg");
+    expect(receipt.outcome, `MEDIA_MIXED_COMPENSATED ${JSON.stringify(answer)}`).toBe("compensated");
+    expect(existsSync(join(e.root, "places/ithaca/harbour-dawn.jpg"))).toBe(false);
+    // And through review, which never resolves the card on it.
+    const f = await setup({ wrap: (args, real) => args[0] === "keep-copy" ? answer : real(args) });
+    rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md")); rmSync(join(f.root, LOOM));
+    put(f.root, SCRATCH, "dawn bytes");
+    put(f.root, ".brain/scratch-pins/pins.json", JSON.stringify({ version: 1, ready: true, sessions: { '["claude","ithaca"]': [SCRATCH] } }));
+    const card = (await f.review.command(f.reviewer.id, "start")).action!;
+    await f.review.preview(f.reviewer.id, { itemId: card.id, optionId: "media-keep-copy", expectedVersion: card.version, input: "places/ithaca/harbour-dawn.jpg" });
+    await resolveWith(f, card.id, "media-keep-copy");
+    const item = createInboxStoreRead(f.db, card.id)!;
+    expect(item.hygiene?.outcome, `MEDIA_MIXED_CHECK_FAILED ${JSON.stringify(answer)}`).toMatchObject({ status: "check_failed", media: { outcome: "compensated" } });
+    expect(item.status, "MEDIA_MIXED_NOT_RESOLVED").not.toBe("resolved");
+    expect(f.review.read().review.kept, "MEDIA_MIXED_NOT_COUNTED").toBe(0);
+    expect(existsSync(join(f.root, "places/ithaca/harbour-dawn.jpg")), "MEDIA_MIXED_COPY_COMPENSATED").toBe(false);
+    expect(read(f.root, "brain.config.json")).toBe("{}\n");
+    expect(read(f.root, SCRATCH)).toBe("dawn bytes");
+  }
 });

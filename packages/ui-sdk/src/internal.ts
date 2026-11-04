@@ -5,7 +5,7 @@ export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
 export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerHost, requireWorkerHostAsync, WorkerResourceLimitError, probeWorkerHost, probeWorkerHostAsync, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
 export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";
 export type { LaunchedWorker, WorkerLaunch, WorkerHostProbe, WorkerStateHandle } from "./server/worker-launcher.js";
-export { ARCHIVING_UPDATE_REASON, archivesDocument, bashCommand } from "./server/confirm-patterns.js";
+export { archivesDocument, bashCommand } from "./server/confirm-patterns.js";
 export { SUBPROCESS_ENV, HOST_ONLY_SECRET_ENV, HOST_GIT_CREDENTIAL_ENV, AGENT_INFERENCE_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./server/subprocess-env.js";
 export { loadedSdkIdentity } from "./server/loaded-sdk.js";
 export { applyClassification, observeClassification, planClassification } from "./classification/index.js";
@@ -18,40 +18,31 @@ export { canonicalModelId } from "./protocol-helpers.js";
 export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrapper.js";
 
 export { assertScratchMask, assertScratchMaskAsync } from "./server/bridge-tools/mask.js";
-export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_DIR, WORKER_INFERENCE_SOCKET, MAX_INFERENCE_REQUEST_BYTES } from "./server/inference-relay.js";
-export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
-export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
+export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_SOCKET } from "./server/inference-relay.js";
+export type { InferenceRelay, InferenceRelayEvent } from "./server/inference-relay.js";
+export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, providerUsage, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET, MAX_PROVIDER_REQUEST_BYTES, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal, type ProviderUsage, type ProviderOperation } from "./server/provider-relay.js";
 export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
-export type { EgressProxyOptions, EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
-export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
+export type { EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
-export type { PrepareWorkerSandboxOptions } from "./server/worker-launcher.js";
-export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, WORKER_AREAS, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
-export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome, WorkerNoteFacts, WorkerNoteLimit, WorkerProfile, WorkerProviderMasks, WorkerDataTree } from "./server/worker-sandbox.js";
-export { createLimitTracker, describeLimitHits, limitFailureMessage, mergeLimitReports, workerLimitsPlan,
-  workerLimitsStatus, workerNoteLimits, WORKER_LIMITS_ENV } from "./server/worker-limits.js";
-export type { WorkerLimitHit, WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
-export { createTurnTempPressure, createTurnTempPromoter, linkedTurnTempPaths, purgeTurnTemp, turnTempFullMessage, turnTempLimit, turnTempPath,
-  turnTempSpace, turnTempUsage, PROMOTED_SCRATCH_DIR, PROMOTION_FILE_MAX_BYTES, PROMOTION_TURN_MAX_BYTES, PROMOTION_TURN_MAX_FILES,
-  TURN_TEMP_ROOT, TURN_TEMP_WARN_RATIO } from "./server/worker-turn-temp.js";
-export type { TurnTempAccess, TurnTempPromoterOptions, TurnTempPromotionRecord, TurnTempPurgeResult, TurnTempSpace } from "./server/worker-turn-temp.js";
+export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
+export type { WorkerSandbox, WorkerNoteFacts, WorkerNoteLimit, WorkerProviderMasks, WorkerDataTree } from "./server/worker-sandbox.js";
+export { createLimitTracker, limitFailureMessage, mergeLimitReports, workerLimitsPlan, workerLimitsStatus, workerNoteLimits } from "./server/worker-limits.js";
+export type { WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";
+export { createTurnTempPressure, createTurnTempPromoter, turnTempLimit, turnTempSpace, TURN_TEMP_ROOT } from "./server/worker-turn-temp.js";
+export type { TurnTempAccess, TurnTempPromotionRecord } from "./server/worker-turn-temp.js";
 export { handleTurnTemp } from "./server/bridge-tools/turn-temp.js";
 export type { TurnTempPurgeRecord } from "./server/bridge-tools/turn-temp.js";
-export { DEFAULT_TURN_TEMP_BYTES, DEFAULT_WORKER_STATE_BYTES, TURN_TEMP_BUDGET_ENV, TURN_TEMP_BYTES_ENV, WORKER_STATE_BUDGET_ENV,
-  WORKER_STATE_BYTES_ENV, WORKER_STATE_PAGE, WorkerStateConfigError, mib, parseWorkerStateBytes, resolveTurnTempLimits,
-  resolveWorkerStateLimits, validWorkerStateBytes } from "./server/worker-state-limits.js";
+export { DEFAULT_TURN_TEMP_BYTES, WORKER_STATE_BYTES_ENV, mib, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "./server/worker-state-limits.js";
 export type { WorkerStateLimits } from "./server/worker-state-limits.js";
-export { DEFAULT_MAINTENANCE_TEMP_BYTES, DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES, MAINTENANCE_TEMP_BYTES_ENV,
-  MAINTENANCE_TEMP_BUDGET_ENV, resolveMaintenanceTempLimits } from "./server/worker-state-limits.js";
+export { resolveMaintenanceTempLimits } from "./server/worker-state-limits.js";
 export { hostMaintenanceTempLimits } from "./server/maintenance-temp-limits.js";
 export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME, WORKER_PROVIDER_RELAY_DIR } from "./server/worker-launcher.js";
-export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
-export { brainGitSync, CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorker, launchMaintenanceWorkerAsync, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
-export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
+export { CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorker, launchMaintenanceWorkerAsync, maintenanceLaunch, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
+export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult } from "./server/maintenance-worker.js";
 export { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceTempKind } from "./server/maintenance-temp-budget.js";
-export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput, isManagedWorkerStartupView, assertManagedTurnStartupView, UNMANAGED_TURN_STORAGE, hasManagedNativeStorage } from "./server/worker-startup-view.js";
+export { prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput, isManagedWorkerStartupView, assertManagedTurnStartupView, UNMANAGED_TURN_STORAGE, hasManagedNativeStorage } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
 export function maintenanceGitEntry(): string { return Bun.resolveSync("./server/maintenance-git-entry", import.meta.dir); }
 export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";
@@ -62,23 +53,19 @@ export { envMaskedPaths, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, resolveWorker
 
 export { prepareWorkerOutput } from "./server/worker-output.js";
 
-export { DEFAULT_OUTPUT_STAGING_BYTES, OUTPUT_STAGING_BYTES_ENV, OUTPUT_STAGING_BUDGET_ENV, resolveOutputStagingLimits,
-  hostOutputStagingLimits, outputStagingLimit } from "./server/worker-state-limits.js";
+export { hostOutputStagingLimits, outputStagingLimit } from "./server/worker-state-limits.js";
 export { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission,
   workerCommandPolicyNote } from "./server/command-policy.js";
-export type { CompiledWorkerCommandPolicy, WorkerCommandPolicy, WorkerCommandRule } from "./server/command-policy.js";
+export type { CompiledWorkerCommandPolicy, WorkerCommandPolicy } from "./server/command-policy.js";
 
-export { classifyOutwardCall, outwardTarget, BUILTIN_OUTWARD_MCP_DESCRIPTORS } from "./server/outward-actions.js";
 export { prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL, workerOutwardNote } from "./server/outward-policy.js";
-export type { OutwardClassification, VisibleOutwardAction } from "./server/outward-actions.js";
-export type { WorkerOutwardRule, OutwardPlan } from "./server/outward-policy.js";
-export { NativeFileVersions, nativeFileVersion, STALE_NATIVE_WRITE } from "./server/native-file-versions.js";
-export type { NativeFileVersion } from "./server/native-file-versions.js";
+export type { OutwardPlan } from "./server/outward-policy.js";
+export { NativeFileVersions, nativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";
 export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
 export { WORKER_AREA_ROOT, WORKER_DATA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "./server/worker-sandbox.js";
-export { parseNativeBrainDelta, NativeBrainDeltaError } from "./server/native-brain-delta.js";
-export type { NativeBrainRootIdentity, NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
+export { parseNativeBrainDelta } from "./server/native-brain-delta.js";
+export type { NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
 
 export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutputStorage } from "./server/worker-native-output.js";
 
@@ -95,7 +82,6 @@ export type { SessionPromptFacts } from "./server/session-prompt-context.js";
 export { describeClient } from "./server/system-prompt.js";
 
 export { sessionReplay } from "./server/session-replay.js";
-export type { ReplayReceipt } from "./server/session-replay.js";
 
 export { promptPrefixFingerprint } from "./server/prompt-fingerprint.js";
 

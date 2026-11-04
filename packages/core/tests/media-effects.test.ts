@@ -16,8 +16,9 @@ import { canonicalFindings, type HygieneFinding } from "../src/lib/hygiene";
 import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "../src/lib/media";
 import { planMediaPolicyEdit, readMediaPolicyLists } from "../src/lib/media-config-edit";
 import { applyMediaEffect, planMediaEffect, type MediaEffectContext, type MediaEffectPlan, type MediaEffectRequest } from "../src/lib/media-effects";
-import { buildMediaInventory, mediaCandidates } from "../src/lib/media-inventory";
-import { DEFAULT_MEDIA_REFERENCE_LIMITS } from "../src/lib/media-references";
+import { buildMediaInventory, mediaCandidates, mediaInventory, readScratchPins } from "../src/lib/media-inventory";
+import { assess } from "../src/lib/sync/assess";
+import { DEFAULT_MEDIA_REFERENCE_LIMITS, type MediaReferenceLimits } from "../src/lib/media-references";
 
 const LOOM = "photos/penelope-loom.png";
 const SCRATCH = ".brain/scratch/2026-07-12/harbour-dawn.jpg";
@@ -186,6 +187,36 @@ describe("Move", () => {
     expect(at.refusals, "REWRITTEN_NOTES_BOUNDARY").toEqual([]);
     const over = plan(root, "move", LOOM, "places/loom.png", { limits: { ...DEFAULT_MEDIA_REFERENCE_LIMITS, rewrittenNotes: 2 } }).preview;
     expect(over.refusals, "REWRITTEN_NOTES_PLUS_ONE").toEqual([{ code: "inventory-too-large", limit: "rewrittenNotes", effective: 2, observed: 3 }]);
+  });
+
+  test("a scan bound refuses the apply itself one past the boundary with nothing written, and at it every reference is rewritten", () => {
+    const root = brain();
+    const notes = ["places/ithaca.md", ...[1, 2, 3].map((n) => `journeys/day-${n}.md`)];
+    for (const note of notes.slice(1)) put(root, note, "![loom](../photos/penelope-loom.png)\n");
+    const config = read(root, "brain.config.json");
+    // The inventory the CLI builds under BRAIN_MEDIA_REFERENCE_LIMITS, injected so the bound is exact.
+    const under = (over: Partial<MediaReferenceLimits>) => {
+      const policy = policyOf(root), limits = { ...DEFAULT_MEDIA_REFERENCE_LIMITS, ...over };
+      return { inventory: mediaInventory(root, policy, assess(root, policy), readScratchPins(root), { limits }), limits };
+    };
+    const go = (over: Partial<MediaReferenceLimits>) => {
+      const c = under(over);
+      const f = [...canonicalFindings(mediaCandidates(c.inventory)).values()].find((x) => x.path === LOOM)!;
+      const request: MediaEffectRequest = { id: f.id, action: "move", expectFingerprint: f.fingerprint, destination: "places/loom.png" };
+      const preview = planMediaEffect(ctx(root, c), request) as MediaEffectPlan;
+      return applyMediaEffect(ctx(root, c), { ...request, expectPremise: preview.premiseDigest ?? "0".repeat(64), journal: "odysseus-0001" });
+    };
+    const over = go({ notes: notes.length - 1 });
+    expect(over, "SCAN_BOUND_APPLY_REFUSED").toMatchObject({ status: "refused", reason: "inventory-too-large", refusals: [{ code: "inventory-too-large", limit: "notes", effective: 3, observed: 4 }], files: [] });
+    expect(read(root, LOOM), "SCAN_BOUND_APPLY_NO_WRITE").toBe("loom bytes");
+    expect(existsSync(join(root, "places/loom.png"))).toBe(false);
+    for (const note of notes.slice(1)) expect(read(root, note)).toBe("![loom](../photos/penelope-loom.png)\n");
+    expect(read(root, "brain.config.json")).toBe(config);
+
+    const at = go({ notes: notes.length });
+    expect(at.status, "SCAN_BOUND_APPLY_BOUNDARY").toBe("applied");
+    expect(read(root, "places/loom.png")).toBe("loom bytes");
+    for (const note of notes.slice(1)) expect(read(root, note), "SCAN_BOUND_APPLY_COMPLETE").toBe("![loom](../places/loom.png)\n");
   });
 
   test("the preview bound admits its own size and refuses one byte less", () => {
