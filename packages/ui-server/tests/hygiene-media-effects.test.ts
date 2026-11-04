@@ -42,7 +42,7 @@ function run(cwd: string, ...args: string[]) {
 function put(root: string, path: string, text: string) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), text); }
 const read = (root: string, path: string) => readFileSync(join(root, path), "utf8");
 
-async function setup(options: { capBytes?: number; wrap?: (args: string[], real: (args: string[]) => unknown) => unknown } = {}) {
+async function setup(options: { capBytes?: number; wrap?: (args: string[], real: (args: string[]) => unknown, signal?: AbortSignal) => unknown } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "brain-media-effects-host-"));
   const root = join(directory, "brain"); mkdirSync(root);
   run(root, "git", "init", "-q", "-b", "main");
@@ -58,7 +58,7 @@ async function setup(options: { capBytes?: number; wrap?: (args: string[], real:
     if (![0, 1].includes(r.code ?? -1)) throw new Error(`brain hygiene ${args.join(" ")} exited ${r.code}: ${r.stderr}`);
     return JSON.parse(r.stdout);
   };
-  const cli = async (args: string[]) => options.wrap ? options.wrap(args, real) : real(args);
+  const cli = async (args: string[], signal?: AbortSignal) => options.wrap ? options.wrap(args, real, signal) : real(args);
   const dbPath = join(directory, "ui.sqlite"), db = createUiDb(dbPath), native = createNativeJournalFixture(root, directory);
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: root, dbPath, objectsRoot: join(directory, "objects"), ...(options.capBytes ? { capBytes: options.capBytes } : {}) });
   await journal.ready;
@@ -66,7 +66,8 @@ async function setup(options: { capBytes?: number; wrap?: (args: string[], real:
   let authorized = true;
   const reviewer = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 86400 });
   const effects = createMediaEffects(db, { brainPath: root, journal, gate, lock: createKeyedLock(), cli, authorized: id => authorized && (id === "odysseus" || id === reviewer.id) });
-  const review = createHygieneReview(db, { brain: { hygiene: async (args: readonly string[]) => cli([...args]) } as unknown as BrainClient, media: effects });
+  const brain = { hygiene: async (args: readonly string[], opts?: { signal?: AbortSignal }) => cli([...args], opts?.signal) } as unknown as BrainClient;
+  const review = createHygieneReview(db, { brain, media: effects });
   clean.push(async () => { await journal.close(); await native.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
   let n = 0;
   async function plan(path: string, action: HygieneMediaPlan["action"], to?: string) {
@@ -80,7 +81,7 @@ async function setup(options: { capBytes?: number; wrap?: (args: string[], real:
     expect(p.refusals).toEqual([]);
     return effects.apply({ id: `odysseus-media-${String(++n).padStart(4, "0")}`, principalId: "odysseus", findingId: finding.id, fingerprint: finding.fingerprint, plan: p });
   }
-  return { root, directory, db, journal, effects, plan, apply, review, reviewer, revoke() { authorized = false; }, undo: (sourceId: string) => effects.undo({ id: `${sourceId}-undo`, principalId: "odysseus", sourceId }) };
+  return { root, directory, db, journal, effects, plan, apply, review, reviewer, brain, revoke() { authorized = false; }, undo: (sourceId: string) => effects.undo({ id: `${sourceId}-undo`, principalId: "odysseus", sourceId }) };
 }
 
 test("Delete captures the bytes first, removes the file, and Undo puts back the exact bytes", async () => {
@@ -413,4 +414,129 @@ test("POST /hygiene/review routes undo-media: a refusal is a 200 result, a malfo
   const undone = await post({ operation: "undo-media", journalId });
   expect(undone, "MEDIA_ROUTE_UNDO").toMatchObject({ status: 200, body: { mediaUndo: { outcome: "undone" } } });
   expect(existsSync(join(f.root, deleted))).toBe(true);
+});
+
+/**
+ * A dry-run scan held open until released or aborted, as the real client's
+ * is while its CLI runs: an abort rejects it, as killing the CLI does.
+ */
+function heldScans() {
+  const held: Array<{ args: string[]; signal?: AbortSignal; release: () => void }> = [];
+  let hold = false;
+  const wrap = (args: string[], real: (args: string[]) => unknown, signal?: AbortSignal) => {
+    if (!hold || args[0] !== "media" || !args.includes("--dry-run")) return real(args);
+    return new Promise((resolve, reject) => {
+      const entry = { args, signal, release: () => resolve(real(args)) };
+      held.push(entry);
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  };
+  return { wrap, held, arm() { hold = true; }, stop() { hold = false; } };
+}
+const until = async (check: () => boolean) => { for (let i = 0; i < 500 && !check(); i++) await Bun.sleep(2); expect(check()).toBe(true); };
+
+test("one preview scan per server: the same principal's newer preview aborts the older scan, which stores nothing; another principal gets preview-busy", async () => {
+  const hold = heldScans();
+  const f = await setup({ wrap: hold.wrap });
+  rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md"));
+  const card = (await f.review.command(f.reviewer.id, "start")).action!;
+  // Previews from here on are held until released.
+  hold.arm();
+  const other = createPrincipal(f.db, { authMethod: "password", label: "Telemachus", ttlSeconds: 86400 });
+  const request = (input: string, requestId: string) => ({ itemId: card.id, optionId: "media-move", expectedVersion: card.version, input, requestId });
+
+  const first = f.review.preview(f.reviewer.id, request("places/first.png", "r-1"));
+  await until(() => hold.held.length === 1);
+  // Another principal is refused while the scan runs: a 200 result, with no scan started and nothing stored.
+  const busy = await Promise.race([f.review.preview(other.id, request("places/other.png", "t-1")), Bun.sleep(3000).then(() => null)]);
+  expect(busy, "PREVIEW_BUSY_ANSWERS_AT_ONCE").not.toBeNull();
+  expect(hold.held[0]!.signal?.aborted, "PREVIEW_BUSY_NEVER_ABORTS_ANOTHER").toBe(false);
+  expect(busy!.refusals, "PREVIEW_BUSY").toEqual([{ code: "preview-busy" }]);
+  expect(busy!.requestId, "PREVIEW_BUSY_ECHO").toBe("t-1");
+  expect(busy!.version).toBe(card.version);
+  expect(hold.held.length).toBe(1);
+
+  const second = f.review.preview(f.reviewer.id, request("places/loom.png", "r-2"));
+  expect(hold.held[0]!.signal?.aborted, "PREVIEW_SUPERSEDE_ABORTS_SCAN").toBe(true);
+  const superseded = await first;
+  expect(superseded, "PREVIEW_SUPERSEDED").toMatchObject({ requestId: "r-1", refusals: [{ code: "preview-superseded" }], version: card.version });
+  await until(() => hold.held.length === 2);
+  hold.held[1]!.release();
+  const current = await second;
+  expect(current.requestId, "PREVIEW_ECHO").toBe("r-2");
+  expect(current.refusals).toEqual([]);
+  expect(current.media, "PREVIEW_MEDIA").toEqual({ width: null, height: null, durationMs: null });
+  expect(current.options.find(o => o.id === "media-move")?.media?.destination, "PREVIEW_SUPERSEDED_STORES_NOTHING").toBe("places/loom.png");
+  expect(current.version).toBe(card.version + 1);
+  // Nothing was moved by any preview, and the scan slot is free again.
+  expect(read(f.root, LOOM)).toBe("loom bytes");
+  hold.stop();
+  const free = await f.review.preview(other.id, { ...request("places/loom-2.png", "t-2"), expectedVersion: current.version });
+  expect(free.refusals, "PREVIEW_SLOT_RELEASED").toEqual([]);
+});
+
+test("a preview whose Action would not fit the response limit is refused at its boundary plus one, admitted at it, and stores nothing", async () => {
+  // Rewrites of 4 KiB targets make the stored Action large without any network or extra file.
+  const pad = (plan: Record<string, unknown>) => ({ ...plan, rewrites: Array.from({ length: 3 }, (_, i) => ({ note: `journeys/day-${i}.md`, line: 1, kind: "image", before: "b".repeat(4096), after: "a".repeat(4096) })) });
+  const f = await setup({ wrap: (args, real) => args[0] === "media" && args.includes("--dry-run") ? pad(real(args) as Record<string, unknown>) : real(args) });
+  rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md"));
+  const card = (await f.review.command(f.reviewer.id, "start")).action!;
+  const request = { itemId: card.id, optionId: "media-move", expectedVersion: card.version, input: "places/loom.png" };
+  const probe = await createHygieneReview(f.db, { brain: f.brain, media: f.effects, previewResponseBytes: 1 }).preview(f.reviewer.id, request);
+  expect(probe.refusals.length, "PREVIEW_LIMIT_CHECKED").toBe(1);
+  const size = probe.refusals[0]!.observed!;
+  expect(probe.refusals, "PREVIEW_LIMIT_REFUSED").toEqual([{ code: "inventory-too-large", limit: "preview", effective: 1, observed: size }]);
+  expect(size).toBeGreaterThan(3 * 8192);
+  const over = await createHygieneReview(f.db, { brain: f.brain, media: f.effects, previewResponseBytes: size - 1 }).preview(f.reviewer.id, request);
+  expect(over.refusals, "PREVIEW_LIMIT_PLUS_ONE").toEqual([{ code: "inventory-too-large", limit: "preview", effective: size - 1, observed: size }]);
+  expect(over.version, "PREVIEW_LIMIT_STORES_NOTHING").toBe(card.version);
+  expect(over.options.find(o => o.id === "media-move")?.media).toBeUndefined();
+  const at = await createHygieneReview(f.db, { brain: f.brain, media: f.effects, previewResponseBytes: size }).preview(f.reviewer.id, request);
+  expect(at.refusals, "PREVIEW_LIMIT_BOUNDARY").toEqual([]);
+  expect(at.version).toBe(card.version + 1);
+  expect(Buffer.byteLength(JSON.stringify(createInboxStoreRead(f.db, card.id)), "utf8")).toBeLessThanOrEqual(size + 64);
+  // The transport's limit is the ceiling: a larger setting does not raise it.
+  const { PREVIEW_RESPONSE_LIMIT_BYTES } = await import("../src/inbox/hygiene-review.js");
+  const { MAX_WS_MESSAGE_BYTES } = await import("../src/ws/shrink.js");
+  expect(PREVIEW_RESPONSE_LIMIT_BYTES).toBe(MAX_WS_MESSAGE_BYTES);
+});
+
+test("POST /hygiene/review/preview: a named refusal is a 200 result, a throw 409, missing authority 403, a malformed requestId 400; nothing is written", async () => {
+  const hold = heldScans();
+  let fail = false;
+  const f = await setup({ wrap: (args, real, signal) => { if (fail && args.includes("--dry-run")) throw new Error("storage went away"); return hold.wrap(args, real, signal); } });
+  rmSync(join(f.root, NOTE)); rmSync(join(f.root, "places/ithaca.md"));
+  const card = (await f.review.command(f.reviewer.id, "start")).action!;
+  const other = createPrincipal(f.db, { authMethod: "password", label: "Telemachus", ttlSeconds: 86400 });
+  const app = (principalId: string) => {
+    const a = new Hono<AppEnv>();
+    a.use("*", async (c, next) => { c.set("principal", { id: principalId } as never); await next(); });
+    a.route("/", createHygieneReviewRoutes(f.review));
+    return a;
+  };
+  const post = async (principalId: string, body: unknown) => { const res = await app(principalId).request("/hygiene/review/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); return { status: res.status, body: await res.json() as Record<string, unknown> }; };
+  const body = { itemId: card.id, optionId: "media-move", expectedVersion: card.version, input: "places/loom.png" };
+  const config = read(f.root, "brain.config.json");
+
+  hold.arm();
+  const running = post(f.reviewer.id, { ...body, requestId: "r-1" });
+  await until(() => hold.held.length === 1);
+  const busy = await post(other.id, { ...body, requestId: "t-1" });
+  expect(busy, "PREVIEW_ROUTE_BUSY").toMatchObject({ status: 200, body: { requestId: "t-1", refusals: [{ code: "preview-busy" }] } });
+  hold.held[0]!.release();
+  const ok = await running;
+  expect(ok, "PREVIEW_ROUTE_OK").toMatchObject({ status: 200, body: { requestId: "r-1", refusals: [] } });
+  hold.stop();
+
+  const current = createInboxStoreRead(f.db, card.id)!;
+  fail = true;
+  const thrown = await post(f.reviewer.id, { ...body, expectedVersion: current.version });
+  expect(thrown, "PREVIEW_ROUTE_THROW").toEqual({ status: 409, body: { error: "preview_refused" } });
+  fail = false;
+  const stranger = await post("no-such-principal", { ...body, expectedVersion: current.version });
+  expect(stranger, "PREVIEW_ROUTE_AUTHORITY").toEqual({ status: 403, body: { error: "Unauthorized" } });
+  expect((await post(f.reviewer.id, { ...body, expectedVersion: current.version, requestId: "bad id" })).status, "PREVIEW_ROUTE_BAD_REQUEST_ID").toBe(400);
+  expect(createInboxStoreRead(f.db, card.id)!.version, "PREVIEW_ROUTE_NOTHING_STORED").toBe(current.version);
+  expect(read(f.root, LOOM)).toBe("loom bytes");
+  expect(read(f.root, "brain.config.json")).toBe(config);
 });

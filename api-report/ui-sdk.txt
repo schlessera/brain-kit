@@ -211,9 +211,11 @@ export "." (./src/index.ts)
   type HygieneMediaFileState
   type HygieneMediaMatches
   type HygieneMediaPlan
+  type HygieneMediaProbe
   type HygieneMediaReceipt
   type HygieneMediaRefusal
   type HygienePreviewRequest
+  type HygienePreviewResponse
   type HygieneReviewCommand
   type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
@@ -754,9 +756,11 @@ export "./client" (./src/client/index.ts)
   type HygieneMediaFileState
   type HygieneMediaMatches
   type HygieneMediaPlan
+  type HygieneMediaProbe
   type HygieneMediaReceipt
   type HygieneMediaRefusal
   type HygienePreviewRequest
+  type HygienePreviewResponse
   type HygieneReviewCommand
   type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
@@ -1628,9 +1632,11 @@ export "./protocol" (./src/protocol.ts)
   type HygieneMediaFileState
   type HygieneMediaMatches
   type HygieneMediaPlan
+  type HygieneMediaProbe
   type HygieneMediaReceipt
   type HygieneMediaRefusal
   type HygienePreviewRequest
+  type HygienePreviewResponse
   type HygieneReviewCommand
   type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
@@ -1957,6 +1963,7 @@ export "./schemas" (./src/schemas.ts)
   hygieneInputSchema
   hygieneMediaMatchesSchema
   hygieneMediaPlanSchema
+  hygieneMediaProbeSchema
   hygieneMediaReceiptSchema
   hygieneMediaRefusalSchema
   hygieneOutcomeSchema
@@ -2401,9 +2408,11 @@ export "./server" (./src/server/index.ts)
   type HygieneMediaFileState
   type HygieneMediaMatches
   type HygieneMediaPlan
+  type HygieneMediaProbe
   type HygieneMediaReceipt
   type HygieneMediaRefusal
   type HygienePreviewRequest
+  type HygienePreviewResponse
   type HygieneReviewCommand
   type HygieneReviewMediaUndoCommand
   type HygieneReviewRead
@@ -7660,8 +7669,15 @@ signatures (every public export and the types it is made of)
             sha256: string;
             diskFreeAdvisory: number | null;
         } | null;
+        media?: HygieneMediaProbe | null;
         resultClass: "TRACK" | "ARTIFACT" | null;
         refusals: HygieneMediaRefusal[];
+    }
+  HygieneMediaProbe (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneMediaProbe {
+        width: number | null;
+        height: number | null;
+        durationMs: number | null;
     }
   HygieneMediaReceipt (packages/ui-sdk/src/protocol.ts)
     export interface HygieneMediaReceipt {
@@ -7696,7 +7712,14 @@ signatures (every public export and the types it is made of)
         optionId: string;
         expectedVersion: number;
         input: HygieneInput;
+        requestId?: string;
     }
+  HygienePreviewResponse (packages/ui-sdk/src/protocol.ts)
+    export type HygienePreviewResponse = InboxActionItem & {
+        requestId?: string;
+        refusals: HygieneMediaRefusal[];
+        media?: HygieneMediaProbe | null;
+    };
   HygieneReviewCommand (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewCommand {
         operation: "start" | "pause" | "resume" | "refresh";
@@ -13811,6 +13834,11 @@ signatures (every public export and the types it is made of)
                 sensitive: z.ZodNumber;
             }, z.core.$strict>;
         }, z.core.$strict>>>;
+        media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            durationMs: z.ZodNullable<z.ZodNumber>;
+            height: z.ZodNullable<z.ZodNumber>;
+            width: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>>>;
         pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         premiseDigest: z.ZodString;
         references: z.ZodObject<{
@@ -13841,6 +13869,12 @@ signatures (every public export and the types it is made of)
             pattern: "pattern";
         }>>>;
     }, z.core.$strip>;
+  hygieneMediaProbeSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneMediaProbeSchema: z.ZodObject<{
+        durationMs: z.ZodNullable<z.ZodNumber>;
+        height: z.ZodNullable<z.ZodNumber>;
+        width: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>;
   hygieneMediaReceiptSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneMediaReceiptSchema: z.ZodObject<{
         action: z.ZodEnum<{
@@ -13976,6 +14010,7 @@ signatures (every public export and the types it is made of)
         input: z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>, z.ZodNull]>;
         itemId: z.ZodString;
         optionId: z.ZodString;
+        requestId: z.ZodOptional<z.ZodString>;
     }, z.core.$strict>;
   hygieneReviewCommandSchema (packages/ui-sdk/src/schemas.ts)
     const hygieneReviewCommandSchema: z.ZodObject<{
@@ -14250,6 +14285,11 @@ signatures (every public export and the types it is made of)
                             pattern: z.ZodString;
                             sensitive: z.ZodNumber;
                         }, z.core.$strict>;
+                    }, z.core.$strict>>>;
+                    media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                        durationMs: z.ZodNullable<z.ZodNumber>;
+                        height: z.ZodNullable<z.ZodNumber>;
+                        width: z.ZodNullable<z.ZodNumber>;
                     }, z.core.$strict>>>;
                     pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     premiseDigest: z.ZodString;
@@ -14744,6 +14784,11 @@ signatures (every public export and the types it is made of)
                         sensitive: z.ZodNumber;
                     }, z.core.$strict>;
                 }, z.core.$strict>>>;
+                media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                    durationMs: z.ZodNullable<z.ZodNumber>;
+                    height: z.ZodNullable<z.ZodNumber>;
+                    width: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>>>;
                 pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 premiseDigest: z.ZodString;
                 references: z.ZodObject<{
@@ -15201,6 +15246,11 @@ signatures (every public export and the types it is made of)
                             pattern: z.ZodString;
                             sensitive: z.ZodNumber;
                         }, z.core.$strict>;
+                    }, z.core.$strict>>>;
+                    media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                        durationMs: z.ZodNullable<z.ZodNumber>;
+                        height: z.ZodNullable<z.ZodNumber>;
+                        width: z.ZodNullable<z.ZodNumber>;
                     }, z.core.$strict>>>;
                     pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     premiseDigest: z.ZodString;
@@ -15668,6 +15718,11 @@ signatures (every public export and the types it is made of)
                                 sensitive: z.ZodNumber;
                             }, z.core.$strict>;
                         }, z.core.$strict>>>;
+                        media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                            durationMs: z.ZodNullable<z.ZodNumber>;
+                            height: z.ZodNullable<z.ZodNumber>;
+                            width: z.ZodNullable<z.ZodNumber>;
+                        }, z.core.$strict>>>;
                         pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                         premiseDigest: z.ZodString;
                         references: z.ZodObject<{
@@ -16131,6 +16186,11 @@ signatures (every public export and the types it is made of)
                         sensitive: z.ZodNumber;
                     }, z.core.$strict>;
                 }, z.core.$strict>>>;
+                media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                    durationMs: z.ZodNullable<z.ZodNumber>;
+                    height: z.ZodNullable<z.ZodNumber>;
+                    width: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>>>;
                 pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                 premiseDigest: z.ZodString;
                 references: z.ZodObject<{
@@ -16378,6 +16438,11 @@ signatures (every public export and the types it is made of)
                     pattern: z.ZodString;
                     sensitive: z.ZodNumber;
                 }, z.core.$strict>;
+            }, z.core.$strict>>>;
+            media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                durationMs: z.ZodNullable<z.ZodNumber>;
+                height: z.ZodNullable<z.ZodNumber>;
+                width: z.ZodNullable<z.ZodNumber>;
             }, z.core.$strict>>>;
             pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             premiseDigest: z.ZodString;
@@ -16892,6 +16957,11 @@ signatures (every public export and the types it is made of)
                             pattern: z.ZodString;
                             sensitive: z.ZodNumber;
                         }, z.core.$strict>;
+                    }, z.core.$strict>>>;
+                    media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                        durationMs: z.ZodNullable<z.ZodNumber>;
+                        height: z.ZodNullable<z.ZodNumber>;
+                        width: z.ZodNullable<z.ZodNumber>;
                     }, z.core.$strict>>>;
                     pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     premiseDigest: z.ZodString;
@@ -21207,6 +21277,11 @@ signatures (every public export and the types it is made of)
                             sensitive: z.ZodNumber;
                         }, z.core.$strict>;
                     }, z.core.$strict>>>;
+                    media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                        durationMs: z.ZodNullable<z.ZodNumber>;
+                        height: z.ZodNullable<z.ZodNumber>;
+                        width: z.ZodNullable<z.ZodNumber>;
+                    }, z.core.$strict>>>;
                     pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                     premiseDigest: z.ZodString;
                     references: z.ZodObject<{
@@ -21681,6 +21756,11 @@ signatures (every public export and the types it is made of)
                                 pattern: z.ZodString;
                                 sensitive: z.ZodNumber;
                             }, z.core.$strict>;
+                        }, z.core.$strict>>>;
+                        media: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                            durationMs: z.ZodNullable<z.ZodNumber>;
+                            height: z.ZodNullable<z.ZodNumber>;
+                            width: z.ZodNullable<z.ZodNumber>;
                         }, z.core.$strict>>>;
                         pattern: z.ZodOptional<z.ZodNullable<z.ZodString>>;
                         premiseDigest: z.ZodString;

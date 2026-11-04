@@ -208,6 +208,23 @@ describe("search cancellation and deadlines", () => {
     }
   });
 
+  test("aborting a running hygiene preview scan reaps a CLI that ignores SIGTERM (#2781)", async () => {
+    const { root, pidPath } = stalledBrain();
+    const controller = new AbortController();
+    const result = createBrainClient({ brainPath: root }).hygiene!(["media", "delete", "media-x", "--expect-fingerprint", "f", "--dry-run"], { signal: controller.signal })
+      .then(() => null, (error: Error) => error);
+    try {
+      await waitUntil(() => pidIn(pidPath) !== null);
+      const pid = pidIn(pidPath)!;
+      controller.abort();
+      expect(await result, "HYGIENE_SCAN_ABORTED").toHaveProperty("name", "AbortError");
+      expect(running(pid), "HYGIENE_SCAN_REAPED").toBe(false);
+    } finally {
+      controller.abort();
+      await result;
+    }
+  });
+
   test("HTTP search deadlines return 504 and reap the stalled process", async () => {
     const { root, pidPath } = stalledBrain();
     const brain = createBrainClient({ brainPath: root, searchTimeoutMs: 1_500 });

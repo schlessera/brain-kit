@@ -198,7 +198,7 @@ function inventory() {
       if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "hygiene") {
         // All dynamic hygiene argv must pass through the scanned cli wrapper.
         expect(path).toBe(resolve(root, "packages/ui-server/src/inbox/hygiene-review.ts"));
-        expect(scope(node).getText()).toContain("async function cli(args: string[])");
+        expect(scope(node).getText()).toContain("async function cli(args: string[], signal?: AbortSignal)");
         expect(node.arguments[0]?.getText()).toBe("args");
       }
       if (call === "probeVersionCommand") {
