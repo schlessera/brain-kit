@@ -312,7 +312,7 @@ attachment_files(file_id PK, draft_id, sha256, bytes, stored_name, incoming_name
     state: stored | deleting | missing
 attachment_refs(file_id, owner, owner_id, created_at)        PK(file_id, owner, owner_id)
     owner: draft   (owner_id = draftId; the current revision's binding)
-           outgoing(owner_id = draftId; the draft's one held or unconfirmed snapshot)
+           outgoing(owner_id = draftId; every file the draft's outgoing snapshots own)
            message (owner_id = sessionId; an accepted send)
 attachment_reservations(reservation_id PK, bytes, instance_id, created_at)
 attachment_reads(file_id, session_id, turn_id, outcome, scope_json, at)   -- UI evidence only
@@ -340,20 +340,34 @@ attachment_reads(file_id, session_id, turn_id, outcome, scope_json, at)   -- UI 
 `Draft` returns `files: AttachmentFile[]`. `saved` therefore covers the exact
 text, images and file bindings, as D52 requires.
 
-**Outgoing snapshot.** `DraftSaveRequest` gains `outgoing?: { requestId; text;
-fileIds; state: "held" | "dispatched" } | null`. There is at most one per
-draft. The client writes it in the same save that clears the composer when
-Send creates a held snapshot (#3155 D1), and keeps it while a send is
-unconfirmed. It is the durable owner of that snapshot's files, so newer
-revisions cannot orphan them. It survives reload, and a restored `held`
-snapshot never sends on its own (#3155 correction 2). The client clears it on
-Cancel, on Edit, or when Check proves the message was not accepted and the user
-discards it.
+**Outgoing snapshots.** Under the maintainer's G1 A ruling on #3155, a draft
+keeps a list of snapshots rather than one slot (#3588). `Draft.snapshots?` and
+`DraftSaveRequest.snapshots?` carry `{ snapshotId; requestId; text; fileIds;
+state: "held" | "returned" | "dispatched"; createdAt }`, at most 10 per chat
+across its drafts, tabs and devices (`SessionDraftLimits.maxOutgoingSnapshots`).
+The save that **creates** a snapshot counts every live snapshot of the chat in
+the same immediate transaction and refuses the eleventh with `409
+DRAFT_OUTGOING_FULL` before any send effect; that save is the reservation. The
+client writes it in the same save that clears the composer when Send creates a
+held snapshot (#3155 D1), and an ordinary all-ready send records a
+`dispatched` one the same way. Cancel and upload failure (held → returned),
+dispatch (held → dispatched) and a recovery read showing non-acceptance
+(dispatched → returned) edit a snapshot in place and never need a free slot; a
+held snapshot's files may grow as its uploads are admitted. A snapshot is
+released only on confirmed acceptance, Edit into the composer revision or
+Delete… of a `returned` one; nothing is evicted, merged or overwritten. Each
+snapshot owns its files, so newer revisions cannot orphan them. It survives
+reload, and a restored `held` snapshot never sends on its own (#3155
+correction 2). #3153's single `outgoing?` field stays as a view of the newest
+held or unconfirmed snapshot, and its write still creates or dispatches the
+snapshot of its `requestId`; the
+[HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588) has the
+rules.
 
 **Message.** On acceptance, the same transaction that settles the draft:
 
 1. inserts `message` refs for the files the message named;
-2. clears the outgoing snapshot whose `requestId` matches;
+2. releases only the outgoing snapshot whose `requestId` matches;
 3. consumes the draft revision under the existing rules.
 
 The `message` ref is written before the draft ref goes. That is how "unresolved
