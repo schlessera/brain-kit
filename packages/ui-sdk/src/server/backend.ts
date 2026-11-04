@@ -256,6 +256,13 @@ export interface BackendBridge {
    * credential; the call carries the operation's parsed input only.
    */
   apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
+  /**
+   * Read one composer original the calling session was sent (#3154). The
+   * host binds session, principal and turn, re-checks the reference and the
+   * digest, and enforces every bound; the call carries the parsed input only.
+   * Every refusal resolves as a result with its outcome.
+   */
+  readAttachment?(input: import("../tool-contracts/attachment.js").ReadAttachmentInput): Promise<import("../tool-contracts/attachment.js").AttachmentReadResult>;
 }
 
 /** A read over the activity record, shaped for model consumption. */

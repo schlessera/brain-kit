@@ -80,6 +80,7 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "read_attachment",
       "write_file",
       "edit_file",
       "apply_staged_changes",
@@ -88,7 +89,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "55833591890f1e68961fb917faaa175554514e42e2b1be3f28b716cc5b37cb72",
+    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
     "mcpServers": [
       "brain-ui"
     ],
@@ -254,6 +255,7 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "read_attachment",
       "write_file",
       "edit_file",
       "apply_staged_changes",
@@ -262,7 +264,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "55833591890f1e68961fb917faaa175554514e42e2b1be3f28b716cc5b37cb72",
+    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
     "mcpServers": [
       "brain-ui"
     ],
@@ -415,6 +417,7 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "read_attachment",
       "write_file",
       "edit_file",
       "apply_staged_changes",
@@ -423,7 +426,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "55833591890f1e68961fb917faaa175554514e42e2b1be3f28b716cc5b37cb72",
+    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
     "mcpServers": [
       "brain-ui"
     ],
@@ -598,6 +601,7 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "read_attachment",
       "write_file",
       "edit_file",
       "apply_staged_changes",
@@ -606,7 +610,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "55833591890f1e68961fb917faaa175554514e42e2b1be3f28b716cc5b37cb72",
+    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
     "mcpServers": [
       "brain-ui"
     ],
