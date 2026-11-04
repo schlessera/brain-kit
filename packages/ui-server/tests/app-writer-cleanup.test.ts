@@ -248,6 +248,9 @@ for (const kind of ["activity", "actions"] as const) test(`${kind} acceptance ov
     expect(app.close()).toBe(closing);
     // A handshake proves shutdown reached the actual Activity close. Keep
     // transport held through another event-loop turn, including on old code.
+    // Negative window: a premature writer close would follow write-worker round
+    // trips with real IO, and correct code never closes it here, so no event
+    // marks the point by which it would have happened; 20 ms covers those trips.
     await draining;
     await new Promise(resolve => setTimeout(resolve, 20));
     const closedBeforeAcceptance = observed.closes;
@@ -420,6 +423,9 @@ for (const kind of ["storage", "activity", "actions"] as const) for (const statu
     expect((originalError as Error).message).toContain("Odysseus durable outcome refused");
     // Let both the sampler and runtime catches observe settlement before the
     // late Activity drain. The original worker failure must remain owned.
+    // Those catches run across write-worker replies with real IO and report
+    // nothing when they have retained the failure, so a window is the only
+    // way to let them run before the release.
     await new Promise(resolve => setTimeout(resolve, 20));
     release();
     expect(await outcome, `${kind.toUpperCase()}_SETTLED_COMMIT_FAILURE_RETAINED_BY_APP_CLOSE`).toBe(originalError);
@@ -500,6 +506,9 @@ test("same-kind different-input deliveries both persist outcomes before app writ
     await draining;
     releaseFirst();
     expect(await deliveries[0], "FIRST_DELIVERY_HAS_OWN_RESULT").toBe(1);
+    // Negative window: a close that wrongly skipped the second delivery would
+    // finish after write-worker round trips with real IO, and correct code never
+    // finishes here, so no event marks the point by which it would have.
     await new Promise(resolve => setTimeout(resolve, 20));
     expect(closed, "APP_CLOSE_JOINS_SECOND_SAME_KIND_DELIVERY").toBe(false);
     expect(observed.closes, "WRITER_OPEN_UNTIL_ALL_SAME_KIND_OUTCOMES").toBe(0);

@@ -323,7 +323,9 @@ test("on the write worker, a connection's bytes wait for its taint commit and a 
     // A slow commit ahead of the taint, as an fsync under load would be.
     const slow = held.call("slow", "Calypso", 400), started = Date.now();
     const first = get(proxy.socketPath, harbour.url.href);
-    await Bun.sleep(100);
+    // Until the proxy accepted the connection and submitted its taint, behind the
+    // slow commit; the bound stays well inside the 400 ms hold, so the taint seen is pending.
+    for (const end = Date.now() + 300; !writes.taint("turn-harbour", "ithaca") && Date.now() < end;) await Bun.sleep(1);
     expect(writes.taint("turn-harbour", "ithaca")?.source, "TURN_EGRESS_PENDING_TAINT_IN_FORCE").toBe("egress_connection");
     expect(await get(proxy.socketPath, island.url.href), "TURN_EGRESS_PENDING_TAINT_NARROWS_NEW_HOST").toBe(403);
     expect(await first).toBe(200);

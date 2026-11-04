@@ -266,8 +266,13 @@ export interface PiWorkerSupervision {
   closeTurnTemp(): Promise<void>;
   /** Locks the worker holds, by lock id; all are released when it exits. */
   releases: Map<string, () => void>;
-  /** The worker ran a turn: its `promote` closes turn temp, not its exit. */
-  markPrompted(): void;
+  /**
+   * The caller awaits this worker's turn-temp close itself — `promote` after a
+   * turn, an inactive abort, a startup failure — so its exit starts none. A
+   * concurrent exit-driven close whose refusal resets the memo would otherwise
+   * make the owner's awaited close a second attempt (#3544).
+   */
+  claimTurnTempClose(): void;
   /** The tail of the worker's stderr. */
   diagnostic(): string;
   reportLimitHits(): void;
@@ -310,11 +315,12 @@ export function superviseWorker(worker: { child: LaunchedWorker; reservation: Re
   if (hostInference) void child.exited.finally(() => hostInference.stop()).catch(() => {});
   const releases = new Map<string, () => void>();
   void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); }).catch(() => {});
-  // A worker that never ran a turn has nothing to promote; one that did is
-  // cleaned up by `promote` once its answer has been read. Initialization
-  // failure and an inactive abort also await this close themselves.
-  let prompted = false;
-  void child.exited.finally(() => prompted ? undefined : closeTurnTemp()).catch(() => {});
+  // Only a worker no caller has claimed is closed by its exit — one disposed
+  // without a turn. A prompted worker is cleaned up by `promote` once its
+  // answer has been read; initialization failure and an inactive abort claim
+  // the close before they kill the worker and await it themselves (#3544).
+  let claimed = false;
+  void child.exited.finally(() => claimed ? undefined : closeTurnTemp()).catch(() => {});
   child.stdin.on("error", () => {});
   let diagnostic = "";
   child.stderr.on("data", bytes => { diagnostic = (diagnostic + String(bytes)).slice(-4000); });
@@ -350,5 +356,5 @@ export function superviseWorker(worker: { child: LaunchedWorker; reservation: Re
    * settle only after this, which resolves once they are closed or its bound expires.
    */
   const stdioReleased = (): Promise<void> => { child.stdin.end(); return child.released(); };
-  return { closeTurnTemp, releases, markPrompted: () => { prompted = true; }, diagnostic: () => diagnostic, reportLimitHits, limitEnded, send, stdioReleased };
+  return { closeTurnTemp, releases, claimTurnTempClose: () => { claimed = true; }, diagnostic: () => diagnostic, reportLimitHits, limitEnded, send, stdioReleased };
 }

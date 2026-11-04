@@ -84,6 +84,14 @@ function controlledMicrophone(ctx: TestContext, freshStreams = false) {
 
 
 
+/** A PCM16 frame below the client's speaking threshold (RMS 0.015). */
+function silent(pcm: string) {
+  const bytes = Uint8Array.from(atob(pcm), char => char.charCodeAt(0)), view = new DataView(bytes.buffer);
+  let energy = 0;
+  for (let i = 0; i < bytes.length; i += 2) energy += (view.getInt16(i, true) / 32768) ** 2;
+  return Math.sqrt(energy / (bytes.length / 2)) <= 0.015;
+}
+
 // Real AudioWorklet capture and playback exercise the interval before the
 // natural 700 ms endpoint. Provider frames remain entirely offline.
 for (const action of ["send", "discard", "answer", "mute"] as const) for (const noisy of [false, true]) test(`manual ${action}: ${noisy ? "bounded noisy deadline" : "quiet recovery"} after interrupted speech`, async ctx => {
@@ -99,9 +107,12 @@ for (const action of ["send", "discard", "answer", "mute"] as const) for (const 
   await expect.poll(() => s.client.state.getState().playing).toBe(true);
   mic.speak();
   await expect.poll(() => s.client.state.getState().outputRecovery).toBe("speaking");
+  const quietFrom = s.socket.frames("conversation_audio").length;
   mic.quiet();
   // Drain queued real microphone blocks, still before the 700 ms endpoint.
-  await new Promise(resolve => setTimeout(resolve, 200));
+  // Blocks arrive in order, so the first frame below the client's speaking
+  // threshold follows every speaking block queued before quiet().
+  await expect.poll(() => s.socket.frames("conversation_audio").slice(quietFrom).some(frame => silent(String(frame.pcm)))).toBe(true);
   if (action === "answer") {
     s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-turn", text: "Which departure works?" });
     s.deliver({ type: "ask_user_request", sessionId: SESSION, turnId: "ithaca-turn", requestId: "ithaca-question", questions: [{ question: "Which day?", header: "Day", multiSelect: false, options: [{ label: "Tomorrow", description: "Before departure" }] }] });
