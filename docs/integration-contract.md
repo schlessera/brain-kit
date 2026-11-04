@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Reading a chat deletion's outcome (additive, #3455)
+
+`GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))
+lets an owner who lost a deletion's reply read its current `ChatDeletionReceipt`
+without re-admitting it. It only reads and adds no authority. Every miss is one
+content-free 404 `ChatDeletionNotAdmitted` (`reason: "not_admitted"`): an
+unknown operation, another principal's, a refused attempt, or a caller that cannot
+own one. The SDK exports that type
+([package API](integration-contract/package-api.md#reading-a-chat-deletions-outcome-additive-3455)).
+`POST /api/chat-deletions` and the receipt are unchanged. This ships in a minor.
+
 ## Hosted external compute (additive, 0.45.0, #3108)
 
 A hosted chat turn reaches external compute through six host-executed bridge

@@ -2400,7 +2400,10 @@ export interface ChatDeletionRequest {
   expected: { backendId: string | null; generation: number };
 }
 
-/** `POST /api/chat-deletions` success: the chat is retired; `status` says how far cleanup got. */
+/**
+ * `POST /api/chat-deletions` success, and `GET /api/chat-deletions/:operationId`
+ * for a recorded operation: the chat is retired; `status` says how far cleanup got.
+ */
 export interface ChatDeletionReceipt {
   operationId: string;
   /** The retired chat's terminal history generation. */
@@ -2408,6 +2411,19 @@ export interface ChatDeletionReceipt {
   status: ChatDeletionOutcome;
   stores: Partial<Record<ChatDeletionStore, ChatDeletionOutcome>>;
   retained: ChatDeletionRetained[];
+}
+
+/**
+ * `GET /api/chat-deletions/:operationId` miss (additive, #3455), answered with
+ * 404: nothing is retired under this operation for the caller at the moment of
+ * the read. The same bytes answer an unknown operation, another principal's
+ * and a refused attempt. A request still in transit may be admitted later, and
+ * `chat_retired` then follows as usual.
+ */
+export interface ChatDeletionNotAdmitted {
+  error: "CHAT_DELETION_NOT_ADMITTED";
+  reason: "not_admitted";
+  message: string;
 }
 
 /**

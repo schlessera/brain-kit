@@ -34,11 +34,13 @@ restart reconciliation remains with the endpoint work.
 **Built (#3230):** the coordinated deletion and its endpoint
 ([HTTP](../http-api.md#explicit-chat-deletion-additive-3230),
 [wire](../integration-contract/wire.md#explicit-chat-deletion-additive-3230)).
-One operation (`createChatDeletion`, `packages/ui-server/src/ws/chat-deletion.ts:46-104`)
+One operation (`createChatDeletion`, `packages/ui-server/src/ws/chat-deletion.ts:46-114`)
 refuses busy work, retires the chat, ends its live epochs, notifies the owner's
 capable clients, then asks the native store and each host store to remove their
 copies; restart reconciliation resumes any unconfirmed store under the original
-operation. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:80-88`)
+operation. `GET /api/chat-deletions/:operationId` (#3455) reads that operation's
+current receipt for its owner and admits, retries and cleans nothing; every miss
+is one content-free `not_admitted`. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:80-88`)
 confirm removal only by reading back that nothing selected remains: dialogue
 records, task receipt text and result facts, session title/label and the text,
 digest and classification projections, and positively bound drafts with their
