@@ -6,7 +6,7 @@ import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/s
 import { prepareTurnEgress } from "../../brain/turn-egress.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBudgetLimits } from "../../brain/turn-budgets.js";
 import { sessionTaint } from "../../governance/session-taint.js";
-import { withTrackFiles } from "../../tracks/read.js";
+import { withChatFiles } from "../../attachments/context.js";
 import { makeBridge, settleTurnIndex } from "../bridge.js";
 import { withLocalContext } from "../local-exchanges.js";
 import { acceptRequest } from "../recovery.js";
@@ -36,8 +36,8 @@ export function recordDraftExchanges(host: WsHost, sessionId: string, exchanges:
 
 /** The message's source, recorded in the order the backend receives its text, which is the order replay counts identical texts in. */
 function recordSource(run: TurnRun, sessionId: string): void {
-  const { text, source, thinkingLevel, files } = run.current;
-  run.host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { thinkingLevel, turnId: run.turn.turnId, files });
+  const { text, source, thinkingLevel, files, attachmentFiles } = run.current;
+  run.host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { thinkingLevel, turnId: run.turn.turnId, files, ...(attachmentFiles?.length ? { attachmentFiles } : {}) });
 }
 
 /**
@@ -56,12 +56,12 @@ export async function openTurnBridge(
 ): Promise<{ prompt: string; bridge: BackendBridge }> {
   const { host, slot, turn, backend, current, recorder, failureRecording, billing, held, origin, profileId, resumeId } = run;
   const { initial } = slot;
-  const { text, files, work } = current;
+  const { text, files, attachmentFiles, work } = current;
   const governedHold = held.governedHold;
   if (resumeId && !current.refusedFollowUp) recordSource(run, resumeId);
   const drafted = slot.draftExchanges;
   slot.draftExchanges = [];
-  const prompt = (initial.replayPrompt !== undefined && turn.turnId === slot.firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
+  const prompt = (initial.replayPrompt !== undefined && turn.turnId === slot.firstTurnId) ? initial.replayPrompt : withLocalContext(withChatFiles(text, files, attachmentFiles), [
     ...drafted,
     ...(current.refusedFollowUp?.exchanges ?? []),
     ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),

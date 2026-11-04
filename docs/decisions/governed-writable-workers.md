@@ -680,7 +680,11 @@ makes in the brain.
 - **`CLAUDE.md`, `AGENTS.md`, `.claude/skills/`, `.agents/`.** Changing them as
   you go is exactly the flexibility ruling 1 restores. The journal records
   those changes and can revert them.
-- **`.brain-ui/`.** Agents file staged shares from it.
+- **`.brain-ui/`.** Agents file staged shares from it. One subtree is
+  mounted read-only in the governed profile without becoming a protected
+  path: `.brain-ui/attachments/`, where the host keeps chat attachment
+  originals (#3153). No policy names it, and the host keeps writing it during
+  a turn without a quarantine.
 
 ### How the mounts enforce it
 
@@ -2503,9 +2507,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:370-379`;
+`packages/ui-sdk/src/server/worker-protection.ts:379-388`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:382-423`).
+`packages/ui-sdk/src/server/worker-protection.ts:391-432`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -3092,7 +3096,7 @@ that runs in it can rewrite that account. The load set is therefore not
 computed. It is enforced by what the worker can see: the brain path is an
 empty tmpfs with only the policy's protected paths bound back read-only
 (`WorkerProviderMasks.visible`; `if (masks.visible)`,
-`packages/ui-sdk/src/server/worker-protection.ts:207-227`). An import, a
+`packages/ui-sdk/src/server/worker-protection.ts:216-236`). An import, a
 local module, a `tsconfig.json` alias or a data file outside them is simply
 absent, so the configuration loads only from what no governed turn can
 change, or does not load, and its own error, which names the file, becomes

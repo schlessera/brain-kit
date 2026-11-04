@@ -1033,6 +1033,7 @@ signatures (every public export and the types it is made of)
                 detail: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
                     apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
@@ -1365,6 +1366,10 @@ signatures (every public export and the types it is made of)
     export interface MaintenanceTempDomain {
         statePath: string;
     }
+  MessageAttachment (packages/ui-server/src/attachments/context.ts)
+    export type MessageAttachment = AttachmentFile & {
+        inline?: boolean;
+    };
   MetricPoint (packages/ui-server/src/observability/types.ts)
     export interface MetricPoint {
         name: string;
@@ -1837,6 +1842,7 @@ signatures (every public export and the types it is made of)
         sourceCommit: string;
         allowedOrigins: string[];
         maxConcurrentSessions: number;
+        attachmentPoolBytes: number;
         turnTimeoutMs: number | null;
         logLevel: Severity;
         wsRate: {
@@ -1916,6 +1922,7 @@ signatures (every public export and the types it is made of)
             thinkingLevel?: ThinkingLevel;
             turnId: string;
             files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+            attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
         }): void;
         recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
         attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];

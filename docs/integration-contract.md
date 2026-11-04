@@ -20,6 +20,21 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Composer file attachments (additive, 0.45.0, #3153)
+
+A host advertising `capabilities.composerFiles` stores composer originals
+through `POST /api/drafts/:draftId/files` and reads them back through
+`GET /api/attachments/:fileId`. Drafts bind them with `fileIds` and an
+`outgoing` snapshot, and `chat_message.attachmentRefs` sends them. The agent
+gets each original's read-only path in a quoted `<brain-attachments>` block;
+contents are never injected. Every field is new and optional, and the existing
+draft, share and track shapes keep their meaning. `maxDraftBytes` now bounds
+text and legacy images only, as the maintainer's envelope ruling on #3153
+directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
+[the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
+[the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
+[package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+
 ## Reading a chat deletion's outcome (additive, #3455)
 
 `GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))

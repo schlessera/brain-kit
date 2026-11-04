@@ -344,6 +344,7 @@ under the [service terms](../geo/README.md#configuration).
 | `BRAIN_UI_ASK_USER_FORM_MAX_DEPTH` | Conditional form maximum depth (roots count as one). Invalid values fail startup. | 3 |
 | `BRAIN_UI_ASK_USER_FORM_MAX_NODES` | Conditional form maximum node count. Invalid values fail startup. | 12 |
 | `BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS` | Conditional form maximum options per choice or scale node. Invalid values fail startup. | 8 |
+| `BRAIN_UI_ATTACHMENT_POOL_BYTES` | Host attachment pool in bytes: every composer original kept for drafts, sent messages, pending uploads and the seven-day grace period, plus in-flight reservations and legacy draft images. Positive integer; a value that is not one falls back to the default. At capacity new uploads are refused and nothing is purged early. | 1073741824 (1 GiB) |
 | `BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD` | Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup. | 0 |
 | `BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS` | Bounded daily emergency autonomous operation reserve. Invalid values fail startup. | 0 |
 | `BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY` | Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup. | 5 |

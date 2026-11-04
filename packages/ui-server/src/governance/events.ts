@@ -208,7 +208,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
   })),
   /** The first untrusted input that tainted the session. */
   taint: kind(1, z.strictObject({
-    source: z.enum(["web_fetch", "web_search", "staged_share", "workspace_read", "mcp_document", "user_marked",
+    source: z.enum(["web_fetch", "web_search", "staged_share", "chat_attachment", "workspace_read", "mcp_document", "user_marked",
       "egress_connection", "fetching_command", "unclassified_command",
       // Additive (#3108): a collected external compute job's output, text from a remote machine.
       "compute_output",

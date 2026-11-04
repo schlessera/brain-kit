@@ -31,6 +31,7 @@ export type RunSessionInput = {
   historyOwnerId?: string;
   attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+  attachmentFiles?: import("../../attachments/context.js").MessageAttachment[];
   providerId?: string;
   client?: ClientEnvironment;
   source?: MessageSource;

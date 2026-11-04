@@ -58,6 +58,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
 | `GET /api/activity/runs/:runId` | `mounted supported handler: GET /api/activity/runs/:runId` | R |
 | `GET /api/activity/stats` | `mounted supported handler: GET /api/activity/stats` | R |
+| `GET /api/attachments/:fileId` | `mounted supported handler: GET /api/attachments/:fileId` | X |
 | `POST /api/auth/login` | `mounted supported handler: POST /api/auth/login` | A, P, Z |
 | `POST /api/auth/logout` | `mounted supported handler: POST /api/auth/logout` | A, P |
 | `GET /api/auth/methods` | `mounted supported handler: GET /api/auth/methods` | P |
@@ -90,6 +91,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `DELETE /api/drafts/:draftId` | `mounted supported handler: DELETE /api/drafts/:draftId` | X |
 | `POST /api/drafts/:draftId/attachments` | `mounted supported handler: POST /api/drafts/:draftId/attachments` | X |
 | `POST /api/drafts/:draftId/bind` | `mounted supported handler: POST /api/drafts/:draftId/bind` | X |
+| `POST /api/drafts/:draftId/files` | `mounted supported handler: POST /api/drafts/:draftId/files` | X |
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
 | `GET /api/governance/events` | `mounted supported handler: GET /api/governance/events` | GV |

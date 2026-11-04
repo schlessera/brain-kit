@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 169 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 171 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -87,6 +87,8 @@ client code has a gap. Source owners are listed after the table.
 | DELETE | `/api/drafts/:draftId` | S | Delete a draft, leaving a tombstone | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/attachments` | S | Store one draft image | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/bind` | S | Bind a draft to the session its accepted first message started | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| POST | `/api/drafts/:draftId/files` | S | Store one composer file as a durable, read-only original | Composer file attachments (#3153); preserve streaming admission, idempotency receipts, draft and pool bounds and the no-execution boundary. |
+| GET | `/api/attachments/:fileId` | S | Read back one referenced composer original after checking its digest | Composer file attachments (#3153); preserve reference-only authorization, digest checking and the download headers. |
 | GET | `/api/files/content` | S | Read content metadata/text or raw bytes | Independent content clients and SDK service-worker policy; raw API media remains network-only. |
 | GET | `/api/files/html` | I | Serve an HTML file for the sandboxed, script-running preview | React file viewer iframe and "Open in new tab" link (#1084); browser-rendered UI transport. Its isolation headers are specified below. |
 | GET | `/api/files/resolve` | I | Resolve ancestor navigation and existence | React file browser; view/navigation helpers are paired UI transport. |
@@ -202,7 +204,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 169 declared endpoints are mounted regardless of backend, renderer or
+All 171 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1018,6 +1020,87 @@ each with `limit` and `bound`; 428 `DRAFT_PRECONDITION_REQUIRED` when
 `Content-Length` says. A refused or failed request leaves the committed
 draft unchanged.
 
+<a id="composer-file-attachments-additive-0450-3153"></a>
+
+## Composer file attachments (additive, 0.45.0, #3153)
+
+Advertised by `server_hello.capabilities.composerFiles`; the frame rules are
+in the [integration contract](integration-contract/wire.md#composer-file-attachments-additive-0450-3153).
+Both routes sit behind the same authentication and same-origin rules as the
+draft routes, and answer `Cache-Control: no-store`. The upload creates no
+inbox item, queue job or triage. `/share` and `/track-upload` are unchanged.
+
+### `POST /api/drafts/:draftId/files`
+
+The raw bytes of one file, streamed; nothing is buffered whole. Headers:
+`Idempotency-Key` (required, 1-128 of `A-Za-z0-9._:-`), `Content-Type` (a
+hint), `X-File-Name` (a hint, percent-encoded UTF-8, at most 1,024 bytes
+encoded) and `Content-Length` (optional, used for early refusal and as the
+pool reservation; without it the reservation is 25,000,000 bytes).
+
+The host reserves pool room, streams the bytes to a partial directory while
+counting and hashing them, detects the kind from the stored bytes and
+publishes the file read-only at `.brain-ui/attachments/<fileId>/<name>` by one
+atomic rename. Detection is by signature first (`%PDF-`; JPEG, PNG, GIF,
+WebP; HEIC/HEIF; ZIP, gzip, 7z, RAR), then strict UTF-8 text, then the shared
+track parser for text up to 20 MiB. Anything else is `binary`. A name or MIME
+type is only a hint: it never makes a file a track or a PDF.
+`trackRejected: true` says a track hint did not parse. Upload never claims the
+contents were read.
+
+`201` returns an `AttachmentFile`. Repeating a key with the same draft, name
+hint, media hint and bytes returns `200` with the same file, without storing a
+second copy.
+
+| Status | `error` | `bound` / meaning |
+| --- | --- | --- |
+| 413 | `ATTACHMENT_TOO_LARGE` | `file` (25,000,000), `draftFiles` (50,000,000), `draftCount` (10) |
+| 507 | `ATTACHMENT_CAPACITY` | `pool` (the configured `BRAIN_UI_ATTACHMENT_POOL_BYTES`) |
+| 410 | `DRAFT_DELETED` | the draft was deleted or sent |
+| 400 | `ATTACHMENT_INVALID` | an empty file, a malformed header, or an `X-` header claiming authority, a path or a kind |
+| 409 | `ATTACHMENT_KEY_REUSED` | the key named a different upload |
+| 503 | `busy` | three composer uploads are already running; retry |
+
+`draftCount` and `draftFiles` count everything the draft's revision and
+outgoing snapshot reference, plus uploads for the same draft that no save has
+bound yet and that are under an hour old. The pool counts every recorded
+original in any state, every live reservation and the legacy draft images.
+Reservations are taken in one immediate transaction, so concurrent uploads
+cannot multiply the cap. At capacity nothing is removed to make room.
+
+`PUT /api/drafts/:draftId` accepts `fileIds` (at most 10) and `outgoing`
+(`{ requestId, text, fileIds, state: "held" | "dispatched" }`, `null` to
+clear, absent to keep). A save binds exactly the listed files to the revision
+and the snapshot's files to the snapshot. Each listed file must be `stored`
+and minted for this draft, or the save is 400 `ATTACHMENT_INVALID`. At most
+10 attachments are listed, legacy images included, and at most 50,000,000
+original bytes together (413 `DRAFT_TOO_LARGE`, `bound` `draftCount` or
+`draftFiles`). The old `maxDraftBytes` ceiling bounds text and legacy images
+only. `GET` returns `files` (only files still stored) and `outgoing`.
+
+### `GET /api/attachments/:fileId`
+
+Streams one original up to 25,000,000 bytes, after checking its recorded size
+and SHA-256 through no link. Any live reference authorizes the read: a draft
+revision, an outgoing snapshot or a sent message. Answers carry
+`Content-Security-Policy: default-src 'none'`, `X-Content-Type-Options:
+nosniff`, and `Content-Disposition: attachment` for every kind except an image
+preview. `404 ATTACHMENT_NOT_FOUND` for an unknown, unreferenced or missing
+file; `409 ATTACHMENT_CHANGED` when the bytes no longer match, with none of
+them served. The raw file route keeps its 10,485,760-byte cap.
+
+### Lifetime
+
+An upload no save or message ever bound is removed an hour after upload. An
+original that was referenced is removed seven days after its last reference
+went; rebinding cancels that. A sweep runs at boot and every ten minutes. It
+marks eligible files in one transaction and only then unlinks them, so a
+rebind that loses the race is refused rather than binding a deleted file. At
+boot, reservations and partial uploads of an earlier process are discarded, a
+record whose directory is gone becomes `missing`, and a directory with no
+record is adopted, charged, with a fresh seven days. Clocks are the server's
+stored wall clock, never file times.
+
 ## Session recovery (additive, #964)
 
 **GET /api/sessions/:id/recovery** is protected and read-only: it never
@@ -1356,7 +1439,7 @@ read by any authenticated principal.
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
 | `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write`, `outward_host_connect` or `compute_run` (a hosted external compute job start, #3108, its `target` the instance id); `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
-| `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). |
+| `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider whose key the host withheld from the worker. Recorded from the token the CLI prints ([CLI contract](integration-contract/cli.md#withheld-provider-keys-additive-0440-1666)), one event per distinct token in a tool result and at most 20 per turn. `capability` is `embeddings`, `completions`, `reranking` or `image`; `command` is the shell command, or the tool's name for any other tool; `degradedTo` names the fallback used (`keyword_search`, `keyword_index`, `lifecycle_order`) or is `null`. The token is text in tool output, so the event is a diagnostic, not proof. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
 | `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode, written when its turn ends ([classification](decisions/governed-writable-workers.md#roadblocks)). An episode opens at a failed step and closes at the next successful call of the same `family`, or at turn end. `family` is the tool family: `shell:<program>` (with the subcommand for multi-command programs, such as `shell:git push`), `file_write`, `file_read`, `search`, `web`, `brain_write`, `subagent`, `mcp:<server>:<tool>` or `tool:<name>`; a governance event with no call has `budget`, `scope`, `network`, `policy` or `outward`. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. It is `retry` when the episode repeated a near-identical failed input, and otherwise the first failure's category. `signature` is the grouping key `<family>\|<target>\|<category> <detail>` of the first failure, for example `file_write\|.brain/*\|fs_denied EROFS .brain/*`. The target is the command's program and, for multi-command programs, its subcommand (`<script>` for a program run by path); the directory a path sits in, by its last name, when that is one of the brain's structural or write areas (`<dir>` otherwise); or a URL's scheme (`https-url`). A signature therefore never carries file names, arguments, hosts, user-chosen directory names or absolute roots. The detail after the category is the error code and target area, `exit <code>`, or the deciding rule or limit, so equal signatures mean the same roadblock. Each failure is `{ toolCallId, signature, category }`, where `toolCallId` is `null` for a governance event with no call. `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` when a call the turn could already make resolved the episode. It is `abandoned` for exactly one unresolved failure with no retry followed by an eligible later success; repeated unresolved failures or turn-temp workarounds remain `capability`. `waste` is `{ tokens, costUsd, ms }`, measured from the first failed call's start to the resolving call's start; unresolved waste stops at the first successful call starting strictly after the last failure was known, otherwise at turn end. That accounting boundary does not create semantic resolution. Usage is sampled at that boundary; final usage cannot fill an earlier bound. Unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |

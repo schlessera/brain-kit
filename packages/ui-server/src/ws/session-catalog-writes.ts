@@ -187,7 +187,7 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     acceptWork: (sessionId: string, input: { revision: number; requestId: string | null; backendId: string | null; at: number }) => { live(sessionId); return work.acceptWork(db, sessionId, input); },
     dispatchWork: (sessionId: string, input: { revision: number; turnId: string; backendId: string; startedAt: number }) => { live(sessionId); return work.dispatchWork(db, sessionId, input); },
     turnBoundary: (sessionId: string, backendId: string, boundary: work.TurnBoundary) => { live(sessionId); return work.saveTurnBoundary(db, sessionId, backendId, boundary); },
-    messageSource: (sessionId: string, text: string, source: MessageSource, effort: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[] } | undefined, at: number) => { live(sessionId); return saveMessageSource(db, sessionId, text, source, effort, at); },
+    messageSource: (sessionId: string, text: string, source: MessageSource, effort: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[]; attachmentFiles?: import("../attachments/context.js").MessageAttachment[] } | undefined, at: number) => { live(sessionId); return saveMessageSource(db, sessionId, text, source, effort, at); },
     effectiveThinkingLevel: (sessionId: string, turnId: string, level: ThinkingLevel) => { live(sessionId); return saveEffectiveThinkingLevel(db, sessionId, turnId, level); },
     // A stub that failed to persist leaves no row to update: that is not a
     // recorded link, and saying so keeps the caller's key fail-closed.

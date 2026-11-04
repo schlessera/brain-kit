@@ -205,6 +205,12 @@ export interface ClientChatMessage {
   attachments?: ChatImageAttachment[];
   /** Server validates these staged file references and derives their measurements. */
   files?: ChatFileAttachment[];
+  /**
+   * Composer originals this message sends (additive; #3153). Each was uploaded
+   * through `POST /api/drafts/:draftId/files` for the draft `draftRef` names,
+   * which is required with them. Only with `capabilities.composerFiles`.
+   */
+  attachmentRefs?: ChatAttachmentReference[];
   /** Reasoning effort for this message only; absent uses the current profile default. */
   thinkingLevel?: ThinkingLevel;
   /** Correlates acceptance/refusal of this message, including queued follow-ups. */
@@ -455,6 +461,12 @@ export interface ChatImageAttachment {
   /** base64-encoded image data, without a `data:` URI prefix. */
   data: string;
   mediaType: (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+  /**
+   * The composer original this frame was prepared from (additive; #3153).
+   * It must also be named in the message's `attachmentRefs`. The original is
+   * charged once.
+   */
+  fileId?: string;
 }
 
 // ============================================================
@@ -471,12 +483,22 @@ export interface ChatImageAttachment {
 export interface SessionDraftLimits {
   /** Most UTF-8 bytes of draft text. */
   maxTextBytes: number;
-  /** Most bytes in one draft, text and attachments together. */
+  /** Most bytes in one draft, text and legacy inline images together. File originals are bounded separately. */
   maxDraftBytes: number;
   /** Most live (not deleted) drafts one host keeps. */
   maxDrafts: number;
-  /** Most bytes of draft text and attachments one host keeps. */
+  /**
+   * Most bytes of draft text, legacy draft images and file originals that
+   * live drafts and their outgoing snapshots reference, on one host. A subset
+   * of the attachment pool, not extra room.
+   */
   maxTotalBytes: number;
+  /** Most attachments in one draft or message, legacy images included (additive; #3153). */
+  maxDraftFiles?: number;
+  /** Most original bytes of one file attachment (additive; #3153). */
+  maxDraftFileBytes?: number;
+  /** Most original bytes of one draft's or message's attachments together, images included (additive; #3153). */
+  maxDraftFilesBytes?: number;
 }
 
 /** The limits a host ships with (the #943 R2 ruling). */
@@ -485,6 +507,9 @@ export const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits> = Object.freeze(
   maxDraftBytes: 8_388_608,
   maxDrafts: 100,
   maxTotalBytes: 268_435_456,
+  maxDraftFiles: 10,
+  maxDraftFileBytes: 25_000_000,
+  maxDraftFilesBytes: 50_000_000,
 });
 
 /** Names one saved revision of one draft. */
@@ -504,6 +529,8 @@ export interface DraftSummary {
   /** The first non-empty line of the text, at most `DRAFT_PREVIEW_CHARS`. */
   preview: string;
   attachmentCount: number;
+  /** File originals the saved revision binds (additive; #3153). */
+  fileCount?: number;
 }
 
 /** Characters a `DraftSummary.preview` carries at most. */
@@ -528,6 +555,22 @@ export interface Draft {
   text: string;
   /** In the order the saved revision lists them. */
   attachments: DraftAttachment[];
+  /** File originals the saved revision binds, in its order (additive; #3153). */
+  files?: AttachmentFile[];
+  /** The held or unconfirmed send of this draft, if one is saved (additive; #3153). */
+  outgoing?: DraftOutgoing | null;
+}
+
+/**
+ * A draft's one durable outgoing snapshot (#3153): the exact text and files of
+ * a send that is held or not yet confirmed. It owns its files, so newer
+ * revisions cannot orphan them. A restored `held` snapshot never sends itself.
+ */
+export interface DraftOutgoing {
+  requestId: string;
+  text: string;
+  fileIds: string[];
+  state: "held" | "dispatched";
 }
 
 export interface DraftListResponse {
@@ -541,6 +584,14 @@ export interface DraftSaveRequest {
   text: string;
   /** Attachments uploaded to this draft, in display order. */
   attachmentIds: string[];
+  /**
+   * File originals uploaded to this draft through `POST
+   * /api/drafts/:draftId/files`, in display order (additive; #3153). Absent
+   * keeps none.
+   */
+  fileIds?: string[];
+  /** Set (object), clear (null) or keep (absent) the outgoing snapshot (additive; #3153). */
+  outgoing?: DraftOutgoing | null;
 }
 
 export interface DraftSaveResponse {
@@ -584,7 +635,7 @@ export type DraftErrorResponse =
   /** 410: deleted or sent; save the local content as a new draft. */
   | { error: "DRAFT_DELETED"; message: string; tombstoneRevision: number }
   /** 413: over `limit` (`bound` names which). Nothing was stored. */
-  | { error: "DRAFT_TOO_LARGE"; message: string; limit: number; bound: "text" | "draft" | "image" | "images" | "imageCount" }
+  | { error: "DRAFT_TOO_LARGE"; message: string; limit: number; bound: "text" | "draft" | "image" | "images" | "imageCount" | "draftFiles" | "draftCount" }
   /** 507: the host holds `limit` drafts or bytes already. Nothing was stored. */
   | { error: "DRAFT_CAPACITY"; message: string; limit: number; bound: "drafts" | "total" }
   | { error: "DRAFT_NOT_FOUND"; message: string }
@@ -883,6 +934,11 @@ export interface ServerHello {
    * there would make an older client drop the whole frame.
    */
   sessionDraftLimits?: SessionDraftLimits;
+  /**
+   * Composer file bounds (additive; #3153). Present exactly when
+   * `capabilities.composerFiles` is true.
+   */
+  attachmentLimits?: AttachmentLimits;
 }
 
 export interface ServerSessionHistory extends SessionScoped {
@@ -915,6 +971,8 @@ export type MessagePart =
 export interface SessionHistoryMessage {
   /** Validated staged-file metadata recorded by the host, without original contents. */
   files?: SharedFileMeta[];
+  /** Composer originals a user message referenced, as the host recorded them (additive; #3153). */
+  attachmentFiles?: AttachmentFile[];
   role: "user" | "assistant";
   content: string;
   thinking?: string;
@@ -2563,6 +2621,87 @@ export type TrackFileSummary = Omit<TrackSummary, "geometry"> & { waypointCount:
 export interface TrackFileView extends ImportedTrack { file: SharedFileMeta }
 
 export interface ChatFileAttachment { kind: "file"; path: string }
+
+// ============================================================
+// Composer file attachments (additive; #3153, docs/plans/chat-attachments.md)
+// ============================================================
+
+/**
+ * `server_hello` capability: the host stores composer originals through
+ * `POST /api/drafts/:draftId/files` and accepts `{ kind: "attachment" }`
+ * references on `chat_message.files`.
+ */
+export const COMPOSER_FILES_CAPABILITY = "composerFiles";
+
+/** Brain-relative directory composer originals are kept in. */
+export const ATTACHMENT_DIR = ".brain-ui/attachments";
+/** Most attachments in one draft or message, images included. */
+export const ATTACHMENT_MAX_FILES = 10;
+/** Most original bytes of one attachment. */
+export const ATTACHMENT_MAX_FILE_BYTES = 25_000_000;
+/** Most original bytes of one draft's or message's attachments together. */
+export const ATTACHMENT_MAX_TOTAL_BYTES = 50_000_000;
+/** The host attachment pool's default size, set by `BRAIN_UI_ATTACHMENT_POOL_BYTES`. */
+export const ATTACHMENT_POOL_DEFAULT_BYTES = 1_073_741_824;
+/** An upload no save or message ever bound is removed this long after upload. */
+export const ATTACHMENT_UNBOUND_TTL_MS = 60 * 60 * 1000;
+/** A formerly referenced original is removed this long after its last reference went. */
+export const ATTACHMENT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** A chat message's reference to a stored composer original. */
+export interface ChatAttachmentReference { kind: "attachment"; fileId: string }
+
+/** What detection found in the stored bytes; names and MIME types are hints only. */
+export type AttachmentKind = "pdf" | "text" | "track" | "image" | "archive" | "binary";
+/** Which reader applies. `none` means the agent has the file but no reader here. */
+export type AttachmentReader = "pdf" | "text" | "track" | "image" | "none";
+
+/** `201` of `POST /api/drafts/:draftId/files`, and each entry of `Draft.files`. Stored is not read. */
+export interface AttachmentFile {
+  /** Server-minted UUID. */
+  fileId: string;
+  /** Stored, sanitized name. */
+  name: string;
+  /** Bounded display hint, as `SharedFileMeta.incomingName`. */
+  incomingName?: string;
+  /** Brain-relative: `.brain-ui/attachments/<fileId>/<name>`. */
+  path: string;
+  /** From detection; the client's hint only when `kind` is `text` or `binary`. */
+  mediaType: string;
+  bytes: number;
+  sha256: string;
+  kind: AttachmentKind;
+  reader: AttachmentReader;
+  /** A name or MIME hint said track, and the bytes did not parse as one. Grants nothing. */
+  trackRejected?: true;
+  /** Exactly the existing track metadata, when `kind` is `track`. */
+  track?: SharedFileMeta;
+}
+
+/** `server_hello.attachmentLimits`. */
+export interface AttachmentLimits {
+  maxFiles: number;
+  maxFileBytes: number;
+  maxTotalBytes: number;
+  /** The host attachment pool, in bytes. */
+  poolBytes: number;
+}
+
+/** Machine codes of the composer-file routes' failures. */
+export type AttachmentErrorCode =
+  | "ATTACHMENT_TOO_LARGE"
+  | "ATTACHMENT_CAPACITY"
+  | "ATTACHMENT_INVALID"
+  | "ATTACHMENT_KEY_REUSED"
+  | "ATTACHMENT_NOT_FOUND";
+
+/** A composer-file route's failure body. Nothing was stored. */
+export type AttachmentErrorResponse =
+  | { error: "ATTACHMENT_TOO_LARGE"; message: string; limit: number; bound: "file" | "draftFiles" | "draftCount" }
+  | { error: "ATTACHMENT_CAPACITY"; message: string; limit: number; bound: "pool" | "drafts" }
+  | { error: "ATTACHMENT_INVALID"; message: string }
+  | { error: "ATTACHMENT_KEY_REUSED"; message: string }
+  | { error: "ATTACHMENT_NOT_FOUND"; message: string };
 
 export interface SharedFileMeta {
   /** Bounded, visible incoming display name; separate from the sanitized stored name. */
