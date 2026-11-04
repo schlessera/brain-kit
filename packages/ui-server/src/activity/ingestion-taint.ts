@@ -84,9 +84,16 @@ function fileSource(path: string, brainPath: string | undefined, marked: MarkedL
   return relative !== null && marked(relative) ? "user_marked" : null;
 }
 
-/** The source a call's input already establishes, before its result arrives. */
-export function inputTaintSource(tool: string, input: unknown, brainPath?: string, marked?: MarkedLookup): IngestionSource | null {
-  const command = commandTaintSource(tool, input);
+/**
+ * The source a call's input already establishes, before its result arrives.
+ * On a turn behind the egress proxy (`shellProxied`), the proxy's admitted
+ * connections are the shell signal, so the command classifier is skipped
+ * (#3429). A shell read of an untrusted file is then not detected: path
+ * detection is not extended to shell arguments.
+ */
+export function inputTaintSource(tool: string, input: unknown, brainPath?: string, marked?: MarkedLookup,
+  shellProxied = false): IngestionSource | null {
+  const command = shellProxied ? null : commandTaintSource(tool, input);
   if (command) return command;
   if (WEB_TOOLS[tool]) return WEB_TOOLS[tool];
   // A collected external compute job returns a remote machine's output (#3108).

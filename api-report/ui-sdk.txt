@@ -1129,6 +1129,7 @@ export "./internal" (./src/internal.ts)
   DEFAULT_WORKER_STATE_BYTES
   type EgressProxyOptions
   type EgressRecord
+  type EgressRefusal
   FIRST_PARTY_PROVIDER_RECIPIENTS
   GIT_LOCK_KEY
   HOST_GIT_CREDENTIAL_ENV

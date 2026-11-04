@@ -20,6 +20,46 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Refusals say why (additive, #3431)
+
+A relayed provider request refused by the CLI provider relay keeps its `403`
+and `error.type`, and the body gains `error.reason`: the turn egress proxy's
+cause (`denied_host`, `not_allowlisted`, `byte_cap`, `taint_allowlist` or
+`outward_not_approved`) for a request the proxy refused, otherwise the relay's
+own refusal reason. `error.message` then states that cause in words. A proxy
+refusal of worker HTTP or CONNECT traffic now carries a status text and body
+naming its cause; neither is a contract shape. No governance event or reason
+changes. See [the CLI component](integration-contract/cli.md#provider-relay-additive-0440-1673).
+This ships in a minor; no breaking ruling is required.
+
+## Tainted destinations ask (additive, #3430)
+
+In a tainted interactive session behind the turn egress proxy, a connection to
+a host outside the session's taint allow-list and contacted hosts raises the
+existing tool-permission request (`toolName: "Network"`, `kind: "command"`)
+instead of being refused at once. An allow admits that host for the rest of
+the session. The request shape, the governance event kinds and the
+`egress_denial` reasons are unchanged; `egress_connection` gains the `reason`
+value `taint_not_approved` for a declined card. Voice and
+autonomous turns keep refusing without a request. See the
+[governance events component](integration-contract/http.md#tainted-destinations-ask-additive-3430)
+and the [decision](decisions/governed-writable-workers.md#tainted-destinations-ask).
+
+## Shell taint behind the egress proxy (breaking before 1.0, #3429)
+
+On a turn whose worker runs behind the turn egress proxy
+(`runtime.workerHost.governed.egress.active`), the `taint` governance event no
+longer records `source: "fetching_command"` or `"unclassified_command"`. The
+proxy's `egress_connection` taint, recorded at the first admitted connection
+other than the inference relay, is the shell signal there. Every other source
+keeps its meaning, and a turn without the proxy keeps the shell classifier.
+Consumers must not expect a shell command alone to taint a proxied session; a
+shell read of an untrusted file without a connection does not taint it. No
+payload shape or kind changes. See the
+[governance events component](integration-contract/http.md#shell-taint-behind-the-egress-proxy-breaking-3429)
+and the [decision](decisions/governed-writable-workers.md#shell-classifier-off-behind-the-proxy).
+This is a pre-1.0 breaking minor under the maintainer ruling recorded on #3429.
+
 ## Composer file attachments (additive, 0.45.0, #3153)
 
 A host advertising `capabilities.composerFiles` stores composer originals

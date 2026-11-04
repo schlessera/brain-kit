@@ -23,7 +23,7 @@ export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from 
 export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, providerUsage, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET, MAX_PROVIDER_REQUEST_BYTES, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal, type ProviderUsage, type ProviderOperation } from "./server/provider-relay.js";
 export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
-export type { EgressProxyOptions, EgressRecord } from "./server/egress-proxy.js";
+export type { EgressProxyOptions, EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
 export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
