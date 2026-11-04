@@ -1067,21 +1067,14 @@ export "./client" (./src/client/index.ts)
 export "./internal" (./src/internal.ts)
   AGENT_INFERENCE_CREDENTIAL_ENV
   ANTHROPIC_INFERENCE_ROUTES
-  ARCHIVING_UPDATE_REASON
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
-  BUILTIN_OUTWARD_MCP_DESCRIPTORS
   CREDENTIAL_FREE_ENV
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
   type CompiledWorkerCommandPolicy
-  DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES
-  DEFAULT_MAINTENANCE_TEMP_BYTES
-  DEFAULT_OUTPUT_STAGING_BYTES
   DEFAULT_TURN_TEMP_BYTES
-  DEFAULT_WORKER_STATE_BYTES
-  type EgressProxyOptions
   type EgressRecord
   FIRST_PARTY_PROVIDER_RECIPIENTS
   GIT_LOCK_KEY
@@ -1093,27 +1086,18 @@ export "./internal" (./src/internal.ts)
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
-  type InferenceRelayOptions
   type LaunchedWorker
   MAINTENANCE_HOME
-  MAINTENANCE_TEMP_BUDGET_ENV
-  MAINTENANCE_TEMP_BYTES_ENV
-  MAX_INFERENCE_REQUEST_BYTES
   MAX_PROVIDER_REQUEST_BYTES
   type MaintenanceCommand
-  type MaintenanceEnvelope
   type MaintenanceHost
   type MaintenanceResult
   MaintenanceTempBusyError
   type MaintenanceTempKind
-  type MaintenanceWorker
   NATIVE_MANAGER_MAX_DELTA_BYTES
   NATIVE_MANAGER_OPERATION_TIMEOUT_MS
   type NativeBrainDeltaCandidate
-  NativeBrainDeltaError
   NativeBrainManagerError
-  type NativeBrainRootIdentity
-  type NativeFileVersion
   NativeFileVersions
   type NativePoolAccess
   type NativePoolCheckpoint
@@ -1121,16 +1105,9 @@ export "./internal" (./src/internal.ts)
   type NativePoolRecord
   type NativePoolState
   type NativePoolStatus
-  OUTPUT_STAGING_BUDGET_ENV
-  OUTPUT_STAGING_BYTES_ENV
   OUTWARD_VOICE_REFUSAL
   type ObservedWorkerFile
-  type OutwardClassification
   type OutwardPlan
-  PROMOTED_SCRATCH_DIR
-  PROMOTION_FILE_MAX_BYTES
-  PROMOTION_TURN_MAX_BYTES
-  PROMOTION_TURN_MAX_FILES
   PROTECTED_ENV_PREFIX
   PROTECTED_TIER_A
   PROTECTED_TIER_B
@@ -1138,7 +1115,6 @@ export "./internal" (./src/internal.ts)
   PROVIDER_CACHE_FILES
   PROVIDER_RELAY_KEYS_NAME
   PROVIDER_RELAY_SOCKET_NAME
-  type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
   type ProviderOperation
   type ProviderRelay
@@ -1150,77 +1126,51 @@ export "./internal" (./src/internal.ts)
   REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
   type RemovalRun
-  type ReplayReceipt
   type Reservation
-  type RestrictedEnvelope
-  STALE_NATIVE_WRITE
   SUBPROCESS_ENV
   type SessionPromptFacts
   type SessionRetirement
   type SessionRetirementOptions
   type StateLedger
-  TURN_TEMP_BUDGET_ENV
-  TURN_TEMP_BYTES_ENV
   TURN_TEMP_ROOT
-  TURN_TEMP_WARN_RATIO
   type TurnTempAccess
-  type TurnTempPromoterOptions
   type TurnTempPromotionRecord
   type TurnTempPurgeRecord
-  type TurnTempPurgeResult
-  type TurnTempSpace
   UNMANAGED_TURN_STORAGE
   VERSION_PROBE_TIMEOUT_MS
-  type VisibleOutwardAction
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
-  WORKER_AREAS
   WORKER_AREA_ROOT
   WORKER_DATA_ROOT
   WORKER_EGRESS_DIR
-  WORKER_EGRESS_SOCKET
   WORKER_EGRESS_TRANSPORT_ENV
   WORKER_EMPTY_HOME
-  WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
-  WORKER_LIMITS_ENV
   WORKER_PROVIDER_CREDENTIAL_ENV
   WORKER_PROVIDER_RELAY_DIR
   WORKER_PROVIDER_RELAY_SOCKET
   WORKER_REFERENCE_ROOT
   WORKER_SCRATCH
   WORKER_STATE
-  WORKER_STATE_BUDGET_ENV
   WORKER_STATE_BYTES_ENV
-  WORKER_STATE_PAGE
   WORKER_WORKTREE_ROOT
   WORKER_XDG_DIRS
-  type WorkerArea
-  type WorkerAreaName
   type WorkerCommandPolicy
-  type WorkerCommandRule
   type WorkerDataTree
-  type WorkerHome
   WorkerHostError
   type WorkerHostProbe
-  type WorkerHostProbeOptions
   type WorkerLaunch
-  type WorkerLimitHit
   type WorkerLimitReport
   type WorkerLimitsPlan
   type WorkerLimitsStatus
-  type WorkerMount
   type WorkerNoteFacts
   type WorkerNoteLimit
   type WorkerOutputStorage
-  type WorkerOutwardRule
-  type WorkerProfile
   type WorkerProviderMasks
   WorkerResourceLimitError
   type WorkerSandbox
   type WorkerStartupView
-  WorkerStateConfigError
   WorkerStateError
   type WorkerStateErrorClass
   type WorkerStateHandle
@@ -1232,9 +1182,7 @@ export "./internal" (./src/internal.ts)
   assertScratchMask
   assertScratchMaskAsync
   bashCommand
-  brainGitSync
   canonicalModelId
-  classifyOutwardCall
   claudeMaskFilename
   claudeReportedMaskPath
   combineRemovalOutcomes
@@ -1246,10 +1194,8 @@ export "./internal" (./src/internal.ts)
   createTurnTempPressure
   createTurnTempPromoter
   createWorkerFileObserver
-  createWorkerStartupView
   denyWorkerCommand
   describeClient
-  describeLimitHits
   envMaskedPaths
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1268,7 +1214,6 @@ export "./internal" (./src/internal.ts)
   launchMaintenanceWorker
   launchMaintenanceWorkerAsync
   limitFailureMessage
-  linkedTurnTempPaths
   loadedSdkIdentity
   maintenanceGitEntry
   maintenanceLaunch
@@ -1281,7 +1226,6 @@ export "./internal" (./src/internal.ts)
   observeClassification
   observeOutwardPlan
   outputStagingLimit
-  outwardTarget
   ownedNames
   parseCliProviderOrigins
   parseNativeBrainDelta
@@ -1298,7 +1242,6 @@ export "./internal" (./src/internal.ts)
   prepareWorkerOutput
   prepareWorkerSandbox
   prepareWorkerSandboxAsync
-  probeMaintenanceWorker
   probeNativeMaintenanceWorker
   probeWorkerHost
   probeWorkerHostAsync
@@ -1306,7 +1249,6 @@ export "./internal" (./src/internal.ts)
   promptPrefixFingerprint
   protectedPaths
   providerUsage
-  purgeTurnTemp
   readWebSearchOverride
   readWebSearchRouting
   recoveredWorkerFile
@@ -1319,7 +1261,6 @@ export "./internal" (./src/internal.ts)
   requireWorkerHostAsync
   reserveMaintenanceTemp
   resolveMaintenanceTempLimits
-  resolveOutputStagingLimits
   resolveTurnTempLimits
   resolveWebSearchConfigPath
   resolveWorkerProtection
@@ -1336,12 +1277,8 @@ export "./internal" (./src/internal.ts)
   startEgressProxy
   startInferenceRelay
   startProviderRelay
-  turnTempFullMessage
   turnTempLimit
-  turnTempPath
   turnTempSpace
-  turnTempUsage
-  validWorkerStateBytes
   verifiedWorkerIdentity
   webSearchBrief
   webSearchProvider
@@ -1363,7 +1300,6 @@ export "./internal" (./src/internal.ts)
 export "./internal/client" (./src/internal-client.ts)
   type FrontmatterBlock
   type LinkEdit
-  type ShareTargetError
   askUserFormPayload
   askUserFormSpec
   bindStoredShare
@@ -1376,7 +1312,6 @@ export "./internal/client" (./src/internal-client.ts)
   describeRetry
   frontmatterBlock
   handleShareTargetRequest
-  isShareTargetRequest
   pruneStoredShares
   rebaseMessageBlocks
   resolveAskUserFormLimits
