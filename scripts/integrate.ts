@@ -1,7 +1,7 @@
 /** Exact-candidate reservation lifecycle and cooperative, proof-checked merge. */
 import { randomUUID } from "node:crypto";
 import { scanText } from "./check-leakage";
-import { GitReservationStore, assertLease, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
+import { GitReservationStore, assertLease, holderToken, holds, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
 import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
 import { declareFix, gateDecision, recordExpedited, type RedMainRecord } from "./red-main";
@@ -18,7 +18,8 @@ async function gh(...args: string[]): Promise<string> {
 }
 
 if (import.meta.main) {
-  let own: Lease | undefined, store: GitReservationStore | undefined;
+  // `token` proves this process holds `own` (#3303). It stays in memory; only `acquire` prints it.
+  let own: Lease | undefined, token: string | undefined, store: GitReservationStore | undefined;
   let actor = 0, repository = "";
   let timer: ReturnType<typeof setInterval> | undefined, pending = Promise.resolve(), lost: unknown;
   const clock = async () => reservationServerTime(await gh("api", "--include", "-H", "Cache-Control: no-cache",
@@ -44,11 +45,12 @@ if (import.meta.main) {
   async function renew() {
     if (!own) throw new Error("No owned reservation");
     if (!sameCandidate(await candidate(own.candidate.pr), own.candidate)) throw new Error("Candidate head/base changed; reacquisition and new confirmation required");
-    const state = await change({ kind: "renew", id: own.id }); own = state.active!;
+    const state = await change({ kind: "renew", id: own.id, token }); own = state.active!;
   }
   async function acquire(desired: Candidate) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      try { return (await change({ kind: "acquire", candidate: desired })).active!; }
+      const secret = holderToken();
+      try { const lease = (await change({ kind: "acquire", candidate: desired, token: secret })).active!; token = secret; return lease; }
       catch (error) {
         if (!String(error).includes("Integration busy:") || attempt === 2) throw error;
         console.error(String(error)); await Bun.sleep(1000 * 2 ** attempt);
@@ -159,7 +161,7 @@ if (import.meta.main) {
     if (lost) throw lost;
     refuseWhileRed(desired);
     if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before merge");
-    assertLease(store!.read().state, own.id, actor, desired, await clock());
+    assertLease(store!.read().state, own.id, actor, desired, await clock(), token);
     await gh("pr", "merge", String(desired.pr), "--repo", repository, "--squash", "--match-head-commit", desired.head);
     const merged = await api.json(`pulls/${desired.pr}`);
     if (!merged.merged || !merged.merge_commit_sha) throw new Error("Merge not complete; no delivery claim");
@@ -167,7 +169,7 @@ if (import.meta.main) {
     if (commit.parents?.length !== 1 || commit.parents[0]?.sha !== desired.base || commit.tree?.sha !== tree) throw new Error("Actual squash parent/tree differ; reconcile actual main before claiming completion");
     store!.git(["fetch", "origin", "main"]); store!.git(["merge-base", "--is-ancestor", merged.merge_commit_sha, "origin/main"]);
     await milestones(desired.pr, issueRefs);
-    await change({ kind: "release", id: own.id }); own = undefined;
+    await change({ kind: "release", id: own.id, token }); own = undefined;
     if (expedited) await recordExpeditedFix(desired, fixesRun!, merged.merge_commit_sha, expedited);
     const main = await api.json(`actions/workflows/ci.yml/runs?event=push&head_sha=${merged.merge_commit_sha}&per_page=10`);
     const mainProof = "pending; inspect actual main jobs before claiming full completion";
@@ -181,13 +183,14 @@ if (import.meta.main) {
     const [command, target, ...options] = process.argv.slice(2), values = new Map<string, string>();
     for (let index = 0; index < options.length; index += 2) {
       const key = options[index]!, value = options[index + 1];
-      if (!["--issues", "--lease", "--fixes-main-run"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("Invalid integration options");
+      if (!["--issues", "--lease", "--token", "--fixes-main-run"].includes(key) || !value || value.startsWith("--") || values.has(key)) throw new Error("Invalid integration options");
       values.set(key, value);
     }
     const issues = values.has("--issues") ? values.get("--issues")!.split(",") : [];
     const fixesRun = values.has("--fixes-main-run") ? Number(values.get("--fixes-main-run")) : undefined;
     if (fixesRun !== undefined && (!/^[1-9]\d*$/.test(values.get("--fixes-main-run")!) || !Number.isSafeInteger(fixesRun))) throw new Error("--fixes-main-run needs a main CI run ID");
     if (fixesRun !== undefined && !["confirm", "merge"].includes(command ?? "")) throw new Error("--fixes-main-run applies to confirm and merge only");
+    if (values.has("--token") && !["merge", "renew", "release"].includes(command ?? "")) throw new Error("--token applies to merge, renew and release only");
     if (issues.some(value => !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9]\d*$/.test(value)) || issues.length > 100) throw new Error("Invalid delivered issue identities");
     repository = await gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner");
     const user = JSON.parse(await gh("api", "user")); actor = user.id;
@@ -211,15 +214,18 @@ if (import.meta.main) {
       console.log(JSON.stringify(await change({ kind: "revoke", reason: target ?? "", maintainer: permission.permission === "admin" || ["admin", "maintain"].includes(permission.role_name) })));
     } else if (command === "release" || command === "renew") {
       const state = store.read().state;
-      if (!state.active || state.active.id !== target || state.active.actor !== actor) throw new Error("Lease identity does not belong to this invocation");
+      token = values.get("--token");
+      if (state.active?.holder !== undefined && token === undefined) throw new Error(`${command} needs --token <token>, printed once by the acquire that took this lease; another holder's lease ends only by expiry or revoke`);
+      if (!state.active || state.active.id !== target || state.active.actor !== actor || !holds(state.active, token)) throw new Error("Lease identity does not belong to this invocation");
       own = state.active;
       if (command === "renew") { await renew(); console.log(JSON.stringify(own)); own = undefined; }
-      else { console.log(JSON.stringify(await change({ kind: "release", id: own.id }))); own = undefined; }
+      else { console.log(JSON.stringify(await change({ kind: "release", id: own.id, token }))); own = undefined; }
     } else if (["acquire", "confirm", "merge"].includes(command ?? "")) {
       if (!/^[1-9]\d*$/.test(target ?? "") || !Number.isSafeInteger(Number(target))) throw new Error("A PR number is required");
       if (command === "merge" && values.has("--lease")) {
         const current = store.read().state.active;
-        if (current && current.id === values.get("--lease") && current.actor === actor && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
+        token = values.get("--token");
+        if (current && current.id === values.get("--lease") && current.actor === actor && holds(current, token) && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
       }
       const desired = await candidate(Number(target));
       if (fixesRun !== undefined) {
@@ -234,8 +240,9 @@ if (import.meta.main) {
         const lease = values.get("--lease");
         if (!lease) throw new Error("Explicit --lease required");
         const state = store.read().state;
-        if (state.active?.id === lease && state.active.actor === actor) own = state.active;
-        assertLease(state, lease, actor, desired, await clock());
+        if (state.active?.id === lease && state.active.holder !== undefined && token === undefined) throw new Error("merge --lease needs --token <token>, printed once by the acquire that took this lease");
+        if (state.active?.id === lease && state.active.actor === actor && holds(state.active, token)) own = state.active;
+        assertLease(state, lease, actor, desired, await clock(), token);
         await merge(issues, fixesRun);
       } else if (command === "confirm" && fixesRun !== undefined) {
         own = await acquire(desired);
@@ -248,7 +255,7 @@ if (import.meta.main) {
           "-f", `inputs[source_run]=${fixesRun}`, "-f", `inputs[sha]=${sha}`, "-f", `inputs[tests]=${JSON.stringify(tests)}`);
         const live = await api.json(`pulls/${desired.pr}`);
         if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before the expedited request");
-        assertLease(store.read().state, own.id, actor, desired, await clock());
+        assertLease(store.read().state, own.id, actor, desired, await clock(), token);
         // A fresh ready request runs the exact-head affected fast invariants; the rest of that run is not waited for.
         if (!live.draft) await gh("pr", "ready", String(desired.pr), "--repo", repository, "--undo");
         await gh("pr", "ready", String(desired.pr), "--repo", repository);
@@ -262,14 +269,15 @@ if (import.meta.main) {
         if (lost) throw lost;
       } else {
         own = await acquire(desired);
-        console.log(JSON.stringify({ acquired: own }));
-        if (command === "acquire") own = undefined; // Caller retains the explicit id.
+        // Only an explicit acquire prints the holder token, once; confirm keeps it in memory.
+        console.log(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));
+        if (command === "acquire") { own = undefined; token = undefined; } // Caller retains the explicit id and token.
         else {
           heartbeat();
           const previousRun = await latestIntegrationRun(api, "ci.yml", desired);
           const live = await api.json(`pulls/${desired.pr}`);
           if (!sameCandidate(await candidate(desired.pr), desired)) throw new Error("Candidate changed before confirmation request");
-          assertLease(store.read().state, own.id, actor, desired, await clock());
+          assertLease(store.read().state, own.id, actor, desired, await clock(), token);
           if (!live.draft) await gh("pr", "ready", String(desired.pr), "--repo", repository, "--undo");
           await gh("pr", "ready", String(desired.pr), "--repo", repository);
           while (!lost) {
@@ -287,14 +295,14 @@ if (import.meta.main) {
           if (lost) throw lost;
         }
       }
-    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> | revoke <reason>");
+    } else throw new Error("usage: bun scripts/integrate.ts inspect | main-status [--json] | declare-fix <pr> | acquire/confirm/merge <pr> [--lease id --token token] [--issues owner/repo#N,...] [--fixes-main-run <run-id>] | renew/release <id> [--token token] | revoke <reason>");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
   } finally {
     await stopHeartbeat();
     if (own && store) try {
       const current = store.read().state.active;
-      if (current?.id === own.id && current.actor === actor) await change({ kind: "release", id: own.id });
+      if (current?.id === own.id && current.actor === actor && holds(current, token)) await change({ kind: "release", id: own.id, token });
     } catch (error) { console.error(`Owned reservation cleanup unfinished: ${String(error)}`); process.exitCode = 1; }
   }
 }

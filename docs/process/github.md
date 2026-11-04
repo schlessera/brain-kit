@@ -320,7 +320,9 @@ shared exact-candidate reservation command, `bun scripts/integrate.ts`.
 `confirm <pr> --issues owner/repo#N,...` acquires, renews and verifies the
 ordinary candidate before a matching-head squash. `inspect` shows the current
 owner, PR/head/base, expiry and hard cap. Separate acquisition requires explicit
-minute renewal and an explicit lease ID for `merge`; release on abandonment.
+minute renewal and an explicit lease ID and holder token for `merge`; release
+on abandonment. Only the process holding the token printed by `acquire` can
+renew, release or merge under a live lease.
 A busy result is bounded, not a queue. Maintainer revocation requires a reason
 and records actor, time and former candidate. No override waives proof or
 milestones. Read [the decision and command lifecycle](../decisions/ci-utility.md#exact-candidate-integration-reservation)

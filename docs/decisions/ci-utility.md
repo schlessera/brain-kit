@@ -1323,6 +1323,19 @@ or delivery releases ownership; a stopped process loses it after its last
 five-minute term. An expired or superseded identity cannot renew itself or
 release a successor.
 
+Only the holding process can renew, release or merge under a live lease
+([#3303](https://github.com/schlessera/brain-kit/issues/3303)). The lease id is
+public in the ref and every agent may share one GitHub actor, so neither
+identifies the holder. Acquisition generates a random holder token and
+publishes only its SHA-256 digest as the lease's `holder`; `renew`, `release`
+and `merge --lease` must present the token. Without it, another process waits
+for expiry or a maintainer uses `revoke`. A lease without `holder` was
+acquired by code from before the token, which ignores the field and carries
+it forward on renewal; it keeps the id-and-actor rule for its remaining term,
+at most the sixty-minute cap. Old code can still renew or release any lease
+by id and actor, so the protection is complete once every caller's checkout
+includes it.
+
 The shared command is `bun scripts/integrate.ts`. Its authoritative state is
 `reservation.json` in `refs/heads/brain-integration-reservation` on origin.
 Each update is a commit parented by the inspected remote state and pushed with
@@ -1339,10 +1352,11 @@ Use `confirm <pr> --issues owner/repo#N,...` before requesting costly ordinary
 candidate proof. The command acquires, requests draft-to-ready confirmation,
 renews while waiting, and calls its shared merge path after success. Nonowners
 may code and run fast feedback but must hold competing confirmation and merges.
-For a separately managed proof window, `acquire <pr>` returns the explicit
-lease ID; its owner must run `renew <id>` every minute and later
-`merge <pr> --lease <id> --issues owner/repo#N,...`. `release <id>` abandons
-it. `inspect` is read-only. A maintainer may `revoke '<reason>'`, recording
+`confirm` keeps the holder token in memory only. For a separately managed
+proof window, `acquire <pr>` prints the explicit lease ID and, once, its holder
+token; its owner must run `renew <id> --token <token>` every minute and later
+`merge <pr> --lease <id> --token <token> --issues owner/repo#N,...`.
+`release <id> --token <token>` abandons it. `inspect` is read-only. A maintainer may `revoke '<reason>'`, recording
 actor, server time, reason and former candidate; a replacement needs its own
 reservation and passing confirmation. Revocation is never a proof waiver.
 
@@ -1518,7 +1532,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:64-68`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:66-70`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.

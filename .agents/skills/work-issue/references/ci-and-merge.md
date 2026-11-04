@@ -270,7 +270,9 @@ candidate proof, and uses the shared merge path. `inspect` shows ownership;
 busy callers have bounded retries, never a FIFO queue. Separate `acquire`
 requires minute `renew` and explicit `merge --lease`; `release` abandons it.
 The lease lasts five minutes with an absolute sixty-minute cap including
-queue, proof and merge. Do not reacquire to extend an old proof window; a new
+queue, proof and merge. `acquire` prints a holder token once; `renew`,
+`release` and `merge --lease` need it (`--token`), so only the holding process
+can end or extend a live lease. Do not reacquire to extend an old proof window; a new
 candidate/lease needs new confirmation. Maintainer `revoke '<reason>'` records
 actor/time/reason and immediately removes the old authority without waiving
 proof. Native candidates need separately qualified prefix integration; this
@@ -331,7 +333,7 @@ passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
 
 ```sh
-rtk proxy bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> \
+rtk proxy bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> --token <holder-token> \
   --issues schlessera/brain-kit#<advanced-issue>
 rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
   --json state,mergeCommit,mergedAt,headRefOid,url
