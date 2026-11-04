@@ -1,4 +1,5 @@
 /** Frozen per-turn retention rules over metadata from a sealed native root. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import ignore, { type Ignore } from "ignore";
 import { EMBEDDING_LOCK_FAMILY, INDEX_DIR, INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
 
@@ -34,7 +35,7 @@ export function journalMetadataOnlyPath(path: string): boolean {
 
 type Entry = { path: string; kind: "file" | "symlink" | "directory" | "other"; bytes: number };
 type Rule = { directory: string; matcher: Ignore };
-const prefix = (path: string, directory: string) => !directory || path.startsWith(`${directory}/`);
+const prefix = (path: string, directory: string) => !directory || isWithin(directory, path, { includeRoot: false });
 
 /** Git internals are excluded except the existing raw HEAD/refs coverage. */
 export function journalPathScope(path: string): { scope: string; local: string; refs: boolean } | null {

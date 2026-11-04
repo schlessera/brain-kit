@@ -24,6 +24,7 @@
  * the next update drops it from the index too. A governed masked turn reads
  * the live brain, so its tree feeds only its index updates.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { chmodSync, chownSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
   readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { chmod, copyFile, utimes } from "node:fs/promises";
@@ -343,7 +344,7 @@ export async function createTurnDataTree(options: {
     const copy = planCopy(options.view.root, root, rel => {
       const top = !rel.includes("/");
       if (top && (OMITTED.has(rel) || isEnvName(rel) || (caches && PROVIDER_CACHE_FILES.includes(rel)) || (masks && rel === PROVIDER_CACHE_DIR))) return true;
-      return hidden.some(folder => rel === folder || rel.startsWith(`${folder}/`));
+      return hidden.some(folder => isWithin(folder, rel));
     });
     mkdirSync(join(root, INDEX_DIR), { mode: 0o755 });
     index = options.index ?? createPrivateIndexDirectory();
@@ -419,7 +420,6 @@ export async function createTurnDataTree(options: {
  * `other`. Bounded like the kernel's own link limit.
  */
 function workerPathTarget(brainPath: string, view: string, path: string): { kind: "brain"; rel: string } | { kind: "data" } | { kind: "other" } {
-  const within = (dir: string, target: string) => target === dir || target.startsWith(`${dir}/`);
   let pending = (path.startsWith("/") ? path : `${brainPath}/${path}`).replace(/^\/proc\/(?:self|thread-self|[0-9]+)\/root(?=\/|$)/u, "").split("/");
   let current: string[] = [], links = 0;
   while (pending.length) {
@@ -428,8 +428,8 @@ function workerPathTarget(brainPath: string, view: string, path: string): { kind
     if (part === "..") { current.pop(); continue; }
     current.push(part);
     const absolute = `/${current.join("/")}`;
-    if (within(WORKER_DATA_ROOT, absolute)) return { kind: "data" };
-    if (!within(brainPath, absolute) || absolute === brainPath) continue;
+    if (isWithin(WORKER_DATA_ROOT, absolute)) return { kind: "data" };
+    if (!isWithin(brainPath, absolute) || absolute === brainPath) continue;
     let info;
     try { info = lstatSync(join(view, relative(brainPath, absolute))); } catch { continue; }
     if (!info.isSymbolicLink()) continue;
@@ -439,8 +439,8 @@ function workerPathTarget(brainPath: string, view: string, path: string): { kind
     pending = [...(link.startsWith("/") ? (current = [], link.split("/")) : link.split("/")), ...pending];
   }
   const target = `/${current.join("/")}`;
-  if (within(WORKER_DATA_ROOT, target)) return { kind: "data" };
-  return within(brainPath, target) && target !== brainPath ? { kind: "brain", rel: relative(brainPath, target) } : { kind: "other" };
+  if (isWithin(WORKER_DATA_ROOT, target)) return { kind: "data" };
+  return isWithin(brainPath, target) && target !== brainPath ? { kind: "brain", rel: relative(brainPath, target) } : { kind: "other" };
 }
 
 /** Paths Claude's file tools name in their input. */

@@ -15,6 +15,7 @@
  * writes into the rest of the brain (`EXDEV`/`EROFS`); this walk covers the
  * links made before the turn.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
@@ -188,7 +189,7 @@ export function mountPointsUnder(dir: string): string[] {
   if (process.platform !== "linux") return [];
   return readFileSync("/proc/self/mountinfo", "utf8").split("\n")
     .map(line => line.split(" ")[4]).filter((mount): mount is string => Boolean(mount)).map(decode)
-    .filter(mount => mount === dir || mount.startsWith(`${dir}/`));
+    .filter(mount => isWithin(dir, mount));
 }
 
 /**

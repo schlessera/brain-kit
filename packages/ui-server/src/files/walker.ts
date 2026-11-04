@@ -253,7 +253,7 @@ export async function listDirectory(rel: string, root: string): Promise<FileEntr
       try {
         const real = await realpath(join(abs, d.name));
         const absRoot = resolve(root);
-        if (real !== absRoot && !real.startsWith(absRoot + sep)) continue;
+        if (!isWithin(absRoot, real, { separator: sep })) continue;
       } catch {
         continue;
       }
@@ -484,7 +484,7 @@ export async function buildWikilinkMap(root: string): Promise<Record<string, str
         try {
           const real = await realpath(join(abs, d.name));
           const absRoot = resolve(root);
-          if (real !== absRoot && !real.startsWith(absRoot + sep)) continue;
+          if (!isWithin(absRoot, real, { separator: sep })) continue;
         } catch {
           continue;
         }

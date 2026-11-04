@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { Hono } from "hono";
 import { ATTACHMENT_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import { readStagedTrack } from "../tracks/read.js";
@@ -11,7 +12,7 @@ export function createTrackRoutes(brainRoot: string, attachments?: Pick<Awaitabl
     if (!path || path.length > 512) return c.json({ error: "invalid_track_path" }, 400);
     try {
       // A composer original (#3153) is read through its record; a staged share as before.
-      if (attachments && path.startsWith(`${ATTACHMENT_DIR}/`)) {
+      if (attachments && isWithin(ATTACHMENT_DIR, path, { includeRoot: false })) {
         await attachments.settled?.();
         return c.json(await readAttachmentTrack(brainRoot, attachments, path));
       }

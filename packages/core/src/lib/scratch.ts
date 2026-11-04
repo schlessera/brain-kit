@@ -46,6 +46,7 @@ import {
 import type { Stats } from "fs";
 import { tmpdir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { BRAIN_SCRATCH_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import { modeOf, WriteRefusedError, writeExclusive, writeFileSafely } from "./safe-path.js";
 
@@ -187,7 +188,7 @@ export function scratchDir(root: string): string {
   return dir;
 }
 
-const under = (dir: string, path: string) => path === dir || path.startsWith(dir + sep);
+const SCRATCH_RULE = { separator: sep } as const;
 
 /**
  * Whether `path` (repo-relative or absolute) is asked to go into the scratch
@@ -198,7 +199,7 @@ const under = (dir: string, path: string) => path === dir || path.startsWith(dir
 export function isInScratch(root: string, path: string): boolean {
   const rootReal = canonicalRoot(root);
   const rel = relative(rootReal, resolve(rootReal, path)).split("\\").join("/");
-  return rel === SCRATCH_DIR || rel.startsWith(`${SCRATCH_DIR}/`);
+  return isWithin(SCRATCH_DIR, rel);
 }
 
 /**
@@ -218,7 +219,7 @@ export function ensureScratch(root: string): string {
  * not a link, so a `mkdir -p` never walks through one.
  */
 function realDirectories(dir: string, parent: string, rootReal: string): void {
-  if (!under(dir, parent)) throw new ScratchRedirectedError(`${relative(rootReal, parent)} is outside ${SCRATCH_DIR}/`);
+  if (!isWithin(dir, parent, SCRATCH_RULE)) throw new ScratchRedirectedError(`${relative(rootReal, parent)} is outside ${SCRATCH_DIR}/`);
   let path = dir;
   const segments = parent === dir ? [] : relative(dir, parent).split(sep);
   for (const segment of ["", ...segments]) {
@@ -244,7 +245,7 @@ export function assertScratchWritable(root: string, abs: string): void {
   const dir = scratchDir(root);
   const rootReal = canonicalRoot(root);
   const target = resolve(rootReal, abs);
-  if (!under(dir, target)) throw new ScratchRedirectedError(`${target} resolves outside ${SCRATCH_DIR}/`);
+  if (!isWithin(dir, target, SCRATCH_RULE)) throw new ScratchRedirectedError(`${target} resolves outside ${SCRATCH_DIR}/`);
   if (!scratchIgnored(root)) throw new ScratchNotIgnoredError();
   realDirectories(dir, dirname(target), rootReal);
 }
@@ -263,7 +264,7 @@ function genuineDir(root: string, dir: string, path: string | Buffer): boolean {
       if (!path.equals(base) && !path.subarray(0, base.length + 1).equals(Buffer.from(dir + sep))) return false;
       if (!realpathSync(path, { encoding: "buffer" }).equals(path)) return false;
     } else {
-      if (!under(dir, path)) return false;
+      if (!isWithin(dir, path, SCRATCH_RULE)) return false;
       if (realpathSync(path) !== path) return false;
     }
     return lstatSync(path).isDirectory();
@@ -309,7 +310,7 @@ export function writeScratchFile(
   const rootReal = canonicalRoot(root);
   const abs = resolve(rootReal, target);
   const rel = relative(rootReal, abs);
-  if (!under(dir, abs)) throw new ScratchRedirectedError(`${rel} is outside ${SCRATCH_DIR}/`);
+  if (!isWithin(dir, abs, SCRATCH_RULE)) throw new ScratchRedirectedError(`${rel} is outside ${SCRATCH_DIR}/`);
   const parent = dirname(abs);
   realDirectories(dir, parent, rootReal);
   const swapped = () => new ScratchRedirectedError(`${relative(rootReal, parent)} is no longer a directory of its own`);
@@ -427,7 +428,7 @@ export function readScratchPinSnapshot(root: string, pinsFile?: string): { ready
   for (const [key, values] of Object.entries(data.sessions)) {
     if (!Array.isArray(values)) throw new Error("invalid scratch pin session");
     for (const value of values) {
-      if (typeof value !== "string" || !value.startsWith(`${SCRATCH_DIR}/`) ||
+      if (typeof value !== "string" || !isWithin(SCRATCH_DIR, value, { includeRoot: false }) ||
           value.split("/").some(part => !part || part === "." || part === "..") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) {
         throw new Error("invalid scratch pin path");
       }

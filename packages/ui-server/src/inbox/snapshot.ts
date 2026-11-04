@@ -1,4 +1,5 @@
 /** Complete operational backup. Content Markdown and brain.db are never opened. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fsyncSync } from "node:fs";
@@ -344,7 +345,7 @@ export async function writeInboxSnapshot(db: Database, brainRoot: string, path: 
   const journals = [...new Set(sources.flatMap(source => [`${source}.journal.db`, journalDatabasePath(source)]))];
   const physicalJournals = await Promise.all(journals.map(path => realpath(path).catch(() => path)));
   if ([...sources, ...journals, ...physicalJournals].flatMap(source => [source, `${source}-wal`, `${source}-shm`, `${source}-journal`]).includes(target) ||
-      target === staging || target.startsWith(staging + sep))
+      isWithin(staging, target, { separator: sep }))
     throw new Error("inbox_snapshot_destination");
   const snapshot = await exportInboxSnapshot(db, brainRoot);
   await publish(target, Buffer.from(JSON.stringify(snapshot) + "\n"), true);
@@ -398,7 +399,7 @@ async function restoreStaging(snapshot: InboxBackup, brainRoot: string): Promise
       // Only this pending restore could have produced these private temp files
       // in an initially empty staging root. Reap a crash mid-publication before
       // retrying its no-clobber write; preserve every other arriving file.
-      const prefixes = snapshot.files.filter(file => file.path.startsWith(directory + "/")).map(file => `.${basename(file.path)}.`);
+      const prefixes = snapshot.files.filter(file => isWithin(directory, file.path, { includeRoot: false })).map(file => `.${basename(file.path)}.`);
       for (const name of await readdir(within(dir, "."))) {
         if (prefixes.some(prefix => name.startsWith(prefix) && partial.test(name.slice(prefix.length)))) {
           if (!(await lstat(within(dir, name))).isFile()) throw new Error("inbox_restore_staging_changed");

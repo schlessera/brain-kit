@@ -1,4 +1,5 @@
 /** Frozen Git configuration: read by a worker, never by a host Git process. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { existsSync, lstatSync, statSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { maintenanceGitEntry, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
@@ -73,7 +74,7 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const originalHooks = declaredHooks ? resolve(command.brainPath, declaredHooks) : join(command.brainPath, ".git/hooks");
   // Names inside the brain come only from its immutable private copy. Never
   // enumerate a host path supplied by repository configuration.
-  const inBrain = originalHooks === command.brainPath || originalHooks.startsWith(`${command.brainPath}/`);
+  const inBrain = isWithin(command.brainPath, originalHooks);
   const copiedHooks = inBrain ? outputs.view.root + originalHooks.slice(command.brainPath.length) : undefined;
   const names = new Set(hooks);
   if (privateInputs) for (const name of privateInputs.hookNames) names.add(name);

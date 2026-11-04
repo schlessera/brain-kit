@@ -1,4 +1,5 @@
 /** The governed layout: one resolved list for mounts, note and manifest. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
@@ -128,7 +129,7 @@ export function resolveWorkerProtection(brain: string, options: {
           const part = segments.slice(0, i + 1).join("/");
           folderPins.set(part, { rel: part, device: String(opened.dev), inode: String(opened.ino) });
         }
-        if (!folderPaths.some(other => rel.startsWith(`${other}/`))) checkTree(fd, rel, folderCount, brain, 0, false);
+        if (!folderPaths.some(other => isWithin(other, rel, { includeRoot: false }))) checkTree(fd, rel, folderCount, brain, 0, false);
       } finally { closeSync(fd); }
     }
     const orderedAncestors = [...ancestors].sort((a, b) => a.split("/").length - b.split("/").length);
@@ -216,7 +217,7 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
   if (masks.visible) {
     argv.push("--tmpfs", brain);
     for (const rel of [...new Set(masks.visible)].sort()) {
-      if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`) || rel === ".git" || rel.startsWith(".git/"))
+      if (invalidFolder(rel) || isWithin(INDEX_DIR, rel) || rel === ".git" || rel.startsWith(".git/"))
         throw new Error("invalid visible brain path");
       // Bubblewrap follows a link in a bind's source, so no name on the way
       // may be one: a linked name would show whatever it points at instead.
@@ -248,7 +249,7 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
     argv.push("--ro-bind", "/dev/null", join(brain, name));
   }
   for (const rel of [...new Set(masks.folders)].sort()) {
-    if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`) || rel === ".git" || rel.startsWith(".git/"))
+    if (invalidFolder(rel) || isWithin(INDEX_DIR, rel) || rel === ".git" || rel.startsWith(".git/"))
       throw new Error("invalid provider mask folder");
     const info = lstatSync(join(view, rel), { throwIfNoEntry: false });
     if (!info) continue;
@@ -271,7 +272,7 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
     else if (git) throw new Error("the brain's .git must be a directory or a gitlink file to be masked");
     const index = lstatSync(masks.index, { throwIfNoEntry: false });
     if (!isAbsolute(masks.index) || normalize(masks.index) !== masks.index || !index?.isDirectory() || index.isSymbolicLink()
-      || masks.index === brain || masks.index.startsWith(`${brain}/`) || brain.startsWith(`${masks.index}/`))
+      || isWithin(brain, masks.index) || isWithin(masks.index, brain))
       throw new Error("the private index must be an unaliased directory outside the brain");
     const target = lstatSync(join(view, INDEX_DIR), { throwIfNoEntry: false });
     if (!target?.isDirectory() || target.isSymbolicLink()) throw new Error(`${INDEX_DIR} is missing from the worker's view`);
@@ -290,12 +291,12 @@ export function envMaskedPaths(view: string, brain: string): string[] {
   const argv = maintenanceEnvMasks(view, brain), paths = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const target = argv[i] === "--ro-bind" && argv[i + 1] === "/dev/null" ? argv[i + 2] : argv[i] === "--tmpfs" ? argv[i + 1] : undefined;
-    if (target && target.startsWith(`${brain}/`)) paths.add(target.slice(brain.length + 1));
+    if (target && isWithin(brain, target, { includeRoot: false })) paths.add(target.slice(brain.length + 1));
   }
   return [...paths].sort();
 }
 
-const outsideOf = (dir: string, path: string) => path !== dir && !path.startsWith(`${dir}/`) && !dir.startsWith(`${path}/`);
+const outsideOf = (dir: string, path: string) => !isWithin(dir, path) && !isWithin(path, dir);
 
 /**
  * A turn's data tree at `target` (#2848): its host directory read-only, the
@@ -323,7 +324,7 @@ export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTr
   if (caches && tree.masked?.length) argv.push(...(caches.isDirectory() && !caches.isSymbolicLink()
     ? ["--tmpfs", join(target, CACHE_DIR), "--remount-ro", join(target, CACHE_DIR)] : ["--ro-bind", "/dev/null", join(target, CACHE_DIR)]));
   for (const rel of [...new Set(tree.masked ?? [])].sort()) {
-    if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`)) throw new Error("invalid provider mask folder");
+    if (invalidFolder(rel) || isWithin(INDEX_DIR, rel)) throw new Error("invalid provider mask folder");
     const info = lstatSync(join(tree.root, rel), { throwIfNoEntry: false });
     if (info?.isDirectory() && !info.isSymbolicLink()) argv.push("--tmpfs", join(target, rel), "--remount-ro", join(target, rel));
     else if (info) argv.push("--ro-bind", "/dev/null", join(target, rel));
@@ -449,7 +450,7 @@ function verifyMountedFolders(view: string, qualified: NonNullable<ReturnType<ty
   const privateIndex = masks?.index ? statSync(masks.index, { bigint: true }) : undefined;
   for (const pin of qualified.pins) {
     // A retained root inside a masked folder is hidden by that mask.
-    if (masks?.folders.some(folder => pin.rel.startsWith(`${folder}/`))) continue;
+    if (masks?.folders.some(folder => isWithin(folder, pin.rel, { includeRoot: false }))) continue;
     const mounted = statSync(join(view, pin.rel), { bigint: true });
     if (!mounted.isDirectory()) throw new Error(`mounted folder identity changed: ${pin.rel}`);
     if (privateIndex && pin.rel === INDEX_DIR) {

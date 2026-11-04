@@ -19,6 +19,7 @@ import { createHash } from "crypto";
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync } from "fs";
 import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { join, posix, resolve } from "path";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
@@ -284,7 +285,7 @@ function joined(values: Array<string | undefined>): string {
 export function canonicalFindings(candidates: HygieneCandidate[]): Map<string, HygieneFinding> {
   const groups = new Map<string, HygieneCandidate[]>();
   for (const c of candidates) {
-    if (c.path.startsWith(`${HYGIENE_DIR}/`)) continue;
+    if (isWithin(HYGIENE_DIR, c.path, { includeRoot: false })) continue;
     const id = hygieneId(c.category, c.path, c.evidence);
     groups.set(id, [...(groups.get(id) ?? []), c]);
   }
@@ -656,7 +657,7 @@ export async function detectCandidates(
   brain: { taxonomy: Taxonomy; root: string; modules: LoadedModule[]; config?: BrainConfig | null },
   now: Date
 ): Promise<Detection> {
-  const inLog = (path: string) => path.startsWith(`${HYGIENE_DIR}/`);
+  const inLog = (path: string) => isWithin(HYGIENE_DIR, path, { includeRoot: false });
   const docs = loadAuditDocs(db).filter((d) => !inLog(d.path));
   const byPath = new Map(docs.map((d) => [d.path, d]));
   // The indexes that opt in to a generated registry table; none when the
@@ -721,7 +722,7 @@ function withLinkTokens(root: string, candidates: HygieneCandidate[]): HygieneCa
       try {
         const file = resolve(root, path);
         // A module may name any path; only a document inside the brain is read.
-        if (!file.startsWith(`${resolve(root)}/`)) throw new Error("outside the brain");
+        if (!isWithin(resolve(root), file, { includeRoot: false })) throw new Error("outside the brain");
         const raw = readFileSync(file, "utf-8");
         try {
           text = parseFrontmatter(raw, { dataOnly: true }).content;
