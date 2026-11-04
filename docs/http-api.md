@@ -1062,7 +1062,12 @@ recorded owner; the same answer whichever), 409 `stale` (the backend or
 generation differs from `expected`), 409 `unsupported` (the chat's backend does
 not advertise and implement native removal) or 409 `busy` (a running or starting
 turn, queued follow-ups or unsettled live-conversation work; stop or finish it
-first). Otherwise the chat is retired and the answer is 200 with the SDK's
+first). A chat's recorded owner is its dialogue owner, its voice conversation's
+principal or, since #3337 (additive), the authenticated principal whose typed
+request created its backend session. A typed chat whose session already existed
+before that binding (or that the host first saw on a resume) has no recorded
+owner and stays `unavailable`; none is backfilled. Otherwise the chat is
+retired and the answer is 200 with the SDK's
 `ChatDeletionReceipt`: `operationId`, the terminal `generation`, the overall
 `status`, each selected store's outcome (`native` for a backend session,
 `dialogue`, `tasks`, `projections`, `drafts`) and `retained`, which always lists

@@ -251,7 +251,11 @@ export async function makeBridge(
         coordinator.bindSession(msg.sessionId, turn);
         // Persist ownership the moment the identity exists — a turn that
         // later fails or is cancelled must not leave an unowned transcript.
-        catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+        // An authenticated typed request that created this session also binds
+        // its owner, content-free, so the owner can delete it (#3337). Resumes
+        // and host work bind nothing; the write binds only a new row.
+        const creator = !resumedSession && work === undefined && turn.turnId === turnId && authorization.valid && host.isPrincipalAuthorized(principalId) ? principalId : undefined;
+        catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator);
         // Governance events recorded before the row existed join it now (#1651).
         catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
         // Submitted after the catalog row; every share read/effect joins this queue.
