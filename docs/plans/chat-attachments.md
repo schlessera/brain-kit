@@ -55,11 +55,11 @@ tries the shared track parser on every file
 MIME-to-extension table lists PDF
 (`EXTENSION_BY_TYPE`, `packages/ui-server/src/share/staging.ts:91-114`), which
 only names the stored file and reads nothing. Staged shares are pruned after
-seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2426`).
+seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2484`).
 
 **Chat admission.** `chat_message` validates inline images, then resolves every
 `files` reference as a staged track
-(`case "chat_message"`, `packages/ui-server/src/ws/dispatch.ts:129-195`, and
+(`case "chat_message"`, `packages/ui-server/src/ws/dispatch.ts:131-197`, and
 `resolveChatFiles`, `packages/ui-server/src/tracks/read.ts:58-64`).
 `readStagedTrack` accepts only `.brain-ui/inbox/<uuid>/<name>`, refuses
 symlinks and reparses the file
@@ -73,21 +73,21 @@ Images travel as inline base64 frames: Claude gets content blocks
 `ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:300`).
 No image original is kept as a file. Frames are limited to four images and
 8,000,000 decoded bytes per message
-(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:690`;
-`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:706`).
+(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:741`;
+`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:757`).
 
 **Drafts.** Draft text and images are stored in the operational SQLite store,
 with image bytes as BLOBs. An upload that no save names is swept after one hour
-(`PENDING_ATTACHMENT_TTL_MS`, `packages/ui-server/src/drafts/store.ts:63`). A
+(`PENDING_ATTACHMENT_TTL_MS`, `packages/ui-server/src/drafts/store.ts:74`). A
 save checks the per-draft limit (`maxDraftBytes`, 8,388,608) and the host limit
 (`maxTotalBytes`, 268,435,456)
-(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:475-480`). On
+(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:497-502`). On
 acceptance the host consumes only the named revision
-(`accept(input)`, `packages/ui-server/src/drafts/store.ts:496-529`). Track
+(`accept(input)`, `packages/ui-server/src/drafts/store.ts:666-699`). Track
 files are not draft content: D52 keeps them in the tab only.
 
 **Opening a file.** The raw file route refuses anything over 10,485,760 bytes
-(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2361`). Originals may
+(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2419`). Originals may
 be up to 25,000,000 bytes, so opening a large original needs its own route
 ([§6.5](#65-reading-an-original-back)).
 
@@ -312,8 +312,8 @@ attachment_files(file_id PK, draft_id, sha256, bytes, stored_name, incoming_name
     state: stored | deleting | missing
 attachment_refs(file_id, owner, owner_id, created_at)        PK(file_id, owner, owner_id)
     owner: draft   (owner_id = draftId; the current revision's binding)
-           outgoing(owner_id = draftId:requestId; held or unconfirmed snapshot)
-           message (owner_id = sessionId:turnId; an accepted send)
+           outgoing(owner_id = draftId; the draft's one held or unconfirmed snapshot)
+           message (owner_id = sessionId; an accepted send)
 attachment_reservations(reservation_id PK, bytes, instance_id, created_at)
 attachment_reads(file_id, session_id, turn_id, outcome, scope_json, at)   -- UI evidence only
 ```
@@ -497,11 +497,13 @@ other path. No per-attachment recipient pin is added
 
 Each read runs a short-lived child `bun` process for
 `packages/ui-server/src/attachments/extract-worker.ts`. The parent passes the
-verified original as a file descriptor, and the child writes length-prefixed
-JSON to stdout. The child loads `pdfjs-dist/legacy/build/pdf.mjs` with
-`useWorkerFetch: false`, `isEvalSupported: false`, `disableFontFace: true` and
-`stopAtErrors: false`. It receives no network, no environment beyond `PATH`
-and no brain access other than the descriptor.
+verified original's bytes on stdin, and the child writes one JSON line to
+stdout. The child loads `pdfjs-dist/legacy/build/pdf.mjs` with
+`useWorkerFetch: false`, `disableFontFace: true` and `stopAtErrors: false`;
+the installed 6.3.289 has no eval path, and no `isEvalSupported` option. It
+receives no environment beyond `PATH` and opens no path. The
+[decision record](../decisions/chat-attachments.md#what-3154-built) says why
+these two details differ from the first draft of this design.
 
 | Bound | Value | Enforced by | Exceeded gives |
 | --- | --- | --- | --- |
@@ -725,7 +727,7 @@ All of these are additive. The implementation PRs carry the `contract` label,
 | --- | --- | --- |
 | HTTP | `POST /api/drafts/:draftId/files`; `GET /api/attachments/:fileId`; new error codes `ATTACHMENT_TOO_LARGE`, `ATTACHMENT_CAPACITY`, `ATTACHMENT_INVALID`, `ATTACHMENT_KEY_REUSED` | [http.md](../integration-contract/http.md) |
 | HTTP drafts | `DraftSaveRequest.fileIds?`, `.outgoing?`; `Draft.files`, `.outgoing`; `DraftSummary.fileCount` | [wire.md, session drafts](../integration-contract/wire.md#session-drafts-additive-979) |
-| WS | `server_hello.capabilities.composerFiles`; `server_hello.attachmentLimits` (`maxFiles`, `maxFileBytes`, `maxTotalBytes`, `poolBytes`); `ChatFileAttachment` variant `{ kind: "attachment"; fileId }`; `ChatImageAttachment.fileId?` linking a frame to its original | [wire.md](../integration-contract/wire.md) |
+| WS | `server_hello.capabilities.composerFiles`; `server_hello.attachmentLimits` (`maxFiles`, `maxFileBytes`, `maxTotalBytes`, `poolBytes`); `chat_message.attachmentRefs` of `{ kind: "attachment"; fileId }` (built by #3153 as a separate field, so `ChatFileAttachment` keeps its type); `ChatImageAttachment.fileId?` linking a frame to its original | [wire.md](../integration-contract/wire.md) |
 | SDK | `AttachmentFile`, `AttachmentReadOutcome`, constants in `@schlessera/brain-ui-sdk/protocol` and schemas | [package-api.md](../integration-contract/package-api.md) |
 | MCP | the `read_attachment` tool and its result shape | [mcp.md, chat-UI tools](../integration-contract/mcp.md#chat-ui-in-process-tools-mcp__brain-ui__) |
 | Environment | `BRAIN_UI_ATTACHMENT_POOL_BYTES` | the environment reference and its documentation check |

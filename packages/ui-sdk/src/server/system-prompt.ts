@@ -158,6 +158,16 @@ function turnLifecycleSection(turnBudgetMs?: number, execution?: ExecutionBrief)
   usually mean a cancelled turn or a busy write lock — especially in context
   from an earlier turn that hit the budget. Retry once before concluding the
   user said no.`);
+  // A blocked connection was read as a broken host or account (#3431).
+  lines.push(`- **A blocked connection says why.** A 403 from the network, \`proxy refused
+  the connection\` or a provider error starting \`Blocked:\` is the brain's own
+  network policy, not the remote service or the user's account: a deny or
+  allow list, this turn's byte limit, an unapproved outward action, or this
+  session having read untrusted content, after which it reaches only hosts on
+  its allow-list or ones it already reached. Tell the user the cause the
+  response names; do not retry. A blocked untrusted session stays that way,
+  but the user can add the host to \`taint.egress.allow\` or continue in a new
+  session.`);
   lines.push(`- **Sessions run in parallel against one repo.** Writes to the same file
   serialize, and git staging/history commands serialize repo-wide. A "lock
   busy — retry" denial means exactly that: the identical call is fine a

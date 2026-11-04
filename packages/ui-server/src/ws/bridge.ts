@@ -1,45 +1,20 @@
-import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { BudgetExceeded, BudgetUnavailable } from "../brain/turn-budgets.js";
-import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
-import { createBrainApplication, readBrainApplicationBase, validatePlan } from "../brain/application.js";
-import { staleReadRefusal, type TurnDataTree } from "../brain/turn-data-tree.js";
+import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
-import { createProviderMaskGuard, ProviderMaskRefusedError, ProviderRecordsRefusedError } from "../brain/provider-mask-refusal.js";
-import type { TurnGovernancePolicy } from "../brain/governance-policy.js";
-import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
-import { HOST_TIMEOUT_OUTCOME_DETAIL, SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
-import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
-import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
-import { join, relative } from "node:path";
-import { stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
-import type {
-  ActivityQuery,
-  BackendBridge,
-  PermissionDecision,
-  AskUserResult,
-  AskUserListResult,
-  AskUserRankResult,
-  AskUserFormResult,
-  LocationFix,
-} from "@schlessera/brain-ui-sdk/server";
-import { BackendBusyError, BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
-import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
-import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
-import type { TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
-import { approvalRequestFrame, withTurnScope } from "./frames.js";
+import { staleReadRefusal } from "../brain/turn-data-tree.js";
 import type { RunningTurn } from "./turns.js";
-
-/** The words a timed-out turn's `status: cancelled` carries in `detail`. */
-const TURN_TIMED_OUT = "Turn timed out";
-import { acceptDraft } from "./drafts.js";
 import type { WsHost } from "./host.js";
-import type { TurnRecorder } from "../activity/recorder.js";
-import { TurnTextCollector } from "../classification/classify-turn.js";
-import { JournalCapacityError } from "../brain/journal-objects.js";
-import { JournalStorageUnavailable } from "../brain/journal-accounting.js";
-import { AUTHORITY_HOLD_WAIT_MS, waitForAuthority, waitWhile, type AuthorityHold } from "../brain/authority-hold.js";
+import { createBridgeContext, type BridgeContext, type MakeBridgeOptions } from "./bridge-capabilities/context.js";
+import { createEmission, createTurnTranscript, type TurnTranscript } from "./bridge-capabilities/emission.js";
+import { createActivity, guardMaskedRecords, openInbox } from "./bridge-capabilities/activity.js";
+import { createPermissions } from "./bridge-capabilities/permissions.js";
+import { createAsks } from "./bridge-capabilities/asks.js";
+import { createLocationAndMask, createMaskApplicationSlice } from "./bridge-capabilities/location-mask.js";
+import { createPolicyProposal } from "./bridge-capabilities/policy-proposal.js";
+import { createApplication } from "./bridge-capabilities/application.js";
+import { createScratch } from "./bridge-capabilities/scratch.js";
+import { createAttachmentRead } from "./bridge-capabilities/attachments.js";
+
+export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
 const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
 
@@ -52,672 +27,92 @@ export function settleTurnIndex(bridge: BackendBridge): Promise<void> {
   return turnIndexSettlers.get(bridge)?.() ?? Promise.resolve();
 }
 
-/** Build the per-turn bridge the backend drives. */
-export async function makeBridge(
-  host: WsHost,
-  turn: RunningTurn,
-  promptText: string,
-  backendId: string,
-  recorder?: TurnRecorder,
-  /**
-   * Called once, with the first session id `session_info` names. A new
-   * conversation has no id until then, so anything keyed by the session
-   * that must be written for this turn's prompt waits for it here.
-   */
-  onSessionNamed?: (sessionId: string) => void,
-  onTerminalFailure?: (sessionId: string, failure: TurnFailure) => void,
-  /** The pill label the request already has, read when the session is named (#1004). */
-  promptLabel?: () => string | undefined,
-  applicationPolicy?: BrainApplicationPolicy,
-  /** Frozen policy protection captured after this turn's gate admission. */
-  protectedPaths?: readonly string[],
-  workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" },
-  onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void,
-  pricingContext?: { billingMode?: import("@schlessera/brain-ui-sdk/protocol").BillingMode; pricingRoute?: import("@schlessera/brain-ui-sdk/protocol").PricingRoute },
-  mainModel?: { current(): string | null; bind(model: string): void },
-  /** The admitted turn's masked provider folders (`sandbox.providerMasks.folders`) and the policy that named them. */
-  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>>; recipient?: string },
-  /**
-   * The admitted turn's data tree (#2848, #2846) and, for a worker on the
-   * startup view, that view's root: where its `Read` of a brain path resolves.
-   */
-  turnData?: { tree: TurnDataTree; view?: string },
-  /** The governed turn's frozen policy: hosted external compute is admitted only under it (#3108). */
-  governance?: { policy: TurnGovernancePolicy }
-): Promise<BackendBridge> {
-  if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
-  const { coordinator, catalog } = host;
-  // Capture the turn identity at construction: the slot's turnId is re-minted
-  // for each queued follow-up, and a backend can still emit late frames
-  // through this bridge after its startTurn resolved. Stamping from the live
-  // field would attribute those to the NEXT turn.
-  const turnId = turn.turnId;
-  const requestId = turn.requestId;
-  let profileBound = false;
-  // The draft this bridge's message was sent from (#979), and whether that
-  // message named an existing session. Captured like requestId: a late frame
-  // settles only this request's draft.
-  const draftRef = turn.draftRef;
-  const draftPrincipalId = turn.principalId;
-  const resumedSession = turn.sessionId !== null;
-  let draftSettled = false;
-  let labelAsked = false;
-  // Same reason as turnId: the host work this bridge's turn runs, not whatever
-  // the slot runs after a late frame arrives.
-  const work = turn.work;
-  const thinkingLevel = turn.retryRequest?.thinkingLevel;
-  let pendingSessionNamed = onSessionNamed;
-  const queryActivity = host.activity?.query;
-  // The assistant text, kept as the client numbers its parts, for the
-  // classification pass that runs after the result (D42). Cheap when no
-  // classifier is configured: a few string appends.
-  const collector = host.classifier ? new TurnTextCollector() : null;
-  // Scoped to this bridge, so delayed classification/promotion cannot borrow
-  // a follow-up turn's text or destinations when its coordinator slot is reused.
-  const promotedLinks = new Map<string, string>();
-  let collectedSessionId = turn.sessionId;
-  let claudeUsage: import("./claude-usage-accounting.js").ClaudeUsageEvidence | undefined;
-  const persistPromotedBlocks = () => {
-    if (collector && collectedSessionId) host.classifier?.rewriteLinks(collectedSessionId, collector.textParts(), promotedLinks);
-  };
-  const principalId = turn.principalId;
-  const authorization = turn.authorization;
-  const signal = turn.abortController.signal;
-  // The turn's own authority: its identity, authorization and principal are current.
-  const principalIsAuthorized = () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
-    authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId);
-  // A journal observation or a scope pause stops host effects for a while but
-  // revokes nothing (#2853). An effect waits for one, bounded, and checks again;
-  // `isAuthorized` stays false while one is active, so nothing commits under it.
-  const scopePaused = () => !!host.scope?.isPaused(turnId);
-  const isAuthorized = () => principalIsAuthorized() && !host.journal?.isHeld() && !scopePaused();
-  // A pause ends with the user's answer, which has no event here; the wait rechecks it.
-  const holdOf = (held: () => boolean): AuthorityHold => ({ waitMs: AUTHORITY_HOLD_WAIT_MS,
-    active: () => !signal.aborted && principalIsAuthorized() && held(),
-    settled: () => host.journal?.isHeld() ? host.journal.idle() : new Promise(() => {}) });
-  const hold = holdOf(() => !!host.journal?.isHeld() || scopePaused());
-  const assertAuthority = () => {
-    if (signal.aborted || !isAuthorized()) throw new Error("This turn no longer has current principal authority.");
-  };
-  /**
-   * Starts `effect` after earlier journal work and, with `holds`, once no hold
-   * remains, checked in the same tick it starts. A hold that begins after
-   * `idle()` resolves is waited out, bounded, rather than read as revoked
-   * authority. Revocation or cancellation ends either wait at once; `effect`
-   * still makes its own final check.
-   */
-  const afterHolds = async <T>(effect: () => T, holds = true): Promise<Awaited<T>> => {
-    const deadline = Date.now() + hold.waitMs;
-    let idle = !host.journal;
-    const idled = host.journal?.idle().then(() => { idle = true; });
-    await waitWhile(() => !idle && !signal.aborted && principalIsAuthorized(), () => idled!, signal, deadline);
-    if (holds) {
-      while (hold.active() && await waitForAuthority(hold, signal, deadline)) { /* Recheck in this tick. */ }
-      if (hold.active()) throw new Error("This turn's host effect stayed held by a journal observation or a scope pause past the wait bound; nothing was applied.");
-    }
-    return await effect();
-  };
-  // Share state is a server record, not Markdown: a hold that begins mid-call
-  // does not void it. Inbox intake stages files, so it keeps the full check.
-  const current = () => !signal.aborted && principalIsAuthorized();
-  const inbox = host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
-    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}) });
-  if (work?.posture !== "voice") await host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, current);
-  const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
-  // Host bridge tools run outside the worker's mounts, so they refuse the
-  // folders the worker masks, with one governance event per refused call (#2690).
-  const maskGuard = providerMasks?.folders.length ? createProviderMaskGuard({ folders: providerMasks.folders, policy: providerMasks.policy.policy,
-    ...(providerMasks.typeFolders ? { typeFolders: providerMasks.typeFolders } : {}), ...(providerMasks.recipient ? { recipient: providerMasks.recipient } : {}),
-    record: refusal => catalog.recordGovernanceEvent?.({ kind: "provider_mask_refusal", turnId, sessionId: turn.sessionId,
-      actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null,
-      payload: { ...refusal, policyHash: providerMasks.policy.hash } }) }) : undefined;
-  const toolName = (name: string) => backendId === "claude" ? `mcp__brain-ui__${name}` : name;
-  let turnIndex: IndexBatch | undefined;
-  /**
-   * A linked turn-temp file the backend promoted, or could not (#1655): kept
-   * as a governance event with the session history, never shown in the chat.
-   */
-  /** Promoted files whose links the live view has been sent. */
-  const linked = new Set<string>();
-  const recordPromotion = (event: Extract<BackendActivityEvent, { kind: "promotion" | "promotion_refused" }>): void => {
-    // The aliases only say which spellings the live view rewrites (below).
-    const { kind, ...payload } = event.kind === "promotion" ? (({ aliases: _aliases, ...rest }) => rest)(event) : event;
-    catalog.recordGovernanceEvent?.({
-      kind, payload, turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive",
-      model: mainModel?.current() ?? null, profile: null,
-      // One record per linked file and turn, however often a backend reports it.
-      dedupeKey: `${turnId}:${createHash("sha256").update(event.source).digest("hex")}`,
-    });
-    // A reader watching the turn holds the answer as it streamed: it gets the
-    // links the stored answer now has, so it shows what a reload would (#1698).
-    const sessionId = turn.sessionId;
-    if (event.kind === "promotion") {
-      for (const link of [event, ...(event.aliases ?? [])]) promotedLinks.set(link.originalLink, link.rewrittenLink);
-      persistPromotedBlocks();
-    }
-    if (event.kind !== "promotion" || !sessionId || linked.has(event.source)) return;
-    linked.add(event.source);
-    const links = [event, ...(event.aliases ?? [])].map(link => ({ from: link.originalLink, to: link.rewrittenLink }));
-    host.sendToClients(withTurnScope({ type: "message_links", sessionId, links }, turn, turnId));
-  };
-  const bridge: BackendBridge = {
+/**
+ * Build the per-turn bridge the backend drives (#2516): one slice per
+ * capability, composed in a fixed order, with the live-authority wrapper last.
+ */
+export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeBridgeOptions): Promise<BackendBridge> {
+  const applicationPolicy = options.applicationPolicy ? { ...options.applicationPolicy, lock: host.workerLock } : undefined;
+  const ctx = createBridgeContext(host, turn, options);
+  const transcript = createTurnTranscript(ctx);
+  // Captures the turn's draft and retry fields now, with its identity.
+  const emission = createEmission(ctx, transcript, options);
+  const inbox = openInbox(ctx, options.protectedPaths);
+  if (ctx.work?.posture !== "voice") await host.inboxTools?.shares?.start(ctx.principalId, ctx.turnId, turn.sessionId ?? undefined, turn.shareId, ctx.current);
+  // Capabilities that ask for a permission read the composed bridge when they
+  // ask, so they reach the wrapped `requestPermission` installed below.
+  let bridge: BackendBridge | undefined;
+  const self = () => bridge!;
+  bridge = {
     ...inbox,
-    // A bridge tool that wrote into the scratch area prunes it through the
-    // host's pass (#310), the way the CLI's own writers prune after a write.
-    ...(host.scratchPrune ? { pruneScratch: host.scratchPrune } : {}),
-    emit: (message) => {
-      let msg = message;
-      // Pi preserves a bare acquisition error for direct SDK callers without
-      // inventing a session. The hosted request has its own cancellation and
-      // correlation, so preserve that terminal UI state only for this exact
-      // no-identity cancellation; classified failures keep their error frame.
-      if (backendId === "pi" && requestId && turn.turnId === turnId && turn.cancelled && signal.aborted
-        && !turn.sessionId && msg.type === "error" && !msg.sessionId && !msg.failure
-        && msg.code === "agent_error" && msg.message === "The turn was cancelled before a session was acquired.")
-        msg = { type: "status", status: "cancelled", detail: "Cancelled before starting", requestId };
-      // The host's hard turn limit, not someone's cancel, ended this turn:
-      // its cancelled terminal says so, so the conversation can (#3356). Only
-      // the timed-out turn's own frames, and never over a real cancel.
-      if (turn.timedOutTurnId === turnId && turn.turnId === turnId && !turn.cancelled) {
-        if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_TIMED_OUT };
-        else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: HOST_TIMEOUT_OUTCOME_DETAIL };
-      }
-      if (msg.type === "error" && requestId) msg = { ...msg, requestId };
-      if (msg.type === "session_info" || (msg.type === "status" && msg.effectiveThinkingLevel !== undefined)) {
-        msg = { ...msg, ...(requestId ? { requestId } : {}), ...(thinkingLevel !== undefined ? { thinkingLevel } : {}) };
-        if (thinkingLevel !== undefined && msg.effectiveThinkingLevel !== undefined && turn.sessionId) {
-          host.catalog.recordEffectiveThinkingLevel?.(turn.sessionId, turnId, msg.effectiveThinkingLevel);
-        }
-      }
-      if ((msg.type === "tool_use_start" || msg.type === "tool_use_complete") && turn.turnId === turnId) {
-        host.journal?.toolStarted(turnId, msg.toolUseId, msg.toolName, msg.type === "tool_use_start");
-        host.scope?.toolCall(turnId, msg.toolUseId);
-      }
-      // Never awaited here: an observation's hold freezes the turn's workers,
-      // which is what delays a worker's next provider request (#2834).
-      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { turn.abortController.abort(error); emitTurnError(host, turn, error); });
-      if (collector && turn.turnId === turnId) collector.observe(msg);
-      if (msg.type === "session_info") {
-        if (turn.turnId === turnId) collectedSessionId = msg.sessionId;
-        turn.sessionId = msg.sessionId;
-        if (msg.providerId) turn.providerId = msg.providerId;
-        // Echo the client's correlation id, so it can recognise which
-        // announcement is its own rather than adopting the first to arrive.
-        if (turn.draftId) msg = { ...msg, draftId: turn.draftId };
-        // The host owns backend identity: stamp it authoritatively so an
-        // injected backend that omits (or mislabels) it still scopes the
-        // client's tool rendering correctly.
-        msg = { ...msg, backendId };
-        coordinator.bindSession(msg.sessionId, turn);
-        // Persist ownership the moment the identity exists — a turn that
-        // later fails or is cancelled must not leave an unowned transcript.
-        catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
-        // Governance events recorded before the row existed join it now (#1651).
-        catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
-        // Submitted after the catalog row; every share read/effect joins this queue.
-        void host.inboxTools?.shares?.bind(turnId, msg.sessionId).catch(error => {
-          turn.abortController.abort(error); emitTurnError(host, turn, error);
-        });
-        if (workerProfile && host.sessionProfiles && turn.turnId === turnId) {
-          // Both commit after the row above (#2850); the frame reads them as submitted.
-          const named = msg.sessionId;
-          const unrecorded = (error: unknown) => host.log.emit({ severityText: "WARN", body: "session worker profile not recorded",
-            attributes: { "session.id": named, error: error instanceof Error ? error.message : String(error) } });
-          if (!profileBound && workerProfile.draftId && workerProfile.preference) {
-            host.sessionProfiles.bind(turn.principalId, workerProfile.draftId, msg.sessionId).catch(unrecorded);
-            profileBound = true;
-          }
-          host.sessionProfiles.record(msg.sessionId, workerProfile.origin, workerProfile.actualProfile).catch(unrecorded);
-          msg = { ...msg, workerProfile: host.sessionProfiles.read(turn.principalId, "session", msg.sessionId) };
-        }
-
-        host.policyProposals?.bind(turnId, msg.sessionId).catch(() => { /* Its proposals keep a null session: unbound, never misattributed. */ });
-        // The session's pill label follows its latest request (#1004), asked
-        // for once its row exists, so the answer always has a row to land on.
-        if (!labelAsked) {
-          labelAsked = true;
-          host.labels?.turnStarted(msg.sessionId, promptText, promptLabel?.());
-        }
-        if (draftRef && !draftSettled) {
-          draftSettled = true;
-          acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });
-        }
-        if (pendingSessionNamed) {
-          const named = pendingSessionNamed;
-          pendingSessionNamed = undefined;
-          named(msg.sessionId);
-        }
-        if (thinkingLevel !== undefined && msg.effectiveThinkingLevel !== undefined) {
-          host.catalog.recordEffectiveThinkingLevel?.(msg.sessionId, turnId, msg.effectiveThinkingLevel);
-        }
-      }
-      if (msg.type === "result") {
-        if (claudeUsage && turn.turnId === turnId) {
-          catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
-          const costUsd = catalog.accountClaudeUsage?.(msg.sessionId, backendId, turnId, claudeUsage, resumedSession, { ...pricingContext, principalId });
-          const { costUsd: _sessionCost, usage: _reportedUsage, ...terminal } = msg;
-          msg = { ...terminal, ...(claudeUsage.completed ? { usage: claudeUsage.completed } : {}),
-            ...(costUsd !== undefined ? { costUsd } : {}) };
-        }
-        catalog.persistSession(msg, promptText, turn.providerId, backendId);
-        if (turn.turnId === turnId && msg.stateRoom && msg.failure?.errorClass !== "session_too_large"
-          && msg.failure?.errorClass !== "worker_state_exceeded" && msg.failure?.errorClass !== "worker_state_busy") {
-          catalog.recordStateRoom?.(msg.sessionId, msg.stateRoom);
-          if (stateRoomWarning(msg.stateRoom)) catalog.recordGovernanceEvent?.({
-            kind: "state_room_warning", sessionId: msg.sessionId, turnId,
-            actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: null,
-            payload: { usedBytes: msg.stateRoom.usedBytes, allowanceBytes: msg.stateRoom.allowanceBytes, observedAt: msg.stateRoom.observedAt },
-            dedupeKey: `state-room:${backendId}:${msg.sessionId}:${msg.stateRoom.allowanceBytes}`,
-          });
-        }
-        if (turn.turnId === turnId && msg.failure && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError))) {
-          onTerminalFailure?.(msg.sessionId, msg.failure);
-        }
-        const eligible = msg.failure && ["rate_limit", "overloaded", "server_error", "unknown"].includes(msg.failure.errorClass)
-          && !msg.failure.authAction && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError));
-        if (eligible && msg.failure && turn.turnId === turnId && turn.retryRequest && turn.retryPrompt !== undefined && turn.queue.length === 0
-          && !(turn.isManualRetry && msg.failure.errorClass === "unknown")
-          // A client retry cannot restore host-work/native result identity.
-          // Preserve once-only execution even under ordinary task policy.
-          && work === undefined
-          // File Retry needs a pre-reservation read to verify the exact original.
-          // Older catalogs can still retain their text/image-only requests.
-          && (!turn.retryRequest.files?.length || catalog.peekRetry)) {
-          if (catalog.saveRetryRequest?.(msg.sessionId, turnId, turn.principalId, { ...turn.retryRequest, ...(turn.providerId ? { providerId: turn.providerId } : {}) }, turn.retryPrompt, msg.failure)) {
-            msg = { ...msg, retryOfTurnId: turnId };
-          }
-        }
-      }
-      // The span write is submitted before the frame goes out, in frame order;
-      // it commits off the event loop (#2814), and the live Activity stream
-      // pumps it once committed. Late frames through a previous turn's bridge
-      // stay un-recorded — the recorder belongs to ONE turn identity.
-      if (turn.turnId === turnId) recorder?.observeFrame(msg);
-      const scoped = withTurnScope(msg, turn, turnId);
-      if (msg.type === "session_info") work?.observe(scoped);
-      host.sendToClients(scoped);
-      // Identity must reach the client before its first scoped journal receipt.
-      // The journal publishes its receipt once the binding commits, after this frame.
-      if (msg.type === "session_info" && turn.turnId === turnId) { void host.budgets?.bind(turnId, msg.sessionId).catch(() => { /* The turn's accounting is unavailable; its next observation stops it. */ }); void host.journal?.bindSession(turnId, msg.sessionId).catch(() => { /* The turn's record stays unbound; its observations still commit. */ }); host.scope?.bindSession(turnId, msg.sessionId); }
-      if (msg.type !== "session_info") work?.observe(scoped);
-      if (msg.type === "result") {
-        // Only the live turn's own result may set its disposition — a late
-        // frame through a previous turn's bridge must not relabel this one.
-        if (turn.turnId === turnId) {
-          turn.lastResult =
-            msg.isError || msg.outcome === "error"
-              ? "error"
-              : msg.outcome === "cancelled"
-                ? "cancelled"
-                : "success";
-        }
-        if (
-          collector &&
-          host.classifier &&
-          turn.turnId === turnId &&
-          turn.lastResult === "success"
-        ) {
-          // After the result, never before, and never awaited: the answer is
-          // on screen already; this only says which spans to draw as blocks.
-          const sessionId = msg.sessionId;
-          collectedSessionId = sessionId;
-          void host.classifier.run(sessionId, collector.textParts()).then((blocks) => {
-            if (blocks.length === 0) return;
-            persistPromotedBlocks();
-            host.sendToClients(
-              withTurnScope({ type: "message_blocks", sessionId, blocks }, turn, turnId)
-            );
-          });
-        }
-      }
-    },
-    requestPermission: (req) => {
-      // A native permission checkpoint delegates this particular operation to
-      // the host validator. Invalid input never raises a generic approval card.
-      // Its handler later reads the SAME request receipt, without another write.
-      if (req.kind !== "policy" && [PROPOSE_POLICY_CHANGE_TOOL_NAME, `mcp__brain-ui__${PROPOSE_POLICY_CHANGE_TOOL_NAME}`].includes(req.toolName)) {
-        if (!bridge.proposePolicyChange) return Promise.resolve({ behavior: "deny", message: "Policy proposals are unavailable in this turn." });
-        return bridge.proposePolicyChange(req.toolUseId, req.input as PolicyChangeInput)
-          .then(review => review.state === "updated" ? { behavior: "allow" as const } : { behavior: "deny" as const, message: review.message },
-            error => ({ behavior: "deny" as const, message: error instanceof Error ? error.message : "Invalid policy proposal." }));
-      }
-      // A remembered "always allow" answers grantable tool requests without
-      // a card. NEVER for kind "command" — those are destructive-pattern
-      // confirmations for tools that are already auto-allowed, and
-      // remembering them would silently disable the seatbelt. NEVER either
-      // when the backend says the turn's enforced allowlist left this tool
-      // out: the grant was given under a wider posture and answering with it
-      // would make the narrower one decoration.
-      //
-      // The store is still READ for such a request, and only read: a grant
-      // that exists and is deliberately not applied is the thing worth a
-      // record, and there is nothing to record without looking. What the
-      // enforced posture forbids is answering from the store (here) and
-      // adding to it (dispatch.ts) — not knowing what is in it.
-      const remembered =
-        req.kind !== "command" && req.kind !== "policy" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
-      if (remembered && req.outsideEnforcedAllowlist) {
-        // Body stays constant and the reason rides as an attribute, matching
-        // the refusal dispatch.ts records on the write side. A reason spliced
-        // into the body reads better in a terminal and aggregates worse: two
-        // halves of one policy would not group, and neither would two reasons
-        // for the same half.
-        host.log.emit({
-          severityText: "INFO",
-          body: "remembered tool grant not applied",
-          attributes: {
-            "tool.name": req.toolName,
-            "toolUse.id": req.toolUseId,
-            reason: "outside this turn's enforced allowlist",
-          },
-        });
-      }
-      if (remembered && !req.outsideEnforcedAllowlist) {
-        return Promise.resolve({ behavior: "allow" });
-      }
-      return new Promise<PermissionDecision>((resolve) => {
-        // The decision stamps the wait/execution boundary on the tool span
-        // (grant) or lands the denied outcome (deny) before the backend's
-        // own error tool_result can mislabel it — write-once protects it.
-        const recorded = (
-          decision: PermissionDecision,
-          response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
-        ) => {
-          recorder?.onApprovalDecision(
-            req.toolUseId,
-            decision.behavior === "deny"
-              ? "deny"
-              : response?.always
-                ? "always_allow"
-                : "allow",
-            req.kind ?? "tool",
-            response?.principalId,
-            response?.channel
-          );
-          resolve(decision);
-        };
-        if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded })) {
-          resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
-          return;
-        }
-        if (!host.clients.hasClients()) {
-          // Not a failure — the card is parked and re-delivered on reconnect
-          // (see resendPendingInteractive) — but the wait was invisible before
-          // this line existed, and it is bounded only by the turn timeout.
-          host.log.emit({
-            severityText: "WARN",
-            body: "approval requested with no client connected; holding for reconnect",
-            attributes: { "tool.name": req.toolName, "toolUse.id": req.toolUseId },
-          });
-        }
-        host.sendToClients(
-          withTurnScope(
-            approvalRequestFrame(req, host.toolPermissions !== null),
-            turn,
-            turnId
-          )
-        );
-        host.sendToClients(
-          withTurnScope(
-            { type: "status", status: "tool_executing", detail: `Waiting for approval: ${req.toolName}` },
-            turn,
-            turnId
-          )
-        );
-        if (turn.sessionId) {
-          host.conversations?.approvalRaised({ sessionId: turn.sessionId, turnId, toolUseId: req.toolUseId, toolName: req.toolName });
-        }
-      });
-    },
-    // Always present: a promotion also reaches the live view (#1698).
-    activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
-      if (event.kind === "permission_denied" && work?.posture === "voice" && !signal.aborted && principalIsAuthorized() && turn.turnId === turnId && coordinator.resolvedApprovals.get(event.toolUseId)?.turnId !== turnId) {
-        coordinator.recordApprovalOutcome(event.toolUseId, { outcome: "denied", turnId, sessionId: turn.sessionId, reason: "voice_posture" });
-      }
-      if (event.kind === "main_model") {
-        if (turn.turnId === turnId && turn.backendStarted && !signal.aborted && !turn.cancelled && event.model
-          && (!turn.sessionId || turn.sessionId === event.sessionId)) mainModel?.bind(event.model);
-        return;
-      }
-      if (event.kind === "claude_title_usage" && turn.turnId === turnId) {
-        claudeUsage = { ...claudeUsage, title: { receipts: event.receipts, coverage: event.coverage } };
-      }
-      else if (event.kind === "claude_session_usage" && turn.turnId === turnId) {
-        claudeUsage = { ...claudeUsage, completed: event.completed,
-          ...(event.cumulative ? { cumulative: event.cumulative, cumulativeCompleted: event.completed,
-            reportedCostUsd: event.reportedCostUsd } : {}) };
-      }
-      else if (event.kind === "promotion" || event.kind === "promotion_refused") recordPromotion(event);
-      else if (event.kind === "turn_temp_purge") {
-        // Each purge of turn temp (#1703), kept with the session history and never shown.
-        const { kind, ...payload } = event;
-        catalog.recordGovernanceEvent?.({ kind, payload, turnId, sessionId: turn.sessionId,
-          actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: null });
-      }
-      else if (event.kind === "budget_backstop" && turn.turnId === turnId) onUsage?.({},true);
-      else {
-        if (event.kind === "usage" && turn.turnId === turnId) {
-          const priced=onUsage?.(event.usage);
-          recorder?.observeActivity({...event,usage:priced ?? event.usage});
-          if (!onUsage) host.sendToClients(withTurnScope({type:"usage",turnId,usage:event.usage,observedAt:Date.now()},turn,turnId));
-        } else recorder?.observeActivity(event.kind === "policy_confirm" && signal.aborted
-          ? { ...event, payload: { ...event.payload, decision: turn.cancelled ? "cancelled" : "timed_out" } }
-          : event);
-      }
-    },
-    ...(queryActivity
-      ? { queryActivity: async (query: ActivityQuery) => queryActivity(query) }
-      : {}),
-    askUser: (requestId, questions) => {
-      return new Promise<AskUserResult>((resolve, reject) => {
-        if (!coordinator.openAsk("ask_user", { turn, turnId, requestId, questions, resolve, reject })) {
-          reject(new Error("Duplicate ask-user request id"));
-          return;
-        }
-        host.sendToClients(
-          withTurnScope({ type: "ask_user_request", requestId, questions }, turn, turnId)
-        );
-        host.sendToClients(
-          withTurnScope(
-            { type: "status", status: "tool_executing", detail: "Waiting for your input" },
-            turn,
-            turnId
-          )
-        );
-      });
-    },
-    askUserList: (requestId, request) => {
-      return new Promise<AskUserListResult>((resolve, reject) => {
-        // One id space across all ask kinds: a single `ask_user_cancel`
-        // dismisses any of them, so an id pending as one must not open as the other.
-        if (!coordinator.openAsk("ask_user_list", { turn, turnId, requestId, request, resolve, reject })) {
-          reject(new Error("Duplicate ask-user request id"));
-          return;
-        }
-        host.sendToClients(
-          withTurnScope({ type: "ask_user_list_request", requestId, ...request }, turn, turnId)
-        );
-        host.sendToClients(
-          withTurnScope(
-            { type: "status", status: "tool_executing", detail: "Waiting for your input" },
-            turn,
-            turnId
-          )
-        );
-      });
-    },
-    askUserRank: (requestId, request) => {
-      // Cancellation shares one id space across all four ask kinds.
-      if (coordinator.pendingAsk(requestId)) {
-        return Promise.reject(new Error("Duplicate ask-user request id"));
-      }
-      return new Promise<AskUserRankResult>((resolve, reject) => {
-        coordinator.openAsk("ask_user_rank", { turn, turnId, requestId, request, resolve, reject });
-        host.sendToClients(withTurnScope({ type: "ask_user_rank_request", requestId, ...request }, turn, turnId));
-        host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
-      });
-    },
-    askUserFormLimits: host.askUserFormLimits,
-    askUserForm: (requestId, request) => {
-      const validated = askUserFormSpec(request, host.askUserFormLimits);
-      if (coordinator.pendingAsk(requestId)) {
-        return Promise.reject(new Error("Duplicate ask-user request id"));
-      }
-      return new Promise<AskUserFormResult>((resolve, reject) => {
-        coordinator.openAsk("ask_user_form", { turn, turnId, requestId, request: validated, resolve, reject });
-        host.sendToClients(withTurnScope({ type: "ask_user_form_request", requestId, ...validated }, turn, turnId));
-        host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
-      });
-    },
-    getLocation: (options) => {
-      if (!host.clients.hasClients()) {
-        return Promise.reject(
-          new Error(`No ${host.appName} client is connected to read the location from.`)
-        );
-      }
-      const requestId = coordinator.nextLocationRequestId();
-      return new Promise<LocationFix>((resolve, reject) => {
-        if (!coordinator.openLocation(requestId, { turn, turnId, resolve, reject })) {
-          reject(new Error("Duplicate location request id"));
-          return;
-        }
-        host.sendToClients(
-          withTurnScope({ type: "location_request", requestId, options }, turn, turnId)
-        );
-        host.sendToClients(
-          withTurnScope(
-            { type: "status", status: "tool_executing", detail: "Requesting your location" },
-            turn,
-            turnId
-          )
-        );
-      });
-    },
-    requestMask: (imagePath, instruction) => {
-      if (!host.clients.hasClients()) {
-        return Promise.reject(
-          new Error(`No ${host.appName} client is connected to paint a mask in.`)
-        );
-      }
-      const requestId = coordinator.nextMaskRequestId();
-      return new Promise<Uint8Array>((resolve, reject) => {
-        if (!coordinator.openMask(requestId, { turn, turnId, resolve, reject })) {
-          reject(new Error("Duplicate mask request id"));
-          return;
-        }
-        host.sendToClients(
-          withTurnScope({ type: "mask_request", requestId, imagePath, instruction }, turn, turnId)
-        );
-        host.sendToClients(
-          withTurnScope(
-            { type: "status", status: "tool_executing", detail: "Waiting for you to mark the area" },
-            turn,
-            turnId
-          )
-        );
-      });
-    },
+    ...createScratch(ctx),
+    ...emission,
+    ...createPermissions(ctx, self),
+    ...createActivity(ctx, transcript, options),
+    ...createAsks(ctx),
+    ...createLocationAndMask(ctx),
   };
-  if (host.policyProposals && work?.posture !== "voice") {
-    bridge.proposePolicyChange = async (requestId, input) => {
-      // The policy file is a document too: a policy masking its folder hides it here as well.
-      maskGuard?.assert(toolName(PROPOSE_POLICY_CHANGE_TOOL_NAME), [GOVERNANCE_POLICY_PATH]);
-      return host.policyProposals!.propose({
-        // Publication runs inside its own journal observation, so only a scope pause holds it.
-        principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: () => principalIsAuthorized() && !scopePaused(),
-        hold: holdOf(scopePaused), isAvailable: () => work?.posture !== "voice",
-        approve: async review => {
-          const decision = await bridge.requestPermission({ toolUseId: requestId,
-            toolName: backendId === "claude" ? `mcp__brain-ui__${PROPOSE_POLICY_CHANGE_TOOL_NAME}` : PROPOSE_POLICY_CHANGE_TOOL_NAME,
-            input: { ...input, policyReview: review }, kind: "policy", description: review.message });
-          return decision.behavior === "allow" && decision.updatedInput === undefined;
-        },
-        emit: review => host.sendToClients(withTurnScope({ type: "tool_result", toolUseId: requestId,
-          output: JSON.stringify(review), isError: !["pending", "writing", "updated", "declined"].includes(review.state), policyChange: review }, turn, turnId)),
-      }, requestId, input);
-    };
-  }
+  Object.assign(bridge, createPolicyProposal(ctx, self));
+  let turnIndex: IndexBatch | undefined;
   if (host.brainPath && applicationPolicy) {
-    const operationTools = backendId === "claude"
-      ? { add: "mcp__brain-ui__brain_add", update: "mcp__brain-ui__brain_update", archive: "mcp__brain-ui__brain_archive", write: "mcp__brain-ui__write_file", edit: "mcp__brain-ui__edit_file", staged: "mcp__brain-ui__apply_staged_changes" }
-      : { add: "brain_add", update: "brain_update", archive: "brain_archive", write: "write_file", edit: "edit_file", staged: "apply_staged_changes" };
-    const apply = createBrainApplication({
-      root: host.brainPath, principalId, turnId, signal, policy: applicationPolicy,
-      protectedPaths,
-      ...(maskGuard ? { providerMasks: { guard: maskGuard, tool: operation => operationTools[operation] } } : {}),
-      ...(host.applicationPlanner ? { planner: host.applicationPlanner } : {}),
-      isAuthorized, hold,
-      approve: async (input, destructive) => {
-        if (work?.posture === "voice") return false;
-        const decision = await bridge.requestPermission({ toolUseId: `application-${crypto.randomUUID()}`,
-          toolName: operationTools[input.operation], input: { ...input },
-          kind: destructive ? "command" : "tool", outsideEnforcedAllowlist: applicationPolicy.enforceAllowedTools === true && !applicationPolicy.autoAllowed.includes(input.operation), description: "Apply this exact bounded change to authoritative Markdown." });
-        // An edited proposal must be reissued with its own base and validation.
-        return decision.behavior === "allow" && decision.updatedInput === undefined;
-      },
-      record: result => recorder?.recordApplication?.(result),
-      ...(host.indexBatch ? { indexBatch: host.indexBatch } : {}),
-      recordIndex: outcome => recorder?.recordApplicationIndex?.(outcome),
-      ...(turnData ? { turnTree: turnData.tree } : {}),
-      // A masked turn plans on its own tree, so its captures are admitted like its other effects (#2846).
-      ...(turnData && maskGuard ? { turnPlanner: async (_root, input, _read, planSignal) => validatePlan(await turnData.tree.planAdd(input, planSignal)) } : {}),
-    });
-    turnIndex = apply.indexBatch;
-    bridge.readBrainBase = async path => {
-      if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
-      return readBrainApplicationBase(host.brainPath!, path, maskGuard ? { guard: maskGuard, tool: toolName("brain_read_base") } : undefined);
-    };
-    // The application waits for holds itself, so its refusals are recorded.
-    bridge.applyBrain = input => afterHolds(() => {
-      const execute = () => apply({ principalId, turnId, input });
-      return host.inboxTools?.shares ? host.inboxTools.shares.apply(principalId, turnId, turn.sessionId ?? undefined, current, input, execute) : execute();
-    }, false);
-    if (host.inboxTools?.shares && work?.posture !== "voice") bridge.completeShare = input => afterHolds(() => {
-      return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, current, input, async () => {
-        const decision = await bridge.requestPermission({ toolUseId: `share-completion-${crypto.randomUUID()}`, toolName: toolName("complete_share"), input, kind: "command", description: "Complete this share and discard only these exact originals after verified filing." });
-        return decision.behavior === "allow" && decision.updatedInput === undefined;
-      }, applicationPolicy!.lock, maskGuard ? paths => maskGuard.assert(toolName("complete_share"), paths) : undefined);
-    });
-    if (backendId === "claude" || backendId === "pi") {
-      // The scratch prune that follows a mask never removes a masked folder's files.
-      const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
-        protectedPaths: maskGuard ? [...(protectedPaths ?? []), ...maskGuard.folders] : protectedPaths,
-        lock: applicationPolicy.lock, isAuthorized, hold, isAvailable: () => work?.posture !== "voice",
-        ...(turnData ? { turnTree: turnData.tree } : {}),
-        record: result => recorder?.recordApplication?.(result) });
-      const requestMask = bridge.requestMask!;
-      bridge.requestMask = async (imagePath, instruction) => {
-        assertAuthority();
-        maskGuard?.assert(toolName("request_image_mask"), [imagePath]);
-        const base = readMaskBase(host.brainPath!, imagePath, backendId);
-        const png = await requestMask(imagePath, instruction);
-        await afterHolds(() => { assertAuthority(); pendingMasks.set(imagePath, { base, png: Uint8Array.from(png) }); });
-        return png;
-      };
-      // The mask application waits for holds itself, so its refusals are recorded.
-      bridge.applyImageMask = input => afterHolds(() => {
-        if (signal.aborted || !principalIsAuthorized()) throw new Error("This turn no longer has current principal authority.");
-        try { maskGuard?.assert(toolName("request_image_mask"), [input.imagePath, input.maskPath]); }
-        catch (error) {
-          if (!(error instanceof ProviderMaskRefusedError)) throw error;
-          const result = { ok: false, code: error.code, message: error.message, changes: [] };
-          recorder?.recordApplication?.(result); return result;
-        }
-        const pending = pendingMasks.get(input.imagePath);
-        pendingMasks.delete(input.imagePath);
-        if (!pending || !Buffer.from(pending.png).equals(Buffer.from(input.png))) {
-          const result = { ok: false, code: "permission_denied", message: "No matching browser mask submission exists for this turn.", changes: [] };
-          recorder?.recordApplication?.(result); return result;
-        }
-        return applyMask({ principalId, turnId, input, base: pending.base });
-      }, false);
+    const application = createApplication(ctx, self, host.brainPath, applicationPolicy, options);
+    turnIndex = application.indexBatch;
+    Object.assign(bridge, application.slice);
+    if (ctx.backendId === "claude" || ctx.backendId === "pi") {
+      Object.assign(bridge, createMaskApplicationSlice(ctx, host.brainPath, applicationPolicy, bridge.requestMask!, options));
       // Hosted scratch pruning is part of the mask operation, including its
       // exact removals. No second, unrecorded prune callback is handed out.
       delete bridge.pruneScratch;
     }
   }
-  // Index-dependent reads wait for every application committed before them,
-  // in any turn; the end of this turn flushes what is still queued (#2835).
+  applyIndexReads(ctx, bridge, turnIndex, options.turnData);
+  // Reference source and managed worktrees (#2432): the host's record of this
+  // turn supplies principal, views and generation; the call carries its input only.
+  if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(ctx.turnId, ctx.principalId, call, ctx.signal);
+  applyExternalServices(ctx, bridge, transcript, options.governance);
+  Object.assign(bridge, createAttachmentRead(ctx, transcript));
+  guardMaskedRecords(ctx, bridge);
+  if (ctx.backendId === "claude" || ctx.backendId === "pi") applyLiveAuthority(ctx, bridge);
+  return bridge;
+}
+
+/**
+ * External compute (#3108) and Apify (#3162). The host binds the caller, the
+ * frozen policy, the approval surface, the mask guard and the credentials;
+ * the call carries its own input only.
+ */
+function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transcript: TurnTranscript, governance: MakeBridgeOptions["governance"]): void {
+  const { host, turn, turnId, principalId, backendId, work, signal, maskGuard, mainModel, workerProfile, toolName, isAuthorized } = ctx;
+  if (backendId !== "claude" && backendId !== "pi") return;
+  // Governed turns only: the budget ledger and the frozen policy are theirs.
+  if (host.computeTools && governance) {
+    const posture = work?.posture === "voice" ? "voice" : "interactive";
+    bridge.compute = host.computeTools.forTurn({ turnId, principalId, sessionId: () => turn.sessionId ?? undefined,
+      policy: governance.policy.policy, policyHash: governance.policy.hash, posture, noGrantSurface: posture === "voice", autonomous: false,
+      hasClient: () => host.clients.hasClients(), ...(maskGuard ? { maskGuard } : {}), toolName,
+      requestPermission: request => bridge.requestPermission(request),
+      isCurrent: () => !signal.aborted && isAuthorized(),
+      govern: event => host.catalog.recordGovernanceEvent?.({ ...event, turnId, sessionId: turn.sessionId, actor: posture,
+        model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null } as never) });
+  }
+  // The context comes from this turn, never from the call. The approval
+  // surface is this bridge's own, so voice and revoked turns refuse as they
+  // do for every other card; the host also refuses a non-interactive turn.
+  if (host.apify) {
+    const apify = host.apify;
+    bridge.apify = call => apify.call({ turnId, principalId, sessionId: () => transcript.collectedSessionId ?? null,
+      posture: work?.posture === "voice" ? "voice" : "interactive",
+      approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
+  }
+}
+
+/**
+ * Index-dependent reads wait for every application committed before them,
+ * in any turn; the end of this turn flushes what is still queued (#2835).
+ */
+export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bridge: BackendBridge, turnIndex: IndexBatch | undefined,
+  turnData: MakeBridgeOptions["turnData"]): void {
+  const { host, signal } = ctx;
   const indexBatch = turnIndex ?? host.indexBatch;
   if (turnData) {
     // The worker reads the turn's own index, so only its own update gates
@@ -732,57 +127,16 @@ export async function makeBridge(
     };
   } else if (indexBatch) bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await indexBatch.barrier(signal); };
   if (indexBatch && turnIndex) turnIndexSettlers.set(bridge, () => turnIndex!.pending() ? turnIndex!.barrier() : Promise.resolve());
-  // Reference source and managed worktrees (#2432): the host's record of this
-  // turn supplies principal, views and generation; the call carries its input only.
-  if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(turnId, principalId, call, signal);
-  // External compute (#3108): the host binds the caller, the frozen policy,
-  // the approval surface, the mask guard and the credentials; the call
-  // carries the instance, the command and the job only. Governed turns only:
-  // the budget ledger and the frozen policy are theirs.
-  if (host.computeTools && governance && (backendId === "claude" || backendId === "pi")) {
-    const posture = work?.posture === "voice" ? "voice" : "interactive";
-    bridge.compute = host.computeTools.forTurn({ turnId, principalId, sessionId: () => turn.sessionId ?? undefined,
-      policy: governance.policy.policy, policyHash: governance.policy.hash, posture, noGrantSurface: posture === "voice", autonomous: false,
-      hasClient: () => host.clients.hasClients(), ...(maskGuard ? { maskGuard } : {}), toolName,
-      requestPermission: request => bridge.requestPermission(request),
-      isCurrent: () => !signal.aborted && isAuthorized(),
-      govern: event => catalog.recordGovernanceEvent?.({ ...event, turnId, sessionId: turn.sessionId, actor: posture,
-        model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null } as never) });
-  }
-  // Apify (#3162): the context comes from this turn, never from the call. The
-  // approval surface is this bridge's own, so voice and revoked turns refuse
-  // as they do for every other card; the host also refuses a non-interactive turn.
-  if (host.apify && (backendId === "claude" || backendId === "pi")) {
-    const apify = host.apify;
-    bridge.apify = call => apify.call({ turnId, principalId, sessionId: () => collectedSessionId ?? null,
-      posture: work?.posture === "voice" ? "voice" : "interactive",
-      approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
-  }
-  // Intake stages the submitted item under the share staging directory and
-  // reconciles what is already staged there, so a mask at, above or inside
-  // that directory, or one it resolves into, refuses the whole addition.
-  const inboxAdd = bridge.inboxAdd;
-  if (maskGuard && inboxAdd) bridge.inboxAdd = async input => {
-    const tool = toolName("inbox_add");
-    maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => folder.startsWith(`${SHARE_STAGING_DIR}/`))]);
-    if (host.brainPath) {
-      let resolved: string | undefined;
-      try { resolved = relative(realpathSync(host.brainPath), realpathSync(join(host.brainPath, SHARE_STAGING_DIR))); } catch { /* not staged yet */ }
-      if (resolved !== undefined) maskGuard.assert(tool, [`${resolved}/new`]);
-    }
-    return inboxAdd(input);
-  };
-  // The activity record and inbox items are the server's own text, kept from
-  // earlier runs, and may quote a masked document. They are refused whole,
-  // before any record is read; the tools stay registered (#2698, option A).
-  if (maskGuard) for (const [name, tool, what] of [["queryActivity", "query_activity", "The activity record"],
-    ["inboxList", "inbox_list", "The inbox"], ["inboxGet", "inbox_get", "The inbox"]] as const) {
-    if (bridge[name]) bridge[name] = async () => { throw new ProviderRecordsRefusedError(toolName(tool), maskGuard.folders, what); };
-  }
-  // A worker may invoke a bridge executor without the runtime's permission
-  // hook. Check live server authority on every parent effect, not only at
-  // tool admission. Voice retains the same narrower named capabilities.
-  if (backendId === "claude" || backendId === "pi") for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify"] as const) {
+}
+
+/**
+ * A worker may invoke a bridge executor without the runtime's permission
+ * hook. Check live server authority on every parent effect, not only at
+ * tool admission. Voice retains the same narrower named capabilities.
+ */
+export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
+  const { work, afterHolds, assertAuthority } = ctx;
+  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "readAttachment"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {
@@ -796,52 +150,5 @@ export async function makeBridge(
         });
       } catch (error) { return Promise.reject(error); }
     };
-  }
-  return bridge;
-}
-
-export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): void {
-  const correlation = turn.requestId ? { requestId: turn.requestId } : {};
-  // startTurn resolves for runtime failures (it emits its own error frame); it
-  // only rejects for caller errors. Each rejection is reported server-side
-  // too — the frame alone leaves no trace once the browser tab is gone.
-  if (err instanceof BudgetExceeded) {
-    const budget=host.budgets?.saved(turn.turnId);
-    if (budget && turn.sessionId && host.journal) host.sendToClients(withTurnScope({type:"turn_journal",sessionId:turn.sessionId,
-      turnId:turn.turnId,journal:{...host.journal.summary(turn.turnId),budget}},turn));
-    host.reportTurnFailed("BUDGET_EXCEEDED", turn, err.message);
-    host.sendToClients(withTurnScope({ type:"error", code:"BUDGET_EXCEEDED", message:err.message,
-      failure:{errorClass:"budget_exceeded",message:err.message,budgetScope:err.observation.scope,...(err.observation.resetAt ? {resetsAt:err.observation.resetAt} : {})},...correlation },turn));
-  } else if (err instanceof BudgetUnavailable) {
-    host.reportTurnFailed("BUDGET_UNAVAILABLE",turn,err.message);
-    host.sendToClients(withTurnScope({type:"error",code:"BUDGET_UNAVAILABLE",message:err.message,
-      failure:{errorClass:"budget_unavailable",message:err.message},...correlation},turn));
-  } else if (err instanceof JournalCapacityError || err instanceof JournalStorageUnavailable) {
-    const errorClass = err instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable";
-    const message = err.message;
-    host.reportTurnFailed(errorClass.toUpperCase(), turn, message);
-    host.sendToClients(withTurnScope({ type: "error", code: errorClass.toUpperCase(), message,
-      failure: { errorClass, message }, ...correlation }, turn));
-  } else if (err instanceof BackendBusyError) {
-    host.reportTurnFailed("SESSION_BUSY", turn);
-    host.sendToClients(
-      withTurnScope(
-        { type: "error", code: "SESSION_BUSY", message: "That session already has a running turn.", ...correlation },
-        turn
-      )
-    );
-  } else if (err instanceof BackendRequestError) {
-    host.reportTurnFailed("BACKEND_REQUEST_ERROR", turn, err.message);
-    host.sendToClients(
-      withTurnScope({ type: "error", code: "BACKEND_REQUEST_ERROR", message: err.message,
-        ...(err instanceof WorkerHostError ? { failure: { errorClass: err.errorClass, message: err.message } } : {}),
-        ...correlation }, turn)
-    );
-  } else {
-    const message = err instanceof Error ? err.message : String(err);
-    host.reportTurnFailed("BACKEND_ERROR", turn, message);
-    host.sendToClients(
-      withTurnScope({ type: "error", code: "BACKEND_ERROR", message, ...correlation }, turn)
-    );
   }
 }

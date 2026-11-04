@@ -1,4 +1,4 @@
-import { trackContextText, withTrackFiles } from "../tracks/read.js";
+import { chatContextText, isChatFilesPrompt, type MessageAttachment } from "../attachments/context.js";
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 /**
  * How each user message was produced, kept between the turn and its replay.
@@ -26,7 +26,7 @@ import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import type { MessageSource, SessionHistoryMessage, ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
-import { sharedFileMetaSchema, messageSourceSchema } from "@schlessera/brain-ui-sdk/schemas";
+import { attachmentFileSchema, sharedFileMetaSchema, messageSourceSchema } from "@schlessera/brain-ui-sdk/schemas";
 
 /** The key one message's text gets. Exported so the writer and the joiner agree by construction. */
 function messageTextHash(text: string): string {
@@ -43,7 +43,7 @@ export function saveMessageSource(
   sessionId: string,
   text: string,
   source: MessageSource,
-  effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[] },
+  effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[]; attachmentFiles?: MessageAttachment[] },
   at = Date.now()
 ): void {
   const hash = messageTextHash(text);
@@ -52,9 +52,10 @@ export function saveMessageSource(
       .query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id = ? AND text_hash = ?")
       .get(sessionId, hash) as { n: number };
     db.prepare(
-      `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at, thinking_level, turn_id, track_files)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(sessionId, hash, row.n, source, at, effort?.thinkingLevel ?? null, effort?.turnId ?? null, effort?.files?.length ? JSON.stringify(effort.files) : null);
+      `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at, thinking_level, turn_id, track_files, attachment_files)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, hash, row.n, source, at, effort?.thinkingLevel ?? null, effort?.turnId ?? null, effort?.files?.length ? JSON.stringify(effort.files) : null,
+      effort?.attachmentFiles?.length ? JSON.stringify(effort.attachmentFiles) : null);
   }).immediate();
 }
 
@@ -76,8 +77,8 @@ export function attachMessageSources(
 ): SessionHistoryMessage[] {
   if (strict) return attachLiveSources(db,sessionId,messages,latestTurnId);
   const rows = db
-    .query("SELECT text_hash AS hash, ordinal, source, thinking_level, effective_thinking_level, track_files FROM message_sources WHERE session_id = ?")
-    .all(sessionId) as Array<{ hash: string; ordinal: number; source: string; thinking_level: string | null; effective_thinking_level: string | null; track_files: string | null }>;
+    .query("SELECT text_hash AS hash, ordinal, source, thinking_level, effective_thinking_level, track_files, attachment_files FROM message_sources WHERE session_id = ?")
+    .all(sessionId) as Array<{ hash: string; ordinal: number; source: string; thinking_level: string | null; effective_thinking_level: string | null; track_files: string | null; attachment_files: string | null }>;
   const stored = new Map<string, Partial<SessionHistoryMessage>>();
   const decode = (row: typeof rows[number]): Partial<SessionHistoryMessage> => {
     // Re-validated on the way out: a row written by a newer server with a
@@ -100,6 +101,8 @@ export function attachMessageSources(
         }
       } catch { /* Corrupt operational metadata cannot become a claimed attachment. */ }
     }
+    const attached = decodeAttachmentFiles(row.attachment_files);
+    if (attached) metadata.attachmentFiles = attached;
     return metadata;
   };
   for (const row of rows) {
@@ -116,12 +119,12 @@ export function attachMessageSources(
     let ordinal = seen.get(hash) ?? 0;
     let metadata = stored.get(`${hash}:${ordinal}`);
     if (!metadata) {
-      const candidate = trackContextText(content);
+      const candidate = chatContextText(content);
       if (candidate !== null) {
         const candidateHash = messageTextHash(candidate);
         const candidateOrdinal = seen.get(candidateHash) ?? 0;
         const recorded = stored.get(`${candidateHash}:${candidateOrdinal}`);
-        if (recorded?.files && withTrackFiles(candidate, recorded.files) === content) {
+        if ((recorded?.files || recorded?.attachmentFiles) && isChatFilesPrompt(content, candidate, recorded.files, recorded.attachmentFiles as MessageAttachment[] | undefined)) {
           content = candidate; hash = candidateHash; ordinal = candidateOrdinal; metadata = recorded;
         }
       }
@@ -129,6 +132,16 @@ export function attachMessageSources(
     seen.set(hash, ordinal + 1);
     return metadata ? { ...message, content, ...metadata } : message;
   });
+}
+
+/** Recorded composer originals, re-validated without reordering their keys; corrupt rows claim nothing. */
+function decodeAttachmentFiles(raw: string | null): MessageAttachment[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (Array.isArray(value) && value.length > 0 && value.length <= 10 && value.every((f) => attachmentFileSchema.safeParse(f).success)) return value as MessageAttachment[];
+  } catch { /* fall through */ }
+  return undefined;
 }
 
 /** Positive provenance for live DATA. Unknown users remain unclassified.
@@ -139,7 +152,7 @@ function attachLiveSources(db: Database, sessionId: string, messages: SessionHis
   const counts = new Map<string,number>();
   const identities = messages.map((m,i)=> {
     if(m.role!=="user") return undefined;
-    const texts=[m.content],candidate=trackContextText(m.content);
+    const texts=[m.content],candidate=chatContextText(m.content);
     if(candidate!==null && candidate!==m.content)texts.push(candidate);
     const keys=texts.map(text=>{const hash=messageTextHash(text),ordinal=counts.get(hash)??0;counts.set(hash,ordinal+1);return {hash,ordinal,text};});
     // Never cross another user to infer this one's turn: it may have failed.
@@ -151,11 +164,11 @@ function attachLiveSources(db: Database, sessionId: string, messages: SessionHis
     if(i===messages.length-1)turnId=latestTurnId;
     return {keys,turnId};
   });
-  type Row={source:string;turn_id:string|null;track_files:string|null};
+  type Row={source:string;turn_id:string|null;track_files:string|null;attachment_files:string|null};
   const count=db.query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id=? AND text_hash=?");
-  const ordinalRow=db.query("SELECT source,turn_id,track_files FROM message_sources WHERE session_id=? AND text_hash=? AND ordinal=?");
+  const ordinalRow=db.query("SELECT source,turn_id,track_files,attachment_files FROM message_sources WHERE session_id=? AND text_hash=? AND ordinal=?");
   const turnCount=db.query("SELECT COUNT(*) AS n FROM message_sources WHERE session_id=? AND turn_id=? AND text_hash=?");
-  const turnRow=db.query("SELECT source,turn_id,track_files FROM message_sources WHERE session_id=? AND turn_id=? AND text_hash=? ORDER BY ordinal LIMIT 1 OFFSET ?");
+  const turnRow=db.query("SELECT source,turn_id,track_files,attachment_files FROM message_sources WHERE session_id=? AND turn_id=? AND text_hash=? ORDER BY ordinal LIMIT 1 OFFSET ?");
   return messages.map((m,i)=>{
     const id=identities[i];if(!id||i<messages.length-128)return m;
     const {source:_source,turnId:_turnId,...unknown}=m;
@@ -173,7 +186,9 @@ function attachLiveSources(db: Database, sessionId: string, messages: SessionHis
       if(!parsed.success || !["typed","voice-dictate","voice-conversation","voice-context"].includes(parsed.data))continue;
       if(key.text!==m.content) {
         let files: unknown;try{files=JSON.parse(row?.track_files ?? "null");}catch{continue;}
-        if(!Array.isArray(files)||!files.length||files.length>10||!files.every(f=>sharedFileMetaSchema.safeParse(f).success)||withTrackFiles(key.text,files)!==m.content)continue;
+        if(files!==null&&(!Array.isArray(files)||!files.length||files.length>10||!files.every(f=>sharedFileMetaSchema.safeParse(f).success)))continue;
+        const attached=decodeAttachmentFiles(row?.attachment_files ?? null);
+        if((files===null&&!attached)||!isChatFilesPrompt(m.content,key.text,(files ?? undefined) as SharedFileMeta[]|undefined,attached))continue;
       }
       return {...unknown,content:key.text,source:parsed.data,...(id.turnId && row?.turn_id===id.turnId?{turnId:id.turnId}:{})};
     }

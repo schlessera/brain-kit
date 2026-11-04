@@ -176,7 +176,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:676-681`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge-capabilities/application.ts:24-37`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -680,7 +680,11 @@ makes in the brain.
 - **`CLAUDE.md`, `AGENTS.md`, `.claude/skills/`, `.agents/`.** Changing them as
   you go is exactly the flexibility ruling 1 restores. The journal records
   those changes and can revert them.
-- **`.brain-ui/`.** Agents file staged shares from it.
+- **`.brain-ui/`.** Agents file staged shares from it. One subtree is
+  mounted read-only in the governed profile without becoming a protected
+  path: `.brain-ui/attachments/`, where the host keeps chat attachment
+  originals (#3153). No policy names it, and the host keeps writing it during
+  a turn without a quarantine.
 
 ### How the mounts enforce it
 
@@ -1462,7 +1466,7 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
-(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:236`).
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:256`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:240-261`),
@@ -1956,7 +1960,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:492`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:499`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2164,7 +2168,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:344`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:353`).
 
 **What changes:**
 
@@ -2503,9 +2507,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:344-351`;
+`packages/ui-sdk/src/server/worker-protection.ts:379-388`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:354-392`).
+`packages/ui-sdk/src/server/worker-protection.ts:391-432`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -3092,7 +3096,7 @@ that runs in it can rewrite that account. The load set is therefore not
 computed. It is enforced by what the worker can see: the brain path is an
 empty tmpfs with only the policy's protected paths bound back read-only
 (`WorkerProviderMasks.visible`; `if (masks.visible)`,
-`packages/ui-sdk/src/server/worker-protection.ts:207-227`). An import, a
+`packages/ui-sdk/src/server/worker-protection.ts:216-236`). An import, a
 local module, a `tsconfig.json` alias or a data file outside them is simply
 absent, so the configuration loads only from what no governed turn can
 change, or does not load, and its own error, which names the file, becomes
@@ -3841,7 +3845,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:36-58`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:56-78`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -3880,13 +3884,17 @@ Before the egress proxy lands, Bash commands classified as fetching (`curl`,
 `wget`, `git clone` and `fetch`, the `brain` scrape and import commands, and
 Chromium) taint the session. Any Bash call that the classifier cannot rule out
 as network-free also taints it. Erring towards taint costs only tighter
-outward rules.
+outward rules. Where the proxy runs, the classifier is off and the proxy's
+connection taint is the shell signal (superseded 2026-11-03, see
+[below](#shell-classifier-off-behind-the-proxy)).
 
 Taint is sticky for the session, because that content stays in the context
 window. A tainted session runs under tighter rules:
 
 - egress switches to the policy's `taint.egress` allow-list, which by default
-  is the hosts already used in the session plus the inference relay;
+  is the hosts already used in the session plus the inference relay (an
+  interactive turn asks before any other host since 2026-11-03, see
+  [below](#tainted-destinations-ask));
 - every outward action asks, even if `outward.allow` would allow it;
 - writes to steering artifacts are flagged in the journal (below).
 
@@ -3899,7 +3907,8 @@ pi-web-access's `fetch_content` and `web_search`; a file tool or brain-kit
 document reader whose normalized path is under `.brain-ui/inbox/` or
 `workspaces/`, or a search whose output names a file there (an absolute path
 outside the brain and the strict area root counts any such segment); a
-fetching or unclassified Bash call; and any MCP tool whose server is not
+fetching or unclassified Bash call (only on a turn without the egress proxy
+since 2026-11-03, see below); and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
 (`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:84-94`).
 The fixed list of external-content MCP sources is therefore "every other MCP
@@ -3931,11 +3940,100 @@ first byte. Once the session is tainted, a new connection must pass the
 ordinary egress rules and also match `taint.egress.allow` or a host the
 session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
-`egress_denial` with reason `taint_allowlist`. The taint list narrows and never
-widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-168`). Hosts without managed
+`egress_denial` with reason `taint_allowlist` (an interactive turn asks first
+since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
+narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
+`packages/ui-server/src/brain/turn-egress.ts:80-213`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
+
+<a id="shell-classifier-off-behind-the-proxy"></a>
+
+**Shell classifier off behind the proxy — 2026-11-03
+([#3429](https://github.com/schlessera/brain-kit/issues/3429)).** This
+supersedes the unconditional Bash classifier in the implemented note above.
+The classifier tainted on every shell call it could not prove network-free,
+so almost every governed session was tainted by its first ordinary command
+(`brain diagram --help`, `cat notes/x.md`) without reading anything
+untrusted. On a turn whose worker runs behind the turn egress proxy, the
+proxy already taints at the first admitted connection other than the
+inference relay, before its first byte, whatever program made it. That turn
+now records neither `fetching_command` nor `unclassified_command`: once the
+proxy is up, the host tells the turn's recorder
+(`recorder?.setEgressProxied();`, `packages/ui-server/src/ws/run-session.ts:747`),
+and its shell calls skip the classifier
+(`const command = shellProxied ? null : commandTaintSource(tool, input);`,
+`packages/ui-server/src/activity/ingestion-taint.ts:90`). A `curl` on such a
+turn taints through the proxy's `egress_connection` record. Every non-shell
+source (web tools, other MCP servers, untrusted areas, marked files) still
+taints there. A turn without the proxy keeps the classifier unchanged
+(maintainer ruling A on #3429; B, keeping the fetching classification, and
+C, the current behaviour, were rejected).
+
+Known gap, accepted by that ruling: on a proxied turn, a shell command that
+reads an untrusted local file without opening a connection (`cat
+workspaces/x/README`, or a marked file) does not taint. Path detection is not
+extended to shell arguments, because parsing them is the shell classifier
+this ruling removes. File tools reading the same path still taint.
+
+<a id="tainted-destinations-ask"></a>
+
+**Tainted destinations ask — 2026-11-03
+([#3430](https://github.com/schlessera/brain-kit/issues/3430)).** This
+supersedes the refusal in the implemented note above for interactive turns.
+The silent, final refusal read as an outage: the agent saw `proxy refused the
+connection` or a bare 403, the user was never asked, and the only workaround
+was a hostname-wide `taint.egress.allow`. Now, when a tainted interactive
+turn's connection passes deny, `allowlist` mode and the byte ceiling but
+matches neither `taint.egress.allow` nor a contacted host, the proxy asks
+through the turn's tool-permission card (`toolName: "Network"`, `kind:
+"command"`, never remembered as a tool grant) before refusing
+(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:148-153`). The
+card names the destination, the session's first taint source and the
+consequence of allowing it
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:35-40`).
+Concurrent connections to the same host share one card. An allowed
+connection's admission adds its host to the turn's contacted hosts, and its
+charged `egress_connection` record carries the host into the session's later
+turns, so it is not asked for again; a different host still asks
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:153-164`).
+A decline refuses: the record stays an `egress_denial` with reason
+`taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
+`packages/ui-sdk/src/server/egress-proxy.ts:81-97`). Stopping the turn while the
+card is pending cancels the connection, and a late allow admits nothing. Voice turns, which have no
+grant surface, and autonomous turns, which have no turn proxy, refuse without
+a card as before; deny and `allowlist` mode still refuse first. Maintainer
+ruling A on #3430; B (ask only for reads) and C (keep refusing with an
+after-the-fact notice) were rejected.
+
+<a id="refusals-say-why"></a>
+
+**Refusals say why — 2026-11-04
+([#3431](https://github.com/schlessera/brain-kit/issues/3431)).** A refusal
+that does not name its cause reads as an unrelated failure. A taint refusal
+reached the agent as `proxy refused the connection`. A relayed image request
+the turn proxy refused reached it as `Provider network admission refused
+(region not supported, or the org is not verified)`, and the agent blamed the
+user's OpenAI account. Every proxy refusal with a policy cause now answers
+with a status text and a body that name it: the deny list, `allowlist` mode,
+the byte ceiling, an unapproved outward host, or a tainted session's host
+outside its allow-list, with the session's first taint source and what the
+user can do (`function describeRefusal`,
+`packages/ui-sdk/src/server/egress-proxy.ts:81-97`; the source wording,
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:171`). The status
+line carries the reason because `curl -v`, `git` and `egress-connect` print
+only that line for a refused CONNECT. The provider relay passes the proxy's
+reason through as the refusal body's `error.message` and an additive
+`error.reason`, using the `egress_denial` reason words plus
+`outward_not_approved` (`const refuse`,
+`packages/ui-sdk/src/server/provider-relay.ts:386-391`). The OpenAI image
+provider no longer appends its account hint to a relay refusal
+(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:199-200`).
+A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
+section names these causes and what the user can do (`A blocked connection
+says why`, `packages/ui-sdk/src/server/system-prompt.ts:162-170`). Since #3246,
+a validated provider-relay request is never narrowed by taint, so a relay
+refusal never has the taint cause.
 
 **Files the user marks untrusted — 2026-11-02
 ([#2673](https://github.com/schlessera/brain-kit/issues/2673)).** A user can
@@ -3949,8 +4047,9 @@ first source (`fileSource`,
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked
-(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:236-242`).
-Shell reads are covered only by the Bash rules above, reads are never
+(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:244-250`).
+Shell reads are covered only by the Bash rules above, which do not apply on a
+turn behind the egress proxy (the known gap above); reads are never
 blocked, and a session that read the file before it was marked is not
 tainted retroactively.
 

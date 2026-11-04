@@ -2,7 +2,7 @@
 import type { Database } from "bun:sqlite";
 import { insertGovernanceEvent, type GovernanceEventInput, type GovernanceEventPayload, type GovernanceEventRow } from "./events.js";
 
-type TaintSource = GovernanceEventPayload<"taint">["source"];
+export type TaintSource = GovernanceEventPayload<"taint">["source"];
 export interface SessionTaint { eventId: number; source: TaintSource }
 
 const FIRST_TAINT = "SELECT id, payload FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1";

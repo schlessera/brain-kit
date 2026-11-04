@@ -262,6 +262,83 @@ describe("Persist here", () => {
   });
 });
 
+describe("Persist here: broader rule and ignore adjustment", () => {
+  function broader(root: string, action: MediaEffectRequest["action"], path: string, extra: Partial<MediaEffectRequest>) {
+    const f = finding(root, path);
+    const request: MediaEffectRequest = { id: f.id, action, expectFingerprint: f.fingerprint, ...extra };
+    return { request, preview: planMediaEffect(ctx(root), request) as MediaEffectPlan };
+  }
+
+  test("a root-level file is tracked by the basename rule it is offered, with every current match listed and approved", () => {
+    const root = brain();
+    put(root, "map.png", "map bytes, Ithaca");
+    put(root, "trips/map.png", "map bytes, Troy");
+    const { request, preview } = broader(root, "persist", "map.png", { pattern: "map.png" });
+    expect(preview.refusals).toEqual([]);
+    expect(preview, "BROADER_PLAN").toMatchObject({ scope: "pattern", pattern: "map.png", ignoreAdjust: null, resultClass: "TRACK" });
+    expect(preview.matches?.track, "BROADER_MATCHES").toMatchObject({ pattern: "map.png", anyFolder: true, count: 2, changed: 2 });
+    expect(preview.matches?.track.largest.map((m) => m.path)).toEqual(["map.png", "trips/map.png"]);
+    expect(preview.approvalDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(apply(root, request, preview), "BROADER_NEEDS_APPROVAL").toMatchObject({ status: "refused", reason: "approval-required", files: [] });
+    expect(read(root, "brain.config.json")).toBe("{}\n");
+    const result = applyMediaEffect(ctx(root), { ...request, expectPremise: preview.premiseDigest, journal: "odysseus-0002", expectApproval: preview.approvalDigest! });
+    expect(result.status, result.reason).toBe("applied");
+    expect(read(root, "brain.config.json"), "BROADER_CONFIG_BYTES").toBe('{ "media": { "track": ["map.png"] } }\n');
+    expect(read(root, "map.png")).toBe("map bytes, Ithaca");
+    // The rule covers the other current match too, and any future one.
+    expect(finding(root, "trips/map.png"), "BROADER_COVERS_MATCHES").toBeUndefined();
+    put(root, "harbour/map.png", "a later map");
+    expect(finding(root, "harbour/map.png"), "BROADER_COVERS_FUTURE").toBeUndefined();
+  });
+
+  test("a file that starts matching after the approval makes it stale, and nothing is written", () => {
+    const root = brain();
+    const { request, preview } = broader(root, "persist", LOOM, { pattern: "photos/*" });
+    expect(preview.scope).toBe("pattern");
+    put(root, "photos/suitors.png", "suitor bytes");
+    const result = applyMediaEffect(ctx(root), { ...request, expectPremise: preview.premiseDigest, journal: "odysseus-0003", expectApproval: preview.approvalDigest! });
+    expect(result, "BROADER_STALE_APPROVAL").toMatchObject({ status: "stale", reason: "stale-approval", files: [] });
+    expect(read(root, "brain.config.json")).toBe("{}\n");
+  });
+
+  test("a rule must match the file; negation and an unneeded ignore adjustment are refused", () => {
+    const root = brain();
+    const codes = (extra: Partial<MediaEffectRequest>) => broader(root, "persist", LOOM, extra).preview.refusals.map((r) => r.code);
+    expect(codes({ pattern: "places/*" }), "BROADER_MUST_MATCH").toEqual(["pattern-mismatch"]);
+    expect(codes({ pattern: "!photos/*" })).toEqual(["not-expressible"]);
+    expect(codes({ ignoreAdjust: "*.psd" })).toEqual(["ignore-adjust-unneeded"]);
+    // The exact path given as the pattern is still the exact scope, with no approval.
+    expect(broader(root, "persist", LOOM, { pattern: LOOM }).preview, "BROADER_EXACT_PATTERN").toMatchObject({ scope: "exact", approvalDigest: null, matches: null });
+    expect(broader(root, "delete", LOOM, { pattern: "photos/*" }).preview.refusals.map((r) => r.code)).toContain("pattern-unexpected");
+  });
+
+  test("a copy whose destination a broader ignore covers needs that ignore adjusted, previewed with what stops being ignored", () => {
+    const root = brain('{ "media": { "ignore": ["places/renders/*"] } }\n');
+    pin(root, SCRATCH);
+    put(root, "places/renders/ithaca-sketch.png", "sketch bytes");
+    const destination = "places/renders/harbour-dawn.jpg";
+    expect(broader(root, "keep-copy", SCRATCH, { destination }).preview.refusals, "ADJUST_REQUIRED").toEqual([{ code: "ignore-adjustment-required", path: "places/renders/*" }]);
+    const { request, preview } = broader(root, "keep-copy", SCRATCH, { destination, ignoreAdjust: "places/renders/*" });
+    expect(preview.refusals).toEqual([]);
+    expect(preview, "ADJUST_PLAN").toMatchObject({ scope: "exact", pattern: destination, ignoreAdjust: "places/renders/*" });
+    expect(preview.configDiff).toEqual({ path: "brain.config.json", track: { before: [], after: [destination] }, ignore: { before: ["places/renders/*"], after: [] } });
+    expect(preview.matches?.ignore, "ADJUST_STOPS_IGNORING").toMatchObject({ pattern: "places/renders/*", count: 1, changed: 1 });
+    expect(preview.matches?.ignore?.largest[0]).toMatchObject({ path: "places/renders/ithaca-sketch.png", before: "ARTIFACT", after: null });
+    const result = applyMediaEffect(ctx(root), { ...request, expectPremise: preview.premiseDigest, journal: "odysseus-0004", expectApproval: preview.approvalDigest! });
+    expect(result.status, result.reason).toBe("applied");
+    expect(read(root, "brain.config.json"), "ADJUST_CONFIG_BYTES").toBe(`{ "media": { "ignore": [], "track": ["${destination}"] } }\n`);
+    expect(read(root, destination)).toBe("dawn bytes");
+    expect(read(root, SCRATCH)).toBe("dawn bytes");
+  });
+
+  test("several conflicting ignore entries are refused, each named", () => {
+    const root = brain('{ "media": { "ignore": ["places/renders/*", "*.jpg"] } }\n');
+    pin(root, SCRATCH);
+    const { preview } = broader(root, "keep-copy", SCRATCH, { destination: "places/renders/harbour-dawn.jpg", ignoreAdjust: "*.jpg" });
+    expect(preview.refusals, "ADJUST_SEVERAL").toEqual([{ code: "ignore-adjustment-required", path: "places/renders/*\n*.jpg" }]);
+  });
+});
+
 describe("Keep a permanent copy", () => {
   test("copies a linked scratch original, tracks the copy, and leaves the original and its pins untouched", () => {
     const root = brain();

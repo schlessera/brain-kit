@@ -129,6 +129,7 @@ export function firstRequest(initial: RunSessionInput): QueuedFollowUp {
     text: initial.text,
     attachments: initial.attachments,
     ...(initial.files?.length ? { files: initial.files } : {}),
+    ...(initial.attachmentFiles?.length ? { attachmentFiles: initial.attachmentFiles } : {}),
     ...(initial.client ? { client: initial.client } : {}),
     ...(initial.source ? { source: initial.source } : {}),
     ...(initial.thinkingLevel !== undefined ? { thinkingLevel: initial.thinkingLevel } : {}),
@@ -178,6 +179,7 @@ export function bindRequest(slot: SessionSlot, current: QueuedFollowUp, lifecycl
   }
   turn.requestId = current.requestId;
   turn.draftRef = current.draftRef;
+  turn.attachmentFileIds = current.attachmentFiles?.map((f) => f.fileId);
   turn.work = current.work;
   return "bound";
 }

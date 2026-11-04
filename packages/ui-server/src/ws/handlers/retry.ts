@@ -1,5 +1,7 @@
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { resolveChatFiles, withTrackFiles } from "../../tracks/read.js";
+import { includesAttachments, type MessageAttachment } from "../../attachments/context.js";
+import { resolveAttachmentRefs } from "../../attachments/resolve.js";
 import { handleChatMessage } from "../run-session.js";
 import type { ClientMessageHandler } from "./context.js";
 
@@ -40,18 +42,25 @@ export const handleRetryTurn: ClientMessageHandler<"retry_turn"> = async ({ host
     }
     const original = catalog.peekRetry?.(msg.sessionId);
     let files: SharedFileMeta[] | undefined;
-    if (original?.request.files?.length && original.turnId === msg.failedTurnId && original.principalId === connection.authorization.principalId) {
+    let attachmentFiles: MessageAttachment[] | undefined;
+    if ((original?.request.files?.length || original?.request.attachmentRefs?.length) && original.turnId === msg.failedTurnId && original.principalId === connection.authorization.principalId) {
       try {
         files = await resolveChatFiles(host.brainPath, original.request.files);
-        if (!original.prompt.includes(withTrackFiles("", files))) { await refuse("An original track changed. Start a new message with the current file instead."); return; }
-      } catch { await refuse("An original track is unavailable. Attach it again in a new message."); return; }
+        if (files.length && !original.prompt.includes(withTrackFiles("", files))) { await refuse("An original track changed. Start a new message with the current file instead."); return; }
+        // A retry has no draft: its originals must already belong to a message of this session.
+        attachmentFiles = await resolveAttachmentRefs(host.brainPath, host.drafts ?? undefined, original.request.attachmentRefs,
+          { sessionId: msg.sessionId }, original.request.attachments ?? []);
+        if (attachmentFiles.length && !includesAttachments(original.prompt, attachmentFiles)) {
+          await refuse("An attached original changed. Start a new message with the current file instead."); return;
+        }
+      } catch { await refuse("An original file is unavailable. Attach it again in a new message."); return; }
       if (!connection.authorization.valid) return;
       // File reads yield; repeat admission before consuming eligibility.
       if (coordinator.bySession.has(msg.sessionId) || coordinator.startingBySession.has(msg.sessionId) || coordinator.activeRuns() >= host.maxConcurrentSessions()) {
         await refuse("The session or server became busy. Try again when it is free."); return;
       }
     }
-    const reserved = await catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId, files ? original!.prompt : undefined);
+    const reserved = await catalog.reserveRetry?.(msg.sessionId, msg.failedTurnId, msg.requestId, connection.authorization.principalId, files || attachmentFiles ? original!.prompt : undefined);
     if (!reserved) { await refuse("This server cannot retain the original request for Retry."); return; }
     host.sendMessage(ws, { ...reserved.receipt, ...(reserved.request ? {
       ...(files?.length ? { files } : {}),
@@ -64,7 +73,7 @@ export const handleRetryTurn: ClientMessageHandler<"retry_turn"> = async ({ host
         ...reserved.request, authorization: connection.authorization,
         requestId: msg.requestId,
         attachments: reserved.request.attachments ?? [],
-        files, replayPrompt: reserved.prompt, isRetry: true,
+        files, ...(attachmentFiles?.length ? { attachmentFiles } : {}), replayPrompt: reserved.prompt, isRetry: true,
       });
     }
   } catch {

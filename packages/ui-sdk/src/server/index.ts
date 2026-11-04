@@ -146,6 +146,8 @@ export {
 // docs/decisions/backend-authoring-toolkit.md for the inventory.
 export {
   handleApifyTool,
+  formatAttachmentRead,
+  handleReadAttachment,
   handleAskUser,
   handleAskUserForm,
   handleAskUserList,

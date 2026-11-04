@@ -43,7 +43,9 @@ const commandFlags: Record<string, Record<string, string>> = {
     // #2780: sent only to leave a media finding pending, which only this release reports.
     "--defer": "0.45.0",
     // #2781: media effect destinations, apply premise and journal identity; a kept copy's identity (#2780).
-    "--to": "0.45.0", "--expect-premise": "0.45.0", "--journal": "0.45.0", "--copy": "0.45.0", "--copy-sha256": "0.45.0" },
+    "--to": "0.45.0", "--expect-premise": "0.45.0", "--journal": "0.45.0", "--copy": "0.45.0", "--copy-sha256": "0.45.0",
+    // #2781: Persist here by a broader rule, the one broader ignore it adjusts, and the approval it binds.
+    "--pattern": "0.45.0", "--ignore-adjust": "0.45.0", "--expect-approval": "0.45.0" },
 };
 /**
  * Commands and flags gated by a feature floor above the baseline: never sent
@@ -196,7 +198,7 @@ function inventory() {
       if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "hygiene") {
         // All dynamic hygiene argv must pass through the scanned cli wrapper.
         expect(path).toBe(resolve(root, "packages/ui-server/src/inbox/hygiene-review.ts"));
-        expect(scope(node).getText()).toContain("async function cli(args: string[])");
+        expect(scope(node).getText()).toContain("async function cli(args: string[], signal?: AbortSignal)");
         expect(node.arguments[0]?.getText()).toBe("args");
       }
       if (call === "probeVersionCommand") {

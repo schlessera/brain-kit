@@ -277,7 +277,9 @@ signatures (every public export and the types it is made of)
     }
   BrainClient (packages/ui-server/src/brain/client.ts)
     export interface BrainClient {
-        hygiene?(args: readonly string[]): Promise<unknown>;
+        hygiene?(args: readonly string[], opts?: {
+            signal?: AbortSignal;
+        }): Promise<unknown>;
         cliCommand(): string[];
         modules?(opts?: {
             signal?: AbortSignal;
@@ -1033,6 +1035,7 @@ signatures (every public export and the types it is made of)
                 detail: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
                     apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
@@ -1365,6 +1368,10 @@ signatures (every public export and the types it is made of)
     export interface MaintenanceTempDomain {
         statePath: string;
     }
+  MessageAttachment (packages/ui-server/src/attachments/context.ts)
+    export type MessageAttachment = AttachmentFile & {
+        inline?: boolean;
+    };
   MetricPoint (packages/ui-server/src/observability/types.ts)
     export interface MetricPoint {
         name: string;
@@ -1837,6 +1844,7 @@ signatures (every public export and the types it is made of)
         sourceCommit: string;
         allowedOrigins: string[];
         maxConcurrentSessions: number;
+        attachmentPoolBytes: number;
         turnTimeoutMs: number | null;
         logLevel: Severity;
         wsRate: {
@@ -1910,12 +1918,13 @@ signatures (every public export and the types it is made of)
         retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
         attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string): void;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string): void;
         persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
         recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
             thinkingLevel?: ThinkingLevel;
             turnId: string;
             files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+            attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
         }): void;
         recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
         attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
@@ -2285,6 +2294,7 @@ signatures (every public export and the types it is made of)
   createChatDeletion (packages/ui-server/src/ws/chat-deletion.ts)
     export function createChatDeletion(deps: ChatDeletionDeps): {
         delete(input: Omit<RetireChatInput, "at" | "removableBackends">): Promise<ChatDeletionResult>;
+        read(operationId: string, principalId: string): Promise<ChatDeletionReceipt | null>;
         reconcile(): Promise<void>;
     };
   createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)

@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import type { Database } from "bun:sqlite";
 import {
   ALLOWED_IMAGE_MEDIA_TYPES,
+  ATTACHMENT_MAX_FILES,
+  ATTACHMENT_MAX_FILE_BYTES,
+  ATTACHMENT_MAX_TOTAL_BYTES,
+  ATTACHMENT_POOL_DEFAULT_BYTES,
+  type AttachmentErrorResponse,
+  type AttachmentFile,
+  type DraftOutgoing,
   DRAFT_PREVIEW_CHARS,
   MAX_IMAGE_BYTES,
   MAX_IMAGES_PER_MESSAGE,
@@ -19,6 +26,10 @@ import {
 } from "@schlessera/brain-ui-sdk/protocol";
 
 import { createDraftWrites } from "./writes.js";
+import {
+  addRef, draftEnvelope, draftReferencedBytes, FILE_ID, forgetDeleted, hasAnyRef, insertAttachment, insertAttachmentRead, listAttachmentReads, markForDeletion,
+  poolCharged, readAttachment, readAttachments, setRefs, toAttachmentFile, type NewAttachment,
+} from "../attachments/store.js";
 import type { SqliteWriter } from "../db/write-worker.js";
 
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
@@ -45,7 +56,7 @@ export type DraftImageType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
 /** A refusal with its HTTP status and typed body. */
 export class DraftError extends Error {
   readonly bodyJson: string;
-  constructor(readonly status: 400 | 404 | 409 | 410 | 413 | 428 | 507, readonly body: DraftErrorResponse) {
+  constructor(readonly status: 400 | 404 | 409 | 410 | 413 | 428 | 507, readonly body: DraftErrorResponse | AttachmentErrorResponse) {
     super(body.message);
     this.name = "DraftError";
     this.bodyJson = JSON.stringify(body);
@@ -76,7 +87,29 @@ interface SaveDraftInput {
   sessionId: string | null;
   text: string;
   attachmentIds: string[];
+  /** File originals this revision binds (#3153). Absent binds none. */
+  fileIds?: string[];
+  /** Set, clear (null) or keep (absent) the outgoing snapshot (#3153). */
+  outgoing?: DraftOutgoing | null;
 }
+
+interface ReserveAttachmentInput {
+  /** The declared length, or the per-file maximum when none was declared. */
+  bytes: number;
+  /** This server process; reservations of another instance are discarded at boot. */
+  instanceId: string;
+}
+
+interface CommitAttachmentInput {
+  reservationId: string;
+  idempotencyKey: string;
+  /** sha256(draftId, nameHint, mediaHint, bytes), computed by the route. */
+  fingerprint: string;
+  file: NewAttachment;
+}
+
+/** A committed upload, or the earlier file the same key and request stored. */
+interface CommitAttachmentResult { file: AttachmentFile; replay: boolean }
 
 interface UploadDraftAttachmentInput {
   idempotencyKey: string;
@@ -95,6 +128,12 @@ interface AcceptDraftInput {
   sourceSessionId?: string;
   requestId?: string;
   principalId: string;
+  /**
+   * Composer originals the accepted message named (#3153). Each gets a
+   * `message` reference for the session, in the same transaction and before
+   * the draft revision is consumed.
+   */
+  fileIds?: string[];
 }
 
 /** What an accepted chat message did to the draft it named. */
@@ -116,6 +155,39 @@ export interface DraftStore {
    * also recorded, so `bind` can later attach newer edits to that session.
    */
   accept(input: AcceptDraftInput): DraftAcceptOutcome;
+
+  // --- Composer originals (#3153) ---
+  /** Reserve pool room for one upload before its bytes are streamed. */
+  reserveAttachment(principalId: string, draftId: string, input: ReserveAttachmentInput): { reservationId: string };
+  /** Record a published original against its reservation, or replay the key's earlier file. */
+  commitAttachment(principalId: string, draftId: string, input: CommitAttachmentInput): CommitAttachmentResult;
+  releaseReservation(reservationId: string): void;
+  /** Boot: drop reservations another server instance left behind. */
+  discardReservations(instanceId: string): void;
+  /** Sweep step 1: mark eligible unreferenced files `deleting` and return them. */
+  sweepMark(): Array<{ fileId: string; state: "deleting" | "missing" }>;
+  /** Sweep step 2: forget files whose directories are gone. */
+  sweepForget(fileIds: string[]): void;
+  /** Boot: rows whose directory is gone become `missing`. */
+  markMissing(fileIds: string[]): void;
+  /** Boot: adopt a directory with no row as formerly referenced, charged, with a fresh seven-day clock. */
+  adoptOrphan(file: NewAttachment): void;
+  /** Remove a deleted chat's `message` references, starting their seven-day clocks, and its read records. */
+  releaseSession(sessionId: string): void;
+  /** Record one `read_attachment` call (#3154): UI and internal data, never provider context. */
+  recordAttachmentRead(read: import("../attachments/store.js").AttachmentReadRecord): void;
+  /** Read side: one session's recorded attachment reads, oldest first. */
+  attachmentReads(sessionId: string): Array<import("../attachments/store.js").AttachmentReadRecord & { at: number }>;
+  /** Read side: recorded originals by id (any state). */
+  attachments(fileIds: readonly string[]): Map<string, import("../attachments/store.js").AttachmentRow>;
+  /** Read side: whether `fileId` has a reference of this owner. */
+  attachmentRef(fileId: string, owner: import("../attachments/store.js").AttachmentOwner, ownerId: string): boolean;
+  /** Read side: whether any reference protects `fileId`. */
+  attachmentReferenced(fileId: string): boolean;
+  /** Read side: every recorded file id and state, for boot reconciliation. */
+  attachmentInventory(): Array<{ fileId: string; state: string }>;
+  /** The configured attachment pool, in bytes. */
+  readonly attachmentPoolBytes: number;
 }
 
 interface DraftRow {
@@ -124,6 +196,8 @@ interface DraftRow {
   revision: number;
   text: string;
   attachment_ids: string;
+  file_ids: string;
+  outgoing_json: string | null;
   updated_at: number;
   deleted_at: number | null;
 }
@@ -185,11 +259,17 @@ function deleted(row: DraftRow): DraftError {
   });
 }
 
-type DraftWrite = "save" | "upload" | "remove" | "bind" | "accept";
+export type DraftWrite = "save" | "upload" | "remove" | "bind" | "accept" | "reserveAttachment" | "commitAttachment" | "releaseReservation"
+  | "discardReservations" | "sweepMark" | "sweepForget" | "markMissing" | "adoptOrphan" | "releaseSession" | "recordAttachmentRead";
 export type AwaitableDraftStore = Omit<DraftStore, DraftWrite> & {
   [K in DraftWrite]: (...args: Parameters<DraftStore[K]>) => ReturnType<DraftStore[K]> | Promise<ReturnType<DraftStore[K]>>;
 } & { settled?(): Promise<void> };
-export interface DraftStoreOptions { now?: () => number; limits?: Partial<SessionDraftLimits> }
+export interface DraftStoreOptions {
+  now?: () => number;
+  limits?: Partial<SessionDraftLimits>;
+  /** The host attachment pool (`BRAIN_UI_ATTACHMENT_POOL_BYTES`); defaults to 1 GiB. */
+  attachmentPoolBytes?: number;
+}
 
 export function createDraftStore(db: Database, options?: DraftStoreOptions): DraftStore;
 export function createDraftStore(db: Database, options: DraftStoreOptions, writer: SqliteWriter): AwaitableDraftStore;
@@ -201,9 +281,13 @@ export function createDraftStore(
   if (writer) return createDraftWrites(db, options, writer);
   const now = options.now ?? Date.now;
   const limits: Readonly<SessionDraftLimits> = Object.freeze({ ...SESSION_DRAFT_LIMITS, ...options.limits });
+  const poolBytes = options.attachmentPoolBytes ?? ATTACHMENT_POOL_DEFAULT_BYTES;
+  const maxFiles = limits.maxDraftFiles ?? ATTACHMENT_MAX_FILES;
+  const maxFileBytes = limits.maxDraftFileBytes ?? ATTACHMENT_MAX_FILE_BYTES;
+  const maxFilesBytes = limits.maxDraftFilesBytes ?? ATTACHMENT_MAX_TOTAL_BYTES;
 
   const selectDraft = db.prepare(
-    "SELECT draft_id, session_id, revision, text, attachment_ids, updated_at, deleted_at FROM session_drafts WHERE draft_id = ?"
+    "SELECT draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_json, updated_at, deleted_at FROM session_drafts WHERE draft_id = ?"
   );
   const selectAttachments = db.prepare(
     "SELECT attachment_id, mime, name, bytes, size_bytes, attached FROM session_draft_attachments WHERE draft_id = ?"
@@ -229,11 +313,25 @@ export function createDraftStore(
     return JSON.parse(row.attachment_ids) as string[];
   }
 
+  function fileIdsOf(row: DraftRow): string[] {
+    return JSON.parse(row.file_ids) as string[];
+  }
+
+  function outgoingOf(row: DraftRow): DraftOutgoing | null {
+    return row.outgoing_json ? JSON.parse(row.outgoing_json) as DraftOutgoing : null;
+  }
+
   function toDraft(row: DraftRow): Draft {
     const stored = new Map(
       (selectAttachments.all(row.draft_id) as AttachmentRow[]).map((a) => [a.attachment_id, a])
     );
+    const fileIds = fileIdsOf(row);
+    const outgoing = outgoingOf(row);
+    const files = readAttachments(db, fileIds);
     return {
+      // Only files the revision still binds and that exist: a saved claim is never invented.
+      ...(fileIds.length ? { files: fileIds.flatMap((id) => { const f = files.get(id); return f && f.state === "stored" ? [toAttachmentFile(f)] : []; }) } : {}),
+      ...(outgoing ? { outgoing } : {}),
       draftId: row.draft_id,
       sessionId: row.session_id,
       revision: row.revision,
@@ -266,7 +364,50 @@ export function createDraftStore(
          (SELECT COALESCE(SUM(length(CAST(text AS BLOB))), 0) FROM session_drafts WHERE deleted_at IS NULL)
        + (SELECT COALESCE(SUM(size_bytes), 0) FROM session_draft_attachments) AS total`
     ).get() as { total: number };
-    return row.total;
+    return row.total + draftReferencedBytes(db);
+  }
+
+  function poolFull(limit = poolBytes): DraftError {
+    return new DraftError(507, { error: "ATTACHMENT_CAPACITY", message: "This host's attachment space is full. Nothing was removed to make room.", limit, bound: "pool" });
+  }
+
+  function attachmentInvalid(message: string): DraftError {
+    return new DraftError(400, { error: "ATTACHMENT_INVALID", message });
+  }
+
+  /**
+   * Check a list of file ids a save names: each exists, is `stored`, was
+   * minted for this draft (its lineage) and is listed once; the list fits the
+   * per-draft envelope together with `imageCount` legacy images of
+   * `imageBytes`. Returns the files' original bytes.
+   */
+  function checkFiles(draftId: string, fileIds: readonly string[], imageCount: number, imageBytes: number): number {
+    if (new Set(fileIds).size !== fileIds.length) throw attachmentInvalid("A file is listed twice.");
+    if (fileIds.length + imageCount > maxFiles) {
+      throw new DraftError(413, { error: "DRAFT_TOO_LARGE", message: `Up to ${maxFiles} attachments per message.`, limit: maxFiles, bound: "draftCount" });
+    }
+    const rows = readAttachments(db, fileIds);
+    let bytes = 0;
+    for (const id of fileIds) {
+      const file = rows.get(id);
+      if (!file || file.draft_id !== draftId) throw attachmentInvalid("A file is not stored for this draft; upload it again.");
+      if (file.state !== "stored") throw attachmentInvalid("A file is no longer available; upload it again.");
+      bytes += file.bytes;
+    }
+    if (bytes + imageBytes > maxFilesBytes) {
+      throw new DraftError(413, { error: "DRAFT_TOO_LARGE", message: "These attachments are too large together.", limit: maxFilesBytes, bound: "draftFiles" });
+    }
+    return bytes;
+  }
+
+  /** Bytes of distinct files that would newly count against the draft sub-limit. */
+  function newlyReferencedBytes(fileIds: readonly string[], draftId: string): number {
+    let bytes = 0;
+    for (const [id, file] of readAttachments(db, [...new Set(fileIds)])) {
+      const held = db.query("SELECT 1 FROM attachment_refs WHERE file_id = ? AND owner IN ('draft', 'outgoing') AND owner_id = ?").get(id, draftId);
+      if (!held && !db.query("SELECT 1 FROM attachment_refs WHERE file_id = ? AND owner IN ('draft', 'outgoing')").get(id)) bytes += file.bytes;
+    }
+    return bytes;
   }
 
   function receipt(draftId: string, operation: "save" | "attachment", key: string, fingerprint: string): unknown | undefined {
@@ -298,16 +439,22 @@ export function createDraftStore(
          updated_at = ?, updated_by = ?, deleted_at = ?, deleted_reason = ? WHERE draft_id = ?`
     ).run(row.revision + 1, at, principalId, at, reason, row.draft_id);
     db.prepare("DELETE FROM session_draft_attachments WHERE draft_id = ?").run(row.draft_id);
+    // The draft's own bindings go; a message reference written by an
+    // acceptance keeps protecting what was sent.
+    setRefs(db, "draft", row.draft_id, [], at);
+    setRefs(db, "outgoing", row.draft_id, [], at);
+    db.prepare("UPDATE session_drafts SET file_ids = '[]', outgoing_json = NULL WHERE draft_id = ?").run(row.draft_id);
   }
 
   return {
     limits,
+    attachmentPoolBytes: poolBytes,
 
     list(principalId) {
       return db.transaction(() => {
         authorize(principalId);
         const rows = db.query(
-          `SELECT draft_id, session_id, revision, text, attachment_ids, updated_at, deleted_at FROM session_drafts
+          `SELECT draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_json, updated_at, deleted_at FROM session_drafts
            WHERE deleted_at IS NULL AND (session_id IS NULL OR session_id NOT IN (SELECT id FROM chat_retired_identities WHERE kind = 'session'))
            ORDER BY updated_at DESC, draft_id ASC LIMIT ?`
         ).all(limits.maxDrafts) as DraftRow[];
@@ -318,6 +465,7 @@ export function createDraftStore(
           updatedAt: row.updated_at,
           preview: draftPreview(row.text),
           attachmentCount: attachmentIdsOf(row).length,
+          ...(fileIdsOf(row).length ? { fileCount: fileIdsOf(row).length } : {}),
         }));
         return { drafts };
       })();
@@ -339,7 +487,12 @@ export function createDraftStore(
         authorize(principalId);
         sweepPending(at);
         refuseRetired(input.sessionId);
-        const fingerprint = sha256("save", String(input.ifMatch), JSON.stringify([input.sessionId, input.text, input.attachmentIds]));
+        const fileIds = input.fileIds ?? [];
+        // Older requests keep their exact fingerprint; file fields join it only when sent.
+        const fingerprint = sha256("save", String(input.ifMatch), JSON.stringify(
+          input.fileIds === undefined && input.outgoing === undefined
+            ? [input.sessionId, input.text, input.attachmentIds]
+            : [input.sessionId, input.text, input.attachmentIds, fileIds, input.outgoing ?? null, input.outgoing === undefined]));
         const replay = receipt(draftId, "save", input.idempotencyKey, fingerprint);
         if (replay !== undefined) return replay as DraftSaveResponse;
 
@@ -350,7 +503,8 @@ export function createDraftStore(
         // Binding is its own proven operation; a save cannot move a draft.
         if (row && input.sessionId !== row.session_id) throw conflict(row);
 
-        if (input.text.length === 0 && input.attachmentIds.length === 0) {
+        const outgoing = input.outgoing === undefined ? (row ? outgoingOf(row) : null) : input.outgoing;
+        if (input.text.length === 0 && input.attachmentIds.length === 0 && fileIds.length === 0 && !outgoing) {
           throw invalid("An empty draft is deleted, not saved.");
         }
         const textBytes = utf8Bytes(input.text);
@@ -376,6 +530,14 @@ export function createDraftStore(
         if (textBytes + imageBytes > limits.maxDraftBytes) {
           throw new DraftError(413, { error: "DRAFT_TOO_LARGE", message: "This draft is too large.", limit: limits.maxDraftBytes, bound: "draft" });
         }
+        // File originals have their own envelope; the old draft ceiling bounds only text and inline images.
+        checkFiles(draftId, fileIds, input.attachmentIds.length, imageBytes);
+        if (outgoing && input.outgoing !== undefined) {
+          if (utf8Bytes(outgoing.text) > limits.maxTextBytes) {
+            throw new DraftError(413, { error: "DRAFT_TOO_LARGE", message: "Draft text is too large.", limit: limits.maxTextBytes, bound: "text" });
+          }
+          checkFiles(draftId, outgoing.fileIds, 0, 0);
+        }
         if (!row) {
           const live = (db.query("SELECT COUNT(*) AS n FROM session_drafts WHERE deleted_at IS NULL").get() as { n: number }).n;
           if (live >= limits.maxDrafts) {
@@ -390,7 +552,10 @@ export function createDraftStore(
         for (const attachment of stored.values()) {
           if (attachment.attached === 1 && !keep.has(attachment.attachment_id)) droppedBytes += attachment.size_bytes;
         }
-        const growth = textBytes - previousTextBytes - droppedBytes;
+        // Files are charged to the draft sub-limit once, by whichever live
+        // draft or snapshot references them; only newly bound ones grow it.
+        const growth = textBytes - previousTextBytes - droppedBytes
+          + newlyReferencedBytes([...fileIds, ...(outgoing?.fileIds ?? [])], draftId);
         if (growth > 0 && totalBytes() + growth > limits.maxTotalBytes) {
           throw new DraftError(507, { error: "DRAFT_CAPACITY", message: "This host's draft storage is full.", limit: limits.maxTotalBytes, bound: "total" });
         }
@@ -399,14 +564,19 @@ export function createDraftStore(
         const ids = JSON.stringify(input.attachmentIds);
         if (row) {
           db.prepare(
-            "UPDATE session_drafts SET revision = ?, text = ?, attachment_ids = ?, size_bytes = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?"
-          ).run(revision, input.text, ids, textBytes + imageBytes, at, principalId, draftId);
+            "UPDATE session_drafts SET revision = ?, text = ?, attachment_ids = ?, file_ids = ?, outgoing_json = ?, size_bytes = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?"
+          ).run(revision, input.text, ids, JSON.stringify(fileIds), outgoing ? JSON.stringify(outgoing) : null, textBytes + imageBytes, at, principalId, draftId);
         } else {
           db.prepare(
-            `INSERT INTO session_drafts (draft_id, session_id, revision, text, attachment_ids, size_bytes, created_at, created_by, updated_at, updated_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(draftId, input.sessionId, revision, input.text, ids, textBytes + imageBytes, at, principalId, at, principalId);
+            `INSERT INTO session_drafts (draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_json, size_bytes, created_at, created_by, updated_at, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(draftId, input.sessionId, revision, input.text, ids, JSON.stringify(fileIds), outgoing ? JSON.stringify(outgoing) : null, textBytes + imageBytes, at, principalId, at, principalId);
         }
+        // Exactly this revision's bindings; the outgoing snapshot owns its own.
+        // Insert before removal so a file moving between them never looks unreferenced.
+        for (const id of outgoing?.fileIds ?? []) addRef(db, id, "outgoing", draftId, at);
+        setRefs(db, "draft", draftId, fileIds, at);
+        setRefs(db, "outgoing", draftId, outgoing?.fileIds ?? [], at);
         // An image the previous revision listed and this one dropped is gone;
         // an upload no revision has listed yet waits for its own save.
         for (const attachment of stored.values()) {
@@ -452,6 +622,10 @@ export function createDraftStore(
         }
         if (totalBytes() + input.bytes.byteLength > limits.maxTotalBytes) {
           throw new DraftError(507, { error: "DRAFT_CAPACITY", message: "This host's draft storage is full.", limit: limits.maxTotalBytes, bound: "total" });
+        }
+        // Legacy draft images are charged to the attachment pool too.
+        if (poolCharged(db) + input.bytes.byteLength > poolBytes) {
+          throw new DraftError(507, { error: "DRAFT_CAPACITY", message: "This host's attachment space is full.", limit: poolBytes, bound: "total" });
         }
         const attachmentId = crypto.randomUUID();
         db.prepare(
@@ -512,6 +686,18 @@ export function createDraftStore(
         try { authorize(input.principalId); }
         catch (error) { if (error instanceof DraftAuthError) return "unauthorized"; throw error; }
         const { draftId, revision } = input.draftRef;
+        // The message reference is written before anything of the draft goes,
+        // so an accepted send never leaves its originals unprotected. Lineage
+        // limits it to files minted for this draft.
+        for (const [id, file] of readAttachments(db, [...new Set(input.fileIds ?? [])])) {
+          if (file.draft_id === draftId && file.state === "stored") addRef(db, id, "message", input.sessionId, at);
+        }
+        const settled = readDraft(draftId);
+        const snapshot = settled ? outgoingOf(settled) : null;
+        if (settled && snapshot && input.requestId && snapshot.requestId === input.requestId) {
+          setRefs(db, "outgoing", draftId, [], at);
+          db.prepare("UPDATE session_drafts SET outgoing_json = NULL WHERE draft_id = ?").run(draftId);
+        }
         if (!input.resumed && input.requestId) {
           db.prepare(
             `INSERT OR IGNORE INTO session_draft_sends (draft_id, request_id, session_id, revision, principal_id, accepted_at)
@@ -538,6 +724,142 @@ export function createDraftStore(
         tombstone(row, "sent", input.principalId, at);
         return "consumed";
       }).immediate();
+    },
+
+    reserveAttachment(principalId, draftId, input) {
+      return db.transaction((): { reservationId: string } => {
+        const at = now();
+        authorize(principalId);
+        const row = readDraft(draftId);
+        if (row?.deleted_at != null) throw deleted(row);
+        const envelope = draftEnvelope(db, draftId, at);
+        if (envelope.count >= maxFiles) {
+          throw new DraftError(413, { error: "ATTACHMENT_TOO_LARGE", message: `Up to ${maxFiles} attachments per message.`, limit: maxFiles, bound: "draftCount" });
+        }
+        // Checked against what is charged and reserved now, inside one
+        // immediate transaction: concurrent uploads cannot multiply the cap.
+        if (poolCharged(db) + input.bytes > poolBytes) throw poolFull();
+        const reservationId = crypto.randomUUID();
+        db.prepare("INSERT INTO attachment_reservations (reservation_id, bytes, instance_id, draft_id, created_at) VALUES (?, ?, ?, ?, ?)")
+          .run(reservationId, input.bytes, input.instanceId, draftId, at);
+        return { reservationId };
+      }).immediate();
+    },
+
+    commitAttachment(principalId, draftId, input) {
+      return db.transaction((): CommitAttachmentResult => {
+        const at = now();
+        authorize(principalId);
+        const reservation = db.query("SELECT bytes FROM attachment_reservations WHERE reservation_id = ?").get(input.reservationId) as { bytes: number } | null;
+        const release = () => db.prepare("DELETE FROM attachment_reservations WHERE reservation_id = ?").run(input.reservationId);
+        const receiptRow = db.query("SELECT fingerprint, file_id FROM attachment_receipts WHERE draft_id = ? AND idempotency_key = ?")
+          .get(draftId, input.idempotencyKey) as { fingerprint: string; file_id: string } | null;
+        if (receiptRow) {
+          if (receiptRow.fingerprint !== input.fingerprint) {
+            release();
+            throw new DraftError(409, { error: "ATTACHMENT_KEY_REUSED", message: "This Idempotency-Key was used for a different upload." });
+          }
+          const earlier = readAttachment(db, receiptRow.file_id);
+          if (earlier && earlier.state === "stored") { release(); return { file: toAttachmentFile(earlier), replay: true }; }
+          // The earlier file is gone: its receipt must not acknowledge it. Store afresh.
+          db.prepare("DELETE FROM attachment_receipts WHERE draft_id = ? AND idempotency_key = ?").run(draftId, input.idempotencyKey);
+        }
+        const row = readDraft(draftId);
+        if (row?.deleted_at != null) { release(); throw deleted(row); }
+        if (!reservation) throw attachmentInvalid("The upload's reservation is gone; upload it again.");
+        if (!FILE_ID.test(input.file.fileId) || input.file.bytes <= 0) { release(); throw attachmentInvalid("The file is empty."); }
+        if (input.file.bytes > maxFileBytes) {
+          release();
+          throw new DraftError(413, { error: "ATTACHMENT_TOO_LARGE", message: "Files can be up to 25 MB each.", limit: maxFileBytes, bound: "file" });
+        }
+        const envelope = draftEnvelope(db, draftId, at);
+        if (envelope.count >= maxFiles) {
+          release();
+          throw new DraftError(413, { error: "ATTACHMENT_TOO_LARGE", message: `Up to ${maxFiles} attachments per message.`, limit: maxFiles, bound: "draftCount" });
+        }
+        if (envelope.bytes + input.file.bytes > maxFilesBytes) {
+          release();
+          throw new DraftError(413, { error: "ATTACHMENT_TOO_LARGE", message: "These attachments are too large together.", limit: maxFilesBytes, bound: "draftFiles" });
+        }
+        // The real size replaces the reservation; it may be larger than declared.
+        if (poolCharged(db) - reservation.bytes + input.file.bytes > poolBytes) { release(); throw poolFull(); }
+        release();
+        insertAttachment(db, draftId, input.file, principalId, at);
+        db.prepare("INSERT INTO attachment_receipts (draft_id, idempotency_key, fingerprint, file_id, created_at) VALUES (?, ?, ?, ?, ?)")
+          .run(draftId, input.idempotencyKey, input.fingerprint, input.file.fileId, at);
+        db.prepare(
+          `DELETE FROM attachment_receipts WHERE draft_id = ?1 AND idempotency_key NOT IN (
+             SELECT idempotency_key FROM attachment_receipts WHERE draft_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ${RECEIPTS_PER_DRAFT})`
+        ).run(draftId);
+        return { file: toAttachmentFile(readAttachment(db, input.file.fileId)!), replay: false };
+      }).immediate();
+    },
+
+    releaseReservation(reservationId) {
+      db.prepare("DELETE FROM attachment_reservations WHERE reservation_id = ?").run(reservationId);
+    },
+
+    discardReservations(instanceId) {
+      db.prepare("DELETE FROM attachment_reservations WHERE instance_id <> ?").run(instanceId);
+    },
+
+    sweepMark() {
+      return db.transaction(() => markForDeletion(db, now())).immediate();
+    },
+
+    sweepForget(fileIds) {
+      db.transaction(() => forgetDeleted(db, fileIds)).immediate();
+    },
+
+    markMissing(fileIds) {
+      db.transaction(() => {
+        for (const id of fileIds) db.prepare("UPDATE attachment_files SET state = 'missing' WHERE file_id = ? AND state = 'stored'").run(id);
+      }).immediate();
+    },
+
+    adoptOrphan(file) {
+      db.transaction(() => {
+        const at = now();
+        if (readAttachment(db, file.fileId)) return;
+        insertAttachment(db, "", file, "host", at);
+        db.prepare("UPDATE attachment_files SET ever_referenced = 1, unreferenced_since = ? WHERE file_id = ?").run(at, file.fileId);
+      }).immediate();
+    },
+
+    releaseSession(sessionId) {
+      db.transaction(() => {
+        const at = now();
+        const ids = (db.query("SELECT file_id FROM attachment_refs WHERE owner = 'message' AND owner_id = ?").all(sessionId) as { file_id: string }[]).map((r) => r.file_id);
+        for (const id of ids) {
+          db.prepare("DELETE FROM attachment_refs WHERE file_id = ? AND owner = 'message' AND owner_id = ?").run(id, sessionId);
+          if (!hasAnyRef(db, id)) db.prepare("UPDATE attachment_files SET unreferenced_since = ? WHERE file_id = ?").run(at, id);
+        }
+        db.prepare("DELETE FROM attachment_reads WHERE session_id = ?").run(sessionId);
+      }).immediate();
+    },
+
+    recordAttachmentRead(read) {
+      db.transaction(() => insertAttachmentRead(db, read, now())).immediate();
+    },
+
+    attachmentReads(sessionId) {
+      return listAttachmentReads(db, sessionId);
+    },
+
+    attachments(fileIds) {
+      return readAttachments(db, fileIds);
+    },
+
+    attachmentRef(fileId, owner, ownerId) {
+      return db.query("SELECT 1 FROM attachment_refs WHERE file_id = ? AND owner = ? AND owner_id = ?").get(fileId, owner, ownerId) !== null;
+    },
+
+    attachmentReferenced(fileId) {
+      return hasAnyRef(db, fileId);
+    },
+
+    attachmentInventory() {
+      return (db.query("SELECT file_id AS fileId, state FROM attachment_files").all() as Array<{ fileId: string; state: string }>);
     },
   };
 }

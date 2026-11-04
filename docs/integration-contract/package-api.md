@@ -131,6 +131,18 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="reading-a-chat-deletions-outcome-additive-3455"></a>
+
+## Reading a chat deletion's outcome (additive, #3455)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ChatDeletionNotAdmitted`, the 404 body of
+`GET /api/chat-deletions/:operationId` when nothing is retired under that
+operation for the caller. In `@schlessera/brain-ui-server`, the chat deletion
+service gains `read(operationId, principalId)`, which returns the caller's
+current receipt or null and never admits or cleans up. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
+
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ## Explicit chat deletion (additive, #3230)
@@ -148,6 +160,18 @@ gains optional `chatDeletion` and the session catalog optional `cleanChatStore` 
 `unfinishedChatRetirements`, host wiring reachable from its exports. Semantics are in the
 [HTTP](../http-api.md#explicit-chat-deletion-additive-3230) and
 [wire](wire.md#explicit-chat-deletion-additive-3230) components.
+
+<a id="typed-chat-owner-bindings-additive-3337"></a>
+
+## Typed chat owner bindings (additive, #3337)
+
+In `@schlessera/brain-ui-server`, the session catalog's `persistSessionStub`
+takes an optional fifth argument, `ownerPrincipalId`. The bridge passes it only
+when an authenticated typed request created the session. The catalog records it
+as the chat's content-free owner binding only if that call creates the
+session's row. A custom catalog that ignores the argument keeps today's
+behaviour, so typed-only chats stay undeletable. Semantics are in the
+[HTTP](../http-api.md#explicit-chat-deletion-additive-3230) component.
 
 ## Native history removal (additive, #3229)
 
@@ -212,6 +236,41 @@ control. Both are plain inert text, wrapped anywhere and never parsed. An
 omitted prop or state keeps every existing file default, meaning, state
 machine, focus and announcement. The kit has no finding-kind prop: callers
 choose the copy from the action and outcome they hold.
+
+## Composer file attachments (additive, 0.45.0, #3153)
+
+`@schlessera/brain-ui-sdk/protocol` exports the composer-file constants and
+types and `@schlessera/brain-ui-sdk/schemas` the `attachmentFileSchema` and
+`attachmentLimitsSchema` validators listed in
+[the wire component](wire.md#composer-file-attachments-additive-0450-3153).
+`SessionDraftLimits`, `DraftSummary`, `Draft`, `DraftSaveRequest`,
+`ChatImageAttachment`, `ClientChatMessage`, `ServerHello` and
+`SessionHistoryMessage` gain optional fields only; `DraftErrorResponse`'s
+`DRAFT_TOO_LARGE` `bound` gains `draftFiles` and `draftCount`. The
+environment input `BRAIN_UI_ATTACHMENT_POOL_BYTES` sets the host attachment
+pool (default 1,073,741,824 bytes). The governed worker profile mounts
+`.brain-ui/attachments/` read-only (`HOST_READ_ONLY_AREAS` in the SDK's
+internal worker protection). It is not a protected path: no policy names it
+and nothing is quarantined when the host writes it.
+
+In `@schlessera/brain-ui-server`, `ServerConfig` gains `attachmentPoolBytes`
+and `SessionCatalog.recordMessageSource`'s optional effort argument gains
+`attachmentFiles?: MessageAttachment[]` (an `AttachmentFile` with an optional
+`inline` flag), which the host records so replay can reproduce the block.
+
+## Reading composer attachments (additive, 0.45.0, #3154)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
+gains `READ_ATTACHMENT_TOOL_NAME`, `READ_ATTACHMENT_INPUT_SCHEMA`,
+`READ_ATTACHMENT_DESCRIPTION`, `READ_ATTACHMENT_CONTRACT`,
+`ATTACHMENT_READ_MAX_PAGES` (20), `ATTACHMENT_READ_MAX_CALL_BYTES` (65,536),
+`ATTACHMENT_READ_MAX_TURN_BYTES` (262,144), `ATTACHMENT_READ_OUTCOMES` and the
+types `ReadAttachmentInput`, `AttachmentReadResult`, `AttachmentReadOutcome`
+and `AttachmentReadFailure`, as [the MCP component](mcp.md#read_attachment-additive-0450-3154)
+describes. `@schlessera/brain-ui-sdk/server` gains the experimental backend
+toolkit helpers `handleReadAttachment(input, bridge)` and
+`formatAttachmentRead(result, nonce?)`, and `BackendBridge` the optional
+`readAttachment(input)`. No existing export changes.
 
 ## UI-kit enlarge icon (additive #3397)
 
@@ -1922,18 +1981,31 @@ Additive shapes in `@schlessera/brain-ui-sdk`:
 
 | Surface | Change |
 | --- | --- |
-| `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination` and `premiseDigest` |
-| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`) |
+| `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination`, `premiseDigest` and `approvedBy` (the principal who previewed a broader config change, below) |
+| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`), and optionally `scope` (`exact`\|`pattern`\|null), `pattern`, `ignoreAdjust`, `matches` (`{ track, ignore }` of `HygieneMediaMatches`), `approvalDigest` and `media` (`HygieneMediaProbe`, below, or null), which a CLI before them omits |
+| `HygieneMediaProbe`, `hygieneMediaProbeSchema` | new (0.45.0): `{ width, height, durationMs }`, the source's pixel size and duration in whole milliseconds from the first 64 KiB of its header, each a positive integer or null when the header does not say |
+| `HygienePreviewRequest.requestId`, `HygienePreviewResponse` | additive (0.45.0): the request's optional `requestId` (1–128 of `A-Z a-z 0-9 . _ : -`) is echoed in the response; `HygienePreviewResponse` is the preview's 200 body, below |
+| `HygieneMediaMatches`, `hygieneMediaMatchesSchema` | new (0.45.0): `{ pattern, anyFolder, count, bytes, changed, ignoredStill, sensitive, largest: [{ path, bytes, before, after }] (at most 5), digest }`, a list pattern's current matches among the files sync sees, with the class (`TRACK`\|`ARTIFACT`\|`SENSITIVE`\|null) the lists give each before and after |
 | `HygieneAction.outcome.status` | gains `kept`, a confirmed Keep a permanent copy |
 | `HygieneReviewMediaUndoCommand`, `HygieneReviewRequest` | new (0.45.0): `{ operation: "undo-media", journalId }`, Undo of a confirmed media effect from review (below); `HygieneReviewRequest` is it or the unchanged `HygieneReviewCommand`, parsed by the new `hygieneReviewMediaUndoCommandSchema` and `hygieneReviewRequestSchema`; `hygieneReviewCommandSchema` is unchanged |
 | `HygieneReviewRead.mediaUndo` | `HygieneMediaReceipt`, on the `undo-media` response only (0.45.0) |
 | `HygieneAction.outcome.media` | `HygieneMediaReceipt`: `{ journalId, action, outcome: "pending"\|"applied"\|"kept"\|"compensated"\|"partial"\|"refused"\|"stale"\|"undone", reason?, refusals?, files: [{ path, state: "created"\|"changed"\|"removed"\|"restored"\|"unchanged"\|"left-changed"\|"conflict" }], copySha256?, undo: { available, reason?, path? } }` |
 
-A media finding's card offers Persist here, Move to a final location…, Keep a
+A media finding's card offers Persist here, Persist with a broader rule…
+(not for scratch or share-staged files), Move to a final location…, Keep a
 permanent copy… (scratch only) and Delete…, before Leave pending. Persist and
 Delete are planned when the card is prepared; Move and Keep a copy when a
 destination is previewed (`POST /hygiene/review/preview` with the path as
-`input`). A plan with refusals keeps them on the option and has no
+`input`), and the broader rule (option `media-persist-rule`, effect
+`media-persist`) when its `media.track` pattern is previewed as `input`.
+When a previewed track entry would still lose to exactly one broader
+`media.ignore` entry, the preview plans that ignore's removal too
+(`ignoreAdjust`), with the files it stops ignoring in `matches.ignore`;
+several such entries stay refused as `ignore-adjustment-required`. A plan
+with an `approvalDigest` (a broader rule or ignore adjustment) records the
+previewing principal as `effect.approvedBy`; confirming it as anyone else is
+`stale` with reason `stale-approval`, and the CLI refuses the same reason
+when the config, the diff or any match changed since. A plan with refusals keeps them on the option and has no
 `premiseDigest`, so it cannot be confirmed. Confirming applies exactly the
 previewed plan: an applied effect resolves the card as `fixed`, a kept copy
 as `kept` (the review's `kept` counter); `stale` and `refused` leave it
@@ -1961,6 +2033,32 @@ active review selects it in order, on a new card. Repeating the command
 returns the same receipt and changes nothing. A `journalId` that names no
 resolved media card of this principal is `review_failed` (500); malformed is
 400, as for every command.
+
+**Preview response and scan concurrency** (additive in 0.45.0, design rev 4
+§3.3, rev 5 §9/§11). `POST /api/hygiene/review/preview` still returns the
+pending Action, now as `HygienePreviewResponse`: the Action plus `refusals`
+(always present), `requestId` (when the request sent one) and, for a media
+option, `media`, the stored plan's `HygieneMediaProbe`. Named refusals are a
+200 result, never an error: a media plan's own `refusals`, the CLI's when it
+returned no plan (`not-detected`, `stale`), or one the route adds when it
+stored nothing:
+- `preview-busy`: one media preview scan runs per server, and another
+  principal's is running. Nothing is queued or retried.
+- `preview-superseded`: a newer media preview from the same principal
+  aborted this one's scan, killing its CLI. The newer one is unaffected.
+- `inventory-too-large` with `limit: "preview"`, `effective` and `observed`:
+  the Action with this plan would serialize to more than the transport's
+  per-message limit (512,000 bytes), so it could not be returned or
+  replicated whole. It is refused, never truncated. A larger
+  `BRAIN_MEDIA_REFERENCE_LIMITS` `preview` setting does not raise this bound.
+
+`BrainClient.hygiene(args, { signal })` accepts an optional abort signal
+(additive); aborting it kills the running `brain hygiene` CLI, as for search.
+
+Repair (non-media) previews are not part of the scan gate and return
+`refusals: []`. A throw is still `409 preview_refused` with no detail, and an
+authority failure still `403`; the routes and their error strings are
+unchanged.
 
 <a id="module-hygiene-context-breaking-699"></a>
 

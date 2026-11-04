@@ -3,7 +3,7 @@ import { posix } from "node:path";
 import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
 
-export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "workspace_read" | "mcp_document"
+export type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "chat_attachment" | "workspace_read" | "mcp_document"
   | "user_marked" | "fetching_command" | "unclassified_command" | "compute_output";
 
 /** Whether a brain-relative path carries the user's untrusted mark (#2673). */
@@ -18,19 +18,23 @@ const FILE_TOOLS: Record<string, string> = { Read: "file_path", Edit: "file_path
   read_file: "path", edit_file: "path", grep: "path", brain_read: "path", brain_read_base: "path" };
 /** The host's compute collect tool on either backend; the worker brain server's copy is disallowed. */
 const COMPUTE_OUTPUT_TOOLS = new Set(["brain_compute_collect", "mcp__brain-ui__brain_compute_collect"]);
+/** The host's attachment reader on either backend (#3154): every call names a user-attached original, successful or not. */
+const ATTACHMENT_READ_TOOLS = new Set(["read_attachment", "mcp__brain-ui__read_attachment"]);
 /** Tools whose output lists the paths they matched, so a search from an ancestor directory is visible. */
 const SEARCH_TOOLS = new Set(["Grep", "Glob", "grep"]);
 
 /** The untrusted area a brain-relative path leads with. */
 function leadingArea(relative: string): IngestionSource | null {
   const [first, second] = relative.split("/");
-  return first === "workspaces" ? "workspace_read" : first === ".brain-ui" && second === "inbox" ? "staged_share" : null;
+  return first === "workspaces" ? "workspace_read" : first === ".brain-ui" && second === "inbox" ? "staged_share"
+    : first === ".brain-ui" && second === "attachments" ? "chat_attachment" : null;
 }
 /** An area segment anywhere: for a view whose root the host cannot name. */
 function anyArea(path: string): IngestionSource | null {
   const segments = path.split("/");
   if (segments.includes("workspaces")) return "workspace_read";
-  return segments.some((segment, index) => segment === ".brain-ui" && segments[index + 1] === "inbox") ? "staged_share" : null;
+  if (segments.some((segment, index) => segment === ".brain-ui" && segments[index + 1] === "inbox")) return "staged_share";
+  return segments.some((segment, index) => segment === ".brain-ui" && segments[index + 1] === "attachments") ? "chat_attachment" : null;
 }
 /**
  * The untrusted area a path names. Relative paths resolve against the brain
@@ -80,13 +84,21 @@ function fileSource(path: string, brainPath: string | undefined, marked: MarkedL
   return relative !== null && marked(relative) ? "user_marked" : null;
 }
 
-/** The source a call's input already establishes, before its result arrives. */
-export function inputTaintSource(tool: string, input: unknown, brainPath?: string, marked?: MarkedLookup): IngestionSource | null {
-  const command = commandTaintSource(tool, input);
+/**
+ * The source a call's input already establishes, before its result arrives.
+ * On a turn behind the egress proxy (`shellProxied`), the proxy's admitted
+ * connections are the shell signal, so the command classifier is skipped
+ * (#3429). A shell read of an untrusted file is then not detected: path
+ * detection is not extended to shell arguments.
+ */
+export function inputTaintSource(tool: string, input: unknown, brainPath?: string, marked?: MarkedLookup,
+  shellProxied = false): IngestionSource | null {
+  const command = shellProxied ? null : commandTaintSource(tool, input);
   if (command) return command;
   if (WEB_TOOLS[tool]) return WEB_TOOLS[tool];
   // A collected external compute job returns a remote machine's output (#3108).
   if (COMPUTE_OUTPUT_TOOLS.has(tool)) return "compute_output";
+  if (ATTACHMENT_READ_TOOLS.has(tool)) return "chat_attachment";
   const server = /^mcp__(.+?)__/.exec(tool)?.[1];
   if (server !== undefined && !BRAIN_MCP_SERVERS.has(server)) return "mcp_document";
   // brain-kit's own document readers can still name a file in an untrusted area.

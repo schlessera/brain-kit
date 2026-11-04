@@ -6,7 +6,7 @@ import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/s
 import { prepareTurnEgress } from "../../brain/turn-egress.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBudgetLimits } from "../../brain/turn-budgets.js";
 import { sessionTaint } from "../../governance/session-taint.js";
-import { withTrackFiles } from "../../tracks/read.js";
+import { withChatFiles } from "../../attachments/context.js";
 import { makeBridge, settleTurnIndex } from "../bridge.js";
 import { withLocalContext } from "../local-exchanges.js";
 import { acceptRequest } from "../recovery.js";
@@ -36,8 +36,8 @@ export function recordDraftExchanges(host: WsHost, sessionId: string, exchanges:
 
 /** The message's source, recorded in the order the backend receives its text, which is the order replay counts identical texts in. */
 function recordSource(run: TurnRun, sessionId: string): void {
-  const { text, source, thinkingLevel, files } = run.current;
-  run.host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { thinkingLevel, turnId: run.turn.turnId, files });
+  const { text, source, thinkingLevel, files, attachmentFiles } = run.current;
+  run.host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { thinkingLevel, turnId: run.turn.turnId, files, ...(attachmentFiles?.length ? { attachmentFiles } : {}) });
 }
 
 /**
@@ -56,25 +56,24 @@ export async function openTurnBridge(
 ): Promise<{ prompt: string; bridge: BackendBridge }> {
   const { host, slot, turn, backend, current, recorder, failureRecording, billing, held, origin, profileId, resumeId } = run;
   const { initial } = slot;
-  const { text, files, work } = current;
+  const { text, files, attachmentFiles, work } = current;
   const governedHold = held.governedHold;
   if (resumeId && !current.refusedFollowUp) recordSource(run, resumeId);
   const drafted = slot.draftExchanges;
   slot.draftExchanges = [];
-  const prompt = (initial.replayPrompt !== undefined && turn.turnId === slot.firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
+  const prompt = (initial.replayPrompt !== undefined && turn.turnId === slot.firstTurnId) ? initial.replayPrompt : withLocalContext(withChatFiles(text, files, attachmentFiles), [
     ...drafted,
     ...(current.refusedFollowUp?.exchanges ?? []),
     ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
   ]);
   turn.retryPrompt = prompt;
   const { preference } = admission;
-  const bridge = await makeBridge(
-    host,
-    turn,
-    text,
-    backend.id,
+  const bridge = await makeBridge(host, turn, {
+    promptText: text,
+    backendId: backend.id,
     recorder,
-    resumeId
+    // Only a new conversation waits for its name; a resumed one has it.
+    onSessionNamed: resumeId
       ? undefined
       : (sid) => {
           // A new conversation is accepted the moment it has a name,
@@ -89,26 +88,27 @@ export async function openTurnBridge(
           recordDraftExchanges(host, sid, drafted);
           initial.handoffHooks?.onNamed(sid);
         },
-    failureRecording.observe,
+    // A terminal failure is recorded against the session it ended.
+    onTerminalFailure: failureRecording.observe,
     // A follow-up's pill label is its turn's request label (#1004).
-    () => current.label,
-    backend.brainApplicationPolicy?.({ profileId,
+    promptLabel: () => current.label,
+    applicationPolicy: backend.brainApplicationPolicy?.({ profileId,
       ...(work?.posture === "voice" ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) }),
-    governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
-    governedHold ? { origin, actualProfile: heldProfile(run),
+    protectedPaths: governedHold ? protectedPaths(governedHold.policy.policy) : undefined,
+    workerProfile: governedHold ? { origin, actualProfile: heldProfile(run),
       ...(initial.profileDraftId && !resumeId && preference ? { draftId: initial.profileDraftId, preference } : {}) } : undefined,
-    budget?.observeUsage,
-    billing,
-    { current: () => run.mainModel, bind: model => {
+    onUsage: budget?.observeUsage,
+    pricingContext: billing,
+    mainModel: { current: () => run.mainModel, bind: model => {
       if (host.journal && governedHold && !host.journal.bindModel(run.turnId, turn.sessionId, model)) return;
       run.mainModel = model; recorder?.setMainModel(model);
     } },
-    governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
+    providerMasks: governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
       ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
       ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined,
-    governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined,
-    governedHold ? { policy: governedHold.policy } : undefined
-  );
+    turnData: governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined,
+    governance: governedHold ? { policy: governedHold.policy } : undefined,
+  });
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
   held.settleIndex = () => settleTurnIndex(bridge).catch(() => {});
@@ -132,7 +132,7 @@ export async function openTurnBridge(
  * the turn (#1673).
  */
 export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, budget: TurnBudget | undefined): Promise<void> {
-  const { host, turn, backend, abortController, held, stops, origin } = run;
+  const { host, turn, backend, abortController, held, stops, origin, recorder } = run;
   const governedHold = held.governedHold;
   const relayed = isRelayed(backend);
   if (governedHold?.sandbox.inferenceRecipient && !relayed)
@@ -147,6 +147,10 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
       : governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
     ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
   });
+  // The worker reaches the network only through this proxy, which taints on
+  // its first admitted connection: shell commands no longer pass through the
+  // command classifier (#3429).
+  recorder?.setEgressProxied();
   // The turn this relay meters, fixed now: a late report never lands on a later turn.
   const egress = held.turnEgress, hold = governedHold, relayTurnId = turn.turnId;
   held.providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),

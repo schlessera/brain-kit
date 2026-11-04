@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1084-1102`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1097-1115`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -131,8 +131,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4000-4006`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1938-1940`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4200-4206`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1973-1975`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -1891,6 +1891,71 @@ that this draft's request started that session, which is the only proof
 `POST /api/drafts/:draftId/bind` accepts. Draft text and images never enter
 logs, push payloads or the transcript store.
 
+<a id="composer-file-attachments-additive-0450-3153"></a>
+
+### Composer file attachments (additive, 0.45.0, #3153)
+
+A host that stores composer originals sends
+`server_hello.capabilities.composerFiles: true` and, beside it,
+`server_hello.attachmentLimits: AttachmentLimits` (`maxFiles` 10,
+`maxFileBytes` 25000000, `maxTotalBytes` 50000000, `poolBytes` the configured
+attachment pool, default 1073741824). It is advertised only together with
+`sessionDrafts`. Without the flag a client offers no generic file and keeps
+D52's tab-only track path.
+
+- **`chat_message.attachmentRefs?: ChatAttachmentReference[]`**, each
+  `{ kind: "attachment"; fileId }`, at most 10. The message must carry the
+  `draftRef` of the draft the files were uploaded to. The host resolves every
+  id against its own records: the file must be `stored`, minted for that draft,
+  bound by its saved revision or outgoing snapshot, and its bytes on disk must
+  still match the recorded size and SHA-256 through no link. Anything else is
+  an `error` with code `ATTACHMENT_REJECTED` before a backend runs. The client
+  never supplies a path, kind, size or digest. The references are a separate
+  field rather than a new `files` variant so `ChatFileAttachment` keeps its
+  type.
+- **`ChatImageAttachment.fileId?`** links an inline frame to the original it
+  was prepared from. That original must be among the message's
+  `attachmentRefs`, and the message envelope charges it once. One envelope
+  covers a message: `files`, `attachmentRefs` and frames without a `fileId`
+  together hold at most 10 items and 50,000,000 original bytes.
+- **What the provider receives.** After the user text, and after the existing
+  `<brain-track-files>` block, the host appends one quoted
+  `<brain-attachments>` block. It lists `id`, `name`, `path`
+  (`.brain-ui/attachments/<fileId>/<name>`), `kind`, `bytes` and `sha256` for
+  each original, and `inline` for images. It says the contents have not been
+  read. Contents are never injected. A validated track is also listed in the
+  track block, at its attachment path. The block is recorded with the
+  message's source and is part of the turn's prompt, so it never changes
+  afterwards; Retry requires the same files, still matching, and a message
+  reference in that session.
+- **Acceptance.** When the host accepts the message (its `session_info`, or
+  its `status: queued`), the same transaction that settles the draft first
+  gives each named original a reference owned by the session, then clears the
+  outgoing snapshot whose `requestId` matches, then consumes the revision under
+  the existing rules. The originals stay for later turns.
+- **Replay.** `SessionHistoryMessage.attachmentFiles?: AttachmentFile[]`
+  carries the originals a user message sent, as recorded. The replayed
+  `content` is the user's own text: the host removes its blocks only when they
+  reproduce byte for byte. `files` keeps only legacy staged tracks.
+- **Session drafts additions.** `SessionDraftLimits` gains
+  `maxDraftFiles` (10), `maxDraftFileBytes` (25000000) and
+  `maxDraftFilesBytes` (50000000). `maxDraftBytes` keeps its value and now
+  bounds text and legacy inline images only. `maxTotalBytes` keeps its value
+  and also counts the originals live drafts and outgoing snapshots reference.
+  `DraftSaveRequest` gains `fileIds?` and `outgoing?`, `Draft` gains `files?`
+  and `outgoing?`, and `DraftSummary` gains `fileCount?`. The routes are in
+  the [HTTP API](../http-api.md#composer-file-attachments-additive-0450-3153).
+
+The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
+`ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,
+`ATTACHMENT_MAX_TOTAL_BYTES`, `ATTACHMENT_POOL_DEFAULT_BYTES`,
+`ATTACHMENT_UNBOUND_TTL_MS`, `ATTACHMENT_GRACE_MS`, the
+`ChatAttachmentReference`, `AttachmentKind`, `AttachmentReader`,
+`AttachmentFile`, `AttachmentLimits`, `DraftOutgoing`, `AttachmentErrorCode`
+and `AttachmentErrorResponse` types, and `attachmentFileSchema` and
+`attachmentLimitsSchema`. The governance `taint` event's `source` gains
+`chat_attachment`: reading under `.brain-ui/attachments/` taints the session
+as reading a staged share does.
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ### Explicit chat deletion (additive, #3230)

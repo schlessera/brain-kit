@@ -204,7 +204,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge.ts:372-465`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge-capabilities/permissions.ts:17-123`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.
@@ -241,7 +241,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:179-194`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:756`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:765`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)

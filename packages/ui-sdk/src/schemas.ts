@@ -1,7 +1,7 @@
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
-import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
-import { sharedFileMetaSchema } from "./track-schemas.js";
-export { sharedFileMetaSchema } from "./track-schemas.js";
+import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaMatches, HygieneMediaPlan, HygieneMediaProbe, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
+import { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
+export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 // Runtime wire-protocol schemas
 //
@@ -244,6 +244,7 @@ const chatImageAttachmentSchema = z
         message: "attachment data length must be a multiple of 4",
       }),
     mediaType: z.enum(ALLOWED_IMAGE_MEDIA_TYPES),
+    fileId: z.string().regex(/^[a-f0-9-]{36}$/).optional(),
   })
   .refine((a) => decodedBase64Bytes(a.data) <= MAX_IMAGE_BYTES, {
     message: `image exceeds ${MAX_IMAGE_BYTES} decoded bytes`,
@@ -407,6 +408,7 @@ export const clientChatMessageSchema = z
     thinkingLevel: thinkingLevelSchema.optional(),
     attachments: z.array(chatImageAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE).optional(),
     files: z.array(z.object({ kind: z.literal("file"), path: z.string().min(1).max(512) })).max(10).optional(),
+    attachmentRefs: z.array(z.object({ kind: z.literal("attachment"), fileId: z.string().regex(/^[a-f0-9-]{36}$/) })).max(10).optional(),
     client: clientEnvironmentSchema.optional(),
     source: optionalMessageSource,
     localExchanges: z.array(localExchangeSchema).max(MAX_LOCAL_EXCHANGES_PER_MESSAGE).optional(),
@@ -696,10 +698,20 @@ export const hygieneEffectSchema = z.strictObject({
   findingId: id, fingerprint: id, handler: id.optional(), input: hygieneInputSchema.optional(),
   previewToken: id.optional(), undoToken: z.string().regex(/^[a-f0-9]{32}$/).optional(),
   destination: z.string().min(1).max(4096).optional(), premiseDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  approvedBy: id.optional(),
 }) satisfies z.ZodType<HygieneEffect>;
 const mediaPath = z.string().min(1).max(4096);
 const sha256OrNull = z.string().regex(/^([a-f0-9]{64}|directory)$/).nullable();
 export const hygieneMediaRefusalSchema = z.strictObject({ code: z.string().min(1).max(64), path: z.string().max(65_536).optional(), line: z.number().int().min(1).optional(), limit: z.string().max(64).optional(), effective: z.number().int().min(0).optional(), observed: z.number().int().min(0).optional() }) satisfies z.ZodType<HygieneMediaRefusal>;
+const listClass = z.enum(["TRACK", "ARTIFACT", "SENSITIVE"]).nullable();
+export const hygieneMediaMatchesSchema = z.strictObject({
+  pattern: z.string().min(1).max(4096), anyFolder: z.boolean(), count: z.number().int().min(0), bytes: z.number().int().min(0),
+  changed: z.number().int().min(0), ignoredStill: z.number().int().min(0), sensitive: z.number().int().min(0),
+  largest: z.array(z.strictObject({ path: mediaPath, bytes: z.number().int().min(0).nullable(), before: listClass, after: listClass })).max(5),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+}) satisfies z.ZodType<HygieneMediaMatches>;
+const probeValue = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).nullable();
+export const hygieneMediaProbeSchema = z.strictObject({ width: probeValue, height: probeValue, durationMs: probeValue }) satisfies z.ZodType<HygieneMediaProbe>;
 /** A media plan as the CLI previews it; unknown CLI keys are dropped, every kept one is bounded. */
 export const hygieneMediaPlanSchema = z.object({
   action: z.enum(["delete", "move", "persist", "keep-copy"]), premiseDigest: z.string().regex(/^[a-f0-9]{64}$/), destination: mediaPath.nullable(),
@@ -710,7 +722,14 @@ export const hygieneMediaPlanSchema = z.object({
   rewrites: z.array(z.strictObject({ note: mediaPath, line: z.number().int().min(1), kind: z.string().max(32), before: z.string().max(4096), after: z.string().max(4096) })).max(10_000),
   blockers: z.array(z.strictObject({ note: mediaPath, line: z.number().int().min(1), kind: z.string().max(32), target: z.string().max(65_536) })).max(10_000),
   configDiff: z.strictObject({ path: mediaPath, track: z.strictObject({ before: z.array(z.string().max(4096)).max(10_000), after: z.array(z.string().max(4096)).max(10_000) }), ignore: z.strictObject({ before: z.array(z.string().max(4096)).max(10_000), after: z.array(z.string().max(4096)).max(10_000) }) }).nullable(),
+  // Additive (#2781): a broader config change and what its approval binds; a CLI before it omits them.
+  scope: z.enum(["exact", "pattern"]).nullable().optional(), pattern: z.string().min(1).max(4096).nullable().optional(),
+  ignoreAdjust: z.string().min(1).max(4096).nullable().optional(),
+  matches: z.strictObject({ track: hygieneMediaMatchesSchema, ignore: hygieneMediaMatchesSchema.nullable() }).nullable().optional(),
+  approvalDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
   copy: z.strictObject({ bytes: z.number().int().min(0), sha256: z.string().regex(/^[a-f0-9]{64}$/), diskFreeAdvisory: z.number().min(0).nullable() }).nullable(),
+  // Additive (#2781): the source's header facts; a CLI before it omits them.
+  media: hygieneMediaProbeSchema.nullable().optional(),
   resultClass: z.enum(["TRACK", "ARTIFACT"]).nullable(),
   refusals: z.array(hygieneMediaRefusalSchema).max(10_000),
 }) satisfies z.ZodType<HygieneMediaPlan>;
@@ -733,7 +752,9 @@ export const hygieneReviewCommandSchema = z.strictObject({ operation: z.enum(["s
 export const hygieneReviewMediaUndoCommandSchema = z.strictObject({ operation: z.literal("undo-media"), journalId: z.string().regex(/^[A-Za-z0-9._-]{16,96}$/) }) satisfies z.ZodType<HygieneReviewMediaUndoCommand>;
 /** Every body `POST /hygiene/review` accepts. */
 export const hygieneReviewRequestSchema = z.union([hygieneReviewCommandSchema, hygieneReviewMediaUndoCommandSchema]) satisfies z.ZodType<HygieneReviewRequest>;
-export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema }) satisfies z.ZodType<HygienePreviewRequest>;
+export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema,
+  // Additive (#2781, rev 5 §9): echoed in the response.
+  requestId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/).optional() }) satisfies z.ZodType<HygienePreviewRequest>;
 const enqueueEffectSchema = z.strictObject({ kind: z.literal("enqueue"), payload: inboxWorkPayloadSchema });
 const cancelBlockedEffectSchema = z.strictObject({ kind: z.literal("cancel_blocked") });
 const snoozeEffectSchema = z.strictObject({ kind: z.literal("snooze") });
@@ -1124,6 +1145,7 @@ const historyMessageSchema = z.looseObject({
   parts: z.array(messagePartSchema).optional(),
   attachmentCount: z.number().optional(),
   files: z.array(sharedFileMetaSchema).max(10).optional(),
+  attachmentFiles: z.array(attachmentFileSchema).max(10).optional().catch(undefined),
   blocks: z.array(messageBlockSchema).optional(),
   source: optionalMessageSource,
   // A replayed answer this build cannot read is dropped, not the history.
@@ -1150,7 +1172,17 @@ export const sessionDraftLimitsSchema = z.looseObject({
   maxDraftBytes: byteCount,
   maxDrafts: byteCount,
   maxTotalBytes: byteCount,
+  maxDraftFiles: byteCount.optional(),
+  maxDraftFileBytes: byteCount.optional(),
+  maxDraftFilesBytes: byteCount.optional(),
 }) satisfies z.ZodType<SessionDraftLimits>;
+
+export const attachmentLimitsSchema = z.looseObject({
+  maxFiles: byteCount,
+  maxFileBytes: byteCount,
+  maxTotalBytes: byteCount,
+  poolBytes: byteCount,
+}) satisfies z.ZodType<import("./protocol.js").AttachmentLimits>;
 
 export const serverHelloSchema = z.looseObject({
   type: z.literal("server_hello"),
@@ -1160,6 +1192,7 @@ export const serverHelloSchema = z.looseObject({
   capabilities: z.record(z.string(), z.boolean()).optional(),
   // A malformed bound is dropped rather than costing the whole hello.
   sessionDraftLimits: sessionDraftLimitsSchema.optional().catch(undefined),
+  attachmentLimits: attachmentLimitsSchema.optional().catch(undefined),
 }) satisfies z.ZodType<ServerHello>;
 
 // --- Session draft HTTP responses (#979) ---
@@ -1174,6 +1207,7 @@ export const draftSummarySchema = z.looseObject({
   updatedAt: byteCount,
   preview: z.string().max(DRAFT_PREVIEW_CHARS),
   attachmentCount: z.number().int().nonnegative().max(MAX_IMAGES_PER_MESSAGE),
+  fileCount: z.number().int().nonnegative().max(10).optional(),
 }) satisfies z.ZodType<DraftSummary>;
 
 export const draftListResponseSchema = z.looseObject({
@@ -1194,6 +1228,13 @@ export const draftSchema = z.looseObject({
   updatedAt: byteCount,
   text: z.string(),
   attachments: z.array(draftAttachmentSchema).max(MAX_IMAGES_PER_MESSAGE),
+  files: z.array(attachmentFileSchema).max(10).optional(),
+  outgoing: z.looseObject({
+    requestId: id,
+    text: z.string(),
+    fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
+    state: z.enum(["held", "dispatched"]),
+  }).nullable().optional(),
 }) satisfies z.ZodType<Draft>;
 
 export const draftSaveResponseSchema = z.looseObject({

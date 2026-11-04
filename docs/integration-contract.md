@@ -20,6 +20,92 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Refusals say why (additive, #3431)
+
+A relayed provider request refused by the CLI provider relay keeps its `403`
+and `error.type`, and the body gains `error.reason`: the turn egress proxy's
+cause (`denied_host`, `not_allowlisted`, `byte_cap`, `taint_allowlist` or
+`outward_not_approved`) for a request the proxy refused, otherwise the relay's
+own refusal reason. `error.message` then states that cause in words. A proxy
+refusal of worker HTTP or CONNECT traffic now carries a status text and body
+naming its cause; neither is a contract shape. No governance event or reason
+changes. See [the CLI component](integration-contract/cli.md#provider-relay-additive-0440-1673).
+This ships in a minor; no breaking ruling is required.
+
+## Tainted destinations ask (additive, #3430)
+
+In a tainted interactive session behind the turn egress proxy, a connection to
+a host outside the session's taint allow-list and contacted hosts raises the
+existing tool-permission request (`toolName: "Network"`, `kind: "command"`)
+instead of being refused at once. An allow admits that host for the rest of
+the session. The request shape, the governance event kinds and the
+`egress_denial` reasons are unchanged; `egress_connection` gains the `reason`
+value `taint_not_approved` for a declined card. Voice and
+autonomous turns keep refusing without a request. See the
+[governance events component](integration-contract/http.md#tainted-destinations-ask-additive-3430)
+and the [decision](decisions/governed-writable-workers.md#tainted-destinations-ask).
+
+## Shell taint behind the egress proxy (breaking before 1.0, #3429)
+
+On a turn whose worker runs behind the turn egress proxy
+(`runtime.workerHost.governed.egress.active`), the `taint` governance event no
+longer records `source: "fetching_command"` or `"unclassified_command"`. The
+proxy's `egress_connection` taint, recorded at the first admitted connection
+other than the inference relay, is the shell signal there. Every other source
+keeps its meaning, and a turn without the proxy keeps the shell classifier.
+Consumers must not expect a shell command alone to taint a proxied session; a
+shell read of an untrusted file without a connection does not taint it. No
+payload shape or kind changes. See the
+[governance events component](integration-contract/http.md#shell-taint-behind-the-egress-proxy-breaking-3429)
+and the [decision](decisions/governed-writable-workers.md#shell-classifier-off-behind-the-proxy).
+This is a pre-1.0 breaking minor under the maintainer ruling recorded on #3429.
+
+## Composer file attachments (additive, 0.45.0, #3153)
+
+A host advertising `capabilities.composerFiles` stores composer originals
+through `POST /api/drafts/:draftId/files` and reads them back through
+`GET /api/attachments/:fileId`. Drafts bind them with `fileIds` and an
+`outgoing` snapshot, and `chat_message.attachmentRefs` sends them. The agent
+gets each original's read-only path in a quoted `<brain-attachments>` block;
+contents are never injected. Every field is new and optional, and the existing
+draft, share and track shapes keep their meaning. `maxDraftBytes` now bounds
+text and legacy images only, as the maintainer's envelope ruling on #3153
+directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
+[the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
+[the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
+[package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+
+## Reading composer attachments on demand (additive, 0.45.0, #3154)
+
+Both first-party backends gain one host-executed bridge tool, `read_attachment`
+(`mcp__brain-ui__read_attachment` on Claude, the plain name on pi), in every
+interactive session's fixed roster whether or not the session has
+attachments. It reads one original that a message of the calling session was
+sent: PDF text by page, at most 20 pages per call, or a text file by byte
+range, at most 65,536 bytes per call and 262,144 per turn, with a `next`
+cursor for the rest. Its result names its outcome (`read`, `partial`,
+`no_text`, `encrypted`, `malformed`, `failed`, `unavailable`, `changed` or
+`refused`) and exactly what it covers; contents are quoted as data. New
+messages' `<brain-attachments>` block names the tool; messages recorded before
+it keep their wording and still replay. The SDK gains the tool contract,
+`AttachmentReadResult`, `handleReadAttachment`, `formatAttachmentRead` and
+`BackendBridge.readAttachment`. Nothing else changes; a host without composer
+files answers `unavailable`. See
+[the MCP component](integration-contract/mcp.md#read_attachment-additive-0450-3154)
+and [the package component](integration-contract/package-api.md#reading-composer-attachments-additive-0450-3154).
+This ships in a minor.
+
+## Reading a chat deletion's outcome (additive, #3455)
+
+`GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))
+lets an owner who lost a deletion's reply read its current `ChatDeletionReceipt`
+without re-admitting it. It only reads and adds no authority. Every miss is one
+content-free 404 `ChatDeletionNotAdmitted` (`reason: "not_admitted"`): an
+unknown operation, another principal's, a refused attempt, or a caller that cannot
+own one. The SDK exports that type
+([package API](integration-contract/package-api.md#reading-a-chat-deletions-outcome-additive-3455)).
+`POST /api/chat-deletions` and the receipt are unchanged. This ships in a minor.
+
 ## Hosted external compute (additive, 0.45.0, #3108)
 
 A hosted chat turn reaches external compute through six host-executed bridge
@@ -382,6 +468,18 @@ and schema ([package API](integration-contract/package-api.md#explicit-chat-dele
 No existing field, frame or route changes meaning for an undeleted chat. This
 ships in a minor; the [approved policy](decisions/chat-history-deletion.md) is the
 explicit retention exception, and no breaking ruling is required.
+
+## Typed chat owner bindings (additive, #3337)
+
+A typed chat whose backend session an authenticated request created now records
+that principal as its owner, so `POST /api/chat-deletions` accepts it from that
+owner ([HTTP](http-api.md#explicit-chat-deletion-additive-3230)). Chats created
+before the binding still refuse as `unavailable`. Foreign callers get the same
+answer as for a chat that does not exist. The session catalog's
+`persistSessionStub` gains an optional `ownerPrincipalId`
+([package API](integration-contract/package-api.md#typed-chat-owner-bindings-additive-3337)).
+No request, receipt, frame or field shape changes, and paging and retention of
+undeleted chats are unchanged. This ships in a minor.
 
 ## Native history removal (additive, #3229)
 

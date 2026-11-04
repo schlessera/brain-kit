@@ -160,7 +160,7 @@ describe("an update that archives", () => {
 });
 
 describe("a deployment that narrowed its allowlist", () => {
-  // The fallback card from canUseTool is kind "tool", which ws/bridge.ts lets
+  // The fallback card from canUseTool is kind "tool", which ui-server lets
   // a remembered "always allow" answer with nothing shown. If the hook stopped
   // confirming here, one such grant would make every later archive silent —
   // the tool taken OFF the allowlist behaving more permissively than the one

@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:174-193`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:177-196`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -58,6 +58,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
 | `GET /api/activity/runs/:runId` | `mounted supported handler: GET /api/activity/runs/:runId` | R |
 | `GET /api/activity/stats` | `mounted supported handler: GET /api/activity/stats` | R |
+| `GET /api/attachments/:fileId` | `mounted supported handler: GET /api/attachments/:fileId` | X |
 | `POST /api/auth/login` | `mounted supported handler: POST /api/auth/login` | A, P, Z |
 | `POST /api/auth/logout` | `mounted supported handler: POST /api/auth/logout` | A, P |
 | `GET /api/auth/methods` | `mounted supported handler: GET /api/auth/methods` | P |
@@ -90,6 +91,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `DELETE /api/drafts/:draftId` | `mounted supported handler: DELETE /api/drafts/:draftId` | X |
 | `POST /api/drafts/:draftId/attachments` | `mounted supported handler: POST /api/drafts/:draftId/attachments` | X |
 | `POST /api/drafts/:draftId/bind` | `mounted supported handler: POST /api/drafts/:draftId/bind` | X |
+| `POST /api/drafts/:draftId/files` | `mounted supported handler: POST /api/drafts/:draftId/files` | X |
 | `GET /api/files/content` | `mounted supported handler: GET /api/files/content` | F, V |
 | `GET /api/geo/coastline` | `mounted supported handler: GET /api/geo/coastline` | G, V |
 | `GET /api/governance/events` | `mounted supported handler: GET /api/governance/events` | GV |
@@ -116,6 +118,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId` | RV |
 | `POST /api/chat-deletions` | `mounted supported handler: POST /api/chat-deletions` | CD |
+| `GET /api/chat-deletions/:operationId` | `mounted supported handler: GET /api/chat-deletions/:operationId` | CD |
 | `POST /api/sessions/:sessionId/turns/:turnId/revert` | `mounted supported handler: POST /api/sessions/:sessionId/turns/:turnId/revert` | RV |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
@@ -526,4 +529,9 @@ unbound draft controls, replay refusal, honest partial/unknown outcomes, restart
 reconciliation, and the endpoint's owner, agent, ambient, foreign, stale and revoked
 cases. [The WebSocket host test](../packages/ui-server/tests/ws-chat-deletion.test.ts)
 covers busy refusal, a resume held across retirement, admission and recovery refusal
-and targeted `chat_retired` delivery.
+and targeted `chat_retired` delivery. The same file covers the read-only operation
+lookup (#3455): the owner's receipt, partial progress, a restart and a retry, one
+byte-identical `not_admitted` for unknown, foreign, refused, agent and ambient
+callers, a read admitting and cleaning nothing, and revocation during the read;
+[the real-host test](../packages/ui-server/tests/chat-deletion-http.test.ts) repeats
+the owner, foreign, agent and unknown answers through `createApp` and cookies.

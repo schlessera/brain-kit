@@ -57,6 +57,9 @@ import { createDraftRoutes } from "./routes/drafts.js";
 import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
+import { createAttachmentRoutes } from "./attachments/routes.js";
+import { ATTACHMENT_SWEEP_INTERVAL_MS, reconcileAttachments, sweepAttachments } from "./attachments/sweep.js";
+import { ATTACHMENT_MAX_FILES, ATTACHMENT_MAX_FILE_BYTES, ATTACHMENT_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { createActivityRoutes } from "./routes/activity.js";
 import { createGovernanceRoutes } from "./routes/governance.js";
 import { createTranscriptionRoutes } from "./routes/transcriptions.js";
@@ -650,7 +653,22 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.
-  const drafts = createDraftStore(db, {}, writer);
+  const drafts = createDraftStore(db, { attachmentPoolBytes: config.attachmentPoolBytes }, writer);
+  // Composer originals (#3153): one instance id per process, so reservations
+  // an earlier process left are discarded at boot.
+  const attachmentInstanceId = crypto.randomUUID();
+  const attachmentLog = observability.logger("attachments");
+  const attachmentsReady = reconcileAttachments(config.brainPath, drafts, attachmentInstanceId, attachmentLog)
+    .then(() => sweepAttachments(config.brainPath, drafts, attachmentLog))
+    .catch((error) => attachmentLog.emit({ severityText: "ERROR", body: "attachment reconciliation failed; nothing was deleted", attributes: { error: error instanceof Error ? error.message : String(error) } }));
+  let attachmentSweepRun: Promise<unknown> = attachmentsReady;
+  const attachmentSweep = setInterval(() => {
+    attachmentSweepRun = attachmentSweepRun.then(() => sweepAttachments(config.brainPath, drafts, attachmentLog)).catch((error) =>
+      attachmentLog.emit({ severityText: "ERROR", body: "attachment sweep failed; nothing was deleted", attributes: { error: error instanceof Error ? error.message : String(error) } }));
+  }, ATTACHMENT_SWEEP_INTERVAL_MS);
+  attachmentSweep.unref?.();
+  const stopAttachmentSweep = async () => { clearInterval(attachmentSweep); await attachmentSweepRun; };
+  bootCleanup.push(stopAttachmentSweep);
   const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
   const governedRecords = procedureCaller(db, governedTurnWrites, undefined, writer);
   const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
@@ -745,6 +763,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     applicationPlanner,
     indexBatch,
     drafts,
+    attachmentLimits: { maxFiles: ATTACHMENT_MAX_FILES, maxFileBytes: ATTACHMENT_MAX_FILE_BYTES, maxTotalBytes: ATTACHMENT_MAX_TOTAL_BYTES, poolBytes: config.attachmentPoolBytes },
     brainPath: config.brainPath,
     registry,
     observability,
@@ -1135,6 +1154,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));
+  app.route("/api", createAttachmentRoutes({ brainRoot: config.brainPath, store: drafts, instanceId: attachmentInstanceId }));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
   app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
@@ -1148,7 +1168,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createQueueRoutes(intake));
   app.route("/api", createScheduleRoutes(schedules));
-  app.route("/api", createTrackRoutes(config.brainPath));
+  app.route("/api", createTrackRoutes(config.brainPath, drafts));
   app.route(
     "/api",
     createShareRoutes({
@@ -1353,6 +1373,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Gate releases commit off the event loop (#2850): every one lands first.
       await attempt(async () => { await hostExecution.gate()?.settled(); });
       await attempt(() => activity.close());
+      await attempt(stopAttachmentSweep);
       await attempt(() => hostExecution.release());
       // Consumers have drained; close the shared write connection before its reader.
       await attempt(() => writer.close());
