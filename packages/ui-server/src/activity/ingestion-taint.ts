@@ -18,6 +18,8 @@ const FILE_TOOLS: Record<string, string> = { Read: "file_path", Edit: "file_path
   read_file: "path", edit_file: "path", grep: "path", brain_read: "path", brain_read_base: "path" };
 /** The host's compute collect tool on either backend; the worker brain server's copy is disallowed. */
 const COMPUTE_OUTPUT_TOOLS = new Set(["brain_compute_collect", "mcp__brain-ui__brain_compute_collect"]);
+/** The host's attachment reader on either backend (#3154): every call names a user-attached original, successful or not. */
+const ATTACHMENT_READ_TOOLS = new Set(["read_attachment", "mcp__brain-ui__read_attachment"]);
 /** Tools whose output lists the paths they matched, so a search from an ancestor directory is visible. */
 const SEARCH_TOOLS = new Set(["Grep", "Glob", "grep"]);
 
@@ -89,6 +91,7 @@ export function inputTaintSource(tool: string, input: unknown, brainPath?: strin
   if (WEB_TOOLS[tool]) return WEB_TOOLS[tool];
   // A collected external compute job returns a remote machine's output (#3108).
   if (COMPUTE_OUTPUT_TOOLS.has(tool)) return "compute_output";
+  if (ATTACHMENT_READ_TOOLS.has(tool)) return "chat_attachment";
   const server = /^mcp__(.+?)__/.exec(tool)?.[1];
   if (server !== undefined && !BRAIN_MCP_SERVERS.has(server)) return "mcp_document";
   // brain-kit's own document readers can still name a file in an untrusted area.
