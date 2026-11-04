@@ -1479,7 +1479,13 @@ Each implementation task is tracked separately:
   or removed from an existing test file. A new test or test file that sets its
   own timeout changes no existing budget and is not flagged;
 - lane and stability window: [#3269](https://github.com/schlessera/brain-kit/issues/3269);
-- automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270);
+- automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270).
+  `scripts/ci-epochs.ts` classifies each first-parent squash of main against
+  its parent with the path set recorded there, and `scripts/ci-timings.ts`
+  reports every delivery's epoch, per-epoch first-main green and the current
+  epoch's days and green rate. A squash that cannot be classified opens an
+  epoch with an `unknown` boundary
+  ([fields](../process/ci-throughput.md#proof-policy-epochs));
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
 
 ### Red-main record and coordinator
