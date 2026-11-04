@@ -564,7 +564,7 @@ export interface BackendBridge {
   deny decision.
 
 **`turnId` is host-owned.** The host mints a `turnId` per turn, stamps it onto
-every frame the bridge emits (`packages/ui-server/src/ws/bridge.ts`), and its
+every frame the bridge emits (`packages/ui-server/src/ws/bridge-capabilities/emission.ts`), and its
 dispatch layer verifies the client's echo before resolving a pending
 approval / ask-user / location / mask request — mandatory for clients that
 declare protocol revision 3, tolerated absent for older revisions

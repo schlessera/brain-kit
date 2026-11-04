@@ -273,7 +273,12 @@ forwards the request; the response comes back unchanged except that any copy
 of the key in it is replaced by `[redacted]`. A streamed request (`"stream":
 true`) is refused. A refusal is a `403` JSON error whose `error.type` is
 `budget_exceeded` once a budget scope is blocked, or `brain_provider_refused`
-otherwise. Neither is retried. A relay that is busy answers `503`, which the
+otherwise. Neither is retried. Additively since #3431, `error.reason` names the
+cause: for a request the turn's egress proxy refused, one of `denied_host`,
+`not_allowlisted`, `byte_cap`, `taint_allowlist` or `outward_not_approved`,
+with `error.message` saying it in words; otherwise the relay's own refusal
+reason, such as `budget_exceeded` or `route_not_allowed`. The OpenAI image
+provider shows such a message without its account hint. A relay that is busy answers `503`, which the
 built-in providers retry as a transient error.
 
 A seam that is only available through the relay counts as configured: hybrid

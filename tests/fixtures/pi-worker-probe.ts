@@ -241,12 +241,12 @@ host.clients.add({ send(text) {
   if (scenario === "mask-stale") writeFileSync(join(brainPath, "notes/raft.png"), "concurrently changed image");
   pending.resolve(png);
 } }, "odysseus");
-const maskBridge = await makeBridge(host, maskTurn, "Odysseus worker proof", "pi", {
+const maskBridge = await makeBridge(host, maskTurn, { promptText: "Odysseus worker proof", backendId: "pi", recorder: {
   recordApplication(result: BrainApplicationResult) {
     applicationReceipts.push(result);
     if (scenario === "mask-cancel-commit" && result.ok) controller.abort();
   },
-} as TurnRecorder, undefined, undefined, undefined, backend.brainApplicationPolicy!({})!);
+} as TurnRecorder, applicationPolicy: backend.brainApplicationPolicy!({})! });
 const activeBridge = scenario.startsWith("mask-") ? { ...bridge, requestMask: maskBridge.requestMask,
   ...(scenario !== "mask-no-route" ? { applyImageMask: maskBridge.applyImageMask } : {}) } : bridge;
 if (scenario === "failed-host") workerHostBoundary.probe = () => ({ ok: false, requirement: "fixture missing namespaces" });

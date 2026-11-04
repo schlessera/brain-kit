@@ -89,7 +89,7 @@ the host records which principal created it: a content-free
 `packages/ui-server/migrations/076_chat_session_owners.sql`). It holds no
 prompt, title, label or transcript text. The bridge offers the creator only on
 a new turn that is not host work and whose authorization is current
-(`const creator`, `packages/ui-server/src/ws/bridge.ts:257`). The write worker
+(`const creator`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:143`). The write worker
 binds it only in the transaction that first creates the session's row
 (`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:167-176`).
 `resolveChat` counts the row as one more ownership record beside dialogue

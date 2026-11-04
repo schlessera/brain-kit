@@ -27,7 +27,7 @@ import {
 
 import { createDraftWrites } from "./writes.js";
 import {
-  addRef, draftEnvelope, draftReferencedBytes, FILE_ID, forgetDeleted, hasAnyRef, insertAttachment, markForDeletion,
+  addRef, draftEnvelope, draftReferencedBytes, FILE_ID, forgetDeleted, hasAnyRef, insertAttachment, insertAttachmentRead, listAttachmentReads, markForDeletion,
   poolCharged, readAttachment, readAttachments, setRefs, toAttachmentFile, type NewAttachment,
 } from "../attachments/store.js";
 import type { SqliteWriter } from "../db/write-worker.js";
@@ -172,8 +172,12 @@ export interface DraftStore {
   markMissing(fileIds: string[]): void;
   /** Boot: adopt a directory with no row as formerly referenced, charged, with a fresh seven-day clock. */
   adoptOrphan(file: NewAttachment): void;
-  /** Remove a deleted chat's `message` references, starting their seven-day clocks. */
+  /** Remove a deleted chat's `message` references, starting their seven-day clocks, and its read records. */
   releaseSession(sessionId: string): void;
+  /** Record one `read_attachment` call (#3154): UI and internal data, never provider context. */
+  recordAttachmentRead(read: import("../attachments/store.js").AttachmentReadRecord): void;
+  /** Read side: one session's recorded attachment reads, oldest first. */
+  attachmentReads(sessionId: string): Array<import("../attachments/store.js").AttachmentReadRecord & { at: number }>;
   /** Read side: recorded originals by id (any state). */
   attachments(fileIds: readonly string[]): Map<string, import("../attachments/store.js").AttachmentRow>;
   /** Read side: whether `fileId` has a reference of this owner. */
@@ -256,7 +260,7 @@ function deleted(row: DraftRow): DraftError {
 }
 
 export type DraftWrite = "save" | "upload" | "remove" | "bind" | "accept" | "reserveAttachment" | "commitAttachment" | "releaseReservation"
-  | "discardReservations" | "sweepMark" | "sweepForget" | "markMissing" | "adoptOrphan" | "releaseSession";
+  | "discardReservations" | "sweepMark" | "sweepForget" | "markMissing" | "adoptOrphan" | "releaseSession" | "recordAttachmentRead";
 export type AwaitableDraftStore = Omit<DraftStore, DraftWrite> & {
   [K in DraftWrite]: (...args: Parameters<DraftStore[K]>) => ReturnType<DraftStore[K]> | Promise<ReturnType<DraftStore[K]>>;
 } & { settled?(): Promise<void> };
@@ -830,7 +834,16 @@ export function createDraftStore(
           db.prepare("DELETE FROM attachment_refs WHERE file_id = ? AND owner = 'message' AND owner_id = ?").run(id, sessionId);
           if (!hasAnyRef(db, id)) db.prepare("UPDATE attachment_files SET unreferenced_since = ? WHERE file_id = ?").run(at, id);
         }
+        db.prepare("DELETE FROM attachment_reads WHERE session_id = ?").run(sessionId);
       }).immediate();
+    },
+
+    recordAttachmentRead(read) {
+      db.transaction(() => insertAttachmentRead(db, read, now())).immediate();
+    },
+
+    attachmentReads(sessionId) {
+      return listAttachmentReads(db, sessionId);
     },
 
     attachments(fileIds) {

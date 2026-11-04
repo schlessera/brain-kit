@@ -8,6 +8,7 @@ import {
   type AttachmentReader,
   type SharedFileMeta,
 } from "@schlessera/brain-ui-sdk/protocol";
+import type { AttachmentReadOutcome, AttachmentReadResult } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 /**
  * Ownership and accounting records of composer originals (#3153,
@@ -202,7 +203,33 @@ export function markForDeletion(db: Database, at: number): Array<{ fileId: strin
 /** Sweep step 2's record half: forget files whose directory is gone. */
 export function forgetDeleted(db: Database, fileIds: readonly string[]): void {
   for (const id of fileIds) {
-    db.prepare("DELETE FROM attachment_files WHERE file_id = ? AND state IN ('deleting', 'missing')").run(id);
+    const gone = db.prepare("DELETE FROM attachment_files WHERE file_id = ? AND state IN ('deleting', 'missing')").run(id).changes > 0;
     db.prepare("DELETE FROM attachment_receipts WHERE file_id = ?").run(id);
+    if (gone) db.prepare("DELETE FROM attachment_reads WHERE file_id = ?").run(id);
   }
+}
+
+/** One recorded `read_attachment` call (#3154). Internal and UI data only; never provider context. */
+export interface AttachmentReadRecord {
+  fileId: string;
+  sessionId: string;
+  turnId: string;
+  outcome: Exclude<AttachmentReadOutcome, "refused">;
+  scope: AttachmentReadResult["scope"] | null;
+}
+
+export function insertAttachmentRead(db: Database, read: AttachmentReadRecord, at: number): void {
+  db.prepare("INSERT INTO attachment_reads (file_id, session_id, turn_id, outcome, scope_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(read.fileId, read.sessionId, read.turnId, read.outcome, read.scope ? JSON.stringify(read.scope) : null, at);
+}
+
+/** The recorded reads of one session's originals, oldest first. */
+export function listAttachmentReads(db: Database, sessionId: string): Array<AttachmentReadRecord & { at: number }> {
+  const rows = db.query("SELECT file_id, session_id, turn_id, outcome, scope_json, created_at FROM attachment_reads WHERE session_id = ? ORDER BY rowid")
+    .all(sessionId) as Array<{ file_id: string; session_id: string; turn_id: string; outcome: AttachmentReadRecord["outcome"]; scope_json: string | null; created_at: number }>;
+  return rows.map((r) => {
+    let scope: AttachmentReadRecord["scope"] = null;
+    try { scope = r.scope_json ? JSON.parse(r.scope_json) as AttachmentReadRecord["scope"] : null; } catch { /* A corrupt row claims no scope. */ }
+    return { fileId: r.file_id, sessionId: r.session_id, turnId: r.turn_id, outcome: r.outcome, scope, at: r.created_at };
+  });
 }

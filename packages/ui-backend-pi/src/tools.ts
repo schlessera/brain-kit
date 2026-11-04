@@ -112,6 +112,7 @@ export interface BrainToolDeps {
     reference?: boolean;
     compute?: boolean;
     apify?: boolean;
+    attachments?: boolean;
   };
 }
 
@@ -143,6 +144,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   // nothing; run and abort change remote and ledger state.
   brain_apify_discover: "read", brain_apify_inspect: "read", brain_apify_prepare: "read",
   brain_apify_run: "mutate", brain_apify_status: "read", brain_apify_results: "read", brain_apify_abort: "mutate",
+  // Attachment reads (#3154): the host authorizes each id against the session's own references.
+  read_attachment: "read",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
@@ -189,6 +192,9 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   // Apify (#3162): the host decides every call and asks per exact run; a tool
   // card would add a rememberable grant that authorizes nothing.
   ...Object.values(APIFY_TOOL_NAMES),
+  // Attachment reads (#3154): the host authorizes each id against the
+  // session's own references; a card would ask to read what the user sent.
+  "read_attachment",
   // pi-web-access (recommended web extension) — parity with Claude's
   // auto-allowed WebSearch/WebFetch.
   "web_search",

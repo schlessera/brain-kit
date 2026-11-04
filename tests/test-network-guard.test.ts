@@ -85,7 +85,7 @@ describe("offline test guard", () => {
       if (scenario === "mock-files") expect(result.output).toContain("(pass) restore mocks in another file");
     });
   }
-  for (const scenario of ["local-sockets", "local-tls", "local", "manual", "redirect-error"]) {
+  for (const scenario of ["local-sockets", "local-tls", "local", "local-unix", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {
       const result = await run(scenario);
       expect(result.calls.length).toBeGreaterThan(0);
