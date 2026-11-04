@@ -66,6 +66,8 @@ export interface QueuedFollowUp {
   text: string;
   attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+  /** Composer originals this message sends, verified at dispatch (#3153). */
+  attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
   /** Device snapshot taken when the message was sent, not when it runs. */
   client?: ClientEnvironment;
   /** How the user produced the message; absent means typed. */
@@ -112,12 +114,12 @@ export interface QueuedFollowUp {
  * clips the list itself: every pending follow-up is always reported, and
  * only a very long prompt is shortened.
  */
-export const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
+const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
 
 const wireBytes = (text: string) => Buffer.byteLength(JSON.stringify(text), "utf8");
 
 /** Head of `text` within `bytes` serialized bytes, with an elision note when cut. */
-export function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
+function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
   if (wireBytes(text) <= bytes) return text;
   const budget = Math.max(0, bytes - 64);
   // The longest head that fits: wire size grows with length, so bisect.
@@ -144,7 +146,7 @@ export function followUpView(entry: QueuedFollowUp): QueuedFollowUpView {
     text,
     ...(text !== entry.text ? { textTruncated: true } : {}),
     ...(entry.attachments.length ? { attachmentCount: entry.attachments.length } : {}),
-    ...(entry.files?.length ? { fileCount: entry.files.length } : {}),
+    ...((entry.files?.length ?? 0) + (entry.attachmentFiles?.length ?? 0) ? { fileCount: (entry.files?.length ?? 0) + (entry.attachmentFiles?.length ?? 0) } : {}),
     ...(entry.source ? { source: entry.source } : {}),
     queuedAt: entry.queuedAt ?? 0,
     ...(entry.label ? { label: entry.label } : {}),
@@ -174,7 +176,7 @@ export interface FollowUpQueueChange {
  * worth walking.
  */
 export function queuedFollowUpBytes(
-  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp">
+  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp"> & Partial<Pick<QueuedFollowUp, "attachmentFiles">>
 ): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
@@ -183,6 +185,7 @@ export function queuedFollowUpBytes(
   // A refused follow-up holds the exchanges its prompt took until it runs.
   const exchanges = entry.refusedFollowUp?.exchanges;
   if (exchanges?.length) bytes += Buffer.byteLength(JSON.stringify(exchanges), "utf8");
+  if (entry.attachmentFiles?.length) bytes += Buffer.byteLength(JSON.stringify(entry.attachmentFiles), "utf8");
   return bytes + (entry.files?.length ? Buffer.byteLength(JSON.stringify(entry.files), "utf8") : 0);
 }
 
@@ -204,6 +207,8 @@ export interface RunningTurn {
   requestId?: string;
   /** The draft revision the current turn's message was sent from; replaced on dequeue. */
   draftRef?: DraftRef;
+  /** Composer originals the current turn's message sent; their message references are written at acceptance (#3153). */
+  attachmentFileIds?: string[];
   /** Host-orchestrated work the CURRENT turn runs, if any; replaced on dequeue. */
   work?: HostWork;
   /**
@@ -246,6 +251,13 @@ export interface RunningTurn {
    */
   handingOver?: QueuedFollowUp;
   cancelled: boolean;
+  /**
+   * The turn the host's hard elapsed-time limit ended (#3356). Set by the
+   * timeout itself, never inferred from an aborted signal, so a cancel or a
+   * journal/egress abort is never reported as a timeout. Keyed by turn id
+   * because a queued follow-up reuses this slot.
+   */
+  timedOutTurnId?: string;
   /**
    * Terminal disposition of the CURRENT turn's `result` frame, when one has
    * streamed. Backends RESOLVE startTurn for runtime failures (the failure
@@ -292,7 +304,7 @@ export interface PendingApproval {
  * happened (#957). `expired` is a terminal turn that resolved the request
  * itself; it never needed a `tool_result`.
  */
-export interface ToolResolutionRecord {
+interface ToolResolutionRecord {
   outcome: "granted" | "denied" | "expired";
   turnId: string;
   sessionId: string | null;
@@ -301,9 +313,9 @@ export interface ToolResolutionRecord {
 }
 
 /** Settled outcomes retained for late replies; the oldest is evicted first. */
-export const MAX_RESOLVED_APPROVALS = 512;
+const MAX_RESOLVED_APPROVALS = 512;
 
-export interface PendingAskUser {
+interface PendingAskUser {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingApproval.request. */
@@ -313,7 +325,7 @@ export interface PendingAskUser {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserList {
+interface PendingAskUserList {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -323,7 +335,7 @@ export interface PendingAskUserList {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserRank {
+interface PendingAskUserRank {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -333,7 +345,7 @@ export interface PendingAskUserRank {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserForm {
+interface PendingAskUserForm {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -354,7 +366,7 @@ export type PendingAsk =
   | { kind: "ask_user_form"; entry: PendingAskUserForm };
 
 /** The entry type a pending ask of kind `K` carries. */
-export type PendingAskEntry<K extends AskKind> = Extract<PendingAsk, { kind: K }>["entry"];
+type PendingAskEntry<K extends AskKind> = Extract<PendingAsk, { kind: K }>["entry"];
 
 /** A session start reserved before asynchronous backend routing finishes. */
 export interface StartingSession {
@@ -364,18 +376,18 @@ export interface StartingSession {
 }
 
 /** A handoff creation in flight (#61); `sessionId` is set once its destination exists. */
-export interface PendingHandoff {
+interface PendingHandoff {
   sessionId?: string;
 }
 
 /** A running handoff preparation summary (#61). */
-export interface HandoffPreparation {
+interface HandoffPreparation {
   abort: AbortController;
   owner: unknown;
 }
 
 /** What a coordinator reports to, fixed when it is constructed. */
-export interface TurnCoordinatorOptions {
+interface TurnCoordinatorOptions {
   /** Where collisions are reported; absent (a bare coordinator in a test) means silence. */
   log?: Logger;
   /** Told about every settled permission request, whichever path settled it. */
@@ -389,7 +401,7 @@ export interface TurnCoordinatorOptions {
  * repeated or late answer, or a status query after a lost receipt, gets the
  * host's actual outcome instead of silence.
  */
-export interface AskOutcome {
+interface AskOutcome {
   requestId: string;
   sessionId: string | null;
   turnId: string;
@@ -409,17 +421,17 @@ export interface AskOutcome {
  * deal from growing this without limit; the oldest outcome goes first, and a
  * forgotten request answers `not_recognized`, which stops replay just the same.
  */
-export const ASK_OUTCOME_TTL_MS = 24 * 60 * 60 * 1000;
-export const ASK_OUTCOME_MAX = 1024;
+const ASK_OUTCOME_TTL_MS = 24 * 60 * 60 * 1000;
+const ASK_OUTCOME_MAX = 1024;
 
-export interface PendingLocation {
+interface PendingLocation {
   turn: RunningTurn;
   turnId: string;
   resolve: (result: LocationFix) => void;
   reject: (err: Error) => void;
 }
 
-export interface PendingMask {
+interface PendingMask {
   turn: RunningTurn;
   turnId: string;
   resolve: (png: Uint8Array) => void;
@@ -459,6 +471,8 @@ export class TurnCoordinator {
   readonly #handoffs = new Map<string, PendingHandoff>();
   readonly #handoffPreparations = new Map<string, HandoffPreparation>();
   readonly #askOutcomes = new Map<string, AskOutcome>();
+  /** The last drain of each turn's interactive requests, by the turn id it ended (#3553). */
+  readonly #drained = new WeakMap<RunningTurn, { turnId: string; reason: string }>();
   readonly #authorizationRegistry = new Map<AuthorizationContext, number>();
 
   constructor(options: TurnCoordinatorOptions = {}) {
@@ -989,8 +1003,35 @@ export class TurnCoordinator {
     this.#onApprovalSettled?.(toolUseId, record);
   }
 
+  /**
+   * Why this turn's interactive requests were drained, when they were for
+   * this turn id. A drain runs once, so a request a backend raises after it
+   * (a turn limit that ran out before the question reached the bridge) would
+   * never settle and would park startTurn until restart (#3553). Openers
+   * refuse with this reason instead.
+   */
+  drainedReason(turn: RunningTurn, turnId: string): string | undefined {
+    const drained = this.#drained.get(turn);
+    return drained?.turnId === turnId ? drained.reason : undefined;
+  }
+
+  /**
+   * Refuse an ask raised after its turn's drain: record it closed as ended,
+   * as the drain would have, and return the drain's reason. Undefined when
+   * the turn's requests were not drained and the ask may open.
+   */
+  refuseDrainedAsk(p: { turn: RunningTurn; turnId: string; requestId: string }): string | undefined {
+    const reason = this.drainedReason(p.turn, p.turnId);
+    if (reason !== undefined) this.closeAsk(p, "ended");
+    return reason;
+  }
+
   /** Resolve/reject every pending interactive request belonging to one turn. */
   drainPendingForTurn(turn: RunningTurn, reason: string): void {
+    // A drain of an aborted turn ends its interactive requests; every such
+    // caller aborts first. The first one's reason is the one kept.
+    if (turn.abortController?.signal.aborted && this.#drained.get(turn)?.turnId !== turn.turnId)
+      this.#drained.set(turn, { turnId: turn.turnId, reason });
     for (const [id, p] of this.#pendingApprovals) {
       if (p.turn !== turn) continue;
       p.resolve({ behavior: "deny", message: reason });

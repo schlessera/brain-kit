@@ -91,11 +91,19 @@ const checks: Record<string, Check> = {
   "PUT /api/drafts/:draftId": { path: "/api/drafts/draft-ithaca", init: { method: "PUT", headers: { "content-type": "application/json", "if-match": "0", "idempotency-key": "fixture-save" }, body: JSON.stringify({ sessionId: null, text: "Odysseus reaches the harbor.", attachmentIds: [] }) }, body: { revision: 1 }, verify: async (_, t) => { expect(t.app.db.query("SELECT text FROM session_drafts WHERE draft_id = 'draft-ithaca'").get()).toEqual({ text: "Odysseus reaches the harbor." }); } },
   "POST /api/drafts/:draftId/attachments": { path: "/api/drafts/draft-ithaca/attachments", init: { method: "POST", headers: { "content-type": "image/png", "idempotency-key": "fixture-upload" }, body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]) }, verify: async (r, t) => { const { attachmentId } = await r.json(); expect(t.app.db.query("SELECT size_bytes FROM session_draft_attachments WHERE attachment_id = ?").get(attachmentId)).toEqual({ size_bytes: 9 }); } },
   "DELETE /api/drafts/:draftId": { path: "/api/drafts/draft-missing", init: { method: "DELETE", headers: { "if-match": "1" } }, status: 404, body: { error: "DRAFT_NOT_FOUND" } },
+  "POST /api/drafts/:draftId/files": { path: "/api/drafts/draft-ithaca/files", init: { method: "POST", headers: { "content-type": "text/plain", "idempotency-key": "fixture-file", "x-file-name": encodeURIComponent("harbour-notice.txt"), "content-length": "28" }, body: "Odysseus reaches the harbor." }, status: 201, body: { kind: "text", bytes: 28 }, verify: async (r, t) => { const { fileId, path } = await r.json(); expect(t.app.db.query("SELECT bytes, state FROM attachment_files WHERE file_id = ?").get(fileId)).toEqual({ bytes: 28, state: "stored" }); expect(readFileSync(join(t.brainPath, path), "utf8")).toBe("Odysseus reaches the harbor."); expect(r.headers.get("cache-control")).toBe("no-store"); } },
+  "GET /api/attachments/:fileId": { path: "/api/attachments/00000000-0000-4000-8000-000000000000", status: 404, body: { error: "ATTACHMENT_NOT_FOUND" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "POST /api/drafts/:draftId/bind": { path: "/api/drafts/draft-missing/bind", init: json("POST", { sessionId: "fixture-session", requestId: "fixture-request" }), status: 409, body: { error: "DRAFT_NOT_ACCEPTED" } },
   "GET /api/sessions/:id": { path: "/api/sessions/fixture-session", body: { id: "fixture-session", messages: [{ role: "assistant", content: "Odysseus reaches the harbor." }] } },
   "GET /api/sessions/:sessionId/turns/:turnId/revert/plan": { path: "/api/sessions/fixture-session/turns/unknown/revert/plan", status: 409, body: { error: "No retained eligible history is available." } },
   "GET /api/sessions/:sessionId/turns/:turnId/revert": { path: "/api/sessions/fixture-session/turns/unknown/revert", status: 200, body: { receipt: null } },
   "GET /api/sessions/:sessionId/turns/:turnId/revert/:operationId": { path: "/api/sessions/fixture-session/turns/unknown/revert/odysseus_unknown", status: 404, body: { error: "Original operation receipt unavailable; no effect was retried." } },
+  "POST /api/chat-deletions": { init: json("POST", { operationId: "fixture-deletion", target: { sessionId: "fixture-session" }, expected: { backendId: "fixture", generation: 1 } }),
+    status: 404, body: { error: "CHAT_DELETION_REFUSED", reason: "unavailable" }, verify: async (r, t) => { expect(r.headers.get("cache-control")).toBe("no-store");
+      expect(t.app.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 }); } },
+  "GET /api/chat-deletions/:operationId": { path: "/api/chat-deletions/fixture-deletion", status: 404, body: { error: "CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted" },
+    verify: async (r, t) => { expect(r.headers.get("cache-control")).toBe("no-store");
+      expect(t.app.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 }); } },
   "POST /api/sessions/:sessionId/turns/:turnId/revert": { path: "/api/sessions/fixture-session/turns/unknown/revert", status: 409, init: json("POST", { id: "odysseus_unknown" }), body: { error: "This turn is not available for a user history operation." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
@@ -273,6 +281,15 @@ test("a dirty failed mount discards its resources before the next independent ca
     // the failed and rebuilt shared environments have completely shut down.
     const fresh = await prepare("GET /api/auth/principals", t => { timers.own(t); });
     try {
+      // The journal's startup maintenance pass commits an observation and hands
+      // its previous checkpoint to a background release (#2872), whose native
+      // request can still hold a socket while the six below connect (#3550).
+      // Join the pass and that release before counting this case's sockets.
+      const journal = fresh.t.app.wsHost.journal;
+      expect(journal).toBeDefined();
+      await journal!.ready;
+      await journal!.maintain();
+      await journal!.releasesSettled();
       const native = createNativeBrainManagerClient(fresh.t.app.config.nativeBrain!);
       await Promise.all(Array.from({ length: 6 }, () => native.ready()));
       const freshKey = httpMountAgentKey(fresh.t);

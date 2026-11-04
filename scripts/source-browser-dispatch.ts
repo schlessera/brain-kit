@@ -9,8 +9,8 @@ import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 const helperConsumers:Record<string,string>={
   // Re-audited when #1362 moved inbound routing out of connection.ts: only
   // runStateForFrame is imported; it never acquires or mutates chatFrameHandlers.
-  "packages/ui-react/src/ws-client/inbound.ts":"053f8db41bb21b5525c6c7e15a04281ba5ade6273b4f1f05cd415b470f368c63",
-  "packages/ui-react/src/hooks/use-websocket.ts":"ab5208f9edeccee5d30fd3c9c81962d1cba3339222bd3f86b7ea143e0596ffcc"
+  "packages/ui-react/src/ws-client/inbound.ts":"18d84fd93fc0f5ced9114e5bd5f5270632d70105d10f254be999fa3677bcf163",
+  "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 const declarations=[
   {
@@ -22,7 +22,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "d2c8599daff7d6e4c5b886ee767bbb062bb653c49d83c48df46cd0f863a850d2"
+        "source": "5c314921924458ce67f6a815553740b3828b447a2b34031f222745fdfb3bd15c"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
@@ -42,7 +42,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "2f818c7529aa8086655a2766ba3cdc2dbff0c4fc19e49e3722e4d0d9fe0243f5"
+        "source": "a9c15494163cf55b9b69e2f76945ac3a51028eb7d85179cc8c1a48f8e3db35ef"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
-import { ASK_RECEIPTS_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
+import { ASK_RECEIPTS_CAPABILITY, CHAT_DELETION_CAPABILITY, COMPOSER_FILES_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV, SESSION_RECOVERY_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 import { withTurnScope } from "./frames.js";
 import { resendPendingInteractive } from "./resend.js";
@@ -24,7 +24,7 @@ export { websocket };
  * principal from an httpOnly cookie. A one-way digest says "same principal or
  * not" without handing the id itself to every page.
  */
-export function answerQueueKey(principalId: string): string {
+function answerQueueKey(principalId: string): string {
   return createHash("sha256").update(`brain-ui-answer-queue\u0000${principalId}`).digest("base64url").slice(0, 22);
 }
 
@@ -111,14 +111,20 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
           followUpQueue: true,
           ...(host.conversations ? { liveConversation: true, conversationPause: true } : {}),
           ...(host.drafts ? { sessionDrafts: true } : {}),
+          // POST /api/drafts/:draftId/files stores originals and
+          // chat_message.attachmentRefs is accepted (#3153).
+          ...(host.attachmentLimits ? { [COMPOSER_FILES_CAPABILITY]: true } : {}),
           // GET /api/sessions/:id/recovery answers, and replays carry
           // host-proven turn ids (#964).
           ...(supportsSessionRecovery(host) ? { [SESSION_RECOVERY_CAPABILITY]: true } : {}),
+          // POST /api/chat-deletions answers, and `chat_retired` reaches declaring clients (#3230).
+          ...(host.chatDeletion ? { [CHAT_DELETION_CAPABILITY]: true } : {}),
         },
         // Beside `capabilities`, whose values every shipped client parses
         // as booleans (#979).
         ...(host.conversations ? { conversationProfile: host.conversations.profile() } : {}),
         ...(host.drafts ? { sessionDraftLimits: { ...host.drafts.limits } } : {}),
+        ...(host.attachmentLimits ? { attachmentLimits: { ...host.attachmentLimits } } : {}),
       });
 
       // Snapshot-on-connect only for the single-running-session case (backward

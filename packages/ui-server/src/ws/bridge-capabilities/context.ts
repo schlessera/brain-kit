@@ -36,6 +36,8 @@ export interface MakeBridgeOptions {
    * startup view, that view's root: where its `Read` of a brain path resolves.
    */
   turnData?: { tree: TurnDataTree; view?: string } | undefined;
+  /** The governed turn's frozen policy: hosted external compute is admitted only under it (#3108). */
+  governance?: { policy: TurnGovernancePolicy } | undefined;
 }
 
 export interface WorkerProfileBinding { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" }

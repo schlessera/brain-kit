@@ -12,6 +12,8 @@ test("a first strict admission refreshes sealed inputs only after trusted scratc
     scratchAtCapture.push(existsSync(join(path,".brain/scratch")));
     const view=createFixtureWorkerStartupView(path);views.push(view);return view;
   });
+  // The fixture views stand in for manager-acquired ones; admission refuses any other (#3314).
+  const managed=spyOn(startup,"assertManagedTurnStartupView").mockImplementation(view=>{if(view===undefined||!views.includes(view))throw new Error(startup.UNMANAGED_TURN_STORAGE);});
   let released=0;
   const execution={boundary:{async prepare(){return {available:true};},maintenance:{}},gate(){return {async acquire(){return {release(){released++;}};}};},manifests(){return {};}};
   const turns=createGovernedTurns({nativeManager:{} as never,brainPath:brain,execution:execution as never,profile:"strict",maskPaths:[],async index(){},report(){}});
@@ -24,5 +26,5 @@ test("a first strict admission refreshes sealed inputs only after trusted scratc
       expect(existsSync(views[0]!.root),"REPLACED_ADMISSION_VIEW_RELEASE_IS_AWAITED").toBe(false);
     } finally {await hold.end();}
     expect(released).toBe(1);expect(existsSync(views[1]!.root)).toBe(false);
-  } finally {acquire.mockRestore();for(const view of views)await view.cleanup();await turns.close();rmSync(brain,{recursive:true,force:true});}
+  } finally {acquire.mockRestore();managed.mockRestore();for(const view of views)await view.cleanup();await turns.close();rmSync(brain,{recursive:true,force:true});}
 });

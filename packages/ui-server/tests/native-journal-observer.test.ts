@@ -39,7 +39,8 @@ function fixture(stream: Buffer, before: Entry[], after: Entry[]) {
   const manager: NativeJournalManager = {
     async checkpoint(id, signal) { signal?.throwIfAborted(); live.add(id); const first = number++ === 0; return { id, path: first ? previous : next, ...(first ? identities.before : identities.after), readOnly: true }; },
     async delta(_from,_to,signal) { signal?.throwIfAborted(); return {stream:new ReadableStream({start(controller){controller.enqueue(stream);controller.close();}}),completed:failCompletion ? Promise.reject(new Error("Odysseus helper failed")) : Promise.resolve({exitCode:0,bytes:stream.length})}; },
-    async release(id) { if(failRelease){failRelease=false;throw new Error("Odysseus release uncertain");} live.delete(id);released.push(id);return {}; },
+    // Like the lease owner, refuse a root whose checkpoint was never recorded (#3521).
+    async release(id) { if(!live.has(id)) throw new Error("This native root has no recorded checkpoint lease"); if(failRelease){failRelease=false;throw new Error("Odysseus release uncertain");} live.delete(id);released.push(id);return {}; },
   };
   const observer = createNativeJournalObserver(manager);
   return {root, previous, next, identities, manager, observer, live, released, failCompletion(){failCompletion=true;},failRelease(){failRelease=true;},async close(){await observer.close();rmSync(root,{recursive:true,force:true});}};
@@ -123,6 +124,20 @@ test("cancellation after checkpoint creation releases original id even when repl
   f.manager.checkpoint=async(id,signal)=>{const result=await original(id,signal);controller.abort(new Error("Odysseus stopped"));return result;};
   try{await expect(f.observer.initialize(controller.signal)).rejects.toThrow("Odysseus stopped");expect(f.live.size,"NATIVE_OBSERVER_CANCEL_RELEASES_CREATED_ROOT").toBe(0);}
   finally{await f.close();}
+});
+
+// #3521: the manager refuses an already-aborted checkpoint before recording its lease.
+for (const [name, start] of [
+  ["a caller signal aborted before the observation's checkpoint", (f: ReturnType<typeof fixture>) => { const controller = new AbortController(); controller.abort(new Error("Odysseus stopped")); return f.observer.observe(controller.signal); }],
+  ["shutdown that begins while an observation awaits initialization", (f: ReturnType<typeof fixture>) => { const observing = f.observer.observe(); void f.observer.close().catch(() => {}); return observing; }],
+] as const) test(`${name} never retains a checkpoint the manager did not record`, async () => {
+  const f = fixture(warmStream, [], []);
+  try {
+    await f.observer.initialize();
+    await expect(start(f)).rejects.toThrow();
+    await expect(f.observer.close(), "NATIVE_OBSERVER_UNRECORDED_CHECKPOINT_NOT_RETAINED").resolves.toBeUndefined();
+    expect(f.live.size).toBe(0);
+  } finally { await f.close(); }
 });
 
 test("symlinks are metadata; descendants are never followed outside the sealed tree",async()=>{
@@ -273,7 +288,8 @@ test("repeating a commit hands its checkpoint over once, and retries it after a 
     const result=await f.observer.observe();
     await Promise.all([result.commit(),result.commit()]);
     const first=await f.next();requested.push(first.id);first.settle(new Error("Odysseus release refused"));await f.observer.releasesSettled();
-    await Bun.sleep(50);expect(f.waiting,"NATIVE_REPEATED_COMMIT_RELEASES_ONCE").toEqual([]);
+    // The release owner has no timers: settled releases leave only continuations, which one macrotask runs.
+    await new Promise(resolve=>setImmediate(resolve));expect(f.waiting,"NATIVE_REPEATED_COMMIT_RELEASES_ONCE").toEqual([]);
     await result.commit();
     const retry=await f.next();requested.push(retry.id);retry.settle();await f.observer.releasesSettled();
     expect(requested,"NATIVE_REPEATED_COMMIT_RETRIES_FAILED_RELEASE").toEqual([result.beforeRoot.id,result.beforeRoot.id]);

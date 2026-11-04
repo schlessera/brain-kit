@@ -1,4 +1,4 @@
-import { Button, IconButton, Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
 import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
 import type { FileLoadFailure } from "../../stores/file-state.js";
@@ -15,9 +15,9 @@ import type { FileLoadFailure } from "../../stores/file-state.js";
  * The reveal and copy controls use the kit IconButton. The HTML "Open in
  * new tab" link stays native, and the share menu arrives rendered.
  */
-export type ViewMode = "preview" | "raw";
+type ViewMode = "preview" | "raw";
 
-export interface ViewerToolbarProps {
+interface ViewerToolbarProps {
   fileName: string;
   fullPath: string;
   size?: number;
@@ -32,6 +32,10 @@ export interface ViewerToolbarProps {
    * tab (#1084). Absent for every other kind.
    */
   openInTab?: string;
+  /** The untrusted-mark control (#2673), between Copy path and Share; null when none applies. */
+  untrusted?: ReactNode;
+  /** The untrusted cue or lookup line under the path. */
+  untrustedCue?: ReactNode;
   onMode: (mode: ViewMode) => void;
   onCopyPath: () => void;
   onReveal: () => void;
@@ -51,8 +55,10 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
           {p.fullPath}
           {p.size !== undefined && <span className="ml-2">· {formatSize(p.size)}</span>}
         </div>
+        {p.untrustedCue}
       </div>
       <IconButton size="md" name="Copy path" glyph={p.copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} onClick={p.onCopyPath} />
+      {p.untrusted}
       {p.openInTab && (
         <a
           href={p.openInTab}
@@ -105,16 +111,8 @@ export function ViewerFailure({ failure, onRetry }: { failure: FileLoadFailure; 
   return <div className="px-6 py-6">
     <h3 className="text-base font-medium text-foreground [overflow-wrap:anywhere]">{title}</h3>
     {body && <p className="mt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">{body}</p>}
-    {retry && <div className="mt-5 w-full laptop:w-fit"><Button label="Try again" tone="ghost" size="md" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={onRetry} /></div>}
+    {retry && <div className="mt-5 w-full laptop:w-fit"><Button label="Try again" tone="ghost" size="md" block={false} reach onClick={onRetry} /></div>}
   </div>;
-}
-
-export function ViewerError({ message }: { message: string }) {
-  return (
-    <div className="m-4" role="alert">
-      <Callout tone="red" variant="banner" icon="failed" mono text={message} />
-    </div>
-  );
 }
 
 /**

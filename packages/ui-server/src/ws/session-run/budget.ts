@@ -15,7 +15,7 @@ export interface BudgetAttribution {
   readonly source: "policy" | "default";
 }
 
-export type BudgetBlockStage = "admission" | "mid_turn" | "sdk_backstop";
+type BudgetBlockStage = "admission" | "mid_turn" | "sdk_backstop";
 
 /** Read a budget event's attribution from the live turn. */
 export function budgetAttribution(run: Pick<TurnRun, "turn" | "origin" | "mainModel" | "held">): BudgetAttribution {

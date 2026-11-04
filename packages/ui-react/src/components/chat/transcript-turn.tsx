@@ -17,7 +17,7 @@ import { cn } from "../../lib/utils.js";
  * tokens"), controlled by the container so it can auto-collapse when the
  * stream ends.
  */
-export interface TurnHeaderProps {
+interface TurnHeaderProps {
   who: string;
   /** Mono time, already formatted. Absent prints no time (a turn shell the host has not timed). */
   when?: string;
@@ -71,7 +71,7 @@ export function AttachmentCount({ count }: { count: number }) {
   return <Chip label={`${count} image${count === 1 ? "" : "s"}`} icon="image" variant="outline" tone="neutral" mono={false} />;
 }
 
-export interface ThinkingBlockProps {
+interface ThinkingBlockProps {
   content: ReactNode;
   /** Roughly how much was thought; the collapsed summary's number. */
   chars: number;

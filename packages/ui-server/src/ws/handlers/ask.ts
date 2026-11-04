@@ -1,7 +1,7 @@
 import { handleAskAnswer, handleAskAnswerStatus } from "../ask-answers.js";
 import { turnIdMatches, type ClientMessageHandler } from "./context.js";
 
-export type AskAnswerType =
+type AskAnswerType =
   | "ask_user_response"
   | "ask_user_list_response"
   | "ask_user_rank_response"

@@ -6,7 +6,7 @@ import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/s
 import { prepareTurnEgress } from "../../brain/turn-egress.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBudgetLimits } from "../../brain/turn-budgets.js";
 import { sessionTaint } from "../../governance/session-taint.js";
-import { withTrackFiles } from "../../tracks/read.js";
+import { withChatFiles } from "../../attachments/context.js";
 import { makeBridge, settleTurnIndex } from "../bridge.js";
 import { withLocalContext } from "../local-exchanges.js";
 import { acceptRequest } from "../recovery.js";
@@ -36,8 +36,8 @@ export function recordDraftExchanges(host: WsHost, sessionId: string, exchanges:
 
 /** The message's source, recorded in the order the backend receives its text, which is the order replay counts identical texts in. */
 function recordSource(run: TurnRun, sessionId: string): void {
-  const { text, source, thinkingLevel, files } = run.current;
-  run.host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { thinkingLevel, turnId: run.turn.turnId, files });
+  const { text, source, thinkingLevel, files, attachmentFiles } = run.current;
+  run.host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { thinkingLevel, turnId: run.turn.turnId, files, ...(attachmentFiles?.length ? { attachmentFiles } : {}) });
 }
 
 /**
@@ -56,12 +56,12 @@ export async function openTurnBridge(
 ): Promise<{ prompt: string; bridge: BackendBridge }> {
   const { host, slot, turn, backend, current, recorder, failureRecording, billing, held, origin, profileId, resumeId } = run;
   const { initial } = slot;
-  const { text, files, work } = current;
+  const { text, files, attachmentFiles, work } = current;
   const governedHold = held.governedHold;
   if (resumeId && !current.refusedFollowUp) recordSource(run, resumeId);
   const drafted = slot.draftExchanges;
   slot.draftExchanges = [];
-  const prompt = (initial.replayPrompt !== undefined && turn.turnId === slot.firstTurnId) ? initial.replayPrompt : withLocalContext(withTrackFiles(text, files), [
+  const prompt = (initial.replayPrompt !== undefined && turn.turnId === slot.firstTurnId) ? initial.replayPrompt : withLocalContext(withChatFiles(text, files, attachmentFiles), [
     ...drafted,
     ...(current.refusedFollowUp?.exchanges ?? []),
     ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
@@ -107,6 +107,7 @@ export async function openTurnBridge(
       ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
       ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined,
     turnData: governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined,
+    governance: governedHold ? { policy: governedHold.policy } : undefined,
   });
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
@@ -123,9 +124,9 @@ export async function openTurnBridge(
 }
 
 /**
- * A governed or strict Claude or pi turn on managed native storage gets its
- * own proxy and the host inference relay (#1665). Without that storage the
- * turn keeps its current network; worker-host status says which. The CLI's
+ * A governed or strict Claude or pi turn gets its own proxy and the host
+ * inference relay (#1665). Admission already refused a turn whose startup
+ * view is not on managed native storage (#3314). The CLI's
  * paid providers reach the network only through this relay, which holds
  * their keys, shares the turn's egress admission and meters each request on
  * the turn (#1673).
@@ -134,9 +135,9 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   const { host, turn, backend, abortController, held, stops, origin } = run;
   const governedHold = held.governedHold;
   const relayed = isRelayed(backend);
-  if (governedHold?.sandbox.inferenceRecipient && !(governedHold.managedStorage && relayed))
+  if (governedHold?.sandbox.inferenceRecipient && !relayed)
     throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
-  if (!governedHold?.managedStorage || !relayed) return;
+  if (!governedHold || !relayed) return;
   const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,

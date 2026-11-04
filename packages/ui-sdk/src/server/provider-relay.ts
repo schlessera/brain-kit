@@ -7,7 +7,12 @@
  * family, the key variable and the origin it would have called
  * (`@schlessera/brain-common/internal/provider-relay`). The relay:
  *
- * - forwards only fixed first-party POST routes, never a redirect;
+ * - forwards only fixed first-party POST routes, never a redirect, plus the
+ *   Gemini Files lifecycle a video needs (#2738): an upload start, the bytes to
+ *   an upload URL the host validated and registered, and a poll or delete of a
+ *   handle this relay's own uploads created. A worker-chosen upload URL or a
+ *   foreign handle is refused, and the files a turn leaves behind are deleted
+ *   when its relay stops;
  * - releases a host key only to a recipient it authorizes: the key's own
  *   first-party origin, or an exact origin the operator lists for that key in
  *   `BRAIN_UI_CLI_PROVIDER_ORIGINS`. A worker-chosen origin, key name, model or
@@ -54,6 +59,10 @@ export const MAX_PROVIDER_BUFFERED_BYTES = 64 * 1024 * 1024;
 export const PROVIDER_REQUEST_UPLOAD_MS = 120_000;
 /** How long `stop()` waits for in-flight attempts to settle and report. */
 const STOP_SETTLE_MS = 5_000;
+/** A Files lifecycle answer is small JSON; a larger one is refused rather than held. */
+const MAX_FILES_RESPONSE_BYTES = 1024 * 1024;
+/** A turn's leftover files are deleted with this fresh deadline when its relay stops. */
+const FILES_CLEANUP_MS = 10_000;
 
 /** Each built-in's key variable, the only origin that key goes to by default, and where the key is placed. */
 export const FIRST_PARTY_PROVIDER_RECIPIENTS: Readonly<Record<ProviderRelayFamily, { key: string; origin: string }>> = Object.freeze({
@@ -67,7 +76,8 @@ const PLACEMENT: Readonly<Record<ProviderRelayFamily, (key: string) => Record<st
   openai: key => ({ authorization: `Bearer ${key}` }),
 };
 
-export type ProviderOperation = "embeddings" | "completions" | "image";
+/** `files`: a Gemini Files lifecycle request (upload, poll, delete), which the Files API does not charge for. */
+export type ProviderOperation = "embeddings" | "completions" | "image" | "files";
 /** The fixed routes of each family: the request the first-party CLI provider sends, and nothing else. */
 const ROUTES: Readonly<Record<ProviderRelayFamily, readonly { path: RegExp; operation: ProviderOperation }[]>> = {
   gemini: [
@@ -78,6 +88,58 @@ const ROUTES: Readonly<Record<ProviderRelayFamily, readonly { path: RegExp; oper
   anthropic: [{ path: /^\/v1\/messages$/, operation: "completions" }],
   openai: [{ path: /^\/v1\/images\/(?:generations|edits)$/, operation: "image" }],
 };
+
+/** A step of the Gemini Files lifecycle (#2738). */
+type FilesStep = { step: "start" } | { step: "upload"; token: string } | { step: "poll" | "delete"; name: string };
+const FILE_HANDLE = /^\/v1beta\/(files\/[a-z0-9-]{1,64})$/;
+const UPLOAD_PATH = "/upload/v1beta/files";
+/** The upload URL the relay hands the worker names a registration, never the provider's own URL. */
+const UPLOAD_TOKEN = /^\?brain_upload=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+/**
+ * The Files step a request is, or undefined. Exactly the requests the Gemini
+ * SDK's `files.upload`, `files.get` and `files.delete` send: a resumable
+ * upload start, its byte upload, and a GET or DELETE of one named handle.
+ */
+function filesStep(method: string, path: string, search: string, headers: Headers): FilesStep | undefined {
+  const command = headers.get("x-goog-upload-command")?.trim().toLowerCase();
+  if (method === "POST" && path === UPLOAD_PATH) {
+    if (!search && command === "start" && headers.get("x-goog-upload-protocol")?.trim().toLowerCase() === "resumable") return { step: "start" };
+    const token = UPLOAD_TOKEN.exec(search)?.[1];
+    if (token && (command === "upload" || command === "upload, finalize")) return { step: "upload", token };
+    return undefined;
+  }
+  const name = search ? undefined : FILE_HANDLE.exec(path)?.[1];
+  if (name && (method === "GET" || method === "DELETE")) return { step: method === "GET" ? "poll" : "delete", name };
+  return undefined;
+}
+
+/**
+ * The Files handle a `fileUri` names, or undefined for anything that is not
+ * one (a public video URL). A Files path this relay does not recognise is
+ * returned whole, so it can never match an owned handle.
+ */
+function fileHandleOf(uri: string): string | undefined {
+  let path: string;
+  try { path = new URL(uri).pathname; } catch { return uri.startsWith("files/") ? uri : undefined; }
+  return /\/files\//.test(path) ? FILE_HANDLE.exec(path)?.[1] ?? uri : undefined;
+}
+
+/** Every Files handle a Gemini request body names in a `fileData` part, or null when the body is not JSON. */
+function namedFileHandles(body: Uint8Array): string[] | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(new TextDecoder().decode(body)); } catch { return null; }
+  const found: string[] = [];
+  const visit = (value: unknown, depth: number): void => {
+    if (!value || typeof value !== "object" || depth > 64) return;
+    for (const [name, item] of Object.entries(value)) {
+      const handle = (name === "fileUri" || name === "file_uri") && typeof item === "string" ? fileHandleOf(item) : undefined;
+      if (handle !== undefined) found.push(handle); else visit(item, depth + 1);
+    }
+  };
+  visit(parsed, 0);
+  return found;
+}
 
 /** Provider-reported units, as reported. Absent classes were not reported. */
 export interface ProviderUsage {
@@ -121,7 +183,13 @@ export interface ProviderRelayRefusal {
   status: number;
   reason: "method_not_allowed" | "unknown_family" | "route_not_allowed" | "recipient_not_authorized"
     | "credential_unavailable" | "budget_exceeded" | "egress_refused" | "request_too_large" | "cancelled"
-    | "upstream_unreachable" | "upstream_redirected" | "streaming_not_relayed" | "relay_busy" | "upload_timeout";
+    | "upstream_unreachable" | "upstream_redirected" | "streaming_not_relayed" | "relay_busy" | "upload_timeout"
+    /** A Files upload to a URL this relay did not register (#2738). */
+    | "upload_not_registered"
+    /** A Files poll, delete or generation naming a handle this relay's uploads did not create (#2738). */
+    | "file_not_owned"
+    /** The provider named an upload URL off the authorized origin or upload path; nothing was registered (#2738). */
+    | "upload_url_rejected";
 }
 
 export interface ProviderRelayOptions {
@@ -266,14 +334,25 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
   let server: ReturnType<typeof Bun.serve>;
   let active = 0, buffered = 0;
   const idle = new Set<() => void>();
+  // Private to this relay, so to its turn (#2738): the upload URLs the provider
+  // issued, by the token the worker holds instead, and the Files handles this
+  // relay's own uploads created, by key variable and name.
+  const uploads = new Map<string, { key: string; origin: string; url: URL }>();
+  const owned = new Map<string, { key: string; origin: string; name: string }>();
+  const ownedId = (key: string, name: string): string => `${key}\n${name}`;
+  const owns = (key: string, origin: string, name: string): boolean => owned.get(ownedId(key, name))?.origin === origin;
   const leave = () => { active--; if (active === 0) for (const wake of idle) wake(); };
   try {
     server = Bun.serve({
       unix: socketPath,
-      async fetch(request, owner) {
-        // Image generation can take minutes before the first response byte;
-        // the request body has its own deadline below.
-        owner.timeout(request, 0);
+      // Image generation can take minutes, and a started response may pause
+      // for longer than Bun's 10s default; the request body has its own
+      // deadline below. Bun 1.4 does not honour a per-request
+      // `timeout(request, 0)` once the response streams, so disable it here.
+      // bun-types declares idleTimeout only for hostname servers; the runtime
+      // honours it on a Unix socket too (#3441 regression tests prove it).
+      ...({ idleTimeout: 0 } as object),
+      async fetch(request) {
         if (active >= MAX_PROVIDER_CONCURRENT_REQUESTS) {
           try { options.refused?.({ family: null, path: new URL(request.url).pathname, status: 503, reason: "relay_busy" }); } catch { /* Diagnostics only. */ }
           return Response.json({ type: "error", error: { type: "brain_provider_refused", message: "Provider relay busy" } }, { status: 503 });
@@ -305,10 +384,14 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       try { options.refused?.({ family: familyName && familyName in ROUTES ? familyName : null, path, status, reason }); } catch { /* Diagnostics never answer for the relay. */ }
       return Response.json({ type: "error", error: { type: reason === "budget_exceeded" ? "budget_exceeded" : "brain_provider_refused", message } }, { status });
     };
-    if (request.method !== "POST") return refuse(405, "method_not_allowed", "Only provider requests are relayed");
+    if (!["POST", "GET", "DELETE"].includes(request.method)) return refuse(405, "method_not_allowed", "Only provider requests are relayed");
     if (!familyName || !Object.hasOwn(ROUTES, familyName)) return refuse(403, "unknown_family", "Not a relayed provider");
     const family = familyName as ProviderRelayFamily;
-    const route = url.search ? undefined : ROUTES[family].find(candidate => candidate.path.test(path));
+    // A GET or DELETE is relayed only as a step of the Files lifecycle, never as a general route.
+    const files = family === "gemini" ? filesStep(request.method, path, url.search, request.headers) : undefined;
+    if (request.method !== "POST" && !files) return refuse(405, "method_not_allowed", "Only provider requests are relayed");
+    const route: { operation: ProviderOperation } | undefined = files ? { operation: "files" }
+      : url.search ? undefined : ROUTES[family].find(candidate => candidate.path.test(path));
     if (!route) return refuse(403, "route_not_allowed", "This path is not a relayed provider route");
     const key = request.headers.get(PROVIDER_RELAY_KEY_HEADER) ?? FIRST_PARTY_PROVIDER_RECIPIENTS[family].key;
     const origin = request.headers.get(PROVIDER_RELAY_ORIGIN_HEADER) ?? FIRST_PARTY_PROVIDER_RECIPIENTS[family].origin;
@@ -318,9 +401,23 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     // Header placement trims surrounding whitespace: redact and send the same value.
     const secret = credential(key)?.trim();
     if (!secret || /[\r\n]/.test(secret)) return refuse(403, "credential_unavailable", `The host has no ${key} to relay`);
-    const budget = await options.admit?.() ?? { allowed: true as const };
+    let target = new URL(path, origin);
+    // The bytes go only where the provider said, for the upload this relay
+    // registered under the same key and origin; a handle only to its creator.
+    if (files?.step === "upload") {
+      const registered = uploads.get(files.token);
+      if (!registered || registered.key !== key || registered.origin !== origin) {
+        return refuse(403, "upload_not_registered", "This upload URL was not issued by the provider relay");
+      }
+      target = new URL(registered.url);
+    }
+    if ((files?.step === "poll" || files?.step === "delete") && !owns(key, origin, files.name)) {
+      return refuse(403, "file_not_owned", "This file was not uploaded through this provider relay");
+    }
+    // Polling is free and deletion is cleanup: neither waits on a budget.
+    const budgeted = files?.step !== "poll" && files?.step !== "delete";
+    const budget = budgeted ? await options.admit?.() ?? { allowed: true as const } : { allowed: true as const };
     if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
-    const target = new URL(path, origin);
     const operation = options.egress?.relayed(request.method, target, request.signal);
     const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
     if (operation && !await operation.admit()) {
@@ -377,26 +474,26 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const headers = new Headers();
     for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
     for (const [name, value] of Object.entries(PLACEMENT[family](secret))) headers.set(name, value);
-    const { model, streaming } = await requestFacts(family, path, headers.get("content-type"), body);
+    const { model, streaming } = files ? { model: null, streaming: false } : await requestFacts(family, path, headers.get("content-type"), body);
     // Streamed answers carry usage in events this relay does not read: refuse
     // them rather than count their spend as unknown (#1673).
     if (streaming) {
       operation?.finish("denied", "streaming_not_relayed");
       return refuse(403, "streaming_not_relayed", "Streaming provider requests are not relayed");
     }
-    const inlineMedia = family === "gemini" && /"inlineData"|"inline_data"/.test(new TextDecoder().decode(body.subarray(0, Math.min(body.byteLength, 8 * 1024 * 1024))));
+    // A Gemini request may name only the Files handles this relay's uploads created.
+    if (family === "gemini" && !files && (namedFileHandles(body) ?? []).some(name => !owns(key, origin, name))) {
+      operation?.finish("denied", "file_not_owned");
+      return refuse(403, "file_not_owned", "This file was not uploaded through this provider relay");
+    }
+    const inlineMedia = family === "gemini" && !files && /"inlineData"|"inline_data"/.test(new TextDecoder().decode(body.subarray(0, Math.min(body.byteLength, 8 * 1024 * 1024))));
     if (signal.aborted) {
       operation?.finish("cancelled", "client_disconnected");
       return refuse(499, "cancelled", "Provider request cancelled");
     }
-    const headerBytes = (first: string, values: Headers): number => {
-      let bytes = Buffer.byteLength(first) + 1028;
-      for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
-      return bytes;
-    };
-    if (operation && !operation.charge(headerBytes(`POST ${path} HTTP/1.1`, headers))) return denied("max_bytes_per_turn");
+    if (operation && !operation.charge(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, headers))) return denied("max_bytes_per_turn");
     // Admission again, after every wait: a scope may have blocked meanwhile.
-    const now = await options.admit?.() ?? { allowed: true as const };
+    const now = budgeted ? await options.admit?.() ?? { allowed: true as const } : { allowed: true as const };
     if (!now.allowed) {
       operation?.finish("denied", "budget_exceeded");
       return refuse(403, "budget_exceeded", now.message);
@@ -417,7 +514,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     let response: Response;
     try {
       // Never follow a redirect: the upstream must not choose another host.
-      response = await fetch(target, { method: "POST", headers, body, redirect: "manual", signal });
+      response = await fetch(target, { method: request.method, headers, ...(request.method === "POST" ? { body } : {}), redirect: "manual", signal });
     } catch {
       operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
       // The request may have reached the provider: its spend is unknown, never zero.
@@ -434,13 +531,65 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     }
     const out = new Headers();
     // An upstream that echoes the key (a gateway's diagnostics) must not hand it to the worker.
-    for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase()) && !value.includes(secret)) out.set(name, value);
+    // The provider's own upload URL never reaches the worker either; the Files start below hands it a token.
+    for (const [name, value] of response.headers) {
+      if (!RESPONSE_STRIPPED.has(name.toLowerCase()) && name.toLowerCase() !== "x-goog-upload-url" && !value.includes(secret)) out.set(name, value);
+    }
     const scrub = keyScrubber(secret);
     if (operation && !operation.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers))) {
       operation.finish("denied", "max_bytes_per_turn");
       await response.body?.cancel().catch(() => {});
       report("cancelled", response.status, null);
       return refuse(403, "egress_refused", "Provider egress limit exceeded");
+    }
+    if (files) {
+      // A Files answer is small JSON, read whole: whatever it registers is in
+      // place before the worker sees the answer.
+      const chunks: Uint8Array[] = [];
+      let size = 0, failure: "large" | "egress" | "read" | undefined;
+      try {
+        if (response.body) for await (const chunk of response.body) {
+          size += chunk.byteLength;
+          if (size > MAX_FILES_RESPONSE_BYTES) { failure = "large"; break; }
+          if (operation && !operation.charge(chunk.byteLength + 16)) { failure = "egress"; break; }
+          chunks.push(chunk);
+        }
+      } catch { failure = "read"; }
+      if (failure) {
+        await response.body?.cancel().catch(() => {});
+        if (failure === "egress") {
+          operation?.finish("denied", "max_bytes_per_turn");
+          report("cancelled", response.status, null);
+          return refuse(403, "egress_refused", "Provider egress limit exceeded");
+        }
+        operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
+        report(signal.aborted ? "cancelled" : "failed", response.status, null);
+        return refuse(signal.aborted ? 499 : 502, signal.aborted ? "cancelled" : "upstream_unreachable", "Provider response interrupted");
+      }
+      operation?.finish("completed");
+      report(response.ok ? "completed" : "failed", response.status, null);
+      const answer = Buffer.concat(chunks);
+      if (files.step === "start" && response.ok) {
+        let issued: URL | undefined;
+        try { issued = new URL(response.headers.get("x-goog-upload-url") ?? ""); } catch { issued = undefined; }
+        // Only the authorized origin's own upload path, with no credentials of its own.
+        if (!issued || issued.origin !== target.origin || !issued.pathname.startsWith("/upload/") || issued.username || issued.password) {
+          return refuse(502, "upload_url_rejected", "The provider named an upload URL the relay does not send bytes to");
+        }
+        const token = crypto.randomUUID();
+        uploads.set(token, { key, origin, url: issued });
+        out.set("x-goog-upload-url", `${origin}${UPLOAD_PATH}?brain_upload=${token}`);
+      }
+      if (files.step === "upload") {
+        // A finished or abandoned session takes no more bytes; an active one continues.
+        const state = response.headers.get("x-goog-upload-status")?.trim().toLowerCase();
+        if (state === "final" || state === "cancelled") uploads.delete(files.token);
+        let name: unknown;
+        try { name = (JSON.parse(answer.toString("utf8")) as { file?: { name?: unknown } }).file?.name; } catch { name = undefined; }
+        if (response.ok && typeof name === "string" && FILE_HANDLE.test(`/v1beta/${name}`)) owned.set(ownedId(key, name), { key, origin, name });
+      }
+      if (files.step === "delete" && (response.ok || response.status === 404)) owned.delete(ownedId(key, files.name));
+      return new Response(scrub(new Uint8Array(answer), true) as Uint8Array<ArrayBuffer>, { status: response.status, headers: out });
     }
     const json = /\bjson\b/i.test(response.headers.get("content-type") ?? "");
     const captured: Uint8Array[] = [];
@@ -500,6 +649,36 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     });
     return new Response(output, { status: response.status, headers: out });
   }
+  /**
+   * Delete one Files handle a turn left behind, with the host's key and a
+   * fresh deadline, recorded as its own attempt. A worker that was cancelled
+   * or killed before its own cleanup ran leaves nothing on the host's account.
+   */
+  async function cleanup(entry: { key: string; origin: string; name: string }): Promise<void> {
+    const secret = credential(entry.key)?.trim();
+    if (!secret || /[\r\n]/.test(secret)) return;
+    const target = new URL(`/v1beta/${entry.name}`, entry.origin);
+    const signal = AbortSignal.timeout(FILES_CLEANUP_MS);
+    const operation = options.egress?.relayed("DELETE", target, signal);
+    if (operation && !await operation.admit()) { operation.finish("denied", "provider_admission_refused"); return; }
+    const headers = new Headers(PLACEMENT.gemini(secret));
+    if (operation && !operation.charge(headerBytes(`DELETE ${target.pathname} HTTP/1.1`, headers))) { operation.finish("denied", "max_bytes_per_turn"); return; }
+    const attemptId = crypto.randomUUID();
+    const observe = (outcome: ProviderRelayReceipt["outcome"], status: number): void => {
+      try { options.observe?.({ attemptId, family: "gemini", operation: "files", origin: entry.origin, key: entry.key, model: null, outcome, status, usage: null, inlineMedia: false }); }
+      catch { /* The host's own accounting reports its failure. */ }
+    };
+    observe("dispatched", 0);
+    try {
+      const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
+      await response.body?.cancel().catch(() => {});
+      operation?.finish("completed");
+      observe(response.ok ? "completed" : "failed", response.status);
+    } catch {
+      operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
+      observe("failed", 0);
+    }
+  }
   chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
   let stopping: Promise<void> | undefined;
   return {
@@ -516,9 +695,19 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
           await Promise.race([settled, Bun.sleep(STOP_SETTLE_MS)]);
           idle.delete(wake);
         }
+        const left = [...owned.values()];
+        owned.clear(); uploads.clear();
+        await Promise.allSettled(left.map(cleanup));
       })();
     },
   };
+}
+
+/** Bytes a request or response head costs against the turn's egress ceiling. */
+function headerBytes(first: string, values: Headers): number {
+  let bytes = Buffer.byteLength(first) + 1028;
+  for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
+  return bytes;
 }
 
 /**

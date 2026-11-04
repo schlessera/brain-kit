@@ -8,7 +8,7 @@ import { changeRepository, fixtureBrain, turnDataTree } from "../../../../tests/
 import { historyHost } from "../../../../tests/fixtures/provider-history-host.js";
 import type { Captures, HistoryCapture } from "../../../../tests/helpers/provider-history.js";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
-import type { ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
+import type { ComputeToolCall, ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 const scratch = process.argv[2]!;
 const captures: Captures = {};
@@ -22,17 +22,25 @@ const SOURCE_FRESHNESS = [{ commit: "1".repeat(40), freshness: "fresh", hour: 0,
   { commit: "2".repeat(40), freshness: "stale", hour: 1, error: "The Ithaca remote did not answer." }] as const;
 /** Scenarios whose every turn calls a reference tool: `reference` withholds the handler on turn 1, the others answer every turn. */
 const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness"];
+/**
+ * External compute (#3108): every turn asks the host for one job's status. Turn 1
+ * has no host handler (compute disabled), and the host's answer changes
+ * between the other turns; tools, system and earlier history stay put.
+ */
+const COMPUTE_STATES = ["running", "running", "succeeded"] as const;
+/** Scenarios whose every turn calls a host bridge tool. */
+const TOOL_SCENARIOS = [...REFERENCE_SCENARIOS, "compute"];
 let scenario = "", brain = "";
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
   if (path !== "/v1/responses") throw new Error(`Unexpected Pi endpoint: ${path}`);
   const raw = await request.text();
-  const tool = REFERENCE_SCENARIOS.includes(scenario) ? turnOpen : sequence === 0;
+  const tool = TOOL_SCENARIOS.includes(scenario) ? turnOpen : sequence === 0;
   sequence++; turnOpen = false;
   const id = `msg_odysseus_${sequence}`;
   const answer = tool ? { type: "function_call", id: "fc_odysseus", call_id: `call_odysseus_${turnIndex}`,
-    name: scenario === "freshness" ? "reference_source" : REFERENCE_SCENARIOS.includes(scenario) ? "reference_worktree" : scenario === "promotion" ? "bash" : "read_file",
-    arguments: JSON.stringify(scenario === "freshness" ? { repository: "https://github.com/odysseus/ithaca", revision: "main" }
+    name: scenario === "compute" ? "brain_compute_status" : scenario === "freshness" ? "reference_source" : REFERENCE_SCENARIOS.includes(scenario) ? "reference_worktree" : scenario === "promotion" ? "bash" : "read_file",
+    arguments: JSON.stringify(scenario === "compute" ? { job: "cj_ithaca" } : scenario === "freshness" ? { repository: "https://github.com/odysseus/ithaca", revision: "main" }
       : REFERENCE_SCENARIOS.includes(scenario) ? REFERENCE_ACTIONS[turnIndex] : scenario === "promotion" ? { command: "printf 'Odysseus raft plan' > /tmp/raft.txt" } : { path: "notes/raft.md" }) }
     : { type: "message", role: "assistant", content: [{ type: "output_text", text: scenario === "promotion" ? "[Raft plan](/tmp/raft.txt)" : "Odysseus checks the mast.", annotations: [] }], status: "completed", id };
   capture.exchanges.push({ turn: turnIndex, path, raw, main: true, answer });
@@ -51,8 +59,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 mkdirSync(process.env.PI_CODING_AGENT_DIR!, { recursive: true });
 writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "models.json"), JSON.stringify({ providers: { openai: { baseUrl: `${server.url.origin}/v1`, apiKey: "offline-odysseus" } } }));
+// The hosted turn runs on the host inference relay (#3314), which sends openai's
+// credential only to an origin the operator lists for it: here, the loopback stub.
+process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `openai=${server.url.origin}`;
 try {
-  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "datatree"]) {
+  for (scenario of ["control", "repository", "facts", "promotion", "reference", "renewal", "freshness", "datatree", "compute"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
@@ -74,6 +85,11 @@ try {
             ...(scenario === "datatree" ? { dataTree: turnDataTree(scratch, brain, scenario, turnIndex) } : {}) },
           client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
           bridge: { emit(frame) { frames.push(frame); }, async requestPermission() { return { behavior: "allow" as const }; },
+            ...(scenario === "compute" && turnIndex !== 1 ? { async compute(call: ComputeToolCall) {
+              (capture.calls ??= []).push(call);
+              return { ok: true as const, job: { id: "cj_ithaca", instance: "boat-small", provider: "boat", state: COMPUTE_STATES[turnIndex]!,
+                cleanup: { state: turnIndex === 2 ? "released" : "none" }, cost: { estimate: { usd: null, basis: "none" }, actual: { usd: null, coverage: "unknown", source: "none" } } } };
+            } } : {}),
             // The second turn has no host handler: the tool refuses, and the roster must not change.
             ...(REFERENCE_SCENARIOS.includes(scenario) && (scenario !== "reference" || turnIndex !== 1) ? { async referenceAccess(call: ReferenceToolCall) {
               (capture.calls ??= []).push(call);

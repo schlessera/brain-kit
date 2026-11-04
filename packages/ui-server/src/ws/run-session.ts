@@ -1,5 +1,5 @@
 import { createTurnLifecycle } from "../activity/turn-lifecycle.js";
-import { withTrackFiles } from "../tracks/read.js";
+import { withChatFiles } from "../attachments/context.js";
 import type {
   ChatImageAttachment,
   ClientEnvironment,
@@ -283,7 +283,8 @@ function queueFollowUp(host: WsHost, ws: WSContext, sessionId: string, slot: { q
   host.coordinator.queueChanged(sessionId);
   host.labels?.followUpQueued(sessionId, entry);
   // Queued is accepted: the sent revision of its draft is consumed now.
-  acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId });
+  acceptDraft(host, { draftRef: entry.draftRef, sessionId, resumed: true, requestId: entry.requestId, principalId: entry.principalId,
+    ...(entry.attachmentFiles?.length ? { fileIds: entry.attachmentFiles.map((f) => f.fileId) } : {}) });
 }
 
 /** Dispatch a chat_message: follow-up to a running session, or a new session. */
@@ -298,6 +299,7 @@ export async function handleChatMessage(
     historyOwnerId?: string;
     attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+    attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
     providerId?: string;
     client?: ClientEnvironment;
     source?: MessageSource;
@@ -320,6 +322,7 @@ export async function handleChatMessage(
     text,
     attachments,
     files,
+    attachmentFiles,
     sessionId,
     providerId: requestedProviderId,
     client,
@@ -367,6 +370,7 @@ export async function handleChatMessage(
         text,
         attachments,
         ...(files?.length ? { files } : {}),
+        ...(attachmentFiles?.length ? { attachmentFiles } : {}),
         ...(client ? { client } : {}),
         ...(source ? { source } : {}),
         ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -389,6 +393,7 @@ export async function handleChatMessage(
       text,
       attachments,
       ...(files?.length ? { files } : {}),
+      ...(attachmentFiles?.length ? { attachmentFiles } : {}),
       ...(client ? { client } : {}),
       ...(source ? { source } : {}),
       ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -423,7 +428,8 @@ export async function handleChatMessage(
       // recorded before its startTurn, so identical texts keep their order.
       host.catalog.recordMessageSource?.(sessionId, text, source ?? "typed", { turnId: runningTurn.turnId, files });
       const exchanges = host.catalog.takePendingLocalExchanges?.(sessionId) ?? [];
-      const prompt = withLocalContext(withTrackFiles(text, files), exchanges);
+      // Never carries attachments: they need a draftRef, which never joins natively.
+      const prompt = withLocalContext(withChatFiles(text, files, attachmentFiles), exchanges);
       const deliveries = (runningTurn.deliveries ??= new Set());
       const delivery: Promise<void> = (async () => {
         const releaseFollowUp = authorization.retain();
@@ -500,6 +506,7 @@ export async function handleChatMessage(
     sessionId,
     attachments,
     ...(files?.length ? { files } : {}),
+    ...(attachmentFiles?.length ? { attachmentFiles } : {}),
     providerId: requestedProviderId,
     ...(client ? { client } : {}),
     ...(source ? { source } : {}),

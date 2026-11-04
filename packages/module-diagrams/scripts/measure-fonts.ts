@@ -1,0 +1,46 @@
+/**
+ * Regenerates the font-metrics block in `src/skin.ts`: printable-ASCII advance widths
+ * (em) for each diagram type role, measured in Chrome from the locked font
+ * files (`scripts/captures/font-lock.json`, faces in `scripts/captures/fonts.css`).
+ *
+ *   bun packages/module-diagrams/scripts/measure-fonts.ts <locked-fonts-dir> [chrome]
+ *
+ * The directory holds the lock's `fonts/N.ttf` files. Needs a local Chrome; it
+ * is a maintainer step, not part of tests.
+ */
+import { join } from "node:path";
+const [dir, chrome = "google-chrome"] = process.argv.slice(2);
+if (!dir) throw Error("usage: measure-fonts.ts <locked-fonts-dir> [chrome]");
+const root = join(import.meta.dir, "../../..");
+const lock = JSON.parse(await Bun.file(join(root, "scripts/captures/font-lock.json")).text()) as { files?: { url: string; file: string }[] };
+const css = await Bun.file(join(root, "scripts/captures/fonts.css")).text();
+const faces = [...css.matchAll(/font-family: '([^']+)';[\s\S]*?font-style: (\w+);[\s\S]*?font-weight: (\d+);[\s\S]*?src: url\(([^)]+)\)/g)]
+  .map(m => ({ family: m[1]!, style: m[2]!, weight: Number(m[3]), url: m[4]! }));
+const files = (lock.files ?? Object.values(lock).flat() as { url: string; file: string }[]).filter(item => item?.url);
+const { DIAGRAM_TYPE } = await import("../src/skin.js");
+let fontCss = "";
+for (const [role, style] of Object.entries(DIAGRAM_TYPE)) {
+  const family = style.family.match(/"([^"]+)"/)![1]!, face = faces.find(f => f.family === family && f.style === "normal" && f.weight === style.weight);
+  const file = face && files.find(item => item.url === face.url)?.file;
+  if (!file) throw Error(`No locked face for ${role}: ${family} ${style.weight}`);
+  fontCss += `@font-face{font-family:"m-${role}";src:url(data:font/ttf;base64,${Buffer.from(await Bun.file(join(dir, file.replace(/^fonts\//, ""))).arrayBuffer()).toString("base64")})}`;
+}
+const page = join(import.meta.dir, "../../../tmp/measure-fonts.html");
+await Bun.write(page, `<!doctype html><style>${fontCss}</style><pre id=out>pending</pre><script>(async()=>{const out={};const c=document.createElement("canvas").getContext("2d");
+for(const r of ${JSON.stringify(Object.keys(DIAGRAM_TYPE))}){await document.fonts.load("1000px m-"+r);if(!document.fonts.check("1000px m-"+r))throw Error(r);c.font="1000px m-"+r;let s="";for(let i=32;i<127;i++)s+=(Math.ceil(c.measureText(String.fromCharCode(i)).width)/1000)+",";out[r]=s.slice(0,-1);}
+document.getElementById("out").textContent=JSON.stringify(out);})();</script>`);
+const run = Bun.spawnSync([chrome, "--headless=new", "--disable-gpu", "--no-sandbox", "--virtual-time-budget=10000", "--dump-dom", `file://${page}`]);
+const text = run.stdout.toString().match(/<pre id="out">(.*)<\/pre>/)?.[1]?.replace(/&quot;/g, '"');
+if (!text || text === "pending") throw Error("Chrome did not report widths");
+const widths = JSON.parse(text) as Record<string, string>;
+const body = Object.entries(widths).map(([role, list]) => ` ${role}: [${list}],`).join("\n");
+// The table lives inside skin.ts, an already-reviewed browser producer, between markers.
+const skin = join(import.meta.dir, "../src/skin.ts"), current = await Bun.file(skin).text();
+const begin = current.indexOf("// BEGIN font metrics"), end = current.indexOf("// END font metrics");
+if (begin < 0 || end < begin) throw Error("skin.ts has no font-metrics markers");
+const header = current.slice(begin, current.indexOf("export const DIAGRAM_ADVANCES", begin));
+await Bun.write(skin, `${current.slice(0, begin)}${header}export const DIAGRAM_ADVANCES: Record<"title" | "name" | "sub" | "label" | "note", readonly number[]> = {
+${body}
+};
+${current.slice(end)}`);
+console.log("rewrote the font-metrics block in src/skin.ts");

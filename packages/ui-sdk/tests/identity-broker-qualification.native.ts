@@ -491,6 +491,11 @@ raise SystemExit(child.wait())`);
     try {
       await until(() => existsSync(pulse) && statSync(pulse).size > 2, "IDENTITY_NESTED_PID_DID_NOT_START");
       expect(workerPids().length).toBeGreaterThan(1);
+      // Kept real time (here and after the kill): negative observations. The
+      // payload appends to the pulse every 20 ms from inside a nested PID
+      // namespace. The broker signals the tree synchronously, but only the
+      // pulse shows that every writer stopped, including one outside the PIDs
+      // this test can list. 160 ms spans eight pulses; 100 ms spans five.
       worker.freeze(); const frozen = statSync(pulse).size; await sleep(160); expect(statSync(pulse).size).toBe(frozen);
       worker.resume(); await until(() => statSync(pulse).size > frozen + 2, "IDENTITY_NESTED_PID_DID_NOT_RESUME");
       worker.kill("SIGKILL"); expect(await worker.exited).toBe(137); expect(errors()).toBe("");
@@ -515,6 +520,8 @@ with open('${pulse}','a',buffering=1) as out:
       }
       const result = await outcome; expect(result).toHaveProperty("error"); expect(String((result as { error: string }).error)).toMatch(/supervisor|control|supervision/);
       console.log(JSON.stringify({ supervisionMode: mode, outcome: result, stderr: errors() }));
+      // Kept real time below: no listed PID remains, and only the pulse, which
+      // grows every 20 ms, would show a writer that escaped the list.
       await until(() => workerPids().length === 0, "IDENTITY_SUPERVISION_LOSS_LEFT_WRITER").catch(error => { console.error("Surviving worker processes", workerPids().map(pid => ({pid, status:readFileSync(`/proc/${pid}/status`,"utf8").split("\n").filter(line=>/^(Name|State|PPid|Uid):/.test(line))}))); throw error; });
       const ended = statSync(pulse).size; await sleep(100); expect(statSync(pulse).size).toBe(ended);
     } finally { await close(worker); }
@@ -537,6 +544,7 @@ await worker.exited;`;
       await until(()=>existsSync(pulse)&&statSync(pulse).size>2,"IDENTITY_CHILD_SERVER_WORKER_DID_NOT_START");
       server.kill("SIGKILL");expect(await server.exited).toBe(137);
       await until(()=>workerPids().length===0,"IDENTITY_SERVER_DEATH_LEFT_WORKER");
+      // Kept real time: as above, the 20 ms pulse is the only witness of a writer outside the listed PIDs.
       const ended=statSync(pulse).size;await sleep(100);expect(statSync(pulse).size).toBe(ended);if(duringSetup)expect(existsSync(mustNotRun)).toBe(false);
       await stdout;expect(await stderr).toBe("");
     } finally { if(server.exitCode===null)server.kill("SIGKILL");await server.exited; }

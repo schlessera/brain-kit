@@ -17,6 +17,8 @@ export function createLocationAndMask(ctx: BridgeContext): BridgeSlice<"getLocat
       }
       const requestId = coordinator.nextLocationRequestId();
       return new Promise<LocationFix>((resolve, reject) => {
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) return reject(new Error(drained));
         if (!coordinator.openLocation(requestId, { turn, turnId, resolve, reject })) {
           reject(new Error("Duplicate location request id"));
           return;
@@ -41,6 +43,8 @@ export function createLocationAndMask(ctx: BridgeContext): BridgeSlice<"getLocat
       }
       const requestId = coordinator.nextMaskRequestId();
       return new Promise<Uint8Array>((resolve, reject) => {
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) return reject(new Error(drained));
         if (!coordinator.openMask(requestId, { turn, turnId, resolve, reject })) {
           reject(new Error("Duplicate mask request id"));
           return;

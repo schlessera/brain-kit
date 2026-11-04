@@ -292,17 +292,3 @@ export function digestCostClause(digest: {
   return "free";
 }
 
-/** The "9+" unread-count bubble shared by the rail and the tab bar. Hidden at 0. */
-export function CountBadge({ count, className }: { count: number; className?: string }) {
-  if (count <= 0) return null;
-  return (
-    <span
-      className={cn(
-        "absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive-fill px-1 text-[9px] font-semibold text-primary-foreground",
-        className
-      )}
-    >
-      {count > 9 ? "9+" : count}
-    </span>
-  );
-}

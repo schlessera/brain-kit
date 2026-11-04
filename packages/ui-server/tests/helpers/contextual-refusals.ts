@@ -112,6 +112,9 @@ export async function contextualRefusals(provider: "gemini" | "gpt", mode: "miss
   // A tombstoned refusal cannot acquire a different binding or execute later.
   const count = returned.length;
   await request("refused-0");
+  // Negative window: correct code answers a replayed tombstone with no frame at
+  // all, so nothing marks its handling. A later request as a FIFO marker would
+  // start a turn of its own and change the counts asserted here.
   await Bun.sleep(10);
   expect(turns).toHaveLength(accepted + 1);
   expect(f.sent.flatMap(f => provider === "gemini" ? f.toolResponse?.functionResponses ?? [] : f.delegation_id ? [f] : [])).toHaveLength(count);

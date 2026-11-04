@@ -86,11 +86,11 @@ export function StateRoomNotice({ onDismissFocus }: { onDismissFocus: () => void
         <p>{stateRoomCopy(observation)}</p>
         <p className="mt-1">Continue in a new conversation before it is full. This one stays available.</p>
         <p className="mt-1 text-sm text-muted-foreground">As of the last turn · {observationAge(observation.observedAt, now)}</p>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
           <Button label="Continue in a new conversation" tone="suggest" block={false} disabled={Boolean(why)}
-            style={{ minHeight: 44, maxWidth: "100%", fontSize: 14 }}
+            reach style={{ maxWidth: "100%", fontSize: 14 }}
             onClick={() => root.stores.handoff.getState().open(sessionId, crypto.randomUUID(), { preferSourceProfile: true })} />
-          <Button label="Not now" tone="quiet" block={false} style={{ minHeight: 44, fontSize: 14 }}
+          <Button label="Not now" tone="quiet" block={false} reach style={{ fontSize: 14 }}
             onClick={() => { root.stores.chat.getState().dismissStateRoom(sessionId, observation.allowanceBytes); onDismissFocus(); }} />
         </div>
         {why && <p className="mt-1 text-sm text-muted-foreground">{why}</p>}

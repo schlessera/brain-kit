@@ -18,8 +18,8 @@ import type { AuthorizationContext, HostWork, QueuedFollowUp, RunningTurn } from
 import type { RunBilling } from "./billing.js";
 
 export type TurnLifecycle = ReturnType<typeof createTurnLifecycle>;
-export type FailureRecording = Awaited<ReturnType<WsHost["failureReplay"]["begin"]>>;
-export type TurnEgress = Awaited<ReturnType<typeof prepareTurnEgress>>;
+type FailureRecording = Awaited<ReturnType<WsHost["failureReplay"]["begin"]>>;
+type TurnEgress = Awaited<ReturnType<typeof prepareTurnEgress>>;
 
 export type RunSessionInput = {
   shareId?: string;
@@ -31,6 +31,7 @@ export type RunSessionInput = {
   historyOwnerId?: string;
   attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+  attachmentFiles?: import("../../attachments/context.js").MessageAttachment[];
   providerId?: string;
   client?: ClientEnvironment;
   source?: MessageSource;
@@ -97,7 +98,7 @@ export interface TurnStops {
 }
 
 /** What admission and backend entry acquired, which teardown releases. */
-export interface TurnHeld {
+interface TurnHeld {
   governedHold?: GovernedTurnHold;
   worktreeGeneration?: ReferenceWorktreeGeneration;
   referenceViews: { public: string; private: string } | null;

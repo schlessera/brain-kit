@@ -97,14 +97,3 @@ export function createProviderStore(env: StoreEnvironment) {
   }));
 }
 
-/** Resolve the backend metadata for an available provider profile. */
-export function selectBackendForProvider(
-  state: Pick<ProviderState, "available" | "backends">,
-  providerId: string | null | undefined
-): BackendInfo | null {
-  const backendId = state.available.find(
-    (provider) => provider.id === providerId
-  )?.backendId;
-  return backendId ? state.backends[backendId] ?? null : null;
-}
-

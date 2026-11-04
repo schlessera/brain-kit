@@ -2,7 +2,9 @@
 import { readFileSync } from "fs";
 import { wikiLinkTokens } from "./indexer/links.js";
 import { safeResolve } from "./safe-path.js";
-import type { HygieneFinding, HygieneLogEntry } from "./hygiene.js";
+import { mediaReviewCounts, type HygieneFinding, type HygieneLogEntry } from "./hygiene.js";
+import { DEFAULT_MEDIA_POLICY, type MediaPolicy } from "./media.js";
+import { DEFAULT_PINNED_PATH_LIMIT, MEDIA_CATEGORY, type MediaClass, type MediaInventory, type MediaLinks, type PinSnapshotState } from "./media-inventory.js";
 
 export type ReviewSeverity = "error" | "warning" | "unknown" | "info";
 export type ReviewUrgency = "immediate" | "overdue" | "due" | "upcoming" | "unknown";
@@ -36,6 +38,30 @@ export interface HygieneNextFinding extends HygieneFinding {
   firstSeen: string | null;
   invalidation: HygieneLogEntry["invalidation"];
   priorityReason: HygienePriorityReason;
+  /** On a media finding only: the file as the inventory read it. */
+  media?: HygieneMediaDetail;
+}
+
+/** A media finding's file, for review: where it came from and who links it. */
+export interface HygieneMediaDetail {
+  /** `content` is counted in sync's report; `scratch` (conversation-pinned) is review-only. */
+  source: "content" | "scratch";
+  classes: MediaClass[];
+  bytes: number;
+  sha256: string;
+  /** The pin snapshot's state, and how many conversations list this exact path. */
+  links: { state: PinSnapshotState; conversations: number };
+}
+
+/**
+ * The media counts (rev 6.1 §1), the same numbers `brain sync` reports, plus
+ * what the inventory could say about conversation links.
+ */
+export interface HygieneMediaSummary {
+  awaitingReview: number;
+  setAside: number;
+  kept: number;
+  links: MediaLinks;
 }
 
 export interface HygieneNextResult {
@@ -47,7 +73,23 @@ export interface HygieneNextResult {
     snoozed: number;
     nextSnoozeDueAt: string | null;
     informationalNotShown: number;
+    /** Entries kept as a permanent copy, parallel to `dismissed` and `snoozed`. */
+    kept: number;
   };
+  media: HygieneMediaSummary;
+}
+
+export interface HygieneNextOptions {
+  /** The brain's media policy, for kept-copy validity. */
+  media?: MediaPolicy;
+  /** The inventory the media findings came from, for their detail and the links notice. */
+  inventory?: MediaInventory | null;
+  /**
+   * Findings left pending this review pass, by ID, with the fingerprint they
+   * were left at. Each is skipped while its fingerprint is unchanged; it
+   * still counts as awaiting review.
+   */
+  deferred?: ReadonlyMap<string, string>;
 }
 
 const compareId = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -56,6 +98,8 @@ const seenAt = (e: HygieneLogEntry) => e.firstSeen === null ? Infinity : Date.pa
 
 /** Locate evidence in the actual file, without reading outside the brain root. */
 function presentation(root: string, f: HygieneFinding) {
+  // A media file is never read as text here: it may be large and is binary.
+  if (f.category === MEDIA_CATEGORY) return { title: "Decide what happens to this media file", line: null, field: null, excerpt: null };
   const field = ["required-field", "invalid-field", "field-conflict"].includes(f.category) ? f.evidence : null;
   let line: number | null = null;
   let excerpt: string | null = null;
@@ -85,8 +129,11 @@ function presentation(root: string, f: HygieneFinding) {
  * Only currently detected open findings are eligible. Info remains visible in
  * the log and in the end receipt, without becoming a required review item.
  */
-export function selectHygieneNext(root: string, findings: Map<string, HygieneFinding>, entries: HygieneLogEntry[], now: Date, findingId?: string): HygieneNextResult {
-  const eligible = entries.filter((e) => e.state === "open" && findings.has(e.id) && severity(findings.get(e.id)!) !== "info");
+export function selectHygieneNext(root: string, findings: Map<string, HygieneFinding>, entries: HygieneLogEntry[], now: Date, findingId?: string, options: HygieneNextOptions = {}): HygieneNextResult {
+  // Media findings are always presented, informational or not (rev 4 §1).
+  const presented = (f: HygieneFinding) => severity(f) !== "info" || f.category === MEDIA_CATEGORY;
+  const deferred = (e: HygieneLogEntry) => findingId === undefined && options.deferred?.get(e.id) === findings.get(e.id)!.fingerprint;
+  const eligible = entries.filter((e) => e.state === "open" && findings.has(e.id) && presented(findings.get(e.id)!) && !deferred(e));
   const rank = (e: HygieneLogEntry) => {
     const f = findings.get(e.id)!;
     return [REVIEW_SEVERITY[severity(f)], REVIEW_URGENCY[reviewUrgency(f.urgency)]];
@@ -102,11 +149,16 @@ export function selectHygieneNext(root: string, findings: Map<string, HygieneFin
     dismissed: entries.filter((e) => e.state === "dismissed").length,
     snoozed: entries.filter((e) => e.state === "snoozed").length,
     nextSnoozeDueAt: dueTimes[0] ?? null,
-    informationalNotShown: entries.filter((e) => e.state === "open" && findings.get(e.id)?.severity === "info").length,
+    informationalNotShown: entries.filter((e) => e.state === "open" && findings.get(e.id)?.severity === "info" && findings.get(e.id)?.category !== MEDIA_CATEGORY).length,
+    kept: entries.filter((e) => e.state === "kept").length,
   };
+  const { awaitingReview, setAside, kept } = mediaReviewCounts(root, options.media ?? DEFAULT_MEDIA_POLICY, findings, entries, now);
+  const links = options.inventory?.links ?? { state: "unknown", observed: 0, limit: DEFAULT_PINNED_PATH_LIMIT, tooLarge: false, symlinks: 0 };
+  const media: HygieneMediaSummary = { awaitingReview, setAside, kept, links };
   const entry = findingId === undefined ? eligible[0] : eligible.find(e => e.id === findingId);
-  if (!entry) return { finding: null, counts };
+  if (!entry) return { finding: null, counts, media };
   const f = findings.get(entry.id)!;
+  const item = f.category === MEDIA_CATEGORY ? options.inventory?.items.find((i) => i.path === f.path) : undefined;
   const second = eligible.find(e => e.id !== entry.id);
   const tieBreak = !second ? "only-finding" : rank(entry)[0] !== rank(second)[0] ? "severity"
     : rank(entry)[1] !== rank(second)[1] ? "urgency" : seenAt(entry) !== seenAt(second) ? "age" : "identity";
@@ -119,7 +171,10 @@ export function selectHygieneNext(root: string, findings: Map<string, HygieneFin
         newerWithSameRank: eligible.filter((e) => sameRank(entry, e) && seenAt(e) > seenAt(entry)).length,
         tieBreak,
       },
+      ...(item ? { media: { source: item.source, classes: item.classes, bytes: item.bytes, sha256: item.sha256,
+        links: { state: options.inventory!.links.state, conversations: item.pins.length } } } : {}),
     },
     counts,
+    media,
   };
 }

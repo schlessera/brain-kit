@@ -9,7 +9,11 @@ import { brainConfigSchema } from "../src/lib/config";
 import { loadModules } from "../src/lib/module-loader";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
-const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive"];
+// Core's own tools in registration order: the eight document tools, the six
+// external compute tools (#3107), then the fixed Apify operations (#3162).
+const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive",
+  "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
+  "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort"];
 const roots: string[] = [];
 const clients: Client[] = [];
 afterAll(async () => {
@@ -40,7 +44,10 @@ function fixtures(specs: Fixture[]): string {
       const run = mode === "throws" ? 'throw new Error("fixture operation failed");' : mode === "cancel" ? `
         await Bun.write(ctx.root + "/call-started", "started");
         await new Promise((resolve) => ctx.signal.addEventListener("abort", resolve, { once: true }));
-        await Bun.write(ctx.root + "/call-aborted", "aborted");
+        // Published by rename: the test polls for call-aborted and then reads it.
+        const fs = await import("node:fs");
+        fs.writeFileSync(ctx.root + "/call-aborted.tmp", "aborted");
+        fs.renameSync(ctx.root + "/call-aborted.tmp", ctx.root + "/call-aborted");
         return ${result};` : `return ${result};`;
       writeFileSync(join(dir, `${local}.ts`), mode === "import-failure" ? 'throw new Error("fixture import failed");' : `
         import { z } from "zod";

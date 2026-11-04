@@ -9,7 +9,7 @@ import { speechError } from "./dictation-failure.js";
 import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import type { AsrEvent } from "@schlessera/brain-ui-sdk/protocol";
 
-export interface DeepgramClientOptions {
+interface DeepgramClientOptions {
   /** Full Deepgram streaming WS URL (base params + keyterms), from the server. */
   url: string;
   /** Short-lived Deepgram token, from the server. */

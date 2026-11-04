@@ -80,6 +80,14 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           );
           resolve(decision);
         };
+        // A request raised after the turn's drain is expired the way the
+        // drain expires one, or it would never settle (#3553).
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) {
+          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: drained });
+          recorded({ behavior: "deny", message: drained });
+          return;
+        }
         if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded })) {
           resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
           return;

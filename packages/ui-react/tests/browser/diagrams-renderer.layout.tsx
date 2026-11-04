@@ -33,7 +33,7 @@ test("actual constrained containers select authored layout or semantic fallback,
  setup(720);mount(<DiagramContent source={source} mode="chat" theme="light"/>);await ready();expect(screenSvg()!.dataset.diagramLayout).toBe("narrow");fontFloor(screenSvg()!);
  for(const width of [320,480,900]){host.style.width=`${width}px`;await expect.poll(()=>screenSvg()?.getBoundingClientRect().width).toBe(320);fontFloor(screenSvg()!);expect(host.scrollWidth).toBeLessThanOrEqual(width);}
  const absent=structuredClone(rendererSpec);delete (absent as {layouts?:unknown}).layouts;host.style.width="320px";mount(<DiagramContent source={JSON.stringify(absent)} mode="chat" theme="dark"/>);await expect.poll(()=>screenSvg()).toBeNull();expect(host.querySelector("[data-diagram-summary]")?.textContent).toBe(rendererSpec.desc);
- const opener=[...host.querySelectorAll<HTMLElement>("[role=button],button")].find(item=>item.textContent==="Open diagram")!;expect(opener.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);await userEvent.click(opener);
+ const opener=host.querySelector<HTMLButtonElement>('button[aria-label="Open diagram"]')!;expect(opener.getBoundingClientRect().height).toBeGreaterThanOrEqual(matchMedia("(any-pointer: coarse)").matches?44:28);await userEvent.click(opener);
  await expect.poll(()=>document.querySelector('[aria-label="Diagram viewer"] svg.bk-diagram')).not.toBeNull();const drawing=document.querySelector<SVGSVGElement>('[aria-label="Diagram viewer"] svg.bk-diagram')!;expect([...drawing.querySelectorAll("[data-diagram-node] text")].map(text=>text.textContent),"EXPECTED_VIEWER_NODE_LABELS").toEqual(expect.arrayContaining(rendererSpec.nodes.map(node=>node.label)));fontFloor(drawing);await userEvent.keyboard("{Escape}");
 });
 test("keyboard nodes navigate like wiki links and incident edges and focus ring remain visible",async()=>{
@@ -63,7 +63,10 @@ test("per-figure SVG PNG and PDF actions use the existing print share path",asyn
  root.request=async(_url,init)=>{const body=JSON.parse(String(init?.body));requests.push(body);return new Response(new Uint8Array([1,2,3]),{headers:{"content-type":body.format==="png"?"image/png":"application/pdf"}});};
  try{
  mount(<DiagramContent source={source} theme="dark" mode="chat"/>);await ready();
- for(const label of ["Image (PNG)","PDF","Vector (SVG)"]){await userEvent.click(host.querySelector('[aria-label="Share diagram"]')!);await userEvent.click([...host.querySelectorAll('[role="menuitem"]')].find(item=>item.textContent?.includes(label))!);await expect.poll(()=>files.length).toBe(["Image (PNG)","PDF","Vector (SVG)"].indexOf(label)+1);}
+ // The trigger click resolves before the menu necessarily commits (#2946):
+ // wait for the requested item itself, under the ordinary poll deadline.
+ const menuItem=(label:string)=>[...host.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item=>item.textContent?.includes(label));
+ for(const label of ["Image (PNG)","PDF","Vector (SVG)"]){await userEvent.click(host.querySelector('[aria-label="Share diagram"]')!);await expect.poll(()=>menuItem(label),{message:`SHARE_MENU_ITEM_RENDERED ${label}`}).toBeDefined();await userEvent.click(menuItem(label)!);await expect.poll(()=>files.length).toBe(["Image (PNG)","PDF","Vector (SVG)"].indexOf(label)+1);}
  expect(requests.map(item=>item.format),"SHARE_USES_EXISTING_RENDER_ROUTE").toEqual(["png","pdf"]);expect(requests.every(item=>item.content.includes('data-theme="print"'))).toBe(true);expect(files.map(file=>file.type)).toEqual(["image/png","application/pdf","image/svg+xml"]);expect(await files[2]!.text()).toContain('data-theme="print"');
  }finally{if(share)Object.defineProperty(navigator,"share",share);else delete (navigator as {share?:unknown}).share;if(canShare)Object.defineProperty(navigator,"canShare",canShare);else delete (navigator as {canShare?:unknown}).canShare;}
 });
@@ -72,7 +75,7 @@ test("320px viewer brings an offscreen linked keyboard target into view before n
  const previous=await commands.formViewport(320,720);
  try{
  setup(320);const paths:string[]=[];root.stores.file.setState({openFile:async(path)=>{paths.push(path);}});const absent=structuredClone(rendererSpec);delete (absent as {layouts?:unknown}).layouts;
- mount(<DiagramContent source={JSON.stringify(absent)} theme="dark" mode="chat"/>);await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();await userEvent.click(host.querySelector('[role="button"]')!);
+ mount(<DiagramContent source={JSON.stringify(absent)} theme="dark" mode="chat"/>);await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();await userEvent.click(host.querySelector('button[aria-label="Open diagram"]')!);
  await expect.poll(()=>document.querySelector('[aria-label="Diagram viewer"] [data-diagram-node="raft"]')).not.toBeNull();
  const node=document.querySelector<SVGGElement>('[aria-label="Diagram viewer"] [data-diagram-node="raft"]')!;
  const stage=node.closest("svg")!.parentElement!.parentElement!;const before=node.getBoundingClientRect(),bounds=stage.getBoundingClientRect();expect(before.left<bounds.left||before.right>bounds.right,"CONTROL_NODE_STARTS_OFFSCREEN").toBe(true);
@@ -91,9 +94,9 @@ for(const [index,{width,theme}] of adoptedLayouts.entries())test(`the exact adop
  const previous=adoptedLayouts[index-1];setup(previous?.width??width);const adopted=await commands.diagramFixture();
  if(previous){
   document.documentElement.dataset.theme=previous.theme;mount(<DiagramContent source={adopted} theme={previous.theme} mode="chat"/>);await ready();
-  await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(previous.width===320?"320":"716");
+  await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(previous.width===320?"320":"720");
  }
- document.documentElement.dataset.theme=theme;host.style.width=`${width}px`;mount(<DiagramContent source={adopted} theme={theme} mode="chat"/>);await ready();await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(width===320?"320":"716");const svg=screenSvg()!;
+ document.documentElement.dataset.theme=theme;host.style.width=`${width}px`;mount(<DiagramContent source={adopted} theme={theme} mode="chat"/>);await ready();await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(width===320?"320":"720");const svg=screenSvg()!;
  expect(svg.querySelectorAll("[data-diagram-node]").length,"ADOPTED_EIGHT_DISTINCT_NODES").toBe(8);expect(svg.querySelectorAll("[data-diagram-edge]").length).toBe(7);fontFloor(svg);
  for(const group of svg.querySelectorAll("[data-diagram-node]")){const box=group.querySelector<SVGRectElement>("rect")!.getBBox();for(const label of group.querySelectorAll("text")){const bounds=label.getBBox();expect(bounds.x,"NODE_TEXT_LEFT_FIT").toBeGreaterThanOrEqual(box.x);expect(bounds.x+bounds.width,"NODE_TEXT_RIGHT_FIT").toBeLessThanOrEqual(box.x+box.width);expect(bounds.y,"NODE_TEXT_TOP_FIT").toBeGreaterThanOrEqual(box.y);expect(bounds.y+bounds.height,"NODE_TEXT_BOTTOM_FIT").toBeLessThanOrEqual(box.y+box.height);}}
  for(const label of svg.querySelectorAll<SVGTextElement>("[data-edge-label]")){const mask=svg.querySelector<SVGRectElement>(`[data-edge-mask="${label.dataset.edgeLabel}"]`)!.getBBox(),bounds=label.getBBox();expect(bounds.x).toBeGreaterThanOrEqual(mask.x);expect(bounds.x+bounds.width,"ACTUAL_LABEL_FITS_OPAQUE_MASK").toBeLessThanOrEqual(mask.x+mask.width);expect(bounds.y).toBeGreaterThanOrEqual(mask.y);expect(bounds.y+bounds.height).toBeLessThanOrEqual(mask.y+mask.height);}

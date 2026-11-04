@@ -28,6 +28,7 @@ import { saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 
 import { saveConversationEpoch, saveConversationTask } from "./conversation-storage.js";
 import { assertLive, recordChatCleanup, retireChat, type ChatStore, type ChatStoreOutcome, type RetireChatInput } from "./chat-lifecycle.js";
+import { cleanChatStore, type HostChatStore } from "./chat-store-cleanup.js";
 export const url = import.meta.url;
 
 export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -42,6 +43,12 @@ export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, 
 /** One `sessions` upsert, with its clock taken where it was submitted. */
 export interface SessionRow {
   id: string; title: string; at: number; costUsd: number; turns: number; providerId: string | null; backendId: string | null;
+  /**
+   * The authenticated principal whose typed request created this session
+   * (#3337). Bound only if this upsert creates the row; an existing session
+   * (a legacy chat, a resume) never gains or changes an owner here.
+   */
+  ownerPrincipalId?: string | null;
 }
 
 export interface ClaudeUsageContext { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string }
@@ -159,7 +166,13 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     },
     upsertSession(row: SessionRow) {
       live(row.id);
-      db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
+      const owner = row.ownerPrincipalId;
+      if (!owner) { db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId); return; }
+      db.transaction(() => {
+        const created = !db.query("SELECT 1 FROM sessions WHERE id=?").get(row.id);
+        db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
+        if (created) db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,?,?)").run(row.id, owner, row.at);
+      })();
     },
     claudeUsage(sessionId: string, backendId: string, turnId: string, evidence: ClaudeUsageEvidence, resumed: boolean, context?: ClaudeUsageContext) {
       const { store, pricing } = account();
@@ -174,7 +187,7 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     acceptWork: (sessionId: string, input: { revision: number; requestId: string | null; backendId: string | null; at: number }) => { live(sessionId); return work.acceptWork(db, sessionId, input); },
     dispatchWork: (sessionId: string, input: { revision: number; turnId: string; backendId: string; startedAt: number }) => { live(sessionId); return work.dispatchWork(db, sessionId, input); },
     turnBoundary: (sessionId: string, backendId: string, boundary: work.TurnBoundary) => { live(sessionId); return work.saveTurnBoundary(db, sessionId, backendId, boundary); },
-    messageSource: (sessionId: string, text: string, source: MessageSource, effort: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[] } | undefined, at: number) => { live(sessionId); return saveMessageSource(db, sessionId, text, source, effort, at); },
+    messageSource: (sessionId: string, text: string, source: MessageSource, effort: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[]; attachmentFiles?: import("../attachments/context.js").MessageAttachment[] } | undefined, at: number) => { live(sessionId); return saveMessageSource(db, sessionId, text, source, effort, at); },
     effectiveThinkingLevel: (sessionId: string, turnId: string, level: ThinkingLevel) => { live(sessionId); return saveEffectiveThinkingLevel(db, sessionId, turnId, level); },
     // A stub that failed to persist leaves no row to update: that is not a
     // recorded link, and saying so keeps the caller's key fail-closed.
@@ -194,6 +207,7 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
     conversationEpoch: (state: import("./conversation-storage.js").StoredConversationEpoch) => saveConversationEpoch(db, state),
     retireChat: (input: RetireChatInput) => retireChat(db, input),
     chatCleanup: (lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">, at: number) => recordChatCleanup(db, lifecycleId, store, outcome, at),
+    chatStoreCleanup: (lifecycleId: string, store: HostChatStore, at: number) => cleanChatStore(db, lifecycleId, store, at),
     conversationTask: (principalId: string, receipt: import("@schlessera/brain-ui-sdk/protocol").ConversationWorkReceipt, facts?: string) => saveConversationTask(db, principalId, receipt, facts),
     localExchange: (sessionId: string, exchange: LocalExchange, delivered: boolean, at: number) => { live(sessionId); return saveLocalExchange(db, sessionId, exchange, delivered, at); },
     exchangesDelivered: (sessionId: string, exchangeIds: string[], at: number) => { live(sessionId); return markLocalExchangesDelivered(db, sessionId, exchangeIds, at); },

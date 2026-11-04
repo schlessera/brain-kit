@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, type RefObject } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button, Overlay, TextButton, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -10,7 +10,7 @@ import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { splitFrontmatter } from "../../lib/frontmatter.js";
 import { cn } from "../../lib/utils.js";
 import { formatSize } from "./file-viewer-frame.js";
-import { DisabledToggleRow } from "../graph/graph-form.js";
+import { MarkedUntrustedEntry, MarkedUntrustedList, UntrustedMarksProvider, UntrustedRailBlock } from "./untrusted-marks.js";
 import { useDestinationPress } from "../../hooks/use-destination-press.js";
 import { focusFirst, scrollToStart, openModal } from "../../lib/destination-start.js";
 import { STALE_AFTER_DAYS, ageInDays, formatAge } from "./staleness.js";
@@ -140,6 +140,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
   return (
     <Overlay open={open} variant="panel" modal={false} size="lg" title="Files" data-panel="Files"
       onClose={dismiss} surfaceRef={panelRef} returnFocus={hasFileEntry(root) ? returnTarget : undefined}>
+        <UntrustedMarksProvider>
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Tree toggle strip — visible when a file is open */}
           {showContent && currentPath && (
@@ -160,9 +161,7 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
                 currentPath ? "max-h-[45vh] border-b border-border" : "flex-1"
               )}
             >
-              <Suspense fallback={null}>
-                <FileTree />
-              </Suspense>
+              <MarksTreeArea tree={<Suspense fallback={null}><FileTree /></Suspense>} />
             </div>
           )}
 
@@ -175,7 +174,35 @@ export function FilePanel({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
           )}
         </div>
+        </UntrustedMarksProvider>
     </Overlay>
+  );
+}
+
+/**
+ * The tree area's `Marked untrusted` entry (#2673), which replaces the
+ * disabled `Untrusted only` filter, and the flat list it swaps in for the
+ * tree. The open viewer stays as it is. `All files` returns focus to the
+ * entry row; `Find it in Files` returns to the tree with a note.
+ */
+function MarksTreeArea({ tree, onListShown }: { tree: ReactNode; onListShown?: (shown: boolean) => void }) {
+  const [list, setList] = useState(false);
+  const [note, setNote] = useState(false);
+  const entry = useRef<HTMLButtonElement>(null);
+  useEffect(() => { onListShown?.(list); }, [list, onListShown]);
+  const back = (withNote: boolean) => { setList(false); setNote(withNote); requestAnimationFrame(() => entry.current?.focus({ preventScroll: true })); };
+  if (list) return <div className="min-h-0 flex-1 overflow-y-auto"><MarkedUntrustedList onAllFiles={() => back(false)} onFind={() => back(true)} /></div>;
+  return (
+    <>
+      <div className="shrink-0 border-b border-border"><MarkedUntrustedEntry entryRef={entry} onOpen={() => { setNote(false); setList(true); }} /></div>
+      {note ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 text-xs text-foreground" data-untrusted-find-note="">
+          <span className="flex-1 py-2">Open the moved file and use Mark untrusted.</span>
+          <TextButton tone="meta" label="Dismiss" onClick={() => setNote(false)} />
+        </div>
+      ) : null}
+      {tree}
+    </>
   );
 }
 
@@ -224,8 +251,11 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
   // turns gold — the same tone the tree's dot wears.
   const modified = loaded ? ageInDays(loaded.mtime) : null;
   const stale = modified !== null && modified >= STALE_AFTER_DAYS;
+  // While the `Marked untrusted` list shows, tree-only j / k and its hint are suspended.
+  const [listShown, setListShown] = useState(false);
 
   return (
+    <UntrustedMarksProvider>
     <section
       ref={panelRef}
       aria-label="Files"
@@ -236,17 +266,12 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
         <div className="shrink-0 px-4 pb-2 pt-4">
           <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-tight text-foreground" tabIndex={-1} data-destination-heading="">Files</h2>
         </div>
-        {/* Untrusted only (sixth pass §3b): needs the provenance record —
-            origin, who, when — which no file carries yet. Drawn, disabled,
-            with its reason, never dropped: it is one of the two facts that
-            decide whether an answer may cite a file. */}
-        <div className="shrink-0 border-b border-border">
-          <DisabledToggleRow label="Untrusted only" reason="needs provenance" tone="purple" last />
-        </div>
-        {/* `j` / `k` move between tree items while one holds focus (D36:
+        {/* `Marked untrusted` (#2673) replaced the disabled `Untrusted only`
+            filter: the user's marks are the one untrusted fact a file carries.
+            `j` / `k` move between tree items while one holds focus (D36:
             focus-scoped, printed where they apply); the kit `FileRow` owns
             ↑↓, Home, End and the ← → fold. */}
-        <div
+        <MarksTreeArea onListShown={setListShown} tree={<div
           className="min-h-0 flex-1 overflow-y-auto"
           onKeyDown={(e) => {
             if (!singleKeyShortcuts) return;
@@ -262,8 +287,8 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
           <Suspense fallback={null}>
             <FileTree />
           </Suspense>
-        </div>
-        {finePointer ? <div className="shrink-0 border-t border-border px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
+        </div>} />
+        {finePointer && !listShown ? <div className="shrink-0 border-t border-border px-4 py-2 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">
           {singleKeyShortcuts ? "j / k move · " : ""}← → fold · ⏎ open
         </div> : null}
       </aside>
@@ -281,7 +306,7 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
             />
           </div>
           <div className="shrink-0 pt-2">
-            <Button label="Close" icon="dismiss" tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} onClick={onClose} />
+            <Button label="Close" icon="dismiss" tone="ghost" size="sm" block={false} reach onClick={onClose} />
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -318,10 +343,12 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
             </div>
           </div>
         )}
+        {loaded ? <UntrustedRailBlock path={loaded.path} /> : null}
         {/* The design also draws "Linked from" (backlinks) and "Provenance"
             (git hash, host, date) here. The app has no API for either yet,
             so neither is drawn: an evidence rail shows what is known. */}
       </aside>
     </section>
+    </UntrustedMarksProvider>
   );
 }

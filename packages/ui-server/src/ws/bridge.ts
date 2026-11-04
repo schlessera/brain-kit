@@ -4,7 +4,7 @@ import { staleReadRefusal } from "../brain/turn-data-tree.js";
 import type { RunningTurn } from "./turns.js";
 import type { WsHost } from "./host.js";
 import { createBridgeContext, type BridgeContext, type MakeBridgeOptions } from "./bridge-capabilities/context.js";
-import { createEmission, createTurnTranscript } from "./bridge-capabilities/emission.js";
+import { createEmission, createTurnTranscript, type TurnTranscript } from "./bridge-capabilities/emission.js";
 import { createActivity, guardMaskedRecords, openInbox } from "./bridge-capabilities/activity.js";
 import { createPermissions } from "./bridge-capabilities/permissions.js";
 import { createAsks } from "./bridge-capabilities/asks.js";
@@ -69,9 +69,40 @@ export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeB
   // Reference source and managed worktrees (#2432): the host's record of this
   // turn supplies principal, views and generation; the call carries its input only.
   if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(ctx.turnId, ctx.principalId, call, ctx.signal);
+  applyExternalServices(ctx, bridge, transcript, options.governance);
   guardMaskedRecords(ctx, bridge);
   if (ctx.backendId === "claude" || ctx.backendId === "pi") applyLiveAuthority(ctx, bridge);
   return bridge;
+}
+
+/**
+ * External compute (#3108) and Apify (#3162). The host binds the caller, the
+ * frozen policy, the approval surface, the mask guard and the credentials;
+ * the call carries its own input only.
+ */
+function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transcript: TurnTranscript, governance: MakeBridgeOptions["governance"]): void {
+  const { host, turn, turnId, principalId, backendId, work, signal, maskGuard, mainModel, workerProfile, toolName, isAuthorized } = ctx;
+  if (backendId !== "claude" && backendId !== "pi") return;
+  // Governed turns only: the budget ledger and the frozen policy are theirs.
+  if (host.computeTools && governance) {
+    const posture = work?.posture === "voice" ? "voice" : "interactive";
+    bridge.compute = host.computeTools.forTurn({ turnId, principalId, sessionId: () => turn.sessionId ?? undefined,
+      policy: governance.policy.policy, policyHash: governance.policy.hash, posture, noGrantSurface: posture === "voice", autonomous: false,
+      hasClient: () => host.clients.hasClients(), ...(maskGuard ? { maskGuard } : {}), toolName,
+      requestPermission: request => bridge.requestPermission(request),
+      isCurrent: () => !signal.aborted && isAuthorized(),
+      govern: event => host.catalog.recordGovernanceEvent?.({ ...event, turnId, sessionId: turn.sessionId, actor: posture,
+        model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null } as never) });
+  }
+  // The context comes from this turn, never from the call. The approval
+  // surface is this bridge's own, so voice and revoked turns refuse as they
+  // do for every other card; the host also refuses a non-interactive turn.
+  if (host.apify) {
+    const apify = host.apify;
+    bridge.apify = call => apify.call({ turnId, principalId, sessionId: () => transcript.collectedSessionId ?? null,
+      posture: work?.posture === "voice" ? "voice" : "interactive",
+      approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
+  }
 }
 
 /**
@@ -104,7 +135,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
  */
 export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
   const { work, afterHolds, assertAuthority } = ctx;
-  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess"] as const) {
+  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

@@ -10,9 +10,10 @@ import type { ChatSliceContext } from "./buffers.js";
 import { withoutRetry } from "./buffers.js";
 import { textsOf } from "./transcript.js";
 
-export type StreamingSliceSlice = Pick<ChatState,
+type StreamingSliceSlice = Pick<ChatState,
   | "finishAssistantMessage"
   | "failAssistantMessage"
+  | "setTurnNotice"
   | "setRetry"
   | "setMessageBlocks"
   | "setTurnJournal"
@@ -76,6 +77,35 @@ export function createStreamingSlice(ctx: ChatSliceContext): StreamingSliceSlice
         },
         true
       ),
+
+    setTurnNotice: (key, notice, turnId) =>
+      mutateBuffer(key, (chat) => {
+        const msgs = [...chat.messages];
+        let index = turnId ? msgs.findLastIndex((m) => m.role === "assistant" && (m.turnId ?? m.streamTurnId) === turnId) : -1;
+        if (index === -1) {
+          // As failAssistantMessage: the last assistant message, unless
+          // another turn owns it.
+          const last = msgs.findLastIndex((m) => m.role === "assistant");
+          const owner = last === -1 ? undefined : msgs[last].turnId ?? msgs[last].streamTurnId;
+          if (last !== -1 && (owner === undefined || owner === turnId)) index = last;
+        }
+        if (index !== -1 && (msgs[index].failure || msgs[index].runtimeNotice?.cause === notice.cause)) return {};
+        if (index === -1) {
+          msgs.push({
+            id: nextId(),
+            role: "assistant",
+            content: "",
+            toolCalls: [],
+            parts: [],
+            isStreaming: false,
+            timestamp: Date.now(),
+            ...(turnId ? { turnId } : {}),
+          });
+          index = msgs.length - 1;
+        }
+        msgs[index] = { ...msgs[index], runtimeNotice: notice, runtimeNoticeLive: true };
+        return { messages: msgs };
+      }),
 
     setRetry: (key, retry) =>
       mutateLastAssistant(key, (last) => {

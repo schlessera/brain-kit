@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
 import { createDraftStore, holdsUnsaved, type DraftSend, type LocalDraft } from "../src/stores/draft-state.ts";
 import { draftSaveView, draftTitle, unboundDrafts } from "../src/lib/drafts.ts";
+import { parseDraft } from "../src/lib/local-work.ts";
 import type { PendingAttachment } from "../src/lib/image-attachments.ts";
 
 // Per-session drafts (#951, D52 §5): the root's draft store on its own,
@@ -586,6 +587,50 @@ describe("drafts kept on this device (#1014)", () => {
     // Its deletion is owed: it is not clean.
     expect(state().drafts.owed!.host!.edit).not.toBe(state().drafts.owed!.edit);
     expect(state().drafts.gone).toBeUndefined();
+  });
+
+  test("a record written before #1214 restores exactly as before: not uncertain, nothing to bind", () => {
+    const { state } = store();
+    state().setSupport(true);
+    const legacy = parseDraft({ v: 1, draftId: "legacy", sessionId: ITHACA, text: "Ask Aeolus", attachments: [], editedAt: 900, deviceOnly: false,
+      host: { revision: 2, sessionId: null, updatedAt: 1, clean: true } });
+    expect(legacy, "a record without the new fields is well formed").not.toBeNull();
+    expect(legacy).not.toHaveProperty("uncertain");
+    expect(legacy).not.toHaveProperty("bind");
+    // Emptied with no host copy: dropped, as it always was.
+    const emptied = parseDraft({ v: 1, draftId: "legacy-empty", sessionId: RAFT, text: "", attachments: [], editedAt: 900, host: null });
+    state().restoreLocal([legacy!, emptied!]);
+    expect(state().drafts.legacy).toMatchObject({ text: "Ask Aeolus", uncertain: false, bind: null, host: { revision: 2 } });
+    expect(state().drafts["legacy-empty"]).toBeUndefined();
+  });
+
+  test("a malformed bind is ignored, never the whole draft; the owed states restore", () => {
+    const { state } = store();
+    state().setSupport(true);
+    const host = { revision: 2, sessionId: null, updatedAt: 1, clean: true };
+    const base = { v: 1, sessionId: ITHACA, text: "Which harbour?", attachments: [], editedAt: 900, host };
+    const malformed = [{ sessionId: ITHACA }, { sessionId: 7, requestId: "req-1" }, "req-1", []].map((bind, i) => parseDraft({ ...base, draftId: `bad-${i}`, bind }));
+    for (const d of malformed) {
+      expect(d, "the draft itself is kept").not.toBeNull();
+      expect(d).not.toHaveProperty("bind");
+    }
+    const bound = parseDraft({ ...base, draftId: "bound", bind: { sessionId: ITHACA, requestId: "req-1", extra: true } });
+    expect(bound?.bind, "only the two known fields are taken").toEqual({ sessionId: ITHACA, requestId: "req-1" });
+    // `uncertain` is taken only as a literal true.
+    expect(parseDraft({ ...base, draftId: "odd", uncertain: "yes" })).not.toHaveProperty("uncertain");
+    const uncertain = parseDraft({ v: 1, draftId: "lost", sessionId: RAFT, text: "", attachments: [], editedAt: 900, host: null, uncertain: true });
+    state().restoreLocal([bound!, uncertain!]);
+    expect(state().drafts.bound).toMatchObject({ bind: { sessionId: ITHACA, requestId: "req-1" }, uncertain: false });
+    // An emptied draft whose lost save is still owed a reconciliation comes back.
+    expect(state().drafts.lost).toMatchObject({ text: "", host: null, uncertain: true, bind: null });
+  });
+
+  test("a host refresh never brings back text the reader cleared after a lost first save", () => {
+    const { state } = store();
+    state().setSupport(true);
+    state().restoreLocal([{ draftId: "lost", sessionId: RAFT, text: "", attachments: [], editedAt: 900, host: null, uncertain: true }]);
+    state().restore(hostDraft({ draftId: "lost", sessionId: RAFT, revision: 1, text: "Ask Aeolus" }));
+    expect(state().drafts.lost).toMatchObject({ text: "", host: null, uncertain: true, conflict: null });
   });
 
   test("a failed device write takes `kept on this device` off the line", () => {

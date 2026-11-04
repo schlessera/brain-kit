@@ -2,7 +2,7 @@ import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/interna
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync, type PathLike } from "node:fs";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -327,6 +327,76 @@ test("nonempty targets and staging symlinks are refused without changing existin
   rmSync(path); const foreign = directory(); mkdirSync(join(target, ".brain-ui")); symlinkSync(foreign, join(target, SHARE_STAGING_DIR));
   await expect(restoreInboxSnapshot(snapshot, path, target, AT)).rejects.toThrow("inbox_staging_symlink");
   expect(existsSync(path)).toBe(false); expect((await fs.readdir(foreign))).toEqual([]);
+});
+
+// A link swapped in while the restore runs (#3476) neither receives, loses nor
+// redirects bytes: the restore refuses with its existing code instead.
+function foreignTree(entries: string[] = []) {
+  const foreign = directory();
+  writeFileSync(join(foreign, "penelope.txt"), "Penelope's loom stays as woven.");
+  for (const entry of entries) {
+    if (entry.endsWith("/")) mkdirSync(join(foreign, entry));
+    else writeFileSync(join(foreign, entry), "Penelope's unravelled thread.");
+  }
+  return foreign;
+}
+function contents(root: string): Record<string, string | null> {
+  return Object.fromEntries(readdirSync(root, { recursive: true }).map(String).sort().map(name =>
+    [name, lstatSync(join(root, name)).isDirectory() ? null : readFileSync(join(root, name), "utf8")]));
+}
+async function swappedRestore(snapshot: InboxBackup, path: string, target: string, foreign: string) {
+  const before = contents(foreign), error = await restoreInboxSnapshot(snapshot, path, target, AT).then(() => undefined, (error: unknown) => error);
+  expect(contents(foreign)).toEqual(before);
+  expect(String(error)).toContain("inbox_staging_symlink");
+}
+function swapForLink(visible: string, foreign: string, aside: string) { renameSync(visible, aside); symlinkSync(foreign, visible); }
+
+test.each(["staging", "arrival"])("ROOT_SWAP_REFUSED: the %s directory swapped for a link mid-publication refuses and writes nothing through it", async kind => {
+  const f = await world(), snapshot = await exportInboxSnapshot(f.db, f.root, AT), target = directory(), path = join(target, "ui.sqlite");
+  const staging = join(target, SHARE_STAGING_DIR), arrival = snapshot.files[0]!.path.split("/")[0]!;
+  // The foreign tree mirrors the visible layout, so a pathname write through the link would land.
+  const foreign = foreignTree(kind === "staging" ? snapshot.directories.map(directory => `${directory}/`) : []);
+  const original = fs.link; let swapped = false;
+  const swap = spyOn(fs, "link").mockImplementation(async (from, to) => {
+    await original(from, to);
+    if (swapped || String(to) === path) return;
+    swapped = true;
+    swapForLink(kind === "staging" ? staging : join(staging, arrival), foreign, join(target, "moved-aside"));
+  });
+  cleanup.push(() => swap.mockRestore());
+  await swappedRestore(snapshot, path, target, foreign);
+  expect(swapped).toBe(true);
+});
+
+test("REAP_SWAP_REFUSED: an arrival swapped for a link while leftovers are reaped removes nothing behind it", async () => {
+  const f = await world(), snapshot = await exportInboxSnapshot(f.db, f.root, AT), target = directory(), path = join(target, "ui.sqlite");
+  const arrival = join(realpathSync(target), SHARE_STAGING_DIR, snapshot.directories[0]!);
+  const foreign = foreignTree([`.meta.json.${crypto.randomUUID()}.partial`]), original = fs.readdir; let swapped = false;
+  const swap = spyOn(fs, "readdir").mockImplementation((async (dir: PathLike, options?: never) => {
+    if (!swapped && (String(dir) === arrival || String(dir).startsWith("/proc/self/fd/"))) {
+      swapped = true; swapForLink(arrival, foreign, join(target, "moved-aside"));
+    }
+    return original(dir, options);
+  }) as typeof fs.readdir);
+  cleanup.push(() => swap.mockRestore());
+  await swappedRestore(snapshot, path, target, foreign);
+  expect(swapped).toBe(true);
+});
+
+test("LINKED_ARRIVAL_RESUME_REFUSED: a resumed restore refuses an arrival planted as a link and reaps nothing behind it", async () => {
+  const f = await world(), snapshot = await exportInboxSnapshot(f.db, f.root, AT), target = directory(), path = join(target, "ui.sqlite");
+  const original = fs.link;
+  const crash = spyOn(fs, "link").mockImplementation(async (from, to) => {
+    if (String(to).endsWith("harbor.png")) throw new Error("fixture interrupted staging");
+    return original(from, to);
+  });
+  try { await expect(restoreInboxSnapshot(snapshot, path, target, AT)).rejects.toThrow("fixture interrupted staging"); }
+  finally { crash.mockRestore(); }
+  const foreign = foreignTree([`.meta.json.${crypto.randomUUID()}.partial`]);
+  swapForLink(join(target, SHARE_STAGING_DIR, snapshot.directories[0]!), foreign, join(target, "moved-aside"));
+  await swappedRestore(snapshot, path, target, foreign);
+  const db = connect(path);
+  expect(db.query("SELECT status FROM inbox_recovery_state").get()).toEqual({ status: "pending" });
 });
 
 test("a populated UI target and an edited pending database are both preserved on refusal", async () => {

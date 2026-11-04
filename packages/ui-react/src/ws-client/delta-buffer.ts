@@ -1,7 +1,7 @@
 import type { ChatKey } from "../stores/chat-state.js";
 import type { BrainUiServices } from "../root.js";
 
-export type DeltaKind = "text" | "thinking";
+type DeltaKind = "text" | "thinking";
 
 export interface DeltaBuffer {
   /** Queue a delta for the next frame; consecutive same-kind deltas merge. */

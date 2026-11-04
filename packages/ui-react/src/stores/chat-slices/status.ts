@@ -7,7 +7,7 @@ import type { ChatState } from "../chat-state.js";
 import type { ChatSliceContext } from "./buffers.js";
 import type { ChatPersistence } from "./persistence.js";
 
-export type StatusSliceSlice = Pick<ChatState,
+type StatusSliceSlice = Pick<ChatState,
   | "scopeDecisionReceipts"
   | "setScopeDecisionReceipt"
   | "chatReceipts"

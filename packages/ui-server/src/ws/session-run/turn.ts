@@ -15,7 +15,7 @@ import type { SessionSlot, TurnLifecycle, TurnRun } from "./types.js";
  * `denied` it and the slot stops. The slot acts on each in the same
  * synchronous run as its next dequeue or its close.
  */
-export type SlotTurnResult =
+type SlotTurnResult =
   | { readonly kind: "ran"; readonly outcome: TurnOutcome }
   | { readonly kind: "revoked" }
   | { readonly kind: "denied"; readonly error: unknown };
@@ -67,6 +67,7 @@ export async function runSlotTurn(slot: SessionSlot, current: QueuedFollowUp, li
   turn.retryRequest = {
     type: "chat_message", text: current.text, attachments: current.attachments,
     ...(current.files?.length ? { files: current.files.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
+    ...(current.attachmentFiles?.length ? { attachmentRefs: current.attachmentFiles.map(file => ({ kind: "attachment" as const, fileId: file.fileId })) } : {}),
     ...(slot.profileId ? { providerId: slot.profileId } : {}),
     ...(current.client ? { client: current.client } : {}), ...(current.source ? { source: current.source } : {}),
     ...(current.thinkingLevel !== undefined ? { thinkingLevel: current.thinkingLevel } : {}),

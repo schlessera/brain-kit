@@ -1,4 +1,4 @@
-import { stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
+import { HOST_TIMEOUT_OUTCOME_DETAIL, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { TurnTextCollector } from "../../classification/classify-turn.js";
 import type { ClaudeUsageEvidence } from "../claude-usage-accounting.js";
@@ -6,6 +6,9 @@ import { acceptDraft } from "../drafts.js";
 import { withTurnScope } from "../frames.js";
 import { emitTurnError } from "./turn-error.js";
 import type { BridgeContext, BridgeSlice, MakeBridgeOptions } from "./context.js";
+
+/** The words a timed-out turn's `status: cancelled` carries in `detail`. */
+const TURN_TIMED_OUT = "Turn timed out";
 
 type Frame = Parameters<BackendBridge["emit"]>[0];
 type SessionInfoFrame = Extract<Frame, { type: "session_info" }>;
@@ -52,6 +55,7 @@ function captureFrameFields(ctx: BridgeContext) {
     // message named an existing session. Captured like requestId: a late frame
     // settles only this request's draft.
     draftRef: turn.draftRef,
+    attachmentFileIds: turn.attachmentFileIds,
     draftPrincipalId: turn.principalId,
     resumedSession: turn.sessionId !== null,
   };
@@ -69,6 +73,13 @@ function normalizeFrame(ctx: BridgeContext, thinkingLevel: ReturnType<typeof cap
     && !turn.sessionId && msg.type === "error" && !msg.sessionId && !msg.failure
     && msg.code === "agent_error" && msg.message === "The turn was cancelled before a session was acquired.")
     msg = { type: "status", status: "cancelled", detail: "Cancelled before starting", requestId };
+  // The host's hard turn limit, not someone's cancel, ended this turn:
+  // its cancelled terminal says so, so the conversation can (#3356). Only
+  // the timed-out turn's own frames, and never over a real cancel.
+  if (turn.timedOutTurnId === turnId && turn.turnId === turnId && !turn.cancelled) {
+    if (msg.type === "status" && msg.status === "cancelled") msg = { ...msg, detail: TURN_TIMED_OUT };
+    else if (msg.type === "result" && msg.outcome === "cancelled") msg = { ...msg, outcomeDetail: HOST_TIMEOUT_OUTCOME_DETAIL };
+  }
   if (msg.type === "error" && requestId) msg = { ...msg, requestId };
   if (msg.type === "session_info" || (msg.type === "status" && msg.effectiveThinkingLevel !== undefined)) {
     msg = { ...msg, ...(requestId ? { requestId } : {}), ...(thinkingLevel !== undefined ? { thinkingLevel } : {}) };
@@ -91,7 +102,7 @@ function offerRetry(ctx: BridgeContext, msg: ResultFrame): ResultFrame {
     && work === undefined
     // File Retry needs a pre-reservation read to verify the exact original.
     // Older catalogs can still retain their text/image-only requests.
-    && (!turn.retryRequest.files?.length || catalog.peekRetry)) {
+    && ((!turn.retryRequest.files?.length && !turn.retryRequest.attachmentRefs?.length) || catalog.peekRetry)) {
     if (catalog.saveRetryRequest?.(msg.sessionId, turnId, turn.principalId, { ...turn.retryRequest, ...(turn.providerId ? { providerId: turn.providerId } : {}) }, turn.retryPrompt, msg.failure)) {
       return { ...msg, retryOfTurnId: turnId };
     }
@@ -102,10 +113,10 @@ function offerRetry(ctx: BridgeContext, msg: ResultFrame): ResultFrame {
 /** Frame emission: stamps, persists and forwards every frame the backend emits. */
 export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
   options: Pick<MakeBridgeOptions, "promptText" | "onSessionNamed" | "onTerminalFailure" | "promptLabel" | "pricingContext">): BridgeSlice<"emit"> {
-  const { host, turn, turnId, requestId, backendId, principalId, work, recorder, mainModel, workerProfile } = ctx;
+  const { host, turn, turnId, requestId, backendId, principalId, authorization, work, recorder, mainModel, workerProfile } = ctx;
   const { coordinator, catalog } = host;
   const { promptText, onTerminalFailure, promptLabel, pricingContext } = options;
-  const { thinkingLevel, draftRef, draftPrincipalId, resumedSession } = captureFrameFields(ctx);
+  const { thinkingLevel, draftRef, attachmentFileIds, draftPrincipalId, resumedSession } = captureFrameFields(ctx);
   let profileBound = false;
   let draftSettled = false;
   let labelAsked = false;
@@ -126,7 +137,11 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     coordinator.bindSession(msg.sessionId, turn);
     // Persist ownership the moment the identity exists — a turn that
     // later fails or is cancelled must not leave an unowned transcript.
-    catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId);
+    // An authenticated typed request that created this session also binds
+    // its owner, content-free, so the owner can delete it (#3337). Resumes
+    // and host work bind nothing; the write binds only a new row.
+    const creator = !resumedSession && work === undefined && turn.turnId === turnId && authorization.valid && host.isPrincipalAuthorized(principalId) ? principalId : undefined;
+    catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator);
     // Governance events recorded before the row existed join it now (#1651).
     catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
     // Submitted after the catalog row; every share read/effect joins this queue.
@@ -155,7 +170,8 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     }
     if (draftRef && !draftSettled) {
       draftSettled = true;
-      acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId });
+      acceptDraft(host, { draftRef, sourceSessionId: host.dialogue.draftSource(turnId), sessionId: msg.sessionId, resumed: resumedSession, requestId, principalId: draftPrincipalId,
+        ...(attachmentFileIds?.length ? { fileIds: attachmentFileIds } : {}) });
     }
     if (pendingSessionNamed) {
       const named = pendingSessionNamed;

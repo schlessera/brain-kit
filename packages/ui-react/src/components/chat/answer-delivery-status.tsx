@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
 
 import { useBrainUiRoot } from "../../root-context.js";
-import { deliveryCopy, SEND_AS_MESSAGE_NOTE, type DeliveryAction } from "../../lib/answer-delivery/copy.js";
+import { deliveryCopy, SEND_AS_MESSAGE_NOTE, SENT_AS_MESSAGE_NOTE, type DeliveryAction } from "../../lib/answer-delivery/copy.js";
 import type { AnswerDelivery } from "../../lib/answer-delivery/types.js";
 
 const LABELS: Record<DeliveryAction, string> = {
@@ -74,15 +74,23 @@ export function AnswerDeliveryStatus({
           () => {}
         );
         return;
-      case "sendAsMessage":
-        onSendAsMessage?.(answerText());
+      case "sendAsMessage": {
+        // Once (#3356): the action goes before the message does, and focus
+        // stays on this card's outcome rather than on a removed button.
+        const chat = root.stores.chat.getState();
+        const current = chat.deliveries[delivery.requestId];
+        if (!onSendAsMessage || current?.sentAsMessage) return;
+        if (current) chat.setDelivery(delivery.requestId, { ...current, sentAsMessage: true, focus: false });
+        onSendAsMessage(answerText());
+        tagRef.current?.focus();
         return;
+      }
     }
   };
   // A mirror shows the owner's state; only the owning tab acts on it.
   const actions = delivery.mirror
     ? []
-    : copy.actions.filter((a) => a !== "sendAsMessage" || onSendAsMessage);
+    : copy.actions.filter((a) => a !== "sendAsMessage" || (onSendAsMessage && !delivery.sentAsMessage));
 
   return (
     <div
@@ -102,7 +110,7 @@ export function AnswerDeliveryStatus({
       </p>
       {copy.body ? <p className="text-sm text-foreground/90">{copy.body}</p> : null}
       {actions.length > 0 || copy.meta ? (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 any-pointer-coarse:gap-y-4">
           {actions.map((action) => (
             <Button
               key={action}
@@ -111,7 +119,7 @@ export function AnswerDeliveryStatus({
               size="sm"
               block={false}
               onClick={() => run(action)}
-              style={{ minHeight: 44 }}
+              reach
             />
           ))}
           {copy.meta ? (
@@ -121,6 +129,8 @@ export function AnswerDeliveryStatus({
       ) : null}
       {actions.includes("sendAsMessage") ? (
         <p className="text-xs text-muted-foreground">{SEND_AS_MESSAGE_NOTE}</p>
+      ) : delivery.sentAsMessage ? (
+        <p className="text-xs text-muted-foreground" data-sent-as-message="">{SENT_AS_MESSAGE_NOTE}</p>
       ) : null}
     </div>
   );

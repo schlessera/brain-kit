@@ -10,7 +10,15 @@ import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_SCAN_LIMIT,
   type WorkerProtection, type ProtectedWorkerPath, type WorkerProviderMasks, type WorkerDataTree } from "./worker-sandbox.js";
 
-const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules"]);
+/**
+ * Host-owned areas a governed worker gets read-only on top of the protected
+ * paths. They are not protected paths: no policy names them, nothing is
+ * quarantined when they change, and the host keeps writing them during a turn.
+ * Chat attachment originals (#3153) are verified by digest on every host read
+ * as well; this mount stops a governed worker changing them in place.
+ */
+export const HOST_READ_ONLY_AREAS = [".brain-ui/attachments"] as const;
+const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules", ...HOST_READ_ONLY_AREAS]);
 const code = (error: unknown) => (error as NodeJS.ErrnoException).code ?? String(error);
 
 /** Only this concrete resolver can mint folder mounts; public layout facts are not authority. */
@@ -57,7 +65,7 @@ export function resolveWorkerProtection(brain: string, options: {
   let root: number | undefined;
   try {
     root = openDirectory(brain);
-    const names = [...new Set([...(options.paths ?? protectedPaths()), ...readdirSync(at(root, ".")).filter(isEnvName), ...appeared])];
+    const names = [...new Set([...(options.paths ?? protectedPaths()), ...HOST_READ_ONLY_AREAS, ...readdirSync(at(root, ".")).filter(isEnvName), ...appeared])];
     if (mountPointsUnder(brain).some(path => path !== brain)) throw new Error("the brain contains another mount");
     // A writable brain must not provide a writable alias to a host file.
     // The qualified native brain is an entire subvolume: Btrfs forbids links
@@ -99,7 +107,8 @@ export function resolveWorkerProtection(brain: string, options: {
         }
         paths.push({ rel, mode, reason: appeared.has(rel) ? "appeared during an active turn; awaiting quarantine"
           : (PROTECTED_TIER_A as readonly string[]).includes(rel) || isEnvName(rel) ? "governance, secrets or startup code (tier A)"
-          : (PROTECTED_TIER_B as readonly string[]).includes(rel) ? "runtime permissions or configuration (tier B)" : "added by governance policy" });
+          : (PROTECTED_TIER_B as readonly string[]).includes(rel) ? "runtime permissions or configuration (tier B)"
+          : (HOST_READ_ONLY_AREAS as readonly string[]).includes(rel) ? "chat attachment originals, kept by the host" : "added by governance policy" });
       } finally { closeSync(fd); }
     }
     const folderPins = new Map<string, { rel: string; device: string; inode: string }>();
@@ -332,19 +341,47 @@ export function dataTreeMounts(brain: string, target: string, tree: WorkerDataTr
 export interface WorkerBrainView { open(): WorkerSteps<number>; close(): WorkerSteps<void> }
 
 interface MountRecord { readonly id: string; readonly parent: string; readonly point: string }
-function mountRecords(pid: number): MountRecord[] {
-  return readFileSync(`/proc/${pid}/mountinfo`, "utf8").trim().split("\n").map(line => {
+type MountSite = "readiness" | "brain-view";
+/**
+ * Read the worker's mount table, or `undefined` for an empty read (#2701).
+ * Bubblewrap reports its child's PID before it builds the sandbox. The kernel
+ * lists only mounts reachable from the root it captured when the file was
+ * opened, so a read opened just before a `pivot_root` detaches that root lists
+ * nothing. An empty table is never a qualified view; the caller decides
+ * whether to observe again. A malformed record refuses here, with the read's
+ * size, call site and worker state so any occurrence is attributable.
+ */
+function mountRecords(pid: number, site: MountSite, since: number): MountRecord[] | undefined {
+  const text = readFileSync(`/proc/${pid}/mountinfo`, "utf8");
+  if (!text.trim()) return undefined;
+  return text.trim().split("\n").map((line, index) => {
     const [id, parent, , , field] = line.split(" ");
-    if (!id || !parent || !field) throw new Error("invalid worker mount record");
+    if (!id || !parent || !field) throw new Error(`invalid worker mount record: malformed record ${index + 1} at ${site}${mountReadDetail(pid, text, since)}`);
     return { id, parent, point: field.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(parseInt(octal, 8))) };
   });
 }
 
+/** Size, worker state/start time and elapsed observation for a refused mount read. Never mount sources or paths. */
+function mountReadDetail(pid: number, text: string, since: number): string {
+  let state: string;
+  try {
+    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
+    state = `worker state ${fields[0]} start ${fields[19]}`;
+  } catch (error) { state = `worker state unavailable (${code(error)})`; }
+  return ` (${Buffer.byteLength(text)} bytes, ${text ? text.split("\n").length : 0} lines, ${state}, after ${Date.now() - since}ms)`;
+}
+
+function emptyMountRead(pid: number, site: MountSite, since: number): Error {
+  return new Error(`invalid worker mount record: empty read at ${site}${mountReadDetail(pid, "", since)}`);
+}
+
 /** The handle must be the top mount at the brain path in this worker's own namespace. */
-function requireWorkerBrainMount(fd: number, pid: number, brain: string): void {
+function requireWorkerBrainMount(fd: number, pid: number, brain: string, since: number): void {
   const id = /^mnt_id:\s*(\d+)$/m.exec(readFileSync(`/proc/self/fdinfo/${fd}`, "utf8"))?.[1];
   // Mount IDs are unique system-wide, so a listed ID is a mount of this namespace.
-  const records = mountRecords(pid);
+  // Readiness already saw the complete table, so an empty read here refuses.
+  const records = mountRecords(pid, "brain-view", since);
+  if (!records) throw emptyMountRead(pid, "brain-view", since);
   if (!id || !records.some(record => record.id === id && record.point === brain)
     || records.some(record => record.parent === id && record.point === brain))
     throw new Error("the brain view is not the worker's own brain mount");
@@ -371,14 +408,17 @@ export function* verifyWorkerFolderMountsSteps(brain: string, protection: Worker
       throw new Error("provider folder topology worker identity is unavailable");
     return fields[19]!;
   };
+  const since = Date.now();
   try {
     const started = identity();
     for (;;) {
-      const mounts = new Set(mountRecords(pid).map(record => record.point));
+      const records = mountRecords(pid, "readiness", since);
       // The authenticated PID can be reported before bubblewrap finishes its
-      // mount sequence. No payload runs while this bounded observation waits.
-      if (qualified.pins.every(pin => mounts.has(join(brain, pin.rel)))) break;
-      if (Date.now() >= deadline) throw new Error("retained folder mount points are unavailable");
+      // mount sequence. No payload runs while this bounded observation waits:
+      // an empty read is observed again, and only a complete table qualifies.
+      const mounts = new Set(records?.map(record => record.point));
+      if (records && qualified.pins.every(pin => mounts.has(join(brain, pin.rel)))) break;
+      if (Date.now() >= deadline) throw records ? new Error("retained folder mount points are unavailable") : emptyMountRead(pid, "readiness", since);
       if (identity() !== started) throw new Error("worker identity changed");
       yield* workerStepSleep(1);
     }
@@ -387,7 +427,7 @@ export function* verifyWorkerFolderMountsSteps(brain: string, protection: Worker
     let handle: number | undefined;
     try {
       handle = view ? yield* view.open() : undefined;
-      if (handle !== undefined) requireWorkerBrainMount(handle, pid, brain);
+      if (handle !== undefined) requireWorkerBrainMount(handle, pid, brain, since);
       verifyMountedFolders(handle === undefined ? `/proc/${pid}/root${brain}` : `/proc/self/fd/${handle}`, qualified, masks);
     } finally {
       try { if (handle !== undefined) closeSync(handle); } finally { if (view) yield* view.close(); }

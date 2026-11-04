@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 159 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 171 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -87,11 +87,17 @@ client code has a gap. Source owners are listed after the table.
 | DELETE | `/api/drafts/:draftId` | S | Delete a draft, leaving a tombstone | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/attachments` | S | Store one draft image | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
 | POST | `/api/drafts/:draftId/bind` | S | Bind a draft to the session its accepted first message started | Paired composer and independent clients (#979, D52); preserve revisions, receipts, tombstones, limits and the no-execution boundary. |
+| POST | `/api/drafts/:draftId/files` | S | Store one composer file as a durable, read-only original | Composer file attachments (#3153); preserve streaming admission, idempotency receipts, draft and pool bounds and the no-execution boundary. |
+| GET | `/api/attachments/:fileId` | S | Read back one referenced composer original after checking its digest | Composer file attachments (#3153); preserve reference-only authorization, digest checking and the download headers. |
 | GET | `/api/files/content` | S | Read content metadata/text or raw bytes | Independent content clients and SDK service-worker policy; raw API media remains network-only. |
 | GET | `/api/files/html` | I | Serve an HTML file for the sandboxed, script-running preview | React file viewer iframe and "Open in new tab" link (#1084); browser-rendered UI transport. Its isolation headers are specified below. |
 | GET | `/api/files/resolve` | I | Resolve ancestor navigation and existence | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/tree` | I | List browsable directory entries | React file browser; view/navigation helpers are paired UI transport. |
 | GET | `/api/files/wikilinks` | I | Read or refresh cached slug-to-path map | React file browser; view/navigation helpers are paired UI transport. |
+| GET | `/api/files/untrusted` | I | Read one path's untrusted mark as this principal may see it | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| PUT | `/api/files/untrusted` | I | Mark a readable file untrusted | React Files toolbar (#2673); paired UI transport. Its authority and disclosure rules are specified below. |
+| DELETE | `/api/files/untrusted` | I | Clear a present or retained mark (owner only) | React Files toolbar and `Marked untrusted` list (#2673); paired UI transport. Its authority rules are specified below. |
+| GET | `/api/files/untrusted/list` | I | List the marks this principal may see | React `Marked untrusted` list (#2673); paired UI transport. Its disclosure rules are specified below. |
 | GET | `/api/geo/coastline` | S | Read attributed map geometry for a bounding box | Independent map clients; preserve show_block map HTTP promise and graceful geometry degradation. |
 | GET | `/api/governance/roadblocks` | I | Retained roadblock rankings for the paired activity bridge | #1672; authenticated and local-only. The additive `query_activity` scope is the supported agent contract. |
 | GET | `/api/governance/events` | S | Read the governance events kept with session history | Independent diagnostics and the roadblock report; additive #1651 ([contract](integration-contract/http.md#governance-events-additive-1651)). Versioned per kind; never renders to the user. |
@@ -141,6 +147,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert/plan` | S | Review eligible and excluded history paths | Current human principal; exact session/turn; optional action revert/restore. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Read latest original history receipt | Bound to current principal/session/source turn; never retries effects. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/revert/:operationId` | S | Reconcile one original operation | Same bound identity; missing receipt stays unavailable. |
+| POST | `/api/chat-deletions` | S | Delete the caller's own chat's local history | Authenticated owner only; stable caller operation identity; content-free per-store outcomes (#3230). |
+| GET | `/api/chat-deletions/:operationId` | S | Read one deletion operation's current receipt | Read-only and owner-scoped; one content-free `not_admitted` for every miss (#3455). |
 | POST | `/api/sessions/:sessionId/turns/:turnId/revert` | S | Start a user-only journaled revert or restoration | Stable caller operation identity; raw stale-state comparison; gate and shared server locks. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal` | S | Read retained turn observations | Exact session/turn ownership; nullable unknown facts and explicit expiry. |
 | GET | `/api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | S | Read a bounded text preview | Raw UTF-8 bytes; explicit size/line/binary fallback, no coercion. |
@@ -183,6 +191,10 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract/http.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
+| GET | `/api/apify` | I | Read Apify provider state, policy and spend | Settings UI (#3159, #3163); live human owners only. Reports `disabled`, `authentication_required`, `configured` or `unavailable`; never a token. Contacts Apify only while the policy enables it. Additively since #3163 also `policy` (the effective `apify` block, each grant's `active`/`expired`/`other_account` status, the policy hash an edit names as its base) and `spend` (`ledger` `absent`/`read`/`unavailable`, today's account-wide and brain ledger scopes, and unsettled runs, never as $0). `?session=&turn=` adds that turn's scope; `?refresh=1` re-verifies the token and settles open runs first. |
+| POST | `/api/apify/account` | I | Confirm the token's changed Apify account | Settings UI (#3159); live human owners only. Starts a new authority generation; accepts no token. |
+| POST | `/api/apify/policy` | I | Propose one Apify setting through the policy-change review | Settings UI (#3163); live human owners only. `{ change, base_hash }` names exactly one of `enabled`, `discovery`, `actors` or `remove_grant` and the policy version it changes. Returns `{ turn_id, request_id, review }` with a pending `PolicyChangeReview` of the complete proposed `governance.md`; writes nothing. 409 when the policy changed since it was read; 422 when the file cannot be rewritten exactly. |
+| POST | `/api/apify/policy/:turnId/:requestId` | I | Answer that exact review | Settings UI (#3163); only the proposing owner. `{ approve }`; an approval lets the existing policy writer publish it inside a user journal window. A repeated or late answer returns the recorded receipt and never writes again; a lost answer is reconciled through `GET /api/policy-proposals/:turnId/:requestId`. |
 | POST | `/share-target` | S | Explain missing service worker without reading body | SDK share-target and custom PWA shells; preserve ShareIntakeResult and body-unread fallback. |
 | GET | `/ws` | S | Authenticate and admit WebSocket upgrade | SDK BrainUiClient; supported HTTP upgrade boundary, followed by the existing wire contract. |
 | GET | `/*` (conditional) | I | Serve configured SPA deep links | Custom shell with `staticRoot`; deployment asset transport, not an independent JSON API. |
@@ -192,7 +204,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 159 declared endpoints are mounted regardless of backend, renderer or
+All 171 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -577,6 +589,10 @@ optional list without discarding healthy backends; registry-level failure is
 Message shapes follow the SDK/wire history contract. An unknown/unavailable
 backend or history failure is 500 `{ error }`; the route does not translate
 missing sessions into a universal 404 or provide a separate history deadline.
+A chat deleted under [explicit chat deletion](#explicit-chat-deletion-additive-3230)
+(additive, #3230) is the one exception: before or after its history is read it
+answers 404 `{ error: "SESSION_NOT_FOUND", message }` with no messages, and it
+is absent from `GET /api/sessions`, including `retainedConversations`.
 
 <a id="retained-turn-journal"></a>
 
@@ -660,8 +676,8 @@ empty directory metadata is not invented.
 
 | Supported operation | Inputs/defaults | Success and observable behavior | Errors |
 | --- | --- | --- | --- |
-| GET `/api/activity/runs` | Optional origin/job/session/status strings; limit defaults 50, Number-converted and clamped 1–200 (zero/NaN → 50); before Number-converted, default now+1 (zero/NaN → default) | `{ live: ActivityRunSummary[], history: ActivityRunSummary[] }`. Live open roots match origin/job/session, are not limited/paginated or filtered by before/status. History is newest-first rollups strictly before before, with all filters and limit; live IDs excluded. SDK summary preserves unknown/null accounting. | Read failures 500 `{ error }`; filters are not enum-validated by the route. |
-| GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
+| GET `/api/activity/runs` | Optional origin/job/session/status strings; `activityCompute=1` declares the client parses `compute`-origin runs, which are omitted otherwise (#3108); limit defaults 50, Number-converted and clamped 1–200 (zero/NaN → 50); before Number-converted, default now+1 (zero/NaN → default) | `{ live: ActivityRunSummary[], history: ActivityRunSummary[] }`. Live open roots match origin/job/session, are not limited/paginated or filtered by before/status. History is newest-first rollups strictly before before, with all filters and limit; live IDs excluded. SDK summary preserves unknown/null accounting. | Read failures 500 `{ error }`; filters are not enum-validated by the route. |
+| GET `/api/activity/runs/:runId` | Run ID; `include=payloads` opts into tool_input/tool_output events; a `compute:` run needs `activityCompute=1` and is an unknown run without it (#3108) | `ActivityRunDetail`: retained `{ runId, detailPruned:false, spans, events, highWaterSeq, rollup? }`; after pruning `{ runId, detailPruned:true, rollup }`. Same wire mappers and accounting semantics as activity WS frames. | Never-existed run 404 `{ error: "Unknown run" }`; read failures 500 `{ error }`. Pruned detail is a successful resolution, not a missing run. |
 | GET `/api/activity/rollups` | days: truncate Number, zero/NaN/absent → 7, clamp 1–90 | `ActivityRollups`: `{ timeZone, days, jobs, sessions }`, aggregates over runs started at/after now−days. Days newest-first, in configured timezone (default UTC); invalid timezone grouping degrades to UTC. Root-only sums; unknown list cost is a floor, unknown effective cost is counted by unpricedRuns. | Read failures 500 `{ error }`. No upper bound is applied by this older aggregate route. Both cost axes round each completed group sum to four decimals at the response boundary; stored costs retain their original precision. |
 | GET `/api/activity/stats` | days: truncate Number, zero/NaN/absent → 30, clamp 1–90 | Full `ActivityRuntimeStats`, specified in the [runtime-stats contract](integration-contract/http.md#runtime-stats-get-apiactivitystats-additive-in-0370). Closed window, labeled coverage, raw sums, independent unpriced counters and nullable incomplete averages. | Read/computation failures 500 `{ error }`. Does not read brain.db. |
 
@@ -1004,6 +1020,87 @@ each with `limit` and `bound`; 428 `DRAFT_PRECONDITION_REQUIRED` when
 `Content-Length` says. A refused or failed request leaves the committed
 draft unchanged.
 
+<a id="composer-file-attachments-additive-0450-3153"></a>
+
+## Composer file attachments (additive, 0.45.0, #3153)
+
+Advertised by `server_hello.capabilities.composerFiles`; the frame rules are
+in the [integration contract](integration-contract/wire.md#composer-file-attachments-additive-0450-3153).
+Both routes sit behind the same authentication and same-origin rules as the
+draft routes, and answer `Cache-Control: no-store`. The upload creates no
+inbox item, queue job or triage. `/share` and `/track-upload` are unchanged.
+
+### `POST /api/drafts/:draftId/files`
+
+The raw bytes of one file, streamed; nothing is buffered whole. Headers:
+`Idempotency-Key` (required, 1-128 of `A-Za-z0-9._:-`), `Content-Type` (a
+hint), `X-File-Name` (a hint, percent-encoded UTF-8, at most 1,024 bytes
+encoded) and `Content-Length` (optional, used for early refusal and as the
+pool reservation; without it the reservation is 25,000,000 bytes).
+
+The host reserves pool room, streams the bytes to a partial directory while
+counting and hashing them, detects the kind from the stored bytes and
+publishes the file read-only at `.brain-ui/attachments/<fileId>/<name>` by one
+atomic rename. Detection is by signature first (`%PDF-`; JPEG, PNG, GIF,
+WebP; HEIC/HEIF; ZIP, gzip, 7z, RAR), then strict UTF-8 text, then the shared
+track parser for text up to 20 MiB. Anything else is `binary`. A name or MIME
+type is only a hint: it never makes a file a track or a PDF.
+`trackRejected: true` says a track hint did not parse. Upload never claims the
+contents were read.
+
+`201` returns an `AttachmentFile`. Repeating a key with the same draft, name
+hint, media hint and bytes returns `200` with the same file, without storing a
+second copy.
+
+| Status | `error` | `bound` / meaning |
+| --- | --- | --- |
+| 413 | `ATTACHMENT_TOO_LARGE` | `file` (25,000,000), `draftFiles` (50,000,000), `draftCount` (10) |
+| 507 | `ATTACHMENT_CAPACITY` | `pool` (the configured `BRAIN_UI_ATTACHMENT_POOL_BYTES`) |
+| 410 | `DRAFT_DELETED` | the draft was deleted or sent |
+| 400 | `ATTACHMENT_INVALID` | an empty file, a malformed header, or an `X-` header claiming authority, a path or a kind |
+| 409 | `ATTACHMENT_KEY_REUSED` | the key named a different upload |
+| 503 | `busy` | three composer uploads are already running; retry |
+
+`draftCount` and `draftFiles` count everything the draft's revision and
+outgoing snapshot reference, plus uploads for the same draft that no save has
+bound yet and that are under an hour old. The pool counts every recorded
+original in any state, every live reservation and the legacy draft images.
+Reservations are taken in one immediate transaction, so concurrent uploads
+cannot multiply the cap. At capacity nothing is removed to make room.
+
+`PUT /api/drafts/:draftId` accepts `fileIds` (at most 10) and `outgoing`
+(`{ requestId, text, fileIds, state: "held" | "dispatched" }`, `null` to
+clear, absent to keep). A save binds exactly the listed files to the revision
+and the snapshot's files to the snapshot. Each listed file must be `stored`
+and minted for this draft, or the save is 400 `ATTACHMENT_INVALID`. At most
+10 attachments are listed, legacy images included, and at most 50,000,000
+original bytes together (413 `DRAFT_TOO_LARGE`, `bound` `draftCount` or
+`draftFiles`). The old `maxDraftBytes` ceiling bounds text and legacy images
+only. `GET` returns `files` (only files still stored) and `outgoing`.
+
+### `GET /api/attachments/:fileId`
+
+Streams one original up to 25,000,000 bytes, after checking its recorded size
+and SHA-256 through no link. Any live reference authorizes the read: a draft
+revision, an outgoing snapshot or a sent message. Answers carry
+`Content-Security-Policy: default-src 'none'`, `X-Content-Type-Options:
+nosniff`, and `Content-Disposition: attachment` for every kind except an image
+preview. `404 ATTACHMENT_NOT_FOUND` for an unknown, unreferenced or missing
+file; `409 ATTACHMENT_CHANGED` when the bytes no longer match, with none of
+them served. The raw file route keeps its 10,485,760-byte cap.
+
+### Lifetime
+
+An upload no save or message ever bound is removed an hour after upload. An
+original that was referenced is removed seven days after its last reference
+went; rebinding cancels that. A sweep runs at boot and every ten minutes. It
+marks eligible files in one transaction and only then unlinks them, so a
+rebind that loses the race is refused rather than binding a deleted file. At
+boot, reservations and partial uploads of an earlier process are discarded, a
+record whose directory is gone becomes `missing`, and a directory with no
+record is adopted, charged, with a fresh seven days. Clocks are the server's
+stored wall clock, never file times.
+
 ## Session recovery (additive, #964)
 
 **GET /api/sessions/:id/recovery** is protected and read-only: it never
@@ -1024,6 +1121,75 @@ true }`, disclosing nothing about the session. An unknown session is 404
 `{ error: "SESSION_NOT_FOUND", message }`. A storage failure, or a backend
 that failed or timed out when none had the session, is 500 `{ error: "SESSION_RECOVERY_FAILED", message }`, never a successful
 `unknown`.
+
+<a id="explicit-chat-deletion-additive-3230"></a>
+
+## Explicit chat deletion (additive, #3230)
+
+**POST /api/chat-deletions** deletes the authenticated owner's own chat's local
+history under the [approved policy](decisions/chat-history-deletion.md). It is
+mounted, and `server_hello.capabilities.chatDeletion: true` is sent, only by a
+host whose catalog can retire chats. The body is the SDK's `ChatDeletionRequest`:
+`operationId` (a client-minted key, at most 2048 characters), `target` naming
+exactly one of `{ sessionId }` or `{ historyOwnerId }`, and `expected: { backendId,
+generation }`, what the caller reviewed (a dialogue page's `generation`, or 1 for a
+chat with no host-retained dialogue). Any other shape is 400
+`{ error: "INVALID_CHAT_DELETION", message }`. Every response is
+`Cache-Control: no-store`.
+
+Before anything is retired, a refusal is `{ error: "CHAT_DELETION_REFUSED",
+reason, message }`: 403 `unauthorized` (not a usable owner principal: agents,
+ambient callers without an owner mapping and revoked principals), 404
+`unavailable` (absent, foreign, already retired under another key, or with no
+recorded owner; the same answer whichever), 409 `stale` (the backend or
+generation differs from `expected`), 409 `unsupported` (the chat's backend does
+not advertise and implement native removal) or 409 `busy` (a running or starting
+turn, queued follow-ups or unsettled live-conversation work; stop or finish it
+first). A chat's recorded owner is its dialogue owner, its voice conversation's
+principal or, since #3337 (additive), the authenticated principal whose typed
+request created its backend session. A typed chat whose session already existed
+before that binding (or that the host first saw on a resume) has no recorded
+owner and stays `unavailable`; none is backfilled. Otherwise the chat is
+retired and the answer is 200 with the SDK's
+`ChatDeletionReceipt`: `operationId`, the terminal `generation`, the overall
+`status`, each selected store's outcome (`native` for a backend session,
+`dialogue`, `tasks`, `projections`, `drafts`) and `retained`, which always lists
+`independent_content`, `effects_and_audit`, `provider_copies`, `backups` and
+`offline_devices`. `status` is `removed` only when every selected store confirmed
+removal; `pending`, `partial` and `unknown` say cleanup is not confirmed, and
+repeating the same `operationId` retries it. A host restart also resumes it.
+The handler re-checks the principal after its asynchronous steps and answers a
+revoked one with the guard's 401, disclosing nothing. A storage failure before a
+receipt exists is 500 `{ error: "CHAT_DELETION_FAILED", message }`, never a
+reported deletion. Receipts and errors carry no chat text, title, raw path or
+free-form failure. No success claims secure erasure, provider forgetting or an
+undone effect, and an older backup can restore deleted text.
+
+**GET /api/chat-deletions/:operationId** (additive, #3455) reads one operation's
+outcome without re-admitting it, so a client that lost a POST's reply can ask
+what happened. It only reads: it never admits a deletion, retries or resumes
+cleanup, and it adds no authority. For the authenticated caller it answers 200
+with the current `ChatDeletionReceipt` when a retirement is recorded under that
+`operationId` for that principal; `status` and `stores` reflect the latest
+recorded cleanup, so a read after a restart or a retry shows progress. Every
+other case is 404 with the SDK's `ChatDeletionNotAdmitted`, `{ error:
+"CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted", message }`, byte-identical
+whether the operation is unknown, another principal's, a refused attempt (refusals
+are not recorded) or asked by a principal that cannot own one (an agent, or an
+ambient caller without an owner mapping). It never echoes a title, session id,
+history owner id or backend. `not_admitted` means nothing was retired under
+that operation at the moment of the read: a request still in transit can be
+admitted afterwards, and `chat_retired` then follows as usual. The read waits
+for committed catalog writes. An `operationId` longer than 2048 characters is
+400 `{ error: "INVALID_CHAT_DELETION", message }`; unauthenticated is 401; a
+principal revoked between the lookup and the response gets the guard's 401, not
+the receipt; a storage failure is 500 `{ error: "CHAT_DELETION_FAILED", message }`,
+which reports neither outcome. Every response is `Cache-Control: no-store`. A
+host without the route answers its ordinary not-found, which carries no
+`reason`, so a client can tell an older host from `not_admitted`.
+
+Draft routes refuse a draft bound to a deleted chat with 410
+`{ error: "DRAFT_CHAT_RETIRED", message }`, list omits it, and `GET` answers 404.
 
 ## Imported track UI transport (#526)
 
@@ -1072,6 +1238,35 @@ real-Chrome test `packages/ui-react/tests/html-preview-runtime.test.ts`
 asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
 preview frame; the new-tab link is not subject to framing rules.
+
+## Untrusted file marks (internal, #2673)
+
+The four `/api/files/untrusted` operations are protected, internal UI
+transport: their payloads carry no independent-client guarantee, but their
+authority and disclosure rules are security properties and are pinned by
+`packages/ui-server/tests/untrusted-marks.test.ts`.
+
+- A mark is a host record in the UI database keyed by the normalized
+  brain-relative path, never a `brain.db` row or frontmatter key, so it
+  survives a restart and `brain index --force`. A moved or deleted file keeps
+  its old-path record; nothing follows a rename.
+- `PUT` with JSON `{ path }` needs the read access `GET /api/files/content`
+  already grants and a regular file at the path: a missing path or directory
+  is 404 `not_found`, invalid path syntax 400 `invalid_path`. It answers
+  `{ status: "marked" | "already_marked", mark }`. Marking grants nothing else.
+- `DELETE ?path=` is the human owner's alone (an `owner` or `ambient`
+  principal, the storage routes' rule); any other principal gets 403
+  `owner_required`. It clears present and retained missing records and answers
+  `{ status: "cleared" | "already_cleared" }`. It never removes a session's
+  recorded taint.
+- `GET ?path=` answers `{ path, marked: false, canClear }` or
+  `{ path, marked: true, markedAt, missing, markedBy?, canClear }`. A reader
+  asking about a path with no readable file gets 404 `not_found`, whether or
+  not a record is retained there.
+- `GET /list` answers `{ marks, canClear }`, missing records first and then
+  newest first. The owner sees every record; any other principal sees only
+  records whose file it can currently read. Only the owner's rows and details
+  carry `markedBy: { label, you }`; other principals' responses omit the field.
 
 ## Saved-audio transcription
 
@@ -1223,7 +1418,7 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
-| `egress_connection` | 1 | `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`. Headers, query strings and content are absent. |
+| `egress_connection` | 1 | `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, and only a validated provider-relay operation sets `provider: true`; a record never carries both. Neither relay's record makes its host a contacted one for a tainted session's worker traffic. Headers, query strings and content are absent. |
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds` | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is an existing prior taint event or `null`. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
@@ -1243,8 +1438,8 @@ read by any authenticated principal.
 | `egress_denial` | 1 | `host`, `port`, `method`, `reason`, `bytes` | The egress proxy refused a connection. `method` is set for plain HTTP; `reason` is `denied_host`, `not_allowlisted`, `byte_cap` or `taint_allowlist`. |
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
-| `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write` or `outward_host_connect`; `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
-| `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command` or `unclassified_command`. |
+| `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write`, `outward_host_connect` or `compute_run` (a hosted external compute job start, #3108, its `target` the instance id); `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
+| `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider whose key the host withheld from the worker. Recorded from the token the CLI prints ([CLI contract](integration-contract/cli.md#withheld-provider-keys-additive-0440-1666)), one event per distinct token in a tool result and at most 20 per turn. `capability` is `embeddings`, `completions`, `reranking` or `image`; `command` is the shell command, or the tool's name for any other tool; `degradedTo` names the fallback used (`keyword_search`, `keyword_index`, `lifecycle_order`) or is `null`. The token is text in tool output, so the event is a diagnostic, not proof. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
 | `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode, written when its turn ends ([classification](decisions/governed-writable-workers.md#roadblocks)). An episode opens at a failed step and closes at the next successful call of the same `family`, or at turn end. `family` is the tool family: `shell:<program>` (with the subcommand for multi-command programs, such as `shell:git push`), `file_write`, `file_read`, `search`, `web`, `brain_write`, `subagent`, `mcp:<server>:<tool>` or `tool:<name>`; a governance event with no call has `budget`, `scope`, `network`, `policy` or `outward`. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. It is `retry` when the episode repeated a near-identical failed input, and otherwise the first failure's category. `signature` is the grouping key `<family>\|<target>\|<category> <detail>` of the first failure, for example `file_write\|.brain/*\|fs_denied EROFS .brain/*`. The target is the command's program and, for multi-command programs, its subcommand (`<script>` for a program run by path); the directory a path sits in, by its last name, when that is one of the brain's structural or write areas (`<dir>` otherwise); or a URL's scheme (`https-url`). A signature therefore never carries file names, arguments, hosts, user-chosen directory names or absolute roots. The detail after the category is the error code and target area, `exit <code>`, or the deciding rule or limit, so equal signatures mean the same roadblock. Each failure is `{ toolCallId, signature, category }`, where `toolCallId` is `null` for a governance event with no call. `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` when a call the turn could already make resolved the episode. It is `abandoned` for exactly one unresolved failure with no retry followed by an eligible later success; repeated unresolved failures or turn-temp workarounds remain `capability`. `waste` is `{ tokens, costUsd, ms }`, measured from the first failed call's start to the resolving call's start; unresolved waste stops at the first successful call starting strictly after the last failure was known, otherwise at turn end. That accounting boundary does not create semantic resolution. Usage is sampled at that boundary; final usage cannot fill an earlier bound. Unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |

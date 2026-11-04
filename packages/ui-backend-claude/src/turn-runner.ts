@@ -29,6 +29,8 @@ import { TurnFailureEscape, TurnFrames, TurnTerminal } from "./turn-terminal.js"
 
 export { FOLLOW_UP_ACK_GRACE_MS } from "./turn-stream.js";
 
+import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
+
 const BACKEND_ID = "claude";
 
 /** A running turn, with the input stream a follow-up is delivered into. */
@@ -44,6 +46,8 @@ export interface ClaudeTurnRunner {
   startTurn(req: StartTurnRequest): Promise<void>;
   /** `AgentBackend.followUp`: deliver a message into the session's running turn. */
   followUp(req: FollowUpRequest): Promise<void>;
+  /** Drop a retired session's in-memory observation cache once its turns drained (#3229). */
+  forget(sessionId: string): void;
 }
 
 interface ClaudeTurnRunnerOptions {
@@ -53,6 +57,8 @@ interface ClaudeTurnRunnerOptions {
   writeLock: KeyedLock;
   lockWaitMs: number;
   log: BackendLogFn;
+  /** Explicit chat deletion (#3229): a retired session never resumes, and removal waits for its turn. */
+  retirement?: Pick<SessionRetirement, "hold" | "isRetired">;
 }
 
 /** The runner's state shared by its turns. */
@@ -85,6 +91,8 @@ interface ClaimedTurn {
   turnEnvironment: ReturnType<typeof turnEnv> | undefined;
   observationStorage: { directory: string; brainPath: string } | undefined;
   fileVersions: NativeFileVersions | undefined;
+  /** Retirement holds (#3229), released by the turn's last cleanup step. */
+  holds: Array<() => void>;
 }
 
 export function createClaudeTurnRunner(options: ClaudeTurnRunnerOptions): ClaudeTurnRunner {
@@ -98,7 +106,7 @@ export function createClaudeTurnRunner(options: ClaudeTurnRunnerOptions): Claude
   async function followUp(req: FollowUpRequest): Promise<void> {
     // Keyed by the real session id only once the SDK reported it, which is
     // also when the host first learns it: a placeholder key never matches.
-    const turn = runner.activeTurns.get(req.sessionId);
+    const turn = options.retirement?.isRetired(req.sessionId) ? undefined : runner.activeTurns.get(req.sessionId);
     if (!turn?.input?.push(req.prompt, req.attachments)) {
       throw new BackendRequestError(
         `No running turn for session ${req.sessionId} to deliver a follow-up to.`
@@ -106,7 +114,8 @@ export function createClaudeTurnRunner(options: ClaudeTurnRunnerOptions): Claude
     }
   }
 
-  return { startTurn: (req) => startTurn(runner, req), followUp };
+  return { startTurn: (req) => startTurn(runner, req), followUp,
+    forget: (sessionId) => { runner.fileVersionsBySession.delete(sessionId); } };
 }
 
 async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promise<void> {
@@ -117,6 +126,11 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
   if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
     throw new BackendBusyError(BACKEND_ID, req.sessionId);
   }
+  // A retired chat refuses resume as an unknown one. The hold lasts until the
+  // turn's last copy-out, so a removal never races this turn's native writes.
+  const holds: Array<() => void> = [];
+  if (req.sessionId !== undefined && options.retirement) holds.push(options.retirement.hold(req.sessionId));
+  const releaseHolds = () => { for (const release of holds.splice(0)) release(); };
 
   // The session is claimed the moment startTurn is called (#1063): a live
   // follow-up offered meanwhile joins this turn's input, which is held until
@@ -186,12 +200,13 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
     input.close();
     turnLock?.close();
     activeTurns.delete(turnKey);
+    releaseHolds();
     throw error;
   }
 
   // Called, not scheduled: the admitted turn continues in this same task.
   await runAdmittedTurn(runner, { req, turn, key: turnKey, prompt, input, abortController, onHostAbort,
-    workerHost, profile, turnLock, turnEnvironment, observationStorage, fileVersions });
+    workerHost, profile, turnLock, turnEnvironment, observationStorage, fileVersions, holds });
 }
 
 /** Run an admitted turn to its one terminal frame, then release everything it owns. */
@@ -327,6 +342,8 @@ function adoptSessionId(runner: TurnRunnerState, claim: ClaimedTurn, sessionId: 
   runner.activeTurns.delete(claim.key);
   runner.activeTurns.set(sessionId, claim.turn);
   claim.key = sessionId;
+  // A freshly minted identity was never retired; hold it like a resumed one.
+  if (runner.options.retirement) claim.holds.push(runner.options.retirement.hold(sessionId));
 }
 
 /** Everything a turn owns, released in order whatever its outcome. */
@@ -358,6 +375,7 @@ function turnCleanup(runner: TurnRunnerState, claim: ClaimedTurn, owned: {
       activeSessionIds: () => new Set(activeTurns.keys()),
       log: (message, error) => options.log("warn", message, { error: String(error) }),
     }),
+    () => { for (const release of claim.holds.splice(0)) release(); },
   ];
 }
 

@@ -311,7 +311,7 @@ export function HygieneReviewStrip({
               </span>
               <TextButton ref={resumeButton} label={c.loading ? "Resuming…" : "Resume"}
                 ariaLabel="Resume hygiene review: bring back the set-aside finding"
-                disabled={c.loading} style={{ minHeight: 44 }} onClick={() => {
+                disabled={c.loading} onClick={() => {
                   restoreResumeFocus.current = document.activeElement === resumeButton.current;
                   void c.command("resume");
                 }} />
@@ -797,14 +797,14 @@ export function HygieneFinding({
           tone="neutral"
           text="Dismiss this finding? It won't come back unless the problem changes. Validation still reports it."
         />
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
           {REASONS.map(([r, label]) => (
             <Button
               key={r}
               tone={reason === r ? "suggest" : "quiet"}
               size="sm"
               block={false}
-              style={{ minHeight: 44 }}
+              reach
               label={label}
               onClick={() => setReason(reason === r ? undefined : r)}
             />

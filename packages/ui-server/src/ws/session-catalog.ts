@@ -27,7 +27,8 @@ import {
 } from "./local-exchanges.js";
 
 import { loadConversation } from "./conversation-storage.js";
-import { authorizedOwner, chatRetirement, isRetired, resolveChat, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
+import type { HostChatStore } from "./chat-store-cleanup.js";
+import { authorizedOwner, chatRetirement, isRetired, resolveChat, unfinishedChatRetirements, type ChatRetirementStatus, type ChatStore, type ChatStoreOutcome, type ChatTarget, type RetireChatInput, type RetireChatResult, type RetiredChatIdentities } from "./chat-lifecycle.js";
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
@@ -64,6 +65,10 @@ export interface SessionCatalog {
   chatRetirement?(operationId: string, principalId: string): Promise<RetireChatResult | null>;
   /** A selected store owner's cleanup report under the retirement's intent. */
   recordChatCleanup?(lifecycleId: string, store: ChatStore, outcome: Exclude<ChatStoreOutcome, "pending">): Promise<ChatRetirementStatus>;
+  /** A host store removes its copies of a retired chat and records the read-back outcome (#3230). */
+  cleanChatStore?(lifecycleId: string, store: HostChatStore): Promise<ChatRetirementStatus>;
+  /** Retirements some selected store has not confirmed yet, for restart reconciliation (#3230). */
+  unfinishedChatRetirements?(): Promise<ReturnType<typeof unfinishedChatRetirements>>;
   /** Whether a chat identity is retired. Readers treat a retired chat as absent. */
   chatRetired?(target: ChatTarget | { conversationId: string }): boolean;
   saveConversationEpoch?(state: import("./conversation-storage.js").StoredConversationEpoch): Promise<void>;
@@ -124,7 +129,13 @@ export interface SessionCatalog {
     sessionId: string,
     promptText: string,
     providerId: string | null,
-    backendId: string
+    backendId: string,
+    /**
+     * The authenticated principal whose typed request created the session
+     * (#3337). Recorded as its content-free owner binding only when this call
+     * creates the session's row; omitted for resumes and host work.
+     */
+    ownerPrincipalId?: string
   ): void;
   /** Persist session accounting on the terminal `result` frame. */
   persistSession(
@@ -139,7 +150,7 @@ export interface SessionCatalog {
    * so a catalog written before it still type-checks; without it every
    * replayed message reads as typed.
    */
-  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] }): void;
+  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[]; attachmentFiles?: import("../attachments/context.js").MessageAttachment[] }): void;
   recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
   attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
@@ -269,8 +280,9 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const pendingRow = (sessionId: string) => (rowEffects.get(sessionId) ?? []).some(effect => "upsert" in effect);
   const storedBackendId = (sessionId: string) => pendingValue(sessionId, "backendId") ?? committedRow(sessionId)?.backendId ?? null;
   const hasRow = (sessionId: string) => pendingRow(sessionId) || db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
-  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number) => {
-    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId };
+  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number, ownerPrincipalId?: string) => {
+    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId,
+      ...(ownerPrincipalId ? { ownerPrincipalId } : {}) };
     return track(rowEffects, sessionId, { upsert: { providerId, backendId } }, submit<void>("upsertSession", row));
   };
   /** Highest revision issued per session; it never goes down, so a failed acceptance's revision is never reused. */
@@ -316,6 +328,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
     async chatRetirement(operationId, principalId) { await tail; return chatRetirement(db(), operationId, principalId); },
     recordChatCleanup: (lifecycleId, store, outcome) => submit("chatCleanup", lifecycleId, store, outcome, Date.now()),
+    cleanChatStore: (lifecycleId, store) => submit("chatStoreCleanup", lifecycleId, store, Date.now()),
+    async unfinishedChatRetirements() { await tail; return unfinishedChatRetirements(db()); },
     chatRetired: target => "conversationId" in target ? isRetired(db(), "conversation", target.conversationId)
       : "sessionId" in target ? isRetired(db(), "session", target.sessionId) : isRetired(db(), "dialogue_owner", target.ownerId),
     dialogueClose: (conversationId,principalId,epoch,partial) => {
@@ -476,8 +490,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
 
     getStoredBackendId: storedBackendId,
 
-    persistSessionStub(sessionId, promptText, providerId, backendId) {
-      upsert(sessionId, promptText, providerId, backendId, 0, 0).catch(err => reportWriteFailure(sessionId, err));
+    persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId) {
+      upsert(sessionId, promptText, providerId, backendId, 0, 0, ownerPrincipalId).catch(err => reportWriteFailure(sessionId, err));
     },
 
     persistSession(msg, promptText, providerId, backendId) {

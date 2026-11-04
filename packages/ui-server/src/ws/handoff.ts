@@ -40,11 +40,11 @@ import { handleChatMessage, resolveRunBilling } from "./run-session.js";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 
 /** The Activity name of the summary run on the source session. */
-export const HANDOFF_PREPARATION_RUN_NAME = "handoff preparation";
+const HANDOFF_PREPARATION_RUN_NAME = "handoff preparation";
 /** Upper bound on one preparation run, independent of the turn timeout. */
-export const HANDOFF_PREPARATION_TIMEOUT_MS = 120_000;
+const HANDOFF_PREPARATION_TIMEOUT_MS = 120_000;
 /** Most transcript characters handed to the summarizer, newest kept. */
-export const HANDOFF_TRANSCRIPT_BUDGET_CHARS = 40_000;
+const HANDOFF_TRANSCRIPT_BUDGET_CHARS = 40_000;
 
 const SUMMARY_SYSTEM_PROMPT = [
   "You are writing a handoff: a summary of a conversation so that a different assistant can continue it in a new chat.",
@@ -53,14 +53,14 @@ const SUMMARY_SYSTEM_PROMPT = [
   `Stay under ${HANDOFF_MAX_CHARS} characters. Reply with the summary only.`,
 ].join(" ");
 
-export type ReferenceState = "readable" | "missing" | "unreadable";
+type ReferenceState = "readable" | "missing" | "unreadable";
 
 /**
  * Whether the destination may be offered each referenced brain file. The
  * same check the file browser applies: contained in the brain, an existing
  * file, and not tooling (dot paths, databases, lockfiles).
  */
-export async function checkHandoffReferences(
+async function checkHandoffReferences(
   brainPath: string | undefined,
   references: readonly string[]
 ): Promise<Array<{ path: string; state: ReferenceState }>> {
@@ -106,7 +106,7 @@ export async function startHandoff(
   const { handoff } = msg;
   const { coordinator, catalog } = host;
   if (msg.sessionId) return refuse(host, ws, msg, "A handoff starts a new chat; it can't continue an existing one.");
-  if (msg.attachments?.length || msg.files?.length || msg.localExchanges?.length) {
+  if (msg.attachments?.length || msg.files?.length || msg.attachmentRefs?.length || msg.localExchanges?.length) {
     return refuse(host, ws, msg, "A handoff carries only its reviewed text and references.");
   }
   if (!msg.text.trim()) return refuse(host, ws, msg, "The handoff is empty. Write what the new chat should know.");
@@ -232,7 +232,7 @@ export function throughTurns(messages: readonly SessionHistoryMessage[], turns: 
 }
 
 /** The prompt the summarizer reads: the snapshot as a plain transcript, newest kept. */
-export function handoffTranscript(messages: readonly SessionHistoryMessage[], budget = HANDOFF_TRANSCRIPT_BUDGET_CHARS): string {
+function handoffTranscript(messages: readonly SessionHistoryMessage[], budget = HANDOFF_TRANSCRIPT_BUDGET_CHARS): string {
   const lines: string[] = [];
   let used = 0;
   for (let index = messages.length - 1; index >= 0; index--) {

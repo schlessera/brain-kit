@@ -81,6 +81,9 @@ function fixture(masked: boolean): Fixture {
   (spyOn(startup, "prepareNativeWorkerStartupView") as unknown as Mock<typeof startup.prepareNativeWorkerStartupView>)
     .mockImplementation(async (path, _manager, signal) => { signal?.throwIfAborted(); return retainableFixtureView(path); });
   cleanup.push(() => (startup.prepareNativeWorkerStartupView as unknown as Mock<typeof startup.prepareNativeWorkerStartupView>).mockRestore());
+  // The copied fixture view stands in for a manager-acquired one at admission's refusal (#3314).
+  const refusal = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(() => {});
+  cleanup.push(() => refusal.mockRestore());
   // Governed admission qualifies its maintenance worker through a copied stage.
   const staged = spyOn(output, "prepareNativeWorkerOutput").mockImplementation(prepareFixtureNativeWorkerOutput);
   cleanup.push(() => staged.mockRestore());

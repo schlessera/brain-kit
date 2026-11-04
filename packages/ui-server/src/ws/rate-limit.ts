@@ -26,7 +26,7 @@ export interface Clock {
 
 const realClock: Clock = { now: () => Date.now() };
 
-export interface RateLimitOptions {
+interface RateLimitOptions {
   /** Sustained frames per second. */
   ratePerSecond: number;
   /** Frames absorbable in one burst before the sustained rate applies. */
@@ -34,7 +34,7 @@ export interface RateLimitOptions {
   clock?: Clock;
 }
 
-export interface RateLimitDecision {
+interface RateLimitDecision {
   allowed: boolean;
   /** Tokens left after this decision, for reporting. */
   remaining: number;

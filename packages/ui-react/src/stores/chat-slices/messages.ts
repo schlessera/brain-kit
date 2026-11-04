@@ -7,7 +7,7 @@ import type { ChatState, SessionChat } from "../chat-state.js";
 import type { ChatSliceContext } from "./buffers.js";
 import { appendPart, withoutRetry } from "./buffers.js";
 
-export type MessagesSliceSlice = Pick<ChatState,
+type MessagesSliceSlice = Pick<ChatState,
   | "setMessageEffort"
   | "setRetryHandle"
   | "addUserMessage"

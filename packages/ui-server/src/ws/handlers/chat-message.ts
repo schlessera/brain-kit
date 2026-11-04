@@ -1,5 +1,7 @@
 import { SHARE_MAX_FILES, SHARE_MAX_TOTAL_BYTES, type SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { resolveChatFiles } from "../../tracks/read.js";
+import { type MessageAttachment } from "../../attachments/context.js";
+import { resolveAttachmentRefs } from "../../attachments/resolve.js";
 import { estimateDecodedBase64Bytes, validateAttachments } from "../attachments.js";
 import { startHandoff } from "../handoff.js";
 import { handleChatMessage } from "../run-session.js";
@@ -22,10 +24,18 @@ export const handleChatMessageFrame: ClientMessageHandler<"chat_message"> = asyn
     return;
   }
   let files: SharedFileMeta[];
+  let attachmentFiles: MessageAttachment[];
   try {
     files = await resolveChatFiles(host.brainPath, msg.files);
-    const bytes = files.reduce((n, f) => n + f.bytes, 0) + attachmentResult.attachments.reduce((n, f) => n + estimateDecodedBase64Bytes(f.data), 0);
-    if (files.length + attachmentResult.attachments.length > SHARE_MAX_FILES || bytes > SHARE_MAX_TOTAL_BYTES) throw Error("Attached files exceed the message limits.");
+    if (msg.attachmentRefs?.length && !msg.draftRef) throw Error("Attached files need the saved draft they were uploaded to.");
+    attachmentFiles = await resolveAttachmentRefs(host.brainPath, host.drafts ?? undefined, msg.attachmentRefs,
+      { ...(msg.draftRef ? { draftId: msg.draftRef.draftId } : {}) }, attachmentResult.attachments);
+    // One envelope, images included: an image frame of an attached original
+    // is charged once, by the original.
+    const frames = attachmentResult.attachments.filter((a) => !a.fileId);
+    const bytes = files.reduce((n, f) => n + f.bytes, 0) + attachmentFiles.reduce((n, f) => n + f.bytes, 0)
+      + frames.reduce((n, f) => n + estimateDecodedBase64Bytes(f.data), 0);
+    if (files.length + attachmentFiles.length + frames.length > SHARE_MAX_FILES || bytes > SHARE_MAX_TOTAL_BYTES) throw Error("Attached files exceed the message limits.");
   } catch (error) {
     host.sendMessage(ws, { type: "error", code: "ATTACHMENT_REJECTED", message: error instanceof Error ? error.message : "Track attachment refused.",
       ...(msg.requestId ? { requestId: msg.requestId } : {}), ...(msg.sessionId ? { sessionId: msg.sessionId } : {}) });
@@ -59,6 +69,7 @@ export const handleChatMessageFrame: ClientMessageHandler<"chat_message"> = asyn
     sessionId: shareSessionId,
     attachments: attachmentResult.attachments,
     ...(files.length ? { files } : {}),
+    ...(attachmentFiles.length ? { attachmentFiles } : {}),
     providerId: msg.providerId,
     client: msg.client,
     source: msg.source,

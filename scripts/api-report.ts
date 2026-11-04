@@ -54,7 +54,7 @@ export function isInternalSubpath(subpath: string): boolean {
  */
 export const SEAMS: Record<string, Record<string, string[]>> = {
   core: {
-    ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter", "SearchResult", "RerankCandidate"],
+    ".": ["AgentRunner", "CompletionProvider", "EmbeddingProvider", "SkillEmitter", "SearchResult", "RerankCandidate", "ComputeProvider"],
     "./queries": ["readGraphMeta", "readGraphClusters", "readGraphNeighborhood", "readGraphDiscovery", "readGraphMaintenance", "readLinkWalk", "readVoiceVocabulary", "listIndexDocuments", "findIndexDocuments", "ContentIndexQueries"],
   },
   scrape: { ".": ["SiteAdapter", "runAdapters", "ok", "partial"] },

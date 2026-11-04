@@ -7,7 +7,7 @@ import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contr
 import type { ChatMessage, ChatState, SessionChat, ToolCall } from "../chat-state.js";
 import type { ChatSliceContext } from "./buffers.js";
 
-export type ApprovalsSliceSlice = Pick<ChatState,
+type ApprovalsSliceSlice = Pick<ChatState,
   | "requestToolApproval"
   | "applyVoicePermission"
   | "resolveToolApproval"

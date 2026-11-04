@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
-import { isAbsolute, join } from "path";
+import { basename, isAbsolute, join } from "path";
 
 import { BRIDGE_TOOL_POSTURE } from "../src/tool-contracts/bridge.js";
 import { piMaskFilename } from "../src/server/bridge-tools/mask.js";
@@ -24,6 +24,7 @@ describe("bridge tool server primitives", () => {
       "turn_temp",
       "reference_source",
       "reference_worktree",
+      "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
     ]);
     expect(BRIDGE_TOOL_POSTURE.allowedTools("pi")).toEqual(
       BRIDGE_TOOL_POSTURE.names
@@ -41,6 +42,8 @@ describe("bridge tool server primitives", () => {
       "mcp__brain-ui__turn_temp",
       "mcp__brain-ui__reference_source",
       "mcp__brain-ui__reference_worktree",
+      "mcp__brain-ui__brain_compute_health", "mcp__brain-ui__brain_compute_plan", "mcp__brain-ui__brain_compute_run",
+      "mcp__brain-ui__brain_compute_status", "mcp__brain-ui__brain_compute_cancel", "mcp__brain-ui__brain_compute_collect",
     ]);
   });
 
@@ -65,6 +68,20 @@ describe("resolveInRepo", () => {
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a sibling directory that shares the root's name as a prefix", () => {
+    const root = mkdtempSync(join(tmpdir(), "bridge-path-root-"));
+    const sibling = `${root}-other`;
+    mkdirSync(sibling);
+    try {
+      symlinkSync(sibling, join(root, "sibling"));
+      expect(resolveInRepo(root, `../${basename(sibling)}/mask.png`)).toBeNull();
+      expect(resolveInRepo(root, "sibling/mask.png")).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(sibling, { recursive: true, force: true });
     }
   });
 

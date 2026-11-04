@@ -39,12 +39,23 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+<a id="untrusted-file-marks-additive-2673"></a>
+
+### Untrusted file marks (additive, #2673)
+
+Four internal `/api/files/untrusted` operations mark a readable brain file
+untrusted, read one path's mark, list the marks a principal may see and let the
+owner clear one. They are paired UI transport, specified with their authority
+and disclosure rules in [the HTTP inventory](../http-api.md#untrusted-file-marks-internal-2673).
+The `taint` governance event's shape is unchanged: its reserved
+`source: "user_marked"` value is now produced.
+
 <a id="brain-wide-configuration-coverage-additive-3257"></a>
 
 ### Brain-wide configuration coverage (additive, #3257)
 
 `GET /api/journal/configuration-coverage` returns `ConfigurationCoverageRead`
-(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:182-184`):
+(`ConfigurationCoverageRead`, `packages/ui-sdk/src/turn-journal.ts:183-185`):
 the brain's current set of configuration inputs steering could not trace. It
 is `{ state: "known", hash, paths, count, turnId, observedAt }` for the set the
 most recent complete turn recorded from a configuration inventory: `paths` is
@@ -273,6 +284,21 @@ The additive `provider_mask_refusal` kind (#2690) records a host bridge tool
 that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
+
+The `outward_action` kind's `action` gains `compute_run` and the `taint`
+kind's `source` gains `compute_output` (both additive, #3108): a hosted
+external compute run's approval decision, its target the instance id, and a
+collected job's output. Version 1 is unchanged otherwise.
+
+Authenticated `GET /api/status` gains `runtime.compute` (additive, #3108):
+`{ enabled, reason, core, stateDir, stateMasked, bindings, instances,
+openJobs }`. `reason` says why hosted compute refuses every run, or is `null`.
+`core` is `present`, `missing` or `unknown`. Each binding is `{ provider,
+package, remoteExpiry, defaultKeyEnv, credentials }`, with each credential `{
+name, implicit, present, leakedToWorkers }` (names only, never a value).
+`instances` is the last configuration a turn read, each `{ id, provider,
+builtin, credential, bound, present, refusal }`, or `null` before any read.
+No vendor is called to produce it.
 
 The kinds and each kind's payload are versioned separately. A payload change
 that is not purely additive bumps that kind's `schemaVersion`, and stored
@@ -534,9 +560,11 @@ The existing availability and host-execution fields keep their meaning.
 
 `runtime.workerHost.governed.egress` (additive, 0.44.0, #1665) is
 `{ active, detail }`: whether governed and strict turns run on their own turn
-egress proxy. It is `active: true` only on a host with managed native storage;
-`detail` says which turns are routed and, when inactive, that their egress is
-unrecorded.
+egress proxy. The server boots only on managed native storage (#1793), so it is
+`active: true` on every running server, and `detail` says which turns are
+routed. The field is not removed: `active: false` remains for a brain that is
+not on managed native storage, where `detail` says that every governed and
+strict turn is refused rather than run without the proxy (#3314).
 
 ### Operational-state layout refusal (additive, #1649)
 

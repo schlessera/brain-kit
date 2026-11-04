@@ -62,7 +62,7 @@ export function mergeSubgraphs(
 
 // --- Radial (discovery) layout ----------------------------------------------
 
-export interface RadialPoint {
+interface RadialPoint {
   x: number;
   y: number;
 }
@@ -194,7 +194,7 @@ export function assignFolderColors(paths: string[], palette: CanvasPalette): Map
 
 // --- Community legend grouping ----------------------------------------------
 
-export interface LegendGroups<T extends { community: number; size: number }> {
+interface LegendGroups<T extends { community: number; size: number }> {
   /** Multi-note communities, size-descending — what the legend lists. */
   major: T[];
   /** Number of single-note communities folded out of the legend. */
@@ -213,7 +213,7 @@ export function groupCommunities<T extends { community: number; size: number }>(
 
 // --- Label policy ------------------------------------------------------------
 
-export interface LabelPolicyInput {
+interface LabelPolicyInput {
   nodes: Pick<GraphNodePayload, "id" | "inDegree" | "outDegree" | "pagerank" | "virtual">[];
   selectedId: number | null;
   hoveredId: number | null;
@@ -300,7 +300,7 @@ export function matchScene(
  * neutral ink and is listed in the legend under its own name, because a
  * legend that hides a type is a legend that lies about a node.
  */
-export type EntityKind = "person" | "company" | "project";
+type EntityKind = "person" | "company" | "project";
 
 export function entityKind(type: string): EntityKind | null {
   return type === "person" || type === "company" || type === "project" ? type : null;

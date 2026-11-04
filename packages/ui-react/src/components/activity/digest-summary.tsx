@@ -13,7 +13,7 @@ import type { ActionDigestSummary, ActivityDigest } from "../../lib/api-client.j
  * last summary are the groups that need you. Either half may be absent: an
  * activity window with no runs, or no new Actions for this client.
  */
-export interface DigestSummaryProps {
+interface DigestSummaryProps {
   digest: ActivityDigest | null;
   /** This client's newest Actions/FYI contribution, when it has new entries. */
   actions?: ActionDigestSummary | null;

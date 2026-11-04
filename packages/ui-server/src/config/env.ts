@@ -17,7 +17,7 @@ import { resolveAskUserFormLimits } from "@schlessera/brain-ui-sdk/internal/clie
  */
 
 import { join, resolve } from "path";
-import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
+import { ATTACHMENT_POOL_DEFAULT_BYTES, isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
@@ -320,6 +320,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_ATTACHMENT_POOL_BYTES",
+    description: "Host attachment pool in bytes: every composer original kept for drafts, sent messages, pending uploads and the seven-day grace period, plus in-flight reservations and legacy draft images. Positive integer; a value that is not one falls back to the default. At capacity new uploads are refused and nothing is purged early.",
+    default: "1073741824 (1 GiB)",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_NATIVE_BRAIN_SOCKET",
     description: "Absolute host-only Unix socket for the managed Btrfs brain service. Hosted workers require this qualified store; unsupported storage has no full-copy fallback.",
     default: "(required)",
@@ -373,6 +379,28 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_UI_REFERENCE_ACQUISITIONS",
     description: "Host-wide reference acquisitions and refreshes that may run at once (#2429). Requests for the same source join one operation; readers are not limited.",
     default: "2",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_COMPUTE_KEYS",
+    description:
+      "External compute credentials the host may use for hosted jobs (#3108), by built-in provider: " +
+      "semicolon-separated `provider=NAME[,NAME...]` entries, such as `boat=BOAT_CI_KEY,BOAT_HEAVY_KEY`. " +
+      "A listed provider's own default variable is bound too; list it alone (`boat`) to bind only that. " +
+      "A brain.config instance whose apiKeyEnv is not bound here is refused as provider_unavailable. Values " +
+      "are read on the host only and never reach a worker; a bound name that BRAIN_UI_SUBPROCESS_ENV_EXTRA " +
+      "or a profile would forward disables hosted compute. Unset: hosted compute has no credential, not even " +
+      "a provider's default variable.",
+    default: "(empty)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_COMPUTE_STATE_DIR",
+    description:
+      "Where hosted external compute keeps job records, leases, reservations and artifacts (#3108). Host " +
+      "operational state, masked from workers. Slots and budgets are shared per directory: point " +
+      "BRAIN_COMPUTE_STATE_DIR of a shell `brain compute` at the same directory to share one pool with it.",
+    default: "<DB_PATH>.compute",
     required: false,
   },
   {
@@ -646,6 +674,24 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "(unset)",
     required: false,
   },
+  // Apify (#3159)
+  {
+    name: "APIFY_TOKEN",
+    description:
+      "Apify API token, read only by the host. It authenticates nothing until the governance policy sets apify.enabled: true; " +
+      "the host then binds the account the fixed Apify API reports. Never passed to any subprocess, worker, prompt, log or response.",
+    default: null,
+    required: false,
+  },
+  {
+    name: "BRAIN_APIFY_LEDGER",
+    description:
+      "Absolute path of the shared Apify ledger (#3161, #3162): reservations, run handles and request counts, private to the host user and outside every brain. " +
+      "A standalone `brain apify` or `brain mcp` process that sets the same path shares the account's day limit and concurrency bound with the server. " +
+      "Never passed to a worker.",
+    default: "DB_PATH.apify-ledger.sqlite (server); unset, which refuses Apify as accounting_unavailable (standalone CLI and MCP)",
+    required: false,
+  },
   // voice
   {
     name: "DEEPGRAM_API_KEY",
@@ -796,6 +842,14 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  /**
+   * Hosted external compute (#3108): credential variable names bound per
+   * built-in provider, and the host compute state directory (null with an
+   * ephemeral database, which disables hosted compute).
+   */
+  compute?: { keys: Readonly<Record<string, readonly string[]>>; stateDir: string | null;
+    /** BRAIN_UI_SUBPROCESS_ENV_EXTRA's names: a bound credential among them would reach workers. */
+    workerEnvExtra: readonly string[] };
   /** Trusted host roots only; never accepted from Storage HTTP requests. */
   storage?: { backupRoots: readonly string[]; gitRoots: readonly string[] };
   /** Host-only Unix service for managed native brain storage. */
@@ -826,6 +880,8 @@ export interface ServerConfig {
   sourceCommit: string;
   allowedOrigins: string[];
   maxConcurrentSessions: number;
+  /** The host attachment pool in bytes (BRAIN_UI_ATTACHMENT_POOL_BYTES, #3153). */
+  attachmentPoolBytes: number;
   /**
    * Per-turn timeout in ms (BRAIN_UI_TURN_TIMEOUT_MS), or null to use the
    * WsHost default (10 minutes). An explicit createApp option still wins.
@@ -1078,6 +1134,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   const ttlHours = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 24;
 
   return {
+    compute: resolveComputeConfig(env, env.DB_PATH || join(process.cwd(), "brain-ui.db")),
     nativeBrain: resolveNativeBrainConfig(env),
     referenceSource: resolveReferenceSourceConfig(env),
     providerRecipientOrigins: parseProviderRecipientOrigins(env.BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS),
@@ -1101,6 +1158,8 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
     maxConcurrentSessions,
+    attachmentPoolBytes: Number.isSafeInteger(Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES)) && Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES) > 0
+      ? Number(env.BRAIN_UI_ATTACHMENT_POOL_BYTES) : ATTACHMENT_POOL_DEFAULT_BYTES,
     // Positive integer or null — 0, negatives, and garbage all mean "unset",
     // so a typo degrades to the safe default instead of an instant timeout.
     turnTimeoutMs:
@@ -1196,6 +1255,31 @@ function resolveReferenceSourceConfig(env: EnvRecord): NonNullable<ServerConfig[
   };
   return { validationMs: positive("BRAIN_UI_REFERENCE_VALIDATION_SECONDS", 300, 86_400) * 1000,
     refreshMs: positive("BRAIN_UI_REFERENCE_REFRESH_SECONDS", 300, 86_400) * 1000, operations: positive("BRAIN_UI_REFERENCE_ACQUISITIONS", 2, 16) };
+}
+
+const COMPUTE_PROVIDER = /^[a-z][a-z0-9-]{0,62}$/;
+const COMPUTE_KEY_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * BRAIN_UI_COMPUTE_KEYS and BRAIN_UI_COMPUTE_STATE_DIR (#3108). A listed
+ * provider binds its explicit names and its own default variable; `boat` or
+ * `boat=` binds only the default. A malformed binding refuses the boot by
+ * name rather than binding something unintended.
+ */
+export function resolveComputeConfig(env: EnvRecord, dbPath: string): NonNullable<ServerConfig["compute"]> {
+  const keys: Record<string, string[]> = {};
+  for (const entry of (env.BRAIN_UI_COMPUTE_KEYS ?? "").split(";").map(part => part.trim()).filter(Boolean)) {
+    const eq = entry.indexOf("=");
+    const provider = (eq >= 0 ? entry.slice(0, eq) : entry).trim();
+    const names = eq >= 0 ? entry.slice(eq + 1).split(",").map(name => name.trim()).filter(Boolean) : [];
+    if (!COMPUTE_PROVIDER.test(provider) || names.some(name => !COMPUTE_KEY_NAME.test(name))) {
+      throw new Error(`BRAIN_UI_COMPUTE_KEYS: "${entry}" is not provider[=NAME[,NAME...]]`);
+    }
+    keys[provider] = [...new Set([...(keys[provider] ?? []), ...names])];
+  }
+  const ephemeral = dbPath === "" || dbPath === ":memory:";
+  const stateDir = env.BRAIN_UI_COMPUTE_STATE_DIR ? resolve(env.BRAIN_UI_COMPUTE_STATE_DIR) : ephemeral ? null : `${resolve(dbPath)}.compute`;
+  return { keys, stateDir, workerEnvExtra: parseSubprocessEnvExtra(env.BRAIN_UI_SUBPROCESS_ENV_EXTRA) };
 }
 
 /**
@@ -1298,6 +1382,21 @@ export function subprocessEnv(
   extraNames: readonly string[] = []
 ): EnvRecord {
   return filterPackageSubprocessEnv(process.env, audience, extraNames, extra);
+}
+
+/**
+ * The host-only Apify token (#3159), read once at the edge into a closure.
+ * Only the host's Apify authority calls it; the value is placed on its fixed
+ * upstream request alone and never enters a worker, record, log or response.
+ */
+/** The host's Apify ledger path (#3162): `BRAIN_APIFY_LEDGER`, or beside the UI database. */
+export function apifyLedgerPath(dbPath: string, env: NodeJS.ProcessEnv = process.env): string {
+  return env.BRAIN_APIFY_LEDGER?.trim() || `${dbPath}.apify-ledger.sqlite`;
+}
+
+export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
+  const token = env.APIFY_TOKEN?.trim() || undefined;
+  return () => token;
 }
 
 /**

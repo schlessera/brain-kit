@@ -67,6 +67,8 @@ export function collectReservationHistory(repository: string, since: string): Re
   const commits = run(["rev-list", "--first-parent", remote]).split("\n"), rows: { source: string; state: any }[] = [];
   for (const source of commits) {
     const state = parseReservation(run(["show", `${source}:reservation.json`]));
+    // Red-main record writes (#2942) share this ref and leave reservation.json unchanged.
+    if (rows.length && JSON.stringify(rows.at(-1)!.state) === JSON.stringify(state)) { rows[rows.length - 1] = { source, state }; continue; }
     rows.push({ source, state });
     // The protocol caps leases at one hour. Keep the preceding source record.
     // Server timestamps drive this bound; commit author clocks do not.

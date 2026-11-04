@@ -11,6 +11,7 @@ import { AppErrorBoundary } from "../../src/components/layout/app-error-boundary
 import { lazyChunk, RELOAD_MARKER_KEY } from "../../src/lib/lazy-chunk.js";
 import { registerUpdateHold } from "../../src/lib/update-holds.js";
 import { useUIStore } from "../../src/stores/ui-store.js";
+import { touchFloor } from "./hit-reach.js";
 
 // Page and root error boundaries (#1377) in real Chromium: a page that throws
 // keeps the rail and tab bar, a lazy chunk that 404s reaches the stale-chunk
@@ -55,7 +56,7 @@ for (const width of [320, 1280]) {
     for (const name of ["Try again", "Go to Chat", "Copy details"]) {
       const control = button(name);
       expect(control, name).toBeTruthy();
-      expect(control!.getBoundingClientRect().height, `${name} target`).toBeGreaterThanOrEqual(44);
+      expect(touchFloor(control!), `${name} target meets the touch floor (#3252)`).toBe("met");
     }
     await userEvent.click(button("Go to Chat")!);
     await expect.poll(() => document.querySelector("[data-surface]")?.textContent).toBe("chat surface");

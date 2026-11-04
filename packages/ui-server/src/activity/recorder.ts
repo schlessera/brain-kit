@@ -43,7 +43,8 @@ import { createGovernanceWrites, type GovernanceWrites } from "../governance/eve
 import { recordFirstTaint } from "../governance/session-taint.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
-import { inputTaintSource, outputTaintSource, type IngestionSource } from "./ingestion-taint.js";
+import { inputTaintSource, outputTaintSource, type IngestionSource, type MarkedLookup } from "./ingestion-taint.js";
+import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 import { orderedWrites } from "./store-writes.js";
@@ -230,6 +231,15 @@ export function createTurnRecorder(
   const governanceDb = deps.governanceDb, record = deps.governance;
   const firstTaint = deps.governanceWrites ? (input: GovernanceEventInput<"taint">) => deps.governanceWrites!.firstTaint(input)
     : governanceDb && record ? (input: GovernanceEventInput<"taint">) => { recordFirstTaint(governanceDb, input, record); return Promise.resolve(); } : undefined;
+  // A file the user marked untrusted (#2673), read when the call completes. A
+  // lookup that fails counts as marked: erring towards taint only tightens rules.
+  const marked: MarkedLookup | undefined = governanceDb ? path => {
+    try { return isMarkedUntrusted(governanceDb, path); }
+    catch (error) {
+      log?.emit({ severityText: "WARN", body: `untrusted mark lookup failed: ${error instanceof Error ? error.message : String(error)}` });
+      return true;
+    }
+  } : undefined;
   const govern = (input: GovernanceEventInput) => {
     const committed = deps.governance?.(input);
     if (committed instanceof Promise) writes.after(() => committed);
@@ -323,7 +333,7 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_complete": {
-            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { source: inputTaintSource(msg.toolName, msg.input, deps.brainPath), tool: msg.toolName });
+            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { source: inputTaintSource(msg.toolName, msg.input, deps.brainPath, marked), tool: msg.toolName });
             const traced = traceCall(msg.toolUseId, msg.toolName);
             if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta
@@ -346,7 +356,7 @@ export function createTurnRecorder(
             const traced = calls.get(msg.toolUseId);
             const ingestion = ingestions.get(msg.toolUseId);
             ingestions.delete(msg.toolUseId);
-            const source = ingestion && (ingestion.source ?? outputTaintSource(ingestion.tool, msg.output, deps.brainPath));
+            const source = ingestion && (ingestion.source ?? outputTaintSource(ingestion.tool, msg.output, deps.brainPath, marked));
             if (ingestion && source && !traced?.denied && firstTaint && deps.governance) {
               const untracked = (error: unknown) => {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });

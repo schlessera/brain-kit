@@ -5,6 +5,7 @@ public/assets/demo/
 public/assets/product.css
 public/assets/fonts.css
 public/demo/transport.js
+public/demo/library.json
 public/demo/api/
 test-results/
 .impeccable/*
