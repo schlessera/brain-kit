@@ -58,7 +58,7 @@ when an authenticated typed request creates a backend session, the host records 
 content-free `(session, principal)` binding (migration `076_chat_session_owners.sql`).
 The bridge offers the creator only on a new, non-host-work turn whose
 authorization is current
-(`const creator`, `packages/ui-server/src/ws/bridge.ts:245`). The write worker
+(`const creator`, `packages/ui-server/src/ws/bridge.ts:257`). The write worker
 binds the creator only in the transaction that creates the session's row
 (`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:167-176`).
 `resolveChat` counts the binding as one more ownership record beside dialogue
