@@ -24,6 +24,7 @@ describe("bridge tool server primitives", () => {
       "turn_temp",
       "reference_source",
       "reference_worktree",
+      "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
     ]);
     expect(BRIDGE_TOOL_POSTURE.allowedTools("pi")).toEqual(
       BRIDGE_TOOL_POSTURE.names
@@ -41,6 +42,8 @@ describe("bridge tool server primitives", () => {
       "mcp__brain-ui__turn_temp",
       "mcp__brain-ui__reference_source",
       "mcp__brain-ui__reference_worktree",
+      "mcp__brain-ui__brain_compute_health", "mcp__brain-ui__brain_compute_plan", "mcp__brain-ui__brain_compute_run",
+      "mcp__brain-ui__brain_compute_status", "mcp__brain-ui__brain_compute_cancel", "mcp__brain-ui__brain_compute_collect",
     ]);
   });
 

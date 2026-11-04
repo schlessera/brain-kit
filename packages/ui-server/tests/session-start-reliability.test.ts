@@ -14,7 +14,7 @@ async function until(check: () => boolean) {
   throw new Error("condition timed out");
 }
 const hosts: WsHost[] = [];
-afterEach(() => { for (const host of hosts.splice(0)) host.coordinator.reset(); });
+afterEach(() => { for (const host of hosts.splice(0)) void host.close(); });
 const principal = testPrincipal();
 const connection = { principal, authorization: testAuthorization(principal.id) };
 

@@ -212,8 +212,8 @@ synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
 (`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:444-464`;
 `status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
-queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:412-424`). Native protocol
+queue adoption updates the follow-up/draft stores synchronously
+(`function queueReport(`, `packages/ui-react/src/ws-client/follow-ups.ts:85-94`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.

@@ -93,6 +93,14 @@ export const LIVENESS_CAPABILITY = "liveness";
  */
 export const FOLLOW_UP_QUEUE_CAPABILITY = "followUpQueue";
 
+/**
+ * `client_hello` capability (additive, #3108): the client parses Activity
+ * spans whose origin is `compute`. A host sends a compute job's run (run id
+ * `compute:<job id>`) only to connections that declared it; older clients,
+ * whose span schema knows three origins, never receive one.
+ */
+export const ACTIVITY_COMPUTE_CAPABILITY = "activityCompute";
+
 /** `error.code` for an ask answer the host refused because it carried no `submissionId`. */
 export const ASK_ANSWER_UPDATE_REQUIRED = "ASK_ANSWER_UPDATE_REQUIRED";
 
@@ -3071,7 +3079,12 @@ export interface ClientActivityUnsubscribe {
 }
 
 export type ActivitySpanKind = "turn" | "tool" | "subagent" | "cron";
-export type ActivitySpanOrigin = "session" | "cron" | "autonomous";
+/**
+ * `compute` (additive, #3108): one external compute job, its own root run
+ * `compute:<job id>`, linked to the turn that started it by attributes. Sent
+ * only to clients that declare {@link ACTIVITY_COMPUTE_CAPABILITY}.
+ */
+export type ActivitySpanOrigin = "session" | "cron" | "autonomous" | "compute";
 export type ActivityPrincipalKind = "owner" | "agent" | "ambient" | "system";
 /**
  * Terminal dispositions. `denied` is an approval declined by the user —

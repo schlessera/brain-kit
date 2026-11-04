@@ -3,7 +3,7 @@ import { checkLayerDirection, isLowerLayer } from "../scripts/check-layer-direct
 
 const store = "packages/ui-react/src/stores/chat-state.ts";
 test("layer gate covers stores/, lib/ and connection.ts only", () => {
-  for (const file of [store, "packages/ui-react/src/lib/stats/compose-stats.ts", "packages/ui-react/src/connection.ts"]) expect(isLowerLayer(file)).toBe(true);
+  for (const file of [store, "packages/ui-react/src/lib/stats/compose-stats.ts", "packages/ui-react/src/connection.ts", "packages/ui-react/src/ws-client/inbound.ts"]) expect(isLowerLayer(file)).toBe(true);
   for (const file of ["packages/ui-react/src/components/chat/composer.tsx", "packages/ui-react/src/hooks/use-now.ts", "packages/ui-react/src/connection-x.ts"]) expect(isLowerLayer(file)).toBe(false);
 });
 test("layer gate permits lib, stores, packages and comments", () => {
@@ -26,6 +26,6 @@ test("layer gate rejects every import form that reaches components/", () => {
     'import "../components/chat/chat-page.js";',
   ]) expect(checkLayerDirection(line, store), line).toHaveLength(1);
   expect(checkLayerDirection('import { REFUSAL_ATTEMPTS } from "./components/connectivity/connection-state.js";', "packages/ui-react/src/connection.ts")).toEqual([
-    'packages/ui-react/src/connection.ts:1: ./components/connectivity/connection-state.js — stores/, lib/ and connection.ts must not import components/; move the shared code into lib/',
+    'packages/ui-react/src/connection.ts:1: ./components/connectivity/connection-state.js — stores/, lib/, connection.ts and ws-client/ must not import components/; move the shared code into lib/',
   ]);
 });
