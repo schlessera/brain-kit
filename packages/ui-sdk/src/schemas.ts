@@ -1,5 +1,5 @@
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
-import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaMatches, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
+import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaMatches, HygieneMediaPlan, HygieneMediaProbe, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
@@ -710,6 +710,8 @@ export const hygieneMediaMatchesSchema = z.strictObject({
   largest: z.array(z.strictObject({ path: mediaPath, bytes: z.number().int().min(0).nullable(), before: listClass, after: listClass })).max(5),
   digest: z.string().regex(/^[a-f0-9]{64}$/),
 }) satisfies z.ZodType<HygieneMediaMatches>;
+const probeValue = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).nullable();
+export const hygieneMediaProbeSchema = z.strictObject({ width: probeValue, height: probeValue, durationMs: probeValue }) satisfies z.ZodType<HygieneMediaProbe>;
 /** A media plan as the CLI previews it; unknown CLI keys are dropped, every kept one is bounded. */
 export const hygieneMediaPlanSchema = z.object({
   action: z.enum(["delete", "move", "persist", "keep-copy"]), premiseDigest: z.string().regex(/^[a-f0-9]{64}$/), destination: mediaPath.nullable(),
@@ -726,6 +728,8 @@ export const hygieneMediaPlanSchema = z.object({
   matches: z.strictObject({ track: hygieneMediaMatchesSchema, ignore: hygieneMediaMatchesSchema.nullable() }).nullable().optional(),
   approvalDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
   copy: z.strictObject({ bytes: z.number().int().min(0), sha256: z.string().regex(/^[a-f0-9]{64}$/), diskFreeAdvisory: z.number().min(0).nullable() }).nullable(),
+  // Additive (#2781): the source's header facts; a CLI before it omits them.
+  media: hygieneMediaProbeSchema.nullable().optional(),
   resultClass: z.enum(["TRACK", "ARTIFACT"]).nullable(),
   refusals: z.array(hygieneMediaRefusalSchema).max(10_000),
 }) satisfies z.ZodType<HygieneMediaPlan>;
@@ -748,7 +752,9 @@ export const hygieneReviewCommandSchema = z.strictObject({ operation: z.enum(["s
 export const hygieneReviewMediaUndoCommandSchema = z.strictObject({ operation: z.literal("undo-media"), journalId: z.string().regex(/^[A-Za-z0-9._-]{16,96}$/) }) satisfies z.ZodType<HygieneReviewMediaUndoCommand>;
 /** Every body `POST /hygiene/review` accepts. */
 export const hygieneReviewRequestSchema = z.union([hygieneReviewCommandSchema, hygieneReviewMediaUndoCommandSchema]) satisfies z.ZodType<HygieneReviewRequest>;
-export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema }) satisfies z.ZodType<HygienePreviewRequest>;
+export const hygienePreviewRequestSchema = z.strictObject({ itemId: id, optionId: id, expectedVersion: z.number().int().min(1), input: hygieneInputSchema,
+  // Additive (#2781, rev 5 §9): echoed in the response.
+  requestId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/).optional() }) satisfies z.ZodType<HygienePreviewRequest>;
 const enqueueEffectSchema = z.strictObject({ kind: z.literal("enqueue"), payload: inboxWorkPayloadSchema });
 const cancelBlockedEffectSchema = z.strictObject({ kind: z.literal("cancel_blocked") });
 const snoozeEffectSchema = z.strictObject({ kind: z.literal("snooze") });

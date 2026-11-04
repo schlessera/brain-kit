@@ -1967,7 +1967,9 @@ Additive shapes in `@schlessera/brain-ui-sdk`:
 | Surface | Change |
 | --- | --- |
 | `HygieneEffect.operation` | gains `media-delete`, `media-move`, `media-persist`, `media-keep-copy`; the effect may carry `destination`, `premiseDigest` and `approvedBy` (the principal who previewed a broader config change, below) |
-| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`), and optionally `scope` (`exact`\|`pattern`\|null), `pattern`, `ignoreAdjust`, `matches` (`{ track, ignore }` of `HygieneMediaMatches`) and `approvalDigest`, which a CLI before them omits |
+| `InboxOption.media` | `HygieneMediaPlan`: the CLI plan (`action`, `premiseDigest`, `destination`, `files`, `captureBytes`, `links`, `references`, `rewrites`, `blockers`, `configDiff`, `copy`, `resultClass`, `refusals`), and optionally `scope` (`exact`\|`pattern`\|null), `pattern`, `ignoreAdjust`, `matches` (`{ track, ignore }` of `HygieneMediaMatches`), `approvalDigest` and `media` (`HygieneMediaProbe`, below, or null), which a CLI before them omits |
+| `HygieneMediaProbe`, `hygieneMediaProbeSchema` | new (0.45.0): `{ width, height, durationMs }`, the source's pixel size and duration in whole milliseconds from the first 64 KiB of its header, each a positive integer or null when the header does not say |
+| `HygienePreviewRequest.requestId`, `HygienePreviewResponse` | additive (0.45.0): the request's optional `requestId` (1–128 of `A-Z a-z 0-9 . _ : -`) is echoed in the response; `HygienePreviewResponse` is the preview's 200 body, below |
 | `HygieneMediaMatches`, `hygieneMediaMatchesSchema` | new (0.45.0): `{ pattern, anyFolder, count, bytes, changed, ignoredStill, sensitive, largest: [{ path, bytes, before, after }] (at most 5), digest }`, a list pattern's current matches among the files sync sees, with the class (`TRACK`\|`ARTIFACT`\|`SENSITIVE`\|null) the lists give each before and after |
 | `HygieneAction.outcome.status` | gains `kept`, a confirmed Keep a permanent copy |
 | `HygieneReviewMediaUndoCommand`, `HygieneReviewRequest` | new (0.45.0): `{ operation: "undo-media", journalId }`, Undo of a confirmed media effect from review (below); `HygieneReviewRequest` is it or the unchanged `HygieneReviewCommand`, parsed by the new `hygieneReviewMediaUndoCommandSchema` and `hygieneReviewRequestSchema`; `hygieneReviewCommandSchema` is unchanged |
@@ -2016,6 +2018,32 @@ active review selects it in order, on a new card. Repeating the command
 returns the same receipt and changes nothing. A `journalId` that names no
 resolved media card of this principal is `review_failed` (500); malformed is
 400, as for every command.
+
+**Preview response and scan concurrency** (additive in 0.45.0, design rev 4
+§3.3, rev 5 §9/§11). `POST /api/hygiene/review/preview` still returns the
+pending Action, now as `HygienePreviewResponse`: the Action plus `refusals`
+(always present), `requestId` (when the request sent one) and, for a media
+option, `media`, the stored plan's `HygieneMediaProbe`. Named refusals are a
+200 result, never an error: a media plan's own `refusals`, the CLI's when it
+returned no plan (`not-detected`, `stale`), or one the route adds when it
+stored nothing:
+- `preview-busy`: one media preview scan runs per server, and another
+  principal's is running. Nothing is queued or retried.
+- `preview-superseded`: a newer media preview from the same principal
+  aborted this one's scan, killing its CLI. The newer one is unaffected.
+- `inventory-too-large` with `limit: "preview"`, `effective` and `observed`:
+  the Action with this plan would serialize to more than the transport's
+  per-message limit (512,000 bytes), so it could not be returned or
+  replicated whole. It is refused, never truncated. A larger
+  `BRAIN_MEDIA_REFERENCE_LIMITS` `preview` setting does not raise this bound.
+
+`BrainClient.hygiene(args, { signal })` accepts an optional abort signal
+(additive); aborting it kills the running `brain hygiene` CLI, as for search.
+
+Repair (non-media) previews are not part of the scan gate and return
+`refusals: []`. A throw is still `409 preview_refused` with no detail, and an
+authority failure still `403`; the routes and their error strings are
+unchanged.
 
 <a id="module-hygiene-context-breaking-699"></a>
 

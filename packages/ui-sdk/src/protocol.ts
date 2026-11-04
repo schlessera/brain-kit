@@ -3890,9 +3890,17 @@ export interface HygieneMediaPlan {
   /** Set for a broader change: what its approval binds (config SHA-256, diff, every match). */
   approvalDigest?: string | null;
   copy: { bytes: number; sha256: string; diskFreeAdvisory: number | null } | null;
+  /**
+   * The source's dimensions and duration from its first 64 KiB (#2781, rev 5
+   * §9), each null when its header does not say; null when unreadable. Absent
+   * from a CLI before it. Descriptive only: it is not part of the premise.
+   */
+  media?: HygieneMediaProbe | null;
   resultClass: "TRACK" | "ARTIFACT" | null;
   refusals: HygieneMediaRefusal[];
 }
+/** A media file's pixel size and duration in whole milliseconds, each null when unknown. */
+export interface HygieneMediaProbe { width: number | null; height: number | null; durationMs: number | null }
 /**
  * The files sync sees now that a media list pattern matches (#2781, rev 3
  * §5.2), with the class the lists give each before and after the change.
@@ -3968,7 +3976,27 @@ export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" 
 export interface HygieneReviewMediaUndoCommand { operation: "undo-media"; journalId: string }
 /** Every body `POST /hygiene/review` accepts. */
 export type HygieneReviewRequest = HygieneReviewCommand | HygieneReviewMediaUndoCommand;
-export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
+export interface HygienePreviewRequest {
+  itemId: string; optionId: string; expectedVersion: number; input: HygieneInput;
+  /** Additive (#2781, rev 5 §9): the client's own identity for this preview, echoed back so only the latest renders. */
+  requestId?: string;
+}
+/**
+ * `POST /hygiene/review/preview`'s 200 body: the pending Action, as before,
+ * plus the route-boundary fields (additive, #2781, rev 5 §9/§11).
+ */
+export type HygienePreviewResponse = InboxActionItem & {
+  /** The request's `requestId`, when it sent one. */
+  requestId?: string;
+  /**
+   * Named refusals, a result rather than an error: a media plan's own, or the
+   * route's when no plan was stored (`preview-busy`, `preview-superseded`,
+   * `inventory-too-large` with `limit: "preview"`). Empty when nothing refused.
+   */
+  refusals: HygieneMediaRefusal[];
+  /** The previewed media plan's `media`, when the option previewed is a media effect. */
+  media?: HygieneMediaProbe | null;
+};
 export interface HygieneReviewRead {
   review: HygieneReviewState;
   action: InboxActionItem | null;

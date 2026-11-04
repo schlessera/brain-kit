@@ -49,7 +49,7 @@ export class BrainSyncError extends Error {
  */
 export interface BrainClient {
   /** Deterministic hygiene CLI; business outcomes may accompany exit 1. */
-  hygiene?(args: readonly string[]): Promise<unknown>;
+  hygiene?(args: readonly string[], opts?: { signal?: AbortSignal }): Promise<unknown>;
   /** argv prefix for invoking the brain CLI inside the repo. */
   cliCommand(): string[];
   /** Additive settings support; older injected clients may omit it. Its signal cancels only before execution admission. */
@@ -444,8 +444,9 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       return parseJsonOutput(result);
     },
 
-    async hygiene(args) {
-      const result = await execBrain(["hygiene", "--json", ...args]);
+    async hygiene(args, hygieneOpts) {
+      // A preview's scan passes a signal: aborting it kills the CLI (#2781, rev 4 §3.3).
+      const result = await execBrain(["hygiene", "--json", ...args], hygieneOpts?.signal);
       if (![0, 1].includes(result.exitCode)) throw new Error(`brain hygiene failed (exit ${result.exitCode}): ${result.stderr}`);
       let parsed: unknown;
       try { parsed = JSON.parse(result.stdout); } catch { throw new Error(`brain hygiene returned unreadable output (exit ${result.exitCode}): ${result.stderr}`); }

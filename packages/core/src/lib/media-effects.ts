@@ -29,6 +29,7 @@ import { mediaPolicyClass, type MediaPolicy } from "./media.js";
 import { planMediaPolicyEdit, MediaConfigNotLiteral, readMediaPolicyLists, type MediaPolicyEdit } from "./media-config-edit.js";
 import { mediaMatches, patternRefusal, patternScope, type MediaMatches } from "./media-matches.js";
 import { buildMediaInventory, mediaCandidates, SCRATCH_PREFIX, type MediaInventory, type MediaItem } from "./media-inventory.js";
+import { MEDIA_PROBE_BYTES, probeMediaHead, type MediaProbe } from "./media-probe.js";
 import { DEFAULT_MEDIA_REFERENCE_LIMITS, noteReferences, type MediaReference, type MediaReferenceLimits } from "./media-references.js";
 import { SENSITIVE_PATTERNS } from "./sync/assess.js";
 import { matchesAnyPattern } from "./tool-leftovers.js";
@@ -108,6 +109,12 @@ export interface MediaEffectPlan {
   /** Bytes the caller must retain before any write: removed or overwritten pre-images. */
   captureBytes: number;
   copy: { bytes: number; sha256: string; diskFreeAdvisory: number | null } | null;
+  /**
+   * The source's dimensions and duration from one anchored read of its first
+   * 64 KiB (rev 5 §9), each null when its header does not say; null when the
+   * file cannot be read. Descriptive only: not part of the premise.
+   */
+  media: MediaProbe | null;
   /** The class sync gives the file where it ends up: `TRACK` is committed, null still awaits review. */
   resultClass: "TRACK" | "ARTIFACT" | null;
   files: MediaEffectFile[];
@@ -234,15 +241,16 @@ export function anchoredSha256(root: string, path: string): string | null {
 }
 
 /** A regular file's bytes, reached without following any link. */
-export function readAnchored(root: string, path: string): Buffer {
+export function readAnchored(root: string, path: string, max = Infinity): Buffer {
   const parent = openDir(root, posix.dirname(path) === "." ? "" : posix.dirname(path));
   try {
     const fd = openSync(at(parent, posix.basename(path)), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       if (!fstatSync(fd).isFile()) throw new Unsafe("not-contained", path);
       const chunks: Buffer[] = [], buffer = Buffer.alloc(64 * 1024);
-      let read: number;
-      while ((read = readSync(fd, buffer, 0, buffer.length, null)) > 0) chunks.push(Buffer.from(buffer.subarray(0, read)));
+      let read: number, total = 0;
+      // With `max`, only the file's first `max` bytes are read.
+      while (total < max && (read = readSync(fd, buffer, 0, Math.min(buffer.length, max - total), null)) > 0) { chunks.push(Buffer.from(buffer.subarray(0, read))); total += read; }
       return Buffer.concat(chunks);
     } finally {
       closeSync(fd);
@@ -501,6 +509,7 @@ export function planMediaEffect(ctx: MediaEffectContext, request: MediaEffectReq
     ...change,
     captureBytes: files.reduce((n, f) => n + (f.role === "directory" || f.before === null ? 0 : f.bytes), 0),
     copy: request.action === "keep-copy" ? { bytes: item.bytes, sha256: item.sha256, diskFreeAdvisory } : null,
+    media: probeSource(root, item.path),
     resultClass,
     files: refusals.length === 0 ? files : [],
     premiseDigest: "",
@@ -514,6 +523,11 @@ export function planMediaEffect(ctx: MediaEffectContext, request: MediaEffectReq
     return { ...base, status: "refused", reason: "inventory-too-large", refusals: [{ code: "inventory-too-large", limit: "preview", effective: limits.preview, observed: size }] };
   }
   return plan;
+}
+
+/** The source's header facts, or null when it cannot be read where it was planned. */
+function probeSource(root: string, path: string): MediaProbe | null {
+  try { return probeMediaHead(readAnchored(root, path, MEDIA_PROBE_BYTES)); } catch { return null; }
 }
 
 /** `text` with every rewritable reference to `source` pointed at `destination`, or null when nothing changes. */
