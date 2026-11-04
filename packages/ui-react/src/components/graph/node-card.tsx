@@ -53,7 +53,7 @@ export function NodeCard(p: NodeCardProps) {
               </span>
             )}
           </div>
-          <Button label="Close" icon="dismiss" tone="quiet" size="sm" block={false} onClick={p.onClose} />
+          <Button label="Close" icon="dismiss" tone="quiet" size="sm" block={false} reach onClick={p.onClose} />
         </div>
         <h3 className="mt-2 truncate text-sm font-medium text-foreground">{p.title}</h3>
         <div className="mt-1 flex min-w-0">
@@ -64,18 +64,18 @@ export function NodeCard(p: NodeCardProps) {
           <span>{p.outDegree} out</span>
           {hops && <span>{hops}</span>}
         </div>
-        <div className={`mt-3 flex flex-wrap gap-2${p.expandName ? " [&_[data-bk-button]]:min-h-11 laptop:[&_[data-bk-button]]:min-h-0" : ""}`}>
-          {p.canOpen && <Button label="Open note" icon="file" tone="primary" size="sm" block={false} onClick={p.onOpen} />}
-          {p.canFocus && <Button label="Focus here" icon="graph" tone="ghost" size="sm" block={false} onClick={p.onFocus} />}
+        <div className="mt-3 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+          {p.canOpen && <Button label="Open note" icon="file" tone="primary" size="sm" block={false} reach onClick={p.onOpen} />}
+          {p.canFocus && <Button label="Focus here" icon="graph" tone="ghost" size="sm" block={false} reach onClick={p.onFocus} />}
           {p.canExpand && <div ref={expandHost} className="relative" data-discovery-expansion-action="">
             <Button label={p.expandLabel ?? "Expand"} icon={p.expandLoading ? undefined : "expand"} tone="ghost" size="sm" block={false}
               style={p.expandLoading ? { padding: "6px 12px 6px 30px" } : undefined} disabled={p.expandDisabled} ariaDisabled={p.expandLoading}
-              ariaLabel={p.expandName} ariaDescribedBy={p.expandReason ? reasonId : undefined} onClick={p.onExpand} />
+              ariaLabel={p.expandName} ariaDescribedBy={p.expandReason ? reasonId : undefined} reach onClick={p.onExpand} />
             {p.expandLoading && <span aria-hidden="true" className="bk-action-spinner pointer-events-none" style={{ position: "absolute", left: 8, top: "50%", marginTop: -7 }}><Icon icon="loading" size={14} /></span>}
           </div>}
         </div>
         {p.canExpand && p.expandReason && <p id={reasonId} className="mt-2 text-xs text-muted-foreground">
-          {p.expandReason}{p.expandError && <TextButton label={p.expandNeedsRefresh ? "Refresh graph" : "Retry"} ariaLabel={p.expandNeedsRefresh ? `Refresh graph before expanding ${p.title}` : `Retry expanding ${p.title}`} inline tone="meta" style={{ minHeight: 44, marginLeft: 8 }} onClick={() => { expandHost.current?.querySelector<HTMLElement>('[role="button"]')?.focus(); (p.onRetry ?? p.onExpand)(); }} />}
+          {p.expandReason}{p.expandError && <TextButton label={p.expandNeedsRefresh ? "Refresh graph" : "Retry"} ariaLabel={p.expandNeedsRefresh ? `Refresh graph before expanding ${p.title}` : `Retry expanding ${p.title}`} inline tone="meta" style={{ marginLeft: 8 }} onClick={() => { expandHost.current?.querySelector<HTMLElement>('[role="button"]')?.focus(); (p.onRetry ?? p.onExpand)(); }} />}
         </p>}
       </Surface>
     </div>

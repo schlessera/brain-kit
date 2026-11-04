@@ -310,8 +310,19 @@ export const coldCapture: BrowserCommand<[Cell], string> = async (ctx, cell) => 
     await noApiCaches(page);
     assert.equal(await page.locator("main").evaluate(el => el.scrollWidth <= window.innerWidth), true, "local screen fits the viewport");
     assert.equal(await page.locator("main > div").evaluate(el => el.getBoundingClientRect().width <= 480), true, "desktop column is capped at 480px");
-    const targets = await page.getByRole("button").evaluateAll(els => els.map(el => ({ label: el.getAttribute("aria-label"), height: el.getBoundingClientRect().height })));
-    assert(targets.every(t => t.height >= 44), `capture controls have 44px targets: ${JSON.stringify(targets)}`);
+    // #3252: a reaching Button (`.bk-hit`) keeps its kit paint; under a coarse
+    // pointer it must own elementFromPoint 1px inside each edge of a 44px
+    // target about that paint. Any other control is held to a 44px box.
+    const targets = await page.getByRole("button").evaluateAll(els => els.map(el => {
+      el.scrollIntoView({ block: "center" });
+      const r = el.getBoundingClientRect(), label = el.getAttribute("aria-label") ?? el.textContent?.trim() ?? null;
+      if (!el.classList.contains("bk-hit")) return { label, height: r.height, met: r.height >= 44 };
+      const floor = matchMedia("(any-pointer: coarse)").matches ? 44 : 0, w = Math.max(r.width, floor), h = Math.max(r.height, floor);
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      const owned = [[x, y - h / 2 + 1], [x + w / 2 - 1, y], [x, y + h / 2 - 1], [x - w / 2 + 1, y]].every(([px, py]) => { const hit = document.elementFromPoint(px!, py!); return !!hit && (hit === el || el.contains(hit)); });
+      return { label, height: r.height, met: r.height < 44 && (el as HTMLElement).style.minHeight !== "44px" && owned };
+    }));
+    assert(targets.every(t => t.met), `capture controls meet the 44px touch floor: ${JSON.stringify(targets)}`);
     assert.equal(egress.length, 0, "cold-capture harness has no external egress");
     if (cell.scenario === "cold") {
       await page.close(); await context.setOffline(true); page = await context.newPage();

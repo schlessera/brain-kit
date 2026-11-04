@@ -154,7 +154,7 @@ export function LoginScreen({ reauth, onLocalCapture }: { reauth?: { revoked: bo
         {!notice && <p>Your draft and recordings are kept on this device, locked until you sign in again as the same account.</p>}
         {reauth.snapshotFailed && <p role="alert">Your draft couldn't be saved on this device.</p>}
       </> : null}</>}
-      localCapture={onLocalCapture ? <Button label="Record without signing in" tone="ghost" style={{ minHeight: 44 }} disabled={submitting || restoring} onClick={onLocalCapture} /> : undefined}
+      localCapture={onLocalCapture ? <Button label="Record without signing in" tone="ghost" reach disabled={submitting || restoring} onClick={onLocalCapture} /> : undefined}
       methods={{ password: passwordAvailable, passkey: passkeyAvailable }}
       password={password}
       busy={submitting}

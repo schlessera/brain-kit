@@ -615,7 +615,7 @@ export function ActivityPage() {
               <Button
                 tone="suggest" size="sm" icon="attention" label="Pricing stale"
                 ariaLabel="Pricing refresh is failing — costs may use stale rates. Open Settings"
-                block={false} style={{ minHeight: 44 }}
+                block={false} reach
                 onClick={() => openSettings("models")}
               />
             </span>
@@ -694,7 +694,7 @@ export function ActivityPage() {
                       {stable.fresh > 0 && (
                         <div data-decision-fresh="">
                           <Button tone="quiet" size="sm" center label={`${stable.fresh} new · show`}
-                            style={{ minHeight: 44 }} onClick={stable.show} />
+                            reach onClick={stable.show} />
                         </div>
                       )}
                       {stable.order.map((id, i) => {

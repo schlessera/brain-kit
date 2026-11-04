@@ -187,13 +187,13 @@ export function DiagnosticReview(p: DiagnosticReviewProps) {
       ) : null}
       <div className="my-3 text-xs text-muted-foreground">{copyText.footnote}</div>
       {p.note ? <p className="mb-3 text-xs text-muted-foreground">{p.note}</p> : null}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 any-pointer-coarse:gap-y-4">
         {available.map(i => (
-          <Button key={i.id} label={i.label} disabled={used.has(i.id)} tone="ghost" onClick={() => include(i)} style={{ minHeight: 44 }} />
+          <Button key={i.id} label={i.label} disabled={used.has(i.id)} tone="ghost" onClick={() => include(i)} reach />
         ))}
-        {p.mode === "report" ? <Button label={opened ? "Open issue on GitHub again" : "Open issue on GitHub"} effect="opens browser" onClick={report} style={{ minHeight: 44 }} /> : null}
-        <Button label="Copy" onClick={() => void copy()} style={{ minHeight: 44 }} />
-        <Button label="Close review" tone="ghost" onClick={p.onClose} style={{ minHeight: 44 }} />
+        {p.mode === "report" ? <Button label={opened ? "Open issue on GitHub again" : "Open issue on GitHub"} effect="opens browser" onClick={report} reach /> : null}
+        <Button label="Copy" onClick={() => void copy()} reach />
+        <Button label="Close review" tone="ghost" onClick={p.onClose} reach />
       </div>
       {notice ? <p role="status" className="mt-3 text-xs text-muted-foreground">{notice}</p> : null}
     </Overlay>, document.body,
