@@ -1175,6 +1175,7 @@ export const sessionDraftLimitsSchema = z.looseObject({
   maxDraftFiles: byteCount.optional(),
   maxDraftFileBytes: byteCount.optional(),
   maxDraftFilesBytes: byteCount.optional(),
+  maxOutgoingSnapshots: byteCount.optional(),
 }) satisfies z.ZodType<SessionDraftLimits>;
 
 export const attachmentLimitsSchema = z.looseObject({
@@ -1235,6 +1236,14 @@ export const draftSchema = z.looseObject({
     fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
     state: z.enum(["held", "dispatched"]),
   }).nullable().optional(),
+  snapshots: z.array(z.looseObject({
+    snapshotId: id,
+    requestId: id,
+    text: z.string(),
+    fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
+    state: z.enum(["held", "returned", "dispatched"]),
+    createdAt: byteCount,
+  })).max(SESSION_DRAFT_LIMITS.maxOutgoingSnapshots ?? 10).optional(),
 }) satisfies z.ZodType<Draft>;
 
 export const draftSaveResponseSchema = z.looseObject({

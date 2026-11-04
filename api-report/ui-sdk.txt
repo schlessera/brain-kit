@@ -175,6 +175,9 @@ export "." (./src/index.ts)
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
+  type DraftSnapshot
+  type DraftSnapshotState
+  type DraftSnapshotWrite
   type DraftSummary
   ENV_VARS
   FILE_SIZE_CAP_BYTES
@@ -722,6 +725,9 @@ export "./client" (./src/client/index.ts)
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
+  type DraftSnapshot
+  type DraftSnapshotState
+  type DraftSnapshotWrite
   type DraftSummary
   FILE_SIZE_CAP_BYTES
   FIRST_PARTY_FAILURE_CLASSES
@@ -1545,6 +1551,9 @@ export "./protocol" (./src/protocol.ts)
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
+  type DraftSnapshot
+  type DraftSnapshotState
+  type DraftSnapshotWrite
   type DraftSummary
   FILE_SIZE_CAP_BYTES
   FIRST_PARTY_FAILURE_CLASSES
@@ -2311,6 +2320,9 @@ export "./server" (./src/server/index.ts)
   type DraftRef
   type DraftSaveRequest
   type DraftSaveResponse
+  type DraftSnapshot
+  type DraftSnapshotState
+  type DraftSnapshotWrite
   type DraftSummary
   EXEC_KILLER_ENV
   EXEC_WRAPPER_ENV
@@ -7129,6 +7141,7 @@ signatures (every public export and the types it is made of)
         attachments: DraftAttachment[];
         files?: AttachmentFile[];
         outgoing?: DraftOutgoing | null;
+        snapshots?: DraftSnapshot[];
     }
   DraftAttachment (packages/ui-sdk/src/protocol.ts)
     export interface DraftAttachment {
@@ -7151,7 +7164,7 @@ signatures (every public export and the types it is made of)
         revision: number;
     }
   DraftErrorCode (packages/ui-sdk/src/protocol.ts)
-    export type DraftErrorCode = "DRAFT_CONFLICT" | "DRAFT_DELETED" | "DRAFT_TOO_LARGE" | "DRAFT_CAPACITY" | "DRAFT_NOT_FOUND" | "DRAFT_INVALID" | "DRAFT_PRECONDITION_REQUIRED" | "DRAFT_KEY_REUSED" | "DRAFT_NOT_ACCEPTED" | "DRAFT_CHAT_RETIRED";
+    export type DraftErrorCode = "DRAFT_CONFLICT" | "DRAFT_DELETED" | "DRAFT_TOO_LARGE" | "DRAFT_CAPACITY" | "DRAFT_NOT_FOUND" | "DRAFT_INVALID" | "DRAFT_PRECONDITION_REQUIRED" | "DRAFT_KEY_REUSED" | "DRAFT_NOT_ACCEPTED" | "DRAFT_CHAT_RETIRED" | "DRAFT_OUTGOING_FULL" | "DRAFT_OUTGOING_PENDING";
   DraftErrorResponse (packages/ui-sdk/src/protocol.ts)
     export type DraftErrorResponse = {
         error: "DRAFT_CONFLICT";
@@ -7189,6 +7202,14 @@ signatures (every public export and the types it is made of)
     } | {
         error: "DRAFT_CHAT_RETIRED";
         message: string;
+    } | {
+        error: "DRAFT_OUTGOING_FULL";
+        message: string;
+        limit: number;
+    } | {
+        error: "DRAFT_OUTGOING_PENDING";
+        message: string;
+        current: Draft;
     };
   DraftListResponse (packages/ui-sdk/src/protocol.ts)
     export interface DraftListResponse {
@@ -7213,12 +7234,26 @@ signatures (every public export and the types it is made of)
         attachmentIds: string[];
         fileIds?: string[];
         outgoing?: DraftOutgoing | null;
+        snapshots?: DraftSnapshotWrite[];
     }
   DraftSaveResponse (packages/ui-sdk/src/protocol.ts)
     export interface DraftSaveResponse {
         revision: number;
         updatedAt: number;
     }
+  DraftSnapshot (packages/ui-sdk/src/protocol.ts)
+    export interface DraftSnapshot {
+        snapshotId: string;
+        requestId: string;
+        text: string;
+        fileIds: string[];
+        state: DraftSnapshotState;
+        createdAt: number;
+    }
+  DraftSnapshotState (packages/ui-sdk/src/protocol.ts)
+    export type DraftSnapshotState = "held" | "returned" | "dispatched";
+  DraftSnapshotWrite (packages/ui-sdk/src/protocol.ts)
+    export type DraftSnapshotWrite = Omit<DraftSnapshot, "createdAt">;
   DraftSummary (packages/ui-sdk/src/protocol.ts)
     export interface DraftSummary {
         draftId: string;
@@ -10936,6 +10971,7 @@ signatures (every public export and the types it is made of)
         maxDraftFiles?: number;
         maxDraftFileBytes?: number;
         maxDraftFilesBytes?: number;
+        maxOutgoingSnapshots?: number;
     }
   SessionHistoryMessage (packages/ui-sdk/src/protocol.ts)
     export interface SessionHistoryMessage {
@@ -13559,6 +13595,18 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>>;
         revision: z.ZodNumber;
         sessionId: z.ZodNullable<z.ZodString>;
+        snapshots: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            createdAt: z.ZodNumber;
+            fileIds: z.ZodArray<z.ZodString>;
+            requestId: z.ZodString;
+            snapshotId: z.ZodString;
+            state: z.ZodEnum<{
+                dispatched: "dispatched";
+                held: "held";
+                returned: "returned";
+            }>;
+            text: z.ZodString;
+        }, z.core.$loose>>>;
         text: z.ZodString;
         updatedAt: z.ZodNumber;
     }, z.core.$loose>;
@@ -18607,6 +18655,7 @@ signatures (every public export and the types it is made of)
             maxDraftFiles: z.ZodOptional<z.ZodNumber>;
             maxDraftFilesBytes: z.ZodOptional<z.ZodNumber>;
             maxDrafts: z.ZodNumber;
+            maxOutgoingSnapshots: z.ZodOptional<z.ZodNumber>;
             maxTextBytes: z.ZodNumber;
             maxTotalBytes: z.ZodNumber;
         }, z.core.$loose>>>;
@@ -19287,6 +19336,7 @@ signatures (every public export and the types it is made of)
             maxDraftFiles: z.ZodOptional<z.ZodNumber>;
             maxDraftFilesBytes: z.ZodOptional<z.ZodNumber>;
             maxDrafts: z.ZodNumber;
+            maxOutgoingSnapshots: z.ZodOptional<z.ZodNumber>;
             maxTextBytes: z.ZodNumber;
             maxTotalBytes: z.ZodNumber;
         }, z.core.$loose>>>;
@@ -23309,6 +23359,7 @@ signatures (every public export and the types it is made of)
         maxDraftFiles: z.ZodOptional<z.ZodNumber>;
         maxDraftFilesBytes: z.ZodOptional<z.ZodNumber>;
         maxDrafts: z.ZodNumber;
+        maxOutgoingSnapshots: z.ZodOptional<z.ZodNumber>;
         maxTextBytes: z.ZodNumber;
         maxTotalBytes: z.ZodNumber;
     }, z.core.$loose>;

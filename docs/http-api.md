@@ -996,7 +996,8 @@ decoded bytes base64-encoded in `bytes`.
 
 **PUT /api/drafts/:draftId** takes `If-Match: <revision>` (`0` creates),
 `Idempotency-Key` and the JSON body `{ sessionId: string | null, text,
-attachmentIds: string[] }`, at most 512 KiB, and answers 200 `{ revision,
+attachmentIds: string[] }`, at most 4,390,912 bytes (the composer's text and
+ten snapshots' at JSON's six-byte escapes; 512 KiB before #3588), and answers 200 `{ revision,
 updatedAt }` only after the commit. A save cannot change `sessionId`; that
 is a conflict. An empty draft is deleted, not saved (400). **POST
 /api/drafts/:draftId/attachments** takes the raw image as the body, its type
@@ -1061,9 +1062,11 @@ second copy.
 | 409 | `ATTACHMENT_KEY_REUSED` | the key named a different upload |
 | 503 | `busy` | three composer uploads are already running; retry |
 
-`draftCount` and `draftFiles` count everything the draft's revision and
-outgoing snapshot reference, plus uploads for the same draft that no save has
-bound yet and that are under an hour old. The pool counts every recorded
+`draftCount` and `draftFiles` count everything the draft's current revision
+references, plus uploads for the same draft that no save has bound yet and
+that are under an hour old. Files its outgoing snapshots own are not counted
+(#3588): each snapshot is its own message, checked against the envelope when a
+save lists it, and the newer composer revision keeps a whole envelope. The pool counts every recorded
 original in any state, every live reservation and the legacy draft images.
 Reservations are taken in one immediate transaction, so concurrent uploads
 cannot multiply the cap. At capacity nothing is removed to make room.
@@ -1077,6 +1080,60 @@ and minted for this draft, or the save is 400 `ATTACHMENT_INVALID`. At most
 original bytes together (413 `DRAFT_TOO_LARGE`, `bound` `draftCount` or
 `draftFiles`). The old `maxDraftBytes` ceiling bounds text and legacy images
 only. `GET` returns `files` (only files still stored) and `outgoing`.
+
+<a id="outgoing-snapshot-list-additive-0450-3588"></a>
+
+#### Outgoing snapshot list (additive, 0.45.0, #3588)
+
+A draft keeps a list of outgoing snapshots instead of one slot, under the
+maintainer's G1 A ruling on #3155. Each `DraftSnapshot` is `{ snapshotId,
+requestId, text, fileIds, state: "held" | "returned" | "dispatched", createdAt
+}`: a send that is held while its files upload, returned unsent, or dispatched
+and not yet confirmed. The client mints `snapshotId`; the host stamps
+`createdAt` at creation. `GET` returns them as `snapshots`, oldest first, and
+omits the field when there are none.
+
+`PUT` takes the whole list as `snapshots` (each item without `createdAt`);
+absent keeps it. Under the save's `If-Match` and `Idempotency-Key`:
+
+- **Create.** A `snapshotId` the draft does not hold creates a `held` or
+  `dispatched` snapshot; its `requestId` must be new to the draft. The save
+  counts every live snapshot of the chat — every live draft bound to the same
+  `sessionId`, whichever tab or device saved it, or this draft alone when it
+  has no session — in the same immediate transaction. If the result would
+  exceed `maxOutgoingSnapshots` (10, advertised in `SessionDraftLimits`), it
+  is 409 `{ error: "DRAFT_OUTGOING_FULL", message, limit }` and nothing is
+  stored. That save is the reservation: the client sends the message only
+  after it succeeds. An ordinary send with every file ready records a
+  `dispatched` snapshot the same way.
+- **Edit in place.** A listed snapshot may move `held` → `returned` (Cancel,
+  or a file failed), `held` → `dispatched` (dispatch) or `dispatched` →
+  `returned` (a recovery read showed it was not accepted). A `held` one may
+  change its `fileIds` as its uploads are admitted. Its `requestId` and `text`
+  never change. These saves never need a free slot, even at 10 of 10.
+- **Release.** Leaving a `returned` snapshot out deletes it: Edit, when its
+  text and files move into the composer revision of the same save, or
+  Delete…. Its files lose their snapshot reference, and those no longer
+  referenced start their seven-day clock. A `held` or `dispatched` snapshot
+  cannot be left out (400 `DRAFT_INVALID`); nothing is evicted, merged or
+  overwritten. Accepting the message whose `requestId` a snapshot carries
+  releases that snapshot alone, its files moving to the conversation in the
+  acceptance transaction.
+
+Every snapshot's files stay referenced, charged to the draft sub-limit and the
+pool, and each snapshot is checked against the per-message envelope. When an
+acceptance consumes a draft that still holds other snapshots, the draft is not
+a tombstone: it stays at the next revision with an empty composer and those
+snapshots. `DELETE` of a draft holding a `held` or `dispatched` snapshot is
+409 `{ error: "DRAFT_OUTGOING_PENDING", message, current }`; its `returned`
+snapshots go with it.
+
+The single-slot fields of #3153 keep working. `Draft.outgoing` shows the
+newest `held` or `dispatched` snapshot in the old shape. A save's `outgoing`
+object creates the snapshot of its `requestId` (with that id as `snapshotId`)
+or edits it in place, and `null` removes the snapshot `outgoing` shows. A save
+naming both `outgoing` and `snapshots` is 400. A draft saved with a slot
+before migration 079 has that slot as its first snapshot.
 
 ### `GET /api/attachments/:fileId`
 
