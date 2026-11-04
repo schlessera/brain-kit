@@ -497,11 +497,13 @@ other path. No per-attachment recipient pin is added
 
 Each read runs a short-lived child `bun` process for
 `packages/ui-server/src/attachments/extract-worker.ts`. The parent passes the
-verified original as a file descriptor, and the child writes length-prefixed
-JSON to stdout. The child loads `pdfjs-dist/legacy/build/pdf.mjs` with
-`useWorkerFetch: false`, `isEvalSupported: false`, `disableFontFace: true` and
-`stopAtErrors: false`. It receives no network, no environment beyond `PATH`
-and no brain access other than the descriptor.
+verified original's bytes on stdin, and the child writes one JSON line to
+stdout. The child loads `pdfjs-dist/legacy/build/pdf.mjs` with
+`useWorkerFetch: false`, `disableFontFace: true` and `stopAtErrors: false`;
+the installed 6.3.289 has no eval path, and no `isEvalSupported` option. It
+receives no environment beyond `PATH` and opens no path. The
+[decision record](../decisions/chat-attachments.md#what-3154-built) says why
+these two details differ from the first draft of this design.
 
 | Bound | Value | Enforced by | Exceeded gives |
 | --- | --- | --- | --- |

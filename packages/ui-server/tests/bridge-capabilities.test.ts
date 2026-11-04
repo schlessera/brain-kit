@@ -24,6 +24,7 @@ import { createLocationAndMask, createMaskApplicationSlice } from "../src/ws/bri
 import { createPolicyProposal } from "../src/ws/bridge-capabilities/policy-proposal.js";
 import { createApplication } from "../src/ws/bridge-capabilities/application.js";
 import { createScratch } from "../src/ws/bridge-capabilities/scratch.js";
+import { createAttachmentRead } from "../src/ws/bridge-capabilities/attachments.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 
 interface Fixture {
@@ -239,6 +240,18 @@ test("scratch: the host's prune pass, when there is one", () => {
   try { expect(createScratch(none.ctx)).toEqual({}); } finally { none.cleanup(); }
 });
 
+test("attachments: a reader for a first-party backend with a draft store, nothing otherwise", () => {
+  const drafts = {} as never;
+  for (const backendId of ["claude", "pi"]) {
+    const f = fixture({ backendId, host: { drafts } });
+    try { expect(typeof createAttachmentRead(f.ctx, { collectedSessionId: null }).readAttachment).toBe("function"); } finally { f.cleanup(); }
+  }
+  const other = fixture({ backendId: "ithaca", host: { drafts } });
+  try { expect(createAttachmentRead(other.ctx, { collectedSessionId: null })).toEqual({}); } finally { other.cleanup(); }
+  const none = fixture();
+  try { expect(createAttachmentRead(none.ctx, { collectedSessionId: null })).toEqual({}); } finally { none.cleanup(); }
+});
+
 test("index reads: a turn tree gates only index readers, and the turn's own batch settles at the end", async () => {
   const f = fixture();
   try {
@@ -268,4 +281,16 @@ test("live authority: voice never grants, and a revoked turn's effect never runs
     await expect(bridge.askUser!("raft", [])).rejects.toThrow("current principal authority");
     expect(ran).toBe(0);
   } finally { voice.cleanup(); }
+});
+
+test("live authority: a revoked turn's attachment read never runs", async () => {
+  const f = fixture();
+  try {
+    let ran = 0;
+    const bridge = { readAttachment: async () => { ran++; return {}; } } as unknown as BackendBridge;
+    applyLiveAuthority(f.ctx, bridge);
+    f.revoke();
+    await expect(bridge.readAttachment!({ file: "raft.pdf" } as never)).rejects.toThrow("current principal authority");
+    expect(ran).toBe(0);
+  } finally { f.cleanup(); }
 });

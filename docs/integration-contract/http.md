@@ -285,6 +285,31 @@ that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
 
+<a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
+
+**Shell taint behind the egress proxy (breaking before 1.0, #3429).** On a
+turn behind the turn egress proxy, `taint` is no longer recorded with
+`source: "fetching_command"` or `"unclassified_command"`; the proxy's
+`egress_connection` source covers shell network access there. A turn without
+the proxy still records both. The payload shape and version are unchanged, and
+stored events keep their recorded sources.
+
+<a id="tainted-destinations-ask-additive-3430"></a>
+
+**Tainted destinations ask (additive, #3430).** In a tainted interactive turn
+behind the proxy, a connection to a host outside `taint.egress.allow` and the
+session's contacted hosts now raises the existing tool-permission request
+before it is refused: `toolName: "Network"`, `kind: "command"`, `input` of
+`{ host, port, method, target }` with `target` as `host:port`, and a
+`description` naming what tainted the session and what allowing does. No
+request field, kind or card variant is added. An allowed connection records
+`egress_connection` as any admitted one does; a declined one records
+`egress_connection` with `reason: "taint_not_approved"` and the existing
+`egress_denial` with `reason: "taint_allowlist"`. A turn stopped while the card
+is pending records the connection as `cancelled` with `turn_cancelled`, as any
+connection its turn stops. Voice turns refuse without a request, as before,
+with `reason: "taint_not_allowed"`.
+
 The `outward_action` kind's `action` gains `compute_run` and the `taint`
 kind's `source` gains `compute_output` (both additive, #3108): a hosted
 external compute run's approval decision, its target the instance id, and a

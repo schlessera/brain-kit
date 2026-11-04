@@ -82,3 +82,35 @@ describe("the effect of a confirmed command, on the card", () => {
     expect(view.container.textContent ?? "").not.toContain(EFFECT);
   });
 });
+
+// A tainted session's new destination asks (#3430). The host sends a
+// `Network` command approval whose input carries the destination as `target`
+// and whose description names what tainted the session and what allowing
+// does; both cards draw them, from the existing request shape.
+describe("a tainted session's destination card", () => {
+  const COPY = "This session fetched a web page, so content you did not write may be steering it. "
+    + "Allow it to connect to aeaea.example:443? Allowing lets it send data to aeaea.example for the rest of this session without asking again.";
+  const network = pending({
+    id: "net-1",
+    name: "Network",
+    input: { host: "aeaea.example", port: 443, method: "CONNECT", target: "aeaea.example:443" },
+    inputJson: '{"host":"aeaea.example","port":443,"method":"CONNECT","target":"aeaea.example:443"}',
+    approvalDescription: COPY,
+  });
+
+  test("the Actions-pane card names the destination, the taint source and the consequence", () => {
+    const view = render(<ApprovalCard tool={network} origin="this conversation" keys={false} onDecide={() => {}} />);
+    const card = view.getByRole("group", { name: "Approval: Network" });
+    expect(card.textContent, "TAINTED_CARD_DESTINATION").toContain("aeaea.example:443");
+    expect(card.textContent, "TAINTED_CARD_SOURCE").toContain("This session fetched a web page");
+    expect(card.textContent, "TAINTED_CARD_CONSEQUENCE").toContain("for the rest of this session");
+  });
+
+  test("the transcript's card says the same and offers no always-allow", () => {
+    const view = render(<ToolCallTimeline toolCalls={[network]} onApproval={() => {}} />);
+    const panel = view.container.textContent ?? "";
+    expect(panel).toContain("aeaea.example:443");
+    expect(panel).toContain(COPY);
+    expect(panel.toLowerCase(), "TAINTED_CARD_NOT_REMEMBERED").not.toContain("always");
+  });
+});

@@ -44,6 +44,11 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
   const backend = makeFakeBackend({ id: kind, startTurn: async request => {
     started = true;
     request.bridge.emit({ type: "session_info", sessionId: `voyage-${kind}`, isNew: true });
+    // An ordinary shell command: behind the proxy it no longer taints (#3429).
+    const help = { sessionId: `voyage-${kind}`, toolUseId: "diagram-help", toolName: "Bash" };
+    request.bridge.emit({ type: "tool_use_start", ...help });
+    request.bridge.emit({ type: "tool_use_complete", ...help, input: { command: "brain diagram --help" } });
+    request.bridge.emit({ type: "tool_result", sessionId: help.sessionId, toolUseId: help.toolUseId, output: "Usage: brain diagram", isError: false });
     proxyDir = request.workerSandbox?.egress?.dir;
     if (proxyDir) {
       const command = "gh issue view 7 --repo odysseus/voyage";
@@ -60,7 +65,7 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
     request.bridge.emit({ type: "result", sessionId: `voyage-${kind}`, durationMs: 1, numTurns: 1, isError: false });
   } });
   const host = new WsHost({ brainPath: brain, governedTurns: turns, registry: createStaticBackendRegistry([backend], kind), catalog: createSessionCatalog(() => db),
-    activity: { store, stream, governance: input => { recordGovernanceEvent(db, input); } },
+    activity: { store, stream, governanceDb: db, governance: input => { recordGovernanceEvent(db, input); } },
     isPrincipalAuthorized: id => { const found = resolvePrincipal(db, id); return found !== null && isUsablePrincipal(found, Date.now()); } });
   try {
     if (!managed) {
@@ -73,6 +78,9 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
     }
     await runSession(host, { authorization: testAuthorization(principal.id), text: "Odysseus checks the harbour.", attachments: [] });
     const records = queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 10 });
+    const taints = queryGovernanceEvents(db, { kinds: ["taint"], limit: 10 }).map(event => event.payload.source);
+    // Only the proxy's admitted connection taints a proxied turn (#3429).
+    expect(taints, "G6_PROXIED_TURN_SHELL_TAINT_IS_THE_CONNECTION").toEqual(["egress_connection"]);
     expect(proxyDir, "TURN_EGRESS_GOVERNED_TURN_COMPOSED").toBeDefined();
     expect(workerExit, `TURN_EGRESS_BACKEND_BRIDGE_TRACKS_CLASSIFICATION ${workerErrors}`).toBe(0);
     expect(output).toBe("Ithaca");

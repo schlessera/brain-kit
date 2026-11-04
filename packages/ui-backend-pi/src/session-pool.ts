@@ -62,8 +62,8 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),
       ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),
-      // A restricted autonomous roster never lists compute (#3108) or Apify (#3162).
-      caps: req.autonomous ? { ...capsOf(req.bridge), policyChange: false, turnTemp: false, compute: false, apify: false } : { ...INTERACTIVE_SESSION_CAPS },
+      // A restricted autonomous roster never lists compute (#3108), Apify (#3162) or attachment reads (#3154).
+      caps: req.autonomous ? { ...capsOf(req.bridge), policyChange: false, turnTemp: false, compute: false, apify: false, attachments: false } : { ...INTERACTIVE_SESSION_CAPS },
       currentSurface: req.autonomous ? undefined : { posture: req.posture ?? "default", noGrantSurface: req.noGrantSurface === true,
         inbox: { list: available("inbox_list"), get: available("inbox_get"), add: available("inbox_add"),
           resolveAction: available("resolve_action"), completeShare: available("complete_share") } },
@@ -71,7 +71,8 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
         askUser: available("ask_user"), askUserList: available("ask_user_list"), askUserRank: available("ask_user_rank"), askUserForm: available("ask_user_form"),
         location: available("get_current_location"), activity: available("query_activity"), inbox: available("inbox_list"),
         mask: available("request_image_mask"), policyChange: available("propose_policy_change"), turnTemp: true,
-        reference: available("reference_source"), compute: available("brain_compute_run"), apify: available("brain_apify_discover") },
+        reference: available("reference_source"), compute: available("brain_compute_run"), apify: available("brain_apify_discover"),
+        attachments: available("read_attachment") },
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),
     };
     if (req.sessionId) {

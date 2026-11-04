@@ -257,6 +257,21 @@ In `@schlessera/brain-ui-server`, `ServerConfig` gains `attachmentPoolBytes`
 and `SessionCatalog.recordMessageSource`'s optional effort argument gains
 `attachmentFiles?: MessageAttachment[]` (an `AttachmentFile` with an optional
 `inline` flag), which the host records so replay can reproduce the block.
+
+## Reading composer attachments (additive, 0.45.0, #3154)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
+gains `READ_ATTACHMENT_TOOL_NAME`, `READ_ATTACHMENT_INPUT_SCHEMA`,
+`READ_ATTACHMENT_DESCRIPTION`, `READ_ATTACHMENT_CONTRACT`,
+`ATTACHMENT_READ_MAX_PAGES` (20), `ATTACHMENT_READ_MAX_CALL_BYTES` (65,536),
+`ATTACHMENT_READ_MAX_TURN_BYTES` (262,144), `ATTACHMENT_READ_OUTCOMES` and the
+types `ReadAttachmentInput`, `AttachmentReadResult`, `AttachmentReadOutcome`
+and `AttachmentReadFailure`, as [the MCP component](mcp.md#read_attachment-additive-0450-3154)
+describes. `@schlessera/brain-ui-sdk/server` gains the experimental backend
+toolkit helpers `handleReadAttachment(input, bridge)` and
+`formatAttachmentRead(result, nonce?)`, and `BackendBridge` the optional
+`readAttachment(input)`. No existing export changes.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated

@@ -132,7 +132,7 @@ export async function openTurnBridge(
  * the turn (#1673).
  */
 export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, budget: TurnBudget | undefined): Promise<void> {
-  const { host, turn, backend, abortController, held, stops, origin } = run;
+  const { host, turn, backend, abortController, held, stops, origin, recorder } = run;
   const governedHold = held.governedHold;
   const relayed = isRelayed(backend);
   if (governedHold?.sandbox.inferenceRecipient && !relayed)
@@ -147,6 +147,10 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
       : governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
     ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
   });
+  // The worker reaches the network only through this proxy, which taints on
+  // its first admitted connection: shell commands no longer pass through the
+  // command classifier (#3429).
+  recorder?.setEgressProxied();
   // The turn this relay meters, fixed now: a late report never lands on a later turn.
   const egress = held.turnEgress, hold = governedHold, relayTurnId = turn.turnId;
   held.providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),

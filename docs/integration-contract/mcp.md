@@ -1100,6 +1100,51 @@ timed-out, budget-stopped or revoked turn cancels its jobs, including one it
 was still starting, before anything is allocated. The rules and
 their reasons are in [the compute decision](../decisions/external-compute.md#settled-by-3108).
 
+## `read_attachment` (additive, 0.45.0, #3154)
+
+Both first-party backends attach one host-executed tool to their UI bridge:
+`read_attachment`, named `mcp__brain-ui__read_attachment` on Claude (loaded
+eagerly) and `read_attachment` on pi. It is in every interactive session's
+fixed roster, with or without attachments, so an upload never changes the
+tools; a turn without a host handler gets `outcome: "unavailable"`. It is
+auto-allowed: the host authorizes each call. Restricted autonomous rosters do
+not include it.
+
+Input, a strict object (`READ_ATTACHMENT_INPUT_SCHEMA`):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | The attachment id from the message's `<brain-attachments>` block. |
+| `pages` | string, optional | PDF only: `"3"` or `"3-7"`, at most 20 pages. Default: pages 1–20. |
+| `cursor` | string, optional | An earlier result's `next`. Not combined with `pages`. |
+
+The result (`AttachmentReadResult`) is one JSON line of facts, followed, when
+text was returned, by the text inside an
+`<<<attachment-data-<nonce>` … `attachment-data-<nonce>>>>` delimiter:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name`, `kind` | The original, as recorded; `name` and `kind` are absent when the id was refused. |
+| `outcome` | `read`: the requested scope in full. `partial`: an output bound cut it (`truncated`, `next`), or some pages had no text (`pagesWithoutText`). `no_text`: a valid PDF with no extractable text in the scope; no OCR is run. `encrypted`: a password is needed; none is supplied. `malformed`: not a readable PDF, or not valid UTF-8. `failed` (`reason`: `timeout`, `resource_limit`, `crash` or `error`). `unavailable`: no reader for this kind, or none could start. `changed`: the bytes no longer match the recorded digest; nothing is returned. `refused`: unknown id, not sent to this conversation, deleted, a bad range or cursor. |
+| `scope` | `{ pages: [first, last], pageCount }` for a PDF, `{ bytes: [start, end), totalBytes }` for text. A result never claims more than it covers. |
+| `pagesWithoutText`, `truncated`, `next`, `message`, `reason` | As above; `message` is one sentence. |
+
+Every outcome except `read` and `partial` is a tool error. Text pages open with
+`[page N]`, or `[page N, continued]` when a cursor resumes inside a page. Text
+is cut on a code-point boundary at 65,536 UTF-8 bytes per call and 262,144 per
+turn; past the turn's budget the result is `partial` with an empty text and a
+`next` for a later turn.
+
+Only originals a **message of the calling session** references are readable:
+draft and outgoing bindings are not. Each call rechecks the record, that the
+file is a regular file under the attachment store reached through no link, its
+size and its SHA-256. Session, principal and turn come from the authenticated
+turn and are never inputs. Each call taints the session as `chat_attachment`,
+whatever its outcome. The read appends an ordinary tool result; no earlier
+message, tool or system text changes, and the host's read records are UI data
+that never reach the provider. The bounds and reasons are in
+[the attachment decision](../decisions/chat-attachments.md#what-3154-built).
+
 ## Hosted policy proposal (additive, #1662)
 
 `propose_policy_change` (Claude: `mcp__brain-ui__propose_policy_change`)

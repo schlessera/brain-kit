@@ -12,6 +12,7 @@ import { createLocationAndMask, createMaskApplicationSlice } from "./bridge-capa
 import { createPolicyProposal } from "./bridge-capabilities/policy-proposal.js";
 import { createApplication } from "./bridge-capabilities/application.js";
 import { createScratch } from "./bridge-capabilities/scratch.js";
+import { createAttachmentRead } from "./bridge-capabilities/attachments.js";
 
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
@@ -69,6 +70,7 @@ export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeB
   // turn supplies principal, views and generation; the call carries its input only.
   if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(ctx.turnId, ctx.principalId, call, ctx.signal);
   applyExternalServices(ctx, bridge, transcript, options.governance);
+  Object.assign(bridge, createAttachmentRead(ctx, transcript));
   guardMaskedRecords(ctx, bridge);
   if (ctx.backendId === "claude" || ctx.backendId === "pi") applyLiveAuthority(ctx, bridge);
   return bridge;
@@ -134,7 +136,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
  */
 export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
   const { work, afterHolds, assertAuthority } = ctx;
-  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify"] as const) {
+  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "readAttachment"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {

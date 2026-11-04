@@ -1,6 +1,6 @@
 import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
 import { resolveChatFiles, withTrackFiles } from "../../tracks/read.js";
-import { withAttachments, type MessageAttachment } from "../../attachments/context.js";
+import { includesAttachments, type MessageAttachment } from "../../attachments/context.js";
 import { resolveAttachmentRefs } from "../../attachments/resolve.js";
 import { handleChatMessage } from "../run-session.js";
 import type { ClientMessageHandler } from "./context.js";
@@ -50,7 +50,7 @@ export const handleRetryTurn: ClientMessageHandler<"retry_turn"> = async ({ host
         // A retry has no draft: its originals must already belong to a message of this session.
         attachmentFiles = await resolveAttachmentRefs(host.brainPath, host.drafts ?? undefined, original.request.attachmentRefs,
           { sessionId: msg.sessionId }, original.request.attachments ?? []);
-        if (attachmentFiles.length && !original.prompt.includes(withAttachments("", attachmentFiles))) {
+        if (attachmentFiles.length && !includesAttachments(original.prompt, attachmentFiles)) {
           await refuse("An attached original changed. Start a new message with the current file instead."); return;
         }
       } catch { await refuse("An original file is unavailable. Attach it again in a new message."); return; }
