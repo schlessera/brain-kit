@@ -442,4 +442,27 @@ describe("interactive admission before emission", () => {
     expect(admitted).toHaveLength(7);
     expect(admitted).toEqual(Array(7).fill(true));
   });
+
+  test("a request raised after its aborted turn was drained is refused with the drain's reason, never parked or shown (#3553)", async () => {
+    const { host, bridges, sent } = await setup();
+    const turn = [...host.coordinator.running][0]!;
+    // The host's limit: abort, then drain. Each opener below runs after it.
+    turn.abortController.abort();
+    host.coordinator.drainPendingForTurn(turn, "Turn timed out");
+    const before = sent.length;
+    const asks = ASK_KINDS.map((kind) => ask(bridges[0]!, kind).then(() => "settled", (error: Error) => error.message));
+    const approval = bridges[0]!.requestPermission({ toolUseId: "approval", toolName: "Write", input: {} });
+    const location = bridges[0]!.getLocation!({}).then(() => "settled", (error: Error) => error.message);
+    const mask = bridges[0]!.requestMask!("image.png", "Mark").then(() => "settled", (error: Error) => error.message);
+    expect(await Promise.all(asks), "DRAINED_ASKS_REFUSED").toEqual(Array(4).fill("Turn timed out"));
+    expect(await approval, "DRAINED_APPROVAL_DENIED").toEqual({ behavior: "deny", message: "Turn timed out" });
+    expect(await location, "DRAINED_LOCATION_REFUSED").toBe("Turn timed out");
+    expect(await mask, "DRAINED_MASK_REFUSED").toBe("Turn timed out");
+    const c = host.coordinator;
+    expect(c.pendingApprovals.size + c.pendingLocation.size + c.pendingMask.size
+      + ASK_KINDS.reduce((n, kind) => n + askMap(host, kind).size, 0), "DRAINED_NOTHING_PENDING").toBe(0);
+    expect(c.resolvedApprovals.get("approval"), "DRAINED_APPROVAL_EXPIRED").toMatchObject({ outcome: "expired", reason: "Turn timed out" });
+    expect(c.askOutcome("same"), "DRAINED_ASK_CLOSED").toMatchObject({ state: "closed", reason: "ended" });
+    expect(sent.slice(before).filter((frame) => frame.type.endsWith("_request")), "DRAINED_NO_REQUEST_FRAME").toEqual([]);
+  });
 });

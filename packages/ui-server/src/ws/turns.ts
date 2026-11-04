@@ -1023,8 +1023,10 @@ export class TurnCoordinator {
 
   /** Resolve/reject every pending interactive request belonging to one turn. */
   drainPendingForTurn(turn: RunningTurn, reason: string): void {
-    // Kept only for the first drain: it is the reason the turn ended.
-    if (this.#drained.get(turn)?.turnId !== turn.turnId) this.#drained.set(turn, { turnId: turn.turnId, reason });
+    // A drain of an aborted turn ends its interactive requests; every such
+    // caller aborts first. The first one's reason is the one kept.
+    if (turn.abortController.signal.aborted && this.#drained.get(turn)?.turnId !== turn.turnId)
+      this.#drained.set(turn, { turnId: turn.turnId, reason });
     for (const [id, p] of this.#pendingApprovals) {
       if (p.turn !== turn) continue;
       p.resolve({ behavior: "deny", message: reason });
