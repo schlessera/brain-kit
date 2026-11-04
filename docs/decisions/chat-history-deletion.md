@@ -76,6 +76,56 @@ intent; completion requires confirmation from every selected store. Report safe
 store categories and recovery actions, without text, raw paths or an existence
 leak to unauthorized callers. Catalog hiding alone cannot establish deletion.
 
+## Typed-chat creation owner — 2026-11-02 (#3337)
+
+**Decided by the maintainer on 2026-11-02 and confirmed on 2026-11-03**:
+[#3337 ruling](https://github.com/schlessera/brain-kit/issues/3337#issuecomment-6586465475),
+option 1. Recorded ownership alone left a typed-only chat with no owner, so
+deletion refused most typed chats as `unavailable`.
+
+**The record.** When an authenticated typed request creates a backend session,
+the host records which principal created it: a content-free
+`(session, principal)` row in `chat_session_owners` (migration
+`packages/ui-server/migrations/076_chat_session_owners.sql`). It holds no
+prompt, title, label or transcript text. The bridge offers the creator only on
+a new turn that is not host work and whose authorization is current
+(`const creator`, `packages/ui-server/src/ws/bridge.ts:257`). The write worker
+binds it only in the transaction that first creates the session's row
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:167-176`).
+`resolveChat` counts the row as one more ownership record beside dialogue
+owners and voice epochs, so records that disagree still refuse as ambiguous
+(`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:91-92`). Like the
+permanent fences, the row is identity data and stays after a deletion cleans
+the chat's stores.
+
+**How it differs from the dialogue owner.** A dialogue owner begins with a live
+conversation or the adoption of a host-only history. It carries a generation,
+aliases, conversations and records, and it drives dialogue paging. The
+creation owner has none of these:
+
+- It never opens or pages dialogue, and no catalog read, list or retention pass
+  joins it. Writing it mints no dialogue owner, so a typed chat is still
+  reviewed at generation 1, and undeleted chats page and age exactly as before.
+- It is written once, by session creation, and never by a resume, an adoption,
+  a later turn or host work. It is never reassigned.
+- It names the creating principal; it grants no authority. Deletion still
+  re-reads that principal at admission and commit, so an agent, an ambient
+  caller with no owner mapping or a revoked principal is refused even if it
+  created the session.
+
+**Why legacy chats are not backfilled.** A chat whose session existed before
+the record, or a native-only session the host first sees on a resume, has no
+evidence of which principal created it. Under [Authority and extent](#authority-and-extent),
+ownership is resolved only through actual owners and never inferred from
+matching text, read access or labels. A backfill would have to guess, and a
+wrong guess hands one principal another's deletion. Such chats keep refusing as
+`unavailable`, and a foreign principal receives the same refusal as for a chat
+that does not exist. The [design](../plans/chat-history-deletion.md) records
+the endpoint and store cleanup this record feeds.
+
+This adds no wire shape: the `POST /api/chat-deletions` request, receipt and
+refusal shapes are unchanged, and the row is internal storage.
+
 ## Compatibility and rejected alternatives
 
 This decision approves the explicit retention exception, not a shipped machine
