@@ -440,6 +440,14 @@ export async function makeBridge(
           );
           resolve(decision);
         };
+        // A request raised after the turn's drain is expired the way the
+        // drain expires one, or it would never settle (#3553).
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) {
+          coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: drained });
+          recorded({ behavior: "deny", message: drained });
+          return;
+        }
         if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded })) {
           resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
           return;
@@ -514,6 +522,8 @@ export async function makeBridge(
       : {}),
     askUser: (requestId, questions) => {
       return new Promise<AskUserResult>((resolve, reject) => {
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
         if (!coordinator.openAsk("ask_user", { turn, turnId, requestId, questions, resolve, reject })) {
           reject(new Error("Duplicate ask-user request id"));
           return;
@@ -532,6 +542,8 @@ export async function makeBridge(
     },
     askUserList: (requestId, request) => {
       return new Promise<AskUserListResult>((resolve, reject) => {
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
         // One id space across all ask kinds: a single `ask_user_cancel`
         // dismisses any of them, so an id pending as one must not open as the other.
         if (!coordinator.openAsk("ask_user_list", { turn, turnId, requestId, request, resolve, reject })) {
@@ -556,6 +568,8 @@ export async function makeBridge(
         return Promise.reject(new Error("Duplicate ask-user request id"));
       }
       return new Promise<AskUserRankResult>((resolve, reject) => {
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
         coordinator.openAsk("ask_user_rank", { turn, turnId, requestId, request, resolve, reject });
         host.sendToClients(withTurnScope({ type: "ask_user_rank_request", requestId, ...request }, turn, turnId));
         host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
@@ -568,6 +582,8 @@ export async function makeBridge(
         return Promise.reject(new Error("Duplicate ask-user request id"));
       }
       return new Promise<AskUserFormResult>((resolve, reject) => {
+        const drained = coordinator.refuseDrainedAsk({ turn, turnId, requestId });
+        if (drained !== undefined) return reject(new Error(drained));
         coordinator.openAsk("ask_user_form", { turn, turnId, requestId, request: validated, resolve, reject });
         host.sendToClients(withTurnScope({ type: "ask_user_form_request", requestId, ...validated }, turn, turnId));
         host.sendToClients(withTurnScope({ type: "status", status: "tool_executing", detail: "Waiting for your input" }, turn, turnId));
@@ -581,6 +597,8 @@ export async function makeBridge(
       }
       const requestId = coordinator.nextLocationRequestId();
       return new Promise<LocationFix>((resolve, reject) => {
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) return reject(new Error(drained));
         if (!coordinator.openLocation(requestId, { turn, turnId, resolve, reject })) {
           reject(new Error("Duplicate location request id"));
           return;
@@ -605,6 +623,8 @@ export async function makeBridge(
       }
       const requestId = coordinator.nextMaskRequestId();
       return new Promise<Uint8Array>((resolve, reject) => {
+        const drained = coordinator.drainedReason(turn, turnId);
+        if (drained !== undefined) return reject(new Error(drained));
         if (!coordinator.openMask(requestId, { turn, turnId, resolve, reject })) {
           reject(new Error("Duplicate mask request id"));
           return;
