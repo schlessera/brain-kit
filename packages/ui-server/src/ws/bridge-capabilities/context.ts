@@ -40,8 +40,8 @@ export interface MakeBridgeOptions {
   governance?: { policy: TurnGovernancePolicy } | undefined;
 }
 
-export interface WorkerProfileBinding { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" }
-export interface MainModelBinding { current(): string | null; bind(model: string): void }
+interface WorkerProfileBinding { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" }
+interface MainModelBinding { current(): string | null; bind(model: string): void }
 
 /**
  * The turn identity and authority checks every capability shares, captured

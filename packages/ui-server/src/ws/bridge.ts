@@ -13,7 +13,6 @@ import { createPolicyProposal } from "./bridge-capabilities/policy-proposal.js";
 import { createApplication } from "./bridge-capabilities/application.js";
 import { createScratch } from "./bridge-capabilities/scratch.js";
 
-export type { MakeBridgeOptions } from "./bridge-capabilities/context.js";
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
 const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
