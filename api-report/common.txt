@@ -159,10 +159,16 @@ export "./internal/frontmatter" (./src/frontmatter-parse.ts)
   type ParsedFrontmatter
   parseFrontmatter
 
+export "./internal/frontmatter-block" (./src/frontmatter-block.ts)
+  type FrontmatterBlock
+  frontmatterBlock
+  frontmatterLength
+
 export "./internal/governance-policy" (./src/governance-policy.ts)
   APIFY_LIMIT_BOUNDS
   APIFY_MAX_ACTOR_GRANTS
   APIFY_MAX_RUN_USD
+  type AnchoredGovernancePolicy
   type ApifyLimits
   BUILTIN_GOVERNANCE_POLICY
   type EffectiveGovernancePolicy
@@ -170,12 +176,17 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   GOVERNANCE_POLICY_PATH
   type GovernanceCommandRuleIndices
   type GovernancePolicyCheck
+  type GovernancePolicyDirectory
   type GovernancePolicyInput
+  GovernancePolicyReadError
+  type GovernancePolicyReadRefusal
   GovernancePolicySchema
   checkGovernancePolicy
+  openGovernancePolicyAnchored
   parseGovernancePolicy
   providerAllows
   resolveGovernancePolicy
+  verifyGovernancePolicyAnchored
 
 export "./internal/index-location" (./src/index-location.ts)
   EMBEDDING_LOCK_FAMILY
@@ -214,6 +225,15 @@ export "./internal/provider-unavailable" (./src/provider-unavailable.ts)
   parseProviderUnavailable
   providerUnavailableNotice
   withheldKeys
+
+export "./internal/safe-path" (./src/safe-path.ts)
+  type ContainedPath
+  type ContainmentPolicy
+  type ContainmentRefusal
+  type WithinRule
+  isWithin
+  resolveContained
+  resolveContainedSync
 
 export "./internal/worker-areas" (./src/worker-areas.ts)
   BRAIN_SCRATCH_DIR

@@ -26,7 +26,7 @@ export interface NativeJournalMetadata {
   path: string; kind: "directory" | "file" | "symlink" | "other";
   mode: number; bytes: number; stamp: string; inode: string; target?: string;
 }
-export interface NativeJournalChange {
+interface NativeJournalChange {
   path: string; before: NativeJournalMetadata | null; after: NativeJournalMetadata | null;
 }
 export interface NativeJournalUnreadable {
@@ -236,7 +236,7 @@ class RootMetadataReader {
   close(): Promise<void> { return this.root?.close() ?? Promise.resolve(); }
 }
 
-export interface NativeJournalObservation {
+interface NativeJournalObservation {
   beforeRoot: NativeJournalCheckpoint; afterRoot: NativeJournalCheckpoint;
   changes: NativeJournalChange[];
   stats: { readEntries: number; walkedDirectories: number };
@@ -289,6 +289,10 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   const shutdown = new AbortController(), retained = new Set<string>();
   const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, shutdown.signal]) : shutdown.signal;
   async function checkpoint(signal: AbortSignal) {
+    // The lease owner refuses an aborted signal before recording any lease, so
+    // an id retained past that refusal could never be released (#3521). Check
+    // in the same synchronous step that hands the id to the manager.
+    signal.throwIfAborted();
     const id = randomUUID(); retained.add(id);
     try {
       const answer = await native.checkpoint(id, signal);
@@ -501,4 +505,3 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   };
 }
 
-export type NativeJournalObserver = ReturnType<typeof createNativeJournalObserver>;

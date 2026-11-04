@@ -34,6 +34,105 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+
+## Hosted external compute (additive, 0.45.0, #3108)
+
+A hosted chat turn reaches external compute through six host-executed bridge
+tools, `brain_compute_health` through `brain_compute_collect`
+(`mcp__brain-ui__brain_compute_*` on Claude, plain names on pi), in every
+interactive session's fixed roster. Their inputs and envelopes are those of
+#3107's MCP tools; the host binds the caller, the turn's frozen policy, the
+per-use approval card, the budget reservation and the credentials, and a
+collect names no host path. Claude sessions disallow the in-worker
+`mcp__brain__brain_compute_*` tools. `brain config check --json` gains a
+`compute` summary. Activity gains the `compute` span origin, sent only to
+clients declaring `capabilities.activityCompute`; governance events gain the
+outward action `compute_run` and the taint source `compute_output`;
+`/api/status` gains `runtime.compute`. The SDK gains the compute tool
+contracts, `handleComputeTool` and `BackendBridge.compute`, and the server the
+settings `BRAIN_UI_COMPUTE_KEYS` and `BRAIN_UI_COMPUTE_STATE_DIR`. Nothing
+changes for a host or brain that does not configure compute. See
+[the MCP component](integration-contract/mcp.md#external-compute-bridge-tools-additive-0450-3108),
+[the package component](integration-contract/package-api.md#hosted-external-compute-additive-0450-3108),
+[the wire component](integration-contract/wire.md#hosted-external-compute-additive-0450-3108),
+[the HTTP component](integration-contract/http.md#governance-events-additive-1651)
+and [the CLI component](integration-contract/cli.md). This ships in a minor;
+no breaking ruling is required.
+
+## External compute CLI and MCP tools (additive, 0.45.0, #3107)
+
+`brain compute` gains the verbs `health`, `plan`, `run`, `status`, `cancel`,
+`collect`, `abandon` and `reconcile`, and `brain mcp` six tools,
+`brain_compute_health`, `brain_compute_plan`, `brain_compute_run`,
+`brain_compute_status`, `brain_compute_cancel` and `brain_compute_collect`,
+registered after the eight document tools whether or not `compute` is
+configured. Both surfaces call one core operation set and print the same
+envelopes: `{ ok: true, ... }`, or `{ ok: false, error: { code, message } }`
+with the external-compute refusal codes and nothing allocated. A compute tool
+whose operation throws returns a fixed tool error text and logs the details
+on the server's stderr. A refusal exits
+`1`, a `run` whose job ended with its cleanup not confirmed exits `2`, one
+whose job ended other than `succeeded` exits `3`, and a second SIGINT or
+SIGTERM leaves an attached run with `130` or `143`. The
+`ComputeRunRequest` of the internal service gains an optional `retain`, which
+may only narrow the instance's `retainOnRelease` (`retain: true` elsewhere is
+`policy_denied`), and a retained job holds a concurrency slot until its
+retention ends. A new
+core skill, `external-compute`, is emitted by `brain skills sync`. Nothing
+changes for existing commands, tools or envelopes, and a brain without
+`compute` gets refusals only. See [the CLI component](integration-contract/cli.md#external-compute-additive-0450-3107)
+and [the MCP component](integration-contract/mcp.md#external-compute-tools-additive-0450-3107).
+This ships in a minor; no breaking ruling is required.
+
+## Boat external compute provider (additive, 0.45.0, #3106)
+
+The new lockstep package `@schlessera/brain-compute-boat` ships the `boat`
+built-in: `computeProvider`, `defaultKeyEnv`, `BOAT_CAPABILITIES`,
+`boatOptionsSchema`, `BoatOptions` and `BOAT_MACHINES`. Core declares it as an
+optional peer and imports it only when a `compute.providers` instance names
+`boat`; without it the instance stays `provider_unavailable`. Such an instance
+reads `BRAIN_COMPUTE_BOAT_API_KEY` unless it names `apiKeyEnv`, and accepts
+the options `machine`, `from`, `environment` and `org`. Nothing changes for a
+brain that does not name `boat`. No CLI word, MCP tool or JSON shape is added.
+See [the package component](integration-contract/package-api.md#boat-compute-provider-additive-3106)
+and [configuration](configuration.md#boat). This ships in a minor; no breaking
+ruling is required.
+
+## External compute provider seam (additive, 0.45.0, #3105)
+
+`ComputeProvider` becomes the thirteenth `@experimental` extension seam,
+exported from `@schlessera/brain` with `defineComputeProvider` and the types it
+is made of; `@schlessera/brain/testing` adds its provider and lifecycle
+conformance suites. `brain.config` gains the optional `compute.providers` key,
+and core reads two new optional environment inputs, `BRAIN_COMPUTE_STATE_DIR`
+and `XDG_STATE_HOME`. Nothing changes for a brain without `compute`: no
+provider, no network access, and compute operations refuse with
+`compute_disabled`. No CLI word, MCP tool or JSON shape is added yet.
+See [the package component](integration-contract/package-api.md#external-compute-seam-additive-3105)
+and [the decision](decisions/external-compute.md). This ships in a minor; no
+breaking ruling is required.
+
+## Strictest path containment answers (breaking before 1.0, 0.45.0, #3422)
+
+`safeResolve` and `resolveWritable` from `@schlessera/brain/module` now return
+`null` in these cases:
+
+- an absolute path, even inside the root;
+- any `..` segment;
+- `:` or `\` in a segment;
+- a dangling symlink;
+- a path any existing component of which leaves the root.
+
+The CLI is not affected for paths inside the brain. Before calling them, it
+converts an absolute path argument inside the brain (`--out`, document paths
+and the other CLI path flags) to a brain-relative path, through the additive
+`brainRelativeArgument` export. An absolute argument outside the brain is still
+refused, and so is one through a symlink that leaves it. The maintainer rulings
+are recorded [on the issue](https://github.com/schlessera/brain-kit/issues/3422#issuecomment-6599244174)
+and, for the CLI, [on the PR](https://github.com/schlessera/brain-kit/pull/3465#issuecomment-6602766385). See [the package API component](integration-contract/package-api.md#strictest-path-containment-answers-breaking-before-10-0450-3422).
+This ships in the 0.45.0 minor with the `breaking` label and a changeset that
+names the break.
+
 ## Provider-relay requests and session taint (breaking before 1.0, #3246)
 
 Under the [maintainer's option C](https://github.com/schlessera/brain-kit/issues/3246),

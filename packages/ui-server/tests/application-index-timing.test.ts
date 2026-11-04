@@ -21,9 +21,15 @@ const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floo
 test("twenty writes return without waiting for the index; one targeted update covers them all", async () => {
   await inProcessPlanner.index(root, undefined);
   const runs: (readonly string[] | undefined)[] = [];
-  // Each update is slow, as a maintenance worker over a large brain is.
+  // Each update is slow, as a maintenance worker over a large brain is: it is held until the
+  // writes are measured, and on a route where a write waits for it, each update takes 1500 ms.
+  let measured!: () => void;
+  const writesMeasured = new Promise<void>(resolve => { measured = resolve; });
   const planner: ApplicationPlanner = { planAdd: inProcessPlanner.planAdd, async index(target, signal, paths) {
-    runs.push(paths); await Bun.sleep(1500); return inProcessPlanner.index(target, signal, paths);
+    runs.push(paths);
+    let slow: ReturnType<typeof setTimeout> | undefined;
+    try { await Promise.race([writesMeasured, new Promise<void>(resolve => { slow = setTimeout(resolve, 1500); })]); } finally { clearTimeout(slow); }
+    return inProcessPlanner.index(target, signal, paths);
   } };
   const receipts: BrainApplicationResult[] = [];
   const apply = createBrainApplication({ root, planner, principalId: "odysseus", turnId: "turn-scheria", signal: new AbortController().signal,
@@ -44,6 +50,7 @@ test("twenty writes return without waiting for the index; one targeted update co
     expect(result).toMatchObject({ ok: true, indexed: false, indexStatus: "pending" });
     expect(result).not.toHaveProperty("outcome.indexError");
   }
+  measured();
   await (apply as unknown as { indexBatch: { barrier(): Promise<void> } }).indexBatch.barrier();
   expect(runs).toEqual([paths]);
   const core = await import("@schlessera/brain/internal");

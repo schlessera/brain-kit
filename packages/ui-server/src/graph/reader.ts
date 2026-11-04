@@ -21,8 +21,8 @@ export const MAX_NEIGHBORHOOD_DEPTH = 3;
 export const MAX_DISCOVERY_DEPTH = 8;
 export const DEFAULT_STALE_DAYS = 180;
 
-export type GraphDirection = "in" | "out" | "both";
-export type GraphUnavailableReason = "schema" | "not_computed";
+type GraphDirection = "in" | "out" | "both";
+type GraphUnavailableReason = "schema" | "not_computed";
 
 /** No graph to read: the index is absent or predates the graph, or nothing computed one. */
 export class GraphUnavailableError extends Error {
@@ -60,30 +60,30 @@ export class GraphIndexError extends Error {
   }
 }
 
-export interface GraphReadOptions {
+interface GraphReadOptions {
   /** The brain repo to read — injected by the route layer from ServerConfig. */
   brainPath: string;
 }
 
-export interface ClustersOptions extends GraphReadOptions {
+interface ClustersOptions extends GraphReadOptions {
   community?: number;
   includeIsolates?: boolean;
 }
 
-export interface NeighborhoodOptions extends GraphReadOptions {
+interface NeighborhoodOptions extends GraphReadOptions {
   center: string;
   depth?: number;
   direction?: GraphDirection;
 }
 
-export interface DiscoveryOptions extends GraphReadOptions {
+interface DiscoveryOptions extends GraphReadOptions {
   /** Omitted → the precomputed default root, virtual node included. */
   root?: string;
   direction?: "out" | "both";
   maxDepth?: number;
 }
 
-export interface MaintenanceOptions extends GraphReadOptions {
+interface MaintenanceOptions extends GraphReadOptions {
   staleDays?: number;
 }
 

@@ -9,9 +9,11 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ServerMessage, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
-import { flushChatDeltas, handleServerMessage } from "../src/hooks/use-websocket";
+import { defaultRoot } from "../src/default-root";
 import { useChatStore } from "../src/stores/chat-store";
 import { matchAskExchanges } from "../src/components/chat/message-bubble";
+
+const { flushChatDeltas, handleServerMessage } = defaultRoot.connection;
 
 type Kind = "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user_form";
 const KINDS: Kind[] = ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"];

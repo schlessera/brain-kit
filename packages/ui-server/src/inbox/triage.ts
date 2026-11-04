@@ -13,17 +13,16 @@ import { TRIAGE_RUBRIC } from "./triage-rubric.js";
 import { stagedArrival, TRIAGE_ITEM_BYTES, type StagedArrival } from "./arrival.js";
 import { recordInboxProvenance } from "./provenance.js";
 
-export { TRIAGE_ITEM_BYTES };
 
-export const TRIAGE_MODEL = "jev-1.13.0";
-export const TRIAGE_FLOOR = 0.4;
-export const TRIAGE_BATCH_BYTES = 40_000;
-export const TRIAGE_STATE_BYTES = 32_000;
+const TRIAGE_MODEL = "jev-1.13.0";
+const TRIAGE_FLOOR = 0.4;
+const TRIAGE_BATCH_BYTES = 40_000;
+const TRIAGE_STATE_BYTES = 32_000;
 const ROUTES = ["drop", "rule", "needs_agent", "needs_user"] as const;
 type Route = typeof ROUTES[number];
 type TriageItem = InboxQueueItem & { type: "triage" };
-export interface InboxEvidence { id: string; source: string; title: string; body: string; trust: string; incomplete: boolean; binary: boolean }
-export interface TriageDecision {
+interface InboxEvidence { id: string; source: string; title: string; body: string; trust: string; incomplete: boolean; binary: boolean }
+interface TriageDecision {
   itemId: string; tier: "T0" | "T1"; route: Route;
   reason: "accepted" | "duplicate" | "empty" | "incomplete" | "binary" | "unknown" | "low-probability" | "transport" | "accounting";
   proposedRoute: Route | null;

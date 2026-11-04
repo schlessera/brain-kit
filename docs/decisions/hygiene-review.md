@@ -43,8 +43,8 @@ or a snooze reset by an unrelated edit, makes the owner's decision temporary.
 
 Reuse the existing markdown log and deterministic CLI operations. A candidate
 already carries category, path and stable evidence (`HygieneCandidate`,
-`packages/core/src/lib/hygiene.ts:68-84`), and its ID derives from those fields
-(`hygieneId`, `packages/core/src/lib/hygiene.ts:181-184`). Those primitives do not
+`packages/core/src/lib/hygiene.ts:69-85`), and its ID derives from those fields
+(`hygieneId`, `packages/core/src/lib/hygiene.ts:182-185`). Those primitives do not
 by themselves supply validation-to-hygiene equivalence, priority selection or
 review dispositions. The CLI exposes reconciliation, listing and deterministic selection
 (`hygieneCommand`, `packages/core/src/cli/commands/hygiene.ts:250-252`).
@@ -135,11 +135,11 @@ shapes are in [the integration contract](../integration-contract/package-api.md#
 
 **Equivalence map.** Each `brain validate` rule becomes a candidate with a
 category and ID evidence (`VALIDATION_JOIN`,
-`packages/core/src/lib/hygiene.ts:199-212`). Validation gives the join a
+`packages/core/src/lib/hygiene.ts:200-213`). Validation gives the join a
 structured detail, so the message is never read (`export interface ValidationDetail`,
-`packages/core/src/lib/validate.ts:43-51`). Candidates are one finding exactly
+`packages/core/src/lib/validate.ts:44-52`). Candidates are one finding exactly
 when category, path and evidence agree, and the join does not depend on their
-order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:283-333`).
+order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:284-334`).
 
 | Validation rule | Category | ID evidence | Joins |
 | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ a source states it; otherwise it stays unknown.
 
 **Evidence fingerprints.** A fingerprint is 12 hex digits of SHA-1 over the
 category and a hash of each field below (`FINGERPRINT_FIELDS`,
-`packages/core/src/lib/hygiene.ts:246-259`). Line numbers, messages, other
+`packages/core/src/lib/hygiene.ts:247-260`). Line numbers, messages, other
 document content and age are never in it.
 
 | Category | Fingerprint fields |
@@ -180,7 +180,7 @@ an invalidation can name the fields that changed.
 entries in `context/hygiene/dismissed.md`, snoozed ones in `snoozed.md`. Each
 records its time and the fingerprint it applied to. `until:` takes an ISO
 date-time or a date; a date is due at the start of that UTC day, as before
-(`function dueAt`, `packages/core/src/lib/hygiene.ts:863-873`). A recorded
+(`function dueAt`, `packages/core/src/lib/hygiene.ts:899-909`). A recorded
 fingerprint that no longer matches reopens the finding at once, with an
 `invalidated:` receipt naming the changed fields and the disposition's date.
 A snooze that comes due reopens it with no receipt.
@@ -190,7 +190,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1538`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1574`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -209,11 +209,11 @@ made (K1 A). It lives in `context/hygiene/kept.md`, which is never created
 empty. It holds only while the original's fingerprint is unchanged and its
 copy is a contained regular file outside `.brain/` and `workspaces/` that
 `media.track` keeps. Otherwise the original reopens with an `invalidated:`
-receipt (`keptInvalidity`, `packages/core/src/lib/hygiene.ts:998-1008`).
+receipt (`keptInvalidity`, `packages/core/src/lib/hygiene.ts:1034-1044`).
 
 Sync's count and review use one read-only function that applies these
 predicates to the log as it stands rather than trusting the file an entry sits
-in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1778-1793`).
+in (K2 B; `mediaReviewCounts`, `packages/core/src/lib/hygiene.ts:1814-1829`).
 Leave pending is a per-pass deferral in review state, never a log state: it
 skips the finding while its fingerprint holds, and the finding still counts.
 
@@ -265,7 +265,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1512-1515`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1548-1551`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content

@@ -106,6 +106,93 @@ describe("search", () => {
   });
 });
 
+// #1352: flag values go through one typed accessor (cli/flags.ts). A malformed
+// one is a usage error (exit 1, message on stderr, nothing on stdout) in both
+// output modes, and is refused before any query runs.
+describe("malformed flag values", () => {
+  const whole = (flag: string, got: string) => `--${flag} must be a whole number of 1 or more, got ${got}`;
+  const invalid: Array<[string, string[], string]> = [
+    ["search --limit abc", ["search", "raft", "--limit", "abc"], whole("limit", '"abc"')],
+    ["search --limit 0", ["search", "raft", "--limit", "0"], whole("limit", '"0"')],
+    ["search --limit -5", ["search", "raft", "--limit", "-5"], whole("limit", '"-5"')],
+    ["search --limit 1.5", ["search", "raft", "--limit", "1.5"], whole("limit", '"1.5"')],
+    ["search --limit 10abc", ["search", "raft", "--limit", "10abc"], whole("limit", '"10abc"')],
+    ["search --mode bogus", ["search", "raft", "--mode", "bogus"], '--mode must be one of fts, vector, hybrid, got "bogus"'],
+    ["a bare search --type", ["search", "raft", "--type"], "--type needs a value"],
+    ["search --tag before another flag", ["search", "raft", "--tag", "--mode", "fts"], "--tag needs a value"],
+    ["list --tag before another flag", ["list", "--tag", "--status", "active"], "--tag needs a value"],
+    ["context --max-tokens abc", ["context", "raft", "--max-tokens", "abc"], whole("max-tokens", '"abc"')],
+    ["briefing --limit abc", ["briefing", "--limit", "abc"], whole("limit", '"abc"')],
+    // These two were usage errors before #1352 and keep their messages.
+    ["search --sort bogus", ["search", "raft", "--sort", "bogus"], '--sort must be one of score, updated, deadline, got "bogus"'],
+    [
+      "a malformed search --updated-since",
+      ["search", "raft", "--updated-since", "yesterday"],
+      '--updated-since needs a date written YYYY-MM-DD, got "yesterday"',
+    ],
+  ];
+  for (const mode of ["--json", "--human"]) {
+    for (const [what, args, message] of invalid) {
+      test(`${what} is a usage error in ${mode} mode, with no output`, async () => {
+        const { stdout, stderr, code } = await runCli(root, [...args, mode]);
+        expect({ code, stdout, stderr: stderr.trim() }).toEqual({ code: 1, stdout: "", stderr: message });
+      });
+    }
+  }
+
+  // Without an index, a query fails with "Database not found". A malformed
+  // flag reports itself instead, so it is refused before any query is tried.
+  test("a malformed flag is refused before the database is opened", async () => {
+    const unindexed = makeTempBrain();
+    try {
+      const valid = await runCli(unindexed, ["search", "raft", "--limit", "5", "--json"]);
+      expect({ code: valid.code, stderr: valid.stderr.trim() }).toEqual({
+        code: 1,
+        stderr: "Database not found. Run `brain index` first.",
+      });
+      for (const [what, args, message] of invalid) {
+        if (args[0] === "list") continue;
+        const bad = await runCli(unindexed, [...args, "--json"]);
+        expect({ what, code: bad.code, stdout: bad.stdout, stderr: bad.stderr.trim() }).toEqual({
+          what,
+          code: 1,
+          stdout: "",
+          stderr: message,
+        });
+      }
+      const add = await runCli(unindexed, ["add", "Penelope weaves by day", "--tags", "--json"]);
+      expect({ code: add.code, stdout: add.stdout, stderr: add.stderr.trim() }).toEqual({
+        code: 1,
+        stdout: "",
+        stderr: "--tags needs a value",
+      });
+      expect(existsSync(join(unindexed, "brain.db"))).toBe(false);
+    } finally {
+      cleanup(unindexed);
+    }
+  });
+
+  const paths = async (args: string[]) => {
+    const { stdout, stderr, code } = await runCli(root, ["search", "raft", "--mode", "fts", ...args, "--json"]);
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    return (JSON.parse(stdout) as { results: Array<{ path: string }> }).results.map((r) => r.path);
+  };
+
+  test("a repeated --limit keeps its last value", async () => {
+    const seven = await paths(["--limit", "7"]);
+    expect(seven).toHaveLength(7);
+    expect(await paths(["--limit", "5", "--limit", "7"])).toEqual(seven);
+  });
+
+  test("valid values keep their results: --limit 50 and --mode fts", async () => {
+    const all = await paths(["--limit", "50"]);
+    // The corpus has fewer than 20 raft matches, so 50 and the default agree.
+    expect(all.length).toBeGreaterThan(7);
+    expect(all.length).toBeLessThan(20);
+    expect(await paths([])).toEqual(all);
+  });
+});
+
 describe("read", () => {
   test("prints the whole file with no flag", async () => {
     const { stdout, code } = await runCli(root, ["read", "me/identity.md"]);

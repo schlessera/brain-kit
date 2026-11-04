@@ -17,6 +17,7 @@ import { SearchPanel } from "../../src/components/quick-actions/search-modal.js"
 import { ZoomViewer } from "../../src/components/viewer/zoom-viewer.js";
 import { DictationSheet } from "../../src/components/voice/dictation-sheet.js";
 import { ReviewCard } from "../../src/components/voice/review-card.js";
+import { OWNED, edgeOwners } from "./hit-reach.js";
 
 const noop = () => {};
 const galleryNames = ["Reveal in tree", "Copy path", "Discard", "Edit", "Append more voice", "Send", "Clear search", "Reset to default root", "Return to Ithaca voyage/return.md"];
@@ -65,7 +66,15 @@ async function ring(el: HTMLElement) {
   const css = getComputedStyle(el);
   return document.activeElement === el && css.outlineStyle === "solid" && css.outlineWidth === "2px" && css.outlineColor !== "rgba(0, 0, 0, 0)";
 }
+/** #3252: a reaching Button keeps its kit paint and, under a coarse pointer,
+ * owns each edge of its 44px target, probed 1px inside. */
+function reaches(el: HTMLElement, pointer: string) {
+  el.scrollIntoView({ block: "center" });
+  return el.classList.contains("bk-hit") && el.style.minHeight !== "44px" && el.getBoundingClientRect().height < 44
+    && JSON.stringify(edgeOwners(el, pointer === "fine" ? 0 : 44)) === JSON.stringify(OWNED);
+}
 function target(el: HTMLElement, pointer: string) {
+  if (el.classList.contains("bk-hit")) return reaches(el, pointer);
   el.scrollIntoView({ block: "center" });
   const r = el.getBoundingClientRect();
   const floor = el.matches('.bk-icon-btn[data-size="sm"]') && pointer === "fine" ? 28 : 44;
@@ -97,7 +106,7 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
       const names = galleryNames.slice(2, 6);
       const buttons = names.map(name => s.find(name).element() as HTMLElement);
       const boxes = buttons.map(el => el.getBoundingClientRect());
-      const fit = buttons.map((el, i) => boxes[i]!.left >= 0 && boxes[i]!.right <= width && boxes[i]!.height >= 44 && el.scrollWidth <= el.clientWidth);
+      const fit = buttons.map((el, i) => boxes[i]!.left >= 0 && boxes[i]!.right <= width && reaches(el, pointer()) && el.scrollWidth <= el.clientWidth);
       const send = boxes[3]!;
       const reference = buttons[3]!.cloneNode(true) as HTMLElement;
       reference.style.cssText += ";position:fixed;visibility:hidden;width:max-content";

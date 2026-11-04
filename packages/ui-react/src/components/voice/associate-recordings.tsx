@@ -65,15 +65,15 @@ export function AssociateRecordings({ onClose }: { onClose: () => void }) {
     <div role="group" aria-label="Recordings to add"><ul className="my-3 space-y-3">
       {rows.map(row => <li key={row.id} className="rounded-lg border border-border p-2">
         <ChoiceOption multiple title={`Add recording from ${recordingClock(row)}, ${recordingDuration(row)}`} subtitle={`${recordingClock(row)} · ${recordingTime(row.durationMs)}`} selected={selected.has(row.id)} onClick={() => { if (busy) return; setSelected(previous => { const next = new Set(previous); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; }); }} />
-        <Button label="Play" ariaLabel={`Play recording from ${recordingClock(row)}, ${recordingDuration(row)}`} tone="ghost" block={false} style={{ minHeight: 44, minWidth: 44 }} disabled={busy || !row.chunkCount} onClick={() => void play(row)} />
+        <Button label="Play" ariaLabel={`Play recording from ${recordingClock(row)}, ${recordingDuration(row)}`} tone="ghost" block={false} reach disabled={busy || !row.chunkCount} onClick={() => void play(row)} />
         {audio?.id === row.id && <audio controls autoPlay src={audio.url} className="mt-2 w-full" />}
         {errors[row.id] && <p role="alert" className="mt-2 text-xs text-destructive">{errors[row.id]}</p>}
       </li>)}
     </ul></div>
     {errors.inventory && <p role="alert" className="text-sm text-destructive">{errors.inventory}</p>}
-    <div className="flex flex-wrap gap-2">
-      <Button label="Add selected to my account" block={false} style={{ minHeight: 44 }} disabled={busy || !selected.size || !account} onClick={() => void add()} />
-      <span data-initial-focus tabIndex={-1}><Button label="Not now" tone="ghost" block={false} style={{ minHeight: 44 }} disabled={busy} onClick={onClose} /></span>
+    <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
+      <Button label="Add selected to my account" block={false} reach disabled={busy || !selected.size || !account} onClick={() => void add()} />
+      <span data-initial-focus tabIndex={-1}><Button label="Not now" tone="ghost" block={false} reach disabled={busy} onClick={onClose} /></span>
     </div>
   </LocalWorkDialog>;
 }

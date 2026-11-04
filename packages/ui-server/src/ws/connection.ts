@@ -24,7 +24,7 @@ export { websocket };
  * principal from an httpOnly cookie. A one-way digest says "same principal or
  * not" without handing the id itself to every page.
  */
-export function answerQueueKey(principalId: string): string {
+function answerQueueKey(principalId: string): string {
   return createHash("sha256").update(`brain-ui-answer-queue\u0000${principalId}`).digest("base64url").slice(0, 22);
 }
 

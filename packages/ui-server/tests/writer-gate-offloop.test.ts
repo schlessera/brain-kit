@@ -1,5 +1,5 @@
 /** The writer gate's transactions commit on the write worker (#2850). */
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,9 +63,9 @@ test("a release counts for this process's next acquisition at once, and settles 
     let settled = false;
     void released.then(() => { settled = true; });
     const next = gate.acquire("exclusive", "revert:ithaca");
-    await Bun.sleep(50);
-    expect(settled, "GATE_RELEASE_SETTLES_AFTER_ITS_COMMIT").toBe(false);
-    await slow;
+    // The release commit is queued on the write worker behind the hold, whose
+    // replies arrive in order: the release has not settled when the hold answers.
+    expect(await slow.then(() => settled), "GATE_RELEASE_SETTLES_AFTER_ITS_COMMIT").toBe(false);
     await released;
     expect(row(f, first.id), "GATE_RELEASE_COMMITTED").toBeNull();
     // Without seeing the release it would wait a whole poll.
@@ -95,9 +95,16 @@ test("a host writer runs only after its downgrade commits, and not if the bounda
       const ran = join(f.root, `ran-${method}`);
       // Once the hold is granted, a slow commit queues ahead of the downgrade
       // and the boundary turns isolated while it waits.
+      // The boundary turns isolated as the downgrade is posted to the worker, behind the slow commit.
+      const send = Worker.prototype.postMessage, descriptor = Object.getOwnPropertyDescriptor(Worker.prototype, "postMessage")!;
+      const posted = spyOn(Worker.prototype, "postMessage").mockImplementation(function (this: Worker, ...args: [message: unknown, options?: StructuredSerializeOptions | Transferable[]]) {
+        const message = args[0] as { kind?: string; name?: string };
+        if (message.kind === "call" && message.name === "unpinned") history = true;
+        return Reflect.apply(send, this, args);
+      });
       const racing = { ...gate, async acquire(...args: Parameters<typeof gate.acquire>) {
         const granted = await gate.acquire(...args);
-        slow = commits.hold(300); setTimeout(() => { history = true; }, 50);
+        slow = commits.hold(300);
         return granted;
       } };
       const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.path, requireGate: true, gate: () => racing, history: () => history,
@@ -105,7 +112,9 @@ test("a host writer runs only after its downgrade commits, and not if the bounda
       expect(boundary.isolated()).toBe(false);
       const execution = { argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", `require("node:fs").writeFileSync(${JSON.stringify(ran)}, "ran")`],
         env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared" as const, purpose: "Odysseus host writer" };
-      await expectRejection(boundary[method](execution), "worker boundary changed", `GATE_HOST_REFUSED_WHEN_BOUNDARY_CHANGED_DURING_ADMISSION_${method}`);
+      try { await expectRejection(boundary[method](execution), "worker boundary changed", `GATE_HOST_REFUSED_WHEN_BOUNDARY_CHANGED_DURING_ADMISSION_${method}`); }
+      finally { posted.mockRestore(); Object.defineProperty(Worker.prototype, "postMessage", descriptor); }
+      expect(history, `GATE_BOUNDARY_TURNED_ISOLATED_AT_THE_DOWNGRADE_${method}`).toBe(true);
       expect(existsSync(ran), `GATE_HOST_CHILD_NEVER_SPAWNED_${method}`).toBe(false);
       await slow;
       await gate.settled();

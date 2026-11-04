@@ -144,9 +144,13 @@ async function noHorizontalScroll(page: Page, label: string) {
 }
 async function targetsAtLeast44(page: Page, selector: string, label: string) {
   // Layout height: an opening dialog's scale animation shrinks client rects.
+  // A reaching Button (#3252) keeps its kit paint and reaches 44px past it
+  // under a coarse pointer; it is held to not drawing a 44px box instead, and
+  // its edges are probed in the pointer lanes (`hit-reach.*.pointer.tsx`).
   const small = await page.evaluate((sel) => [...document.querySelectorAll<HTMLElement>(sel)].filter(element => element.getClientRects().length > 0)
-    .map(element => ({ name: element.getAttribute("aria-label") ?? element.textContent?.trim(), height: element.offsetHeight }))
-    .filter(entry => entry.height < 44), selector);
+    .map(element => ({ name: element.getAttribute("aria-label") ?? element.textContent?.trim(), height: element.offsetHeight,
+      reaches: element.classList.contains("bk-hit") && element.style.minHeight !== "44px" }))
+    .filter(entry => entry.height < 44 && !entry.reaches).map(({ name, height }) => ({ name, height })), selector);
   expect(JSON.stringify({ label, small })).toBe(JSON.stringify({ label, small: [] }));
 }
 

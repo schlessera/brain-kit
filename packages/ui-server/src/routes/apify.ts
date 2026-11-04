@@ -21,7 +21,7 @@ import {
   type ApifyPolicyEdits, type ApifySpendSource,
 } from "../apify/settings.js";
 
-export interface ApifyRoutesDeps {
+interface ApifyRoutesDeps {
   authority: ApifyAuthority;
   /** The live human-owner check every owner route applies to the resolved principal. */
   authorized(principalId: string): boolean;

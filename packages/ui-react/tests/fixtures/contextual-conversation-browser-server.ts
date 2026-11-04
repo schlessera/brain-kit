@@ -157,8 +157,10 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
   if (body.releaseValidation) releaseValidation();
   if (body.identify) identify();
   if (body.release) release();
+  // Kept, pacing only: the reply is a snapshot, and tests poll "step" until
+  // their condition holds, so this drain only batches more frames into it.
   await Bun.sleep(10);
   return Response.json({ frames: frames.splice(0), sent: sent.splice(0), tasks, released, opening, validationHeld, validationCalls, historyPending: pendingHistory.length > 0, providerOpens, providerCloses, missingChatExists: catalog.hasSession!("odysseus-ithaca"), effect: existsSync(join(root, "notes/contextual-raft.md")) });
 } });
-process.on("SIGTERM", async () => { releaseValidation(); releaseOpening(); release(); host.coordinator.reset(); await host.close(); for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history fixture closed.")); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
+process.on("SIGTERM", async () => { releaseValidation(); releaseOpening(); release(); await host.close(); for (const reject of pendingHistory.splice(0)) reject(new Error("Odysseus history fixture closed.")); db.close(); await native.close(); remote?.close(); upstream.stop(true); server.stop(true); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));

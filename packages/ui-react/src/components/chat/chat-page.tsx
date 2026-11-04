@@ -747,7 +747,7 @@ export function ChatPage() {
                         size="sm"
                         icon="expand"
                         block={false}
-                        style={{ minHeight: 44 }}
+                        reach
                         label={
                           `Show ${Math.min(hiddenCount, WINDOW_STEP)} earlier message${
                             Math.min(hiddenCount, WINDOW_STEP) === 1 ? "" : "s"

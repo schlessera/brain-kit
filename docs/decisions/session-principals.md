@@ -178,8 +178,8 @@ ceremony in flight can mint a session for a credential deleted meanwhile.
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
 revocation: `onMessage` dispatches without re-checking (`ws/connection.ts:173`),
 turn startup awaits routing and billing before `startTurn`
-(`resolveTurnTarget`, `ws/run-session.ts:215`; `const billing = await resolveRunBilling`,
-`ws/run-session.ts:412`), and queued follow-ups execute later. Each connection holds a
+(`resolveTurnTarget`, `ws/run-session.ts:105`; `const billing = await resolveRunBilling`,
+`ws/session-run/turn.ts:35`), and queued follow-ups execute later. Each connection holds a
 server-resolved authorization context; revocation marks it invalid
 synchronously, refuses later frames, drops that principal's queued unstarted
 follow-ups, and leaves running work running (cancelling a slot would take other
@@ -243,7 +243,7 @@ mint (owner only, router mounted AFTER the guard)
         ──► upgradeWebSocket((c) => createWsHandlers(host, c.get("principal")))
               (hono passes the context to createEvents:
                hono/helper/websocket/index.js:34)
-        ──► ConnectionState.principal (ws/dispatch.ts:14-17)
+        ──► ConnectionState.principal (ws/handlers/context.ts:14-15)
         ──► clients.add(ws, principalId)
         ──► QueuedFollowUp.principalId / RunningTurn.principalId
               (reset per queued follow-up, like lastResult)

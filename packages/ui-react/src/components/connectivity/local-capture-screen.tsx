@@ -105,11 +105,11 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
       <p className="rounded-xl border border-border bg-surface p-3 text-sm">Recordings made here aren't linked to your account yet. Anyone using this browser can play them. After you sign in you'll choose whether to add them to your account.</p>
       {reachable && <div role="status" className="rounded-xl border border-border bg-surface p-3">
         <p className="mb-2 text-sm">Your server is back.</p>
-        <Button label="Continue" block={false} style={{ minHeight: 44 }} disabled={!ready || leaving} onClick={() => void leave()} />
+        <Button label="Continue" block={false} reach disabled={!ready || leaving} onClick={() => void leave()} />
       </div>}
       <div ref={area}>
         <LocalRecordingSheet inline store={store} open={phase === "recording" || phase === "stopping"} onStop={stop} onDiscard={discard} />
-        <div ref={record}><Button label={phase === "opening" ? "Opening microphone…" : "Record on this device"} style={{ minHeight: 44 }} disabled={!ready || phase !== "idle" || leaving} onClick={() => void capture.start()} /></div>
+        <div ref={record}><Button label={phase === "opening" ? "Opening microphone…" : "Record on this device"} reach disabled={!ready || phase !== "idle" || leaving} onClick={() => void capture.start()} /></div>
       </div>
       {denied && <p role="status" className="text-sm">Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again.</p>}
       {error && <p role="alert" className="text-sm">{error}</p>}
@@ -122,7 +122,7 @@ function LocalCaptureArea({ store, reachable, onContinue }: {
       {lockedBytes !== null && lockedBytes > 0 && <p data-locked-recordings="" className="text-sm text-muted-foreground">Locked recordings · {size(lockedBytes)}<br />Sign in to open them.</p>}
       <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
         <span>Retrying connection…</span>
-        <Button label="Try now" tone="ghost" block={false} style={{ minHeight: 44 }} onClick={root.recheckVpn} />
+        <Button label="Try now" tone="ghost" block={false} reach onClick={root.recheckVpn} />
       </div>
     </div>
   </main>;

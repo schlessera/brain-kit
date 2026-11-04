@@ -42,7 +42,7 @@ export function priorityTerms(thread: InboxThread | undefined, item: InboxAction
   return `stakes ${stakes} · ${urgency} · age ${days}d`;
 }
 
-export interface DecisionGroup {
+interface DecisionGroup {
   thread: InboxThread | undefined;
   threadId: string;
   items: InboxActionItem[];
@@ -75,7 +75,7 @@ export function groupDecisions(items: readonly InboxActionItem[], threads: Recor
 }
 
 /** One stored option, classified for display. */
-export type OptionView =
+type OptionView =
   | { role: "commit"; option: InboxOption; effect: EffectPreviewProps; target: string; tool?: string }
   | { role: "dismiss"; option: InboxOption }
   | { role: "later"; option: InboxOption }
@@ -83,7 +83,7 @@ export type OptionView =
   | { role: "malformed"; option: InboxOption; effect: EffectPreviewProps };
 
 /** Escaped, indented JSON as text. Never markup. */
-export function rawText(value: unknown): string {
+function rawText(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2) ?? String(value);
   } catch {
@@ -97,7 +97,7 @@ export function rawText(value: unknown): string {
  * schema would not accept, so anything that fails it is shown raw, as text,
  * with its commit disabled.
  */
-export function viewOption(option: InboxOption, blockedSubject: string | null): OptionView {
+function viewOption(option: InboxOption, blockedSubject: string | null): OptionView {
   const parsed = inboxOptionSchema.safeParse(option);
   if (!parsed.success) {
     return {

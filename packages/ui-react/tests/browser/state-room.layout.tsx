@@ -6,6 +6,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { touchFloor } from "./hit-reach.js";
 
 // Real consumer DOM and Chromium. Only the lowest transport is a fixture;
 // measurements enter through the same WebSocket result/history handlers.
@@ -91,7 +92,7 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"]) test(`${
   expect(document.activeElement).toBe(composer);
   expect(notice()!.scrollWidth).toBeLessThanOrEqual(notice()!.clientWidth + 1);
   for (const target of notice()!.querySelectorAll<HTMLElement>('[role="button"]')) {
-    const box = target.getBoundingClientRect(); expect(box.height).toBeGreaterThanOrEqual(44);
+    const box = target.getBoundingClientRect(); expect(touchFloor(target), "notice action meets the touch floor (#3252)").toBe("met");
     expect(box.right).toBeLessThanOrEqual(width + 1);
   }
   expect(socket.frames("handoff_prepare")).toEqual([]);
@@ -264,7 +265,7 @@ for (const theme of ["light", "dark"]) test(`${theme}: reflow at the 640 CSS pix
   await expect.poll(notice).not.toBeNull();
   expect(notice()!.scrollWidth).toBeLessThanOrEqual(notice()!.clientWidth + 1);
   for (const target of notice()!.querySelectorAll<HTMLElement>('[role="button"]')) {
-    expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(touchFloor(target), "notice action meets the touch floor (#3252)").toBe("met");
     expect(target.getBoundingClientRect().right).toBeLessThanOrEqual(641);
     expect(target.getBoundingClientRect().bottom).toBeLessThanOrEqual(401);
   }

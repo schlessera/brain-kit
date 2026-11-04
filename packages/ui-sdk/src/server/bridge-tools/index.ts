@@ -39,6 +39,8 @@ export type { InboxToolName } from "./inbox.js";
 export { handleReferenceTool } from "./reference.js";
 export type { ReferenceToolName } from "./reference.js";
 
+export { handleComputeTool } from "./compute.js";
+
 export { handleTurnTemp } from "./turn-temp.js";
 export type { TurnTempPurgeRecord } from "./turn-temp.js";
 

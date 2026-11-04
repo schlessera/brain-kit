@@ -1,7 +1,9 @@
 import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from "node:fs";
-import { lstat, readdir, readFile, stat, realpath } from "node:fs/promises";
-import { join, relative, resolve, sep, posix, dirname } from "node:path";
+import { readdir, readFile, stat, realpath } from "node:fs/promises";
+import { join, relative, resolve, sep, posix } from "node:path";
 import ignore, { type Ignore } from "ignore";
+import { isWithin, resolveContained, type ContainmentPolicy } from "@schlessera/brain-common/internal/safe-path";
+import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import type { FileEntry, FileContentKind } from "@schlessera/brain-ui-sdk/protocol";
 import { FILE_SIZE_CAP_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -25,15 +27,6 @@ const HARD_EXCLUDE_FILE_NAMES = new Set(
   ].map((n) => n.toLowerCase())
 );
 
-const UNRESOLVABLE_PATH_CODES = new Set([
-  "ENOENT",
-  "ENOTDIR",
-  "ENAMETOOLONG",
-  "ELOOP",
-  "EACCES",
-  "EPERM",
-]);
-
 export class PathEscapeError extends Error {
   constructor(rel: string) {
     super(`path_escape: ${rel}`);
@@ -55,93 +48,58 @@ export class TooLargeError extends Error {
   }
 }
 
+const [BRAIN_AREA, SCRATCH_NAME] = BRAIN_SCRATCH_DIR.split("/");
+
 /**
- * Whether a normalized repo-relative path names `.brain`, the scratch area
- * (core's `SCRATCH_DIR`, `.brain/scratch`) or something in it. ui-server does
- * not depend on core (tests/allowed-edges.ts).
+ * Whether a normalized repo-relative path names `.brain` itself, the scratch
+ * area (`BRAIN_SCRATCH_DIR`, `.brain/scratch`) or something in it. Wider than
+ * the scratch area on purpose: `.brain` is included, so `safeResolve` follows
+ * no link anywhere on a path into scratch and the walker lists no link there.
  */
 export function isScratchPath(rel: string): boolean {
   const parts = rel.split("/").filter((part) => part && part !== ".");
-  return parts[0] === ".brain" && (parts.length === 1 || parts[1] === "scratch");
+  return parts[0] === BRAIN_AREA && (parts.length === 1 || parts[1] === SCRATCH_NAME);
 }
+
+/**
+ * ui-server's row of the shared resolver (`@schlessera/brain-common/internal/safe-path`,
+ * #2506): every existing component, not only the final path, stays inside;
+ * a dangling link is refused wherever it points; and a root whose realpath
+ * fails refuses everything (#3422), as core and the SDK do.
+ */
+const SERVER_CONTAINMENT = { missingRoot: "refuse", danglingLinks: "refuse", components: "every" } as const satisfies ContainmentPolicy;
 
 /**
  * Resolve a repo-relative path to an absolute path, rejecting any escape
  * outside the brain root (including via symlinks).
+ *
+ * The request is refused before resolving when it is absolute, holds a NUL,
+ * `:` or `\\` in a segment, or a `..` segment anywhere, even one whose result
+ * would stay inside. The answer is the lexical path under the root's
+ * realpath, links as written, not the canonical one. A refusal throws
+ * `PathEscapeError`; any other filesystem failure throws as it is.
  */
 export async function safeResolve(rel: string, root: string): Promise<string> {
   if (typeof rel !== "string") throw new PathEscapeError(String(rel));
   const requestSegments = rel.split("/");
-  // Reject absolute paths, null bytes, and Windows path syntax before resolving.
   if (
     rel.startsWith("/") ||
     rel.startsWith("\\") ||
     rel.includes("\0") ||
-    requestSegments.some((segment) => segment.includes(":") || segment.includes("\\"))
+    requestSegments.some((segment) => segment === ".." || segment.includes(":") || segment.includes("\\"))
   ) {
     throw new PathEscapeError(rel);
   }
-  // Normalize separators; reject ".." segments anywhere
-  const normalized = rel.replace(/\\/g, "/");
-  for (const seg of normalized.split("/")) {
-    if (seg === "..") throw new PathEscapeError(rel);
-  }
-  const lexicalRoot = resolve(root);
-  let absRoot: string;
-  try {
-    absRoot = await realpath(lexicalRoot);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-    absRoot = lexicalRoot;
-  }
-  const abs = resolve(absRoot, normalized);
-  if (abs !== absRoot && !abs.startsWith(absRoot + sep)) {
-    throw new PathEscapeError(rel);
-  }
-  // Canonicalize every existing component. Stopping at the first genuinely
-  // missing component permits callers to create a new path, while lstat
-  // distinguishes that case from a dangling symlink, which must fail closed.
-  let candidate = absRoot;
-  const candidates = [candidate];
-  for (const segment of relative(absRoot, abs).split(sep)) {
-    if (!segment || segment === ".") continue;
-    candidate = join(candidate, segment);
-    candidates.push(candidate);
-  }
-
   // The scratch area is agent-writable in a hosted worker (#1626), so nothing
   // under `.brain/` is followed through a link: a scratch symlink cannot make
   // the server serve, preview or list another file under a scratch path.
-  const scratchRequest = isScratchPath(normalized);
-  for (const existing of candidates) {
-    let entry;
-    try {
-      entry = await lstat(existing);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code && UNRESOLVABLE_PATH_CODES.has(code)) break;
-      throw err;
-    }
-    if (scratchRequest && entry.isSymbolicLink() && existing.startsWith(join(absRoot, ".brain"))) {
-      throw new PathEscapeError(rel);
-    }
-
-    let real: string;
-    try {
-      real = await realpath(existing);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "ENOENT" || code === "ENOTDIR") {
-        throw new PathEscapeError(rel);
-      }
-      if (code && UNRESOLVABLE_PATH_CODES.has(code)) break;
-      throw err;
-    }
-    if (real !== absRoot && !real.startsWith(absRoot + sep)) {
-      throw new PathEscapeError(rel);
-    }
-  }
-  return abs;
+  const policy: ContainmentPolicy = isScratchPath(rel)
+    ? { ...SERVER_CONTAINMENT, refuseLinkAt: (path, absRoot) => isWithin(join(absRoot, BRAIN_AREA!), path, { separator: sep }) }
+    : SERVER_CONTAINMENT;
+  const result = await resolveContained(root, rel, policy);
+  if (result.ok) return result.lexical;
+  if (result.reason === "error") throw result.error;
+  throw new PathEscapeError(rel);
 }
 
 /**
@@ -197,7 +155,7 @@ async function canonicalRoot(root: string): Promise<string> {
 }
 
 /** Directories a hosted agent can write (#1626): `.brain/scratch` and `workspaces`. */
-const AGENT_WRITABLE = [".brain/scratch", "workspaces"];
+const AGENT_WRITABLE = [BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR];
 
 /**
  * When the requested path or the file it resolves to lies in an
@@ -210,14 +168,11 @@ const AGENT_WRITABLE = [".brain/scratch", "workspaces"];
 async function areaSnapshot(rel: string, abs: string, root: string) {
   if (process.platform !== "linux") return null;
   const absRoot = await canonicalRoot(root);
-  const inArea = (path: string) => AGENT_WRITABLE.some((area) => {
-    const dir = join(absRoot, area);
-    return path === dir || path.startsWith(dir + sep);
-  });
+  const inArea = (path: string) => AGENT_WRITABLE.some((area) => isWithin(join(absRoot, area), path, { separator: sep }));
   let real: string;
   try { real = await realpath(abs); } catch { throw new NotFoundError(rel); }
   if (!inArea(abs) && !inArea(real) && !isScratchPath(rel)) return null;
-  if (real !== absRoot && !real.startsWith(absRoot + sep)) throw new PathEscapeError(rel);
+  if (!isWithin(absRoot, real, { separator: sep })) throw new PathEscapeError(rel);
   return { real, ...readAnchoredSnapshot(real, absRoot, rel)! };
 }
 
@@ -386,7 +341,7 @@ const MIME_BY_EXT: Record<string, string> = {
   ".webm": "video/webm",
 };
 
-export function mimeFor(name: string, kind: FileContentKind): string {
+function mimeFor(name: string, kind: FileContentKind): string {
   const ext = extOf(name);
   if (MIME_BY_EXT[ext]) return MIME_BY_EXT[ext];
   if (kind === "markdown") return "text/markdown; charset=utf-8";
@@ -395,7 +350,7 @@ export function mimeFor(name: string, kind: FileContentKind): string {
   return "application/octet-stream";
 }
 
-export interface FileContent {
+interface FileContent {
   kind: FileContentKind;
   size: number;
   mtime: number;
@@ -581,4 +536,3 @@ export async function resolveAncestors(rel: string, root: string): Promise<{ anc
 }
 
 // Re-export for callers
-export { dirname };

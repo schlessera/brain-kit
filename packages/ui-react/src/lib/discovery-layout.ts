@@ -13,7 +13,7 @@ export const DISCOVERY_PACKING = {
 type Node = Pick<GraphNodePayload, "id" | "distance" | "virtual"> & {
   community?: number | null;
 };
-export interface DiscoveryPoint {
+interface DiscoveryPoint {
   x: number;
   y: number;
   angle: number;
@@ -22,7 +22,7 @@ export interface DiscoveryPoint {
   branch: number | null;
   lane: number;
 }
-export interface DiscoveryWedge {
+interface DiscoveryWedge {
   id: number | null;
   start: number;
   end: number;

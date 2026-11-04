@@ -42,9 +42,9 @@ import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { CACHE_DIR } from "@schlessera/brain-common/internal/cache-location";
 
 /** Distinct reusable bases kept at once; each holds one index copy and one retained checkpoint. */
-export const PRIVATE_INDEX_CACHE_ENTRIES = 2;
+const PRIVATE_INDEX_CACHE_ENTRIES = 2;
 /** A base unused this long is dropped, releasing the checkpoint it pins. */
-export const PRIVATE_INDEX_CACHE_IDLE_MS = 30 * 60_000;
+const PRIVATE_INDEX_CACHE_IDLE_MS = 30 * 60_000;
 /** Changes to what the masked build produces from the same inputs bump this. */
 const BUILD_SEMANTICS = "brain-index-masked-v1";
 const BASE_PREFIX = "brain-private-index-base-";
@@ -56,7 +56,7 @@ const ASSET_EXTENSIONS = [".jpg", ".jpeg", ".png", ".pdf"];
  * index's scans skip hidden names), so the masked build sees them as empty,
  * and what turns write there cannot reach any build.
  */
-export const PRIVATE_INDEX_STATE_FOLDERS = [".brain", ".brain-ui"] as const;
+const PRIVATE_INDEX_STATE_FOLDERS = [".brain", ".brain-ui"] as const;
 
 /** Everything the masked build's output depends on besides the view's content. */
 export interface PrivateIndexIdentity {
@@ -96,7 +96,7 @@ export type PrivateIndexDiffer = (from: WorkerStartupView, to: WorkerStartupView
   Promise<{ candidates: AsyncIterable<NativeBrainDeltaCandidate>; completed: Promise<unknown> } | undefined>;
 
 /** The native send delta between two manager-acquired checkpoints. */
-export const nativePrivateIndexDiffer: PrivateIndexDiffer = async (from, to, signal) => {
+const nativePrivateIndexDiffer: PrivateIndexDiffer = async (from, to, signal) => {
   if (!isManagedWorkerStartupView(from) || !isManagedWorkerStartupView(to)) return undefined;
   const before = nativeWorkerStartupInput(from), after = nativeWorkerStartupInput(to);
   if (before.manager !== after.manager || before.checkpoint.sourceUuid !== after.checkpoint.sourceUuid) return undefined;
@@ -273,7 +273,7 @@ function sweepOrphans(parent: string): void {
 }
 
 /** Runs the masked build over another view into another directory; how a base advances off the turn path. */
-export type PrivateIndexRunner = (view: WorkerStartupView, index: string, signal: AbortSignal) => {
+type PrivateIndexRunner = (view: WorkerStartupView, index: string, signal: AbortSignal) => {
   build(): Promise<{ ok: true } | { ok: false; detail: string }>;
   update(): Promise<{ ok: true; stdout: string } | { ok: false; detail: string }>;
 };
@@ -292,7 +292,7 @@ export type PrivateIndexOutcome = (
   readonly ms?: Readonly<Record<string, number>>;
 };
 
-export interface PrivateIndexCache {
+interface PrivateIndexCache {
   /**
    * Fill `index` (an empty turn-private directory) with an index of the
    * masked `startupView`, reusing the base for `identity` when it provably

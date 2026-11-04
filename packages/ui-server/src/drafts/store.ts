@@ -72,15 +72,15 @@ export class DraftAuthError extends Error {
 }
 
 /** A stored upload not named by any save is removed this long after upload. */
-export const PENDING_ATTACHMENT_TTL_MS = 60 * 60 * 1_000;
+const PENDING_ATTACHMENT_TTL_MS = 60 * 60 * 1_000;
 /** Most stored attachments per draft, listed and not yet listed together. */
-export const MAX_STORED_ATTACHMENTS_PER_DRAFT = MAX_IMAGES_PER_MESSAGE * 2;
+const MAX_STORED_ATTACHMENTS_PER_DRAFT = MAX_IMAGES_PER_MESSAGE * 2;
 /** Receipts kept per draft and operation; older keys are forgotten. */
 const RECEIPTS_PER_DRAFT = 32;
 /** Accepted-send records kept per draft. */
 const SENDS_PER_DRAFT = 8;
 
-export interface SaveDraftInput {
+interface SaveDraftInput {
   /** The `If-Match` revision; 0 creates the draft. */
   ifMatch: number;
   idempotencyKey: string;
@@ -93,14 +93,14 @@ export interface SaveDraftInput {
   outgoing?: DraftOutgoing | null;
 }
 
-export interface ReserveAttachmentInput {
+interface ReserveAttachmentInput {
   /** The declared length, or the per-file maximum when none was declared. */
   bytes: number;
   /** This server process; reservations of another instance are discarded at boot. */
   instanceId: string;
 }
 
-export interface CommitAttachmentInput {
+interface CommitAttachmentInput {
   reservationId: string;
   idempotencyKey: string;
   /** sha256(draftId, nameHint, mediaHint, bytes), computed by the route. */
@@ -109,16 +109,16 @@ export interface CommitAttachmentInput {
 }
 
 /** A committed upload, or the earlier file the same key and request stored. */
-export interface CommitAttachmentResult { file: AttachmentFile; replay: boolean }
+interface CommitAttachmentResult { file: AttachmentFile; replay: boolean }
 
-export interface UploadDraftAttachmentInput {
+interface UploadDraftAttachmentInput {
   idempotencyKey: string;
   mime: DraftImageType;
   name: string | null;
   bytes: Uint8Array;
 }
 
-export interface AcceptDraftInput {
+interface AcceptDraftInput {
   draftRef: DraftRef;
   /** The session the accepted message runs in. */
   sessionId: string;
@@ -137,7 +137,7 @@ export interface AcceptDraftInput {
 }
 
 /** What an accepted chat message did to the draft it named. */
-export type DraftAcceptOutcome = "consumed" | "kept" | "unauthorized";
+type DraftAcceptOutcome = "consumed" | "kept" | "unauthorized";
 
 export interface DraftStore {
   readonly limits: Readonly<SessionDraftLimits>;

@@ -1,5 +1,6 @@
 /** Exact merge-candidate validation; feedback never authorizes merging. */
-import { planFromEnvironment, proofCadence, proofSelections } from "./ci-plan";
+import { planFromEnvironment, proofCadence, proofSelections, redMainSnapshot } from "./ci-plan";
+import type { RedMainRecord } from "./red-main";
 import { checkout, type Checkout } from "./proof-inputs";
 import { GitHubProofAPI, type API } from "./proof-reuse";
 
@@ -46,11 +47,18 @@ async function requireLiveDraft(event: any, api?: API): Promise<void> {
   }
 }
 
-export function validateSelections(root: string, event: any, env: NodeJS.ProcessEnv, outputs: Record<string, string> | undefined): void {
+/**
+ * A main push is planned with the red-main set the metadata job read (#3541):
+ * re-planning without it refuses every push whose open incident widens the selection.
+ */
+export function validateSelections(root: string, event: any, env: NodeJS.ProcessEnv, outputs: Record<string, string> | undefined,
+  redMain: (oid: string | undefined) => RedMainRecord | null = oid => redMainSnapshot(root, oid).record): void {
   const cadence = proofCadence(env, event);
   if (outputs?.cadence !== cadence) throw new Error("Candidate selection cadence is missing or inconsistent");
+  if (env.GITHUB_EVENT_NAME === "push" && !outputs?.red_main_oid) throw new Error("Main proof is missing its red-main coordination snapshot");
+  const record = env.GITHUB_EVENT_NAME === "push" ? redMain(outputs!.red_main_oid) : null;
   const plan = planFromEnvironment(root, { ...env, BASE_SHA: event.pull_request?.base?.sha,
-    BEFORE_SHA: event.before, HEAD_SHA: event.pull_request?.head?.sha ?? env.GITHUB_SHA });
+    BEFORE_SHA: event.before, HEAD_SHA: event.pull_request?.head?.sha ?? env.GITHUB_SHA }, record);
   plan.cadence = cadence;
   for (const [category, selected] of Object.entries(proofSelections(plan))) {
     if (outputs?.[category] !== String(selected)) throw new Error(`${category}: required candidate selection differs from actual inputs`);

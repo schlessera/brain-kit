@@ -22,7 +22,7 @@ export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER,
 export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
 export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, providerUsage, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET, MAX_PROVIDER_REQUEST_BYTES, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal, type ProviderUsage, type ProviderOperation } from "./server/provider-relay.js";
-export { hostProviderCredential } from "./config/env.js";
+export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
 export type { EgressProxyOptions, EgressRecord } from "./server/egress-proxy.js";
 export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
@@ -66,7 +66,7 @@ export { DEFAULT_OUTPUT_STAGING_BYTES, OUTPUT_STAGING_BYTES_ENV, OUTPUT_STAGING_
   hostOutputStagingLimits, outputStagingLimit } from "./server/worker-state-limits.js";
 export { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission,
   workerCommandPolicyNote } from "./server/command-policy.js";
-export type { WorkerCommandPolicy, WorkerCommandRule } from "./server/command-policy.js";
+export type { CompiledWorkerCommandPolicy, WorkerCommandPolicy, WorkerCommandRule } from "./server/command-policy.js";
 
 export { classifyOutwardCall, outwardTarget, BUILTIN_OUTWARD_MCP_DESCRIPTORS } from "./server/outward-actions.js";
 export { prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL, workerOutwardNote } from "./server/outward-policy.js";

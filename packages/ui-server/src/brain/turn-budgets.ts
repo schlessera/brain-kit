@@ -43,7 +43,12 @@ const tokensOf = (usage: TurnUsage): number | null => {
     throw new Error("Completed inference token total overflow");
   return sum;
 };
-/** What a budget receipt covers: the agent's own inference and the CLI's relayed providers (#1673). */
+/**
+ * What a budget receipt covers: the agent's own inference and the CLI's
+ * relayed providers (#1673). Hosted external compute reservations (#3108)
+ * count in the same scopes; the text is a closed enum on the wire, so it is
+ * left unchanged rather than refused by older clients (see the compute ADR).
+ */
 export const TURN_BUDGET_COVERAGE = "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" as const;
 /** With an Apify ledger wired and read: its admitted liability counts too (#3307). */
 export const TURN_BUDGET_APIFY_COVERAGE = "Built-in inference, relayed brain CLI providers and Apify runs this host admitted; other provider and tool spend is not metered" as const;
@@ -70,18 +75,27 @@ const apifyIn = (apify: ApifyReading, scope: BudgetObservation["scope"]): number
 interface ProviderTotals { attempts: number; cost: number; priced: number; tokens: number; measured: number; unpriced_measured: number }
 const NO_PROVIDER_ATTEMPTS: ProviderTotals = { attempts: 0, cost: 0, priced: 0, tokens: 0, measured: 0, unpriced_measured: 0 };
 /**
+ * Hosted external compute jobs in one scope (#3108): an active reservation
+ * counts its reserved amount, a settled one its actual cost or, unknown,
+ * its reservation. A job with neither is an unknown run, never zero.
+ */
+interface ComputeTotals { jobs: number; cost: number; priced: number }
+const NO_COMPUTE_JOBS: ComputeTotals = { jobs: 0, cost: 0, priced: 0 };
+/**
  * One scope's totals against its limits. Unknown is never zero, and never
  * blocks by itself. Admitted Apify liability, when read, is known USD and
- * counts once, beside inference; it never adds tokens.
+ * counts once, beside inference; it never adds tokens. Hosted compute jobs
+ * count as runs with their reserved or settled cost (#3108).
  */
-function observation(scope: BudgetObservation["scope"], selected: Row[], provider: ProviderTotals, policy: EffectiveGovernancePolicy, day: number, apifyUsd?: number): BudgetObservation {
+function observation(scope: BudgetObservation["scope"], selected: Row[], provider: ProviderTotals, policy: EffectiveGovernancePolicy, day: number, apifyUsd?: number,
+  compute: ComputeTotals = NO_COMPUTE_JOBS): BudgetObservation {
   const limits = policy.budgets[scope];
   const knownCosts = selected.filter(row => row.cost_lower_bound !== null), knownTokens = selected.filter(row => row.tokens !== null);
-  const total = selected.length + provider.attempts;
-  const costUsd = total && !knownCosts.length && !provider.priced && apifyUsd === undefined ? null
-    : knownCosts.reduce((sum, row) => sum + row.cost_lower_bound!, 0) + provider.cost + (apifyUsd ?? 0);
+  const total = selected.length + provider.attempts + compute.jobs;
+  const costUsd = total && !knownCosts.length && !provider.priced && !compute.priced && apifyUsd === undefined ? null
+    : knownCosts.reduce((sum, row) => sum + row.cost_lower_bound!, 0) + provider.cost + compute.cost + (apifyUsd ?? 0);
   const tokens = total && !knownTokens.length && !provider.measured ? null : knownTokens.reduce((sum, row) => sum + row.tokens!, 0) + provider.tokens;
-  const unknownRuns = selected.filter(row => row.cost_usd === null).length + provider.attempts - provider.priced;
+  const unknownRuns = selected.filter(row => row.cost_usd === null).length + provider.attempts - provider.priced + compute.jobs - compute.priced;
   const unpricedMeasured = selected.some(row => row.cost_usd === null && row.tokens !== null) || provider.unpriced_measured > 0;
   return { scope, legacyRuns: selected.filter(row => row.legacy).length, costUsd, ...(apifyUsd !== undefined ? { apifyUsd } : {}), tokens, unknownRuns, warnUsd: limits.warn_usd, blockUsd: limits.block_usd,
     blockTokens: limits.block_tokens, ...(limits.warn_tokens !== undefined ? { warnTokens: limits.warn_tokens } : {}),
@@ -143,6 +157,10 @@ export function budgetLedger(db: Database) {
     COALESCE(SUM(cost_usd), 0) AS cost, COUNT(cost_usd) AS priced, COALESCE(SUM(tokens), 0) AS tokens, COUNT(tokens) AS measured,
     COALESCE(SUM(CASE WHEN cost_usd IS NULL AND tokens IS NOT NULL THEN 1 ELSE 0 END), 0) AS unpriced_measured
     FROM provider_relay_usage WHERE ${where}`).get(value) as ProviderTotals;
+  /** Hosted compute jobs in one scope (#3108); see `ComputeTotals`. */
+  const computeTotals = (where: string, value: string | number): ComputeTotals => db.query(`SELECT COUNT(*) AS jobs,
+    COALESCE(SUM(amount), 0) AS cost, COUNT(amount) AS priced FROM (SELECT CASE WHEN status = 'active' THEN reserved_usd
+      ELSE COALESCE(actual_usd, reserved_usd) END AS amount FROM compute_budget_reservations WHERE ${where})`).get(value) as ComputeTotals;
   const saved = (id: string): TurnBudgetReceipt => {
     const row = db.query("SELECT receipt FROM turn_budget_usage WHERE turn_id = ?").get(id) as { receipt: string | null } | null;
     if (!row?.receipt)
@@ -161,7 +179,10 @@ export function budgetLedger(db: Database) {
       const provider = scope === "turn" ? providerTotals("turn_id = ?", id)
         : scope === "session" ? own.session_id === null ? NO_PROVIDER_ATTEMPTS : providerTotals("turn_id IN (SELECT turn_id FROM turn_budget_usage WHERE session_id = ?)", own.session_id)
         : providerTotals("day_start = ?", day);
-      return observation(scope, selected, provider, policy, day, apifyIn(apify, scope));
+      const compute = scope === "turn" ? computeTotals("turn_id = ?", id)
+        : scope === "session" ? own.session_id === null ? NO_COMPUTE_JOBS : computeTotals("session_id = ?", own.session_id)
+        : computeTotals("day_start = ?", day);
+      return observation(scope, selected, provider, policy, day, apifyIn(apify, scope), compute);
     });
     return { listPriceCostUsd: own.cost_usd, listPriceIsEstimate: own.pricing_estimate === null ? null : Boolean(own.pricing_estimate), tokens: own.tokens, observedAt: now,
       coverage: coverageOf(apify), scopes };
@@ -170,7 +191,7 @@ export function budgetLedger(db: Database) {
   const dayObservation = (policy: EffectiveGovernancePolicy, now: number, apify: ApifyReading): BudgetObservation => {
     const day = utcBudgetDay(now);
     const selected = daySelection(rows("", null, day), day);
-    return observation("day", selected, providerTotals("day_start = ?", day), policy, day, apifyIn(apify, "day"));
+    return observation("day", selected, providerTotals("day_start = ?", day), policy, day, apifyIn(apify, "day"), computeTotals("day_start = ?", day));
   };
   const warningCrossings = (id: string, result: TurnBudgetReceipt) => {
     const row = db.query("SELECT session_id FROM turn_budget_usage WHERE turn_id=?").get(id) as {
@@ -235,14 +256,44 @@ export function budgetLedger(db: Database) {
         return { receipt: result, warnings: warningCrossings(turnId!, result), blocked: result.scopes.find(item => item.blocked) };
       }).immediate();
     },
+    /**
+     * Reserve a hosted compute job against its turn's frozen admission, in
+     * one immediate transaction (#3108): refused when any scope is already
+     * blocked or a known reservation would reach a block limit. `usd` null
+     * (no hourly ceiling) is admitted with its cost unknown, bounded only by
+     * the existing blocks (ruling 4). Throws without a frozen admission.
+     */
+    reserveCompute(jobId: string, turnId: string, sessionId: string | null, usd: number | null, policy: EffectiveGovernancePolicy, now: number, apify: ApifyReading = null): ComputeReservation {
+      return db.transaction((): ComputeReservation => {
+        saved(turnId);
+        const before = receipt(turnId, policy, now, apify);
+        const blocked = before.scopes.find(item => item.blocked && (item.scope !== "session" || sessionId !== null));
+        if (blocked) return { verdict: "exceeded", receipt: before, warnings: [], blocked };
+        const over = usd === null ? undefined : before.scopes.find(item => (item.costUsd ?? 0) + usd >= item.blockUsd);
+        if (over) return { verdict: "exceeded", receipt: before, warnings: [], blocked: over };
+        db.query("INSERT INTO compute_budget_reservations (job_id, turn_id, session_id, day_start, reserved_usd, status, reserved_at) VALUES (?,?,?,?,?,'active',?)")
+          .run(jobId, turnId, sessionId, utcBudgetDay(now), usd, now);
+        const after = receipt(turnId, policy, now, apify);
+        db.query("UPDATE turn_budget_usage SET receipt = ? WHERE turn_id = ?").run(JSON.stringify(after), turnId);
+        return { verdict: "ok", receipt: after, warnings: warningCrossings(turnId, after), blocked: undefined };
+      }).immediate();
+    },
+    /** Settle a hosted compute reservation once; a second settle changes nothing. No active turn is needed. */
+    settleCompute(jobId: string, actualUsd: number | null, now: number): boolean {
+      return db.query("UPDATE compute_budget_reservations SET status = 'settled', actual_usd = ?, settled_at = ? WHERE job_id = ? AND status = 'active'")
+        .run(actualUsd, now, jobId).changes > 0;
+    },
   };
 }
+/** A hosted compute reservation's verdict, with the receipt it was judged on. */
+export interface ComputeReservation { verdict: "ok" | "exceeded"; receipt: TurnBudgetReceipt; warnings: BudgetObservation[]; blocked: BudgetObservation | undefined }
 
 /** The write worker imports this module and runs the ledger's writes there (#2850). */
 export const url = import.meta.url;
 export function setup(db: Database): WriteProcedures {
   const ledger = budgetLedger(db);
-  return { begin: ledger.begin, bind: ledger.bind, observe: ledger.observe, warnings: ledger.warnings, backstop: ledger.backstop, observeProvider: ledger.observeProvider };
+  return { begin: ledger.begin, bind: ledger.bind, observe: ledger.observe, warnings: ledger.warnings, backstop: ledger.backstop, observeProvider: ledger.observeProvider,
+    reserveCompute: ledger.reserveCompute, settleCompute: ledger.settleCompute };
 }
 
 /**
@@ -396,6 +447,25 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
       const now = clock();
       return call<BudgetObservationResult | undefined>("observeProvider", turnId, turn?.policy ?? null, attempt,
         { costUsd: priced.costUsd, estimate: priced.estimate, tokens: priced.tokens }, now, turn ? apifyReading(turnId, now) : null);
+    },
+    /**
+     * Hosted external compute (#3108). `reserve` runs under core's admission
+     * lock, after every budget write submitted before it, against the turn's
+     * frozen policy; it throws when the turn has no frozen admission or its
+     * accounting failed, which core reports as `accounting_unavailable`.
+     * `settle` needs no active turn: a job outlives its turn.
+     */
+    compute: {
+      async reserve(jobId: string, turnId: string, sessionId: string | null, usd: number | null): Promise<ComputeReservation> {
+        const turn = current(turnId);
+        if (!turn) throw new Error("Turn has no frozen budget admission");
+        await settled();
+        const now = clock();
+        return call<ComputeReservation>("reserveCompute", jobId, turnId, sessionId, usd, turn.policy, now, apifyReading(turnId, now));
+      },
+      settle(jobId: string, actualUsd: number | null): Promise<boolean> {
+        return call<boolean>("settleCompute", jobId, actualUsd, clock());
+      },
     },
     /**
      * Inference and relayed provider spend alone, for Apify admission

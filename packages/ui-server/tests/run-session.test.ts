@@ -163,8 +163,7 @@ function queuedFollowUp(
 }
 
 function installParkedTurn(host: WsHost, turn: RunningTurn): void {
-  host.coordinator.running.add(turn);
-  host.coordinator.bySession.set("session-1", turn);
+  host.coordinator.registerTurn(turn);
 }
 
 describe("runSession", () => {
@@ -660,7 +659,7 @@ describe("handleChatMessage concurrency", () => {
     const { host, sent, ws } = setupHost(backend, { maxConcurrentSessions: 2 });
     const existing = parkedTurn(backend);
     installParkedTurn(host, existing);
-    host.coordinator.startingSessions = 1;
+    host.coordinator.beginStarting(undefined, { queue: [], cancelled: false });
 
     await handleChatMessage(host, ws, {
       text: "new session",
@@ -677,7 +676,7 @@ describe("handleChatMessage concurrency", () => {
         sessionId: "session-2",
       },
     ]);
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 });
 
@@ -708,7 +707,7 @@ describe("runSession follow-up queue boundaries", () => {
     expect(queuedStatuses(sent)).toHaveLength(1);
     expect(queueErrors(sent)).toHaveLength(1);
     expect(queueErrors(sent)[0]!.message).toContain("queue is full (50 messages)");
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 
   test("the warning starts at 20.0 MB and the message remains queued", async () => {
@@ -737,7 +736,7 @@ describe("runSession follow-up queue boundaries", () => {
     expect(
       observability.logs.count({ severity: "WARN", body: "session follow-up queue is heavy" })
     ).toBe(1);
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 
   test("one byte below 20.0 MB has no warning or queued-status detail", async () => {
@@ -765,7 +764,7 @@ describe("runSession follow-up queue boundaries", () => {
     expect(
       observability.logs.count({ severity: "WARN", body: "session follow-up queue is heavy" })
     ).toBe(0);
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 
   test("exactly 50.0 MB is accepted and the next byte is rejected", async () => {
@@ -796,7 +795,7 @@ describe("runSession follow-up queue boundaries", () => {
     expect(queueErrors(sent)).toHaveLength(1);
     expect(queueErrors(sent)[0]!.message).toContain("50.0 MB of 50.0 MB");
     expect(queueErrors(sent)[0]!.message).toContain("this message needs 0.0 MB");
-    host.coordinator.reset();
+    host.coordinator.cancelAll("Test teardown");
   });
 });
 

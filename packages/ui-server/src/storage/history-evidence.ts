@@ -1,13 +1,13 @@
 import { DAY, HOUR, RECENT, bucket, type Capacity, type HistoryPayload, type Sample } from "./history-model.js";
 
-export type EvidenceReason = "no-observation" | "stale" | "future" | "incomplete" | "changed-scope" | "changed-capacity" | "gap" | "ordering" | "insufficient-count" | "insufficient-span" | "mixed-direction" | "single-burst" | "arithmetic";
+type EvidenceReason = "no-observation" | "stale" | "future" | "incomplete" | "changed-scope" | "changed-capacity" | "gap" | "ordering" | "insufficient-count" | "insufficient-span" | "mixed-direction" | "single-burst" | "arithmetic";
 export interface WindowEvidence {
   state: "unavailable" | "finite" | "non-depleting";
   reason: EvidenceReason | null;
   start: number | null; end: number | null; samples: number;
   depletionPerDay: number | null; days: number | null;
 }
-export interface ObservedRate { start: number; end: number; samples: number; bytesPerDay: number }
+interface ObservedRate { start: number; end: number; samples: number; bytesPerDay: number }
 export interface CapacityEvidence {
   identity: string; rootScope: string;
   at: number; total: number | null; available: number | null;

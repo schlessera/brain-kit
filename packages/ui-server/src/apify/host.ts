@@ -40,10 +40,9 @@ import type { ProviderExposure } from "../brain/governance-policy.js";
 import { APIFY_PROVIDER_ROUTING } from "./routing.js";
 import { coreSitePermission } from "./site-permission.js";
 
-export { APIFY_PROVIDER_ROUTING } from "./routing.js";
 
 /** How often open runs are settled, timed out and cleaned up while the server runs. */
-export const APIFY_RECONCILE_INTERVAL_MS = 5 * 60_000;
+const APIFY_RECONCILE_INTERVAL_MS = 5 * 60_000;
 
 /** The authenticated turn a call arrived on, as the host knows it. */
 export interface ApifyHostTurn {
@@ -57,7 +56,7 @@ export interface ApifyHostTurn {
   readonly signal: AbortSignal;
 }
 
-export interface ApifyHostOptions {
+interface ApifyHostOptions {
   brainPath: string;
   /** The shared ledger file, outside every brain. */
   ledgerPath: string;

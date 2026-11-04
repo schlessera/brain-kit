@@ -45,6 +45,10 @@ async function ready(path: string) {
   expect(existsSync(path), "ACTUAL_HOST_CHILD_ENTERED").toBe(true);
 }
 
+// Negative windows below: a waiting writer-gate acquisition retries its SQLite
+// row every `pollMs` (5 ms here) and reports nothing for a refused attempt, and
+// correct code never admits it. 30 ms, about six refused polls, is the only
+// observable that the waiter saw the holder and stayed out.
 for (const method of ["run", "launch"] as const) {
   test(`${method}: a shared host child is accounted and remains concurrent with another shared holder`, async () => {
     const f = fixture();
@@ -117,6 +121,7 @@ for (const method of ["run", "launch"] as const) {
       const exclusive = await f.gate.acquire("exclusive", "existing exclusive owner"); f.holds.push(exclusive);
       const cancel = new AbortController();
       const waiting = settle(selected[method]({ ...f.command("shared", entered), signal: cancel.signal }));
+      // Cancel inside the gate wait (see the note above the loop), not before the first poll.
       await Bun.sleep(30); cancel.abort(new Error("Odysseus cancelled"));
       expect(String(await waiting), "CANCELLED_HOST_REQUEST_SETTLES_WITHOUT_A_CHILD").toContain("Odysseus cancelled");
       exclusive.release();

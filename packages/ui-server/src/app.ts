@@ -27,14 +27,14 @@ import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import { basename, dirname, join, resolve } from "path";
-import { existsSync, lstatSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createTurnScope } from "./brain/turn-scope.js";
 import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
@@ -152,7 +152,7 @@ import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory
 import { createGovernedTurns } from "./brain/governed-turn.js";
 import { createProviderExposures } from "./brain/provider-exposure.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
-import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock, validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
 import { createScratchPins } from "./cron/scratch-pins.js";
 import { startScratchPrune } from "./cron/scratch-prune.js";
@@ -170,6 +170,7 @@ import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { registerReferenceWrites } from "./brain/reference-writes.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createReferenceTools } from "./brain/reference-tools.js";
+import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
 import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
 import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
@@ -184,6 +185,13 @@ export interface HostVersionRequirements {
 }
 
 export interface CreateAppOptions {
+  /**
+   * @internal Test overrides for hosted external compute (#3108): the
+   * configuration reader, core entry, service registry, transport, clock and
+   * credential reader. Production reads the brain's configuration as data in
+   * a masked worker and imports the optional `@schlessera/brain` peer.
+   */
+  computeOverrides?: Partial<Pick<import("./brain/compute-host.js").ComputeHostOptions, "readConfig" | "core" | "serviceOptions" | "driver" | "credential" | "clock" | "workerEnvExtra">>;
   /** Tighten ordinary hosted turns to the read-only brain profile. Default: governed. */
   workerProfile?: "governed" | "strict";
   /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
@@ -343,6 +351,18 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const privateStatePaths = config.inbox?.pokeTokenFile
     ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
   privateStatePaths.push({ setting: "Storage transfer cache", path: storageCacheRoot }, { setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
+  // Hosted external compute state (#3108, ruling R5): host operational state
+  // beside the database, refused inside the brain and masked from workers.
+  // An ephemeral database has no durable place for it, so compute is off.
+  // An unconfigured host (no bound credential, no earlier state) creates and
+  // masks nothing, so it boots exactly as before hosted compute existed.
+  const computeSettings = config.compute ?? resolveComputeConfig({}, config.dbPath);
+  const computeConfigured = Object.keys(computeSettings.keys).length > 0
+    || (computeSettings.stateDir !== null && existsSync(computeSettings.stateDir));
+  if (computeSettings.stateDir && computeConfigured) {
+    privateStatePaths.push({ setting: "BRAIN_UI_COMPUTE_STATE_DIR", path: computeSettings.stateDir });
+    mkdirSync(computeSettings.stateDir, { recursive: true, mode: 0o700 });
+  }
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
   const nativeMaskPaths = nativeReady.privatePaths;
@@ -695,6 +715,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const scope = createTurnScope(db, { brainPath: config.brainPath, journal, writer, governance: activity.governanceWrites, log: brainLog,
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
+  // Built before the host it is handed to, so the two share one worker lock.
+  const workerLock = createKeyedLock();
+  const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: workerLock, governance: activity.governanceWrites,
+    isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+    refresh() { host.governedTurns?.refresh(host.workerLock); } });
+  const computeHost = createComputeHost({ db, brainPath: config.brainPath, stateDir: computeSettings.stateDir,
+    stateMasked: computeConfigured && computeSettings.stateDir !== null && turnMaskPaths.includes(realpathSync(computeSettings.stateDir)),
+    keys: computeSettings.keys, workerEnvExtra: computeSettings.workerEnvExtra,
+    readConfig: ctx => readHostedComputeConfig({ brainPath: config.brainPath, nativeManager, maskPaths: turnMaskPaths, policy: ctx.policy, signal: AbortSignal.timeout(60_000) }),
+    budgets, activity, log: brainLog, ...options.computeOverrides });
+  bootCleanup.push(() => computeHost.close());
   // Apify (#3159): off unless the governance policy enables it; the token never leaves the host.
   const apify = createApifyAuthority({ policy: governanceApifyPolicy(config.brainPath), token: apifyTokenSource(),
     store: { read: () => getSetting<unknown>(db, APIFY_AUTHORITY_SETTING, null), write: record => settingsWrites.setSetting(APIFY_AUTHORITY_SETTING, record) } });
@@ -714,6 +745,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const stopApifyReconciler = apifyHost.startReconciler();
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
   const host = new WsHost({
+    turnReverts: reverts,
+    workerLock,
+    computeTools: computeHost,
     identitySentinelDirectory,
     scope,
     policyProposals,
@@ -782,6 +816,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     },
   });
   bootCleanup.push(async () => { try { await host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
+  // Every unsettled hosted compute job is reattached before any turn can run (#3108).
+  await computeHost.recover();
+  // A retired conversation's compute jobs are cancelled with it.
+  const retireChat = catalog.retireChat?.bind(catalog);
+  if (retireChat) catalog.retireChat = async (input, busy) => {
+    const result = await retireChat(input, busy);
+    if (result.status === "retired") for (const sessionId of result.identities.sessions) {
+      void computeHost.cancelSession(sessionId).catch(error => brainLog.emit({ severityText: "WARN", body: `compute jobs of a retired conversation were not cancelled: ${String(error)}` }));
+    }
+    return result;
+  };
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
     privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
@@ -996,7 +1041,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Chat's runtime beside what scheduled syncs ran (#290). A failed read
       // leaves the sync half out rather than failing the status.
       getRuntime: () => {
-        const snapshot = activity.runtime.snapshot();
+        const snapshot = { ...activity.runtime.snapshot(), compute: computeHost.status() };
         try {
           return { ...snapshot, sync: readSyncRuntime(db) };
         } catch {
@@ -1091,11 +1136,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   bootCleanup.push(() => storageRemoval.close());
   app.route("/api", createStorageRemovalRoutes(storageRemoval));
 
-  const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock, governance: activity.governanceWrites,
-    isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
-    refresh() { host.governedTurns?.refresh(host.workerLock); } });
   bootCleanup.push(() => reverts.close());
-  host.turnReverts = reverts;
   // Media review effects (#2781) capture in this same journal under the same
   // writer gate. Once attached, an effect a restart interrupted is compensated.
   const mediaGate = hostExecution.gate();
@@ -1290,7 +1331,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     close: () => closing ??= guardSqliteCleanup([writer, nativeLeases.writer], (async () => {
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
-      host.closing = true;
+      host.beginClosing();
       // Queued module metadata is cancelled now (#2457). In-flight work gets a
       // short grace period; then shared CLI runs (reads and plain index) are
       // cancelled so they cannot hold close open (#2473).
@@ -1311,6 +1352,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // The public close deadline never releases a still-owned storage borrower.
       await attempt(() => host.dialogue.settled(true));
       await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });
+      // Hosted compute jobs outlive turns; those without remote expiry are cancelled (R7).
+      await attempt(() => computeHost.close());
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
       await attempt(() => storage.close());

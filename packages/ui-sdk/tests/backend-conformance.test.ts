@@ -156,6 +156,12 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-policy", name: "propose_policy_change", input: { content: "---\nschema_version: 1\nprofiles:\n  interactive: strict\n---\nOdysseus reviews the policy.\n", rationale: "Review strict for the next crossing." } },
   { toolUseId: "call-reference-source", name: "reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } },
   { toolUseId: "call-reference-worktree", name: "reference_worktree", input: { action: "list" } },
+  { toolUseId: "call-compute-health", name: "brain_compute_health", input: {} },
+  { toolUseId: "call-compute-plan", name: "brain_compute_plan", input: { provider: "boat-small", argv: ["make", "charts"] } },
+  { toolUseId: "call-compute-run", name: "brain_compute_run", input: { provider: "boat-small", argv: ["make", "charts"], lease_seconds: 600 } },
+  { toolUseId: "call-compute-status", name: "brain_compute_status", input: { job: "cj_ithaca" } },
+  { toolUseId: "call-compute-cancel", name: "brain_compute_cancel", input: { job: "cj_ithaca" } },
+  { toolUseId: "call-compute-collect", name: "brain_compute_collect", input: { job: "cj_ithaca" } },
   { toolUseId: "call-block", name: "show_block", input: { block: { kind: "link", url: "https://ithaca-harbour.example/tides", title: "Harbour tide tables" } } },
 ];
 
@@ -189,6 +195,12 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
         if (result.isError) throw new Error(result.text);
         return result.text;
       });
+      case "brain_compute_health": case "brain_compute_plan": case "brain_compute_run":
+      case "brain_compute_status": case "brain_compute_cancel": case "brain_compute_collect":
+        return sdk.handleComputeTool(call.name, input, bridge, call.toolUseId).then(result => {
+          if (result.isError) throw new Error(result.text);
+          return result.text;
+        });
       case "show_block": return sdk.handleShowBlock(input);
       // The backend's own worker /tmp as the server holds it; here a directory.
       case "turn_temp": return sdk.handleTurnTemp(input, { root: () => join(brainPath, "assets"), allowanceBytes: 64 * 1024 * 1024,
@@ -266,6 +278,10 @@ describe("a backend built only from public /server names", () => {
             refreshedAt: "2026-07-12T00:00:00.000Z", validatedAt: "2026-07-12T00:00:00.000Z", error: null }, guidance: "Read only under path." }
           : { ok: true, action: "list", worktrees: [], truncated: false, guidance: "No worktrees." };
       },
+      compute: async call => {
+        asked.push(`${call.tool}:${call.toolUseId}:${JSON.stringify(call.input)}`);
+        return { ok: true, tool: call.tool };
+      },
     };
 
     await publicOnlyBackend(brainPath, PUBLIC_CALLS).startTurn({ prompt: "use every bridge tool", signal: new AbortController().signal, bridge });
@@ -280,6 +296,10 @@ describe("a backend built only from public /server names", () => {
       "get_current_location", "request_image_mask:assets/sail.png", "query_activity:recent",
       "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1", "complete_share:harbor-receipt", "propose_policy_change:call-policy",
       'reference_source:{"repository":"https://github.com/odysseus/ithaca","revision":"main"}', 'reference_worktree:{"action":"list"}',
+      "brain_compute_health:call-compute-health:{}", 'brain_compute_plan:call-compute-plan:{"provider":"boat-small","argv":["make","charts"]}',
+      'brain_compute_run:call-compute-run:{"provider":"boat-small","argv":["make","charts"],"lease_seconds":600}',
+      'brain_compute_status:call-compute-status:{"job":"cj_ithaca"}', 'brain_compute_cancel:call-compute-cancel:{"job":"cj_ithaca"}',
+      'brain_compute_collect:call-compute-collect:{"job":"cj_ithaca"}',
     ]);
     const output = (id: string) => results.get(id)!.output;
     expect(JSON.parse(output("call-ask")).answers).toEqual({ "Which harbour first?": "Ithaca" });

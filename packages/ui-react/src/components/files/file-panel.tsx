@@ -198,7 +198,7 @@ function MarksTreeArea({ tree, onListShown }: { tree: ReactNode; onListShown?: (
       {note ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 text-xs text-foreground" data-untrusted-find-note="">
           <span className="flex-1 py-2">Open the moved file and use Mark untrusted.</span>
-          <TextButton tone="meta" label="Dismiss" onClick={() => setNote(false)} style={{ minHeight: 44 }} />
+          <TextButton tone="meta" label="Dismiss" onClick={() => setNote(false)} />
         </div>
       ) : null}
       {tree}
@@ -306,7 +306,7 @@ function FilePanes({ onClose, panelRef }: { onClose: () => void; panelRef: RefOb
             />
           </div>
           <div className="shrink-0 pt-2">
-            <Button label="Close" icon="dismiss" tone="ghost" size="sm" block={false} style={{ minHeight: 44 }} onClick={onClose} />
+            <Button label="Close" icon="dismiss" tone="ghost" size="sm" block={false} reach onClick={onClose} />
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">

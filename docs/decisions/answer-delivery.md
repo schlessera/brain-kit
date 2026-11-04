@@ -70,7 +70,7 @@ manufacture an identity, and it was not needed.
 ## One card per request
 
 The store updates a request it already holds and never appends it again
-(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:289-320`). A
+(`addExchange`, `packages/ui-react/src/stores/chat-slices/ask-user.ts:32-63`). A
 settled card stays settled, so a late or replayed frame cannot revive a
 dismissed or answered question. A pending card keeps its payload and the
 exchange object it is keyed by, so a draft in progress survives a re-send.
@@ -82,7 +82,7 @@ carries, no longer by position.
 
 The host also re-sends a session's pending questions after `session_resume`
 (`resendPendingAsks(host, ws, msg.sessionId)`,
-`packages/ui-server/src/ws/dispatch.ts:678`). Before this, a resume replaced
+`packages/ui-server/src/ws/handlers/session-resume.ts:37`). Before this, a resume replaced
 the transcript and left only a history card behind, which was the second
 symptom.
 
@@ -91,7 +91,7 @@ symptom.
 Each answer carries a client-minted `submissionId`, reused for every retry of
 that answer. The host settles the request at most once, records the outcome,
 and answers the sender with `ask_answer_receipt` (`handleAskAnswer`,
-`packages/ui-server/src/ws/ask-answers.ts:105-181`). A repeat of the same
+`packages/ui-server/src/ws/ask-answers.ts:84-138`). A repeat of the same
 submission gets the same receipt and settles nothing.
 
 Revision 3's echo is negotiated per connection: a client that declares
@@ -126,7 +126,7 @@ that fails leaves the card editable and sends nothing, because sending an
 answer that would not survive a reload breaks the promise the queued state
 makes. After a reconnect or a takeover, every held answer asks for its
 status first and is sent again only while the host reports it `pending`
-(`function replay(entry`, `manager.ts:321-325`).
+(`function replay(entry`, `manager.ts:319-323`).
 
 Admission against Queue A is decided, and its storage write committed, under
 one lock that every tab shares. The count and byte totals are read from what
@@ -174,7 +174,7 @@ A host hello can arrive while startup is still reading the previously stored
 principal. The completed storage read is only a fallback: it cannot replace
 the newer host identity, even with an empty first-visit value. A read begun
 before logout or disposal cannot restore admission authority (`async function
-restore`, `packages/ui-react/src/lib/answer-delivery/manager.ts:705-725`). Without
+restore`, `packages/ui-react/src/lib/answer-delivery/manager.ts:703-723`). Without
 the check after the await, a real offline Submit could incorrectly say Not
 saved, or queue its answer under an older principal.
 
@@ -320,7 +320,7 @@ in both themes, using the keyboard.
 The late stored-principal race has one native `ask_user` representative.
 All four ChatPage adapters enter `submitAnswer`; the first host frame calls
 `answers.connected()` without selecting an answer kind (`answersReady = true`,
-`packages/ui-react/src/connection.ts:398-399`). The shared restore path must
+`packages/ui-react/src/ws-client/account.ts:74-75`). The shared restore path must
 preserve that newer principal. Repeating this browser race for list, rank and
 form adds no separate startup path. Their online and offline/reload native
 cases remain: input adapters, `answerFrame` serialization and host dispatch

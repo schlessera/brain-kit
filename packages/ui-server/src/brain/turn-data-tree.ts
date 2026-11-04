@@ -51,7 +51,7 @@ export interface AppliedEffect {
 }
 
 /** The provider rules a masked turn's tree admits effects under. */
-export interface TurnTreeMasks {
+interface TurnTreeMasks {
   /** The folders the turn's recipient may not see. */
   readonly folders: readonly string[];
   /** Everything its index build sees as empty: `folders` and the operational-state folders. */
@@ -418,7 +418,7 @@ export async function createTurnDataTree(options: {
  * at or under the data tree is `data`; anything else outside the brain is
  * `other`. Bounded like the kernel's own link limit.
  */
-export function workerPathTarget(brainPath: string, view: string, path: string): { kind: "brain"; rel: string } | { kind: "data" } | { kind: "other" } {
+function workerPathTarget(brainPath: string, view: string, path: string): { kind: "brain"; rel: string } | { kind: "data" } | { kind: "other" } {
   const within = (dir: string, target: string) => target === dir || target.startsWith(`${dir}/`);
   let pending = (path.startsWith("/") ? path : `${brainPath}/${path}`).replace(/^\/proc\/(?:self|thread-self|[0-9]+)\/root(?=\/|$)/u, "").split("/");
   let current: string[] = [], links = 0;

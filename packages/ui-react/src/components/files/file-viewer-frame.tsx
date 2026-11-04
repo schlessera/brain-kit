@@ -1,4 +1,4 @@
-import { Button, IconButton, Callout, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
+import { Button, IconButton, EmptyState, FilterRow, Placeholder } from "@schlessera/brain-ui-kit";
 import { Check, Copy, ExternalLink, FolderOpen } from "lucide-react";
 import type { ReactNode } from "react";
 import type { FileLoadFailure } from "../../stores/file-state.js";
@@ -15,9 +15,9 @@ import type { FileLoadFailure } from "../../stores/file-state.js";
  * The reveal and copy controls use the kit IconButton. The HTML "Open in
  * new tab" link stays native, and the share menu arrives rendered.
  */
-export type ViewMode = "preview" | "raw";
+type ViewMode = "preview" | "raw";
 
-export interface ViewerToolbarProps {
+interface ViewerToolbarProps {
   fileName: string;
   fullPath: string;
   size?: number;
@@ -111,16 +111,8 @@ export function ViewerFailure({ failure, onRetry }: { failure: FileLoadFailure; 
   return <div className="px-6 py-6">
     <h3 className="text-base font-medium text-foreground [overflow-wrap:anywhere]">{title}</h3>
     {body && <p className="mt-2 text-sm text-muted-foreground [overflow-wrap:anywhere]">{body}</p>}
-    {retry && <div className="mt-5 w-full laptop:w-fit"><Button label="Try again" tone="ghost" size="md" block={false} style={{ minHeight: 44, minWidth: 44 }} onClick={onRetry} /></div>}
+    {retry && <div className="mt-5 w-full laptop:w-fit"><Button label="Try again" tone="ghost" size="md" block={false} reach onClick={onRetry} /></div>}
   </div>;
-}
-
-export function ViewerError({ message }: { message: string }) {
-  return (
-    <div className="m-4" role="alert">
-      <Callout tone="red" variant="banner" icon="failed" mono text={message} />
-    </div>
-  );
 }
 
 /**

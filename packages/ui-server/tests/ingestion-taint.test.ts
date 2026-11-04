@@ -97,3 +97,15 @@ test("a taint that cannot be persisted stops the turn instead of leaving outward
     recorder.finish("error");
   } finally { db.close(); }
 });
+
+test("a collected external compute job's output is a taint source on both backends (#3108)", () => {
+  expect(inputTaintSource("mcp__brain-ui__brain_compute_collect", { job: "cj_ithaca" }, brain), "COMPUTE_OUTPUT_TAINTS_CLAUDE").toBe("compute_output");
+  expect(inputTaintSource("brain_compute_collect", { job: "cj_ithaca" }, brain), "COMPUTE_OUTPUT_TAINTS_PI").toBe("compute_output");
+  // Status, plan and the other compute tools return host records, not remote output.
+  for (const tool of ["brain_compute_status", "mcp__brain-ui__brain_compute_run", "brain_compute_health"]) expect(inputTaintSource(tool, { job: "cj_ithaca" }, brain)).toBeNull();
+  const db = createUiDb(":memory:");
+  try {
+    recordGovernanceEvent(db, { kind: "taint", payload: { source: "compute_output", tool: "brain_compute_collect", detail: null }, sessionId: "sess-ithaca", turnId: "t-1", actor: "interactive", model: null, profile: null });
+    expect(queryGovernanceEvents(db, { turnId: "t-1", kinds: ["taint"], limit: 5 }).map(event => event.payload), "COMPUTE_OUTPUT_TAINT_RECORDED").toEqual([{ source: "compute_output", tool: "brain_compute_collect", detail: null }]);
+  } finally { db.close(); }
+});

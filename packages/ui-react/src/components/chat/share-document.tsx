@@ -22,7 +22,7 @@ import { usableBlocks } from "./markdown-content.js";
 import { BlockCard } from "./tool-cards/block-card.js";
 
 /** One piece of the shared answer, in the order the reader saw it. */
-export type ShareSegment = { kind: "markdown"; text: string } | { kind: "block"; block: Block };
+type ShareSegment = { kind: "markdown"; text: string } | { kind: "block"; block: Block };
 
 /**
  * The answer as the transcript draws it: each text part, with the blocks the

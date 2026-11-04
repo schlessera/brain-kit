@@ -94,6 +94,33 @@ most 1,000 rows, explicitly marks truncation, and leaves the complete retained
 governance event query available. No permission/card or protocol revision is
 added.
 
+### Hosted external compute (additive, 0.45.0, #3108)
+
+A hosted external compute job is its own Activity root run, run id
+`compute:<job id>`, with the new span origin `compute`: kind `tool`, name
+`compute_job`, `jobName` the instance id, the conversation's `sessionId` and
+`principalId`, and attributes linking it to the turn
+(`brain.compute.turn`) and tool call (`brain.compute.tool_use`), with the
+lease, estimate and source hash. It records each state it is seen in as a
+`compute_state` event and ends `success`, `error`, `cancelled` or `timeout`
+with the cleanup fact in `brain.compute.cleanup`; `usage.costUsd` is set only
+for a complete provider cost. A job whose outcome is `uncertain` stays open
+with `brain.compute.stuck: true`. `ActivitySpanOrigin` and the span schema
+accept `compute`. A host sends a compute run, in snapshots and deltas, only to
+a connection whose `client_hello` declared `capabilities.activityCompute`
+(`ACTIVITY_COMPUTE_CAPABILITY`), which the shipped client does; an older
+client never receives one. HTTP Activity reads follow the same rule: `GET
+/api/activity/runs` lists compute runs, live and historical, only when the
+request declares `?activityCompute=1`, and `GET /api/activity/runs/:runId`
+for a `compute:` run without it answers `404` as an unknown run. The shipped
+client declares it on both.
+
+The outward `action` vocabulary gains `compute_run` (a run's approval
+decision, its target the instance id), in governance events and in the
+journal's `outwardActions` rows (`JournalOutwardAction.action`). The `taint`
+source vocabulary gains `compute_output`, recorded when a collect returns a
+remote machine's output. Older observers may ignore both.
+
 ### Completed inference usage and budgets (additive, #1669)
 
 `usage` carries `{ type, turnId, sessionId?, usage: TurnUsage, observedAt,

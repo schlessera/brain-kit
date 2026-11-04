@@ -269,7 +269,7 @@ resolved; direction affects an explicit root, not precomputed default distances.
 Preserve existing maintenance ordering, unresolved link text and stale cutoff.
 
 Core CLI graph helpers have different defaults, fields and cap behavior
-(`getClusterGraph`, `packages/core/src/lib/graph/queries.ts:181-204`). They may share private mechanics, but their public CLI `--json`
+(`getClusterGraph`, `packages/core/src/lib/graph/queries.ts:142-159`). They may share private mechanics, but their public CLI `--json`
 shapes/defaults remain unchanged. Pi and MCP link walking default to depth 1/both.
 Pi and the supported link-walk query clamp depth to 1..4; core MCP's own cap is 5.
 It is a different result from the drawn graph: unresolved text is preserved and cycle/deduplication behavior

@@ -80,7 +80,6 @@ function setup(options: {
   });
   cleanup = async () => {
     for (const turn of turns) turn.answer("");
-    host.coordinator.reset();
     await host.close();
     db.close();
   };
@@ -602,7 +601,7 @@ describe("second review pass: identity, resync and retry", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
+    cleanup = async () => { await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -641,7 +640,7 @@ describe("third review pass: failure, metering and teardown", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
+    cleanup = async () => { await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -805,7 +804,7 @@ describe("fifth review pass: cancellation and follow-up boundaries", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = async () => { for (const t of turns) t.answer(""); host.coordinator.reset(); await host.close(); db.close(); };
+    cleanup = async () => { for (const t of turns) t.answer(""); await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -979,7 +978,7 @@ describe("permission authority stays with the host", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
+    cleanup = async () => { await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;
@@ -1026,7 +1025,7 @@ describe("permission authority stays with the host", () => {
       },
     });
     const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: live.provider });
-    cleanup = async () => { host.coordinator.reset(); await host.close(); db.close(); };
+    cleanup = async () => { await host.close(); db.close(); };
     const handlers = createWsHandlers(host, testPrincipal());
     const sent: string[] = [];
     const ws = { send: (d: string) => sent.push(d) } as WSContext;

@@ -7,7 +7,7 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 
 import type { CompletionProvider } from "../../lib/seams.js";
 import { hybridSearch, type SearchDeps } from "../../lib/search-engine.js";
-import { safeResolve } from "../../lib/safe-path.js";
+import { brainRelativeArgument, safeResolve } from "../../lib/safe-path.js";
 import { openDatabase } from "../../lib/db.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import type { SearchOptions } from "../../lib/types.js";
@@ -188,7 +188,7 @@ export const processCommand: CoreCommand = {
         return;
       }
 
-      const notePath = pos[0];
+      const notePath = pos[0] && brainRelativeArgument(cli.brain.root, pos[0]);
       if (!notePath) {
         throw new UsageError("Usage: brain process <path> [--keep-note] [--all]");
       }

@@ -95,6 +95,47 @@ Existing issues #1242 (PDF effect readiness), #1685 (hygiene layout readiness),
 #1837 (repeated build attribution), and the recording/matrix children retain their
 ownership rather than being duplicated here.
 
+### Re-census of later files
+
+The inventory above is a snapshot. Waits added after it are held to the same
+rule ([#3332](https://github.com/schlessera/brain-kit/issues/3332)). The
+[re-census](https://github.com/schlessera/brain-kit/tree/a13f2247adcc3946d44c023553ff662e926143ea/scripts/measurements/wait-census-3332-2026-11-02)
+runs the same expression at `3984040f199cbadbee6e4ce3f1beff816b68dc36`. It
+classifies every match in files that do not match at the inventory source
+(604 lines in 204 files) as justified, replaceable or not a wait. The
+classification is rule-based and does not count executions. A slice that
+replaces waits re-reads each enclosing test first, and its pull request records
+any reclassification and its mutation receipts.
+
+| Source / assertion | Attributed role and retained proof | Completion control / native boundary |
+| --- | --- | --- |
+| `private-index-cache.test.ts`, idle expiry and active-base skip | Registered idle timers, armed and delivered while a turn holds the base; expiry still applies once the turn finishes | `privateIndexClock` owns only the cache's timers and `Date.now`. Checkpoints, files and the held delta stay native. |
+| Same file, advance/close ordering | The advance holds the base's queue before a turn arrives; close stops a delta or run that has actually started | The bench's `entered`/`running` signals replace 50–100 ms sleeps. Dropping either await reorders the outcome. |
+| `reference-source.test.ts` and `reference-tools.test.ts`, admission, eviction and exposure ordering | Each step starts after the scripted fetch, admission or held pool call it depends on; a cancelled fetch's reservation is released only after its teardown | Conditions on the scripted transport and pool replace 5–20 ms sleeps. A held teardown barrier replaces the 30 ms `settleDelayMs` latency. The collaborators are in memory, so one macrotask turn runs all work up to the held barrier. |
+| `application-index-timing.test.ts`, deferred index update | Twenty writes return before a slow index update; one targeted update covers them | The update is held until the writes are measured, instead of sleeping 1500 ms. On a route where a write waits for it, each update still takes 1500 ms and the median assertion fails. |
+| `chat-lifecycle.test.ts` and `writer-gate-offloop.test.ts`, work queued behind a held writer | The retirement, or the host downgrade, is posted to the real write worker before the racing step | A `Worker.prototype.postMessage` observer replaces 20–50 ms sleeps and fixed timers; the descriptor is restored after each case. |
+| `write-worker.test.ts`, app writes against a running procedure | The worker is inside the held procedure before the app writes | The probe sets an `entered` flag that the test awaits with `Atomics.waitAsync`, instead of sleeping 20–50 ms. |
+| `native-brain-leases.test.ts`, `storage-offloop.test.ts` and `turn-egress.test.ts` | A lost reply after a newer release started; failures settled before close; a pending taint | The newer release's arrival, one macrotask after the synchronous tick, and a bounded taint poll replace fixed 20–100 ms waits. |
+| `worker-steps-event-loop.test.ts`, a supervisor lost during a status request | The request is outstanding when the supervisor is lost; its late answer neither settles again nor releases the broker | The status step is held open, so the request is outstanding by construction. The test releases it and awaits its answer, instead of sleeping 150 ms and then 200 ms. |
+| `maintenance-worker-kill-child.ts`, every thread confirms its stop | A non-leader thread that reports itself running delays the snapshot until it confirms | The thread reports running for exactly two polls, instead of until a 10 ms timer fires. The zero-delay heartbeat timers in the fork-ordering cases are the observation: they prove that stop confirmation yields. |
+| Claude `worker-cleanup.test.ts` and `worker-stdio-release.test.ts`, reservation and settlement held | The reservation stays charged, and settlement waits, while only the held close or release remains | The state handle's real close is observed, or the release request is polled for. One macrotask then runs any continuation, instead of 20–50 ms windows. |
+| ui-react `runtime-hook-phases.test.ts`, pending output | Exit and stderr completion are reported while stdout is held | A condition on those two records, then one macrotask, replaces a 20 ms window. |
+| Root `build-concurrency.test.ts`, optional dependency before its consumer | A consumer never compiles before its optional dependency, despite a peer cycle | The dependency's compiler wrapper holds until a peer has finished and its slot has been refilled, instead of sleeping 500 ms. A consumer started in that slot compiles, and fails, while the dependency is held. |
+| Root `helpers/planning-observer.ts`, first sampler reading | The sampler has a reading before the observed call blocks the main thread | The sampler posts `ready` after its first reading. The observer awaits that message, instead of one 250 ms interval, with the existing stop budget as its failure maximum. |
+| ui-server negative observations behind a real write-worker hold (`drafts-settings-offloop`, `inbox-writes-offloop`, `retry-proposal-offloop`, `storage-offloop`, `storage-scan-offloop`, `writer-gate-offloop`) | The queued commit, and everything after it, has not run while an earlier probe call holds the worker | The worker answers in submission order on one port, so the test reads its main-thread flags when the hold answers, instead of after a 20–50 ms window. Rows the worker commits to the database file are read while the hold is still running, because once it answers the worker may already be committing. |
+| ui-server negative observations behind an in-memory hold (`app-writes-offloop`, `drafts-settings-offloop`, `push-drain`, `native-journal-observer`, `private-index-stdio-release`, `reference-source`, `reference-tools`) | Settlement waits for the one held write, release or acquisition | The test waits until the held step has started, then one macrotask runs every continuation that does not wait for it, instead of 10–50 ms. |
+| `http-mount-timers.test.ts` and `live-history-adapters.test.ts` | Cancelled native timers never fire; no history frame precedes the first input | A live control timer due after the cancelled ones, and an input frame on the same ordered socket, replace 60–80 ms and 20 ms windows. |
+| Failure maxima, reason in source | `app-http-drain`, `app-metadata-cancellation`, `close-cancels-shared-runs`, `dialogue-storage`, `reference-source`, `reference-tools` and `write-worker` races whose expected outcome settles first | The deadline branch is never awaited on success. |
+| Negative windows kept, reason in source | Writer-gate waiters in `host-fallback-gates` and `schedule-ignore-admission`; the `reference-writes-offloop` `pending` helper; app shutdown in `app-writer-cleanup`; the replayed tombstone in `contextual-refusals`; the `relayed-runtime-traffic-probe` exit window | A gate waiter polls every 5 ms and reports no refused attempt. The `pending` helper's callers read database rows that must be read inside the hold. A marker request for the replayed tombstone would start its own turn and change the counts. The shutdown windows cover real-IO round trips that correct code never completes, so no event marks them. |
+| Kept real time, reason in source | `native-identity-inspector` abort during a blocking FIFO open; geo `routing` admission-write latency while the transport deadline is armed; the delayed-fsync spies in `native-observation-storage`, `transcript-archive` and `native-observation-settlement` (event-loop liveness under slow IO) | The inspector's blocked state has no portable signal. The geo latency and fsync delays are the stimulus itself. |
+| ui-react `share-review/commands.ts`, review admission refused or retired | A failed copy, another account, a live owner in another tab, a racing tab or an expired record never admits review | The fixture counts its share-review lock requests and their settlements; a request that admits stays open. The command waits until a request made after a mark has settled, or a review is admitted, instead of 1.2–1.5 s. The racing loser waits for an attempt made after the winner admitted. Where the account's review rows and stashed originals are empty or sealed, nothing can be admitted, so no window is needed. Dismiss waits for the queue to empty, which follows the durable delete. |
+| Same file, a lost response | The upload's response opens, then loses its body, so Chromium cannot retry it transparently | The socket closes from the write callback of the partial body, instead of 50 ms later. Closing before the flush lets Chromium retry, and the case fails. |
+| ui-react `storage-guidance.layout.tsx`, late and refused responses | A response for the prior account or a replaced root never replaces current evidence; a refused route never opens Settings | The fixture counts the responses it answers and the bodies the consumer reads. The tests wait for the held response to be read, or for the route's refused read to be answered, instead of 50 ms. The route change is committed with `flushSync`, so its open decision has run. |
+| ui-react `transcript-qualifiers.offline.tsx` and `conversation-controls.offline.tsx`, tooltip and reply holds | Escape keeps a qualifier hint hidden; the pointer can rest on a hint; short playback gaps keep Speaking | The qualifier's 300 ms show and 150 ms hide timers, and the strip's 300 ms reply hold, run on vitest's fake `setTimeout`. The tests advance them or run every pending timer, instead of 350 ms windows and real gaps. |
+| ui-react `conversation-endpoint`, `conversation-consent` and `conversation.offline.tsx` | No speech block arrives after the drain; consent alone, or a pending opening after Mute, never reopens capture | The first audio frame below the speaking threshold follows every queued speaking block, instead of a 200 ms drain. Frames are handled on delivery and a capture calls `getUserMedia` synchronously, so the consent cases read the open count once epoch 2 is applied, or at once, instead of after 100 ms or 30 ms. |
+| Kept, reason in source | ui-react `recording-limits` source starvation; the drains in `dialogue-browser-server` and `contextual-conversation-browser-server` | The starvation is the real-time stimulus. The fixture drains only pace or batch frames: tests poll step replies for every outcome. |
+| Reclassified, no change | `hygiene-lifecycle-command` 234 (cancellation-safety release cap); `storage-server-command` 39 (startup failure maximum); `liveness-clock` 53 (the page timer under the controlled clock) | Each is a maximum or the timer under test, and its reason is in source. |
+
 ## Continuity settling boundaries
 
 Networked continuity contexts start with native offline state, create their
@@ -171,8 +212,8 @@ synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
 (`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:444-464`;
 `status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
-queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:412-424`). Native protocol
+queue adoption updates the follow-up/draft stores synchronously
+(`function queueReport(`, `packages/ui-react/src/ws-client/follow-ups.ts:85-94`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
@@ -224,13 +265,13 @@ per-site `sites` counters distinguish attribution from helper-definition counts.
 change, upload abort/resume or host draft reconciliation can schedule a separate
 device-context write. That write reads native browser state and enters browser
 locks/IndexedDB before adopting retained draft records back into the mounted
-stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
-`flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
-`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
+stores (`context`, `packages/ui-react/src/lib/local-work.ts:305-319`;
+`flush`, `packages/ui-react/src/lib/local-work.ts:322-333`;
+`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:513-519`). The real
 scroll listener schedules that work (`handleScroll`,
 `packages/ui-react/src/components/chat/chat-page.tsx:318-328`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
-`packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
+`packages/ui-react/src/lib/local-work.ts:643-654`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;
 late adoption can blur the field, change scroll/selection, replace an answer or
 restore a consumed pill. A disconnected upload can similarly be misclassified
@@ -242,7 +283,7 @@ acknowledgements remain separate positive conditions.
 **Duration and margin.** In the quiet scenes, `changed` registers the real
 250 ms device debounce (`LOCAL_WRITE_DELAY_MS`,
 `packages/ui-react/src/lib/local-work.ts:88-90`; `changed`,
-`packages/ui-react/src/lib/local-work.ts:518-531`). The five non-IME boundaries
+`packages/ui-react/src/lib/local-work.ts:529-542`). The five non-IME boundaries
 retain 500 ms: one 250 ms scheduled opportunity plus 250 ms (100%) headroom
 for native dispatch, storage/lock continuations and React work, followed by
 the original two native animation frames. This is a bounded opportunity to
@@ -1735,8 +1776,8 @@ intact. Extra same-stack registrations fail the ownership assertion; numeric
 matching or callback text is insufficient (`installReceiptWatchdogObserver`,
 `packages/ui-react/tests/fixtures/receipt-watchdog-observer.ts:2-88`). The actual
 manager arms after send and later probes liveness before asking for the same
-submission (`send`, `packages/ui-react/src/lib/answer-delivery/manager.ts:327-342`;
-`armWatchdog`, `packages/ui-react/src/lib/answer-delivery/manager.ts:250-260`).
+submission (`send`, `packages/ui-react/src/lib/answer-delivery/manager.ts:325-340`;
+`armWatchdog`, `packages/ui-react/src/lib/answer-delivery/manager.ts:248-258`).
 
 The candidate checks the independently required 5000 ms registration before
 pausing at its actual deadline minus one millisecond. It observes no callback,

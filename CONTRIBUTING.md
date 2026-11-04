@@ -288,9 +288,13 @@ available, with the pinned image and diagnostics unchanged.
 
 Browser shards use a committed per-project/file timing table, not live CI
 artifacts or a fixed allowlist. Unknown specs get a positive one-second weight;
-invalid tables fail visibly. Refresh explicitly from two successful browser jobs:
-`bun scripts/refresh-browser-costs.ts <run-id> <attempt>`. Review the source
-head/checkout/tree, job IDs and seconds/median metadata alongside the table.
+invalid tables fail visibly. Refresh explicitly from one successful CI run
+attempt in which every shard of the domain, as configured in `PROOF_SHARDS`
+(`scripts/proof-shards.ts`), ran fresh and succeeded:
+`bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
+(browser by default). Cancelled, partial or retained-only proof supplies no
+measurements. Review the source head/checkout/tree, job IDs and seconds/median
+metadata alongside the table.
 Unsharded discovery is unchanged and existing browser file concurrency is kept.
 
 `bun run test:browser` runs every configured browser project in the pinned
@@ -428,7 +432,7 @@ with a standard XML parser and inspect its testcase names and counts.
    as binary and drop it from every search; escaping leaves the runtime value
    untouched. `bun run lint` is the gate.
 7. Versioning is lockstep across `@schlessera/brain-*` as a single changesets
-   `fixed` group: all nineteen packages, including packages whose own code did
+   `fixed` group: all twenty packages, including packages whose own code did
    not change and receive only a dependency bump. This is a deliberate pre-1.0 solo-maintainer
    tradeoff, not an oversight. Add a changeset to any user-visible change. Keep
    the changeset itself short — what was added / changed / removed, in one line
@@ -448,6 +452,14 @@ internal: no compatibility promise, valid only at the same lockstep version.
 `scripts/check-frontmatter-parse.ts`, part of `bun run lint`, refuses any other
 import of gray-matter. The reason is in
 [docs/decisions/frontmatter-parsing.md](docs/decisions/frontmatter-parsing.md).
+
+In ui-server, ui-kit and ui-react, `bun run lint` refuses an `export` in `src/`
+that no other file imports (`scripts/check-unused-exports.ts`). Drop the
+keyword, or delete the declaration if its own file does not use it either. An
+entry point's own exports and the declarations its api-report signatures
+record are exempt. Anything else that has to stay exported, such as a type
+that another file's declaration emit infers, gets an allowlist entry with a
+one-line reason in that script.
 
 The invisible-character and leakage gates here are brain-kit's own. A
 deployment keeps its own copies with its own patterns, and a copy that runs
