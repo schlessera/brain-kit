@@ -194,7 +194,10 @@ async function readError(res: Response): Promise<never> {
   if (code === "moderation_blocked") {
     hints.push(`refused by moderation${moderation ? ` — ${moderation}` : ""}`);
   }
-  if (res.status === 403) hints.push("region not supported, or the org is not verified");
+  // The host's provider relay refused before contacting OpenAI (#3431): its
+  // message says why, and the account hint would point the agent elsewhere.
+  const relayRefusal = code === "brain_provider_refused" || code === "budget_exceeded";
+  if (res.status === 403 && !relayRefusal) hints.push("region not supported, or the org is not verified");
   if (res.status === 400 && /model/i.test(message)) {
     hints.push("GPT-image models require API Organization Verification");
   }

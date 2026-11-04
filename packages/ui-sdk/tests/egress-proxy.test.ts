@@ -340,3 +340,32 @@ test("taint narrowing never overrides deny or the ordinary allowlist, and its pa
   } finally { proxy.stop(); origin.stop(true); }
   await expect(startEgressProxy({ ...defaults([]), taint: { allow: ["bad host"], tainted: () => true, contacted: () => false } })).rejects.toThrow("Invalid egress host pattern");
 });
+
+test("each refusal tells the tool why in its status line and body (#3431)", async () => {
+  let calls = 0; const records: EgressRecord[] = [];
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
+  // The status line is what `curl -v` prints for a refused CONNECT, and what `egress-connect` reports.
+  const status = (head: string) => head.slice(0, head.indexOf("\r\n"));
+  const target = `127.0.0.1:${origin.port}`;
+  try {
+    const capped = await startEgressProxy({ ...defaults(records), maxBytes: 0 });
+    try {
+      expect(status(await tunnel(capped.socketPath, target, "")), "EGRESS_REFUSAL_BYTE_CAP").toBe("HTTP/1.1 403 Forbidden - turn network byte limit reached");
+      expect((await get(capped.socketPath, origin.url.href)).body).toContain("egress.max_bytes_per_turn");
+    } finally { capped.stop(); }
+    const outward = await startEgressProxy({ ...defaults(records), outwardHosts: ["127.0.0.1"], approveOutward: async () => false });
+    try {
+      const head = await tunnel(outward.socketPath, target, "");
+      expect(status(head), "EGRESS_REFUSAL_OUTWARD").toBe("HTTP/1.1 403 Forbidden - outward connection not approved");
+      expect(head).toContain("Blocked: a connection to 127.0.0.1 acts outside the brain in the user's name, and it was not approved.");
+    } finally { outward.stop(); }
+    // Without a taint cause the message still names taint, without inventing a source.
+    const tainted = await startEgressProxy({ ...defaults(records), taint: { allow: [], tainted: () => true, contacted: () => false, cause: () => { throw new Error("unreadable"); } } });
+    try {
+      const head = await tunnel(tainted.socketPath, target, "");
+      expect(status(head), "EGRESS_REFUSAL_TAINT").toBe("HTTP/1.1 403 Forbidden - untrusted session, host not allowed");
+      expect(head, "EGRESS_REFUSAL_TAINT_WITHOUT_CAUSE").toContain("Blocked: this session read untrusted content, and 127.0.0.1 is not on its taint allow-list");
+    } finally { tainted.stop(); }
+    expect(calls).toBe(0);
+  } finally { origin.stop(true); }
+});

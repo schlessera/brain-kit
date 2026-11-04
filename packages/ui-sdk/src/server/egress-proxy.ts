@@ -49,7 +49,9 @@ export interface EgressProxyOptions {
    * anything but `true`, refuses.
    */
   taint?: { allow: readonly string[]; tainted(): boolean; contacted(host: string): boolean;
-    approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean> };
+    approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
+    /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
+    cause?(): string | null };
   /**
    * A destination passed every check; called before its first upstream byte.
    * A returned promise is awaited first, so a durable record it makes commits
@@ -66,14 +68,44 @@ function matches(host: string, patterns: readonly string[]): boolean {
   });
 }
 /**
- * What a tool is told when the user declined a destination a tainted session
- * asked for (#3430): curl, git and HTTP clients print the status text or body.
- * Every other refusal keeps its bare 403.
+ * What a refused connection tells the tool that made it (#3430, #3431). curl,
+ * git and `egress-connect` print the status line, so it carries the reason;
+ * HTTP clients also get it as the body. `cause` uses `egress_denial`'s reason
+ * words, plus `outward_not_approved`. No request content, header or credential
+ * appears in either.
  */
-function refusal(reason: string | undefined): { status: string; body: string } | undefined {
-  if (reason !== "taint_not_approved") return undefined;
-  return { status: "Forbidden - declined by the user",
-    body: "Blocked: this session read untrusted content, this host is outside its allow-list, and the user declined the connection. Do not retry it; say what you needed it for.\n" };
+export interface EgressRefusal {
+  cause: "denied_host" | "not_allowlisted" | "byte_cap" | "taint_allowlist" | "outward_not_approved";
+  message: string;
+}
+function describeRefusal(reason: string | undefined, host: string, denied: boolean, tainted: string | null | undefined): EgressRefusal | undefined {
+  switch (reason) {
+    case "taint_not_approved": return { cause: "taint_allowlist",
+      message: "Blocked: this session read untrusted content, this host is outside its allow-list, and the user declined the connection. Do not retry it; say what you needed it for." };
+    case "taint_not_allowed": return { cause: "taint_allowlist",
+      message: `Blocked: this session read untrusted content${tainted ? ` (it ${tainted})` : ""}, and ${host} is not on its taint allow-list or among the hosts it already reached. `
+        + "Do not retry it; tell the user. They can add the host to taint.egress.allow in the brain's governance policy, or continue in a new session." };
+    case "destination_not_allowed": return denied
+      ? { cause: "denied_host", message: `Blocked: ${host} is on this brain's egress deny list. Do not retry it; tell the user.` }
+      : { cause: "not_allowlisted", message: `Blocked: ${host} is not on this brain's egress allow list. Do not retry it; tell the user, who can add it to egress.allow in the brain's governance policy.` };
+    case "max_bytes_per_turn": return { cause: "byte_cap",
+      message: "Blocked: this turn has used up its network byte limit (egress.max_bytes_per_turn). Do not retry in this turn; tell the user." };
+    case "outward_not_approved": return { cause: "outward_not_approved",
+      message: `Blocked: a connection to ${host} acts outside the brain in the user's name, and it was not approved. Do not retry it; say what you needed it for.` };
+    default: return undefined;
+  }
+}
+/** The status text each refusal answers with; the declined card's text predates #3431. */
+const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
+  denied_host: "Forbidden - host on the egress deny list", not_allowlisted: "Forbidden - host not on the egress allow list",
+  byte_cap: "Forbidden - turn network byte limit reached", taint_allowlist: "Forbidden - untrusted session, host not allowed",
+  outward_not_approved: "Forbidden - outward connection not approved",
+};
+/** One refused connection's 403, with its reason when it has one. */
+function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined): { status: string; body: string } | undefined {
+  if (!refusal) return undefined;
+  const status = reason === "taint_not_approved" ? "Forbidden - declined by the user" : REFUSAL_STATUS[refusal.cause];
+  return { status, body: `${refusal.message}\n` };
 }
 /** No header controlled by the peer can select a second upstream or carry proxy authority. */
 const hopHeaders = new Set(["proxy-authorization", "proxy-connection", "connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"]);
@@ -174,7 +206,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
-    return { finish, charge, admit, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason };
+    /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
+    const refusal = () => {
+      if (finalOutcome !== "denied") return undefined;
+      let cause: string | null | undefined;
+      if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
+      return describeRefusal(finalReason, host, matches(host, options.deny), cause);
+    };
+    return { finish, charge, admit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -189,7 +228,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
     void (async () => {
       if (!await op.admit() || client.destroyed) {
-        const declined = refusal(op.reason());
+        const declined = refusalHead(op.refusal(), op.reason());
         client.end(declined ? `HTTP/1.1 403 ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         return;
@@ -219,13 +258,13 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     } catch { response.writeHead(400); response.end(); return; }
     const op = operation(request.method ?? "GET", target);
     response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
+    const refuse = () => {
+      const declined = refusalHead(op.refusal(), op.reason());
+      if (declined) response.writeHead(403, declined.status, { "content-type": "text/plain; charset=utf-8" }).end(declined.body);
+      else { response.writeHead(403); response.end(); }
+    };
     void (async () => {
-      if (!await op.admit() || response.destroyed) {
-        const declined = refusal(op.reason());
-        if (declined) response.writeHead(403, declined.status, { "content-type": "text/plain; charset=utf-8" }).end(declined.body);
-        else { response.writeHead(403); response.end(); }
-        return;
-      }
+      if (!await op.admit() || response.destroyed) { refuse(); return; }
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
       // Include the complete observable target and headers: a body-only cap
       // would allow uncharged exfiltration in query strings or header values.
@@ -234,16 +273,16 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       const headerBytes = (first: string, values: Record<string, string | string[]>) => Buffer.byteLength(first + "\r\n"
         + Object.entries(values).flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).map(item => `${name}: ${item}\r\n`)).join("") + "\r\n") + 64;
       if (!op.charge(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, outgoingHeaders))) {
-        response.writeHead(403); response.end(); return;
+        refuse(); return;
       }
       const outgoing = httpRequest(target, { method: request.method, headers: outgoingHeaders }, incoming => {
         if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming)))) {
-          response.writeHead(403); response.end(); incoming.destroy(); outgoing.destroy(); return;
+          refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
         const writeHeaders = () => { if (!response.headersSent) response.writeHead(incoming.statusCode ?? 502, headers(incoming)); };
         incoming.on("data", chunk => {
           if (!op.charge(chunk.length + 16)) {
-            if (!response.headersSent) { response.writeHead(403); response.end(); } else response.destroy();
+            if (!response.headersSent) refuse(); else response.destroy();
             incoming.destroy(); outgoing.destroy(); return;
           }
           writeHeaders(); if (!response.write(chunk)) incoming.pause();
@@ -292,7 +331,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    return { charge: op.charge, signal: op.signal, outcome: op.outcome,
+    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal,
       admit: async () => !op.signal.aborted && await op.admit(),
       finish(outcome: EgressRecord["outcome"], reason?: string) {
         signal.removeEventListener("abort", abort); op.finish(outcome, reason);

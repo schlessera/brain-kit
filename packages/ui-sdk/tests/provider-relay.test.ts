@@ -151,7 +151,7 @@ describe("budget", () => {
     const result = await relayed({ admit: () => ({ allowed: false, message: "Turn inference budget reached." }) }, { path: "/v1/messages" });
     expect(result.status, "RELAY_BUDGET_REFUSAL").toBe(403);
     expect(JSON.parse(result.body), "RELAY_BUDGET_REFUSAL").toEqual({ type: "error",
-      error: { type: "budget_exceeded", message: "Turn inference budget reached." } });
+      error: { type: "budget_exceeded", message: "Turn inference budget reached.", reason: "budget_exceeded" } });
     expect(result.upstream, "BUDGET_REFUSED_BEFORE_CONTACT").toEqual([]);
     expect(result.receipts).toEqual([]);
   });

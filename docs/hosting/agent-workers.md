@@ -1649,7 +1649,11 @@ admitted. In an interactive turn, a connection to any other host first shows
 a permission card naming the host and what tainted the session; allowing it
 admits that host for the rest of the session (#3430). Voice turns refuse
 without a card. Refusals, including a declined card, are `egress_denial`
-events with reason `taint_allowlist`.
+events with reason `taint_allowlist`. Every refusal with a policy cause
+(taint, the deny or allow list, the byte ceiling, an unapproved outward host)
+answers with a status text and a body naming that cause, so `curl -v`, `git`
+and HTTP clients show it, and a relayed provider request the proxy refused
+reports it in `error.message` and `error.reason` (#3431).
 Every governed and strict turn runs on the proxy; a turn that cannot is
 refused (#3314). On a turn behind the proxy, the Bash
 classifier above is off: the proxy's connection taint is the shell signal, so

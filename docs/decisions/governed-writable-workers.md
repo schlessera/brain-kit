@@ -3998,13 +3998,42 @@ charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
 (`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:153-164`).
 A decline refuses: the record stays an `egress_denial` with reason
-`taint_allowlist`, and the 403 carries a short reason the tool can print (`function refusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:70-74`). Stopping the turn while the
+`taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
+`packages/ui-sdk/src/server/egress-proxy.ts:81-97`). Stopping the turn while the
 card is pending cancels the connection, and a late allow admits nothing. Voice turns, which have no
 grant surface, and autonomous turns, which have no turn proxy, refuse without
 a card as before; deny and `allowlist` mode still refuse first. Maintainer
 ruling A on #3430; B (ask only for reads) and C (keep refusing with an
 after-the-fact notice) were rejected.
+
+<a id="refusals-say-why"></a>
+
+**Refusals say why — 2026-11-04
+([#3431](https://github.com/schlessera/brain-kit/issues/3431)).** A refusal
+that does not name its cause reads as an unrelated failure. A taint refusal
+reached the agent as `proxy refused the connection`. A relayed image request
+the turn proxy refused reached it as `Provider network admission refused
+(region not supported, or the org is not verified)`, and the agent blamed the
+user's OpenAI account. Every proxy refusal with a policy cause now answers
+with a status text and a body that name it: the deny list, `allowlist` mode,
+the byte ceiling, an unapproved outward host, or a tainted session's host
+outside its allow-list, with the session's first taint source and what the
+user can do (`function describeRefusal`,
+`packages/ui-sdk/src/server/egress-proxy.ts:81-97`; the source wording,
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:171`). The status
+line carries the reason because `curl -v`, `git` and `egress-connect` print
+only that line for a refused CONNECT. The provider relay passes the proxy's
+reason through as the refusal body's `error.message` and an additive
+`error.reason`, using the `egress_denial` reason words plus
+`outward_not_approved` (`const refuse`,
+`packages/ui-sdk/src/server/provider-relay.ts:386-391`). The OpenAI image
+provider no longer appends its account hint to a relay refusal
+(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:199-200`).
+A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
+section names these causes and what the user can do (`A blocked connection
+says why`, `packages/ui-sdk/src/server/system-prompt.ts:162-170`). Since #3246,
+a validated provider-relay request is never narrowed by taint, so a relay
+refusal never has the taint cause.
 
 **Files the user marks untrusted — 2026-11-02
 ([#2673](https://github.com/schlessera/brain-kit/issues/2673)).** A user can
