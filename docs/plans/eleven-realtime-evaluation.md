@@ -2,8 +2,8 @@
 
 This is the evaluation for #3100. The question is whether Eleven Realtime v1 Max can
 join Gemini Live and GPT-Live behind the existing provider seam
-(`LiveConversationSession`, `packages/ui-sdk/src/server/conversation.ts:188-201`)
-and (`LiveConversationProvider`, `packages/ui-sdk/src/server/conversation.ts:208-213`),
+(`LiveConversationSession`, `packages/ui-sdk/src/server/conversation.ts:208-223`)
+and (`LiveConversationProvider`, `packages/ui-sdk/src/server/conversation.ts:238-243`),
 under the host authority that
 [the live-conversation decision](../decisions/live-conversation.md) and
 [the voice-permission decision](../decisions/voice-permission.md) set.
@@ -53,7 +53,7 @@ server.
   server relay would rest on undocumented behavior.
 - It speaks OpenAI's *Realtime* protocol. Our GPT-Live adapter uses the
   different OpenAI Live v1 delegation protocol
-  (`ENDPOINT`, `packages/ui-server/src/voice/gpt-live-conversation.ts:7`), so
+  (`ENDPOINT`, `packages/ui-server/src/voice/gpt-live-conversation.ts:8`), so
   swapping the URL would not reuse that adapter.
 - Its [session schema](https://elevenlabs.io/docs/eleven-agents/api-reference/conversations/create-client-secret)
   accepts provider-called MCP tools (`server_label`, `server_url`), which the

@@ -22,6 +22,14 @@ import { defineProfiles } from "../src/profiles";
 
 type Gen = (options: Options) => AsyncGenerator<unknown>;
 
+test("configured live guidance selects personal/capture sections without copying host instructions", () => {
+  const backend = createClaudeBackend({ brainPath: "/tmp/odyssey", systemPromptAppend: "# Personal Rules\nGive Odysseus short answers.\n# Capture policy\nAsk before saving preferences.\n# Turn lifecycle\nHOST_ONLY_EXECUTION\n# Response surface\nHOST_ONLY_RENDERING\n" });
+  expect(backend.conversationGuidance).toEqual([
+    { source: "configured systemPromptAppend", topic: "preferences", text: "Give Odysseus short answers." },
+    { source: "configured systemPromptAppend", topic: "capture_policy", text: "Ask before saving preferences." },
+  ]);
+});
+
 function makeQueryFn(gen: Gen): typeof query {
   return ((params: { prompt: unknown; options?: Options }) =>
     gen(params.options ?? ({} as Options))) as unknown as typeof query;

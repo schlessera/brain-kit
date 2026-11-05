@@ -13,6 +13,8 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * change: `read_attachment` joins the stable roster of every mode, and nothing else moves.
  * #3580 re-records the fixed Apify roster with availability/approvals/revoke
  * and the reviewed Actor-approval guidance.
+ * #3623 prepends the reviewed common brain-interaction brief in the four
+ * interactive modes; all other options and autonomous modes stay byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

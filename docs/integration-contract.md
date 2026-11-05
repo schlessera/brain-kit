@@ -526,6 +526,14 @@ selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
 semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
 and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
 
+Additive (#3623): optional startup brain orientation, selected configured
+backend guidance and exact contextual task progress are inventoried in the
+[package API](integration-contract/package-api.md#live-brain-orientation-and-task-status-additive-3623).
+First-party disclosure now names the extra startup source categories under
+the existing exact Start echo; no new frame or permission grant is added.
+See [source selection and behavior](live-conversation-guidance.md) and the
+[wire amendment](integration-contract/wire.md#live-orientation-disclosure-and-progress-additive-3623).
+
 ## Continuous conversation (breaking, #3053)
 
 The October 29 [maintainer policy](decisions/live-conversation.md#continuous-conversation-and-audible-recovery--2026-10-29)

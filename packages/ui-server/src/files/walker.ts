@@ -112,7 +112,7 @@ export async function safeResolve(rel: string, root: string): Promise<string> {
  * descriptor. `null` off Linux, where no worker writes scratch and the path
  * checks in `safeResolve` stand.
  */
-export function readAnchoredSnapshot(abs: string, absRoot: string, rel: string): { bytes: Uint8Array<ArrayBuffer>; size: number; mtimeMs: number } | null {
+export function readAnchoredSnapshot(abs: string, absRoot: string, rel: string, maxBytes = FILE_SIZE_CAP_BYTES): { bytes: Uint8Array<ArrayBuffer>; size: number; mtimeMs: number } | null {
   if (process.platform !== "linux") return null;
   const segments = relative(absRoot, abs).split(sep).filter(Boolean);
   const name = segments.pop();
@@ -136,7 +136,7 @@ export function readAnchoredSnapshot(abs: string, absRoot: string, rel: string):
     try {
       const info = fstatSync(fd);
       if (!info.isFile()) throw new NotFoundError(rel);
-      if (info.size > FILE_SIZE_CAP_BYTES) throw new TooLargeError(info.size);
+      if (info.size > maxBytes) throw new TooLargeError(info.size);
       const bytes = new Uint8Array(info.size);
       let read = 0;
       while (read < bytes.length) {
