@@ -301,3 +301,17 @@ test("an unsupported recorder stops and persists a gap when input detection exce
  expect(stopped?.message,"SAFETY_FALLBACK_DETECTOR_OVERFLOW_STOPS_TURN").toContain("detection failed");
  await recorder.settled();expect(f.writes.safety(null,"ithaca").reasons).toContain("recording_failed");
  }finally{await f.close();}});
+
+test("an imported provisional alias binds its actual owner and generation without inventing complete past coverage",async()=>{
+ const f=fixture();try{
+ f.db.exec("INSERT INTO dialogue_owners VALUES('canonical-owner','odysseus',NULL,9,'complete',0); INSERT INTO dialogue_aliases VALUES('native-alias','canonical-owner')");
+ const bindingId=crypto.randomUUID();await f.writes.safetyBegin({turnId:"adopt-import",bindingId,historyOwnerId:"native-alias",principalId:"odysseus",sessionId:null,backendId:"claude",at:1});
+ f.db.exec("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('adopted',0,0,'claude'); INSERT INTO chat_session_owners VALUES('adopted','odysseus',0); UPDATE dialogue_owners SET session_id='adopted' WHERE id='canonical-owner'");
+ safetyCatalogCreated(f.db,"adopted","odysseus","adopt-import");await f.writes.bind("adopt-import","adopted");await f.writes.safetyReady("adopt-import","claude",1);
+ const state=f.writes.safety(null,"adopted");
+ expect(state.session,"SAFETY_BINDING_USES_CANONICAL_HISTORY_OWNER_AND_GENERATION").toEqual({sessionId:"adopted",historyOwnerId:"canonical-owner",historyGeneration:"9"});
+ expect(state.coverage.state,"SAFETY_IMPORTED_PROVISIONAL_HISTORY_CANNOT_BECOME_CLEAN").toBe("incomplete");
+ f.db.exec("UPDATE dialogue_owners SET generation=10 WHERE id='canonical-owner'");
+ await expectRejection(f.writes.firstTaint({kind:"taint",turnId:"adopt-import",sessionId:"adopted",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}}),"generation changed");
+ expect(safetyRecords(f.db,"adopted")).toHaveLength(0);
+ }finally{await f.close();}});

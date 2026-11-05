@@ -10,6 +10,10 @@ const SAFETY_LIMITS = { occurrenceBytes: 8192, sessionRows: 100000, sessionBytes
   brainRows: 1000000, brainBytes: 536870912, sessionPending: 256, sessionPendingBytes: 1048576,
   brainPending: 4096, brainPendingBytes: 16777216, unbound: 1024, unboundBytes: 8388608, epochs: 128 } as const;
 const MAX_REVISION = 18446744073709551615n;
+function actualGeneration(value:number):string {
+ if(!Number.isSafeInteger(value)||value<1)throw new SafetyUnavailable("Invalid safety history generation");
+ return String(value);
+}
 const VERDICT_BYTES = 2048, TERMINAL_BYTES = 2048;
 interface SafetySessionKey { sessionId: string; historyOwnerId: string; historyGeneration: string }
 export interface SafetyCollectionInput { turnId: string; bindingId: string; principalId: string | null; historyOwnerId?: string;
@@ -74,12 +78,15 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   assertLive(db,[["session",input.sessionId],["dialogue_owner",input.historyOwnerId]]);
   const session=input.sessionId?one<Session|null>(db,"SELECT * FROM safety_sessions WHERE session_id=?",input.sessionId):null;
   if(input.sessionId&&!session)throw new SafetyUnavailable("Unknown safety session; discover catalog history first");
-  let owner=input.historyOwnerId??session?.history_owner_id??input.bindingId,generation=session?.generation??"1";
+  let owner=input.historyOwnerId??session?.history_owner_id??input.bindingId,generation=session?.generation??"1",uncollectedOwner=false;
   if(owner){
     const d=one<{id:string;principal_id:string;generation:number}|null>(db,`SELECT id,principal_id,generation FROM dialogue_owners
       WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)`,owner,owner);
-    if(d){if(d.principal_id!==input.principalId)throw new SafetyUnavailable("Safety history ownership mismatch");owner=d.id;generation=String(d.generation);}
+    if(d){if(d.principal_id!==input.principalId)throw new SafetyUnavailable("Safety history ownership mismatch");owner=d.id;generation=actualGeneration(d.generation);
+      uncollectedOwner=!db.query("SELECT 1 FROM safety_collections WHERE history_owner_id=? AND generation=? LIMIT 1").get(owner,generation);
+    }
   }
+  assertLive(db,[["dialogue_owner",owner]]);
   if(session?.principal_id&&session.principal_id!==input.principalId)throw new SafetyUnavailable("Safety principal mismatch");
   const n=one<{n:number}>(db, input.sessionId?"SELECT COUNT(*) n FROM safety_collections WHERE session_id=?":"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL",...(input.sessionId?[input.sessionId]:[]));
   if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyUnavailable("Safety coverage capacity exhausted");
@@ -92,7 +99,7 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   if(ledger.used_rows+ledger.scope_rows+1>SAFETY_LIMITS.brainRows||ledger.used_bytes+ledger.scope_bytes+2048>SAFETY_LIMITS.brainBytes)throw new SafetyUnavailable("Safety identity capacity exhausted");
   if(owner&&one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE history_owner_id=? AND generation=?",owner,generation).n>=128)throw new SafetyUnavailable("Safety coverage capacity exhausted");
   if(input.policyHash!==undefined&&input.policyHash!==null&&!/^[a-f0-9]{64}$/.test(input.policyHash))throw new SafetyUnavailable("Invalid safety policy hash");
-  const gap=input.sessionId&&!session?.principal_id?"unknown_history_owner":session?.backend_id&&session.backend_id!==input.backendId?"backend_history_not_reconstructed":null;
+  const gap=uncollectedOwner?"missing_history_owner_collection":input.sessionId&&!session?.principal_id?"unknown_history_owner":session?.backend_id&&session.backend_id!==input.backendId?"backend_history_not_reconstructed":null;
   db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,history_owner_id,generation,backend_id,started_at,gap,start_revision)
     VALUES (?,?,?,?,?,?,?,?,?,?)`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,owner,generation,input.backendId,input.at,gap,advance(db));
   db.query("UPDATE safety_collections SET policy_hash=? WHERE id=?").run(input.policyHash??null,input.bindingId);
@@ -131,7 +138,7 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
   const alias=one<{owner_id:string}|null>(db,"SELECT owner_id FROM dialogue_aliases WHERE id=?",c.history_owner_id);
   if(alias?.owner_id!==d.id)throw new SafetyUnavailable("Contradictory safety history owner");
  }
- const owner=s.classification==="new"&&s.origin_turn===turnId?(d?.id??c.history_owner_id??s.history_owner_id):s.history_owner_id,gen=String(d?.generation??s.generation);
+ const owner=s.classification==="new"&&s.origin_turn===turnId?(d?.id??c.history_owner_id??s.history_owner_id):s.history_owner_id,gen=d?actualGeneration(d.generation):s.generation;
  assertLive(db,[["session",sessionId],["dialogue_owner",owner]]);
  const epochs=one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id=? OR id=?",sessionId,c.id);
  if(epochs.n>128)throw new SafetyUnavailable("Safety binding coverage capacity exhausted");

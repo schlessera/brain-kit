@@ -310,7 +310,9 @@ The host retains an independent durable ledger, decimal uint64 revision,
 once-only provisional-to-SessionKey binding and bounded coverage epochs. Every
 pre-upgrade session is incomplete, including those with no old taint row; an
 old row migrates as one known occurrence. Imported/discovered histories remain
-unknown, resumes/backend changes retain prior epochs, and forks inherit
+unknown, including provisional owners discovered after migration. Canonical
+aliases and actual history generations bind that evidence. Resumes/backend
+changes retain prior epochs, and forks inherit
 unresolved evidence and unknown coverage. Actual catalog creator, principal,
 history owner, aliases and generation govern binding. Retired session/owner/turn
 identities refuse late callbacks even after private detail is removed.
