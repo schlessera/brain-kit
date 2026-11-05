@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 172 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion and human trust Settings routes mounted by `createApp`: 176 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -156,6 +156,10 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
+| GET | `/api/trust-settings` | I | Read trust policy data and publication availability | Paired Security settings transport (#3608); live password-mode human owners only; runtime trust remains disabled. |
+| GET | `/api/trust-settings/:request` | I | Read one owner-bound trust publication receipt and review | Same-request reconciliation only; never republishes or resolves a taint trigger. |
+| POST | `/api/trust-settings/prepare` | I | Prepare one exact-base trust change | Paired Security settings transport; same-origin JSON and live owner authority; repository create/edit awaits verified host identity. |
+| POST | `/api/trust-settings/commit` | I | Publish the exact owner-reviewed trust change | Shared descriptor-bound publisher; bounded durable receipt; saved policy does not imply runtime enforcement. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -205,7 +209,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 172 declared endpoints are mounted regardless of backend, renderer or
+All 176 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1809,3 +1813,20 @@ unknown is terminal for automatic retry. Three attempts per episode/subscription
 are the maximum, with one/five-minute delays only after known non-delivery.
 Restored episodes never regain notification authority. See
 [Storage history](storage-history.md) for sampling, recovery and physical costs.
+
+## Human trust Settings publication
+
+The four `/api/trust-settings` operations are internal paired Security settings
+transport. Their exact review/receipt shapes and limits are described in the
+[publication contract](integration-contract/package-api.md#human-trust-settings-publication).
+They require a live password-mode human owner; mutation additionally requires a
+present exact same-origin Origin and bounded JSON. Principal, voice and channel
+claims in a body supply no authority. Receipts are private, no-store, scoped to
+the served brain and requesting owner, and readback never repeats a write.
+
+Publication reuses the protected policy writer without an agent turn. Prepared
+state, reviewed bytes/base, publication proof and partial/unknown completion
+survive restart. Saved origin/tunnel rules do not enable unbuilt trust admission;
+repository create/edit refuses until independent host identity is available.
+Removal/readback remain available for existing rules. Revision exhaustion refuses
+before protected publication. No historical trigger is resolved by these routes.

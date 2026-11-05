@@ -593,6 +593,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const turn=active.get(turnId); if(!turn)throw new JournalStorageUnavailable("history coverage requires an active observation window");
       turn.policy.cover(paths);
     },
+    /** Host Settings audit identity is retained by its durable operation store.
+     * Observe user policy changes across existing turns without minting a turn. */
+    observeSettingsPolicy(_operationId: string, approvedWrite: () => void): Promise<void> { return held(async () => {
+      await observe();
+      try { approvedWrite(); } finally { await observe(true); }
+    }); },
     /** The caller retains approval/current-principal authority; this never revives a completed turn. */
     observeUserPolicy(turnId: string, approvedWrite: () => void | Promise<void>): Promise<void> { return held(async () => {
       if (!active.has(turnId) || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("approved policy write requires an active complete observation window");

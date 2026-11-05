@@ -4792,6 +4792,56 @@ helpers remain on the existing brain-common internal governance-policy entry
 point and establish no new extension seam or runtime authority. No SDK safety
 capability, HTTP endpoint, history DTO or provider conversation changes here.
 
+### Human trust Settings publication
+
+The optional owner-only `/api/trust-settings` HTTP surface is a policy-publication
+building block. `GET /api/trust-settings` reads the current trust-only revision,
+exact policy hash, `origins`, `repositories`, and disabled runtime capabilities.
+`POST /api/trust-settings/prepare` accepts strict version-1 JSON with
+`expectedTrustRevision`, `expectedPolicyHash` and exactly one `change`:
+`{action:create|edit,rule}` or `{action:remove,ruleId}`. The host issues the
+request/operation/review IDs and retains exact base/proposed UTF-8 policy text,
+reviewed SHA-256 and a 15-minute expiry. A selector change requires remove/add.
+Repository creates/edits refuse `repository_identity_unavailable`: browser IDs
+are not host identity verification and this surface implements no metadata
+transport. Existing repository rules can be read and removed.
+
+`POST /api/trust-settings/commit` accepts only `{version:1,requestId,reviewId,
+reviewedBytesHash}`; `GET /api/trust-settings/:request` only reads that caller's
+receipt/review and current policy. Both mutation routes require a present exact
+same-origin Origin and JSON, at most 65536 bytes, plus a live password-mode
+password/passkey owner. Agent, ambient, voice and body-supplied identity/channel
+fields supply no authority. Authority is checked after waits and at publication.
+
+Receipts bind principal/credential lifetime, served brain, operation, request,
+exact base/topology and reviewed hash. Prepared state precedes any write; the
+shared privileged publisher syncs staging bytes and the containing directory.
+Only a FULL durable proof written after this operation's publication establishes
+`publication:proved`. A crash in writing/rename before that proof returns
+`unknown`, even if current file bytes match. Retries with identical commit data
+only read the original outcome; changed data conflicts. Expired handles can
+never create operations. Prepared/readback text survives stale-base refusal.
+
+The receipt stages are `prepared|file_published|committed|partial|unknown|refused`;
+`committed` is an internal publication-completion stage, never proof of live
+runtime enforcement. Current responses use `partial` for saved policy because
+`enforcement:unavailable` remains truthful until the admission implementation.
+`currentRule:present|removed|changed|unknown` is refreshed on reads, independently
+of historical publication proof. No removal receipt claims an enforcing fence.
+No agent turn, provider message or ordinary governance snapshot is changed.
+The live trust projection retains last-valid rules on invalid policy, reports
+an error, and increments its decimal uint64 revision only for trust-list changes.
+Exhausted revisions refuse both new reviews and publication of retained reviews
+before any protected policy write; request revisions above uint64 also refuse.
+It is supplied for future admission integration; runtime capabilities remain off.
+
+There are at most 32 outstanding reviews per principal, 256 per brain, 10000
+receipts and 16 MiB reserved payload/receipt storage. New requests fail at
+capacity; live receipts are not evicted. Terminal receipts survive at least
+24 hours. Unknown writes are never replayed, including after pruning. Settings
+migration 080 has no dependency on occurrence-ledger migration 079/081+; the
+loader applies each unapplied filename in sorted order on every startup.
+
 ## Live brain orientation and task status (additive, #3623)
 
 `LiveConversationOpenOptions.orientation?: ConversationOrientation` supplies an

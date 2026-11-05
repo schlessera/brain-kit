@@ -2506,6 +2506,7 @@ signatures (every public export and the types it is made of)
         isHeld(): boolean;
         maintain: () => Promise<void>;
         observe(): Promise<void>;
+        observeSettingsPolicy(_operationId: string, approvedWrite: () => void): Promise<void>;
         observeUserPolicy(turnId: string, approvedWrite: () => Promise<void> | void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;

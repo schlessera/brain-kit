@@ -1,3 +1,5 @@
+import { createTrustSettings } from "./brain/trust-settings.js";
+import { createTrustSettingsRoutes } from "./routes/trust-settings.js";
 import { occurrence } from "./governance/occurrence.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
@@ -1194,6 +1196,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  const trustSettings = createTrustSettings({ root: config.brainPath, db, writer, lock: workerLock,
+    authority: id => {
+      if (authMode !== "password") return null;
+      const p = resolvePrincipal(db, id);
+      return p?.kind === "owner" && ["password", "passkey"].includes(p.authMethod) && isUsablePrincipal(p, Date.now())
+        ? JSON.stringify([p.id, p.authMethod, p.credentialId, p.createdAt, p.expiresAt]) : null;
+    }, observe: (id, publish) => journal.observeSettingsPolicy(id, publish) });
+  app.route("/api", createTrustSettingsRoutes({ settings: trustSettings, trustProxy: auth.trustProxy }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
   const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });
