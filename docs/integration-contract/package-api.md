@@ -4791,3 +4791,51 @@ reports record this additive type change. Pure canonicalization and matching
 helpers remain on the existing brain-common internal governance-policy entry
 point and establish no new extension seam or runtime authority. No SDK safety
 capability, HTTP endpoint, history DTO or provider conversation changes here.
+
+## Live brain orientation and task status (additive, #3623)
+
+`LiveConversationOpenOptions.orientation?: ConversationOrientation` supplies an
+authorized per-epoch snapshot. Its `guidance` entries are
+`ConversationGuidance { source, topic, text }`, with topics `preferences`,
+`capture_policy`, `purpose` and `conventions`; its `knowledge` entries have
+`source`, `text` and topic `identity`, `current_focus` or `domains`.
+`unavailable: readonly string[]` names missing/withheld source categories.
+Guidance is scoped user instruction; knowledge and history are data, never
+execution or permission authority. Absence preserves the prior startup data
+shape. First-party adapters bound the whole serialized orientation to 3,200
+UTF-8 bytes and subtract its actual bytes from the existing shared
+history/resync ceilings. Source/selection bounds and omissions are specified
+in [the guidance reference](../live-conversation-guidance.md).
+
+`AgentBackend.conversationGuidance?: readonly ConversationGuidance[]` exposes
+only selected configured conversation/capture guidance. Both first-party
+factories derive it from their existing `systemPromptAppend` option with the
+same section selector; their full append is never exported to voice. Older
+and third-party backends may omit it, yielding explicit missing context.
+This is an additive input to the existing two-backend/two-engine seams, not
+a new context-provider extension point. API reports include the reachable
+types. The common interaction brief also appears in the default typed append;
+configured overrides retain their existing replacement semantics.
+
+`LiveConversationSession.reportWorkStatus?(ref: ConversationTaskRef, status:
+{ state: "queued" | "running"; intent: string }): void` is optional ordered
+progress feedback. `ConversationTaskRef` contains `conversationId`, `epoch`,
+`taskId`, `requestId` and `nativeHandle`. A first-party session requires its
+exact current contextual binding, rejects backward progress and suppresses
+duplicate state. Status does not consume the handle, settle the request, grant
+permission or acknowledge a result. A missing method preserves older provider
+behavior; the host never fabricates provider acceptance feedback for it.
+The host calls queued only after initial task persistence and running only
+after host turn admission starts (before governance/backend entry may finish);
+stale, withdrawn, ended or unauthorized tasks receive
+neither. Status-send failure ends the epoch without retry/replay. This API
+does not report provider acceptance or audible output.
+
+Gemini uses continuing function responses with the exact call id, queued
+`WHEN_IDLE` and running `SILENT`. GPT uses commentary/thinking appends with the
+exact `delegation_id`, at most 500 serialized UTF-8 content bytes. These minimal
+model-needed facts are appended once; UI receipts and internal accounting stay
+host-side. Progress append acknowledgements cannot settle the existing result
+acknowledgement promise. Reviewed-only tasks keep their existing admission and
+result behavior. The [wire/disclosure amendment](wire.md#live-orientation-disclosure-and-progress-additive-3623)
+adds no frame, revision or client permission grant.

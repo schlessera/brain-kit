@@ -1,4 +1,5 @@
 import type { ClientEnvironment } from "../protocol.js";
+import { BRAIN_INTERACTION_GUIDANCE } from "./interaction-guidance.js";
 import {
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,
@@ -16,10 +17,10 @@ import {
 import type { WebSearchBrief } from "./web-search.js";
 
 /**
- * The chat UI's own capability brief, appended to the agent's system prompt.
+ * Shared brain interaction guidance plus the chat UI's capability brief.
  *
- * Everything here is a fact about the SURFACE the answer lands on, which the
- * model cannot discover from the brain repo: it can read CLAUDE.md and the
+ * Interaction guidance is also used by live conversation. The remaining
+ * sections describe the SURFACE the answer lands on: it can read CLAUDE.md and the
  * files, but nothing tells it that a mermaid fence becomes a zoomable diagram
  * or that the reader is holding a phone. Repo-specific conventions stay in the
  * brain repo's own CLAUDE.md — this file must remain true for any brain-kit
@@ -28,7 +29,11 @@ import type { WebSearchBrief } from "./web-search.js";
  * Keep it tight. It rides every turn, and a long brief crowds out the user's
  * actual instructions.
  */
-export const BRAIN_UI_SYSTEM_PROMPT_APPEND = `# Response surface
+export const BRAIN_UI_SYSTEM_PROMPT_APPEND = `# Brain interaction
+
+${BRAIN_INTERACTION_GUIDANCE}
+
+# Response surface
 
 Your replies render as GitHub-flavored markdown in a chat UI, not in a
 terminal. What that buys you:

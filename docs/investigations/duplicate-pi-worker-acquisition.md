@@ -28,7 +28,7 @@ worker-backed sessions.
 
 **The pool.** A production backend has no `sessionFactory`, so it never
 retains a session (`createSessionPool(runtime, Boolean(options.sessionFactory), options.log)`,
-`packages/ui-backend-pi/src/backend.ts:117-120`). `finish()` removes and
+`packages/ui-backend-pi/src/backend.ts:118-121`). `finish()` removes and
 disposes every interactive entry when its turn ends. That makes every resume
 non-resident, and every resume opens a worker. A resumed acquisition checks
 the map, awaits `runtime.openSession` and then checks the map again. If

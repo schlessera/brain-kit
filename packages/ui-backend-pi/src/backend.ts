@@ -17,6 +17,7 @@ import { join } from "path";
 import { isPiSessionId, piRetiredDirectory, piSessionDirectory, removePiSession } from "./session-storage.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createSessionRetirement } from "@schlessera/brain-ui-sdk/internal";
+import { projectConversationGuidance } from "@schlessera/brain-ui-sdk/internal";
 import { PI_PIPE_MAX_BYTES } from "./worker-protocol.js";
 import type {
   AgentBackend,
@@ -121,6 +122,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
 
   return {
     id: PI_BACKEND_ID,
+    conversationGuidance: projectConversationGuidance(options.systemPromptAppend ?? "", "configured systemPromptAppend"),
     capabilities: { ...CAPABILITIES, autonomous: !options.sessionFactory, restrictedAutonomous: !options.sessionFactory },
     ...(!options.sessionFactory ? { stateRoomAllowanceBytes: PI_PIPE_MAX_BYTES } : {}),
     listProfiles: () => listPiProfiles(options),

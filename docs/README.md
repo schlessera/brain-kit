@@ -24,6 +24,7 @@ question. This Markdown index is also the navigation source for public docs.
 | Guide | Use it to |
 | --- | --- |
 | [Modules](modules.md) | Enable domain workflows or author a local module; follow links to each module's full reference. |
+| [Live conversation guidance](live-conversation-guidance.md) | Understand startup brain context, selected user rules and honest background-task acknowledgements. |
 | [Storage](storage.md) | Inspect capacity, find large files, run owner-supported maintenance, and review recoverable attachment removal. |
 | [Media](media.md) | Decide which assets to keep in git and how large files behave during sync. |
 | [Evaluating search](evaluating-search.md) | Build a query set and measure retrieval without mistaking an invalid set for a useful score. |

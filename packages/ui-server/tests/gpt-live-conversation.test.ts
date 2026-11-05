@@ -1,5 +1,6 @@
 /** Real primary WebSocket transport redirected to a loopback fixture, no keys/network. */
 import { afterEach, expect, test } from "bun:test";
+import { contextualStatus } from "./helpers/contextual-status";
 import { contextualRefusals } from "./helpers/contextual-refusals";
 import type { SessionStartEvent, SessionStartedEvent, InputTranscriptDeltaEvent, DelegationCreatedEvent } from "openai/resources/live/live";
 import type { StartTurnRequest, LiveConversationEvent, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
@@ -538,4 +539,38 @@ test("a fitting resync keeps the exact previous serialized bytes and is never re
   expect(starts[1]).toBe(starts[0]);
   // Startup context lives only in session.start; no later frame repeats it.
   expect(f.sent.filter(m => JSON.stringify(m).includes("Historical host outcomes"))).toHaveLength(2);
+});
+
+test("GPT status requires exact live binding, is monotone and never consumes result acknowledgement", async () => {
+  const f = await fixture(true, true, true);
+  f.emit(delegation("status-native"));
+  await until(() => f.received.some(event => event.kind === "unassigned_delegation"));
+  const binding = { nativeHandle: "status-native", taskId: "status-task", requestId: "status-request" };
+  const exact = { conversationId: "ithaca", epoch: 1, ...binding }, queued = { state: "queued" as const, intent: "Find the mast." };
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("binding");
+  f.session.bindContextualWork!(binding);
+  for (const wrong of [{ epoch: 2 }, { conversationId: "elsewhere" }, { taskId: "other" }, { requestId: "other" }, { nativeHandle: "other" }]) {
+    expect(() => f.session.reportWorkStatus!({ ...exact, ...wrong }, queued), "STATUS_REJECTS_EVERY_MISMATCHED_IDENTITY").toThrow("binding");
+  }
+  f.session.reportWorkStatus!(exact, queued); f.session.reportWorkStatus!(exact, queued);
+  f.session.reportWorkStatus!(exact, { state: "running", intent: "Find the mast." });
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("backwards");
+  await until(() => f.sent.filter(frame => frame.delegation_id === "status-native").length === 2);
+  const acceptance = f.sent.find(frame => frame.type === "session.commentary.append");
+  const returning = f.session.returnWork({ ...exact, provenance: "contextual", turnId: "status-turn" }, result);
+  let done = false; void returning.then(() => { done = true; });
+  await until(() => f.sent.filter(frame => frame.type === "session.commentary.append").length === 2);
+  f.emit({ type: "session.commentary.appended", event_id: "status-ack", client_event_id: acceptance.event_id, start_ms: 0, end_ms: 0 });
+  await f.audio(); // FIFO input/output barrier after the unrelated progress acknowledgement.
+  expect(done, "PROGRESS_ACK_IS_NOT_RESULT_ACCEPTANCE").toBe(false);
+  const completed = f.sent.filter(frame => frame.type === "session.commentary.append").at(-1);
+  f.emit({ type: "session.commentary.appended", event_id: "result-ack", client_event_id: completed.event_id, start_ms: 0, end_ms: 0 });
+  expect(await returning).toEqual({ acceptance: "acknowledged" });
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("binding");
+});
+
+for (const mode of ["complete", "storage", "replace", "withdraw", "status-error"] as const) test(`host acceptance status on actual gpt adapter: ${mode}`, async () => {
+  const f = await fixture(true, true, true);
+  const oldCleanup = cleanup!;
+  await contextualStatus("gpt", mode, f, close => { cleanup = async () => { await close(); await oldCleanup(); }; });
 });
