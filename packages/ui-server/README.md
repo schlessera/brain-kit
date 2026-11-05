@@ -92,6 +92,15 @@ Warnings distinguish unconfirmed cleanup from a process observed to exit.
 A timed-out Claude probe rejects startup; an unreadable brain version warns
 and continues by default; a known incompatible brain version rejects startup.
 
+## Live conversation guidance
+
+Live conversation startup also receives a bounded projection of brain purpose,
+selected interaction/capture rules and identity/current-focus context after
+explicit disclosed Start. Background task acceptance/running feedback stays
+separate from completion and permission. See the
+[guidance source mapping](../../docs/live-conversation-guidance.md) for what is
+inherited, omitted and fetched through the ordinary host.
+
 ## Installing core for the graph and voice vocabulary
 
 The knowledge graph and the index-derived voice vocabulary read the brain

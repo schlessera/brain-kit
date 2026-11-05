@@ -4039,7 +4039,7 @@ provider no longer appends its account hint to a relay refusal
 (`const relayRefusal`, `packages/module-images/src/providers/openai.ts:199-200`).
 A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
 section names these causes and what the user can do (`A blocked connection
-says why`, `packages/ui-sdk/src/server/system-prompt.ts:162-170`). Since #3246,
+says why`, `packages/ui-sdk/src/server/system-prompt.ts:167-175`). Since #3246,
 a validated provider-relay request is never narrowed by taint, so a relay
 refusal never has the taint cause.
 

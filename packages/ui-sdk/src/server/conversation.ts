@@ -170,6 +170,24 @@ export interface ConversationHistoryEnvelope {
 }
 
 /** @experimental Part of the `LiveConversationProvider` seam. */
+export interface ConversationGuidance {
+  source: string;
+  topic: "preferences" | "capture_policy" | "purpose" | "conventions";
+  text: string;
+}
+
+/** Selected user guidance is instruction; knowledge is data, never authority. */
+export interface ConversationOrientation {
+  guidance: readonly ConversationGuidance[];
+  knowledge: readonly { source: string; topic: "identity" | "current_focus" | "domains"; text: string }[];
+  /** Sanitized source/category names only, never read errors or file contents. */
+  unavailable: readonly string[];
+}
+
+/** Exact host-owned contextual task binding; a status is never a result. */
+export type ConversationTaskRef = ConversationScope & { taskId: string; requestId: string; nativeHandle: string };
+
+/** @experimental Part of the `LiveConversationProvider` seam. */
 export interface LiveConversationOpenOptions {
   /** Aborted when the host ends this epoch. */
   signal: AbortSignal;
@@ -178,6 +196,8 @@ export interface LiveConversationOpenOptions {
   resync: ConversationResync;
   /** Authorized chat snapshot, fixed before capture and never rebuilt in this epoch. */
   history?: ConversationHistoryEnvelope;
+  /** Authorized, bounded brain orientation, fixed once at this epoch's Start. */
+  orientation?: ConversationOrientation;
 }
 
 /**
@@ -195,6 +215,8 @@ export interface LiveConversationSession {
   bindContextualWork?(ref: { taskId: string; requestId: string; nativeHandle: string }): void;
   /** Required for contextual tasks: terminate an exactly bound refusal without a turn. */
   refuseContextualWork?(ref: ConversationScope & { taskId: string; requestId: string; nativeHandle: string }, reason: string): void;
+  /** Optional ordered progress feedback. Does not settle a native call or prove speech. */
+  reportWorkStatus?(ref: ConversationTaskRef, status: { state: "queued" | "running"; intent: string }): void;
   returnWork(ref: ConversationWorkRef, result: ConversationWorkResult): Promise<void | { acceptance: "acknowledged" | "unknown" }>;
   /** Close the remote session; `unknown` when the provider cannot confirm it. */
   close(): Promise<{ remote: "acknowledged" | "unknown" }>;

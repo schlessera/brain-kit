@@ -1,5 +1,31 @@
 # Live conversation: two engines, one host boundary
 
+## Shared brain guidance and exact progress — 2026-11-05 (#3623)
+
+Both engines receive the same brain-purpose/capture brief as the default typed
+chat append, with native delegation syntax kept separate. A bounded data-only
+reader projects selected root interaction/capture guidance, configured backend
+append sections, module names and identity/current-focus leads after disclosed
+Start. Instructions and knowledge remain classified; no repository code is
+executed and unknown/withheld context calls for clarification or host retrieval.
+The [source mapping and limits](../live-conversation-guidance.md) specify what
+is reused, adapted and left with the host. This does not depend on personas.
+
+A task request is insufficient evidence of acceptance. Minimal provider-facing
+queued status follows the exact task's initial durable admission; running
+follows its actual ordinary turn start. These facts are necessary new model
+context, appended under the existing native identity rather than injected UI
+receipts or a fake completed result. Continuing Gemini responses and GPT
+commentary/thinking appends retain the binding for the real result. Prompt
+guidance asks for a brief spoken acknowledgement and continued conversation;
+transport alone cannot guarantee sound or judgment. Reviewed-only fallback,
+ordinary permissions, screen grants, append-only history, epoch activation and
+no-replay fences remain in force. The
+[additive contract](../integration-contract/package-api.md#live-brain-orientation-and-task-status-additive-3623)
+does not qualify the separate #3131/#961 real-provider/device behavior.
+
+## Selected architecture — 2026-10-04
+
 2026-10-04. The maintainer's [October 3 ruling on #317](https://github.com/schlessera/brain-kit/issues/317#issuecomment-5973820627)
 selects **Gemini Live and OpenAI GPT-Live behind one live-conversation
 interface**. Both are intended implementations within a year, satisfying
