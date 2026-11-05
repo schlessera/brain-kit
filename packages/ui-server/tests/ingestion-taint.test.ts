@@ -56,7 +56,7 @@ test("a search from an ancestor directory taints only when its output names an u
   expect(outputTaintSource("Read", "workspaces/voyage/b.md", brain), "G6_OUTPUT_ONLY_FOR_SEARCH").toBeNull();
 });
 
-test("the real recorder keeps the first web source and excludes a denied fetch", () => {
+test("the real recorder keeps independent sources and excludes a denied fetch", () => {
   const db = createUiDb(":memory:");
   const sessionId = "odysseus-web-session";
   db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?, 'Voyage', 1, 1)").run(sessionId);
@@ -75,7 +75,8 @@ test("the real recorder keeps the first web source and excludes a denied fetch",
     expect(events(), "G6_DENIED_FETCH_CLEAN").toHaveLength(0);
     call("search", "Grep", { pattern: "Ithaca" }, `${brain}/workspaces/voyage/a.md`);
     call("fetch", "WebFetch", { url: "https://ithaca.invalid" }, "A fictional harbour notice.");
-    expect(events().map(event => event.payload), "G6_RECORDER_FIRST_TOOL_SOURCE").toEqual([{ source: "workspace_read", tool: "Grep", detail: null }]);
+    expect(events().map(event => [event.payload.source, event.payload.tool, event.payload.detail]), "G6_RECORDER_EVERY_TOOL_SOURCE")
+      .toEqual([["workspace_read", "Grep", null], ["web_fetch", "WebFetch", null]]);
     recorder.finish("success");
   } finally { db.close(); }
 });

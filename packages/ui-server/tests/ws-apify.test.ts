@@ -26,9 +26,12 @@ import { createWsHandlers } from "../src/ws/connection.js";
 import type { WSContext } from "../src/ws/clients.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
 import { createPrincipal } from "../src/db/principals.js";
+import { GOVERNANCE_EVENT_SCHEMAS, queryGovernanceEvents } from "../src/governance/events.js";
+import { pruneSafetyDetail, safetyProjection } from "../src/governance/safety-store.js";
 import { APIFY_INPUT, APIFY_LIMITS, APIFY_SENTINEL, apifyPolicy, fakeApify, routeApifyOrigins } from "./fixtures/apify-host-fixture.js";
 
-async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unknown> | null, script: (apify: (tool: string, input: unknown) => Promise<ApifyEnvelope>) => Promise<void>) {
+async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unknown> | null, script: (apify: (tool: string, input: unknown) => Promise<ApifyEnvelope>) => Promise<void>,
+  checkSafety?: (app: Awaited<ReturnType<typeof createApp>>) => Promise<void>) {
   const root = await mkdtemp(resolve(tmpdir(), "odysseus-host-apify-")), brain = resolve(root, "brain");
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
   apifyPolicy(brain, policy);
@@ -36,9 +39,17 @@ async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unk
   const previous = process.env.APIFY_TOKEN;
   process.env.APIFY_TOKEN = APIFY_SENTINEL;
   let finished = false;
+  let scriptError: unknown;
   const backend = makeFakeBackend({ id: backendId, startTurn: async ({ bridge }) => {
+    // All remote bytes in this fixture come through the real host Apify
+    // collector; there are no unobserved SDK/native tool deliveries.
+    await bridge.inputSafety!.ready(backendId, 1);
     bridge.emit({ type: "session_info", sessionId: "sess-ithaca-apify", isNew: true });
-    try { await script(async (tool, input) => bridge.apify!({ tool: tool as never, input: input as Record<string, unknown> })); }
+    try {
+      await script(async (tool, input) => bridge.apify!({ tool: tool as never, input: input as Record<string, unknown> }));
+      await checkSafety?.(app);
+    }
+    catch (error) { scriptError = error; throw error; }
     finally {
       bridge.emit({ type: "result", sessionId: "sess-ithaca-apify", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
       finished = true;
@@ -62,6 +73,7 @@ async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unk
     const until = Date.now() + 45_000;
     while (!finished) { if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`); await Bun.sleep(10); }
     await Bun.sleep(50);
+    if (scriptError) throw scriptError;
     const taint = app.db.query("SELECT session_id, turn_id, payload FROM governance_events WHERE kind = 'taint'").all() as Array<{ session_id: string | null; turn_id: string | null; payload: string }>;
     return { root, fake, sent, taint, ledger: resolve(root, "ui.db.apify-ledger.sqlite") };
   } finally {
@@ -81,15 +93,38 @@ test("a pi turn reaches the hosted operations with its own context, ledger and t
     const prepared = await apify("brain_apify_prepare", { candidate, input: APIFY_INPUT, max_charge_usd: 2 });
     envelopes.push(prepared);
     envelopes.push(await apify("brain_apify_run", { proposal: (prepared as { data: { proposal: string } }).data.proposal }));
+  }, async app => {
+    expect(safetyProjection(app.db, null, "sess-ithaca-apify"), "APIFY_LATER_INPUT_REMAINS_RESTRICTIVE").toMatchObject({
+      unresolvedCount: 2, restriction: "restricted", coverage: { state: "complete" } });
+    const events = queryGovernanceEvents(app.db, { kinds: ["taint"], limit: 10 }).sort((a, b) => a.id - b.id);
+    expect(events.map(event => event.payload.tool), "APIFY_INDEPENDENT_REMOTE_DELIVERIES")
+      .toEqual(["brain_apify_discover", "brain_apify_inspect"]);
+    const occurrences = events.map(event => GOVERNANCE_EVENT_SCHEMAS.taint.payload.parse(event.payload).occurrence!);
+    expect(new Set(occurrences.map(item => item.id)).size, "APIFY_DISTINCT_HOST_OCCURRENCE_IDENTITIES").toBe(2);
+    expect(new Set(occurrences.map(item => item.signalId)).size).toBe(2);
+    expect(new Set(occurrences.map(item => item.exposureId)).size).toBe(2);
+    const epoch = app.db.query("SELECT id FROM safety_collections WHERE turn_id=?").get(events[0]!.turnId!) as { id: string };
+    for (const item of occurrences) expect(item).toMatchObject({ epochId: epoch.id, detector: "compute_input", exposure: "finalized",
+      provenance: null, admission: { trusted: false, trustRevision: "0" } });
+    // Replay the same host occurrence through the real writer while the turn
+    // is live: exact delivery deduplicates, separate remote pages do not.
+    const { id: _id, schemaVersion: _version, kind: _kind, payload, ...attribution } = events[0]!;
+    const writes = app.wsHost.activity!.governanceWrites!;
+    expect(await writes.firstTaint({ ...attribution, kind: "taint", payload: GOVERNANCE_EVENT_SCHEMAS.taint.payload.parse(payload) }),
+      "APIFY_EXACT_OCCURRENCE_REPLAY_DEDUPLICATES").toBe(false);
+    expect(queryGovernanceEvents(app.db, { kinds: ["taint"], limit: 10 })).toHaveLength(2);
+    pruneSafetyDetail(app.db, Date.now() + 1);
+    expect(safetyProjection(app.db, null, "sess-ithaca-apify"), "APIFY_PRUNING_PRESERVES_BOTH_RESTRICTIONS").toMatchObject({
+      unresolvedCount: 2, restriction: "restricted", coverage: { state: "complete" } });
   });
   try {
     expect(envelopes.map(envelope => envelope.ok ? "ok" : envelope.error.code), "APIFY_APP_WIRING_SEQUENCE").toEqual(["ok", "ok", "ok", "ok"]);
     expect((envelopes[1] as { data: { eligibility: { executable: boolean } } }).data.eligibility.executable, "APIFY_NO_PROFILE_GATE").toBe(true);
     expect(outcome.fake.starts(), "APIFY_APP_APPROVED_ACTOR_STARTED").toBe(1);
     expect(outcome.sent.some(text => { const frame = JSON.parse(text); return frame.type === "tool_approval_request" && frame.kind === "actor"; }), "APIFY_ACTOR_APPROVAL_CARD").toBe(true);
-    // G6: the first untrusted Apify text tainted the named session, before it reached the turn.
+    // Discovery and inspection each delivered a separate untrusted page.
     expect(outcome.taint.map(row => ({ session: row.session_id, source: JSON.parse(row.payload).source })), "APIFY_TAINTS_SESSION")
-      .toEqual([{ session: "sess-ithaca-apify", source: "apify_result" }]);
+      .toEqual([{ session: "sess-ithaca-apify", source: "apify_result" }, { session: "sess-ithaca-apify", source: "apify_result" }]);
     // The default shared ledger: beside the UI database, private to the host user.
     expect(existsSync(outcome.ledger), "APIFY_DEFAULT_LEDGER_PATH").toBe(true);
     expect(statSync(outcome.ledger).mode & 0o077).toBe(0);

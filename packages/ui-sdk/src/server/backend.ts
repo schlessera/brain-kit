@@ -171,6 +171,15 @@ export interface LocationFix {
  * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
+  /** @internal Host-owned versioned input collection. Await before executing a
+   * tool and before returning its result to the provider. Never a grant. */
+  inputSafety?: {
+    ready(backendId: string, detectorVersion: number): Promise<void>;
+    /** @internal Persist collector loss before refusing unqualified input. */
+    unavailable?(): Promise<void>;
+    begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
+    result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
+  };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;
   /** Host-owned, turn-bound application. Absent means no authoritative route. */

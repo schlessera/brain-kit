@@ -70,7 +70,7 @@ reference is refused here even if it could be staged.
 `<brain-track-files>` block (`withTrackFiles`, `packages/ui-server/src/tracks/read.ts:69-73`).
 Images travel as inline base64 frames: Claude gets content blocks
 (`userMessage`, `packages/ui-backend-claude/src/turn-input.ts:124`) and pi gets
-`ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:300`).
+`ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:345`).
 No image original is kept as a file. Frames are limited to four images and
 8,000,000 decoded bytes per message
 (`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:752`;
@@ -92,7 +92,7 @@ be up to 25,000,000 bytes, so opening a large original needs its own route
 ([§6.5](#65-reading-an-original-back)).
 
 **Taint.** Reading `.brain-ui/inbox/` or `workspaces/` taints the session
-(`leadingArea`, `packages/ui-server/src/activity/ingestion-taint.ts:20-23`). A
+(`leadingArea`, `packages/ui-server/src/activity/ingestion-taint.ts:28-31`). A
 new attachment area is not covered until it is added there.
 
 ## 2. Capability matrix

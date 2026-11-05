@@ -15,6 +15,10 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * and the reviewed Actor-approval guidance.
  * #3623 prepends the reviewed common brain-interaction brief in the four
  * interactive modes; all other options and autonomous modes stay byte-identical.
+ * #3600 adds the safety result hook to PostToolUse and PostToolUseFailure in
+ * those four modes; provider tools, prompts and autonomous modes stay unchanged.
+ * #3624 re-records only the tool-description digest for approved Actor reuse
+ * and the user-selected shortlist; tool names, allowlists and prompts stay fixed.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

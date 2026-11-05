@@ -14,9 +14,9 @@ pins DTOs, explicit numeric bounds, matching, ownership and proof obligations.
 
 ## Conditional G6 supersession
 
-[G6](governed-writable-workers.md#untrusted-input-g6) currently retains the first
-taint source and restricts the entire session. That remains the runtime
-behavior until qualified implementation lands. This ruling supersedes only
+[G6](governed-writable-workers.md#untrusted-input-g6) now records every trigger
+and restricts unknown/incomplete histories through the durable collection
+foundation (#3600). No product verdict writer or review capability is enabled. This ruling supersedes only
 unconditional stickiness: a fully observed chat may return to normal **only
 after every unresolved trigger has its own committed safe verdict**, complete
 versioned detector coverage is established and no recording/capacity failure

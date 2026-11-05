@@ -11,6 +11,8 @@ import {
   rmSync,
 } from "fs";
 import { join } from "path";
+import { createUiDb } from "../src/db/client";
+import { beginSafetyCollection } from "../src/governance/safety-store";
 
 const TEST_DB = `/tmp/brain-ui-migration-runner-test-${process.pid}.db`;
 const TEST_MIGRATIONS_DIR = `/tmp/brain-ui-test-migrations-${process.pid}`;
@@ -46,11 +48,17 @@ describe("migration runner", () => {
     copyFileSync(join(import.meta.dir, "../src/db/journal-database.ts"), join(sourceDir, "journal-database.ts"));
     // Link only fixture SQL, keeping the copied source's relative directory.
     const { symlinkSync } = await import("fs");
+    // Use the actual safety implementation and its package-local dependency
+    // closure, while only the migration directory varies for these cases.
+    symlinkSync(join(import.meta.dir, "../src/governance"), join(fixtureRoot, "src/governance"));
     symlinkSync(TEST_MIGRATIONS_DIR, join(fixtureRoot, "migrations"));
     ({ createUiDb: createDatabase } = await import(join(sourceDir, "client.ts")));
     mkdirSync(TEST_MIGRATIONS_DIR, { recursive: true });
-    db = new Database(TEST_DB, { create: true });
-    db.exec("PRAGMA journal_mode = WAL");
+    // The factory also migrates/recovers safety history after SQL. Start
+    // from its real schema so custom SQL does not bypass that startup path.
+    // Remove only the receipts and settings used as preconditions below.
+    db = createUiDb(TEST_DB);
+    db.exec("DROP TABLE _migrations; DELETE FROM journal.turn_journal_migrations; DROP TABLE settings;");
   });
 
   afterEach(() => {
@@ -104,9 +112,9 @@ describe("migration runner", () => {
     expect(applied[1].filename).toBe("002_add_email.sql");
 
     // Table has email column
-    db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").run("Alice", "alice@example.com");
-    const user = db.query("SELECT * FROM users WHERE name = 'Alice'").get() as any;
-    expect(user.email).toBe("alice@example.com");
+    db.prepare("INSERT INTO users (name, email) VALUES (?, ?)").run("Odysseus", "odysseus@example.com");
+    const user = db.query("SELECT * FROM users WHERE name = 'Odysseus'").get() as any;
+    expect(user.email).toBe("odysseus@example.com");
   });
 
   test("skips already-applied migrations", () => {
@@ -242,5 +250,13 @@ describe("migration runner", () => {
     // Unqualified, this would create the table in the UI database and commit apart from its receipt.
     writeFileSync(join(TEST_MIGRATIONS_DIR, "064_future.journal.sql"), "CREATE TABLE turn_journal_future (id TEXT PRIMARY KEY);");
     expect(() => createDatabase(TEST_DB), "JOURNAL_MIGRATION_STAYS_IN_JOURNAL_FILE").toThrow("changed the UI database");
+  });
+
+  test("custom SQL still runs safety recovery before returning the database", () => {
+    beginSafetyCollection(db, { turnId: "ithaca-turn", bindingId: "ithaca-epoch", principalId: null,
+      sessionId: null, backendId: "pi", at: Date.parse("2026-07-12T00:00:00Z") });
+    runMigrations(db, TEST_MIGRATIONS_DIR);
+    expect(db.query("SELECT ended, gap FROM safety_collections WHERE turn_id='ithaca-turn'").get(),
+      "MIGRATION_FACTORY_PRESERVES_SAFETY_STARTUP").toEqual({ ended: 1, gap: "host_restart_unknown" });
   });
 });

@@ -92,7 +92,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
+    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
     "mcpServers": [
       "brain-ui"
     ],
@@ -153,11 +153,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {
@@ -270,7 +278,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
+    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
     "mcpServers": [
       "brain-ui"
     ],
@@ -331,11 +339,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {
@@ -435,7 +451,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
+    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
     "mcpServers": [
       "brain-ui"
     ],
@@ -496,11 +512,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {
@@ -622,7 +646,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
+    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
     "mcpServers": [
       "brain-ui"
     ],
@@ -687,11 +711,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {

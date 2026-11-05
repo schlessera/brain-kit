@@ -25,6 +25,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyAdmission
   type ApifyAdmissionLimits
   type ApifyApprovalSurface
+  type ApifyApprovedCandidate
   type ApifyAuthority
   ApifyAuthorityError
   type ApifyAuthorityOptions

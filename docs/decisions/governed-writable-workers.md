@@ -1384,7 +1384,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.dataTree ? WORKER_DATA_ROOT : init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:138`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:139`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -1421,7 +1421,7 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`fileVersionsBySession: new Map()`,
-`packages/ui-backend-claude/src/turn-runner.ts:94`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:102`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:21`); internal RPC reports
@@ -1581,7 +1581,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/session-run/teardown.ts:54`). The refresh usually finishes
+`packages/ui-server/src/ws/session-run/teardown.ts:73`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1960,7 +1960,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:499`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:500`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2168,7 +2168,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:353`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:368`).
 
 **What changes:**
 
@@ -2249,7 +2249,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:60-168`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:82-190`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -3845,7 +3845,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:56-78`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:58-80`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -3859,7 +3859,7 @@ listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
 `smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
 `smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
 `smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
-(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:17-20`).
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:18-21`).
 Microsoft Graph and Exchange Online carry more than mail, so their reads by
 an opaque script also wait on the card. The coordinator chose this list for
 #1665; the maintainer may override it.
@@ -3873,6 +3873,17 @@ and versioned collection is complete. Future trust rules are prospective;
 resolving one event never clears later same-source events. This is a ruling for
 qualified future implementation, not a change to the sticky runtime described
 below. Other G6 controls and append-only provider history remain binding.
+
+**Collection supersession — 2026-11-05 (#3600).** The host records every
+independent input/output/proxy signal and uses a durable revisioned aggregate
+for effective admission. Coverage is versioned: legacy/no-row, imported and
+unsupported histories are restricted rather than inferred clean. Proven new
+histories need all mandatory detector acknowledgements. Pending input restricts
+before commit; durable failure/capacity facts survive restart. Pruning does not
+remove unresolved identities. The [owner-review decision](session-safety-reviews.md)
+authorizes this breaking-before-1.0 default; individual verdict mutation remains
+unavailable in this recorder slice. The following original G6 rationale and
+dated implementation history remain historical context.
 
 A session becomes **tainted** the first time a turn ingests content it did not
 author:
@@ -3918,15 +3929,16 @@ outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call (only on a turn without the egress proxy
 since 2026-11-03, see below); and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:84-94`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:95-105`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
-rules (maintainer ruling, 2026-10-22). The first source is the session's one
-`taint` event. A write that fails stops the turn rather than leaving its
-outward rules loose. The check and write share a SQLite transaction
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-23`).
+rules (maintainer ruling, 2026-10-22). Historically the first source was the
+session's one `taint` event; the collection supersession above now records
+every signal. A write that fails stops the turn rather than leaving its
+outward rules loose. Binding, duplicate checks and the write share a SQLite transaction
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
 The hosted server runs that transaction on its write worker
-(`insertFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:29-35`;
+(`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:367`;
 [#2850](https://github.com/schlessera/brain-kit/issues/2850)). A taint counts
 for admission from the moment it is submitted, and a connection's first byte
 waits for its taint's commit.
@@ -3951,7 +3963,7 @@ charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist` (an interactive turn asks first
 since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
 narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:80-213`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:82-215`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -3971,7 +3983,7 @@ proxy is up, the host tells the turn's recorder
 (`recorder?.setEgressProxied();`, `packages/ui-server/src/ws/run-session.ts:747`),
 and its shell calls skip the classifier
 (`const command = shellProxied ? null : commandTaintSource(tool, input);`,
-`packages/ui-server/src/activity/ingestion-taint.ts:90`). A `curl` on such a
+`packages/ui-server/src/activity/ingestion-taint.ts:97`). A `curl` on such a
 turn taints through the proxy's `egress_connection` record. Every non-shell
 source (web tools, other MCP servers, untrusted areas, marked files) still
 taints there. A turn without the proxy keeps the classifier unchanged
@@ -3996,18 +4008,18 @@ turn's connection passes deny, `allowlist` mode and the byte ceiling but
 matches neither `taint.egress.allow` nor a contacted host, the proxy asks
 through the turn's tool-permission card (`toolName: "Network"`, `kind:
 "command"`, never remembered as a tool grant) before refusing
-(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:148-153`). The
+(`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:192-197`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
-(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:35-40`).
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:37-42`).
 Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
-(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:153-164`).
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:164-175`).
 A decline refuses: the record stays an `egress_denial` with reason
 `taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:81-97`). Stopping the turn while the
+`packages/ui-sdk/src/server/egress-proxy.ts:83-99`). Stopping the turn while the
 card is pending cancels the connection, and a late allow admits nothing. Voice turns, which have no
 grant surface, and autonomous turns, which have no turn proxy, refuse without
 a card as before; deny and `allowlist` mode still refuse first. Maintainer
@@ -4027,8 +4039,8 @@ with a status text and a body that name it: the deny list, `allowlist` mode,
 the byte ceiling, an unapproved outward host, or a tainted session's host
 outside its allow-list, with the session's first taint source and what the
 user can do (`function describeRefusal`,
-`packages/ui-sdk/src/server/egress-proxy.ts:81-97`; the source wording,
-`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:171`). The status
+`packages/ui-sdk/src/server/egress-proxy.ts:83-99`; the source wording,
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:181`). The status
 line carries the reason because `curl -v`, `git` and `egress-connect` print
 only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
@@ -4051,11 +4063,11 @@ admitted file-tool read of it as untrusted input: a `Read`, `Edit`, `Grep`,
 reader, whose normalized brain-relative path is marked, or a search whose
 output names it, records `taint` with `source: "user_marked"` as the session's
 first source (`fileSource`,
-`packages/ui-server/src/activity/ingestion-taint.ts:76-81`). An untrusted area
+`packages/ui-server/src/activity/ingestion-taint.ts:81-86`). An untrusted area
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked
-(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:244-250`).
+(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:248-254`).
 Shell reads are covered only by the Bash rules above, which do not apply on a
 turn behind the egress proxy (the known gap above); reads are never
 blocked, and a session that read the file before it was marked is not
@@ -4129,11 +4141,11 @@ authorization, the byte ceilings, budget admission, cancellation and
 accounting. It keeps its own `egress_connection` record, which carries
 `provider: true` and never `inference: true`. The exemption belongs to the operation, never to a
 hostname. Only the relay's validated routes reach the proxy's provider
-admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:252`), and
+admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:322`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
-(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:128`). Turn egress
+(`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:190`). Turn egress
 records neither a taint nor a contacted host for the operation
-(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:133-136`). So in a
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:151-154`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
 
@@ -4141,9 +4153,9 @@ A later turn rebuilds its contacted hosts from the session's earlier
 `egress_connection` records, and a provider record there would look like a
 worker's. So the maintainer added the optional `provider: true` tag, mirroring
 `inference: true`, on the record of every validated provider-relay operation
-(`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:107-114`). The rebuild
+(`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:153-160`). The rebuild
 excludes those records (`contactedHosts`,
-`packages/ui-server/src/governance/session-taint.ts:45-51`), so a provider
+`packages/ui-server/src/governance/session-taint.ts:34-40`), so a provider
 request never gives the worker's own `CONNECT` a contacted-host pass, in the
 same turn or a later one. Records written before the tag existed stay
 unmarked, so they can still count for a session that already has them. That is
@@ -4231,7 +4243,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:90-134`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:93-137`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely
