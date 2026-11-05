@@ -129,14 +129,15 @@ export interface IngestionSignal {
 /** Versioned installed-tool inventory. Completeness still needs delivery hooks and epoch acknowledgement. */
 export const INGESTION_DETECTOR_MANIFEST = {
   version: 1,
-  web: WEB_TOOLS, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
-  compute: [...COMPUTE_OUTPUT_TOOLS], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
+  web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
+  compute: [...COMPUTE_OUTPUT_TOOLS], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
   shell: ["Bash", "bash"],
   exclusions: ["proxied_shell_local_read", "opaque_tunnel_inner_protocol", "uninstrumented_backend_input", "missing_historical_signals"],
 } as const;
 
 function fileSignals(path: string, brainPath: string | undefined, marked: MarkedLookup | undefined,
   detector: "tool_file_input" | "tool_search_output"): IngestionSignal[] {
+  if(Buffer.byteLength(path)>1024)throw new Error("Safety path capacity exceeded");
   const normalized = posix.normalize(path), result: IngestionSignal[] = [];
   const area = pathSource(normalized, brainPath);
   if (area) result.push({ source: area, detector, key: normalized });
@@ -153,8 +154,14 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
   const path = key && input && typeof input === "object" ? (input as Record<string, unknown>)[key] : undefined;
   if (typeof path === "string") return fileSignals(path, brainPath, marked, "tool_file_input");
   if (!source) return [];
-  const detector = source === "web_fetch" || source === "web_search" ? "tool_web_input"
-    : source === "compute_output" ? "compute_input" : source === "chat_attachment" ? "attachment_input"
+  if(source==="web_fetch"||source==="web_search"){
+    const object=input&&typeof input==="object"?input as Record<string,unknown>:{};
+    const keys=source==="web_fetch"?["url","urls"]:["query","queries"];
+    const values=keys.flatMap(key=>typeof object[key]==="string"?[object[key] as string]:Array.isArray(object[key])?(object[key] as unknown[]).filter((v):v is string=>typeof v==="string"):[]);
+    if(values.length>256||values.some(value=>Buffer.byteLength(value)>2048))throw new Error("Safety web input capacity exceeded");
+    return [...new Set(values.length?values:["unknown_input"])].map(key=>({source,detector:"tool_web_input" as const,key}));
+  }
+  const detector = source === "compute_output" ? "compute_input" : source === "chat_attachment" ? "attachment_input"
       : source === "mcp_document" ? "external_mcp_input" : "unproxied_shell_input";
   return [{ source, detector, key: "input" }];
 }
@@ -164,9 +171,26 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
  * This is conservative text observation, not a claim of verified source bytes. */
 export function outputTaintSignals(tool: string, output: string, brainPath?: string, marked?: MarkedLookup): IngestionSignal[] {
   if (!SEARCH_TOOLS.has(tool)) return [];
+  if(Buffer.byteLength(output)>1048576)throw new Error("Safety search output capacity exceeded");
   const result: IngestionSignal[] = [], seen = new Set<string>();
   let unknown = false;
-  for (const line of output.split("\n")) {
+  let lines:string[]=[];
+  try{
+    const parsed=JSON.parse(output);const collect=(value:unknown,depth:number):void=>{
+      if(depth>8){unknown=true;return;}
+      if(typeof value==="string"){lines.push(...value.split("\n"));return;}
+      if(Array.isArray(value)){for(const item of value)collect(item,depth+1);return;}
+      if(value&&typeof value==="object"){
+        let recognized=false;
+        for(const [key,item] of Object.entries(value)){
+          if(["truncated","has_more"].includes(key)&&item===true||key==="omitted"&&typeof item==="number"&&item>0)unknown=true;
+          if(["filenames","files","paths","matches","content","text","output","file_path","filePath","path"].includes(key)){recognized=true;collect(item,depth+1);}
+        }
+        if(!recognized)unknown=true;
+      }
+    };collect(parsed,0);
+  }catch{ lines=output.split("\n"); /* Plain runtime output uses the same path detector. */ }
+  for (const line of lines) {
     const text = line.trim();
     if (!text) continue;
     const path = text.split(":")[0]!;
@@ -174,6 +198,7 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     for (const signal of fileSignals(path, brainPath, marked, "tool_search_output")) {
       const id = JSON.stringify([signal.detector, signal.key]);
       if (seen.has(id)) continue;
+      if(result.length>=256)throw new Error("Safety search signal capacity exceeded");
       seen.add(id); result.push(signal);
     }
   }

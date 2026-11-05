@@ -104,6 +104,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
   return {
     name: "brain-permission-gate",
     factory: (pi) => {
+      pi.on("tool_result",async event=>{
+        await turn.bridge?.inputSafety?.result(event.toolCallId,event.toolName,event.content.filter(p=>p.type==="text").map(p=>(p as {text:string}).text).join("\n"),false);
+      });
       pi.on("tool_call", async (event) => {
         if (turn.signal?.aborted) return { block: true, reason: "Turn cancelled before tool admission." };
         if (isCompletedAutonomousToolCall(turn.autonomous, event.toolName, event.input))
@@ -112,7 +115,9 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         if (unavailable) return { block: true, reason: unavailable };
         // The server route rechecks the exact operation, live principal,
         // membership and approval. Avoid a second runtime approval card.
-        if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) return undefined;
+        if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) {
+          await turn.bridge.inputSafety?.begin(event.toolCallId,event.toolName,event.input??{});return undefined;
+        }
         const decision = await decidePiToolPermission(options, event.toolName, (event.input ?? {}) as Record<string, unknown>, event.toolCallId);
         if (decision.behavior === "deny") return { block: true, reason: decision.message || `Permission denied for ${event.toolName}.` };
         if (decision.updatedInput && event.input && typeof event.input === "object") {
@@ -185,6 +190,8 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
       return refused;
     }
   }
+  try{await turn.bridge?.inputSafety?.begin(toolUseId,toolName,effective);}
+  catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Safety collection unavailable"};}
   observe(effective, { behavior: "allow" });
   return effective === input ? { behavior: "allow" } : { behavior: "allow", updatedInput: effective };
 }

@@ -1035,6 +1035,11 @@ signatures (every public export and the types it is made of)
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
                 occurrence: z.ZodOptional<z.ZodObject<{
+                    admission: z.ZodOptional<z.ZodObject<{
+                        policyHash: z.ZodNullable<z.ZodString>;
+                        trustRevision: z.ZodLiteral<"0">;
+                        trusted: z.ZodLiteral<false>;
+                    }, z.core.$strict>>;
                     detector: z.ZodEnum<{
                         attachment_input: "attachment_input";
                         compute_input: "compute_input";
@@ -1055,7 +1060,25 @@ signatures (every public export and the types it is made of)
                     exposureId: z.ZodString;
                     id: z.ZodString;
                     operationId: z.ZodNullable<z.ZodString>;
-                    provenance: z.ZodNull;
+                    provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                        kind: z.ZodLiteral<"web_origin">;
+                        origin: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                            scheme: z.ZodEnum<{
+                                http: "http";
+                                https: "https";
+                            }>;
+                        }, z.core.$strict>;
+                        verifiedBy: z.ZodLiteral<"host_transport">;
+                    }, z.core.$strict>, z.ZodObject<{
+                        authority: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                        }, z.core.$strict>;
+                        kind: z.ZodLiteral<"tunnel_authority">;
+                        verifiedBy: z.ZodLiteral<"host_proxy">;
+                    }, z.core.$strict>]>;
                     signalId: z.ZodString;
                 }, z.core.$strict>>;
                 source: z.ZodEnum<{
@@ -1954,7 +1977,7 @@ signatures (every public export and the types it is made of)
         retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
         attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string): void;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string, creatorTurnId?: string): void;
         persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
         recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
             thinkingLevel?: ThinkingLevel;

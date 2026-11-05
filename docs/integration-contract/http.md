@@ -285,29 +285,60 @@ that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
 
-**Independent safety observations (partial collection foundation, #3600).**
+**Durable session safety collection (breaking before 1.0, #3600).**
 The version 1 governance taint payload optionally adds strict host occurrence
-metadata; the source enum adds `legacy_unknown`. Each input/output/path/mark
-signal is retained independently, even while restricted. Exact host-key retries
-deduplicate and conflicting payload/turn/session reuse refuses. The proxy's
-connection receipt optionally adds `connectionId`, shared with admission; it
-never establishes a tool/repository identity. The new `taint_exposure` kind
-records terminal HTTP finalization or interrupted/unknown exposure separately
-from the immutable occurrence. CONNECT closure remains unknown.
+metadata; the source enum adds `legacy_unknown`. Every input/output/path/mark
+signal is independent, including later signals from the same source. Exact
+host-key retries deduplicate; changed identity/payload retries refuse. Admission
+records `trusted: false`, the admitted policy hash (or `null`) and trust revision
+`"0"`. Runtime source trust remains disabled. Verified proxy provenance records
+only the actual web origin or opaque tunnel authority; worker tool arguments
+never establish transport or repository provenance. The proxy's optional
+`connectionId` relates its admission and receipt, without guessing a tool call.
 
-Unbound taint/exposure rows no longer expire after 90 days. A content-free
-once-only binding preserves the turn/session relation after catalog removal;
-retired bound identities reject late named and session-less callbacks. Pending
-taint writes enforce the plan's per-session 256 records/1048576 bytes and
-writer-wide 4096 records/16777216 bytes ceilings. Overflow refuses the next
-record; failed commits and overflow latch that writer restrictive until recovery.
-This is an in-process latch, not durable restart qualification or per-brain
-accounting across independent writer instances. Persisted ledger/epoch bounds,
-coverage migration, pre-delivery detector acknowledgement, full history-owner
-binding and durable failure recovery are not implemented by these additions.
-No review, trust matching, safe verdict or live clearing endpoint is enabled.
-Mixed-version clients ignore unknown fields/kinds and retain restrictive
-fallback. The complete reviewed safety DTOs remain prospective.
+An immutable occurrence starts open. The separate `taint_exposure` event records
+host-proven bounded HTTP/tool delivery completion, or interrupted/unknown
+completion. Each external result segment and later connection has independent
+evidence. A CONNECT close or shell completion cannot prove bounded input ended.
+Claude pre/post hooks and the Pi worker's awaited result RPC commit detection
+before execution/result delivery. The host provider relay also refuses
+unsettled/failed recording, independently of runtime hook cancellation. Unsupported or metadata-free collectors retain
+an incomplete epoch. The version 1 detector manifest explicitly excludes
+proxied-shell local file reads and opaque tunnel inner protocols.
+
+The host retains an independent durable ledger, decimal uint64 revision,
+once-only provisional-to-SessionKey binding and bounded coverage epochs. Every
+pre-upgrade session is incomplete, including those with no old taint row; an
+old row migrates as one known occurrence. Imported/discovered histories remain
+unknown, resumes/backend changes retain prior epochs, and forks inherit
+unresolved evidence and unknown coverage. Actual catalog creator, principal,
+history owner, aliases and generation govern binding. Retired session/owner/turn
+identities refuse late callbacks even after private detail is removed.
+
+Effective admission is restricted for any unresolved occurrence, incomplete or
+unknown coverage, pending recording, failure or exhausted capacity. Only a
+proven new session with acknowledged mandatory collectors and zero unresolved
+records can be normal. This deliberately changes the former no-row-means-clean
+G6 default under the [dated ruling](../decisions/session-safety-reviews.md).
+Existing provider history remains byte-identical. No review/clearing route,
+verdict writer, trust enforcement or safety capability is enabled; the reviewed
+public safety-history DTOs remain prospective. Older clients continue under host
+restrictions without new mutation controls.
+
+The ledger enforces the design's 8192-byte occurrence, 100000-row/67108864-byte
+session and 1000000-row/536870912-byte brain ceilings, counting reserved verdict
+and terminal slots. Durable pending ceilings are 256 rows/1048576 bytes per
+session and 4096 rows/16777216 bytes per brain, shared across writers. Unbound
+collection is capped at 1024 bindings/8388608 bytes, with 128 epochs per session.
+Collection metadata and permanent retirement-fence capacity are reserved too.
+Before accepting input, failure/capacity restrictions use preallocated durable
+emergency cells. Outstanding terminal evidence uses its existing reserve.
+Restart retains pending failure and unknown exposure; explicit internal recovery
+requires stopped producers and available capacity and never clears historical
+gaps. Detail pruning preserves IDs, counts and compact audit/reserved capacity;
+unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
+wrap. These foundations supply the later verdict slice's projection without
+publishing a mutation surface.
 
 <a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
 

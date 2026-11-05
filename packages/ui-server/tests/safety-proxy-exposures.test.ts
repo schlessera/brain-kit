@@ -56,7 +56,7 @@ test("later connections and redirect destinations retain separate host identitie
     expect(occurrences, "SAFETY_PROXY_RETAINS_LATER_EXPOSURES").toHaveLength(3);
     expect(new Set(occurrences.map(e => e.id)).size).toBe(3);
     expect(new Set(occurrences.map(e => e.operationId)).size).toBe(3);
-    expect(occurrences.every(e => e.provenance === null), "SAFETY_PROXY_NEVER_GUESSES_TOOL_OR_REPOSITORY").toBe(true);
+    expect(occurrences.map(e=>e.provenance), "SAFETY_PROXY_ATTESTS_ONLY_ITS_TRANSPORT").toEqual(Array.from({length:3},()=>({kind:"web_origin",origin:{scheme:"http",host:"127.0.0.1",port:origin.port},verifiedBy:"host_transport"})));
     expect(f.events("taint_exposure")).toHaveLength(3);
   } finally { origin.stop(true); await f.close(); }
 });

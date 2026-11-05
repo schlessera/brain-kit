@@ -22,17 +22,18 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 
 ## Existing boundaries at the reviewed base
 
-- Taint recording now retains independently observed signals (`recordFirstTaint`,
-  `packages/ui-server/src/governance/session-taint.ts:18-24`), while the session
-  query still returns the first source for sticky G6 enforcement (`sessionTaint`,
-  `packages/ui-server/src/governance/session-taint.ts:11-14`). The hosted writer
-  tracks bounded pending occurrences and an in-process failure latch
-  (`createGovernanceWrites`, `packages/ui-server/src/governance/event-writes.ts:56-84`).
+- Taint recording retains every independently observed signal and reads a
+  durable revisioned aggregate, including pending/failure and explicit unknown
+  coverage (`safetyProjection`,
+  `packages/ui-server/src/governance/safety-store.ts:242`). Legacy rows prove
+  their own event, never a complete history. No product verdict writer or
+  review capability is enabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:149`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:165`).
-  Workspace paths taint regardless of repository ownership. Tool result frames
-  do not prove finalized delivery or complete coverage.
+  `packages/ui-server/src/activity/ingestion-taint.ts:150`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:172`).
+  Workspace paths taint regardless of repository ownership. Awaited backend
+  hooks commit before tool dispatch/result delivery; display frames alone
+  never prove finalized delivery or complete coverage.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
   `packages/ui-server/src/brain/turn-egress.ts:82-241`). A raw CONNECT reveals
@@ -59,8 +60,8 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 The original source review used main
 `35217d283b849b5ef81700d5d4c2ec7486405d12`; the current collection path retains
 input **and** output signals (`const signals = ingestion`,
-`packages/ui-server/src/activity/recorder.ts:377`). These observations do not
-implement the complete coverage/projection contract below. The earlier design
+`packages/ui-server/src/activity/recorder.ts:380`). These collectors provide the internal coverage/projection foundation; public
+review/history DTOs and mutation remain prospective. The earlier design
 comment also inspected local #3595 work; this document does not assume that
 work has merged. #3595 is adjacent scoped network approval, not persistent
 trust or taint resolution. The extraction-classifier spike #3434 remains separate.

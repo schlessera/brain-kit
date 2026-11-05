@@ -52,6 +52,7 @@ export function createPiTurnRunner(
     // pi has none of the runtime shortcuts the pairing guards against, but the
     // declaration is refused here too so it means the same on both backends.
     assertTurnPosture(req, !options.sessionFactory, !options.sessionFactory);
+    if(!options.sessionFactory)await req.bridge.inputSafety?.ready("pi",1);
     // pi declares no voice tool posture. Running a voice turn on its ordinary
     // allowlist would be the silent widening the posture exists to prevent.
     if (req.posture === "voice") {

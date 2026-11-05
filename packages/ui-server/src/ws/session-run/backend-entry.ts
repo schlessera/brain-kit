@@ -5,6 +5,7 @@ import { protectedPaths } from "@schlessera/brain-common/internal/protected-path
 import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { prepareTurnEgress } from "../../brain/turn-egress.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBudgetLimits } from "../../brain/turn-budgets.js";
+import { createSafetyCollector } from "../../governance/safety-collector.js";
 import { sessionTaint } from "../../governance/session-taint.js";
 import { withChatFiles } from "../../attachments/context.js";
 import { makeBridge, settleTurnIndex } from "../bridge.js";
@@ -109,6 +110,14 @@ export async function openTurnBridge(
     turnData: governedHold?.dataTree ? { tree: governedHold.dataTree, ...(governedHold.startupView ? { view: governedHold.startupView.root } : {}) } : undefined,
     governance: governedHold ? { policy: governedHold.policy } : undefined,
   });
+  const safetyWrites=host.activity?.governanceWrites, safetyDb=host.activity?.governanceDb;
+  if(safetyWrites&&safetyDb){
+    const bindingId=crypto.randomUUID();
+    await safetyWrites.safetyBegin({bindingId,turnId:turn.turnId,principalId:turn.principalId??null,sessionId:resumeId??null,
+      historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:initial.handoffHooks?.sourceSessionId,policyHash:governedHold?.policy.hash??null,at:Date.now()});
+    bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
+      sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>run.abortController.abort(error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null});
+  }
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.
   held.settleIndex = () => settleTurnIndex(bridge).catch(() => {});
@@ -141,7 +150,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
-    profile: heldProfile(run), origin,
+    profile: heldProfile(run), origin,policyHash:governedHold.policy.hash,
     // A record's commit failure stops the turn, as a synchronous one did (#2850).
     ...(governanceWrites ? { record: (event: Parameters<typeof governanceWrites.record>[0]) => governanceWrites.record(event), governanceWrites }
       : governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
@@ -155,6 +164,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   const egress = held.turnEgress, hold = governedHold, relayTurnId = turn.turnId;
   held.providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),
     admit: async () => {
+      if(abortController.signal.aborted||governanceWrites&&!governanceWrites.recordingAvailable(turn.turnId,turn.sessionId??null))return {allowed:false,message:"Input recording is unavailable; the turn was stopped."};
       if (stops.budget) return { allowed: false, message: stops.budget.message };
       if (!host.budgets) return { allowed: true };
       try {

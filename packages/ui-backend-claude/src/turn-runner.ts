@@ -123,6 +123,7 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
   // Before anything is claimed or emitted: a refused posture rejects, per
   // the startTurn contract, and leaves no turn behind.
   assertTurnPosture(req, true, true);
+  await req.bridge.inputSafety?.ready("claude",1);
   if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
     throw new BackendBusyError(BACKEND_ID, req.sessionId);
   }

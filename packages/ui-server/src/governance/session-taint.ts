@@ -1,16 +1,19 @@
 /** A session's untrusted-input state (G6), read from and written to its durable governance record. */
+import { safetyProjection } from "./safety-store.js";
 import type { Database } from "bun:sqlite";
 import type { GovernanceEventInput, GovernanceEventPayload } from "./events.js";
 
 export type TaintSource = GovernanceEventPayload<"taint">["source"];
 export interface SessionTaint { eventId: number; source: TaintSource }
 
-const FIRST_TAINT = "SELECT id, payload FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1";
-
-/** The first taint recorded for this turn or its session; taint is sticky for the session. */
+/** Admission reads the complete durable aggregate, including coverage and failure. */
 export function sessionTaint(db: Database, turnId: string | null, sessionId: string | null): SessionTaint | null {
-  const row = db.query(FIRST_TAINT).get(turnId, sessionId, sessionId) as { id: number; payload: string } | null;
-  return row ? { eventId: row.id, source: (JSON.parse(row.payload) as { source: TaintSource }).source } : null;
+  const projection=safetyProjection(db,turnId,sessionId);
+  if(projection.restriction==="normal")return null;
+  const row=projection.earliestUnresolvedId?db.query(`SELECT g.id,r.source FROM safety_records r
+    LEFT JOIN safety_legacy_events m ON m.record_id=r.id LEFT JOIN governance_events g ON g.id=m.event_id WHERE r.id=?`)
+    .get(projection.earliestUnresolvedId) as {id:number|null;source:TaintSource}|null:null;
+  return {eventId:row?.id??0,source:row?.source??"legacy_unknown"};
 }
 
 /** Records one occurrence. Historical name retained for internal callers during rollout.

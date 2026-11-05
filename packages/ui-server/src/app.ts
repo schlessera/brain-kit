@@ -1,3 +1,4 @@
+import { occurrence } from "./governance/occurrence.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
 import { guardSqliteCleanup } from "./db/write-worker.js";
@@ -738,7 +739,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     inference: budgets.inferenceSpend,
     exposures: sessionIds => governedTurns.exposures(sessionIds),
     untrusted: async (turn, event) => {
-      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "apify_result", tool: `brain_apify_${event.operation}`, detail: event.detail.slice(0, 200) },
+      // The host has acquired this bounded catalog/result page and withholds
+      // its bytes until the independent remote-input occurrence commits.
+      const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;
+      const observed=occurrence(collection?.id??crypto.randomUUID(),"compute_input",null,"finalized");
+      observed.admission={trusted:false,policyHash:collection?.policy_hash??null,trustRevision:"0"};
+      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "apify_result", tool: `brain_apify_${event.operation}`, detail: event.detail.slice(0, 200),occurrence:observed },
         sessionId: turn.sessionId(), turnId: turn.turnId, actor: "interactive", model: null, profile: null });
     },
     report: message => brainLog.emit({ severityText: "WARN", body: message }) });

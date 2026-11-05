@@ -1,3 +1,4 @@
+import { expectRejection } from "./helpers/expect-rejection";
 import { INGESTION_DETECTOR_MANIFEST } from "../src/activity/ingestion-taint";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -70,7 +71,7 @@ test("host keys deduplicate exact occurrences and reject changed retries", async
   try {
     expect(await writes.firstTaint(event)).toBe(true);
     expect(await writes.firstTaint(event), "SAFETY_EXACT_RETRY_DEDUPLICATES").toBe(false);
-    await expect(writes.firstTaint({ ...event, payload: { ...event.payload, source: "web_search" } })).rejects.toThrow("Conflicting occurrence retry");
+    await expectRejection(writes.firstTaint({ ...event, payload: { ...event.payload, source: "web_search" } }),"Conflicting occurrence retry");
     expect(writes.taint("voyage", null), "SAFETY_FAILED_RETRY_CANNOT_LOOSEN_ADMISSION").not.toBeNull();
     expect(queryGovernanceEvents(db, { turnId: "voyage", kinds: ["taint"], limit: 100 })).toHaveLength(1);
   } finally { db.close(); }
@@ -89,9 +90,9 @@ test("unbound taint survives retention and binding is once-only across worker re
     expect(await writes.bind("voyage", "ithaca")).toBe(1);
     await writer.close(); db.close();
     db = createUiDb(path); writer = openSqliteWriter(db); writes = createGovernanceWrites(db, writer);
-    await expect(writes.bind("voyage", "troy")).rejects.toThrow("Conflicting turn binding");
-    await writes.firstTaint({ ...trigger("late"), sessionId: null });
-    expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["taint"], limit: 100 }), "SAFETY_LATE_EVIDENCE_USES_RETAINED_BINDING").toHaveLength(2);
+    await expectRejection(writes.bind("voyage", "troy"),"Conflicting turn binding");
+    await expectRejection(writes.firstTaint({ ...trigger("late"), sessionId: null }),"collection ended");
+    expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["taint"], limit: 100 }), "SAFETY_RESTART_RETAINS_BINDING_WITHOUT_ACCEPTING_LATE_INPUT").toHaveLength(1);
   } finally { await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -109,9 +110,9 @@ test("a retired bound session refuses named and session-less late callbacks afte
     await writer.close(); db.close();
     db = createUiDb(path); writer = openSqliteWriter(db);
     const later = createGovernanceWrites(db, writer);
-    await expect(later.firstTaint({ ...trigger("late-retired"), sessionId: null })).rejects.toThrow("retired");
+    await expectRejection(later.firstTaint({ ...trigger("late-retired"), sessionId: null }),"retired");
     expect(() => recordGovernanceEvent(db, trigger("named-retired"))).toThrow("retired");
-    await expect(later.bind("voyage", "ithaca")).rejects.toThrow("retired");
+    await expectRejection(later.bind("voyage", "ithaca"),"retired");
     // Governance is retained under its existing independent audit owner.
     expect(queryGovernanceEvents(db, { sessionId: "ithaca", kinds: ["taint"], limit: 100 })).toHaveLength(1);
   } finally { await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
@@ -122,7 +123,7 @@ test("native worker failure stays restrictive after pending entries settle", asy
   db.exec("CREATE TRIGGER refuse_taint BEFORE INSERT ON governance_events WHEN NEW.kind='taint' BEGIN SELECT RAISE(ABORT,'fixture recording failure'); END");
   const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer);
   try {
-    await expect(writes.firstTaint(trigger("failed"))).rejects.toThrow("fixture recording failure");
+    await expectRejection(writes.firstTaint(trigger("failed")),"fixture recording failure");
     await writer.idle();
     expect(writes.taint("voyage", "ithaca"), "SAFETY_FAILED_WRITE_STAYS_RESTRICTIVE").not.toBeNull();
     expect(() => writes.firstTaint(trigger("retry"))).toThrow("requires recovery");

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import { appendSafetyEvent, bindSafetyCollection } from "./safety-store.js";
 import { OccurrenceSchema } from "./occurrence.js";
 import { assertLive } from "../ws/chat-lifecycle.js";
 
@@ -70,10 +71,6 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     accounting: z.enum(["http_wire_bound", "opaque_bytes"]), durationMs: amount,
     outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
     inference: z.literal(true).optional(), provider: z.literal(true).optional(), reason: z.string().max(200).optional(),
-  })),
-  taint_exposure: kind(1, z.strictObject({
-    occurrenceId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-    state: z.enum(["finalized", "interrupted_unknown"]),
   })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
     beforeHash: policyHash, afterHash: policyHash, taintSourceEventId: z.number().int().positive().nullable(),
@@ -224,6 +221,10 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     detail: text.nullable(),
     occurrence: OccurrenceSchema.optional(),
   })),
+  taint_exposure: kind(1, z.strictObject({
+    occurrenceId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+    state: z.enum(["finalized", "interrupted_unknown"]),
+  })),
   /** A provider a worker command needed but could not reach without a key (#1666). */
   provider_unavailable: kind(1, z.strictObject({
     provider: z.string().min(1).max(100),
@@ -347,6 +348,7 @@ export function governanceEventRow(input: GovernanceEventInput): GovernanceEvent
     throw new GovernanceEventError(`${input.kind} payload exceeds ${GOVERNANCE_PAYLOAD_MAX_BYTES} bytes`);
   }
   const m = meta.data;
+  if((input.kind==="taint"||input.kind==="taint_exposure")&&m.at!==undefined&&!Number.isSafeInteger(m.at))throw new GovernanceEventError("Invalid safety clock");
   const occurrence = input.kind === "taint" ? (data.occurrence as { id: string } | undefined) : undefined;
   if (occurrence && m.dedupeKey && m.dedupeKey !== occurrence.id) throw new GovernanceEventError("Occurrence key mismatch");
   return { sessionId: m.sessionId, turnId: m.turnId, at: m.at ?? Date.now(), kind: input.kind, version: spec.version,
@@ -362,7 +364,7 @@ export function governanceEventRow(input: GovernanceEventInput): GovernanceEvent
  * never has to know whether `session_info` has landed yet; `bindTurnEvents`
  * attaches the rest when it does.
  */
-export function insertGovernanceEvent(db: Database, row: GovernanceEventRow): { id: number; recorded: boolean } {
+export function insertGovernanceEvent(db: Database, row: GovernanceEventRow, safetyReserved = false): { id: number; recorded: boolean } {
   return db.transaction(() => {
     const binding = row.turnId ? db.query("SELECT session_id FROM governance_turn_bindings WHERE turn_id=?").get(row.turnId) as { session_id: string } | null : null;
     if (binding && row.sessionId && row.sessionId !== binding.session_id) throw new GovernanceEventError("Conflicting turn binding");
@@ -378,7 +380,11 @@ export function insertGovernanceEvent(db: Database, row: GovernanceEventRow): { 
       ON CONFLICT(kind, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
       RETURNING id`)
       .get(sessionId, row.turnId, row.at, row.kind, row.version, row.actor, row.model, row.profile, row.payload, row.dedupeKey) as { id: number } | null;
-    if (stored) return { id: stored.id, recorded: true };
+    if (stored) {
+      const recordId=appendSafetyEvent(db,{...row,sessionId},safetyReserved);
+      if(row.kind==="taint")db.query("INSERT INTO safety_legacy_events VALUES(?,?)").run(stored.id,recordId!);
+      return { id: stored.id, recorded: true };
+    }
     const existing = db.query("SELECT id,turn_id,session_id,payload,actor,model,profile FROM governance_events WHERE kind = ? AND dedupe_key = ?")
       .get(row.kind, row.dedupeKey) as { id: number; turn_id: string | null; session_id: string | null; payload: string; actor: string; model: string | null; profile: string | null };
     if ((row.kind === "taint" || row.kind === "taint_exposure") && (existing.turn_id !== row.turnId || existing.payload !== row.payload
@@ -407,12 +413,14 @@ export function recordGovernanceEvent(db: Database, input: GovernanceEventInput)
 export function bindTurnEvents(db: Database, turnId: string, sessionId: string): number {
   return db.transaction(() => {
     assertLive(db, [["session", sessionId]]);
+    if(db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))throw new GovernanceEventError("Safety turn retired");
     if (!db.query("SELECT 1 FROM sessions WHERE id=?").get(sessionId)) return 0;
     const previous = db.query("SELECT session_id FROM governance_turn_bindings WHERE turn_id=?").get(turnId) as { session_id: string } | null;
     if (previous && previous.session_id !== sessionId) throw new GovernanceEventError("Conflicting turn binding");
     if (db.query("SELECT 1 FROM governance_events WHERE turn_id=? AND session_id IS NOT NULL AND session_id<>?").get(turnId, sessionId)) {
       throw new GovernanceEventError("Conflicting historical turn binding");
     }
+    bindSafetyCollection(db,turnId,sessionId);
     db.query("INSERT INTO governance_turn_bindings(turn_id,session_id) VALUES (?,?) ON CONFLICT DO NOTHING").run(turnId, sessionId);
     return db.query(`UPDATE governance_events SET session_id = ?1
       WHERE turn_id = ?2 AND session_id IS NULL`).run(sessionId, turnId).changes;

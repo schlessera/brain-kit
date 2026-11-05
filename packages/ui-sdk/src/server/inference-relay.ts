@@ -186,6 +186,9 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         if (operation && !operation.charge(headerBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers))) {
           return denied("max_bytes_per_turn");
         }
+        // Body/credential waits may have crossed an input-recording failure.
+        // Re-enter the concrete host admission at the last dispatch boundary.
+        if(operation&&!await operation.admit())return denied("inference_admission_refused");
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.

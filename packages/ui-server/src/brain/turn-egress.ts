@@ -80,7 +80,7 @@ export function createOutwardCalls() {
 }
 
 export async function prepareTurnEgress(options: {
-  policy: EffectiveGovernancePolicy; bridge: BackendBridge; controller: AbortController;
+  policy: EffectiveGovernancePolicy; policyHash?:string|null; bridge: BackendBridge; controller: AbortController;
   turnId: string; sessionId: () => string | null; model: () => string | null;
   profile: "governed" | "strict"; origin: "interactive" | "voice";
   /**
@@ -96,21 +96,21 @@ export async function prepareTurnEgress(options: {
    * before that commit lands (#2850). Absent: the taint commits on
    * `governanceDb` through `record`.
    */
-  governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint">;
+  governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint"> & Partial<Pick<GovernanceWrites,"recordingAvailable">>;
 }) {
   const calls = createOutwardCalls();
   let recordingFailure: Error | undefined;
   const db = options.governanceDb;
   // Without a write worker the taint commits through `record`, at once, as it always did.
   const record = options.record;
-  const writes = options.governanceWrites ?? (db && record ? {
+  const writes: typeof options.governanceWrites = options.governanceWrites ?? (db && record ? {
     taint: (turnId: string | null, sessionId: string | null) => sessionTaint(db, turnId, sessionId),
     firstTaint: (event: GovernanceEventInput<"taint">) => { recordFirstTaint(db, event, record); return Promise.resolve(true); },
   } : undefined);
   const recording = new Set<Promise<unknown>>();
   // Hosts earlier turns of the session reached, then every host this turn admits.
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
-  const collectionEpoch = crypto.randomUUID();
+  const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
@@ -187,13 +187,21 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string }): Promise<void> => {
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?:string }): Promise<void> => {
     // A host relay's operation neither taints the session nor makes its host
     // one the worker's own traffic may reach once tainted (G6, #3246).
-    if (destination.inference || destination.provider) return;
+    if (destination.inference || destination.provider) {
+      if(writes?.recordingAvailable&&!writes.recordingAvailable(options.turnId,options.sessionId())){fail();throw new Error("Input recording unavailable before provider dispatch");}
+      return;
+    }
     contacted.add(destination.host);
     if (!writes) return;
     const exposure = occurrence(collectionEpoch, "proxy_input", destination.connectionId, "open");
+    exposure.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
+    exposure.provenance=destination.method==="CONNECT"
+      ? {kind:"tunnel_authority",authority:{host:destination.host,port:destination.port},verifiedBy:"host_proxy"}
+      : destination.protocol==="http:"||destination.protocol==="https:"
+        ? {kind:"web_origin",origin:{scheme:destination.protocol==="http:"?"http":"https",host:destination.host,port:destination.port},verifiedBy:"host_transport"}:null;
     exposures.set(destination.connectionId, exposure);
     try {
       await writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,

@@ -1635,7 +1635,7 @@ wrappers do not borrow that exemption
 (`commandTaintSource`, `packages/ui-server/src/activity/command-taint.ts:2-27`).
 The first source is kept as a session `taint` governance event, using the same
 SQLite transaction for the existing-source check and write
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:18-24`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
 The recorder waits for a tool result and excludes known denied calls; failed
 calls can still return untrusted partial output. It records the source kind
 and tool name, without copying command text or content into the payload. If

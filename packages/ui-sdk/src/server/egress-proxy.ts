@@ -59,7 +59,7 @@ export interface EgressProxyOptions {
    * A returned promise is awaited first, so a durable record it makes commits
    * before any byte flows; its rejection refuses the connection.
    */
-  admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string }): unknown;
+  admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?: string }): unknown;
   signal?: AbortSignal;
 }
 const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
@@ -205,7 +205,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { await options.admitted?.({ host, port, method, inference, provider, connectionId }); } catch { finish("failed", "proxy_error"); return false; }
+      try { await options.admitted?.({ host, port, method, inference, provider, connectionId, protocol:url.protocol }); } catch { finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };

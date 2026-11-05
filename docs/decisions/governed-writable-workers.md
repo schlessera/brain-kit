@@ -1421,7 +1421,7 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`fileVersionsBySession: new Map()`,
-`packages/ui-backend-claude/src/turn-runner.ts:94`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:102`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:21`); internal RPC reports
@@ -1581,7 +1581,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/session-run/teardown.ts:54`). The refresh usually finishes
+`packages/ui-server/src/ws/session-run/teardown.ts:73`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1960,7 +1960,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:499`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:500`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2168,7 +2168,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:362`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:365`).
 
 **What changes:**
 
@@ -3874,16 +3874,16 @@ resolving one event never clears later same-source events. This is a ruling for
 qualified future implementation, not a change to the sticky runtime described
 below. Other G6 controls and append-only provider history remain binding.
 
-**Collection supersession — 2026-11-05 (#3600, partial foundation).** The
-first-only recording rule below is superseded: tool input/output paths and
-explicit marks are independent signals, and every admitted non-provider proxy
-connection records its own host identity while the session is already tainted.
-Metadata-free legacy rows remain readable. Open proxy exposure and separate
-terminal observations preserve uncertainty; tool-result observation alone is
-not proof of finalization. Session restriction is still sticky. No owner review
-or normal-state restoration is enabled, and collection metadata does not prove
-complete detector coverage. The full conditional G6 supersession above remains
-prospective. See the [implemented collection contract](../integration-contract/http.md#governance-events-additive-1651).
+**Collection supersession — 2026-11-05 (#3600).** The host records every
+independent input/output/proxy signal and uses a durable revisioned aggregate
+for effective admission. Coverage is versioned: legacy/no-row, imported and
+unsupported histories are restricted rather than inferred clean. Proven new
+histories need all mandatory detector acknowledgements. Pending input restricts
+before commit; durable failure/capacity facts survive restart. Pruning does not
+remove unresolved identities. The [owner-review decision](session-safety-reviews.md)
+authorizes this breaking-before-1.0 default; individual verdict mutation remains
+unavailable in this recorder slice. The following original G6 rationale and
+dated implementation history remain historical context.
 
 A session becomes **tainted** the first time a turn ingests content it did not
 author:
@@ -3936,9 +3936,9 @@ rules (maintainer ruling, 2026-10-22). Historically the first source was the
 session's one `taint` event; the collection supersession above now records
 every signal. A write that fails stops the turn rather than leaving its
 outward rules loose. Binding, duplicate checks and the write share a SQLite transaction
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:18-24`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:21-27`).
 The hosted server runs that transaction on its write worker
-(`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:365`;
+(`insertGovernanceEvent`, `packages/ui-server/src/governance/events.ts:367`;
 [#2850](https://github.com/schlessera/brain-kit/issues/2850)). A taint counts
 for admission from the moment it is submitted, and a connection's first byte
 waits for its taint's commit.
@@ -4067,7 +4067,7 @@ first source (`fileSource`,
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked
-(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:246-252`).
+(`const marked: MarkedLookup`, `packages/ui-server/src/activity/recorder.ts:248-254`).
 Shell reads are covered only by the Bash rules above, which do not apply on a
 turn behind the egress proxy (the known gap above); reads are never
 blocked, and a session that read the file before it was marked is not
@@ -4155,7 +4155,7 @@ worker's. So the maintainer added the optional `provider: true` tag, mirroring
 `inference: true`, on the record of every validated provider-relay operation
 (`finish`, `packages/ui-sdk/src/server/egress-proxy.ts:153-160`). The rebuild
 excludes those records (`contactedHosts`,
-`packages/ui-server/src/governance/session-taint.ts:31-37`), so a provider
+`packages/ui-server/src/governance/session-taint.ts:34-40`), so a provider
 request never gives the worker's own `CONNECT` a contacted-host pass, in the
 same turn or a later one. Records written before the tag existed stay
 unmarked, so they can still count for a session that already has them. That is

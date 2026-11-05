@@ -91,6 +91,7 @@ export interface TurnRecorder {
    * calls then no longer pass through the command classifier.
    */
   setEgressProxied(): void;
+  setSafetyHooked(): void;
   /** The run id (one run per turn). */
   readonly runId: string;
   observeFrame(msg: ServerMessage): void;
@@ -190,6 +191,7 @@ export function createTurnRecorder(
   const calls = new Map<string, TracedCall>();
   // Classify the complete original input, independently of the bounded
   // roadblock trace. Record only after a result, when content was ingested.
+  let safetyHooked = false;
   const collectionEpoch = crypto.randomUUID();
   const ingestions = new Map<string, { signals: IngestionSignal[]; tool: string; operationId: string }>();
   const usageSamples: UsageSample[] = [];
@@ -300,6 +302,7 @@ export function createTurnRecorder(
     setMainModel(model) { if (!finished) mainModel = model; },
     setWorkerProfile(profile) { turn.profile = profile; },
     setEgressProxied() { shellProxied = true; },
+    setSafetyHooked() { safetyHooked = true; },
     runId,
 
     observeFrame(msg) {
@@ -375,7 +378,7 @@ export function createTurnRecorder(
             const ingestion = ingestions.get(msg.toolUseId);
             ingestions.delete(msg.toolUseId);
             const signals = ingestion ? [...ingestion.signals, ...outputTaintSignals(ingestion.tool, msg.output, deps.brainPath, marked)] : [];
-            if (ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {
+            if (!safetyHooked && ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {
               const untracked = (error: unknown) => {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
                 deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));

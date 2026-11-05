@@ -70,7 +70,7 @@ reference is refused here even if it could be staged.
 `<brain-track-files>` block (`withTrackFiles`, `packages/ui-server/src/tracks/read.ts:69-73`).
 Images travel as inline base64 frames: Claude gets content blocks
 (`userMessage`, `packages/ui-backend-claude/src/turn-input.ts:124`) and pi gets
-`ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:300`).
+`ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:336`).
 No image original is kept as a file. Frames are limited to four images and
 8,000,000 decoded bytes per message
 (`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:752`;

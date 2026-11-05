@@ -193,6 +193,8 @@ async function initialize(init: Init): Promise<void> {
         if (message) throw new Error(`${error instanceof Error ? error.message : String(error)}\n\n${message}`);
         throw error;
       }
+      // The host commits all result signals before this result can enter the provider context.
+      await rpc("safetyResult",tool.name,id,{output:(result.content??[]).filter(part=>part.type==="text").map(part=>(part as {text:string}).text).join("\n"),segments:(result.content??[]).filter(part=>part.type==="text").map(part=>(part as {text:string}).text)});
       const message = pressure?.();
       return message ? { ...result, content: [...(result.content ?? []), { type: "text" as const, text: message }] } : result;
     } }));
