@@ -4826,7 +4826,8 @@ duplicate state. Status does not consume the handle, settle the request, grant
 permission or acknowledge a result. A missing method preserves older provider
 behavior; the host never fabricates provider acceptance feedback for it.
 The host calls queued only after initial task persistence and running only
-after actual turn start; stale, withdrawn, ended or unauthorized tasks receive
+after host turn admission starts (before governance/backend entry may finish);
+stale, withdrawn, ended or unauthorized tasks receive
 neither. Status-send failure ends the epoch without retry/replay. This API
 does not report provider acceptance or audible output.
 

@@ -17,28 +17,36 @@ const TOPICS: Readonly<Record<string, ConversationGuidance["topic"]>> = {
 export function projectConversationGuidance(text: string, source: string): ConversationGuidance[] {
   const result: ConversationGuidance[] = [];
   let topic: ConversationGuidance["topic"] | undefined;
+  let depth = 0;
   let lines: string[] = [];
   let fenced = false;
   let generated = false;
+  let withheld = false;
   const flush = () => {
     const selected = lines.join("\n").trim();
     if (topic && selected) result.push({ source, topic, text: selected });
     lines = [];
   };
   for (const line of text.split(/\r?\n/u)) {
-    if (!fenced && /^<!--\s*brain:generated:/u.test(line)) { flush(); topic = undefined; generated = true; continue; }
+    if (!fenced && /^<!--\s*brain:generated:/u.test(line)) { if (topic) withheld = true; generated = true; continue; }
     if (generated) { if (/^<!--\s*\/brain:generated:/u.test(line)) generated = false; continue; }
     // A fence inside a selected section makes that section unsuitable for a
     // conversation brief. Do not silently drop part of a user's policy.
     if (/^\s*(```|~~~)/u.test(line)) { fenced = !fenced; if (topic) lines.push(line); continue; }
     if (!fenced) {
-      const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/u.exec(line);
-      if (heading) { flush(); topic = TOPICS[heading[1]!.toLowerCase()]; }
+      const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(line);
+      if (heading) {
+        if (topic && heading[1]!.length > depth) { lines.push(line); continue; }
+        flush(); topic = TOPICS[heading[2]!.toLowerCase()]; depth = heading[1]!.length;
+      }
       else if (topic) lines.push(line);
     } else if (topic) lines.push(line);
   }
   flush();
-  return result.filter(entry => !/^\s*(?:```|~~~|@|<!--)/mu.test(entry.text));
+  // A lost restriction can change another section's meaning. Withhold this
+  // source's selected guidance together rather than retain a permissive prefix.
+  if (withheld || result.some(entry => /^\s*(?:```|~~~|@|<!--)/mu.test(entry.text))) return [];
+  return result;
 }
 
 export const ORIENTATION_MAX_BYTES = 3_200;

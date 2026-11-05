@@ -23,7 +23,7 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
   };
   const root = mkdtempSync(join(tmpdir(), "odyssey-live-status-"));
   mkdirSync(join(root, "me")); mkdirSync(join(root, "context"));
-  writeFileSync(join(root, "CLAUDE.md"), "# Personal Rules\nUse short plain answers for Odysseus.\n# Capture policy\nAsk before capturing a new preference.\n# Response surface\nHOST_ONLY_RENDERING\n");
+  writeFileSync(join(root, "CLAUDE.md"), "# Personal Rules\nUse short plain answers for Odysseus.\n# Capture policy\nAsk before capturing a new preference.\n## Exceptions\nNever capture private watch details without an explicit request.\n# Response surface\nHOST_ONLY_RENDERING\n");
   writeFileSync(join(root, "me/identity.md"), "---\nsummary: Odysseus returns to Ithaca.\n---\nHe commands the raft.\n\n## More\nHOST_ONLY_IDENTITY_DETAIL\n");
   writeFileSync(join(root, "context/current-focus.md"), "Repair the mast on 2026-07-12.\n");
   const db = createUiDb(":memory:");
@@ -80,6 +80,7 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
   await until(() => f.sent.some(frame => JSON.stringify(frame).includes("Odysseus returns to Ithaca.")));
   const startup = JSON.stringify(f.sent.filter(frame => frame.clientContent || frame.type === "session.start"));
   expect(startup, "HOST_READS_SELECTED_GUIDANCE_INTO_ACTUAL_PROVIDER_STARTUP").toContain("Use short plain answers for Odysseus.");
+  expect(startup, "COMPLETE_NESTED_CAPTURE_POLICY_REACHES_PROVIDER").toContain("Never capture private watch details without an explicit request.");
   expect(startup).toContain("Repair the mast on 2026-07-12."); expect(startup).toContain("Be concise.");
   expect(startup).not.toContain("HOST_ONLY");
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "capture", sequence: 0, rate: engine === "gemini" ? 16000 : 24000, pcm: "AAA=" });

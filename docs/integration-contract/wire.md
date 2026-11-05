@@ -2835,7 +2835,9 @@ defines the optional frozen orientation and provider status methods.
 
 Existing `conversation_work` states remain unchanged. For contextual tasks
 the first-party adapters additionally receive minimal exact-task queued and
-running feedback after persistence and actual start, respectively. This does
+running feedback after persistence and host turn admission starts,
+respectively. Running does not establish backend/tool invocation; governance
+admission may still be pending. This does
 not convert a request proposal into acceptance or a status into completion;
 provider/native and host identities remain bound, and refused work executes
 no turn. Refused Gemini responses are scheduled `WHEN_IDLE` to allow an

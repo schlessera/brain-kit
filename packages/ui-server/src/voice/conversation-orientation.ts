@@ -1,19 +1,21 @@
 /** Data-only, authorized startup orientation. Never import the brain's config or skills. */
 import { constants } from "node:fs";
 import { open, realpath, lstat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
+import { join } from "node:path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
+import { openGovernancePolicyAnchored, parseGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { projectConversationGuidance } from "@schlessera/brain-ui-sdk/internal";
 import type { ConversationOrientation } from "@schlessera/brain-ui-sdk/server";
 import { readAnchoredSnapshot, safeResolve } from "../files/walker.js";
-import { governancePolicyReaderFor } from "../brain/governance-policy.js";
 import type { WsHost } from "../ws/host.js";
 
 const SOURCE_BYTES = 65_536;
 
 /** Same containment and anchored descriptor reader as the file surface; a stricter byte cap. */
-async function source(root: string, path: string): Promise<string> {
+async function source(root: string, path: string, anchor: string): Promise<string> {
   const abs = await safeResolve(path, root);
-  const snapshot = readAnchoredSnapshot(abs, root, path, SOURCE_BYTES);
+  const snapshot = readAnchoredSnapshot(join(anchor, path), anchor, path, SOURCE_BYTES);
   if (snapshot) return new TextDecoder("utf-8", { fatal: true }).decode(snapshot.bytes);
   // Non-Linux follows the existing file surface's containment policy, without
   // allocating an unbounded file if it grows between stat and read.
@@ -26,6 +28,20 @@ async function source(root: string, path: string): Promise<string> {
     if (bytesRead > SOURCE_BYTES) throw Error("Orientation source unavailable");
     return new TextDecoder("utf-8", { fatal: true }).decode(data.subarray(0, bytesRead));
   } finally { await file.close(); }
+}
+
+/** The same data-only policy parser, pinned to the collection's held root. */
+function providerPolicy(root: string): { hash: string | null; withheld: boolean } {
+  try {
+    const handle = openGovernancePolicyAnchored(root);
+    try {
+      if (handle.bytes === null) return { hash: null, withheld: false };
+      const checked = parseGovernancePolicy(handle.bytes);
+      return { hash: checked.content_hash, withheld: !checked.ok || checked.effective.providers.length > 0 };
+    } finally { handle.close(); }
+  } catch (error) {
+    return { hash: null, withheld: (error as NodeJS.ErrnoException).code !== "ENOENT" };
+  }
 }
 
 /** Called only after disclosure/Start. Missing sources are gaps, never invented context. */
@@ -41,24 +57,38 @@ export async function readConversationOrientation(host: WsHost, target: { sessio
       : target.agentProviderId ? await host.registry.getBackendForProfile(target.agentProviderId) : await host.registry.getDefaultBackend();
     if (!authorized()) return { guidance: [], knowledge: [], unavailable: ["authorization ended"] };
     guidance.push(...backend?.conversationGuidance ?? []);
-    if (!backend?.conversationGuidance?.length) unavailable.push("configured append: no selected interaction sections");
+    if (!backend?.conversationGuidance?.length) unavailable.push("configured append: guidance absent or withheld");
   } catch { unavailable.push("configured append unavailable"); }
   const rootPath = host.brainPath;
   if (!rootPath || !authorized()) return { guidance, knowledge, unavailable: [...unavailable, "brain sources unavailable"] };
-  const policyReader = governancePolicyReaderFor(rootPath);
-  const before = policyReader.load();
-  // A startup read has no admitted taxonomy worker. Do not guess whether a
-  // provider/type rule allows disclosure: leave all repository sources to the host.
-  if (before.errors.length || before.policy.providers.length) return {
-    guidance, knowledge, unavailable: [...unavailable, "repository orientation withheld by provider policy; retrieve through host"],
-  };
   const configuredCount = guidance.length;
+  const withheld = (): ConversationOrientation => ({ guidance: guidance.slice(0, configuredCount), knowledge: [],
+    unavailable: ["repository orientation changed or withheld; retrieve through host"] });
+  let held: FileHandle | undefined;
   try {
     const root = await realpath(rootPath);
+    held = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const identity = await held.stat();
+    // Policy and content traverse the same root descriptor on Linux, including
+    // a temporary replacement restored before the final identity check.
+    const anchor = process.platform === "linux" ? `/proc/self/fd/${held.fd}/.` : root;
+    let changed = false;
+    const unchanged = async (): Promise<boolean> => {
+      try {
+        const canonical = await realpath(rootPath), named = await lstat(root);
+        if (canonical !== root || !named.isDirectory() || named.dev !== identity.dev || named.ino !== identity.ino) changed = true;
+      } catch { changed = true; }
+      return !changed;
+    };
+    if (!authorized() || !await unchanged()) return withheld();
+    const before = providerPolicy(anchor);
+    // No admitted taxonomy worker resolves provider/type rules at startup.
+    if (before.withheld) return { guidance, knowledge, unavailable: [...unavailable,
+      "repository orientation withheld by provider policy; retrieve through host"] };
     const read = async (path: string): Promise<string> => {
-      if (!authorized()) throw Error("Orientation authorization ended");
-      const text = await source(root, path);
-      if (!authorized()) throw Error("Orientation authorization ended");
+      if (!authorized() || !await unchanged()) throw Error("Orientation source changed");
+      const text = await source(root, path, anchor);
+      if (!authorized() || !await unchanged()) throw Error("Orientation source changed");
       return text;
     };
     if (!authorized()) return { guidance: [], knowledge: [], unavailable: ["authorization ended"] };
@@ -69,7 +99,7 @@ export async function readConversationOrientation(host: WsHost, target: { sessio
         if (!authorized()) break;
         const selected = projectConversationGuidance(text, path);
         guidance.push(...selected);
-        if (!selected.length) unavailable.push(`${path}: no selected interaction sections`);
+        if (!selected.length) unavailable.push(`${path}: guidance absent or withheld`);
         for (const match of text.matchAll(/<!--\s*brain:generated:module-([a-z][a-z0-9-]{0,30})\s*-->/gu)) domains.add(match[1]!);
       } catch { unavailable.push(`${path}: missing, unreadable or too large`); }
     }
@@ -99,12 +129,11 @@ export async function readConversationOrientation(host: WsHost, target: { sessio
         knowledge.push({ source: `${conventional ? "conventional " : "canonical "}${path}`, topic, text });
       } catch { unavailable.push(`${topic}: missing, unreadable or too large`); }
     }
-  } catch { unavailable.push("brain sources unavailable"); }
-  const after = policyReader.load();
-  if (!authorized() || after.errors.length || after.policy.providers.length || after.hash !== before.hash) return {
-    guidance: guidance.slice(0, configuredCount), knowledge: [], unavailable: ["repository orientation changed or withheld; retrieve through host"],
-  };
-  // Imports, other sections, skill bodies and full documents deliberately remain host-side.
-  unavailable.push("unselected instructions, imports, skills and document sections remain with host");
-  return { guidance, knowledge, unavailable };
+    const after = providerPolicy(anchor);
+    if (!authorized() || !await unchanged() || after.withheld || after.hash !== before.hash) return withheld();
+    // Imports, other sections, skill bodies and full documents remain host-side.
+    unavailable.push("unselected instructions, imports, skills and document sections remain with host");
+    return { guidance, knowledge, unavailable };
+  } catch { return withheld(); }
+  finally { await held?.close(); }
 }

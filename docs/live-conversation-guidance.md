@@ -28,7 +28,7 @@ not its entire system prompt.
 The common source is
 (`BRAIN_INTERACTION_GUIDANCE`, `packages/ui-sdk/src/server/interaction-guidance.ts:4-6`).
 The section selector is
-(`projectConversationGuidance`, `packages/ui-sdk/src/server/interaction-guidance.ts:17-42`).
+(`projectConversationGuidance`, `packages/ui-sdk/src/server/interaction-guidance.ts:17-50`).
 Normal Claude turns load project settings/instructions; Pi loads both cwd
 instruction files. Live mode does not imply that either backend's entire
 instruction environment has reached the voice service.
@@ -42,14 +42,17 @@ context in addition to historical text; an old disclosure echo refuses before
 the read/open. This applies to reviewed-only and contextual mode alike.
 
 The concrete reader is
-(`readConversationOrientation`, `packages/ui-server/src/voice/conversation-orientation.ts:32-120`).
+(`readConversationOrientation`, `packages/ui-server/src/voice/conversation-orientation.ts:48-139`).
 It resolves the selected chat's backend (or the selected/default profile for a
 fresh chat), collects its configured projection, and reads the two root
 overlays. Selected headings, case-insensitively, are **Personal Rules**,
 **Interaction Preferences**, **Communication Preferences**, **Capture Policy**,
-**Brain Purpose** and **Brain Conventions**. Selection ends at the next heading
-or generated region. Imports and fenced sections are excluded as
-whole sections. Other override formats remain host-side; an empty selection is
+**Brain Purpose** and **Brain Conventions**. Each selected section includes its
+child headings and ends at the next heading of the same or higher level.
+If a selected section contains an import, code fence or generated region, the
+source's selected guidance is withheld together with an explicit source gap;
+a permissive introduction cannot survive without its restrictions.
+Other override formats remain host-side; an empty selection is
 explicitly unavailable rather than assumed inherited. Conflicting selected
 instructions call for clarification and cannot widen authority.
 
@@ -63,8 +66,12 @@ summarization/provider call. A customized TypeScript taxonomy may therefore
 need a host lookup. The summary and body before the first level-two heading
 form each document's knowledge lead; they are not user instructions.
 
-Every repository source read is contained in the brain and capped at 65,536 bytes, with
-the file surface's anchored descriptor reader on Linux. Missing, invalid,
+Every instruction/context source read is contained in the brain and capped at
+65,536 bytes, with the file surface's anchored descriptor reader on Linux.
+Policy and source reads share one held root descriptor there, including during
+a temporary root replacement restored before the final check. Canonical-root
+identity and the configured alias are checked during collection; a detected
+replacement withholds all new repository orientation. Missing, invalid,
 unreadable, escaped or oversized sources become gaps. Repository orientation
 is withheld when governance is invalid or any provider rule exists: startup
 has no admitted taxonomy worker with which to resolve those rules. The host
@@ -101,7 +108,9 @@ an asynchronous host lookup, not an invented answer or exhaustive startup dump.
 
 The host binds the exact native handle to a new task/request before admission.
 Only after its initial identity save succeeds does it send **queued** status;
-**running** follows the actual ordinary host turn's start. Neither is a result,
+**running** follows host turn admission starting. Governance admission and
+backend/tool entry may still be pending; it does not establish that a tool or
+the backend has run. Neither status is a result,
 permission grant, successful write or playback receipt. The provider receives
 only model-needed progress and bounded uncertain recognition, without the
 UI's task/turn receipts or diagnostic data.

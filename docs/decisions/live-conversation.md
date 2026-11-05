@@ -13,7 +13,8 @@ is reused, adapted and left with the host. This does not depend on personas.
 
 A task request is insufficient evidence of acceptance. Minimal provider-facing
 queued status follows the exact task's initial durable admission; running
-follows its actual ordinary turn start. These facts are necessary new model
+follows host turn admission starting, before governance admission and backend
+entry may finish. These facts are necessary new model
 context, appended under the existing native identity rather than injected UI
 receipts or a fake completed result. Continuing Gemini responses and GPT
 commentary/thinking appends retain the binding for the real result. Prompt
