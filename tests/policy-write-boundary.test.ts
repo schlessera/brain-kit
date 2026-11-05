@@ -187,7 +187,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     policyHeld(r, []);
     expect(r.after.target).toBe(TARGET);
     expect(r.receipt.calls).toBe(0);
-    expect(r.receipt.parentPiStateUnchanged).toBe(true);
+    expect(r.receipt.parentPiStateUnchanged, "PI_EXTERNAL_CONFIGURATION_PRESERVES_PARENT_STATE").toBe(true);
     expect(r.receipt.issued).toEqual([]);
     expect(r.receipt.applications).toEqual([]);
     expect(r.receipt.maskRequests).toBe(0);

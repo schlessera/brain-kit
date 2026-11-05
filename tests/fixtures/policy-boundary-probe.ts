@@ -423,6 +423,9 @@ async function server(): Promise<void> {
   process.env.PI_CODING_AGENT_DIR = agentDir;
   writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
   writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url, apiKey: "offline-fixture" } } }));
+  // Pi's host credential store creates an empty auth file before worker
+  // launch. Initialize it before taking the worker-preservation snapshot.
+  writeFileSync(join(agentDir, "auth.json"), "{}", { mode: 0o600 });
   const piState = () => ["auth.json", "models.json", "settings.json"].map(name => existsSync(join(agentDir, name)) ? readFileSync(join(agentDir, name), "utf8") : null);
   const initialPiState = JSON.stringify(piState());
   // A pi turn's relay sends its credential only to an origin listed for it (#3314): the loopback stub.
