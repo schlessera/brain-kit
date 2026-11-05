@@ -14,6 +14,7 @@ import { publishProtectedPolicy } from "./policy-publication.js";
 import * as writes from "./trust-settings-writes.js";
 const hash = (s: string | Uint8Array) => createHash("sha256").update(s).digest("hex");
 const id = () => randomBytes(24).toString("base64url");
+const capabilities = { ...TRUST_RUNTIME_CAPABILITIES, readOnlyReason: "Runtime trust enforcement and verified repository identity are unavailable" };
 const exactDiff = (before: string | null, after: string) => (before ?? "").split("\n").map(line => `- ${line}`).concat(after.split("\n").map(line => `+ ${line}`)).join("\n");
 const digest = z.string().regex(/^[a-f0-9]{64}$/u);
 const revision = z.string().regex(/^(0|[1-9][0-9]{0,19})$/u);
@@ -128,14 +129,14 @@ export function createTrustSettings(options: {
     if (r.stage === "file_published") receipt = { ...receipt, stage: "partial", publication: r.proof ? "proved" : "unknown", reason: "publication_recorded_completion_incomplete" };
     const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); row(principal, request);
     return { receipt: current(receipt, payload, p), review: { reviewId: payload.reviewId, base: payload.base, proposed: payload.proposed,
-      diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at }, policy: p, capabilities: TRUST_RUNTIME_CAPABILITIES };
+      diff: exactDiff(payload.base, payload.proposed), reviewedBytesHash: payload.proposedHash, expiresAt: r.expires_at }, policy: p, capabilities };
   };
   return {
     /** Live trust-only projection for future admissions. Ordinary policy snapshots
      * remain owned by their admitted turn; this never mutates them. */
     async snapshot() { return options.lock.withLock(BRAIN_LOCK_KEY, refresh); },
     async list(principal: string) { authority(principal); const p = await options.lock.withLock(BRAIN_LOCK_KEY, refresh); authority(principal);
-      return { ...p, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities: TRUST_RUNTIME_CAPABILITIES }; },
+      return { ...p, origins: p.rules.filter(r => !r.selector.kind.startsWith("github_")), repositories: p.rules.filter(r => r.selector.kind.startsWith("github_")), capabilities }; },
     read,
     async prepare(principal: string, raw: unknown) {
       const auth = authority(principal), input = TrustPrepareSchema.parse(raw);
