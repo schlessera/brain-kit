@@ -89,6 +89,26 @@ test("only trust revision is live; ordinary policy and invalid last-valid trust 
   expect(ordinary.policy.budgets.turn.block_usd).toBe(17); expect(reader.load().policy.budgets.turn.block_usd).toBe(19);
   writeFileSync(f.path, "invalid"); const invalid = await f.settings.snapshot(); expect(invalid.rules).toEqual(next.rules); expect(invalid.error).toBe("policy_unavailable");
 });
+test("exhausted trust revisions refuse new reviews before reserving or publishing policy", async () => {
+  const f = await fixture(); await f.settings.snapshot();
+  f.db.exec("UPDATE trust_settings_projection SET revision='18446744073709551615'");
+  let error: unknown; try { await f.prepare(); } catch (caught) { error = caught; }
+  expect((error as Error)?.message, "TRUST_REVISION_EXHAUSTION_BEFORE_REVIEW").toBe("capacity");
+  expect(f.db.query("SELECT count(*) n FROM trust_settings_operations").get()).toEqual({ n: 0 });
+  expect(f.observations).toEqual([]); expect(readFileSync(f.path, "utf8")).toBe(initial);
+});
+test("a previously prepared exhausted-revision review cannot publish before failing capacity", async () => {
+  const f = await fixture(), draft = await f.prepare();
+  const row = f.db.query("SELECT payload FROM trust_settings_operations WHERE request_id=?").get(draft.receipt.requestId) as { payload: string };
+  const payload = JSON.parse(row.payload); payload.input.expectedTrustRevision = "18446744073709551615";
+  f.db.query("UPDATE trust_settings_operations SET payload=? WHERE request_id=?").run(JSON.stringify(payload), draft.receipt.requestId);
+  f.db.exec("UPDATE trust_settings_projection SET revision='18446744073709551615'");
+  const result = await f.commit(draft).catch(error => ({ error }));
+  expect(readFileSync(f.path, "utf8"), "TRUST_REVISION_EXHAUSTION_BEFORE_PUBLICATION").toBe(initial);
+  expect(f.observations).toEqual([]);
+  expect("receipt" in result && result.receipt.publication).toBe("not_published");
+  expect("receipt" in result && result.receipt.reason).toBe("capacity");
+});
 for (const stage of ["writing", "renamed", "file_published", "committed"]) test(`real process death at ${stage} never guesses publication or republishes`, async () => {
   const f = await fixture(), draft = await f.prepare(); await Bun.write(join(f.root, "request.json"), JSON.stringify(draft.review));
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/trust-settings-crash.ts"), f.root, stage, draft.receipt.requestId], { stdout: "pipe", stderr: "pipe" });

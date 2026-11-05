@@ -4831,6 +4831,8 @@ of historical publication proof. No removal receipt claims an enforcing fence.
 No agent turn, provider message or ordinary governance snapshot is changed.
 The live trust projection retains last-valid rules on invalid policy, reports
 an error, and increments its decimal uint64 revision only for trust-list changes.
+Exhausted revisions refuse both new reviews and publication of retained reviews
+before any protected policy write; request revisions above uint64 also refuse.
 It is supplied for future admission integration; runtime capabilities remain off.
 
 There are at most 32 outstanding reviews per principal, 256 per brain, 10000

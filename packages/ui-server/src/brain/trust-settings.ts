@@ -17,7 +17,9 @@ const id = () => randomBytes(24).toString("base64url");
 const capabilities = { ...TRUST_RUNTIME_CAPABILITIES, readOnlyReason: "Runtime trust enforcement and verified repository identity are unavailable" };
 const exactDiff = (before: string | null, after: string) => (before ?? "").split("\n").map(line => `- ${line}`).concat(after.split("\n").map(line => `+ ${line}`)).join("\n");
 const digest = z.string().regex(/^[a-f0-9]{64}$/u);
-const revision = z.string().regex(/^(0|[1-9][0-9]{0,19})$/u);
+const MAX_TRUST_REVISION = 18446744073709551615n;
+const revision = z.string().regex(/^(0|[1-9][0-9]{0,19})$/u)
+  .refine(value => /^(0|[1-9][0-9]{0,19})$/u.test(value) && BigInt(value) <= MAX_TRUST_REVISION, "Revision exhausted");
 const ruleId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/u);
 const TrustPrepareSchema = z.strictObject({ version: z.literal(1), expectedTrustRevision: revision,
   expectedPolicyHash: digest.nullable(), change: z.discriminatedUnion("action", [
@@ -108,7 +110,7 @@ export function createTrustSettings(options: {
       else { await call("projection", brain, old.revision, JSON.stringify(old.rules), old.policyHash, "policy_unavailable"); return { ...old, error: "policy_unavailable" }; }
     } finally { target?.close(); }
     const changed = JSON.stringify(old.rules) !== JSON.stringify(rules);
-    if (changed && BigInt(old.revision) === 18446744073709551615n) throw new TrustSettingsError("capacity", 503);
+    if (changed && BigInt(old.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
     const next = { revision: changed ? String(BigInt(old.revision) + 1n) : old.revision, rules, policyHash, error: null };
     await call("projection", brain, next.revision, JSON.stringify(rules), policyHash, null); return next;
   };
@@ -147,6 +149,7 @@ export function createTrustSettings(options: {
       const request = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         authority(principal, auth); const p = await refresh(); authority(principal, auth);
         if (p.error) throw new TrustSettingsError("unavailable", 503);
+        if (BigInt(p.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
         if (p.revision !== input.expectedTrustRevision) throw new TrustSettingsError("stale_revision");
         if (p.policyHash !== input.expectedPolicyHash) throw new TrustSettingsError("stale_base");
         const change = input.change, ruleId = change.action === "remove" ? change.ruleId : change.rule.id;
@@ -185,6 +188,7 @@ export function createTrustSettings(options: {
           const p = await refresh(); row(principal, input.requestId);
           if (p.error || p.revision !== payload.input.expectedTrustRevision) throw new TrustSettingsError("stale_revision");
           if (p.policyHash !== payload.input.expectedPolicyHash) throw new TrustSettingsError("stale_base");
+          if (BigInt(p.revision) >= MAX_TRUST_REVISION) throw new TrustSettingsError("capacity", 503);
           await save("writing"); await options.checkpoint?.("writing");
           if (!matchesTopology(root, payload.topology, false)) throw new TrustSettingsError("stale_base");
           target = openGovernancePolicyAnchored(root, { create: p.policyHash === null, created });
