@@ -318,3 +318,11 @@ Do not attach an unkeyed request to existing manual work or infer captured-input
 ownership from arrival order. Keep missing timing explicit. The host retains
 tools, ordinary typed-task policy, screen permissions, effect journals and
 recovery. See the [wire amendment](../integration-contract/wire.md#contextual-conversation-tasks-3070-october-28-ruling).
+
+First-party live startup now accepts optional classified `orientation` and
+supports `reportWorkStatus` for exact contextual task queued/running feedback.
+An adapter must retain the binding for the eventual real result, keep startup
+and every previous provider message immutable, and never treat progress as
+completion, permission or proof of speech. See the
+[package additions](../integration-contract/package-api.md#live-brain-orientation-and-task-status-additive-3623)
+and [source-to-live guidance mapping](../live-conversation-guidance.md).

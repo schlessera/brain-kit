@@ -8,6 +8,16 @@ import { makeEmptyBrain } from "./helpers";
 import { makeMockBridge } from "./mock-bridge";
 
 describe("createPiBackend (no LLM)", () => {
+  test("configured live guidance selects personal/capture sections without copying host instructions", () => {
+    const brain = makeEmptyBrain();
+    try {
+      const backend = createPiBackend({ brainPath: brain.root, systemPromptAppend: "# Personal Rules\nGive Odysseus short answers.\n# Capture policy\nAsk before saving preferences.\n# Turn lifecycle\nHOST_ONLY_EXECUTION\n# Response surface\nHOST_ONLY_RENDERING\n" });
+      expect(backend.conversationGuidance).toEqual([
+        { source: "configured systemPromptAppend", topic: "preferences", text: "Give Odysseus short answers." },
+        { source: "configured systemPromptAppend", topic: "capture_policy", text: "Ask before saving preferences." },
+      ]);
+    } finally { brain.cleanup(); }
+  });
   test("id and capabilities are stable and honest", () => {
     const brain = makeEmptyBrain();
     try {
