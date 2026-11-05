@@ -8,7 +8,7 @@ Approval supplies no automatic expiry, routine live cutoff or implementation
 release commitment.
 
 **Built (#3228):** the internal, content-free retirement ledger and gate
-(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:161-194`;
+(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:169-202`;
 migration `073_chat_lifecycle.sql`). It re-reads owner authority in the
 serialized writer, resolves the exact identity set from recorded dialogue
 owners, aliases and voice epochs, refuses unknown/foreign/stale/unsupported/busy
@@ -41,7 +41,7 @@ capable clients, then asks the native store and each host store to remove their
 copies; restart reconciliation resumes any unconfirmed store under the original
 operation. `GET /api/chat-deletions/:operationId` (#3455) reads that operation's
 current receipt for its owner and admits, retries and cleans nothing; every miss
-is one content-free `not_admitted`. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:80-88`)
+is one content-free `not_admitted`. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:93-101`)
 confirm removal only by reading back that nothing selected remains: dialogue
 records, task receipt text and result facts, session title/label and the text,
 digest and classification projections, and positively bound drafts with their
@@ -60,7 +60,7 @@ The bridge offers the creator only on a new, non-host-work turn whose
 authorization is current
 (`const creator`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:143`). The write worker
 binds the creator only in the transaction that creates the session's row
-(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:167-176`).
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:169-178`).
 `resolveChat` counts the binding as one more ownership record beside dialogue
 owners and voice epochs, so a disagreement among them still refuses as ambiguous
 (`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:91-92`). A typed
@@ -148,7 +148,7 @@ and [operational recovery](../inbox-recovery.md) remain binding.
 There is no general delete operation: `createSessionRoutes` only lists/reads
 (`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:9-157`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
-(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:754-797`). A storage root
+(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:759-802`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
 actual contract assessment and a CONTRACT commit; additive capability negotiation
 ships in a minor. The approved retention exception is recorded before runtime
@@ -191,7 +191,7 @@ must be tested through their installed runtime, not inferred from directory name
   Payloads include independent recognition/output evidence and backend range text;
   hashes/order/identity are not substitutes for erasing the payload. An owner can
   start unbound, bind to a backend session or merge into an existing owner through
-  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:173-219`).
+  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:176-222`).
   Resolve the complete alias/conversation set transactionally; do not delete only
   the current session key or confuse a provisional owner ID with a backend ID.
 - **Task recovery and facts.** `069_conversation_tasks.sql` and
@@ -256,8 +256,8 @@ must be tested through their installed runtime, not inferred from directory name
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
   or publish text. Catalog optimistic maps precede worker acknowledgements
-  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:254-267`;
-  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:297-300`).
+  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:255-268`;
+  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:298-301`).
   Both submission and worker commit need a generation check.
 - **Browser state.** Chat buffers/history chunks, shared timeline, session
   title/list cache, dialogue pages/cursors, recognition/generated/unsaved tails,
@@ -334,7 +334,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1332-1382`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1339-1389`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline

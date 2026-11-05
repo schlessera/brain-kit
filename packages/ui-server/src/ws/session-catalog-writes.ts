@@ -1,3 +1,4 @@
+import { safetyCatalogCreated } from "../governance/safety-store.js";
 import { openDialogue, appendDialogue, bindDialogue, closeDialogue } from "./dialogue-storage.js";
 /**
  * Session catalog writes off the event loop (#2850). The hosted server's app
@@ -49,6 +50,7 @@ export interface SessionRow {
    * (a legacy chat, a resume) never gains or changes an owner here.
    */
   ownerPrincipalId?: string | null;
+  creatorTurnId?: string;
 }
 
 export interface ClaudeUsageContext { billingMode?: BillingMode; pricingRoute?: PricingRoute; principalId?: string }
@@ -171,7 +173,10 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
       db.transaction(() => {
         const created = !db.query("SELECT 1 FROM sessions WHERE id=?").get(row.id);
         db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
-        if (created) db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,?,?)").run(row.id, owner, row.at);
+        if (created) {
+          db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,?,?)").run(row.id, owner, row.at);
+          safetyCatalogCreated(db,row.id,owner,row.creatorTurnId);
+        }
       })();
     },
     claudeUsage(sessionId: string, backendId: string, turnId: string, evidence: ClaudeUsageEvidence, resumed: boolean, context?: ClaudeUsageContext) {

@@ -20,22 +20,25 @@ Trust configuration belongs to the served brain, with empty built-in lists.
 Actual accounts, organizations and deployment configuration never appear in this
 public design or its fixtures. Fictional examples use the Odysseus world.
 
-## Existing boundaries
+## Existing boundaries at the reviewed base
 
-- Only the first taint is currently stored (`recordFirstTaint`,
-  `packages/ui-server/src/governance/session-taint.ts:17-23`). A session query
-  returns that first row (`sessionTaint`,
-  `packages/ui-server/src/governance/session-taint.ts:11-14`). The hosted writer
-  tracks pending first-taint writes (`createGovernanceWrites`,
-  `packages/ui-server/src/governance/event-writes.ts:57-85`).
-- Tool ingestion has separate input and output classifiers (`inputTaintSource`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:95-109`;
-  `outputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:112-119`).
-  Workspace paths currently taint regardless of repository ownership.
-- The turn proxy memoizes taint and skips subsequent recordings (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:81-240`). A raw CONNECT reveals
+- Taint recording retains every independently observed signal and reads a
+  durable revisioned aggregate, including pending/failure and explicit unknown
+  coverage (`safetyProjection`,
+  `packages/ui-server/src/governance/safety-store.ts:230`). Legacy rows prove
+  their own event, never a complete history. No product verdict writer or
+  review capability is enabled by this foundation.
+- Tool ingestion collects input and output signals independently (`inputTaintSignals`,
+  `packages/ui-server/src/activity/ingestion-taint.ts:150`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:172`).
+  Workspace paths taint regardless of repository ownership. Awaited backend
+  hooks commit before tool dispatch/result delivery; display frames alone
+  never prove finalized delivery or complete coverage.
+- The turn proxy records each admitted non-provider connection and terminal
+  exposure observation (`prepareTurnEgress`,
+  `packages/ui-server/src/brain/turn-egress.ts:82-241`). A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
-  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:117-352`).
+  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:119-354`).
 - Outward decisions read session taint at admission (`prepareOutwardPlan`,
   `packages/ui-sdk/src/server/outward-policy.ts:46-73`). Existing historical
   steering attribution must remain attribution at the time of a write.
@@ -54,14 +57,14 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   currently read-only (`AgentPolicyGroup`,
   `packages/ui-react/src/components/settings/agent-policy-group.tsx:8-51`).
 
-Source anchors above were checked at main
-`35217d283b849b5ef81700d5d4c2ec7486405d12`. In particular, the recorder
-currently selects input **or** output taint rather than retaining every signal
-(`const source = ingestion`, `packages/ui-server/src/activity/recorder.ts:368-375`).
-The earlier design comment also inspected local #3595 work; this document does
-not assume that work has merged. #3595 is adjacent scoped network approval,
-not persistent trust or taint resolution. The extraction-classifier spike
-#3434 remains separate.
+The original source review used main
+`35217d283b849b5ef81700d5d4c2ec7486405d12`; the current collection path retains
+input **and** output signals (`if(!safetyHooked&&ingestion)`,
+`packages/ui-server/src/activity/recorder.ts:384`). These collectors provide the internal coverage/projection foundation; public
+review/history DTOs and mutation remain prospective. The earlier design
+comment also inspected local #3595 work; this document does not assume that
+work has merged. #3595 is adjacent scoped network approval, not persistent
+trust or taint resolution. The extraction-classifier spike #3434 remains separate.
 
 This plan transcribes the [complete reviewed design](https://github.com/schlessera/brain-kit/issues/3596#issuecomment-6652590345)
 and [review disposition](https://github.com/schlessera/brain-kit/issues/3596#issuecomment-6652590730).

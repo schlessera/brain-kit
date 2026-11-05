@@ -11,6 +11,7 @@ import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { createTurnRecorder } from "../src/activity/recorder";
 import { createActivityStore } from "../src/activity/store";
 import { prepareTurnEgress } from "../src/brain/turn-egress";
+import {connectedSafetySession} from "./helpers/connected-safety";
 import { createUiDb } from "../src/db/client";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events";
 
@@ -20,9 +21,10 @@ function fixture() {
   const db = createUiDb(":memory:");
   const store = createActivityStore(db, { writer: "test" });
   const sessions = new Set<string>();
-  const recorder = (sessionId: string, proxied: boolean) => {
+  const recorder = (sessionId: string, proxied: boolean, connected=false) => {
     if (!sessions.has(sessionId)) {
-      db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?, 'Voyage', 1, 1)").run(sessionId);
+      if(connected)connectedSafetySession(db,sessionId,`${sessionId}-birth`);
+      else db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?, 'Voyage', 1, 1)").run(sessionId);
       sessions.add(sessionId);
     }
     const value = createTurnRecorder({ store, governanceDb: db, brainPath: BRAIN, governance: event => { recordGovernanceEvent(db, event); } },
@@ -99,6 +101,7 @@ function get(socketPath: string, target: string): Promise<number> {
 
 test("on a proxied turn, curl taints through the proxy's connection record, not the classifier", async () => {
   const { db, recorder, start, finish, call, taints } = fixture();
+  const offline=recorder("argos",true,true);
   const troy = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Troy") });
   const egress = await prepareTurnEgress({ controller: new AbortController(), policy: resolveGovernancePolicy({ schema_version: 1 }),
     turnId: "argos-turn", sessionId: () => "argos", model: () => null, profile: "governed", origin: "interactive",
@@ -106,7 +109,6 @@ test("on a proxied turn, curl taints through the proxy's connection record, not 
     record: event => recordGovernanceEvent(db, event), governanceDb: db });
   try {
     // A curl whose result arrives without any admitted connection records nothing.
-    const offline = recorder("argos", true);
     call(offline, "argos", "offline", "Bash", { command: "curl https://troy.example/" });
     expect(taints("argos"), "G6_PROXIED_CURL_NOT_CLASSIFIED").toHaveLength(0);
     start(offline, "argos", "online", "Bash", { command: `curl ${troy.url.href}` });

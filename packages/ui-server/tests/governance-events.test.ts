@@ -27,6 +27,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /** One valid v1 payload per kind, in the Odysseus world. */
 const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> } = {
+  taint_exposure: { occurrenceId: "ithaca-exposure", state: "interrupted_unknown" },
   egress_connection: { host: "ithaca.invalid", port: 443, method: "CONNECT", bytes: 100, accounting: "opaque_bytes", durationMs: 5, outcome: "completed" },
   policy_change: { requestId: "policy-ithaca", baseHash: null, proposedHash: "a".repeat(64), sections: ["profiles.interactive"], outcome: "updated" },
   state_room_warning: { usedBytes: 51 * 1024 * 1024, allowanceBytes: 64 * 1024 * 1024, observedAt: Date.UTC(2026, 6, 12) },
@@ -103,13 +104,17 @@ describe("governance event writer", () => {
     const d = db();
     session(d, "sess-ithaca");
     for (const kind of GOVERNANCE_EVENT_KINDS) {
-      expect(recordGovernanceEvent(d, event(kind)).recorded).toBe(true);
+      if(kind==="taint_exposure"){
+        const occurrence=d.query("SELECT id FROM safety_records WHERE kind='occurrence' LIMIT 1").get() as {id:string};
+        expect(recordGovernanceEvent(d,event(kind,{payload:{occurrenceId:occurrence.id,state:"interrupted_unknown"}})).recorded).toBe(true);
+      }else expect(recordGovernanceEvent(d, event(kind)).recorded).toBe(true);
     }
     const events = queryGovernanceEvents(d, { limit: 100 });
     expect(events.map((e) => e.kind)).toEqual(GOVERNANCE_EVENT_KINDS);
     for (const e of events) {
       expect(e).toMatchObject({ sessionId: "sess-ithaca", turnId: "turn-ithaca", at: NOW, actor: "interactive", model: "claude-opus-5", profile: "governed", schemaVersion: 1 });
-      expect(e.payload).toEqual(SAMPLE_PAYLOADS[e.kind as GovernanceEventKind]);
+      if(e.kind==="taint_exposure")expect(e.payload.state).toBe("interrupted_unknown");
+      else expect(e.payload).toEqual(SAMPLE_PAYLOADS[e.kind as GovernanceEventKind]);
     }
   });
 

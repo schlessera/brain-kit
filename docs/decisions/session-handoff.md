@@ -139,7 +139,7 @@ The common threshold and copy are (`stateRoomWarning`,
 `packages/ui-sdk/src/state-room.ts:9-13`). Claude observes the completed actual
 copy (`populate(root) {`, `packages/ui-backend-claude/src/worker-state.ts:231-253`);
 Pi retains its existing payload/reserve admission (`checkSessionSize`,
-`packages/ui-backend-pi/src/worker-protocol.ts:21-26`).
+`packages/ui-backend-pi/src/worker-protocol.ts:28-33`).
 
 The notice labels the measurement `As of the last turn` with its age, including
 historical/offline replay. Unknown measurements show no invented percentage.

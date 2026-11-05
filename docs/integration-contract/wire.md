@@ -976,6 +976,10 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   third-party classes still appear as `unknown` in the default outgoing review;
   the wire field remains free-form. This additive SDK export ships in a minor
   release under the contract versioning rules.
+  `input_safety_unavailable` identifies refusal because the runtime's input
+  collector is unqualified or unavailable, including externally configured Pi
+  extensions. It is a registered host safety failure, not a provider error or
+  proof that every input was durably retained.
 - **`authAction`** is set only on a Claude subscription's auth failure:
   `relogin`, `check_account` or `check_config`, as
   `subscriptionAuthAction(errorClass)` maps it, with
