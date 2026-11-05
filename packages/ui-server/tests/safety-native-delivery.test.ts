@@ -10,6 +10,7 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createUiDb} from "../src/db/client";
 import {openSqliteWriter} from "../src/db/write-worker";
+import * as probe from "./fixtures/write-worker-probe";
 import {createGovernanceWrites} from "../src/governance/event-writes";
 import {createSafetyCollector} from "../src/governance/safety-collector";
 import {safetyCatalogCreated,safetyRecords} from "../src/governance/safety-store";
@@ -51,12 +52,14 @@ for(const mode of ["complete","writer-loss"] as const)test(`installed Claude ${m
   const collector=createSafetyCollector(db,writes,{turnId:"voyage",bindingId,backendId:"claude",sessionId:()=>"ithaca",brainPath:brain,shellProxied:()=>false,signal:controller.signal,stop:error=>controller.abort(error)});
   await collector.ready("claude",1);
   const wiring=createPermissionWiring({req:{prompt:"Read the raft plan.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety:collector}},allowedTools:["Read"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
+  const hold=writer.channel(probe,{table:"odysseus_log"});await hold.ready;
   const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
   wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks=[async(...args)=>{
    postReached=true;trace.push("post-start");
    expect(safetyRecords(db,"ithaca").filter(r=>r.kind==="occurrence"),"SAFETY_INSTALLED_TOOL_ADMITTED_BEFORE_READ").toHaveLength(1);
    if(mode==="writer-loss"){await writer.close();trace.push("writer-closed");}
-   const response=await post(...args);trace.push(`post-response:${JSON.stringify(response)}`);return response;
+   const slow=mode==="complete"?hold.call("slow","Ithaca",200):Promise.resolve();
+   const response=await post(...args);await slow;trace.push(`post-response:${JSON.stringify(response)}`);return response;
   }];
   let failure:unknown;
   try{for await(const message of query({prompt:"Read the raft plan.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:["Read"],...wiring,abortController:controller,
