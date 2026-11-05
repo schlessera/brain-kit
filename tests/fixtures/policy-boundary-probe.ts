@@ -99,7 +99,7 @@ function __attempt(fs) {
     run("area-hardlink", dir, () => fs.linkSync(${JSON.stringify(policyPath)}, dir + "/policy-hardlink-" + process.pid));
     run("area-rename", dir, () => fs.renameSync(${JSON.stringify(policyPath)}, dir + "/crew.md"));
   }
-  const scratch = process.env.BRAIN_WORKER_SCRATCH;
+  const scratch = process.env.BRAIN_WORKER_SCRATCH ?? "/tmp/brain-worker-scratch";
   const policy = fs.statSync(${JSON.stringify(policyPath)});
   const aliased = [];
   const walk = dir => { for (const name of fs.readdirSync(dir)) { const p = dir + "/" + name; const s = fs.lstatSync(p);
@@ -144,7 +144,7 @@ async function outer(): Promise<void> {
   writeFileSync(join(brainPath, "witness.ts"), `import * as fs from "node:fs";${attemptSource}
 const source = process.argv[2];
 const report = { source, ...${scenario.startsWith("governed") ? "{ results: [], scratchAliases: [], scratch: true, areaWritable: [] }" : "__attempt(fs)"} };
-if (process.env.BRAIN_WORKER_SCRATCH) fs.writeFileSync(process.env.BRAIN_WORKER_SCRATCH + "/witness-" + source + ".json", JSON.stringify(report));
+fs.writeFileSync((process.env.BRAIN_WORKER_SCRATCH ?? "/tmp/brain-worker-scratch") + "/witness-" + source + ".json", JSON.stringify(report));
 const base = process.env.ANTHROPIC_BASE_URL;
 if (base) await fetch(base + "/witness", { method: "POST", body: JSON.stringify(report) }).catch(() => {});
 if (source === "mcp") process.execve(${JSON.stringify(process.execPath)}, [${JSON.stringify(process.execPath)}, ${JSON.stringify(join(REPO, "packages/core/src/cli/brain.ts"))}, "mcp"], process.env);`);
@@ -152,7 +152,7 @@ if (source === "mcp") process.execve(${JSON.stringify(process.execPath)}, [${JSO
   mkdirSync(join(brainPath, ".claude"));
   writeFileSync(join(brainPath, ".claude/settings.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `${process.execPath} ${join(brainPath, "witness.ts")} hook` }] }] } }));
   mkdirSync(join(brainPath, ".pi/extensions"), { recursive: true });
-  writeFileSync(join(brainPath, ".pi/extensions/proof.ts"), piExtension());
+  if (scenario === "external-extension") writeFileSync(join(brainPath, ".pi/extensions/proof.ts"), piExtension());
   // The one place outside-boundary observations are taken, before and after.
   if (scenario === "governed-lock") {
     const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: brainPath, stdout: "pipe", stderr: "pipe" });
@@ -310,7 +310,9 @@ async function server(): Promise<void> {
       [{ name: "$subagent", input: { description: "Odysseus subagent", prompt: "SUBAGENT-ODYSSEUS: try the policy writes", subagent_type: "general-purpose" } }],
       routed, bridgeEffects, [permitted],
     ] : [
-      [{ name: "probe_worker", input: { config: attackConfig } }, bash(attack)],
+      // The supported curated bash path exercises the same alias operations,
+      // writable areas and descriptor/mapping attack, without a Pi extension.
+      [bash(`${process.execPath} ${join(brainPath, "witness.ts")} curated-bash; ${attack}`), bash(attack)],
       bashWrites.map(bash), routed, bridgeEffects, [permitted],
     ];
   } else if (scenario === "governed-alias") {
@@ -421,12 +423,14 @@ async function server(): Promise<void> {
   process.env.PI_CODING_AGENT_DIR = agentDir;
   writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
   writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url, apiKey: "offline-fixture" } } }));
+  const piState = () => ["auth.json", "models.json", "settings.json"].map(name => existsSync(join(agentDir, name)) ? readFileSync(join(agentDir, name), "utf8") : null);
+  const initialPiState = JSON.stringify(piState());
   // A pi turn's relay sends its credential only to an origin listed for it (#3314): the loopback stub.
   process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = `anthropic=${url}`;
   const backend = adapter === "claude"
     ? createClaudeBackend({ brainPath, log: () => {}, profiles: [{ id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [],
       buildEnv: () => ({ ANTHROPIC_BASE_URL: url, ANTHROPIC_API_KEY: "offline-fixture", CLAUDE_CODE_OAUTH_TOKEN: "", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }) }] })
-    : createPiBackend({ brainPath, loadExtensions: !scenario.startsWith("governed"), sessionDir: join(root, "pi-sessions"), confirmBashPatterns: [],
+    : createPiBackend({ brainPath, loadExtensions: scenario === "external-extension", sessionDir: join(root, "pi-sessions"), confirmBashPatterns: [],
       profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }] });
 
   // Case 5: the route's own deterministic race seam swaps topology between
@@ -529,7 +533,7 @@ async function server(): Promise<void> {
     .map((row: any) => JSON.parse(row.payload).v);
   const toolResults = frames.filter(f => f.type === "tool_result").map(f => ({ toolUseId: f.toolUseId, isError: f.isError, output: String(f.output ?? "") }));
   const toolStarts = frames.filter(f => f.type === "tool_use_start" || f.type === "tool_use_complete").map(f => ({ toolUseId: f.toolUseId, toolName: f.toolName }));
-  writeFileSync(receiptPath, JSON.stringify({ calls, spawned, issued, requests, witnesses, unavailable, frames: frames.filter(f => f.type !== "text_delta" && f.type !== "status"),
+  writeFileSync(receiptPath, JSON.stringify({ adapter, parentPiStateUnchanged: initialPiState === JSON.stringify(piState()), calls, spawned, issued, requests, witnesses, unavailable, frames: frames.filter(f => f.type !== "text_delta" && f.type !== "status"),
     toolResults, toolStarts, applications, raceReceipts, maskRequests, askRequests, settled, failure, autonomous, held, mapped, mappingBytes: mapping.length,
     governance: queryGovernanceEvents(db, { limit: 100 }), serverPid: process.pid, python, posture, serialization: existsSync(join(brainPath, "notes/git-serialization.md")) ? readFileSync(join(brainPath, "notes/git-serialization.md"), "utf8") : null }));
   Bun.spawn = original.spawn; Bun.spawnSync = original.spawnSync;
