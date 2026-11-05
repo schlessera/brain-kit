@@ -309,7 +309,17 @@ proxied-shell local file reads and opaque tunnel inner protocols.
 Pi records the final result after all installed `tool_result` transformations
 and image normalization through the installed Agent's public hooks, for curated
 and extension-registered tools. Blocked extension results are recorded before
-delivery too. Nested `ctx.executeTool()` calls are refused before execution:
+delivery too. Configurations with `message_end`, `context`, `context_with_system`,
+`before_provider_request`, `before_agent_start`, `input`, `turn_end`,
+`agent_before_settle`, `session_before_compact` or `session_before_tree` handlers are
+unqualified: these handlers can replace or inject provider input outside that
+collector. A live check before each provider request refuses dispatch, including
+handlers registered during a tool call, and first persists collector failure.
+That epoch remains incomplete after explicit recording recovery. No transformed
+history is rewritten to recover coverage. The optional internal
+`BackendBridge.inputSafety.unavailable()` notice can only retain failure; it
+cannot grant authority or clear evidence.
+Nested `ctx.executeTool()` calls are refused before execution:
 the pinned SDK bypasses those public hooks for nested calls. A recording failure
 aborts provider continuation; it cannot become a swallowed extension exception.
 Search paths and explicit marks remain independent signals when the same line
@@ -346,13 +356,17 @@ session and 4096 rows/16777216 bytes per brain, shared across writers. Unbound
 collection is capped at 1024 bindings/8388608 bytes, with 128 epochs per session.
 Collection metadata and permanent retirement-fence capacity are reserved too.
 Catalog and collection admission atomically include all outstanding durable row
-and byte reservations in the same ceilings.
+and byte reservations in the same ceilings. Binding unbound collections also
+atomically checks their combined pending count and serialized pending bytes.
 Before accepting input, failure/capacity restrictions use preallocated durable
 emergency cells. Outstanding terminal evidence uses its existing reserve.
 Restart retains pending failure and unknown exposure; explicit internal recovery
 requires stopped producers, settled connection-local writes and available
 capacity. Only a committed recovery clears the shared local failure latch;
-existing and new facades retain historical gaps and unresolved evidence. Detail pruning preserves IDs, counts and compact audit/reserved capacity;
+existing and new facades retain historical gaps and unresolved evidence. Ended
+failure facts remain in epoch coverage but, after that recovery, no longer
+represent an active outage preventing a new restricted turn on that session.
+Detail pruning preserves IDs, counts and compact audit/reserved capacity;
 unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
 wrap. These foundations supply the later verdict slice's projection without
 publishing a mutation surface.

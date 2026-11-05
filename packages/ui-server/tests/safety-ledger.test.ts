@@ -374,12 +374,40 @@ test("a genuine failed event commit recovers existing and fresh facades only aft
  f.db.exec("DROP TRIGGER refuse_recovery");recoverSafetyRecording(f.db);
  const freshFacade=createGovernanceWrites(f.db,f.writer);
  for(const [index,writes] of [f.writes,freshFacade].entries()){
- const turnId=`recovered-${index}`;await writes.safetyBegin({turnId,bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1});await writes.safetyReady(turnId,"claude",1);
- expect(writes.recordingAvailable(turnId,null),"SAFETY_VALIDATED_RECOVERY_REARMS_ALL_FACADES").toBe(true);
- await writes.firstTaint({kind:"taint",turnId,sessionId:null,actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
+ const turnId=`recovered-${index}`;await writes.safetyBegin({turnId,bindingId:crypto.randomUUID(),sessionId:"ithaca",principalId:"odysseus",backendId:"claude",at:1});await writes.safetyReady(turnId,"claude",1);
+ expect(writes.recordingAvailable(turnId,"ithaca"),"SAFETY_VALIDATED_RECOVERY_REARMS_EXISTING_SESSION").toBe(true);
+ expect(writes.safety(turnId,"ithaca").coverage.state,"SAFETY_RECOVERY_NEVER_RECONSTRUCTS_LOST_INPUT").toBe("incomplete");
+ expect(writes.safety(turnId,"ithaca").reasons).not.toContain("recording_failed");
+ await writes.firstTaint({kind:"taint",turnId,sessionId:"ithaca",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
  }
  expect(f.writes.safety(null,"ithaca").restriction,"SAFETY_RECOVERY_PRESERVES_OLD_GAP").toBe("restricted");
  }finally{await f.close();}});
+
+for(const boundary of ["count","bytes"] as const)for(const race of [false,true])test(`binding enforces the merged session pending ${boundary} ceiling${race?" across independent connections":""}`,async()=>{
+ const f=fixture();let peer:import("bun:sqlite").Database|undefined,peerWriter:ReturnType<typeof openSqliteWriter>|undefined;
+ try{
+ const channel=f.writer.channel(procedures,undefined);
+ const count=boundary==="count"?129:128,bytes=boundary==="count"?100:4100;
+ for(const turnId of ["left","right"]){
+  await f.writes.safetyBegin({turnId,bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1});
+  const row=governanceEventRow({kind:"taint",turnId,sessionId:null,actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
+  for(let i=0;i<count;i++)await channel.call("safetyReserve",row,`${turnId}-${i}`,bytes);
+ }
+ f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('merged',0,0); INSERT INTO chat_session_owners VALUES('merged','odysseus',0)");
+ let result:unknown;
+ if(race){
+  const {Database}=await import("bun:sqlite");peer=new Database(f.path);peer.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON");peerWriter=openSqliteWriter(peer);
+  const results=await Promise.allSettled([f.writes.bind("left","merged"),createGovernanceWrites(peer,peerWriter).bind("right","merged")]);
+  expect(results.map(r=>r.status).sort(),"SAFETY_BINDING_PENDING_CEILING_IS_ATOMIC").toEqual(["fulfilled","rejected"]);
+  result=(results.find(r=>r.status==="rejected") as PromiseRejectedResult).reason;
+ }else{
+  await f.writes.bind("left","merged");result=await f.writes.bind("right","merged").then(()=>null,error=>error);
+ }
+ expect(String(result),"SAFETY_BINDING_NEVER_MERGES_PAST_PENDING_CEILING").toContain("pending capacity");
+ expect(f.writes.safety(null,"merged").pendingCount).toBe(count);
+ expect(f.db.query("SELECT COUNT(*) n FROM safety_collections WHERE turn_id IN ('left','right') AND session_id IS NULL").get()).toEqual({n:1});
+ expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:count*2});
+ }finally{await peerWriter?.close();peer?.close();await f.close();}});
 
 for(const mode of ["provisional-nine","typed-resume"] as const)test(`real emission before adoption preserves canonical safety identity: ${mode}`,async()=>{
  const f=fixture();const {WsHost}=await import("../src/ws/host"),{createSessionCatalog}=await import("../src/ws/session-catalog"),{createStaticBackendRegistry}=await import("../src/agent/backend"),{makeFakeBackend}=await import("./helpers/fake-backend"),{createBridgeContext}=await import("../src/ws/bridge-capabilities/context"),{createEmission,createTurnTranscript}=await import("../src/ws/bridge-capabilities/emission");

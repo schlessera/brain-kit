@@ -196,6 +196,7 @@ async function initialize(init: Init): Promise<void> {
   const runtime = createSessionRuntime({ backend: init.backend, resources, sessionDir: state,
     toolSafety: {
       permission: (name,id,input) => rpc("permission",name,id,input),
+      unavailable: async()=>{await rpc("safetyUnavailable","","",{});},
       result: (name,id,content) => {
         const segments=content.filter(part=>part.type==="text").map(part=>(part as {text:string}).text);
         return rpc("safetyResult",name,id,{output:segments.join("\n"),segments});

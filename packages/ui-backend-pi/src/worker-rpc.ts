@@ -229,6 +229,11 @@ async function apply(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerR
 /** One handler per worker RPC method. */
 export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorkerRpcHandler>> = {
   unlock, lock, fileObservation, syncAuth, permission, bridge: bridgeCall, readBase, apply,
+  safetyUnavailable: async(msg,bridge)=>{
+    if(msg.toolName||msg.toolCallId||Object.keys(msg.input).length)throw new Error("Malformed safety unavailable notice");
+    await bridge.inputSafety?.unavailable?.();
+    throw new Error("Unqualified Pi input transformations");
+  },
   safetyResult: async(msg,bridge,context)=>{
     if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw new Error("Malformed safety result");
     const execution=context.executed(msg);

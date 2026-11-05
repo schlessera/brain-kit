@@ -24,6 +24,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  };
  return {
   async ready(backend,version){assertLive();await writes.safetyReady(options.turnId,backend,version);options.onReady?.();},
+  async unavailable(){return fail(new Error("Input collection is not qualified for this runtime configuration"));},
   begin(toolUseId,tool,input){return serial(toolUseId,async()=>{
    assertLive();
    try{

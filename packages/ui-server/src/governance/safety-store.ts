@@ -152,9 +152,11 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
  if(epochs.n>128)throw new SafetyUnavailable("Safety binding coverage capacity exhausted");
  const totals=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
   JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id=? OR c.id=?`,sessionId,c.id);
- const pending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p
+ const pending=one<{rows:number;bytes:number;count:number;serializedBytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes,
+  COUNT(*) count,COALESCE(SUM(p.bytes),0) serializedBytes FROM safety_pending p
   JOIN safety_collections c ON c.id=p.collection_id WHERE c.session_id=? OR c.id=?`,sessionId,c.id);
  if(totals.rows+pending.rows>SAFETY_LIMITS.sessionRows||totals.bytes+pending.bytes>SAFETY_LIMITS.sessionBytes)throw new SafetyUnavailable("Safety binding capacity exhausted");
+ if(pending.count>SAFETY_LIMITS.sessionPending||pending.serializedBytes>SAFETY_LIMITS.sessionPendingBytes)throw new SafetyUnavailable("Safety binding pending capacity exhausted");
  const previous=one<{session_id:string;history_owner_id:string;generation:string}|null>(db,"SELECT * FROM safety_bindings WHERE turn_id=?",turnId);
  if(previous&&(previous.session_id!==sessionId||previous.history_owner_id!==owner||previous.generation!==gen))throw new SafetyUnavailable("Safety SessionKey binding changed");
  db.query("INSERT INTO safety_bindings VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING").run(c.id,turnId,sessionId,owner,gen,advance(db));
@@ -256,8 +258,11 @@ function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|nu
  const pending=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args).n;
  const reasons:string[]=[];
  if(aggregate.n)reasons.push("unresolved");if(unknown)reasons.push("coverage_unknown");if(pending)reasons.push("recording_pending");
- if(meta(db).failed||cs.some(c=>c.failure))reasons.push("recording_failed");
- if(one<{reason:string|null}>(db,"SELECT reason FROM safety_meta").reason==="capacity"||cs.some(c=>c.failure==="capacity"))reasons.push("capacity");
+ // Ended failures remain in epoch coverage forever. Once explicit quiescent
+ // recovery clears the global latch, they are historical gaps, not an active
+ // infrastructure outage that prevents a new restricted turn from running.
+ if(meta(db).failed||cs.some(c=>c.failure&&!c.ended))reasons.push("recording_failed");
+ if(one<{reason:string|null}>(db,"SELECT reason FROM safety_meta").reason==="capacity"||cs.some(c=>c.failure==="capacity"&&!c.ended))reasons.push("capacity");
  return {session:s?{sessionId:s.session_id,historyOwnerId:s.history_owner_id,historyGeneration:s.generation}:null,
    evidenceRevision:meta(db).revision,unresolvedCount:aggregate.n,earliestUnresolvedId:first?.id??null,pendingCount:pending,
    restriction:reasons.length?"restricted":"normal",reasons,

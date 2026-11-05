@@ -175,6 +175,8 @@ export interface BackendBridge {
    * tool and before returning its result to the provider. Never a grant. */
   inputSafety?: {
     ready(backendId: string, detectorVersion: number): Promise<void>;
+    /** @internal Persist collector loss before refusing unqualified input. */
+    unavailable?(): Promise<void>;
     begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
     result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
   };

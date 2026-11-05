@@ -70,7 +70,7 @@ export function createSessionRuntime(options: {
         ...(model ? { model } : {}),
         ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
       });
-      installPiToolSafety(session.agent,options.toolSafety);
+      installPiToolSafety(session.agent,options.toolSafety,()=>unqualifiedInput(session));
       return { session, turnContext: toolkit.turnContext };
     },
 
@@ -108,8 +108,16 @@ export function createSessionRuntime(options: {
             "Restore the credential (e.g. `pi login`) or start a new conversation."
         );
       }
-      installPiToolSafety(session.agent,options.toolSafety);
+      installPiToolSafety(session.agent,options.toolSafety,()=>unqualifiedInput(session));
       return { session, turnContext: toolkit.turnContext };
     },
   };
+}
+
+/** These installed-SDK hooks can inject/replace provider content outside the
+ * version-1 tool collector. Consult the live runner after extension reloads. */
+function unqualifiedInput(session:Awaited<ReturnType<typeof createAgentSession>>["session"]):boolean {
+ return ["message_end","context","context_with_system","before_provider_request","before_agent_start","input",
+  "turn_end","agent_before_settle","session_before_compact","session_before_tree"]
+  .some(event=>session.extensionRunner.hasHandlers(event));
 }

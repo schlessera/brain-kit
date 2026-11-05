@@ -7,6 +7,7 @@ type Content = import("@earendil-works/pi-agent-core").AfterToolCallContext["res
 export interface PiToolSafety {
   permission(name:string,id:string,input:Record<string,unknown>):Promise<PermissionDecision>;
   result(name:string,id:string,content:Content):Promise<void>;
+  unavailable?():Promise<void>;
   stop():void;
 }
 
@@ -22,9 +23,23 @@ export function nestedToolSafetyGate():InlineExtension {
  * normalization. Extension exceptions alone are swallowed by Pi's runner;
  * this outer hook aborts the agent on recording loss, before another request.
  * No tools, prompts, messages or already-delivered results are rewritten. */
-export function installPiToolSafety(agent:Agent,safety:PiToolSafety):void {
+export function installPiToolSafety(agent:Agent,safety:PiToolSafety,hasUnqualifiedInput:()=>boolean):void {
  const before=agent.beforeToolCall,after=agent.afterToolCall;
  const stop=()=>{safety.stop();agent.abort();};
+ const stream=agent.streamFunction;
+ // message_end/context/provider hooks can change bytes after afterToolCall,
+ // including persisted history. Refuse these unqualified configurations and
+ // durably retain the coverage loss, even if a handler is registered mid-turn.
+ // This outer stream fence runs after context projection, before any provider
+ // request or cache warming. The original provider context is never rewritten.
+ agent.streamFunction=async(...args)=>{
+  if(hasUnqualifiedInput()){
+   try{await safety.unavailable?.();}
+   finally{stop();}
+   throw new Error("Pi input transformations have no qualified final host safety fence");
+  }
+  return stream(...args);
+ };
  agent.beforeToolCall=async(context,signal)=>{
   try{
    const prior=await before?.(context,signal);
