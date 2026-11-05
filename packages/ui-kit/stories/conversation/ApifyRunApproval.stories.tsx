@@ -31,7 +31,7 @@ function Approval({ onApproval }: { width: number; onApproval: (id: string, appr
       spend: { ledger: "absent", observed_at: "2026-07-12T09:00:00.000Z", coverage: null, day: null, brain_day: null, unresolved: [] } })
     : Response.json({ error: "none" }, { status: 404 }) }));
   useEffect(() => () => root.dispose(), [root]);
-  const tool: ToolCall = { id: "apify-run-1", name: "Apify Actor run", input: REVIEW, inputJson: JSON.stringify(REVIEW), status: "pending_approval", approvalKind: "command",
+  const tool: ToolCall = { id: "apify-run-1", name: "Apify Actor run", input: REVIEW, inputJson: JSON.stringify(REVIEW), status: "pending_approval", approvalKind: "actor",
     approvalDescription: "Run ithaca/harbor-notices build 1.4.12 once, with the input shown, charging at most $0.8. Approving does not allow any later run." };
   const refusal: ToolCall = { id: "apify-run-2", name: "mcp__brain-ui__brain_apify_run", input: { proposal: "p" }, inputJson: "{}", status: "complete", isError: true,
     output: JSON.stringify({ ok: false, operation: "run", error: { code: "budget_exceeded", reason: "day_usd", message: "This run would reserve $1.15, but only $0.35 remains in the account's UTC day allowance (pending runs count as spent)." } }) };
@@ -55,7 +55,7 @@ const approvalMeta = preview.meta({
   args: { width: 320, onApproval: fn() },
 });
 
-/** The exact-run card: rows, bounded untrusted input, Allow once and Deny only; refusals name the limit. */
+/** The exact-run card: rows, bounded untrusted input, Allow once, Always allow and Deny; refusals name the limit. */
 export const RunApproval320 = approvalMeta.story({
   play: async ({ args, userEvent, globals }) => {
     await painted(args.width, globals.theme);
@@ -64,9 +64,9 @@ export const RunApproval320 = approvalMeta.story({
     await expect(view.getByText("Approval needed · paid run")).toBeVisible();
     for (const row of ["Actor", "Sends to Apify", "Charged to", "Cost", "Limits"]) await expect(card.querySelector(`[data-apify-row="${row}"]`), row).not.toBeNull();
     await expect(card.querySelector("[data-apify-row=\"Charged to\"]")!.textContent).toContain("…7c2f");
-    await expect(card.querySelector("[data-apify-row=\"Cost\"]")!.textContent).toContain("Up to $0.80");
-    await waitFor(() => expect(card.querySelector("[data-apify-effective-limits]")?.textContent).toBe("≤ $1.00 a run · 10 min · 200 items · 5120 KB · results kept 7 days"));
-    await expect(view.queryByRole("button", { name: /Always/ }), "APIFY_NO_ALWAYS_ALLOW").toBeNull();
+    await expect(card.querySelector("[data-apify-row=\"Cost\"]")!.textContent).toContain("Run cap $0.80");
+    await waitFor(() => expect(card.querySelector("[data-apify-effective-limits]")?.textContent).toBe("≤ $1.00 a run · 10 min · results kept 7 days"));
+    await expect(view.getByRole("button", { name: /Always allow/ }), "APIFY_ACTOR_ALWAYS_ALLOW").toBeVisible();
     await expect(view.getByRole("button", { name: /Allow once/ })).toBeVisible();
     // Untrusted Actor text is plain text: no link, no markdown.
     await expect(card.querySelectorAll("a"), "APIFY_UNTRUSTED_PLAIN_TEXT").toHaveLength(0);
@@ -85,10 +85,10 @@ export const RunApproval320 = approvalMeta.story({
     await expect(unknown.textContent).not.toContain("$0");
     await targets(refusal, "apify refusal");
 
-    // A reloaded card says so, and still offers only Allow once and Deny.
+    // A reloaded card says so, and still offers Actor-scoped choices.
     const again = document.querySelector<HTMLElement>("[data-restored] [data-approval-card]")!;
     await expect(within(again).getByText("Approval needed · paid run · restored")).toBeVisible();
-    await expect(within(again).queryByRole("button", { name: /Always/ })).toBeNull();
+    await expect(within(again).getByRole("button", { name: /Always allow/ })).toBeVisible();
     // A changed proposal and a turn with nowhere to ask refuse with what happened, and nothing started.
     await expect(document.querySelector("[data-stale]")!.textContent, "APIFY_CHANGED_REVIEW_AGAIN").toContain("Changed · review again");
     await expect(document.querySelector("[data-stale]")!.textContent).toContain("Nothing started");

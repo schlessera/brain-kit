@@ -55,7 +55,7 @@ tries the shared track parser on every file
 MIME-to-extension table lists PDF
 (`EXTENSION_BY_TYPE`, `packages/ui-server/src/share/staging.ts:91-114`), which
 only names the stored file and reads nothing. Staged shares are pruned after
-seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2484`).
+seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2606`).
 
 **Chat admission.** `chat_message` validates inline images, then resolves every
 `files` reference as a staged track
@@ -73,21 +73,21 @@ Images travel as inline base64 frames: Claude gets content blocks
 `ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:300`).
 No image original is kept as a file. Frames are limited to four images and
 8,000,000 decoded bytes per message
-(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:741`;
-`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:757`).
+(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:752`;
+`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:768`).
 
 **Drafts.** Draft text and images are stored in the operational SQLite store,
 with image bytes as BLOBs. An upload that no save names is swept after one hour
 (`PENDING_ATTACHMENT_TTL_MS`, `packages/ui-server/src/drafts/store.ts:74`). A
 save checks the per-draft limit (`maxDraftBytes`, 8,388,608) and the host limit
 (`maxTotalBytes`, 268,435,456)
-(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:497-502`). On
+(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:505-510`). On
 acceptance the host consumes only the named revision
 (`accept(input)`, `packages/ui-server/src/drafts/store.ts:666-699`). Track
 files are not draft content: D52 keeps them in the tab only.
 
 **Opening a file.** The raw file route refuses anything over 10,485,760 bytes
-(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2419`). Originals may
+(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2541`). Originals may
 be up to 25,000,000 bytes, so opening a large original needs its own route
 ([§6.5](#65-reading-an-original-back)).
 
@@ -108,7 +108,7 @@ already a workspace dependency.
 | Password-protected PDF | the same library | The installed build exports `PasswordException` and `PasswordResponses`. No password is ever supplied. | Outcome `encrypted` |
 | Scanned or image-only page | the same library | Probe: a valid page with only drawing operators returns zero text items. | Outcome `no_text`, per page and per document |
 | Claude native read | `@anthropic-ai/claude-agent-sdk` 0.3.293 `Read` | `sdk-tools.d.ts` documents a `pages` input for PDFs, at most 20 pages per request. | Optional supplement only. The baseline does not depend on it. |
-| pi native read | `read_file` in `@schlessera/brain-ui-backend-pi` | It decodes bytes as UTF-8 and clips them (`read_file`, `packages/ui-backend-pi/src/tools.ts:359-374`). | Reads text originals. It cannot read a PDF. |
+| pi native read | `read_file` in `@schlessera/brain-ui-backend-pi` | It decodes bytes as UTF-8 and clips them (`read_file`, `packages/ui-backend-pi/src/tools.ts:179-194`). | Reads text originals. It cannot read a PDF. |
 | Validated tracks | `parseImportedTrack` in `@schlessera/brain-geo` | The parser already runs in staging and in chat admission (see §1). | Unchanged specialized route |
 | Images | browser-side `fileToAttachment` and the server's `validateAttachments` | `fileToAttachment`, `packages/ui-react/src/lib/image-attachments.ts:97`; `validateAttachments`, `packages/ui-server/src/ws/attachments.ts:19` | Unchanged inline frames, plus a retained original |
 | OCR, archives, office documents, media | none installed | None of these is approved. | Outcome `unavailable`. These are future readers ([§7.6](#76-adding-a-reader)). |

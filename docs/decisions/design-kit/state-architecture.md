@@ -140,7 +140,7 @@ component `.tsx` files, so "17 non-component files" is wrong. Outside
 
 **Attach the whole store API, not just getState/setState.** Tests already call
 `.getInitialState()` in three places (`getInitialState()`,
-`render-smoke.test.tsx:143,144`, `getInitialState()`,
+`render-smoke.test.tsx:145,146`, `getInitialState()`,
 `graph-store.test.ts:105`). `Object.assign(hook, store)` covers it; a
 hand-picked two-method shim would not.
 

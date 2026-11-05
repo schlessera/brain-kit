@@ -109,7 +109,7 @@ export interface BackendCapabilities {
 }
 
 export type PermissionDecision =
-  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | { behavior: "allow"; updatedInput?: Record<string, unknown>; always?: boolean }
   | { behavior: "deny"; message: string };
 
 export interface PermissionRequest {
@@ -123,7 +123,7 @@ export interface PermissionRequest {
    * set and may offer "always allow". "command" — a destructive-pattern
    * confirmation for an otherwise auto-allowed tool; never remembered.
    */
-  kind?: "tool" | "command" | "policy";
+  kind?: "tool" | "command" | "policy" | "actor";
   /**
    * This turn declared `enforceAllowedTools` and the tool is NOT on its
    * allowlist. The host must decide the request on its own merits: it may
@@ -373,7 +373,7 @@ export type BackendActivityEvent =
       /** The tool call the refusal belongs to. */
       toolUseId: string;
       /** The request that would have been raised, had anyone been able to answer it. */
-      requestKind: "tool" | "command" | "policy";
+      requestKind: "tool" | "command" | "policy" | "actor";
       /** Why, in the words the model was given. */
       reason: string;
     }

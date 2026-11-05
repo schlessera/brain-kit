@@ -15,3 +15,5 @@ export * from "./apify/ledger.js";
 export * from "./apify/profiles.js";
 export * from "./apify/runs.js";
 export * from "./apify/operations.js";
+
+export * from "./apify/credentials.js";

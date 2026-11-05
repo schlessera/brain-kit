@@ -1,5 +1,13 @@
 # Apify: explicit activation, discovery consent and bounded remote execution
 
+> **2026-11-04 — Superseded admission and approval requirements.** The
+> [Actor-approval ruling](apify-actor-approval.md) replaces mandatory qualified
+> builds, exact-build standing grants, remote crawling proofs and all-cost
+> guarantees with user approval of each Actor, credential-extraction scanning,
+> shared Apify spending controls and module-facing availability. The original
+> requirements below are preserved as historical evidence. Runtime behavior
+> changes through implementation tracked in #3580.
+
 The maintainer requested this capability on 2026-10-29. The request establishes
 that Apify is an opt-in paid provider, authentication is necessary for paid
 requests, policy controls limits, and discovering a tool does not authorize it.
@@ -136,6 +144,10 @@ has been revoked.
 
 ## Selected policy and consent contract
 
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
+
 Add a strict optional `apify` governance block; it is absent/disabled by default.
 Names below are selected future configuration, not existing parser input.
 Unknown fields refuse validation. Policy is data-only and remains unwritable by
@@ -238,6 +250,10 @@ connector IDs or arbitrary REST/MCP method forwarding are accepted.
 
 ## Selected execution eligibility and monetary enforcement
 
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
+
 Use an initial **qualified batch Actor profile** for each executable
 build. Public discovery remains broad, but a discovered Actor without a profile
 can be inspected and proposed for review, not run. A profile is concrete trusted
@@ -302,6 +318,10 @@ liability; a successful local tool response does not zero it.
 
 ## Remote data routing and site permission
 
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
+
 BrainKit can control what it sends to Apify. It cannot observe or firewall every
 network request issued by a third-party remote Actor. A start URL, Actor input
 schema, limited-permission badge, successful proxy request or user approval is
@@ -326,6 +346,10 @@ state. Session forks and resume cannot inherit an account or result grant merely
 by copying an opaque string; explicit ownership transfer must be qualified.
 
 ## Selected scope and alternatives
+
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
 
 **Selected A: bounded initial execution.** The combined transport,
 token-first host ownership, concrete qualified profiles and the external-spend

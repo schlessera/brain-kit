@@ -60,7 +60,7 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
   const budget = summary?.budget;
   const apify = useApifyTurn(budget, sessionId, turnId);
   // Apify stays its own figure beside inference, never folded into one exact sum (#3163).
-  const apifyLabel = apify.share.state === "unknown" ? " + Apify unknown" : apify.share.state === "known" && apify.share.apifyUsd > 0 ? ` + Apify up to ${usd(apify.share.apifyUsd)}` : "";
+  const apifyLabel = apify.share.state === "unknown" ? " + Apify unknown" : apify.share.state === "known" && apify.share.apifyUsd > 0 ? ` + Apify estimate ${usd(apify.share.apifyUsd)}` : "";
   const budgetLabel = budget?.scopes.some(item=>item.blocked) ? "Budget reached" : budget?.scopes.some(item=>item.warning) ? "Budget warning" : budget ? "Inference limits" : summary?.scope ? "Scope limits recorded" : "Limits unknown";
   const label = `${changes} · ${steering} · ${cost}${apifyLabel} · ${budgetLabel}${state === "recording" ? " · Recording" : state === "partial" ? " · Incomplete" : state === "expired" ? " · Details expired" : state === "unrecorded" || state === "unknown" ? " · Unrecorded" : ""}`;
   useEffect(() => {

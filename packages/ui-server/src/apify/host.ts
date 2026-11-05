@@ -90,6 +90,8 @@ export interface ApifyHost {
   /** For the owner's UI (#3163): per-run accounting and coverage, never model-facing. */
   readonly consent: ApifyConsent;
   readonly runs: ApifyRuns;
+  actorApprovals(principalId: string): Promise<import("@schlessera/brain-common/internal/apify").ApifyActorApproval[]>;
+  revokeActor(principalId: string, actor_id: string): Promise<void>;
   /** One bridge call, on the turn the host authenticated. */
   call(turn: ApifyHostTurn, call: { tool: ApifyToolName; input: unknown }): Promise<ApifyEnvelope>;
   /** A turn was cancelled, timed out or exhausted its budget: abort the runs it started. */
@@ -108,8 +110,9 @@ export function createApifyHost(options: ApifyHostOptions): ApifyHost {
   /** Opened on first use and kept; a failure is retried on the next call and refuses this one. */
   const openLedger = (): ApifyLedger => ledger ??= (options.ledger ?? (() => openApifyLedger(options.ledgerPath)))();
   const runPolicy = governanceApifyRunPolicy(options.brainPath);
-  const meter = createApifyRequestMeter({ ledger: openLedger, policy: runPolicy, brain_id: brainId });
-  const consent = createApifyConsent({ authority: options.authority, policy: governanceApifyConsentPolicy(options.brainPath), meter,
+  const meter = createApifyRequestMeter({ ledger: openLedger, policy: runPolicy, brain_id: brainId,
+    account: async () => (await options.authority.status()).account?.id ?? null, inference: options.inference, now: options.now });
+  const consent = createApifyConsent({ ledger: openLedger, brain_id: brainId, budgetAvailability: (context, account) => runs.budgetAvailability(context, account), authority: options.authority, policy: governanceApifyConsentPolicy(options.brainPath), meter,
     routing: APIFY_PROVIDER_ROUTING, ...(options.profiles ? { profiles: options.profiles } : {}), ...(options.now ? { now: options.now } : {}) });
   const runs = createApifyRuns({ authority: options.authority, consent, ledger: openLedger, policy: runPolicy, brain_id: brainId,
     sitePermission: options.sitePermission ?? coreSitePermission(),
@@ -130,6 +133,8 @@ export function createApifyHost(options: ApifyHostOptions): ApifyHost {
 
   return {
     brain_id: brainId,
+    actorApprovals: principalId => consent.approvals({ principal_id: principalId, session_id: "settings", turn_id: "settings", posture: "interactive", approvals: null, untrusted: () => undefined }),
+    revokeActor: (principalId, actor_id) => consent.revoke({ principal_id: principalId, session_id: "settings", turn_id: "settings", posture: "interactive", approvals: null, untrusted: () => undefined }, actor_id),
     consent,
     runs,
     async call(turn, call) {

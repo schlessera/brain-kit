@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 171 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 172 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -191,7 +191,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract/http.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
-| GET | `/api/apify` | I | Read Apify provider state, policy and spend | Settings UI (#3159, #3163); live human owners only. Reports `disabled`, `authentication_required`, `configured` or `unavailable`; never a token. Contacts Apify only while the policy enables it. Additively since #3163 also `policy` (the effective `apify` block, each grant's `active`/`expired`/`other_account` status, the policy hash an edit names as its base) and `spend` (`ledger` `absent`/`read`/`unavailable`, today's account-wide and brain ledger scopes, and unsettled runs, never as $0). `?session=&turn=` adds that turn's scope; `?refresh=1` re-verifies the token and settles open runs first. |
+| GET | `/api/apify` | I | Read Apify provider state, policy and spend | Additively #3580: `actor_approvals: [{ actor_id, actor, approved_at }]` lists remembered Actor approvals, timestamp in Unix milliseconds.  Settings UI (#3159, #3163); live human owners only. Reports `disabled`, `authentication_required`, `configured` or `unavailable`; never a token. Contacts Apify only while the policy enables it. Additively since #3163 also `policy` (the effective `apify` block, each grant's `active`/`expired`/`other_account` status, the policy hash an edit names as its base) and `spend` (`ledger` `absent`/`read`/`unavailable`, today's account-wide and brain ledger scopes, and unsettled runs, never as $0). `?session=&turn=` adds that turn's scope; `?refresh=1` re-verifies the token and settles open runs first. |
+| POST | `/api/apify/actors/revoke` | I | Revoke one remembered Actor approval | Live human owners only. Strict `{ actor_id }`, immutable alphanumeric id. Returns `{ revoked: true }`; idempotent, scoped to brain, principal and bound account. |
 | POST | `/api/apify/account` | I | Confirm the token's changed Apify account | Settings UI (#3159); live human owners only. Starts a new authority generation; accepts no token. |
 | POST | `/api/apify/policy` | I | Propose one Apify setting through the policy-change review | Settings UI (#3163); live human owners only. `{ change, base_hash }` names exactly one of `enabled`, `discovery`, `actors` or `remove_grant` and the policy version it changes. Returns `{ turn_id, request_id, review }` with a pending `PolicyChangeReview` of the complete proposed `governance.md`; writes nothing. 409 when the policy changed since it was read; 422 when the file cannot be rewritten exactly. |
 | POST | `/api/apify/policy/:turnId/:requestId` | I | Answer that exact review | Settings UI (#3163); only the proposing owner. `{ approve }`; an approval lets the existing policy writer publish it inside a user journal window. A repeated or late answer returns the recorded receipt and never writes again; a lost answer is reconciled through `GET /api/policy-proposals/:turnId/:requestId`. |
@@ -204,7 +205,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 171 declared endpoints are mounted regardless of backend, renderer or
+All 172 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 

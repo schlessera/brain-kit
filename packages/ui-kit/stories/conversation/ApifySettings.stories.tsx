@@ -144,7 +144,7 @@ export const OffKeepsGrants320 = meta.story({
     await expect(view.getByText(/inactive while Apify is off/)).toBeVisible();
     // An unknown start is a reservation, never $0.
     const value = section.querySelector("[data-apify-run-value]")!;
-    await expect(value.textContent, "APIFY_UNKNOWN_NOT_ZERO").toBe("up to $1.15");
+    await expect(value.textContent, "APIFY_UNKNOWN_NOT_ZERO").toBe("$1.15 held estimate");
     await expect(section.textContent).not.toContain("$0.00");
     await expect(view.getByText(/Start not confirmed/)).toBeVisible();
     await bounds(section, "apify off"); await targets(section, "apify off"); await accessible(section);
