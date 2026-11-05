@@ -38,7 +38,7 @@ synchronous `disposeSession(opened.session)` and then either refuses
 `packages/ui-backend-pi/src/session-pool.ts:77-101`). Without retention, an
 entry in the map is always running, so in production the loser always
 refuses busy. The runner re-throws that refusal to its caller unchanged
-(`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:64-85`).
+(`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:63-86`).
 
 **The new-session branch.** A worker-backed session's identity is
 `resumeId ?? randomUUID()` (`const sessionId = resumeId`,

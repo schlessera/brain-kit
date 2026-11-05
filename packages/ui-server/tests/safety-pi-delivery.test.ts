@@ -1,5 +1,6 @@
 /** Installed Pi, real curated grep, loopback Responses and the concrete host collector.
- * SQLite is in-memory here; FULL worker/restart qualification is separate. */
+ * Default fixtures use in-memory SQLite; loss-notice integration below uses
+ * the FULL writer. Restart proof lives in safety-loss-recovery.test.ts. */
 import {expect,test} from "bun:test";
 import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -24,12 +25,12 @@ type Mode="normal"|"error"|"blocked"|"writer-loss";
 function captureEvidence(requests:string[]):string {
  return JSON.stringify(requests.map((raw,index)=>({request:index+1,sha256:new Bun.CryptoHasher("sha256").update(raw).digest("hex"),injected:raw.includes(injected)})));
 }
-async function fixture(mode:Mode="normal",acknowledge=true) {
+async function fixture(mode:Mode="normal",acknowledge=true,durable=false) {
  const root=mkdtempSync(join(tmpdir(),"odysseus-pi-safety-")),agentDir=join(root,"agent");
  mkdirSync(agentDir);mkdirSync(join(root,"docs/decisions"),{recursive:true});
  writeFileSync(join(root,"docs/decisions/provider-history.md"),"Odysseus records an unchanged voyage.\n");
  mkdirSync(join(root,"workspaces/voyage"),{recursive:true});writeFileSync(join(root,"workspaces/voyage/raft.md"),"Odysseus repairs the raft.\n");
- const db=createUiDb(":memory:"),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),controller=new AbortController();
+ const db=createUiDb(durable?join(root,"ui.db"):":memory:"),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),controller=new AbortController();
  const requests:string[]=[],events:string[]=[];let executed=0,notices=0,finalBeforeRequest=false,manager:SessionManager|undefined;
  const sessions:AgentSession[]=[];
  const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
@@ -217,4 +218,22 @@ test("Pi initialization refusal waits for host loss retention before acquisition
   await f.writes.safetyEnd("voyage");recoverSafetyRecording(f.db);
   expect(f.writes.safety(null,"ithaca").coverage.state).toBe("incomplete");
  }finally{release();await f.close();}
+});
+
+for(const point of ["startup","during-tool"] as const)test(`installed Pi ${point} refusal survives a real loss-notice COMMIT failure`,async()=>{
+ const f=await fixture("normal",true,true),ran={value:false};
+ try{
+  f.db.exec("CREATE TABLE pi_loss_probe(id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_pi_loss AFTER UPDATE OF failed ON safety_meta WHEN NEW.failed=1 BEGIN INSERT INTO pi_loss_probe VALUES('missing-raft'); END");
+  if(point==="startup")await f.configure([attack("custom-message",ran)]);
+  else f.duringTool(()=>f.configure([attack("custom-message",ran)]));
+  try{const session=await f.open();await session.prompt("Inspect the raft.");}catch{}
+  expect(f.requests,"SAFETY_PI_FAILED_LOSS_NOTICE_NEVER_RELEASES_NEXT_REQUEST").toHaveLength(point==="startup"?0:1);
+  expect(f.db.query("SELECT failed FROM safety_meta").get(),"SAFETY_PI_LOSS_NOTICE_REALLY_ROLLED_BACK").toEqual({failed:0});
+  expect(f.writes.recordingAvailable("voyage","ithaca"),"SAFETY_PI_FAILED_NOTICE_RETAINS_HOST_FENCE").toBe(false);
+  expect(f.writes.safety(null,"ithaca").coverage.state).toBe("incomplete");
+  const end=await f.writes.safetyEnd("voyage").then(()=>null,error=>error);
+  expect(String(end),"SAFETY_PI_FAILED_NOTICE_CANNOT_SEAL_CLEAN_HISTORY").toContain("FOREIGN KEY constraint failed");
+  f.db.exec("DROP TRIGGER fail_pi_loss");await f.writes.safetyEnd("voyage");recoverSafetyRecording(f.db);
+  expect(f.writes.safety(null,"ithaca").coverage.state,"SAFETY_PI_FAILED_NOTICE_GAP_SURVIVES_RECOVERY").toBe("incomplete");
+ }finally{await f.close();}
 });
