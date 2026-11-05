@@ -9,4 +9,6 @@ Record every tool/proxy safety signal before delivery with durable bounded evide
 
 Fence final Pi extension results, preserve canonical identity through host adoption, and include pending scope reservations and quiescent local failure recovery.
 
+Recheck shared recorder health and cancellation after provider-budget admission waits. Inherit handoff source evidence only on the first unresumed turn, preserving its snapshot through queued continuations.
+
 Refuse all externally configured Pi extensions before provider dispatch and recheck the live extension set before continuation. This includes web, MCP and subagent packages: their message injection and late result paths are unqualified. Managed workers retain curated tools without an extension exemption; nested extension execution is unavailable. Disable Pi cache warming, whose installed refresh dispatch bypasses the Agent stream hook, including after settings reloads. Await the existing host failure notice on refusal and native initialization failure; acknowledge detector coverage only after successful initialization. Rejection alone does not prove durable retention. Enforce merged pending limits during binding, and let explicitly recovered sessions run restricted turns without erasing historical failures. Both provider-history guards and complete selected hosted proof remain qualification requirements.

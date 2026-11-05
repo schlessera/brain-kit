@@ -113,8 +113,10 @@ export async function openTurnBridge(
   const safetyWrites=host.activity?.governanceWrites, safetyDb=host.activity?.governanceDb;
   if(safetyWrites&&safetyDb){
     const bindingId=crypto.randomUUID();
+    // A handoff carries source context only on its first unresumed turn.
+    const handoffSource = !resumeId && turn.turnId === slot.firstTurnId ? initial.handoffHooks?.sourceSessionId : undefined;
     await safetyWrites.safetyBegin({bindingId,turnId:turn.turnId,principalId:turn.principalId??null,sessionId:resumeId??null,
-      historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:initial.handoffHooks?.sourceSessionId,policyHash:governedHold?.policy.hash??null,at:Date.now()});
+      historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:handoffSource,policyHash:governedHold?.policy.hash??null,at:Date.now()});
     bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
       sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>run.abortController.abort(error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null});
   }
@@ -169,6 +171,8 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
       if (!host.budgets) return { allowed: true };
       try {
         const blocked = await host.budgets.providerAdmission(relayTurnId, hold.policy.policy);
+        // Another turn can disable the shared recorder while this budget write waits.
+        if(abortController.signal.aborted||governanceWrites&&!governanceWrites.recordingAvailable(turn.turnId,turn.sessionId??null))return {allowed:false,message:"Input recording is unavailable; the turn was stopped."};
         // The turn may have stopped while admission waited for earlier budget writes.
         const stopped = stops.budget as Error | undefined;
         if (stopped) return { allowed: false, message: stopped.message };

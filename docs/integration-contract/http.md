@@ -302,7 +302,10 @@ completion. Each external result segment and later connection has independent
 evidence. A CONNECT close or shell completion cannot prove bounded input ended.
 Claude pre/post hooks and the Pi worker's awaited result RPC commit detection
 before execution/result delivery. The host provider relay also refuses
-unsettled/failed recording, independently of runtime hook cancellation. Unsupported or metadata-free collectors retain
+unsettled/failed recording, independently of runtime hook cancellation, and
+rechecks recording health and cancellation after awaiting budget admission.
+Shared recording loss in another turn therefore fences the pending dispatch.
+Unsupported or metadata-free collectors retain
 an incomplete epoch. The version 1 detector manifest explicitly excludes
 proxied-shell local file reads and opaque tunnel inner protocols.
 
@@ -356,7 +359,9 @@ the catalog announcement precedes retained-dialogue adoption. A later typed
 dialogue reuses the already-bound host owner; neither opening nor resuming it
 rewrites the original binding. Resumes/backend
 changes retain prior epochs, and forks inherit
-unresolved evidence and unknown coverage. Actual catalog creator, principal,
+unresolved evidence and unknown coverage only on their first unresumed turn.
+Queued continuations retain that snapshot without recopying source evidence or
+importing later source activity. Actual catalog creator, principal,
 history owner, aliases and generation govern binding. Retired session/owner/turn
 identities refuse late callbacks even after private detail is removed.
 
