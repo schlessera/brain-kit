@@ -92,7 +92,7 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   if(ledger.used_rows+ledger.scope_rows+1>SAFETY_LIMITS.brainRows||ledger.used_bytes+ledger.scope_bytes+2048>SAFETY_LIMITS.brainBytes)throw new SafetyUnavailable("Safety identity capacity exhausted");
   if(owner&&one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE history_owner_id=? AND generation=?",owner,generation).n>=128)throw new SafetyUnavailable("Safety coverage capacity exhausted");
   if(input.policyHash!==undefined&&input.policyHash!==null&&!/^[a-f0-9]{64}$/.test(input.policyHash))throw new SafetyUnavailable("Invalid safety policy hash");
-  const gap=input.sessionId&&!session?.principal_id?"unknown_history_owner":null;
+  const gap=input.sessionId&&!session?.principal_id?"unknown_history_owner":session?.backend_id&&session.backend_id!==input.backendId?"backend_history_not_reconstructed":null;
   db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,history_owner_id,generation,backend_id,started_at,gap,start_revision)
     VALUES (?,?,?,?,?,?,?,?,?,?)`).run(input.bindingId,input.turnId,input.sessionId,input.principalId,owner,generation,input.backendId,input.at,gap,advance(db));
   db.query("UPDATE safety_collections SET policy_hash=? WHERE id=?").run(input.policyHash??null,input.bindingId);
@@ -101,8 +101,8 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   if(input.sourceSessionId){
     const sourceOwner=one<{principal_id:string|null}|null>(db,"SELECT principal_id FROM safety_sessions WHERE session_id=?",input.sourceSessionId);
     if(sourceOwner?.principal_id&&sourceOwner.principal_id!==input.principalId)throw new SafetyUnavailable("Safety fork history ownership mismatch");
-    const source=safetyProjection(db,null,input.sourceSessionId);
-    if(source.coverage.state!=="complete")db.query("UPDATE safety_collections SET gap='inherited_unknown_history' WHERE id=?").run(input.bindingId);
+    safetyProjection(db,null,input.sourceSessionId); // Also validates retirement.
+    db.query("UPDATE safety_collections SET gap='inherited_history_not_reconstructed' WHERE id=?").run(input.bindingId);
     const records=db.query<RecordRow,[string]>(`SELECT r.* FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
       WHERE c.session_id=? AND r.kind='occurrence' AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.occurrence_id=r.id)`).iterate(input.sourceSessionId);
     for(const r of records){const payload=JSON.parse(r.payload);payload.occurrence=occurrence(input.bindingId,(r.detector??"tool_file_input") as Occurrence["detector"],null,"interrupted_unknown");

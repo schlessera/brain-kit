@@ -94,9 +94,12 @@ test("backend change and resume retain epochs; inherited fork restrictions and c
  const id=crypto.randomUUID();await f.writes.safetyBegin({turnId:"resumed",bindingId:id,sessionId:"ithaca",principalId:"odysseus",backendId:"pi",at:1});
  expect(f.writes.safety(null,"ithaca").coverage.state).toBe("incomplete");await f.writes.safetyReady("resumed","pi",1);
  expect(f.writes.safety(null,"ithaca").coverage.epochs.map(e=>e.backendId)).toEqual(["claude","pi"]);
+ expect(f.writes.safety(null,"ithaca").coverage.epochs[1]?.reason).toBe("backend_history_not_reconstructed");
  await f.writes.safetyBegin({turnId:"fork",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",sourceSessionId:"ithaca",at:2});
  expect(f.writes.safety("fork",null).unresolvedCount,"SAFETY_FORK_INHERITS_UNRESOLVED_CONTEXT").toBe(1);
  expect(f.writes.safety("fork",null).restriction).toBe("restricted");
+ await f.writes.safetyReady("fork","claude",1);
+ expect(f.writes.safety("fork",null).coverage.state,"SAFETY_FORK_ACK_CANNOT_RECONSTRUCT_NATIVE_HISTORY").toBe("incomplete");
  }finally{await f.close();}});
 
 test("a later durable occurrence cannot disappear from the remaining-restriction aggregate",async()=>{
@@ -288,4 +291,13 @@ test("a clean search input cannot suppress mixed JSON paths, an explicit mark or
  await collector.begin("mixed","Grep",{path:"notes"});
  await collector.result("mixed","Grep",JSON.stringify({filenames:["workspaces/voyage/map.md","notes/voyage.md"],truncated:true}),true);
  expect(triggers(f).map(r=>(r.payload as {source:string}).source),"SAFETY_CLEAN_INPUT_CANNOT_HIDE_UNTRUSTED_JSON_OUTPUT").toEqual(["workspace_read","user_marked","legacy_unknown"]);
+ }finally{await f.close();}});
+
+test("an unsupported recorder stops and persists a gap when input detection exceeds its bound",async()=>{
+ const f=fixture();try{await fresh(f);
+ const {createTurnRecorder}=await import("../src/activity/recorder"),{createActivityStore}=await import("../src/activity/store");let stopped:Error|undefined;
+ const recorder=createTurnRecorder({store:createActivityStore(f.db,{writer:"test"}),governanceDb:f.db,governanceWrites:f.writes,governance:event=>f.writes.record(event),abort:error=>{stopped=error;}},{turnId:"voyage",sessionId:"ithaca",profile:"governed"});
+ recorder.observeFrame({type:"tool_use_complete",sessionId:"ithaca",toolUseId:"too-long",toolName:"Read",input:{file_path:`workspaces/${"x".repeat(1024)}.md`}});
+ expect(stopped?.message,"SAFETY_FALLBACK_DETECTOR_OVERFLOW_STOPS_TURN").toContain("detection failed");
+ await recorder.settled();expect(f.writes.safety(null,"ithaca").reasons).toContain("recording_failed");
  }finally{await f.close();}});

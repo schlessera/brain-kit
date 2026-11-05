@@ -146,7 +146,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-152`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:102-131`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
-- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:780`) settles after execution;
+- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:787`) settles after execution;
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),

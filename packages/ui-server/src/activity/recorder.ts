@@ -17,8 +17,8 @@ import { changedPrefix, validFirstRequest, validPrefix } from "./cache-diagnosti
  * startTurn resolved, when everything that could refine the outcome has
  * drained. Frame-derived outcome is the fallback, never a competing writer.
  *
- * Nothing here may fail the observed turn: every public method catches and
- * drops its own errors.
+ * Activity failures are observational. Safety recording failures stop the
+ * producer and retain a restrictive host failure instead of dropping input.
  */
 import type {
   BackendActivityEvent,
@@ -350,11 +350,14 @@ export function createTurnRecorder(
             // Exact repeated frames cannot mint another operation after its result.
             if (calls.get(msg.toolUseId)?.output !== null && calls.get(msg.toolUseId)?.output !== undefined) break;
             if (ingestions.has(msg.toolUseId)) break;
-            if (turn.origin !== "autonomous" && (ingestions.size >= 256 || calls.size >= MAX_TRACED_CALLS && !calls.has(msg.toolUseId))) {
+            if (!safetyHooked && turn.origin !== "autonomous" && (ingestions.size >= 256 || calls.size >= MAX_TRACED_CALLS && !calls.has(msg.toolUseId))) {
               deps.abort?.(new Error("Safety tool collection capacity exceeded; the turn was stopped."));
               break;
             }
-            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID() });
+            if (!safetyHooked && turn.origin !== "autonomous") {
+              try { ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID() }); }
+              catch { deps.abort?.(new Error("Safety input detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
+            }
             const traced = traceCall(msg.toolUseId, msg.toolName);
             if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta
@@ -377,7 +380,11 @@ export function createTurnRecorder(
             const traced = calls.get(msg.toolUseId);
             const ingestion = ingestions.get(msg.toolUseId);
             ingestions.delete(msg.toolUseId);
-            const signals = ingestion ? [...ingestion.signals, ...outputTaintSignals(ingestion.tool, msg.output, deps.brainPath, marked)] : [];
+            let signals:IngestionSignal[]=[];
+            if(!safetyHooked&&ingestion){
+              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked)]; }
+              catch { deps.abort?.(new Error("Safety result detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
+            }
             if (!safetyHooked && ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {
               const untracked = (error: unknown) => {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
