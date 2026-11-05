@@ -13,6 +13,8 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * change: `read_attachment` joins the stable roster of every mode, and nothing else moves.
  * #3580 re-records the fixed Apify roster with availability/approvals/revoke
  * and the reviewed Actor-approval guidance.
+ * #3624 re-records only the tool-description digest for approved Actor reuse
+ * and the user-selected shortlist; tool names, allowlists and prompts stay fixed.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */
