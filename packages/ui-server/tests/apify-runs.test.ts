@@ -708,7 +708,17 @@ describe("Actor-scoped approval and module availability", () => {
     const restarted = harness({ profiles: [], waitSeconds: 0 });
     const next = context({ session_id: "s-pylos", turn_id: "t-pylos" });
     expect(await restarted.consent.availability(next, "SeaCharts01")).toMatchObject({ state: "ready" });
-    await restarted.runs.run(next, { proposal: await proposal(restarted, next, { mode: "another input", nested: { value: 1 } }) });
+    const searches = () => fake.seen.filter(entry => (entry.body as { params?: { name?: string } } | null)?.params?.name === "search-actors").length;
+    const beforeSearches = searches();
+    const approved = await restarted.consent.approvals(next);
+    const candidate = approved[0]!.candidate!;
+    expect(typeof candidate, "APIFY_APPROVED_HOST_CANDIDATE").toBe("string");
+    await expect(restarted.consent.inspect(context(), { candidate }), "APIFY_APPROVED_CANDIDATE_SESSION_BOUND").rejects.toMatchObject({ reason: "unknown_reference" });
+    await expect(restarted.consent.inspect(context({ ...next, principal_id: "p-antinous" }), { candidate }), "APIFY_APPROVED_CANDIDATE_PRINCIPAL_BOUND").rejects.toMatchObject({ reason: "unknown_reference" });
+    await restarted.consent.inspect(next, { candidate });
+    const prepared = await restarted.consent.prepare(next, { candidate, input: { mode: "another input", nested: { value: 1 } }, max_charge_usd: 2 });
+    await restarted.runs.run(next, { proposal: prepared.proposal });
+    expect(searches(), "APIFY_APPROVED_RESTART_NO_SEARCH").toBe(beforeSearches);
     expect(asked.length, "APIFY_ALWAYS_SURVIVES_SESSION_RESTART").toBe(before);
     expect(h.ledger.actorApprovals({ brain_id: "brain-ithaca", principal_id: first.principal_id, account_id: "SuitorsHall02" })).toEqual([]);
     expect(await restarted.consent.availability(next, "SirenSong02")).toMatchObject({ state: "approval_required" });
@@ -717,6 +727,62 @@ describe("Actor-scoped approval and module availability", () => {
     await restarted.consent.revoke(next, "SeaCharts01");
     expect(await h.consent.availability(first, "SeaCharts01")).toMatchObject({ state: "approval_required" });
     expect(await restarted.consent.approvals(next)).toEqual([]);
+  });
+
+  test("a remembered candidate preserves discovery policy and rechecks revocation at execution", async () => {
+    const h = harness({ profiles: [], waitSeconds: 0 });
+    const ctx = context();
+    h.ledger.setActorApproval({ brain_id: "brain-ithaca", principal_id: ctx.principal_id, account_id: ACCOUNT.id },
+      { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: clock }, true);
+    const candidate = (await h.consent.approvals(ctx))[0]!.candidate!;
+    policy({ discovery: "deny" });
+    const before = fake.seen.length;
+    await expect(h.consent.inspect(ctx, { candidate }), "APIFY_APPROVED_INSPECTION_POLICY").rejects.toMatchObject({ reason: "discovery_denied" });
+    expect(fake.seen).toHaveLength(before);
+    policy();
+    await h.consent.inspect(ctx, { candidate });
+    const prepared = await h.consent.prepare(ctx, { candidate, input: INPUT, max_charge_usd: 2 });
+    await h.consent.revoke(ctx, "SeaCharts01");
+    answer = () => ({ behavior: "deny", message: "This Actor was revoked." });
+    await expect(h.runs.run(ctx, { proposal: prepared.proposal }), "APIFY_REUSABLE_REFERENCE_NOT_APPROVAL").rejects.toMatchObject({ reason: "declined" });
+    expect(asked.map(request => request.kind)).toEqual(["actor"]);
+    expect(starts()).toHaveLength(0);
+  });
+
+  test("unavailable providers list remembered approvals without issuing candidate references", async () => {
+    const h = harness();
+    const ctx = context();
+    await authority.status();
+    h.ledger.setActorApproval({ brain_id: "brain-ithaca", principal_id: ctx.principal_id, account_id: ACCOUNT.id },
+      { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: clock }, true);
+    const before = fake.seen.length;
+    policy({ enabled: false });
+    expect(await h.consent.approvals(ctx)).toEqual([{ actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: clock, candidate: null }]);
+    expect(fake.seen).toHaveLength(before);
+    expect(await h.consent.approvals(context({ principal_id: "p-antinous" }))).toEqual([]);
+    policy();
+    token = undefined;
+    expect((await h.consent.approvals(ctx))[0]!.candidate).toBeNull();
+    expect(starts()).toHaveLength(0);
+  });
+
+  test("a large approval list never returns a candidate that its own bounded insertion evicts", async () => {
+    const h = harness();
+    const ctx = context();
+    const scope = { brain_id: "brain-ithaca", principal_id: ctx.principal_id, account_id: ACCOUNT.id };
+    for (let index = 0; index < 200; index += 1) h.ledger.setActorApproval(scope,
+      { actor_id: `IthacaActor${index}`, actor: `odysseus/charts-${index}`, approved_at: clock - 200 + index }, true);
+    h.ledger.setActorApproval(scope, { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: clock }, true);
+    const approved = await h.consent.approvals(ctx);
+    expect(approved).toHaveLength(201);
+    expect(approved[0]!.candidate, "APIFY_APPROVED_REFERENCE_BOUND").toBeNull();
+    expect(approved.filter(entry => entry.candidate !== null)).toHaveLength(200);
+    // At capacity, listing again evicts the previous list, but keeps all newly returned references.
+    const again = await h.consent.approvals(ctx);
+    const candidate = again.at(-1)!.candidate!;
+    expect(candidate).not.toBe(approved.at(-1)!.candidate);
+    expect((await h.consent.inspect(ctx, { candidate })).actor_id).toBe("SeaCharts01");
+    expect(starts()).toHaveLength(0);
   });
 
   test("revocation racing admission is checked inside the reservation transaction", async () => {

@@ -1024,6 +1024,23 @@ immutable, 1–64 alphanumeric characters. Results use the same envelope and
 is advisory and consumes no run approval. Actor schemas and outputs remain
 data; credential-extraction scanning applies to Actor input and output.
 
+Since #3624, each approval-list entry also includes `candidate: string | null`
+([CLI result shape](cli.md#apify-operations-additive-0450-3162)). A non-null
+reference lets this session inspect and prepare the remembered Actor without
+searching the catalog again. It carries no execution permission. References
+remain principal/session/account-bound and all normal policy and spend checks
+apply.
+
+Shared agent guidance checks remembered approvals first and reuses a suitable
+Actor after inspection. If none fits and several new Actors do, the agent
+compares the best 3–5 (two if only two fit), explaining owner/name, task fit,
+available pricing and uncertainty, and limitations. It waits for a user choice
+before preparing or running one. Chat uses the existing `ask_user_form`
+single-choice node, which can present five options; other clients can ask in
+conversation. Cancellation selects nothing. This is agent orchestration, not a
+new admission mechanism: selecting an Actor neither approves a run nor creates
+a remembered approval.
+
 ## Reference source and managed worktree tools (additive, 0.44.0, #2432)
 
 Both first-party backends attach `reference_source` and `reference_worktree`
