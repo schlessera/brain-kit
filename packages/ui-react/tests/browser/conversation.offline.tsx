@@ -1605,3 +1605,129 @@ test("late contextual session identity preserves its original unknown-work notic
   expect(s.client.state.getState().unassignedWork,"LATE_CONTEXTUAL_ADOPTION_PRESERVES_UNKNOWN_WORK").toBe(1);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
+
+for (const navigate of [false,true]) test(`ordinary composer send preserves fresh-draft unknown work, away=${navigate}`, async ctx => {
+ const s=await scene(ctx);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ const d=s.ui.stores.drafts.getState(), origin=d.idFor(null);
+ d.edit(origin,null,{text:"Keep the mast note."});
+ await s.start();
+ s.event({kind:"unassigned_input_fragment",sequence:0,text:"Find the departure note.",timing:{kind:"unavailable"}});
+ s.event({kind:"unassigned_delegation",handle:"odysseus-unbound",offsetMs:1});
+ expect(s.client.reviewUnassigned()).toBe(true);
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+ await expect.poll(()=>s.button("Send")).not.toBeUndefined();
+ await userEvent.click(s.button("Send"));
+ const sent=s.socket.frames("chat_message");
+ expect(sent).toHaveLength(1);
+ expect(sent[0]?.source).toBe("voice-dictate");
+ if(navigate) flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+ s.deliver({type:"session_info",sessionId:"odysseus-manual-mast",requestId:String(sent[0]!.requestId),draftId:String(sent[0]!.draftId),turnId:"odysseus-manual-turn",isNew:true});
+ if(navigate) expect(s.ui.stores.chat.getState().activeSessionId).toBe(SESSION);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-manual-mast"));
+ expect.soft(s.client.state.getState().unassignedWork,"COMPOSER_ADOPTION_PRESERVES_UNKNOWN_WORK").toBe(1);
+ expect(s.socket.frames("chat_message")).toHaveLength(1);
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+test("navigating retained device draft versions cannot change unknown-work ownership",async ctx=>{
+ const s=await scene(ctx);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ const d=s.ui.stores.drafts.getState(), origin=d.idFor(null);
+ d.edit(origin,null,{text:"Odysseus local mast draft."});
+ await s.start();
+ s.event({kind:"unassigned_delegation",handle:"odysseus-device-branch",offsetMs:1});
+ s.client.leave();
+ const local=s.ui.stores.drafts.getState().drafts[origin]!;
+ const incoming={draftId:origin,sessionId:null,text:"Penelope other mast revision.",attachments:[],editedAt:local.editedAt+1,host:null};
+ d.keepDeviceBranch(origin,"odysseus-local-branch",incoming,null);
+ expect(s.ui.stores.drafts.getState().fresh).toBe("odysseus-local-branch");
+ expect(d.resolveId(origin)).toBe("odysseus-local-branch");
+ expect(s.client.state.getState().unassignedWork,"BRANCH_RETAINS_ORIGINAL_NOTICE").toBe(1);
+ d.openUnbound(origin);
+ expect(s.ui.stores.drafts.getState().fresh).toBe(origin);
+ expect.soft(s.client.state.getState().unassignedWork,"OTHER_DEVICE_VERSION_CANNOT_INHERIT_NOTICE").toBe(0);
+ d.openUnbound("odysseus-local-branch");
+ expect.soft(s.client.state.getState().unassignedWork,"ORIGINAL_BRANCH_RETAINS_NOTICE_AFTER_NAVIGATION").toBe(1);
+ expect(s.socket.frames("chat_message")).toHaveLength(0);
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+const canonicalPage = {"ownerId": "odysseus-canonical-owner", "sessionId": "odysseus-native-session", "generation": 1, "through": 0, "records": [], "coverage": "partial" as const};
+
+for(const route of ["provisional-same-owner","provisional-canonical-owner","native-same-owner"] as const) test(`correlated history adoption retains unknown work via ${route}`,async ctx=>{
+ const s=await scene(ctx);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ s.client.enter();s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-provisional-owner"});s.client.start();
+ await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+ s.event({kind:"unassigned_delegation",handle:"odysseus-history-notice",offsetMs:1});
+ s.client.leave();
+ const provisional="dialogue:odysseus-provisional-owner";
+ expect(s.ui.stores.chat.getState().activeSessionId).toBe(provisional);
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+ const originalPage={type:"dialogue_history" as const,ownerId:"odysseus-provisional-owner",generation:1,through:0,records:[],coverage:"complete" as const};
+ s.deliver(originalPage);
+ const key=route==="native-same-owner" ? canonicalPage.sessionId! : provisional;
+ s.client.loadDialogue(key);
+ let read=s.socket.frames("dialogue_read").findLast(frame=>frame.ownerId==="odysseus-provisional-owner" && key===provisional || frame.sessionId===key)!;
+ expect(read,"READ_WAS_ACTUALLY_REQUESTED").toBeDefined();
+ const reply=route==="provisional-canonical-owner" ? canonicalPage : {...originalPage,sessionId:canonicalPage.sessionId};
+ if (route === "native-same-owner") {
+   s.deliver({...reply,type:"dialogue_history",sessionId:"odysseus-unrelated-history",requestId:String(read.requestId)});
+   expect(s.ui.stores.chat.getState().activeSessionId,"NATIVE_READ_CANNOT_RETARGET_SELECTION").toBe(provisional);
+   expect(s.client.state.getState().unassignedWork,"NATIVE_READ_CANNOT_RETARGET_NOTICE").toBe(1);
+   s.client.loadDialogue(key);
+   read=s.socket.frames("dialogue_read").findLast(frame=>frame.sessionId===key)!;
+ }
+ s.deliver({...reply,type:"dialogue_history",requestId:String(read.requestId)});
+ expect(s.ui.stores.chat.getState().activeSessionId).toBe(canonicalPage.sessionId);
+ expect(s.client.state.getState().dialogue[canonicalPage.sessionId!]?.ownerId).toBe(reply.ownerId);
+ expect.soft(s.client.state.getState().unassignedWork,`CORRELATED_HISTORY_ADOPTION_PRESERVES_NOTICE:${route}`).toBe(1);
+ expect(s.socket.frames("chat_message")).toHaveLength(0);
+ expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
+for (const navigate of [false, true]) test(`stale and unknown history replies cannot retarget the retained notice, away=${navigate}`,async ctx=>{
+ const s=await scene(ctx);flushSync(()=>s.ui.stores.chat.getState().setActiveSession(null));
+ s.client.enter();s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-provisional-owner"});s.client.start();
+ await expect.poll(()=>s.client.state.getState().micOn).toBe(true);
+ s.event({kind:"unassigned_delegation",handle:"odysseus-stale-notice",offsetMs:1});s.client.leave();
+ const key="dialogue:odysseus-provisional-owner";
+ const page={type:"dialogue_history" as const,ownerId:"odysseus-provisional-owner",generation:2,through:0,records:[],coverage:"complete" as const};
+ s.deliver(page);
+ if (navigate) flushSync(()=>s.ui.stores.chat.getState().setActiveSession(SESSION));
+ s.deliver({...page,sessionId:"odysseus-stale-session",requestId:"odysseus-unknown-read"});
+ s.deliver({...page,sessionId:"odysseus-stale-session",generation:1});
+ expect(s.ui.stores.chat.getState().activeSessionId,"STALE_HISTORY_CANNOT_CHANGE_SELECTION").toBe(navigate ? SESSION : key);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession("odysseus-stale-session"));
+ expect(s.client.state.getState().unassignedWork).toBe(0);
+ flushSync(()=>s.ui.stores.chat.getState().setActiveSession(key));
+ expect(s.client.state.getState().unassignedWork).toBe(1);
+});
+
+test("pending composer acceptance follows the retained local draft after opening its other version", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  const drafts = s.ui.stores.drafts.getState(), origin = drafts.idFor(null);
+  drafts.edit(origin, null, { text: "Keep the local mast note." });
+  await s.start();
+  s.event({ kind: "unassigned_delegation", handle: "odysseus-pending-branch", offsetMs: 1 });
+  s.client.leave();
+  await expect.poll(() => s.button("Send")).not.toBeUndefined();
+  await userEvent.click(s.button("Send"));
+  const sent = s.socket.frames("chat_message").at(-1)!;
+  const local = s.ui.stores.drafts.getState().drafts[origin]!;
+  drafts.keepDeviceBranch(origin, "odysseus-pending-local", {
+    draftId: origin, sessionId: null, text: "Penelope's other revision.", attachments: [], editedAt: local.editedAt + 1, host: null,
+  }, null);
+  drafts.openUnbound(origin);
+  expect(s.client.state.getState().unassignedWork, "OTHER_VERSION_HAS_NO_PENDING_NOTICE").toBe(0);
+  s.deliver({ type: "session_info", sessionId: "odysseus-pending-native", requestId: String(sent.requestId), draftId: String(sent.draftId), isNew: true });
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-pending-native"));
+  expect(s.client.state.getState().unassignedWork, "ACCEPTED_SEND_USES_STABLE_LOCAL_ORIGIN").toBe(1);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  drafts.openUnbound(origin);
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});

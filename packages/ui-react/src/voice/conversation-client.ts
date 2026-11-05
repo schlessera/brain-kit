@@ -96,7 +96,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, interaction: "Listening", disclosureOpen: false, profile: null, conversationProfile: null, durableAvailable: false, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
   let durableAvailable = false;
   let dialoguePrincipalKey:string|undefined;
-  const dialogueReads = new Map<string, { key: string; older: boolean }>();
+  const dialogueReads = new Map<string, { key: string; ownerId?: string; older: boolean }>();
   function historyOwnerFor(key:string):string|undefined {
     return root.stores.chat.getState().historyOwners[key];
   }
@@ -105,8 +105,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const page = state.getState().dialogue[key];
     if (older && !page?.before) return;
     const requestId = crypto.randomUUID();
-    dialogueReads.set(requestId, { key, older });
-    const sent=send({ type: "dialogue_read", requestId, ...(historyOwnerFor(key) ? { ownerId: historyOwnerFor(key) } : {sessionId: key}),
+    const ownerId = historyOwnerFor(key);
+    dialogueReads.set(requestId, { key, ownerId, older });
+    const sent=send({ type: "dialogue_read", requestId, ...(ownerId ? { ownerId } : {sessionId: key}),
       ...(older && page ? {cursor:page.cursor, generation: page.generation} : {}) });
     if(!sent)dialogueReads.delete(requestId);
   }
@@ -126,22 +127,22 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   let agreedDisclosure: string | undefined;
   let agreedEntry: number | undefined;
   let draftId: string | null = null;
+  let draftOrigin: string | null = null;
   let savedVoice = "";
   // Volatile presentation evidence, never tasks or provider input. Keep a
   // bounded set of origins while projecting only the selected chat's count.
-  const unassignedWorkOwners: { conversationId: string; sessionId: string | null; draftId: string | null; count: number }[] = [];
+  const unassignedWorkOwners: { conversationId: string; sessionId: string | null; draftOrigin: string | null; count: number }[] = [];
   function refreshUnassignedWork() {
     const selected = root.stores.chat.getState().activeSessionId;
     const drafts = root.stores.drafts.getState();
     const count = unassignedWorkOwners.reduce((sum, owner) => sum + (owner.sessionId === selected
-      && (selected !== null || owner.draftId !== null && drafts.resolveId(owner.draftId) === drafts.resolveId(drafts.fresh)) ? owner.count : 0), 0);
+      && (selected !== null || owner.draftOrigin !== null && owner.draftOrigin === drafts.originOf(drafts.fresh)) ? owner.count : 0), 0);
     if (state.getState().unassignedWork !== count) state.setState({ unassignedWork: count });
   }
-  function moveUnassignedWork(from: string | null, to: string, conversationId?: string, sourceDraftId = draftId) {
-    const drafts = root.stores.drafts.getState();
+  function moveUnassignedWork(from: string | null, to: string, conversationId?: string, sourceDraftOrigin = draftOrigin) {
     for (const owner of unassignedWorkOwners) if (owner.sessionId === from
       && (!conversationId || owner.conversationId === conversationId)
-      && (from !== null || owner.draftId !== null && sourceDraftId !== null && drafts.resolveId(owner.draftId) === drafts.resolveId(sourceDraftId))) owner.sessionId = to;
+      && (from !== null || owner.draftOrigin !== null && owner.draftOrigin === sourceDraftOrigin)) owner.sessionId = to;
     refreshUnassignedWork();
   }
   let mic: ReturnType<typeof openConversationMicrophone> | undefined;
@@ -164,7 +165,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const incompleteReview = new Set<string>();
   const fragments = new Map<string, Map<number, Extract<ConversationWireEvent, { kind: "input_fragment" }>>>();
   const reviewIsIncomplete = () => [...fragments.keys()].some(id=>incompleteReview.has(id));
-  const requests = new Map<string, { draftCorrelation?: string; composerDraftId: string | null; sessionId: string | null; conversationId: string; epoch: number; text: string }>();
+  const requests = new Map<string, { draftCorrelation?: string; composerDraftId: string | null; draftOrigin: string | null; sessionId: string | null; conversationId: string; epoch: number; text: string }>();
   const restoredRequests = new Set<string>();
   const scope = () => state.getState().profile;
   const current = (own: number) => !disposed && state.getState().active && own === generation;
@@ -513,7 +514,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const requestId = crypto.randomUUID();
     const chat = root.stores.chat.getState();
     const draftCorrelation = s.sessionId ? undefined : chat.startDraftTurn();
-    requests.set(requestId, { sessionId: s.sessionId, composerDraftId: draftId, conversationId: profile.conversationId, epoch: profile.epoch, text, ...(draftCorrelation ? { draftCorrelation } : {}) });
+    requests.set(requestId, { sessionId: s.sessionId, composerDraftId: draftId, draftOrigin, conversationId: profile.conversationId, epoch: profile.epoch, text, ...(draftCorrelation ? { draftCorrelation } : {}) });
     if (!send({ type: "conversation_commit", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: lastInput.utteranceId, requestId, text })) { suspend(); startEpoch(); return false; }
     if (s.sessionId) root.stores.followUp.getState().addLocal(s.sessionId, { requestId, text, source: "voice-conversation", queuedAt: Date.now() });
     else { chat.addUserMessage(null, text, "voice-conversation", undefined, { requestId }); chat.startAssistantMessage(null, undefined, requestId); }
@@ -559,7 +560,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     requests.clear(); restoredRequests.clear(); agreedDisclosure=undefined; agreedEntry=undefined;
     permissions.clear(); localTones.clear(); fragments.clear(); capturedInputs.clear(); retiredInputs.clear();
     manualReview.clear(); incompleteReview.clear(); unassignedThrough=-1; seenRecognition.clear();
-    lastInput=undefined; utterance=null; draftId=null; savedVoice="";
+    lastInput=undefined; utterance=null; draftId=null; draftOrigin=null; savedVoice="";
     state.setState({active:false,token:generation,profile:null,conversationProfile:null,voiceDraft:null,dialogue:{},dialogueRestoredThrough:{},dialogueNotice:"",work:{},outputs:[],unassigned:[],recognition:[],unassignedWork:0,available:false});
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
   }
@@ -584,6 +585,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (message.requestId && !read) return null;
       if (message.requestId) dialogueReads.delete(message.requestId);
       const key = message.sessionId ?? read?.key ?? `dialogue:${message.ownerId}`;
+      // Native reads cannot change target. Owner-addressed reads may return
+      // the host's canonical owner after a merge; the request pins the source.
+      if (read && !read.ownerId && key !== read.key) return null;
+      const previousPage = state.getState().dialogue[key] ?? Object.values(state.getState().dialogue).find(p => p.ownerId === message.ownerId);
+      if (previousPage && previousPage.generation !== message.generation && !read) return null;
       if(!message.sessionId) root.stores.chat.getState().setHistoryOwner(key,message.ownerId);
       const selected=root.stores.chat.getState().activeSessionId;
       if(message.sessionId && selected && historyOwnerFor(selected) && state.getState().dialogue[selected]?.ownerId === message.ownerId){
@@ -593,12 +599,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         root.stores.chat.getState().setActiveSession(message.sessionId);
       }
 
-      if (read && read.key !== key && !historyOwnerFor(read.key)) return null;
-      if(read && historyOwnerFor(read.key) && message.sessionId && selected === read.key){
+      if(read?.ownerId && message.sessionId && selected === read.key){
         root.stores.chat.getState().setActiveSession(message.sessionId);
         send({type:"session_resume",sessionId:message.sessionId});
       }
-      if (read && historyOwnerFor(read.key) && !message.sessionId) {
+      if (read?.ownerId && !message.sessionId) {
         root.stores.chat.getState().setMessages(read.key, []);
         root.stores.chat.getState().noteHistoryLoaded(read.key);
         // There is deliberately no backend transcript or synthetic turn.
@@ -622,10 +627,13 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: unsavedOverflow ? current.dialogueNotice : message.coverage === "partial" ? "Voice history may be incomplete." : ""};
       });
       const retained = state.getState().dialogue[key];
-      if (message.sessionId && retained?.ownerId === message.ownerId && retained.generation === message.generation
-        && (!read || historyOwnerFor(read.key) === message.ownerId)) {
+      if (message.sessionId && retained?.ownerId === message.ownerId && retained.generation === message.generation) {
+        // Exact correlated owner reads authorize O -> canonical C/session S.
+        // Native reads and unsolicited current-generation updates authorize
+        // only aliases already known to have the returned owner.
+        const sourceOwner = read?.ownerId ?? message.ownerId;
         for (const from of new Set(unassignedWorkOwners.map(owner => owner.sessionId))) {
-          if (from && historyOwnerFor(from) === message.ownerId) moveUnassignedWork(from, message.sessionId);
+          if (from && (read?.ownerId && from === read.key || historyOwnerFor(from) === sourceOwner)) moveUnassignedWork(from, message.sessionId);
         }
       }
       if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
@@ -670,7 +678,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         // provisional notice; the visible chat still follows the active guards.
         if (work.provenance === "contextual") for (const owner of unassignedWorkOwners) {
           if (owner.conversationId === work.conversationId && (owner.sessionId === null || historyOwnerFor(owner.sessionId))) {
-            moveUnassignedWork(owner.sessionId, message.sessionId, work.conversationId, owner.draftId);
+            moveUnassignedWork(owner.sessionId, message.sessionId, work.conversationId, owner.draftOrigin);
           }
         }
         adoptContextualSession(work, message.sessionId);
@@ -679,7 +687,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (message.type === "session_info" && message.requestId && requests.has(message.requestId)) {
       const request = requests.get(message.requestId)!;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
-      if (request.sessionId === null || request.sessionId === message.sessionId) moveUnassignedWork(request.sessionId, message.sessionId, request.conversationId, request.composerDraftId);
+      if (request.sessionId === null || request.sessionId === message.sessionId) moveUnassignedWork(request.sessionId, message.sessionId, request.conversationId, request.draftOrigin);
       if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
         state.setState({ sessionId: message.sessionId, recognition: state.getState().recognition.map(f => f.conversationId === request.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId } : f), outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
       }
@@ -813,10 +821,10 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       return null;
     }
     if (event.kind === "unassigned_delegation") {
-      const ownerDraft = s.sessionId === null ? root.stores.drafts.getState().resolveId(draftId ?? root.stores.drafts.getState().fresh) : null;
-      const owner = unassignedWorkOwners.find(item => item.conversationId === p.conversationId && item.sessionId === s.sessionId && item.draftId === ownerDraft);
+      const ownerDraft = s.sessionId === null ? draftOrigin : null;
+      const owner = unassignedWorkOwners.find(item => item.conversationId === p.conversationId && item.sessionId === s.sessionId && item.draftOrigin === ownerDraft);
       if (owner) owner.count++;
-      else unassignedWorkOwners.push({ conversationId: p.conversationId, sessionId: s.sessionId, draftId: ownerDraft, count: 1 });
+      else unassignedWorkOwners.push({ conversationId: p.conversationId, sessionId: s.sessionId, draftOrigin: ownerDraft, count: 1 });
       while (unassignedWorkOwners.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance) unassignedWorkOwners.shift();
       refreshUnassignedWork(); return null;
     }
@@ -882,7 +890,18 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     }
     if (next.activeSessionId !== previous.activeSessionId) refreshUnassignedWork();
   });
-  const unwatchDrafts = root.stores.drafts.subscribe(refreshUnassignedWork);
+  const unwatchDrafts = root.stores.drafts.subscribe((next, previous) => {
+    // Ordinary composer sends are accepted by the draft client after inbound
+    // validation. Observe that exact receipt before it consumes/rotates the
+    // draft, independently of current selection or removable device aliases.
+    if (next.sends !== previous.sends) for (const receipt of Object.values(next.sends)) {
+      if (receipt.state !== "accepted" || previous.sends[receipt.requestId]?.state === "accepted" || !receipt.acceptedSessionId) continue;
+      if (receipt.sessionId !== null && !historyOwnerFor(receipt.sessionId)) continue;
+      const origin = next.originOf(next.sendDraftId(receipt.requestId) ?? receipt.draftId);
+      moveUnassignedWork(receipt.sessionId, receipt.acceptedSessionId, undefined, origin);
+    }
+    refreshUnassignedWork();
+  });
   const unwatchProvider = root.stores.provider.subscribe(() => { requireCurrentDisclosure(); });
   const unwatchConnection = root.stores.connection.subscribe((next, previous) => {
     if(next.wsStatus !== previous.wsStatus && next.wsStatus !== "connected") {dialogueReads.clear(); state.setState({conversationProfile:null,available:false});}
@@ -927,6 +946,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const sessionId = root.stores.chat.getState().activeSessionId;
       if (state.getState().unassigned.some(f => !f.taskContext && f.sessionId !== sessionId)) { state.setState({ notice: "Return to the previous chat to review its recognized speech." }); return; }
       draftId = root.stores.drafts.getState().idFor(sessionId); savedVoice = "";
+      draftOrigin = root.stores.drafts.getState().originOf(draftId);
       const providers = root.stores.provider.getState();
       const agentProviderId = providers.available.some((provider) => provider.id === providers.selectedId) ? providers.selectedId : null;
       entryLifetime++;
