@@ -1,6 +1,6 @@
 /** A session's untrusted-input state (G6), read from and written to its durable governance record. */
 import type { Database } from "bun:sqlite";
-import { insertGovernanceEvent, type GovernanceEventInput, type GovernanceEventPayload, type GovernanceEventRow } from "./events.js";
+import type { GovernanceEventInput, GovernanceEventPayload } from "./events.js";
 
 export type TaintSource = GovernanceEventPayload<"taint">["source"];
 export interface SessionTaint { eventId: number; source: TaintSource }
@@ -13,25 +13,11 @@ export function sessionTaint(db: Database, turnId: string | null, sessionId: str
   return row ? { eventId: row.id, source: (JSON.parse(row.payload) as { source: TaintSource }).source } : null;
 }
 
-/** Same SQLite transaction owns the first-source check and durable write, on a connection that commits its own writes. */
+/** Records one occurrence. Historical name retained for internal callers during rollout.
+ * Deduplication belongs to the host occurrence key, never to a session/source. */
 export function recordFirstTaint(db: Database, event: GovernanceEventInput<"taint">,
   record: (event: GovernanceEventInput<"taint">) => unknown): void {
-  db.transaction(() => {
-    if (!db.query(FIRST_TAINT).get(event.turnId ?? null, event.sessionId ?? null, event.sessionId ?? null)) record(event);
-  })();
-}
-
-/**
- * `recordFirstTaint` for an already validated row, as the hosted server's
- * write worker runs it (`governance/event-writes.ts`, #2850). Returns whether
- * this call recorded the taint.
- */
-export function insertFirstTaint(db: Database, row: GovernanceEventRow): boolean {
-  return db.transaction(() => {
-    if (db.query(FIRST_TAINT).get(row.turnId, row.sessionId, row.sessionId)) return false;
-    insertGovernanceEvent(db, row);
-    return true;
-  }).immediate();
+  db.transaction(() => { record(event); })();
 }
 
 /**

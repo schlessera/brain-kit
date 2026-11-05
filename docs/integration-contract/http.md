@@ -285,6 +285,30 @@ that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
 
+**Independent safety observations (partial collection foundation, #3600).**
+The version 1 governance taint payload optionally adds strict host occurrence
+metadata; the source enum adds `legacy_unknown`. Each input/output/path/mark
+signal is retained independently, even while restricted. Exact host-key retries
+deduplicate and conflicting payload/turn/session reuse refuses. The proxy's
+connection receipt optionally adds `connectionId`, shared with admission; it
+never establishes a tool/repository identity. The new `taint_exposure` kind
+records terminal HTTP finalization or interrupted/unknown exposure separately
+from the immutable occurrence. CONNECT closure remains unknown.
+
+Unbound taint/exposure rows no longer expire after 90 days. A content-free
+once-only binding preserves the turn/session relation after catalog removal;
+retired bound identities reject late named and session-less callbacks. Pending
+taint writes enforce the plan's per-session 256 records/1048576 bytes and
+writer-wide 4096 records/16777216 bytes ceilings. Overflow refuses the next
+record; failed commits and overflow latch that writer restrictive until recovery.
+This is an in-process latch, not durable restart qualification or per-brain
+accounting across independent writer instances. Persisted ledger/epoch bounds,
+coverage migration, pre-delivery detector acknowledgement, full history-owner
+binding and durable failure recovery are not implemented by these additions.
+No review, trust matching, safe verdict or live clearing endpoint is enabled.
+Mixed-version clients ignore unknown fields/kinds and retain restrictive
+fallback. The complete reviewed safety DTOs remain prospective.
+
 <a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
 
 **Shell taint behind the egress proxy (breaking before 1.0, #3429).** On a

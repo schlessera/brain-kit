@@ -12,7 +12,7 @@ import { procedureCaller, type SqliteWriter, type WriteProcedures } from "../db/
 import { replaySteeringEvents } from "../brain/journal-governance.js";
 import { bindTurnEvents, governanceEventRow, insertGovernanceEvent, type GovernanceEventInput, type GovernanceEventRow } from "./events.js";
 import { recordTurnRoadblocks, type RoadblockAttribution, type TurnTrace } from "./roadblocks.js";
-import { insertFirstTaint, sessionTaint, type SessionTaint } from "./session-taint.js";
+import { sessionTaint, type SessionTaint } from "./session-taint.js";
 
 export const url = import.meta.url;
 
@@ -20,7 +20,6 @@ export const url = import.meta.url;
 export function setup(db: Database): WriteProcedures {
   return {
     record: (row: GovernanceEventRow) => insertGovernanceEvent(db, row),
-    firstTaint: (row: GovernanceEventRow) => insertFirstTaint(db, row),
     bind: (turnId: string, sessionId: string) => bindTurnEvents(db, turnId, sessionId),
     // Classification reads the turn's earlier events on the same connection,
     // after every event submitted before it has committed.
@@ -36,7 +35,7 @@ export interface GovernanceWrites {
    * database failure.
    */
   record(input: GovernanceEventInput): Promise<{ id: number; recorded: boolean }>;
-  /** The session's first taint, checked and stored in one transaction; whether this call stored it. Validates now. */
+  /** Stores every distinct occurrence; only the exact host key deduplicates. Historical internal method name. */
   firstTaint(input: GovernanceEventInput<"taint">): Promise<boolean>;
   /**
    * The session's first taint (G6) as admission must see it: the committed
@@ -56,18 +55,34 @@ export interface GovernanceWrites {
 /** The app side: every write commits on `writer` when there is one, else on `db` at once. */
 export function createGovernanceWrites(db: Database, writer?: SqliteWriter): GovernanceWrites {
   const call = procedureCaller(db, { url, setup }, undefined, writer);
-  const pendingTaints = new Set<{ turnId: string | null; sessionId: string | null; source: SessionTaint["source"] }>();
+  const pendingTaints = new Set<{ turnId: string | null; sessionId: string | null; source: SessionTaint["source"]; bytes: number }>();
+  // Failed writes remain restrictive for this writer's lifetime. Durable
+  // restart recovery is a separate coverage obligation, never inferred here.
+  let pendingBytes = 0;
+  let failedClosed = false;
+  const record = (input: GovernanceEventInput): Promise<{ id: number; recorded: boolean }> => {
+    const row = governanceEventRow(input);
+    if (input.kind !== "taint") return call("record", row);
+    if (failedClosed) throw new Error("Safety occurrence writer requires recovery");
+    const bytes = Buffer.byteLength(JSON.stringify(row));
+    const session = [...pendingTaints].filter(p => row.sessionId !== null ? p.sessionId === row.sessionId : p.turnId === row.turnId);
+    if (pendingTaints.size >= 4096 || pendingBytes + bytes > 16777216 || session.length >= 256
+      || session.reduce((sum, p) => sum + p.bytes, 0) + bytes > 1048576) {
+      failedClosed = true;
+      throw new Error("Safety occurrence write capacity exceeded; ingestion must stop");
+    }
+    const pending = { turnId: row.turnId, sessionId: row.sessionId, source: (input as GovernanceEventInput<"taint">).payload.source, bytes };
+    pendingTaints.add(pending); pendingBytes += bytes;
+    const stored = call<{ id: number; recorded: boolean }>("record", row);
+    void stored.then(() => {}, () => { failedClosed = true; })
+      .finally(() => { pendingTaints.delete(pending); pendingBytes -= bytes; });
+    return stored;
+  };
   return {
-    record: input => call<{ id: number; recorded: boolean }>("record", governanceEventRow(input)),
-    firstTaint: input => {
-      const row = governanceEventRow(input);
-      const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.payload.source };
-      pendingTaints.add(pending);
-      const stored = call<boolean>("firstTaint", row);
-      void stored.finally(() => pendingTaints.delete(pending)).catch(() => {});
-      return stored;
-    },
+    record,
+    firstTaint: input => record(input).then(result => result.recorded),
     taint(turnId, sessionId) {
+      if (failedClosed) return { eventId: 0, source: "legacy_unknown" };
       const committed = sessionTaint(db, turnId, sessionId);
       if (committed) return committed;
       for (const pending of pendingTaints) {
@@ -75,7 +90,11 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       }
       return null;
     },
-    bind: (turnId, sessionId) => call<number>("bind", turnId, sessionId),
+    bind: async (turnId, sessionId) => {
+      const bound = await call<number>("bind", turnId, sessionId);
+      for (const pending of pendingTaints) if (pending.turnId === turnId) pending.sessionId = sessionId;
+      return bound;
+    },
     roadblocks: (attribution, trace) => call<number>("roadblocks", attribution, trace),
     replaySteering: () => call<number>("replaySteering"),
   };

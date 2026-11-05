@@ -40,10 +40,11 @@ import type { Database } from "bun:sqlite";
 import type { GovernanceEventInput, GovernanceProfile } from "../governance/events.js";
 import type { TracedCall, UsageSample } from "../governance/roadblocks.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
+import { occurrence } from "../governance/occurrence.js";
 import { recordFirstTaint } from "../governance/session-taint.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
-import { inputTaintSource, outputTaintSource, type IngestionSource, type MarkedLookup } from "./ingestion-taint.js";
+import { inputTaintSignals, outputTaintSignals, type IngestionSignal, type MarkedLookup } from "./ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
@@ -189,7 +190,8 @@ export function createTurnRecorder(
   const calls = new Map<string, TracedCall>();
   // Classify the complete original input, independently of the bounded
   // roadblock trace. Record only after a result, when content was ingested.
-  const ingestions = new Map<string, { source: IngestionSource | null; tool: string }>();
+  const collectionEpoch = crypto.randomUUID();
+  const ingestions = new Map<string, { signals: IngestionSignal[]; tool: string; operationId: string }>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
   let cancelledAt: number | null = null;
@@ -342,7 +344,14 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_complete": {
-            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { source: inputTaintSource(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName });
+            // Exact repeated frames cannot mint another operation after its result.
+            if (calls.get(msg.toolUseId)?.output !== null && calls.get(msg.toolUseId)?.output !== undefined) break;
+            if (ingestions.has(msg.toolUseId)) break;
+            if (turn.origin !== "autonomous" && (ingestions.size >= 256 || calls.size >= MAX_TRACED_CALLS && !calls.has(msg.toolUseId))) {
+              deps.abort?.(new Error("Safety tool collection capacity exceeded; the turn was stopped."));
+              break;
+            }
+            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID() });
             const traced = traceCall(msg.toolUseId, msg.toolName);
             if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta
@@ -365,17 +374,20 @@ export function createTurnRecorder(
             const traced = calls.get(msg.toolUseId);
             const ingestion = ingestions.get(msg.toolUseId);
             ingestions.delete(msg.toolUseId);
-            const source = ingestion && (ingestion.source ?? outputTaintSource(ingestion.tool, msg.output, deps.brainPath, marked));
-            if (ingestion && source && !traced?.denied && firstTaint && deps.governance) {
+            const signals = ingestion ? [...ingestion.signals, ...outputTaintSignals(ingestion.tool, msg.output, deps.brainPath, marked)] : [];
+            if (ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {
               const untracked = (error: unknown) => {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
                 deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));
               };
               try {
-                const committed = firstTaint({ kind: "taint", payload: { source, tool: ingestion.tool, detail: null },
-                  sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
-                  model: mainModel, profile: turn.profile ?? null }).then(() => {}, untracked);
-                writes.after(() => committed);
+                for (const signal of signals) {
+                  const observed = occurrence(collectionEpoch, signal.detector, ingestion.operationId);
+                  const committed = firstTaint({ kind: "taint", payload: { source: signal.source, tool: ingestion.tool, detail: null, occurrence: observed },
+                    sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
+                    model: mainModel, profile: turn.profile ?? null }).then(() => {}, untracked);
+                  writes.after(() => committed);
+                }
               } catch (error) { untracked(error); }
             }
             // A `brain` command in the worker that needed a withheld provider key (#1666).

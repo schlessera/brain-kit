@@ -266,7 +266,7 @@ test("the first admitted connection taints the session before its bytes; later t
     const third = await turn("turn-allowed", { schema_version: 1, taint: { egress: { allow: ["127.0.0.2"] } } });
     expect(await get(third.socketPath, island.url.href), "TURN_EGRESS_TAINT_ALLOW_LIST").toBe(200);
     third.stop();
-    expect(events("taint"), "TURN_EGRESS_FIRST_SOURCE_ONLY").toHaveLength(1);
+    expect(events("taint"), "TURN_EGRESS_EVERY_ADMITTED_CONNECTION").toHaveLength(3);
   } finally { harbour.stop(true); island.stop(true); db.close(); }
 });
 
@@ -299,7 +299,7 @@ test("a governed turn whose runtime sends only relayed inference stays untainted
       record: event => recordGovernanceEvent(db, event), governanceDb: db });
     try {
       expect(await connectStatus(fresh.socketPath, `127.0.0.1:${harbour.port}`), "UNTAINTED_WEBFETCH_ADMITTED").toBe(200);
-      expect(queryGovernanceEvents(db, { sessionId: "calypso", kinds: ["taint"], limit: 5 }).map(event => event.payload), "WEBFETCH_TARGET_IS_FIRST_TAINT").toEqual([
+      expect(queryGovernanceEvents(db, { sessionId: "calypso", kinds: ["taint"], limit: 5 }).map(event => event.payload), "WEBFETCH_TARGET_IS_FIRST_TAINT").toMatchObject([
         { source: "egress_connection", tool: null, detail: `CONNECT 127.0.0.1:${harbour.port}` }]);
       expect(await connectStatus(fresh.socketPath, `127.0.0.2:${island.port}`), "TAINTED_NEW_HOST_STILL_NARROWED").toBe(403);
     } finally { fresh.stop(); }

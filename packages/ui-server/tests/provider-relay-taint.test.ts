@@ -82,7 +82,7 @@ async function turn(db: Database, sessionId: string, turnId: string, policy: Gov
 function session(db: Database, id: string) {
   db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?,?,0,0)").run(id, id);
   const events = (kind: "taint" | "egress_connection" | "egress_denial") => queryGovernanceEvents(db, { sessionId: id, kinds: [kind], limit: 50 });
-  return { taints: () => events("taint").map(event => event.payload), events };
+  return { taints: () => events("taint").map(event => { const { occurrence: _occurrence, ...source } = event.payload; return source; }), events };
 }
 
 test("provider first, then WebFetch: the provider request never taints, and WebFetch's target is the first taint (#3246)", async () => {

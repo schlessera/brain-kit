@@ -655,6 +655,7 @@ signatures (every public export and the types it is made of)
                     opaque_bytes: "opaque_bytes";
                 }>;
                 bytes: z.ZodNumber;
+                connectionId: z.ZodOptional<z.ZodString>;
                 durationMs: z.ZodNumber;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
@@ -1033,12 +1034,37 @@ signatures (every public export and the types it is made of)
         readonly taint: {
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
+                occurrence: z.ZodOptional<z.ZodObject<{
+                    detector: z.ZodEnum<{
+                        attachment_input: "attachment_input";
+                        compute_input: "compute_input";
+                        explicit_untrusted_input: "explicit_untrusted_input";
+                        external_mcp_input: "external_mcp_input";
+                        proxy_input: "proxy_input";
+                        tool_file_input: "tool_file_input";
+                        tool_search_output: "tool_search_output";
+                        tool_web_input: "tool_web_input";
+                        unproxied_shell_input: "unproxied_shell_input";
+                    }>;
+                    epochId: z.ZodString;
+                    exposure: z.ZodEnum<{
+                        finalized: "finalized";
+                        interrupted_unknown: "interrupted_unknown";
+                        open: "open";
+                    }>;
+                    exposureId: z.ZodString;
+                    id: z.ZodString;
+                    operationId: z.ZodNullable<z.ZodString>;
+                    provenance: z.ZodNull;
+                    signalId: z.ZodString;
+                }, z.core.$strict>>;
                 source: z.ZodEnum<{
                     apify_result: "apify_result";
                     chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
                     unclassified_command: "unclassified_command";
@@ -1048,6 +1074,16 @@ signatures (every public export and the types it is made of)
                     workspace_read: "workspace_read";
                 }>;
                 tool: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly taint_exposure: {
+            payload: z.ZodObject<{
+                occurrenceId: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                }>;
             }, z.core.$strict>;
             version: number;
         };

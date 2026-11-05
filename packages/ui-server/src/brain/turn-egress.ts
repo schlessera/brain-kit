@@ -3,6 +3,7 @@ import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/interna
 import { startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { requestToolPermission, type BackendActivityEvent, type BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
+import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
@@ -21,7 +22,7 @@ const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "o
 
 /** What the session did that tainted it, as the destination card names it (#3430). */
 const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
-  web_fetch: "fetched a web page", web_search: "ran a web search", staged_share: "opened a shared file",
+  legacy_unknown: "received input with unknown provenance", web_fetch: "fetched a web page", web_search: "ran a web search", staged_share: "opened a shared file",
   workspace_read: "read a file under workspaces/", mcp_document: "read a document from an external MCP server",
   user_marked: "read a file marked untrusted", egress_connection: "received data from another site",
   fetching_command: "ran a command that fetches content", unclassified_command: "ran a command that may have fetched content",
@@ -91,7 +92,7 @@ export async function prepareTurnEgress(options: {
   /** The record the session's taint and contacted hosts are read from (G6). Absent: no taint narrowing. */
   governanceDb?: Database;
   /**
-   * Where the session's first taint commits, and how admission reads it back
+   * Where the session's occurrences commit, and how admission reads it back
    * before that commit lands (#2850). Absent: the taint commits on
    * `governanceDb` through `record`.
    */
@@ -109,7 +110,8 @@ export async function prepareTurnEgress(options: {
   const recording = new Set<Promise<unknown>>();
   // Hosts earlier turns of the session reached, then every host this turn admits.
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
-  let tainted = false;
+  const collectionEpoch = crypto.randomUUID();
+  const exposures = new Map<string, Occurrence>();
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
   const fail = () => {
@@ -125,6 +127,14 @@ export async function prepareTurnEgress(options: {
     if (!options.record) return;
     try {
       track(options.record({ ...base(), kind: "egress_connection", payload: record }));
+      const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
+      if (exposure) {
+        exposures.delete(record.connectionId!);
+        // A clean HTTP completion proves bounded input ended. A tunnel close
+        // or cancellation alone cannot prove all opaque delivery completed.
+        track(options.record({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
+          payload: { occurrenceId: exposure.id, state: record.method !== "CONNECT" && record.outcome === "completed" ? "finalized" : "interrupted_unknown" } }));
+      }
       const denied = options.policy.egress.deny.some(pattern => {
         const normalized = pattern.toLowerCase().replace(/\.$/, "");
         return normalized.startsWith("*.") ? record.host.endsWith(normalized.slice(1)) && record.host !== normalized.slice(2) : record.host === normalized;
@@ -139,7 +149,7 @@ export async function prepareTurnEgress(options: {
   };
   /**
    * Any admitted connection other than a host relay taints the session (G6),
-   * recorded before its first byte. Sticky: once read, never re-read.
+   * recorded before its first byte. Each connection keeps independent evidence.
    */
   // A taint submitted but not yet committed counts (#2850).
   const firstTaint = () => db ? writes ? writes.taint(options.turnId, options.sessionId()) : sessionTaint(db, options.turnId, options.sessionId()) : null;
@@ -165,7 +175,7 @@ export async function prepareTurnEgress(options: {
   };
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
-    tainted: () => tainted ||= firstTaint() !== null,
+    tainted: () => firstTaint() !== null,
     contacted: (host: string) => contacted.has(host),
     // A refusal names what tainted the session, as the card does (#3431).
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
@@ -177,16 +187,17 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean }): Promise<void> => {
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string }): Promise<void> => {
     // A host relay's operation neither taints the session nor makes its host
     // one the worker's own traffic may reach once tainted (G6, #3246).
     if (destination.inference || destination.provider) return;
     contacted.add(destination.host);
-    if (!writes || tainted) return;
-    tainted = true;
+    if (!writes) return;
+    const exposure = occurrence(collectionEpoch, "proxy_input", destination.connectionId, "open");
+    exposures.set(destination.connectionId, exposure);
     try {
       await writes.firstTaint({ ...base(), kind: "taint", payload: { source: "egress_connection", tool: null,
-        detail: `${destination.method} ${destination.host}:${destination.port}` } });
+        detail: `${destination.method} ${destination.host}:${destination.port}`, occurrence: exposure } });
     } catch (error) { fail(); throw error; }
   };
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */

@@ -94,7 +94,7 @@ test("a WebFetch taints the session: outward asks, a non-listed host asks and, d
     expect(control.curl, "G6_CLEAN_SESSION_EGRESS_UNCHANGED").toBe(0);
     expect(events(controlSession, "outward_action")[0]).toMatchObject({ payload: { tainted: false, decision: "policy_allowed" } });
     // With the proxy, that connection itself is untrusted input for later calls.
-    expect(events(controlSession, "taint").map(event => event.payload)).toEqual([{ source: "egress_connection", tool: null, detail: `GET 127.0.0.1:${origin.port}` }]);
+    expect(events(controlSession, "taint").map(event => event.payload)).toMatchObject([{ source: "egress_connection", tool: null, detail: `GET 127.0.0.1:${origin.port}` }]);
 
     const tainted = await chat("Odysseus reads the harbour notice.");
     const sessionId = "voyage-1", turnId = tainted.request.turnId!;

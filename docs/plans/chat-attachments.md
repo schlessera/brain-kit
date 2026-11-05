@@ -92,7 +92,7 @@ be up to 25,000,000 bytes, so opening a large original needs its own route
 ([§6.5](#65-reading-an-original-back)).
 
 **Taint.** Reading `.brain-ui/inbox/` or `workspaces/` taints the session
-(`leadingArea`, `packages/ui-server/src/activity/ingestion-taint.ts:20-23`). A
+(`leadingArea`, `packages/ui-server/src/activity/ingestion-taint.ts:28-31`). A
 new attachment area is not covered until it is added there.
 
 ## 2. Capability matrix

@@ -12,6 +12,8 @@ export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
 export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
   "http_proxy", "https_proxy", "all_proxy", "no_proxy", "GIT_SSH_COMMAND"]);
 export interface EgressRecord {
+  /** Host identity, shared with admission and terminal observation; never a tool correlation. */
+  connectionId?: string;
   /** Only the server's concrete inference-relay admission supplies this tag. */
   inference?: true;
   /** Only a validated provider-relay operation supplies this tag (#3246); never with `inference`. */
@@ -57,7 +59,7 @@ export interface EgressProxyOptions {
    * A returned promise is awaited first, so a durable record it makes commits
    * before any byte flows; its rejection refuses the connection.
    */
-  admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean }): unknown;
+  admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string }): unknown;
   signal?: AbortSignal;
 }
 const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
@@ -144,6 +146,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
    */
   function operation(method: string, url: URL, relay?: "inference" | "provider") {
     const inference = relay === "inference", provider = relay === "provider";
+    const connectionId = crypto.randomUUID();
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
@@ -153,7 +156,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finished) return;
       finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
@@ -202,7 +205,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { await options.admitted?.({ host, port, method, inference, provider }); } catch { finish("failed", "proxy_error"); return false; }
+      try { await options.admitted?.({ host, port, method, inference, provider, connectionId }); } catch { finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
