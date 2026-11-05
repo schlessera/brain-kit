@@ -1,5 +1,6 @@
 /** The only privileged policy writer. Worker input is never approval authority. */
-import { closeSync, constants, fchmodSync, fsyncSync, linkSync, openSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { realpathSync, rmdirSync } from "node:fs";
+import { publishProtectedPolicy } from "./policy-publication.js";
 import { createHash } from "node:crypto";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
@@ -179,7 +180,7 @@ export function createPolicyProposals(options: {
               const currentValidation = validate(bytes);
               if (!currentValidation.ok || currentValidation.status !== "valid") throw new Refusal("invalid", `This proposal no longer passes validation: ${currentValidation.errors.join("; ")}. Nothing was written. A fresh proposal is required.`);
               const created: string[] = [];
-              let target: Target | undefined, temp: string | undefined, unpublished = false;
+              let target: Target | undefined, unpublished = false;
               try {
                 target = open(root, review.baseHash === null, created); verify(target, review.baseHash);
                 options.beforeCommit?.(); authority(); verify(target, review.baseHash);
@@ -193,31 +194,10 @@ export function createPolicyProposals(options: {
                   // The operation owns the staging inode for this synchronous
                   // callback only. Both journal observations are outside its
                   // lifetime; no path/prefix ignore can hide real worker files.
-                  const staging = `/proc/self/fd/${target!.directories.at(-1)!.fd}/.brain-policy-${crypto.randomUUID()}`;
-                  let publicationFailed = false, publicationError: unknown;
-                  try {
-                    const fd = openSync(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, target!.mode ?? 0o644);
-                    temp = staging; // Only a successfully created inode belongs to this operation.
-                    try { writeFileSync(fd, bytes); if (target!.mode !== undefined) fchmodSync(fd, target!.mode); fsyncSync(fd); } finally { closeSync(fd); }
-                    if (held()) unpublished = true;
-                    else {
-                      authority(false); verify(target!, review.baseHash);
-                      if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
-                      committed = true;
-                    }
-                  } catch (error) { publicationFailed = true; publicationError = error; }
-                  // First publication uses link rather than an overwriting
-                  // rename; unlink its remaining name before observation.
-                  if (temp) {
-                    try { unlinkSync(temp); temp = undefined; }
-                    catch (error) {
-                      if ((error as NodeJS.ErrnoException).code === "ENOENT") temp = undefined;
-                      else { if (!publicationFailed) publicationError = error; publicationFailed = true; }
-                    }
-                  }
-                  if (publicationFailed) throw publicationError;
-                  if (unpublished) return;
-                  fsyncSync(target!.directories.at(-1)!.fd);
+                  publishProtectedPolicy(target!, bytes, review.baseHash, () => {
+                    if (held()) throw new AuthorityHeld();
+                    authority(false); verify(target!, review.baseHash);
+                  }, () => { committed = true; });
                 });
                 // Nothing was published and the observation, its hold and (on
                 // unwinding) the lock are released: wait out the pause and retry.
@@ -225,7 +205,6 @@ export function createPolicyProposals(options: {
                 review.state = "updated"; review.message = "Policy updated. Applies from the next turn.";
                 await options.recordEvent(review, turn);
               } finally {
-                if (temp) { try { unlinkSync(temp); } catch { /* Rename consumed it. */ } }
                 if (target) close(target);
                 if (!committed) for (const directory of created.reverse()) { try { rmdirSync(directory); } catch { /* Preserve concurrent files. */ } }
               }
