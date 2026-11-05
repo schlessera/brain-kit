@@ -1,3 +1,4 @@
+import { installPiToolSafety, type PiToolSafety } from "./tool-safety.js";
 import {
   createAgentSession,
   ModelRuntime,
@@ -27,6 +28,7 @@ export interface SessionRuntime {
 
 export function createSessionRuntime(options: {
   backend: CreatePiBackendOptions;
+  toolSafety: PiToolSafety;
   sessionDir: string;
   resources: ReturnType<typeof createSessionResources>;
   sessionId: string;
@@ -68,6 +70,7 @@ export function createSessionRuntime(options: {
         ...(model ? { model } : {}),
         ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
       });
+      installPiToolSafety(session.agent,options.toolSafety);
       return { session, turnContext: toolkit.turnContext };
     },
 
@@ -105,6 +108,7 @@ export function createSessionRuntime(options: {
             "Restore the credential (e.g. `pi login`) or start a new conversation."
         );
       }
+      installPiToolSafety(session.agent,options.toolSafety);
       return { session, turnContext: toolkit.turnContext };
     },
   };

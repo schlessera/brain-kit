@@ -194,7 +194,8 @@ export function outputTaintSignals(tool: string, output: string, brainPath?: str
     const text = line.trim();
     if (!text) continue;
     const path = text.split(":")[0]!;
-    if (/truncat|omitted|\.\.\./i.test(text) || !/^(?:[^\s:]+\/[^:]+|[^\s:]+\.[A-Za-z0-9_-]+)$/.test(path)) { unknown = true; continue; }
+    if (/truncat|omitted|\.\.\./i.test(text)) unknown = true;
+    if (!/^(?:[^\s:]+\/[^:]+|[^\s:]+\.[A-Za-z0-9_-]+)$/.test(path)) { unknown = true; continue; }
     for (const signal of fileSignals(path, brainPath, marked, "tool_search_output")) {
       const id = JSON.stringify([signal.detector, signal.key]);
       if (seen.has(id)) continue;

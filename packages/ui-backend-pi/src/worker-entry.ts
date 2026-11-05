@@ -1,3 +1,4 @@
+import { nestedToolSafetyGate } from "./tool-safety.js";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 /** Imported only after the shared launcher's descriptor and namespace gate. */
 import { existsSync, mkdirSync, readFileSync, statfsSync, symlinkSync, writeFileSync } from "node:fs";
@@ -156,21 +157,7 @@ async function initialize(init: Init): Promise<void> {
     } }) } : { shellCwd: init.dataTree ? WORKER_DATA_ROOT : WORKER_SCRATCH }),
     ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
     fixedAppend: init.fixedAppend, observeAppend: append => { renderedAppend = append; },
-    permissionFactory: holder => ({ name: "brain-server-permission-gate", factory: pi => {
-      pi.on("tool_call", async event => {
-        if (controller.signal.aborted) return { block: true, reason: "Turn cancelled" };
-        const result = await rpc("permission", event.toolName, event.toolCallId, event.input as Record<string, unknown>);
-        if (result.behavior === "deny") return { block: true, reason: result.message };
-        if (result.updatedInput) {
-          const input = event.input as Record<string, unknown>;
-          for (const key of Object.keys(input)) delete input[key];
-          Object.assign(input, result.updatedInput);
-        }
-        return undefined;
-      });
-      // The holder is still bound per turn; no host bridge is loaded here.
-      void holder;
-    } }),
+    permissionFactory: () => nestedToolSafetyGate(),
   });
   const buildResources = resources.build;
   resources.build = async (...args) => {
@@ -193,8 +180,6 @@ async function initialize(init: Init): Promise<void> {
         if (message) throw new Error(`${error instanceof Error ? error.message : String(error)}\n\n${message}`);
         throw error;
       }
-      // The host commits all result signals before this result can enter the provider context.
-      await rpc("safetyResult",tool.name,id,{output:(result.content??[]).filter(part=>part.type==="text").map(part=>(part as {text:string}).text).join("\n"),segments:(result.content??[]).filter(part=>part.type==="text").map(part=>(part as {text:string}).text)});
       const message = pressure?.();
       return message ? { ...result, content: [...(result.content ?? []), { type: "text" as const, text: message }] } : result;
     } }));
@@ -209,6 +194,14 @@ async function initialize(init: Init): Promise<void> {
     return turn;
   };
   const runtime = createSessionRuntime({ backend: init.backend, resources, sessionDir: state,
+    toolSafety: {
+      permission: (name,id,input) => rpc("permission",name,id,input),
+      result: (name,id,content) => {
+        const segments=content.filter(part=>part.type==="text").map(part=>(part as {text:string}).text);
+        return rpc("safetyResult",name,id,{output:segments.join("\n"),segments});
+      },
+      stop: () => controller.abort(),
+    },
     sessionId: init.sessionId, entries: init.entries, observeManager: sm => { manager = sm; },
     modelRuntimeOptions: { authPath: join(state, "auth.json"), modelsPath: join(state, "models.json"), modelsStorePath: join(state, "models-cache.json") },
   });

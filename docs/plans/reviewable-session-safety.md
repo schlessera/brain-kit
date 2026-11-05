@@ -25,7 +25,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:218`). Legacy rows prove
+  `packages/ui-server/src/governance/safety-store.ts:228`). Legacy rows prove
   their own event, never a complete history. No product verdict writer or
   review capability is enabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
@@ -59,8 +59,8 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 
 The original source review used main
 `35217d283b849b5ef81700d5d4c2ec7486405d12`; the current collection path retains
-input **and** output signals (`const signals = ingestion`,
-`packages/ui-server/src/activity/recorder.ts:380`). These collectors provide the internal coverage/projection foundation; public
+input **and** output signals (`if(!safetyHooked&&ingestion)`,
+`packages/ui-server/src/activity/recorder.ts:384`). These collectors provide the internal coverage/projection foundation; public
 review/history DTOs and mutation remain prospective. The earlier design
 comment also inspected local #3595 work; this document does not assume that
 work has merged. #3595 is adjacent scoped network approval, not persistent

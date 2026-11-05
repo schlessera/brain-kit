@@ -181,8 +181,8 @@ The concrete adapter integration points are:
 | Existing boundary | Required integration |
 | --- | --- |
 | Declared-model validation (`export function toModel`, `packages/ui-backend-pi/src/profiles.ts:57-77`) | Keep built-in validation and identity refusal, then select the configured model from the inference runtime. The current function returns the raw catalog object. |
-| Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:41-72`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. The worker uses `SessionManager.inMemory`; the server persists ordinary JSONL over pipes, and autonomous turns remain nonpersistent. |
-| Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:74-109`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
+| Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:43-75`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. The worker uses `SessionManager.inMemory`; the server persists ordinary JSONL over pipes, and autonomous turns remain nonpersistent. |
+| Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:77-113`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
 | Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:94-133`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
 
 Runtime construction belongs at these concrete session boundaries. No runtime

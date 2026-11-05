@@ -306,12 +306,24 @@ unsettled/failed recording, independently of runtime hook cancellation. Unsuppor
 an incomplete epoch. The version 1 detector manifest explicitly excludes
 proxied-shell local file reads and opaque tunnel inner protocols.
 
+Pi records the final result after all installed `tool_result` transformations
+and image normalization through the installed Agent's public hooks, for curated
+and extension-registered tools. Blocked extension results are recorded before
+delivery too. Nested `ctx.executeTool()` calls are refused before execution:
+the pinned SDK bypasses those public hooks for nested calls. A recording failure
+aborts provider continuation; it cannot become a swallowed extension exception.
+Search paths and explicit marks remain independent signals when the same line
+also indicates truncation or contains ordinary excerpt words such as omitted.
+
 The host retains an independent durable ledger, decimal uint64 revision,
 once-only provisional-to-SessionKey binding and bounded coverage epochs. Every
 pre-upgrade session is incomplete, including those with no old taint row; an
 old row migrates as one known occurrence. Imported/discovered histories remain
 unknown, including provisional owners discovered after migration. Canonical
-aliases and actual history generations bind that evidence. Resumes/backend
+aliases and actual history generations bind that evidence, including when
+the catalog announcement precedes retained-dialogue adoption. A later typed
+dialogue reuses the already-bound host owner; neither opening nor resuming it
+rewrites the original binding. Resumes/backend
 changes retain prior epochs, and forks inherit
 unresolved evidence and unknown coverage. Actual catalog creator, principal,
 history owner, aliases and generation govern binding. Retired session/owner/turn
@@ -333,11 +345,14 @@ and terminal slots. Durable pending ceilings are 256 rows/1048576 bytes per
 session and 4096 rows/16777216 bytes per brain, shared across writers. Unbound
 collection is capped at 1024 bindings/8388608 bytes, with 128 epochs per session.
 Collection metadata and permanent retirement-fence capacity are reserved too.
+Catalog and collection admission atomically include all outstanding durable row
+and byte reservations in the same ceilings.
 Before accepting input, failure/capacity restrictions use preallocated durable
 emergency cells. Outstanding terminal evidence uses its existing reserve.
 Restart retains pending failure and unknown exposure; explicit internal recovery
-requires stopped producers and available capacity and never clears historical
-gaps. Detail pruning preserves IDs, counts and compact audit/reserved capacity;
+requires stopped producers, settled connection-local writes and available
+capacity. Only a committed recovery clears the shared local failure latch;
+existing and new facades retain historical gaps and unresolved evidence. Detail pruning preserves IDs, counts and compact audit/reserved capacity;
 unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
 wrap. These foundations supply the later verdict slice's projection without
 publishing a mutation surface.

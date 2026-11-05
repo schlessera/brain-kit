@@ -6,6 +6,7 @@
  * writes. An event the journal records inside its own transaction stays
  * there (`brain/journal-store.ts`).
  */
+import { safetyQueue } from "./safety-queue.js";
 import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite,
   ensureSafetyEventCollection, latchSafety, SafetyUnavailable, type SafetyCollectionInput, type SafetyProjection } from "./safety-store.js";
 import type { Database } from "bun:sqlite";
@@ -76,15 +77,14 @@ export interface GovernanceWrites {
   replaySteering(): Promise<number>;
 }
 
-type PendingSafety = {turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number};
-const safetyQueues=new WeakMap<Database,{pending:Set<PendingSafety>;bytes:number;failed:boolean}>();
-
 /** The app side: every write commits on `writer` when there is one, else on `db` at once. */
 export function createGovernanceWrites(db: Database, writer?: SqliteWriter): GovernanceWrites {
-  const call = procedureCaller(db, { url, setup }, undefined, writer);
-  let queue=safetyQueues.get(db);
-  if(!queue){queue={pending:new Set(),bytes:0,failed:false};safetyQueues.set(db,queue);}
-  const shared=queue,pendingTaints=shared.pending;
+  const invoke = procedureCaller(db, { url, setup }, undefined, writer);
+  const shared=safetyQueue(db),pendingTaints=shared.pending;
+  const call:typeof invoke=<T>(name:string,...args:unknown[])=>{
+    shared.inflight++;
+    return invoke<T>(name,...args).finally(()=>{shared.inflight--;});
+  };
   const record = (input: GovernanceEventInput): Promise<{ id: number; recorded: boolean }> => {
     const row = governanceEventRow(input);
     if (input.kind !== "taint" && input.kind !== "taint_exposure") return call("record", row);
@@ -101,9 +101,8 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     pendingTaints.add(pending); shared.bytes += bytes;
     const reservation=crypto.randomUUID();
     const stored = call<void>("safetyReserve",row,reservation,bytes).then(()=>call<{id:number;recorded:boolean}>("safetyCommit",row,reservation));
-    void stored.then(() => {}, error => { if((error as {code?:string})?.code!=="chat_retired")shared.failed = true; })
+    return stored.catch(error => { if((error as {code?:string})?.code!=="chat_retired")shared.failed = true; throw error; })
       .finally(() => { pendingTaints.delete(pending); shared.bytes -= bytes; });
-    return stored;
   };
   return {
     record,

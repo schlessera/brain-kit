@@ -104,9 +104,6 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
   return {
     name: "brain-permission-gate",
     factory: (pi) => {
-      pi.on("tool_result",async event=>{
-        await turn.bridge?.inputSafety?.result(event.toolCallId,event.toolName,event.content.filter(p=>p.type==="text").map(p=>(p as {text:string}).text).join("\n"),false);
-      });
       pi.on("tool_call", async (event) => {
         if (turn.signal?.aborted) return { block: true, reason: "Turn cancelled before tool admission." };
         if (isCompletedAutonomousToolCall(turn.autonomous, event.toolName, event.input))

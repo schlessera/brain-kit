@@ -16,7 +16,8 @@ INSERT INTO safety_sessions
  FROM sessions s LEFT JOIN dialogue_owners d ON d.session_id=s.id LEFT JOIN chat_session_owners o ON o.session_id=s.id;
 CREATE TRIGGER safety_catalog_capacity BEFORE INSERT ON sessions
  WHEN NOT EXISTS(SELECT 1 FROM sessions WHERE id=NEW.id) AND
- (SELECT used_rows+scope_rows+1>1000000 OR used_bytes+scope_bytes+2048>536870912 FROM safety_meta WHERE singleton=1)
+ (SELECT used_rows+scope_rows+COALESCE((SELECT SUM(rows) FROM safety_pending),0)+1>1000000
+ OR used_bytes+scope_bytes+COALESCE((SELECT SUM(reserved_bytes) FROM safety_pending),0)+2048>536870912 FROM safety_meta WHERE singleton=1)
  BEGIN SELECT RAISE(ABORT,'safety identity capacity exhausted'); END;
 CREATE TRIGGER safety_catalog_discovery AFTER INSERT ON sessions BEGIN
  INSERT INTO safety_sessions VALUES(NEW.id,lower(hex(randomblob(16))),'1',NULL,NULL,'discovered',NEW.backend_id);

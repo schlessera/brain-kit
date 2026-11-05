@@ -191,7 +191,7 @@ must be tested through their installed runtime, not inferred from directory name
   Payloads include independent recognition/output evidence and backend range text;
   hashes/order/identity are not substitutes for erasing the payload. An owner can
   start unbound, bind to a backend session or merge into an existing owner through
-  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:173-219`).
+  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:176-222`).
   Resolve the complete alias/conversation set transactionally; do not delete only
   the current session key or confuse a provisional owner ID with a backend ID.
 - **Task recovery and facts.** `069_conversation_tasks.sql` and

@@ -315,3 +315,103 @@ test("an imported provisional alias binds its actual owner and generation withou
  await expectRejection(f.writes.firstTaint({kind:"taint",turnId:"adopt-import",sessionId:"adopted",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}}),"generation changed");
  expect(safetyRecords(f.db,"adopted")).toHaveLength(0);
  }finally{await f.close();}});
+
+for(const excerpt of ["Odysseus omitted the mast.","Odysseus repairs the truncated mast.\n... results truncated ..."])test(`search path signals survive excerpt ${excerpt.split(".")[0]}`,async()=>{
+ const f=fixture();try{const {collector}=await fresh(f);
+ const {untrustedMarkOperations}=await import("../src/files/untrusted-marks");untrustedMarkOperations(f.db).mark("workspaces/voyage/raft.md",null,0);
+ await collector.begin("excerpt","Grep",{path:"notes"});
+ await collector.result("excerpt","Grep",`workspaces/voyage/raft.md:1: ${excerpt}`,true);
+ const sources=triggers(f).map(r=>(r.payload as {source:string}).source);
+ expect(sources,"SAFETY_EXCERPT_NEVER_SUPPRESSES_PATH_SIGNALS").toEqual(expect.arrayContaining(["workspace_read","user_marked"]));
+ if(excerpt.includes("..."))expect(sources).toContain("legacy_unknown");
+ }finally{await f.close();}});
+
+for(const boundary of ["rows","bytes"] as const)for(const admission of ["collection","catalog"] as const)test(`independent connections reserve versus ${admission} respects ${boundary}`,async()=>{
+ const f=fixture();const {Database}=await import("bun:sqlite");let peer:InstanceType<typeof Database>|undefined,peerWriter:ReturnType<typeof openSqliteWriter>|undefined;
+ try{await fresh(f);
+ const row=governanceEventRow({kind:"taint",turnId:"voyage",sessionId:"ithaca",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
+ await f.writer.channel(procedures,undefined).call("safetyReserve",row,"outstanding",100);
+ if(boundary==="rows")f.db.exec("UPDATE safety_meta SET used_rows=1000000-scope_rows-5");
+ else f.db.exec("UPDATE safety_meta SET used_bytes=536870912-scope_bytes-8292");
+ peer=new Database(f.path);peer.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON");peerWriter=openSqliteWriter(peer);
+ const writes=createGovernanceWrites(peer,peerWriter);
+ const admit=async(n:number)=>{
+  if(admission==="collection")return writes.safetyBegin({turnId:`scope-${n}`,bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1});
+  peer!.query("INSERT INTO sessions(id,created_at,last_active_at) VALUES(?,0,0)").run(`catalog-${n}`);
+ };
+ const results=await Promise.allSettled([admit(1),admit(2)]);
+ expect(results.map(r=>r.status).sort(),"SAFETY_PENDING_AND_SCOPE_SHARE_CAPACITY").toEqual(["fulfilled","rejected"]);
+ const sum=f.db.query(`SELECT used_rows+scope_rows+(SELECT SUM(rows) FROM safety_pending) rows,
+ used_bytes+scope_bytes+(SELECT SUM(reserved_bytes) FROM safety_pending) bytes FROM safety_meta`).get() as {rows:number;bytes:number};
+ expect(sum.rows).toBeLessThanOrEqual(1000000);expect(sum.bytes).toBeLessThanOrEqual(536870912);
+ expect(writes.safety("voyage","ithaca").restriction).toBe("restricted");
+ expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:1});
+ await f.writes.safetyEnd("voyage");await writes.safetyEnd("scope-1");
+ const {recoverSafetyRecording}=await import("../src/governance/safety-store");recoverSafetyRecording(f.db);
+ expect(f.writes.safety(null,"ithaca").restriction,"SAFETY_SCOPE_RECOVERY_RETAINS_UNRESOLVED_GAP").toBe("restricted");
+ await f.writes.safetyBegin({turnId:"after-scope-recovery",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:2});
+ }finally{await peerWriter?.close();peer?.close();await f.close();}});
+
+test("a genuine failed event commit recovers existing and fresh facades only after quiescence",async()=>{
+ const f=fixture();try{await fresh(f);
+ const {recoverSafetyRecording}=await import("../src/governance/safety-store");
+ // The deferred FK is checked by COMMIT, after safetyCommit has inserted
+ // its evidence and consumed the reservation inside the real worker.
+ f.db.exec("CREATE TABLE safety_commit_probe(occurrence_id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_safety_commit AFTER INSERT ON safety_records BEGIN INSERT INTO safety_commit_probe VALUES('missing-raft-occurrence'); END");
+ await expectRejection(f.writes.firstTaint({kind:"taint",turnId:"voyage",sessionId:"ithaca",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}}),"FOREIGN KEY constraint failed");
+ expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:1});
+ expect(f.db.query("SELECT COUNT(*) n FROM safety_records").get(),"SAFETY_FAILED_COMMIT_ROLLS_BACK_EVIDENCE_AND_CONSUMPTION").toEqual({n:0});
+ expect(f.db.query("SELECT COUNT(*) n FROM safety_commit_probe").get()).toEqual({n:0});
+ expect(f.db.query("SELECT failed FROM safety_meta").get()).toEqual({failed:1});
+ expect(()=>recoverSafetyRecording(f.db)).toThrow("Stop all safety producers");
+ f.db.exec("DROP TRIGGER fail_safety_commit");await f.writes.safetyEnd("voyage");
+ const pendingFailure=f.writes.safetyFail("voyage");
+ expect(()=>recoverSafetyRecording(f.db),"SAFETY_RECOVERY_REFUSES_LOCAL_WORK_BEFORE_DURABLE_ADMISSION").toThrow("Stop all safety producers");await pendingFailure;
+ f.db.exec("CREATE TRIGGER refuse_recovery AFTER UPDATE ON safety_meta WHEN NEW.failed=0 AND OLD.failed=1 BEGIN INSERT INTO safety_commit_probe VALUES('missing-recovery-occurrence'); END");
+ expect(()=>recoverSafetyRecording(f.db)).toThrow("FOREIGN KEY constraint failed");
+ expect(f.writes.recordingAvailable("voyage","ithaca")).toBe(false);
+ expect(createGovernanceWrites(f.db,f.writer).recordingAvailable("voyage","ithaca")).toBe(false);
+ f.db.exec("DROP TRIGGER refuse_recovery");recoverSafetyRecording(f.db);
+ const freshFacade=createGovernanceWrites(f.db,f.writer);
+ for(const [index,writes] of [f.writes,freshFacade].entries()){
+ const turnId=`recovered-${index}`;await writes.safetyBegin({turnId,bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1});await writes.safetyReady(turnId,"claude",1);
+ expect(writes.recordingAvailable(turnId,null),"SAFETY_VALIDATED_RECOVERY_REARMS_ALL_FACADES").toBe(true);
+ await writes.firstTaint({kind:"taint",turnId,sessionId:null,actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
+ }
+ expect(f.writes.safety(null,"ithaca").restriction,"SAFETY_RECOVERY_PRESERVES_OLD_GAP").toBe("restricted");
+ }finally{await f.close();}});
+
+for(const mode of ["provisional-nine","typed-resume"] as const)test(`real emission before adoption preserves canonical safety identity: ${mode}`,async()=>{
+ const f=fixture();const {WsHost}=await import("../src/ws/host"),{createSessionCatalog}=await import("../src/ws/session-catalog"),{createStaticBackendRegistry}=await import("../src/agent/backend"),{makeFakeBackend}=await import("./helpers/fake-backend"),{createBridgeContext}=await import("../src/ws/bridge-capabilities/context"),{createEmission,createTurnTranscript}=await import("../src/ws/bridge-capabilities/emission");
+ const {createActivityStore}=await import("../src/activity/store");
+ const catalog=createSessionCatalog(()=>f.db,undefined,undefined,{writer:f.writer,governance:f.writes,pricing:{resolve:()=>null},store:createActivityStore(f.db,{writer:"odysseus"})});const host=new WsHost({brainPath:f.root,catalog,registry:createStaticBackendRegistry([makeFakeBackend({id:"claude"})],"claude"),isPrincipalAuthorized:()=>true});
+ const turnId="emission-turn",bindingId=crypto.randomUUID();const authorization=host.coordinator.openAuthorization({principalId:"odysseus",valid:true,expiresAt:Number.MAX_SAFE_INTEGER});
+ try{
+ let expectedOwner:string=bindingId;
+ if(mode==="provisional-nine"){
+ f.db.exec("INSERT INTO dialogue_owners VALUES('canonical-nine','odysseus',NULL,9,'complete',0)");
+ await host.dialogue.open({conversationId:"voice-source",principalId:"odysseus",epoch:1,providerId:"odyssey",historyOwnerId:"canonical-nine"});
+ host.dialogue.adoptTurn(turnId,"canonical-nine","odysseus");expectedOwner="canonical-nine";
+ }
+ await f.writes.safetyBegin({turnId,bindingId,sessionId:null,principalId:"odysseus",historyOwnerId:mode==="provisional-nine"?expectedOwner:undefined,backendId:"claude",at:1});
+ const turn={turnId,requestId:"emission-request",principalId:"odysseus",authorization,sessionId:null,abortController:new AbortController(),queue:[]} as unknown as import("../src/ws/turns").RunningTurn;
+ const ctx=createBridgeContext(host,turn,{promptText:"Odysseus repairs the raft.",backendId:"claude"});
+ createEmission(ctx,createTurnTranscript(ctx),{promptText:"Odysseus repairs the raft."}).emit({type:"session_info",sessionId:"emitted",isNew:true});
+ await host.dialogue.settled(true);await catalog.settled!();await f.writer.idle();
+ await f.writes.safetyReady(turnId,"claude",1);
+ const bindingBefore=f.db.query("SELECT * FROM safety_bindings WHERE turn_id=?").get(turnId);
+ expect(bindingBefore,"SAFETY_EMISSION_BINDING_COMMITTED_BEFORE_RESUME").not.toBeNull();
+ if(mode==="typed-resume"){
+ await host.dialogue.open({conversationId:"typed-dialogue",principalId:"odysseus",epoch:1,providerId:"odyssey",sessionId:"emitted"});
+ expectedOwner=catalog.dialogueOwnerForSession!("emitted")!.id;
+ await f.writes.safetyEnd(turnId);
+ await f.writes.safetyBegin({turnId:"resumed-emission",bindingId:crypto.randomUUID(),sessionId:"emitted",principalId:"odysseus",backendId:"claude",at:2});
+ await f.writes.safetyReady("resumed-emission","claude",1);
+ }
+ expect(f.db.query("SELECT * FROM safety_bindings WHERE turn_id=?").get(turnId),"SAFETY_CANONICAL_BINDING_NEVER_REWRITES_PROVENANCE").toEqual(bindingBefore);
+ const projection=f.writes.safety(null,"emitted");
+ expect(projection.session,"SAFETY_HOST_EMISSION_USES_ACTUAL_CANONICAL_IDENTITY").toEqual({sessionId:"emitted",historyOwnerId:expectedOwner,historyGeneration:mode==="provisional-nine"?"9":"1"});
+ if(mode==="provisional-nine")expect(projection.coverage.state).toBe("incomplete");
+ await f.writes.firstTaint({kind:"taint",turnId:mode==="typed-resume"?"resumed-emission":turnId,sessionId:"emitted",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
+ expect(f.db.query("SELECT failed FROM safety_meta").get()).toEqual({failed:0});
+ }finally{authorization.release();await host.dialogue.settled();await catalog.settled!();host.close();await f.close();}});
