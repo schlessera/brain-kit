@@ -5,6 +5,13 @@ can converse while the ordinary agent retrieves knowledge, captures or updates
 notes, researches externally, or does substantial reasoning. Greetings,
 clarification and follow-ups answerable from a reliable current result need no
 new task. A transcript retained in chat history is not a saved brain note.
+An already requested lookup proceeds through the host without asking the caller
+for filenames, locations or another confirmation to search. The host discovers
+configured taxonomy with normal config inspection, search/list and each
+directory's `_index.md` purpose/registry navigation. Real ambiguity in meaning
+or recognition, missing capture consent and required effects/permissions still
+call for clarification or the existing approval surface. Reliable current
+results answer follow-ups without duplicate work.
 
 ## Shared guidance and its sources
 
@@ -17,7 +24,8 @@ not its entire system prompt.
 | --- | --- | --- |
 | Core agent contract: Markdown source of truth, disposable index, untrusted imports | Adapted into the shared interaction brief; package instructions | Frontmatter, paths, index maintenance, editing and tool procedures |
 | Core `add` skill: thoughts, facts, decisions, updates; existing home before duplicate creation | Adapted into capture recognition and host delegation; package instructions | Type selection, exact write tools, base hashes, capture/update execution |
-| `brain-init`: identity/current-focus hot parts and Personal Rules overlay | Selected root guidance is scoped user instruction; canonical/conventional leads are knowledge data | Interview, config execution, taxonomy, other document sections |
+| `brain-init`: identity/current-focus hot parts and Personal Rules overlay | Selected root guidance is scoped user instruction; canonical/conventional leads are knowledge data | Interview, config execution, effective runtime taxonomy, other document sections |
+| Core contract: per-directory `_index.md` purpose and child registry | Existing root/top-level index purpose/summary leads form an **OBSERVED partial content map**, as knowledge data | Registry tables, deeper directories, configured type/directory resolution and current discovery through host tools |
 | Default `BRAIN_UI_SYSTEM_PROMPT_APPEND` / `buildSystemPromptAppend` | Reuses the common interaction brief unchanged | Markdown, diagrams, sharing, renderer details, bridge schemas and turn/subagent lifecycle |
 | “Don't narrate tool use” in the typed UI append | Adapted for speech: explicitly acknowledge accepted background work because the listener may not see the timeline | Tool-by-tool narration and detailed execution |
 | Configured Claude/Pi `systemPromptAppend` override | Both factories select the same explicit interaction/capture sections into optional `AgentBackend.conversationGuidance`; no whole-prompt copy | Unselected override text and execution/rendering sections |
@@ -37,12 +45,13 @@ instruction environment has reached the voice service.
 
 Only an authenticated Start with the exact disclosed profile admits reads and
 provider transfer. Hello/profile discovery reads no brain context. Disclosure
-names selected brain/user guidance, domain names and bounded identity/focus
-context in addition to historical text; an old disclosure echo refuses before
-the read/open. This applies to reviewed-only and contextual mode alike.
+names selected brain/user guidance, domain names, a bounded observed partial
+content map and identity/focus context in addition to historical text; an old
+disclosure echo refuses before the read/open. This applies to reviewed-only
+and contextual mode alike.
 
 The concrete reader is
-(`readConversationOrientation`, `packages/ui-server/src/voice/conversation-orientation.ts:48-139`).
+(`readConversationOrientation`, `packages/ui-server/src/voice/conversation-orientation.ts:105-201`).
 It resolves the selected chat's backend (or the selected/default profile for a
 fresh chat), collects its configured projection, and reads the two root
 overlays. Selected headings, case-insensitively, are **Personal Rules**,
@@ -63,13 +72,36 @@ Otherwise the reader examines the conventional candidates `me/identity.md` and
 runtime canonical paths were not evaluated. It never executes repository
 configuration, follows instruction imports, invokes skills, or makes a
 summarization/provider call. A customized TypeScript taxonomy may therefore
-need a host lookup. The summary and body before the first level-two heading
-form each document's knowledge lead; they are not user instructions.
+need a host lookup, and does **not** suppress the observed index map. The
+summary and body before the first level-two heading form each document's
+knowledge lead; they are not user instructions.
+
+The content map samples the existing root `_index.md` and top-level directory
+indexes. It prefers a short summary or purpose paragraph, excluding registry
+tables and later sections. Each row names its source path; the map states
+**OBSERVED**, **partial**, and **not runtime taxonomy**, along with inspected
+root entries, attempted sources, unavailable leads and count/byte omissions.
+It supplies navigation leads without inventing default content folders. Gaps
+direct host exploration; startup never bootstraps a host task.
+
+On Linux, enumeration opens **the same held root descriptor** used by the
+provider-policy and source readers, never the mutable configured root path.
+At most **64 root entries** are inspected through a directory stream with a
+one-entry buffer; at most **9 indexes** (root plus eight top-level candidates)
+are attempted, each capped at **8,192 bytes**, at most **73,728 index bytes**
+overall. Candidates within the bounded sample are sorted. An entry cap is
+explicit, so the sample does not claim a complete sorted directory inventory.
+Hidden/tooling roots, linked directories/files, invalid or overlong names,
+deeper indexes and other files are excluded. A source contributes at most a
+whole 240-byte purpose/summary lead, and whole rows plus coverage labels fit
+**900 bytes**. Missing, malformed, oversized, unreadable or long-only leads
+count as unavailable. Without descriptor-relative enumeration on another
+platform, the new map is withheld with an explicit host-lookup gap.
 
 Every instruction/context source read is contained in the brain and capped at
 65,536 bytes, with the file surface's anchored descriptor reader on Linux.
-Policy and source reads share one held root descriptor there, including during
-a temporary root replacement restored before the final check. Canonical-root
+Policy, enumeration and source reads share one held root descriptor there,
+including during a temporary root replacement restored before the final check. Canonical-root
 identity and the configured alias are checked during collection; a detected
 replacement withholds all new repository orientation. Missing, invalid,
 unreadable, escaped or oversized sources become gaps. Repository orientation
@@ -85,7 +117,9 @@ and eight source-gap labels are considered. Entries have at most 100 source
 characters and 900 text bytes. An oversized guidance section is omitted whole;
 knowledge may keep whole leading paragraphs within 700 bytes and an explicit
 omission marker. Aggregate pressure drops supplemental knowledge before
-guidance. `omitted` reports byte/count omissions; `unavailable` and the partial
+guidance. The observed map precedes supplemental domain/identity/focus knowledge
+so it can survive pressure without displacing complete user guidance.
+`omitted` reports byte/count omissions; `unavailable` and the partial
 coverage label report source gaps and deliberate exclusions.
 
 Orientation, history and resync share the existing total startup ceilings:
@@ -128,9 +162,11 @@ can be explained. Failed persistence, withdrawal, replacement or lost authority
 cannot emit a later acceptance. A status-send failure ends the epoch without
 retry or replay; already dispatched host work retains its ordinary lifecycle.
 
-Both prompts explicitly request a brief spoken acknowledgement **for each
-accepted task**, naming the intended background work and its pending state,
-then continued conversation. Before feedback, acceptance is unconfirmed.
+Both prompts explicitly request **one** brief spoken acknowledgement **for each
+accepted task**, naming the intended work as pending, only after exact
+acceptance. Running updates do not renew that acknowledgement. The caller
+receives no repetitive reminders that conversation can continue; the model
+continues listening naturally. Before feedback, acceptance is unconfirmed.
 Refused, queued, running and completed states are distinct. A successful
 capture/update tool outcome is required before saying information was saved;
 host turn completion by itself does not establish that a note exists.

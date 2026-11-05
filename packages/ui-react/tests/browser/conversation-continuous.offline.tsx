@@ -138,6 +138,74 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
   return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
 }
 
+async function discuss(s: Awaited<ReturnType<typeof contextualScene>>, provider: "gemini" | "gpt") {
+  const recognized = "Odysseus discusses the harbour watch.";
+  const generated = "The watch discussion remains here.";
+  await s.pump(provider === "gemini" ? [
+    { serverContent: { inputTranscription: { text: recognized, finished: true } } },
+    { serverContent: { outputTranscription: { text: generated } } },
+  ] : [
+    { type: "session.input_transcript.delta", event_id: "watch-recognition", delta: recognized, start_ms: 1, end_ms: 400 },
+    { type: "session.output_transcript.delta", event_id: "watch-response", delta: generated, start_ms: 500, end_ms: 900 },
+  ]);
+  if (provider === "gpt") {
+    const audio = s.upstream.find(frame => frame.type === "session.input_audio.append")!;
+    expect(audio.event_id, "actual adapter audio identity is present").toBeTypeOf("string");
+    await s.pump([{ type: "session.input_transcript.delta", event_id: "watch-associated", client_event_id: audio.event_id, delta: " Keep the mast in sight.", start_ms: 901, end_ms: 1200 }]);
+    expect(s.client.state.getState().recognition.some(f => f.kind === "input_fragment")).toBe(true);
+  }
+  const recognition = s.client.state.getState().recognition;
+  expect(recognition.length).toBeGreaterThan(0);
+  expect(recognition.every(f => f.contextual)).toBe(true);
+  await expect.poll(() => s.host.querySelector("[data-recognized-text]")?.textContent).toContain(recognized);
+  await expect.poll(() => s.host.textContent).toContain(generated);
+  return { recognition, generated };
+}
+
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} contextual discussion has no unsent controls before or after Leave`, async ctx => {
+  const s = await contextualScene(ctx, provider, "permitted", 320);
+  const { recognition, generated } = await discuss(s, provider);
+  for (const afterLeave of [false, true]) {
+    if (afterLeave) { await userEvent.click(s.button("Leave voice")); await s.pump(); }
+    await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]'), { message: "CONTEXT_IS_DISCUSSION_NOT_UNSENT" }).toBeNull();
+    expect(s.button("Review in composer")).toBeUndefined();
+    expect(s.host.textContent).not.toContain("voice fragments weren't sent");
+    expect(s.client.state.getState().recognition, "readable discussion survives Leave").toEqual(recognition);
+    expect(s.host.textContent).toContain(generated);
+    expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
+    expect(s.ui.stores.voice.getState().reviewText).toBe("");
+  }
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.socket.frames("conversation_playback")).toHaveLength(0);
+  expect(s.evidence().tasks).toHaveLength(0);
+  expect(s.evidence().effect).toBe(false);
+});
+
+for (const provider of ["gemini", "gpt"] as const) test(`${provider} direct review cannot transfer contextual discussion before or after Leave`, async ctx => {
+  const s = await contextualScene(ctx, provider);
+  const { recognition } = await discuss(s, provider);
+  const context = s.client.state.getState().unassigned;
+  for (const afterLeave of [false, true]) {
+    if (afterLeave) { s.client.leave(); await s.pump(); }
+    expect(s.client.reviewUnassigned(), "CONTEXT_DIRECT_REVIEW_IS_NOOP").toBe(false);
+    expect(s.client.state.getState().active).toBe(!afterLeave);
+    expect(s.client.state.getState().micOn).toBe(!afterLeave);
+    expect(s.client.state.getState().unassigned).toEqual(context);
+    expect(s.client.state.getState().recognition).toEqual(recognition);
+    expect(s.ui.stores.voice.getState().reviewText).toBe("");
+    expect(s.ui.stores.drafts.getState().drafts[s.manualDraftId]?.text).toBe("Keep the separate typed raft draft.");
+  }
+  expect(s.socket.frames("conversation_start")).toHaveLength(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.socket.frames("conversation_playback")).toHaveLength(0);
+  expect(s.evidence().tasks).toHaveLength(0);
+  expect(s.evidence().effect).toBe(false);
+});
+
 // Native inference is scripted. Capture, PCM, both adapters, host policy and
 // pending work are real; no acoustic or provider-quality claim follows.
 for (const provider of ["gemini", "gpt"] as const) test(`${provider} audible interruption retains the exact initiating worklet PCM through adapter/host and resumes dialogue during held work`, async ctx => {
