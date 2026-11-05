@@ -50,3 +50,14 @@ test("actual brain index excludes governance policy while retaining the fixture 
     expect(db.query("SELECT count(*) AS n FROM documents").get()).not.toEqual({ n: 0 });
   } finally { db.close(); }
 });
+
+
+test("policy check exposes bounded incoming-only trust data without legacy taint recipient authority", async () => {
+  const root = makeTempBrain({ empty: true }); roots.push(root);
+  mkdirSync(join(root, "context/policies"), { recursive: true });
+  const rule = { id: "odysseus", label: "Ithaca", selector: { kind: "web_origin", scheme: "https", host: "ithaca.example", port: 443 } };
+  writeFileSync(join(root, "context/policies/governance.md"), `---\n${JSON.stringify({ schema_version: 1, taint: { trusted_sources: [rule] } })}\n---\n`);
+  const result = await runCli(root, ["policy", "check", "--json"]);
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.stdout).effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [{ ...rule, incomingContent: true, recipientWhileRestricted: false }] });
+});
