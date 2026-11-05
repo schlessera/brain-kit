@@ -415,3 +415,24 @@ for(const mode of ["provisional-nine","typed-resume"] as const)test(`real emissi
  await f.writes.firstTaint({kind:"taint",turnId:mode==="typed-resume"?"resumed-emission":turnId,sessionId:"emitted",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
  expect(f.db.query("SELECT failed FROM safety_meta").get()).toEqual({failed:0});
  }finally{authorization.release();await host.dialogue.settled();await catalog.settled!();host.close();await f.close();}});
+
+for(const boundary of ["rows","bytes"] as const)for(const admission of ["collection","catalog"] as const)test(`concurrent reserve versus ${admission} atomically shares ${boundary} across real connections`,async()=>{
+ const f=fixture();const {Database}=await import("bun:sqlite"),catalogProcedures=await import("../src/ws/session-catalog-writes");
+ let peer:InstanceType<typeof Database>|undefined,peerWriter:ReturnType<typeof openSqliteWriter>|undefined;
+ try{await fresh(f);
+ if(boundary==="rows")f.db.exec("UPDATE safety_meta SET used_rows=1000000-scope_rows-4");
+ else f.db.exec("UPDATE safety_meta SET used_bytes=536870912-scope_bytes-6244");
+ peer=new Database(f.path);peer.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON");peerWriter=openSqliteWriter(peer);
+ const row=governanceEventRow({kind:"taint",turnId:"voyage",sessionId:"ithaca",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
+ const reserve=f.writer.channel(procedures,undefined);const scopes=peerWriter.channel(admission==="collection"?procedures:catalogProcedures,undefined);
+ await Promise.all([reserve.ready,scopes.ready]);
+ const results=await Promise.allSettled([
+ reserve.call("safetyReserve",row,"racing-reservation",100),
+ admission==="collection"?scopes.call("safetyBegin",{turnId:"racing-scope",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1}):scopes.call("upsertSession",{id:"racing-catalog",title:"Voyage",at:1,costUsd:0,turns:0,providerId:null,backendId:"claude"}),
+ ]);
+ expect(results.map(r=>r.status).sort(),"SAFETY_CONCURRENT_RESERVE_AND_SCOPE_SERIALIZE").toEqual(["fulfilled","rejected"]);
+ const sum=f.db.query(`SELECT used_rows+scope_rows+COALESCE((SELECT SUM(rows) FROM safety_pending),0) rows,
+ used_bytes+scope_bytes+COALESCE((SELECT SUM(reserved_bytes) FROM safety_pending),0) bytes FROM safety_meta`).get() as {rows:number;bytes:number};
+ expect(sum.rows).toBeLessThanOrEqual(1000000);expect(sum.bytes).toBeLessThanOrEqual(536870912);
+ expect(f.writes.safety("voyage","ithaca").restriction).toBe("restricted");
+ }finally{await peerWriter?.close();peer?.close();await f.close();}});
