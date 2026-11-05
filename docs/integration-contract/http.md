@@ -305,6 +305,9 @@ before execution/result delivery. The host provider relay also refuses
 unsettled/failed recording, independently of runtime hook cancellation, and
 rechecks recording health and cancellation after awaiting budget admission.
 Shared recording loss in another turn therefore fences the pending dispatch.
+Claude reserves resumed input synchronously so immediate follow-ups remain
+accepted while collector readiness is pending. Readiness must complete before
+worker or SDK startup; failure releases the input reservation for retry.
 Unsupported or metadata-free collectors retain
 an incomplete epoch. The version 1 detector manifest explicitly excludes
 proxied-shell local file reads and opaque tunnel inner protocols.
