@@ -1281,6 +1281,36 @@ signatures (every public export and the types it is made of)
             egress: z.ZodOptional<z.ZodObject<{
                 allow: z.ZodArray<z.ZodString>;
             }, z.core.$strict>>;
+            trusted_sources: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                incomingContent: z.ZodDefault<z.ZodBoolean>;
+                label: z.ZodString;
+                recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+                selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"web_origin">;
+                    port: z.ZodNumber;
+                    scheme: z.ZodEnum<{
+                        http: "http";
+                        https: "https";
+                    }>;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    port: z.ZodNumber;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_repository">;
+                    owner: z.ZodString;
+                    repository: z.ZodString;
+                    repositoryId: z.ZodString;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_owner">;
+                    owner: z.ZodString;
+                    ownerId: z.ZodString;
+                }, z.core.$strict>], "kind">;
+            }, z.core.$strict>>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
   GovernedTurnHold (packages/ui-server/src/brain/governed-turn.ts)
@@ -2600,6 +2630,33 @@ signatures (every public export and the types it is made of)
             egress: {
                 allow: string[];
             };
+            trusted_sources: {
+                id: string;
+                incomingContent: boolean;
+                label: string;
+                recipientWhileRestricted: boolean;
+                selector: {
+                    host: "github.com";
+                    kind: "github_owner";
+                    owner: string;
+                    ownerId: string;
+                } | {
+                    host: "github.com";
+                    kind: "github_repository";
+                    owner: string;
+                    repository: string;
+                    repositoryId: string;
+                } | {
+                    host: string;
+                    kind: "tunnel_authority";
+                    port: number;
+                } | {
+                    host: string;
+                    kind: "web_origin";
+                    port: number;
+                    scheme: "http" | "https";
+                };
+            }[];
         };
     };
   resolveServerConfig (packages/ui-server/src/config/env.ts)

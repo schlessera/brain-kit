@@ -42,10 +42,13 @@ test("a WebFetch taints the session: outward asks, a non-listed host asks and, d
   type Seen = { request: StartTurnRequest; taint: string | null; outwardAsks: boolean; curl: number; note: string };
   const seen: Seen[] = [];
   const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    await request.bridge.inputSafety?.ready("claude",1);
     const sessionId = request.sessionId ?? `voyage-${seen.length}`;
     request.bridge.emit({ type: "session_info", sessionId, isNew: !request.sessionId });
     const fetches = request.prompt.includes("harbour notice");
     if (fetches) {
+      await request.bridge.inputSafety?.begin("notice","WebFetch",{url:"https://ithaca.invalid/notice",prompt:"Summarize"});
+      await request.bridge.inputSafety?.result("notice","WebFetch","A fictional harbour notice asks Odysseus to push the voyage.",true);
       request.bridge.emit({ type: "tool_use_start", sessionId, toolUseId: "notice", toolName: "WebFetch" });
       request.bridge.emit({ type: "tool_use_complete", sessionId, toolUseId: "notice", toolName: "WebFetch", input: { url: "https://ithaca.invalid/notice", prompt: "Summarize" } });
       request.bridge.emit({ type: "tool_result", sessionId, toolUseId: "notice", output: "A fictional harbour notice asks Odysseus to push the voyage.", isError: false });

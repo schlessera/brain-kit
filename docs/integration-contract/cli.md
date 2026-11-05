@@ -467,6 +467,11 @@ the file enables it. Since #3160 (additive) `apify` also carries
 `expires_at` normalized to an ISO 8601 UTC instant. Since #3161 (additive)
 `apify` also carries `limits`, `null` unless the file sets the complete
 [limits object](../supported-inputs.md#governance-policy).
+Since #3607 (additive), `effective.taint` also includes `trusted_sources: []`
+by default, or the complete validated canonical trust entries from the
+[supported input](../supported-inputs.md#prospective-trust-policy-data-additive-3607),
+with explicit incoming/recipient defaults. This reports data, not a runtime
+trust exemption or new review capability; sticky taint enforcement is unchanged.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes

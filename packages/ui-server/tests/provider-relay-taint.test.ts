@@ -14,6 +14,7 @@ import { resolveGovernancePolicy, type GovernancePolicyInput } from "@schlessera
 import { startProviderRelay, type ProviderRelayOptions, type ProviderRelayRefusal } from "@schlessera/brain-ui-sdk/internal";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import type { Database } from "bun:sqlite";
+import {connectedSafetySession} from "./helpers/connected-safety";
 import { createUiDb } from "../src/db/client.js";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
@@ -80,7 +81,7 @@ async function turn(db: Database, sessionId: string, turnId: string, policy: Gov
 }
 
 function session(db: Database, id: string) {
-  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?,?,0,0)").run(id, id);
+  connectedSafetySession(db,id,`birth-${id}`);
   const events = (kind: "taint" | "egress_connection" | "egress_denial") => queryGovernanceEvents(db, { sessionId: id, kinds: [kind], limit: 50 });
   return { taints: () => events("taint").map(event => { const { occurrence: _occurrence, ...source } = event.payload; return source; }), events };
 }

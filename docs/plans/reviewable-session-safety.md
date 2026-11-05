@@ -43,7 +43,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   `packages/ui-sdk/src/server/outward-policy.ts:46-73`). Existing historical
   steering attribution must remain attribution at the time of a write.
 - Governance policy is protected Markdown, validated by a strict schema
-  (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:99-128`).
+  (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`).
   The privileged proposal writer already provides exact-base review,
   descriptor-bound publication, authority rechecks and crash receipts
   (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:76-240`).

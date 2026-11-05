@@ -4779,3 +4779,15 @@ it is "Attach — photo, camera, files" (previously the fixed
 an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
 composer's, has neither. Existing props and defaults are otherwise unchanged,
 and no wire schema changes. `api-report/` records the added prop.
+
+
+## Prospective trust policy data (additive, #3607)
+
+The governance policy types reachable through ui-server's public signatures
+accept optional `taint.trusted_sources` and resolve it to a validated list,
+empty by default. The [supported input](../supported-inputs.md#prospective-trust-policy-data-additive-3607)
+defines strict selectors, capability defaults and bounds. The same-commit API
+reports record this additive type change. Pure canonicalization and matching
+helpers remain on the existing brain-common internal governance-policy entry
+point and establish no new extension seam or runtime authority. No SDK safety
+capability, HTTP endpoint, history DTO or provider conversation changes here.

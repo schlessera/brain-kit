@@ -52,16 +52,19 @@ test("real upgrade classifies old sessions both with and without first-taint row
  const tables=f.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'safety_%'").all() as {name:string}[];
  for(const {name} of tables)f.db.exec(`DROP TABLE ${name}`);
  f.db.query("DELETE FROM _migrations WHERE filename='081_session_safety.sql'").run();
- f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('legacy-clean',0,0),('legacy-tainted',0,0)");
+ f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('legacy-clean',0,0),('legacy-tainted',0,0); INSERT INTO dialogue_owners VALUES('legacy-provisional','odysseus',NULL,1,'complete',0)");
  f.db.query("INSERT INTO governance_events(session_id,turn_id,at,kind,schema_version,actor,payload) VALUES('legacy-tainted','old-turn',0,'taint',1,'interactive',?)")
  .run(JSON.stringify({source:"web_fetch",tool:"WebFetch",detail:null}));
- f.db.close();const restored=createUiDb(f.path);
+ f.db.close();const restored=createUiDb(f.path),replayWriter=openSqliteWriter(restored),replayWrites=createGovernanceWrites(restored,replayWriter);
  try{
  const clean=safetyProjection(restored,null,"legacy-clean"),tainted=safetyProjection(restored,null,"legacy-tainted");
  expect(clean.restriction,"SAFETY_LEGACY_NO_ROW_IS_NOT_CLEAN").toBe("restricted");expect(clean.coverage.state).toBe("incomplete");expect(clean.unresolvedCount).toBe(0);
  expect(tainted.unresolvedCount,"SAFETY_LEGACY_ROW_MIGRATES_AS_ONE_KNOWN_EVENT").toBe(1);expect(tainted.coverage.state).toBe("incomplete");
  expect(tainted.coverage.epochs.some(e=>e.reason==="missing_historical_signals")).toBe(true);
- }finally{restored.close();}
+ await replayWrites.safetyBegin({turnId:"legacy-provisional-resume",bindingId:crypto.randomUUID(),historyOwnerId:"legacy-provisional",principalId:"odysseus",sessionId:null,backendId:"claude",at:1});
+ await replayWrites.safetyReady("legacy-provisional-resume","claude",1);
+ expect(replayWrites.safety("legacy-provisional-resume",null).coverage.state,"SAFETY_LEGACY_PROVISIONAL_NO_ROW_IS_NOT_CLEAN").toBe("incomplete");
+ }finally{await replayWriter.close();restored.close();}
  }finally{rmSync(f.root,{recursive:true,force:true});}});
 
 test("an admitted reservation survives real writer restart and fences a new facade and new chat",async()=>{

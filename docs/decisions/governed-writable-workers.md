@@ -283,8 +283,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:99-128`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:174-207`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:176-209`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
