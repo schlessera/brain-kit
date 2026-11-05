@@ -26,8 +26,10 @@ interface RequestRow {
   issued_at: number; expires_at: number; terminal_at: number | null; receipt: string;
 }
 const REQUEST_MS = 900000, RECEIPT_MS = 86400000, RECEIPT_BYTES = 262144;
-function clock(at: number): void {
+function clock(now: () => number): number {
+  const at = now();
   if (!Number.isSafeInteger(at) || at < 0 || at > Number.MAX_SAFE_INTEGER - RECEIPT_MS) throw new SafetyUnavailable("Invalid safety review clock");
+  return at;
 }
 function reviewer(actor: SafetyReviewer): void {
   if (!id.safeParse(actor.principalId).success || !["owner_history", "owner_settings"].includes(actor.channel)) throw new SafetyUnavailable("Invalid host reviewer");
@@ -70,21 +72,25 @@ function prune(db: Database, at: number): void {
   db.query(`DELETE FROM safety_review_requests WHERE
     (terminal_at IS NOT NULL AND terminal_at<=?) OR (terminal_at IS NULL AND expires_at<=?)`).run(at - RECEIPT_MS, at - RECEIPT_MS);
 }
-export function prepareSafetyReview(db: Database, value: SafetyReviewBody, actor: SafetyReviewer, at: number): SafetyReviewReceipt {
-  const body = bodySchema.parse(value); reviewer(actor); clock(at);
+export function prepareSafetyReview(db: Database, value: SafetyReviewBody, actor: SafetyReviewer, now: () => number = Date.now): SafetyReviewReceipt {
+  const body = bodySchema.parse(value); reviewer(actor);
   return db.transaction(() => {
+    // The writer queue and BEGIN IMMEDIATE may both wait. Time belongs to
+    // this acquired transaction, never to submission on the app connection.
+    const observedAt = clock(now);
     const reason = target(db, body, actor);
     if (reason) return receipt(body, null, null, reason, null);
-    prune(db, at);
+    prune(db, observedAt);
     const totals = db.query(`SELECT COUNT(*) n,COALESCE(SUM(reserved_bytes),0) bytes,
       COALESCE(SUM(terminal_at IS NULL AND expires_at>?),0) pending,
       COALESCE(SUM(principal_id=? AND terminal_at IS NULL AND expires_at>?),0) own FROM safety_review_requests`)
-      .get(at, actor.principalId, at) as { n: number; bytes: number; pending: number; own: number };
+      .get(observedAt, actor.principalId, observedAt) as { n: number; bytes: number; pending: number; own: number };
     if (totals.n >= 10000 || totals.bytes + RECEIPT_BYTES > 16777216 || totals.pending >= 256 || totals.own >= 32)
       return receipt(body, null, null, "capacity", null);
     const requestId = crypto.randomUUID(), operationId = crypto.randomUUID();
     const projection = safetyProjection(db, null, body.session.sessionId);
     const problem = eligible(db, body) ?? (projection.evidenceRevision !== body.expectedEvidenceRevision ? "stale_revision" : null);
+    const at = clock(now);
     const result = receipt(body, requestId, operationId, problem, problem ? null : projection);
     const json = JSON.stringify(result);
     if (Buffer.byteLength(json) > RECEIPT_BYTES) throw new SafetyUnavailable("Safety review receipt capacity");
@@ -94,9 +100,9 @@ export function prepareSafetyReview(db: Database, value: SafetyReviewBody, actor
     return result;
   }).immediate();
 }
-export function commitSafetyReview(db: Database, requestId: string, value: SafetyReviewBody, actor: SafetyReviewer, at: number,
-  locallyPending: boolean, locallyFailed: boolean = false): SafetyReviewReceipt {
-  const body = bodySchema.parse(value); id.parse(requestId); reviewer(actor); clock(at);
+export function commitSafetyReview(db: Database, requestId: string, value: SafetyReviewBody, actor: SafetyReviewer,
+  locallyPending: boolean, locallyFailed: boolean = false, now: () => number = Date.now): SafetyReviewReceipt {
+  const body = bodySchema.parse(value); id.parse(requestId); reviewer(actor);
   return db.transaction(() => {
     // Retirement and exact host ownership precede even successful receipt replay.
     const invalid = target(db, body, actor);
@@ -106,11 +112,12 @@ export function commitSafetyReview(db: Database, requestId: string, value: Safet
       return receipt(body, requestId, null, "unavailable", null);
     if (row.body_hash !== fingerprint(body)) return receipt(body, requestId, row.operation_id, "request_conflict", null);
     if (row.terminal_at !== null) {
-      if (at >= row.terminal_at + RECEIPT_MS) return receipt(body, requestId, row.operation_id, "request_expired", null);
+      if (clock(now) >= row.terminal_at + RECEIPT_MS) return receipt(body, requestId, row.operation_id, "request_expired", null);
       return JSON.parse(row.receipt) as SafetyReviewReceipt;
     }
     let projection = safetyProjection(db, null, body.session.sessionId);
-    const reason = at < row.issued_at || at >= row.expires_at ? "request_expired" : eligible(db, body)
+    const eligibility = eligible(db, body), at = clock(now);
+    const reason = at < row.issued_at || at >= row.expires_at ? "request_expired" : eligibility
       ?? (locallyFailed || projection.reasons.some(r => r === "recording_failed" || r === "capacity") ? "recording_failed" : null)
       ?? (locallyPending || projection.pendingCount ? "recording_pending" : null)
       ?? (projection.evidenceRevision !== body.expectedEvidenceRevision ? "stale_revision" : null);
@@ -125,7 +132,9 @@ export function commitSafetyReview(db: Database, requestId: string, value: Safet
     const result = receipt(body, requestId, row.operation_id, reason, reason ? null : projection, !reason);
     const json = JSON.stringify(result);
     if (Buffer.byteLength(json) > RECEIPT_BYTES) throw new SafetyUnavailable("Safety review receipt capacity");
-    db.query("UPDATE safety_review_requests SET terminal_at=?,receipt=? WHERE id=?").run(at, json, requestId);
+    // Receipt retention starts when the terminal result is stored, including
+    // the projection work after a decision. A clock correction cannot shorten it.
+    db.query("UPDATE safety_review_requests SET terminal_at=?,receipt=? WHERE id=?").run(Math.max(at, clock(now)), json, requestId);
     return result;
   }).immediate();
 }

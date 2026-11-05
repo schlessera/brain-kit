@@ -399,8 +399,11 @@ Internal preparation accepts a strict version-1 single-occurrence body bound to
 the exact SessionKey and expected evidence revision. Ranges, source-wide clears,
 session-wide clears and caller authority fields refuse. Trust publication is not
 part of this operation. A host-minted request binds canonical body digest,
-principal, channel and generation, and expires after 900000 ms. New committed
-evidence stales a prepared review; pending input restricts immediately, and a
+principal, channel and generation, and expires after 900000 ms.
+Time is sampled inside the acquired write transaction, after writer-queue and
+SQLite lock waits. Issuance starts the full handle lifetime; decision and replay
+expiry use execution time, and receipt retention starts at terminal storage.
+New committed evidence stales a prepared review; pending input restricts immediately, and a
 pending verdict never decrements the aggregate. Failed verdict COMMIT rolls back
 decision, revision and receipt together without reporting success.
 Recording-loss refusals remain `recording_failed`, distinct from input that is

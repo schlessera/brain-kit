@@ -9,6 +9,7 @@ import { openSqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import * as procedures from "../src/governance/event-writes";
 import * as probe from "./fixtures/write-worker-probe";
+import * as reviewClock from "./fixtures/safety-review-clock";
 import { createSafetyCollector } from "../src/governance/safety-collector";
 import { pruneSafetyDetail, safetyCatalogCreated, safetyRecords } from "../src/governance/safety-store";
 import { governanceEventRow } from "../src/governance/events";
@@ -31,7 +32,7 @@ async function fixture() {
   const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, sessionId: () => "ithaca", backendId: "claude",
     signal: new AbortController().signal, shellProxied: () => true, brainPath: root });
   await collector.ready("claude", 1);
-  const channel = writer.channel(procedures, undefined); await channel.ready;
+  const channel = writer.channel(reviewClock, undefined); await channel.ready;
   const state = () => writes.safety(null, "ithaca");
   const body = (occurrenceId: string): SafetyReviewBody => ({ version: 1, session: state().session!, occurrenceId,
     expectedEvidenceRevision: state().evidenceRevision, verdict: "safe" });
@@ -274,6 +275,86 @@ test("expiry, bounded receipt retention and pruning never accept an old or arbit
       "REVIEW_PRUNED_HANDLE_NEVER_RECREATES_REQUEST").toBe("unavailable");
     expect(later.requestId!).not.toBe(prepared.requestId!);
     expect(f.state().unresolvedCount).toBe(1);
+  } finally { await f.close(); }
+});
+
+async function holdReviewWriter(f: Awaited<ReturnType<typeof fixture>>, milliseconds: number) {
+  const hold = f.writer.channel(probe, { table: "review_clock_hold" }); await hold.ready;
+  const entered = new Int32Array(new SharedArrayBuffer(4)), startedAt = Date.now();
+  const pending = hold.call("slow", "Ithaca", milliseconds, entered);
+  const waiting = Atomics.waitAsync(entered, 0, 0, 5000);
+  if (waiting.async) await waiting.value;
+  expect(Atomics.load(entered, 0)).toBe(1);
+  return { pending, earliestCompletion: startedAt + milliseconds };
+}
+
+test("a review expiring in the FULL writer queue cannot commit a verdict", async () => {
+  const f = await fixture(); try {
+    const value = f.body(await f.add("A")), issuedAt = Date.now() - 899000;
+    const prepared = await f.channel.call<SafetyReviewReceipt>("safetyPrepareReview", value, f.actor, issuedAt);
+    const hold = await holdReviewWriter(f, 1400);
+    expect(Date.now()).toBeLessThan(issuedAt + 900000);
+    const committing = f.writes.safetyCommitReview(prepared.requestId!, value, f.actor);
+    await hold.pending;
+    expect((await committing).reason, "REVIEW_EXPIRED_IN_QUEUE_CANNOT_COMMIT").toBe("request_expired");
+    expect(f.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 0 });
+    expect(f.state().unresolvedCount).toBe(1);
+    expect(f.state().restriction).toBe("restricted");
+  } finally { await f.close(); }
+});
+
+test("review issuance starts its full lifetime after queued preparation executes", async () => {
+  const f = await fixture(); try {
+    const value = f.body(await f.add("A")), hold = await holdReviewWriter(f, 200);
+    const preparing = f.writes.safetyPrepareReview(value, f.actor);
+    await hold.pending;
+    const prepared = await preparing;
+    const row = f.db.query("SELECT issued_at,expires_at FROM safety_review_requests WHERE id=?").get(prepared.requestId!) as { issued_at: number; expires_at: number };
+    expect(row.issued_at, "REVIEW_ISSUANCE_USES_EXECUTION_TIME").toBeGreaterThanOrEqual(hold.earliestCompletion);
+    expect(row.expires_at).toBe(row.issued_at + 900000);
+  } finally { await f.close(); }
+});
+
+test("decision time and terminal receipt retention start after queued commit executes", async () => {
+  const f = await fixture(); try {
+    const value = f.body(await f.add("A")), prepared = await f.writes.safetyPrepareReview(value, f.actor);
+    const hold = await holdReviewWriter(f, 200);
+    const committing = f.writes.safetyCommitReview(prepared.requestId!, value, f.actor);
+    await hold.pending;
+    const committed = await committing;
+    const decision = f.db.query("SELECT decided_at FROM safety_decisions WHERE request_id=?").get(prepared.requestId!) as { decided_at: number };
+    const row = f.db.query("SELECT terminal_at FROM safety_review_requests WHERE id=?").get(prepared.requestId!) as { terminal_at: number };
+    expect(decision.decided_at, "REVIEW_DECISION_USES_EXECUTION_TIME").toBeGreaterThanOrEqual(hold.earliestCompletion);
+    expect(row.terminal_at, "REVIEW_RETENTION_USES_TERMINAL_TIME").toBeGreaterThanOrEqual(decision.decided_at);
+    expect(await f.channel.call<SafetyReviewReceipt>("safetyCommitReview", prepared.requestId!, value, f.actor, row.terminal_at + 86400000 - 1, false)).toEqual(committed);
+    expect((await f.channel.call<SafetyReviewReceipt>("safetyCommitReview", prepared.requestId!, value, f.actor, row.terminal_at + 86400000, false)).reason).toBe("request_expired");
+  } finally { await f.close(); }
+});
+
+test("a terminal receipt expiring in the FULL writer queue cannot replay success", async () => {
+  const f = await fixture(); try {
+    const value = f.body(await f.add("A")), terminalAt = Date.now() - 86400000 + 1000;
+    const prepared = await f.channel.call<SafetyReviewReceipt>("safetyPrepareReview", value, f.actor, terminalAt - 1);
+    await f.channel.call<SafetyReviewReceipt>("safetyCommitReview", prepared.requestId!, value, f.actor, terminalAt, false);
+    const hold = await holdReviewWriter(f, 1400);
+    expect(Date.now()).toBeLessThan(terminalAt + 86400000);
+    const replaying = f.writes.safetyCommitReview(prepared.requestId!, value, f.actor);
+    await hold.pending;
+    expect((await replaying).reason, "REVIEW_REPLAY_EXPIRY_USES_EXECUTION_TIME").toBe("request_expired");
+    expect(f.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 1 });
+  } finally { await f.close(); }
+});
+
+test("terminal receipt retention includes work after the verdict decision", async () => {
+  const f = await fixture(); try {
+    const value = f.body(await f.add("A"));
+    const prepared = await f.channel.call<SafetyReviewReceipt>("safetyPrepareReview", value, f.actor, 1000);
+    const committed = await f.channel.call<SafetyReviewReceipt>("safetyCommitReview", prepared.requestId!, value, f.actor, [2000, 3000], false);
+    expect(committed.verdict).toBe("committed");
+    expect(f.db.query("SELECT decided_at FROM safety_decisions").get()).toEqual({ decided_at: 2000 });
+    expect(f.db.query("SELECT terminal_at FROM safety_review_requests WHERE id=?").get(prepared.requestId!), "REVIEW_TERMINAL_TIME_INCLUDES_PROJECTION_WORK")
+      .toEqual({ terminal_at: 3000 });
+    expect(await f.channel.call<SafetyReviewReceipt>("safetyCommitReview", prepared.requestId!, value, f.actor, 3000 + 86400000 - 1, false)).toEqual(committed);
   } finally { await f.close(); }
 });
 
