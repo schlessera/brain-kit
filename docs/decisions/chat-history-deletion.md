@@ -91,7 +91,7 @@ prompt, title, label or transcript text. The bridge offers the creator only on
 a new turn that is not host work and whose authorization is current
 (`const creator`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:143`). The write worker
 binds it only in the transaction that first creates the session's row
-(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:167-176`).
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:169-178`).
 `resolveChat` counts the row as one more ownership record beside dialogue
 owners and voice epochs, so records that disagree still refuse as ambiguous
 (`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:91-92`). Like the

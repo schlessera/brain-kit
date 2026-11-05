@@ -153,11 +153,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {
@@ -331,11 +339,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {
@@ -496,11 +512,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {
@@ -687,11 +711,19 @@
         {
           "matcher": null,
           "hooks": 1
+        },
+        {
+          "matcher": null,
+          "hooks": 1
         }
       ],
       "PostToolUseFailure": [
         {
           "matcher": "^(Read|Write|Edit|NotebookEdit)$",
+          "hooks": 1
+        },
+        {
+          "matcher": null,
           "hooks": 1
         },
         {

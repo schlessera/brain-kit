@@ -47,6 +47,19 @@ function scrub(db: Database, lifecycleId: string, store: HostChatStore, at: numb
       run(db, "UPDATE conversation_tasks SET receipt=NULL,result_facts=NULL WHERE conversation_id IN (?)", ids.conversations);
       return count(db, "SELECT COUNT(*) AS n FROM conversation_tasks WHERE conversation_id IN (?) AND (receipt IS NOT NULL OR result_facts IS NOT NULL)", ids.conversations);
     case "projections": {
+      // Safety display/provenance is chat-owned evidence. Negative turn fences
+      // and the existing independently owned governance audit remain.
+      for(const [column,values] of [["session_id",ids.sessions],["history_owner_id",ids.dialogueOwners]] as const){
+        for(const value of values){
+          const totals=db.query(`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
+            JOIN safety_collections c ON c.id=r.collection_id WHERE c.${column}=?`).get(value) as {rows:number;bytes:number};
+          db.query(`DELETE FROM safety_decisions WHERE occurrence_id IN (SELECT r.id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.${column}=?)`).run(value);
+          db.query(`DELETE FROM safety_legacy_events WHERE record_id IN (SELECT r.id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.${column}=?)`).run(value);
+          for(const table of ["safety_records","safety_pending"])db.query(`DELETE FROM ${table} WHERE collection_id IN (SELECT id FROM safety_collections WHERE ${column}=?)`).run(value);
+          db.query(`DELETE FROM safety_collections WHERE ${column}=?`).run(value);
+          db.query("UPDATE safety_meta SET used_rows=MAX(0,used_rows-?),used_bytes=MAX(0,used_bytes-?) WHERE singleton=1").run(totals.rows,totals.bytes);
+        }
+      }
       // The catalog row keeps cost, turns, backend and handoff identities.
       run(db, "UPDATE sessions SET title=NULL,label=NULL,label_source=NULL WHERE id IN (?)", ids.sessions);
       for (const table of PROJECTION_TABLES) run(db, `DELETE FROM ${table} WHERE session_id IN (?)`, ids.sessions);

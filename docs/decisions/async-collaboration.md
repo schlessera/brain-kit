@@ -20,7 +20,7 @@ to this one v1. A smaller non-autonomous release does not meet this outcome.
 Markdown owns brain content, including the existing hygiene finding log.
 `brain.db` remains disposable. Claims, leases, checkpoints, reservations,
 resolution records and stream cursors belong to the UI server's operational
-store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`). They are not
+store (`createUiDb`, `packages/ui-server/src/db/client.ts:28-45`). They are not
 an alternate authoritative content index. A checkpoint is append-only history;
 `state_md` is a bounded projection for prompting. Server-owned columns retain
 trust and provenance even when a model compacts that projection.
@@ -71,7 +71,7 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:627`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:651`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:636`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:660`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
@@ -85,7 +85,7 @@ is historical. Preserve subscription billing and the selected runtime identity.
 Pi disables built-in tools but currently loads resources and extensions
 (`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:29-149`)
 and gates extension calls (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:99-128`). Removing four curated
+`packages/ui-backend-pi/src/permission-gate.ts:102-131`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
 no egress or write access. Both first-party runtimes owe executable evidence;
 the plan's earlier “pi is easy” claim is not a containment result.
@@ -241,7 +241,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:179-194`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:765`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:787`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)

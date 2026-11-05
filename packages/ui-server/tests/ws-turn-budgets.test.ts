@@ -37,7 +37,9 @@ for (const adapter of ["claude", "pi"] as const)
       await writeFile(resolve(brain, "context/policies/governance.md"), "---\nschema_version: 1\nbudgets: { turn: { warn_usd: 5, block_usd: 10, block_tokens: 10 }, session: { block_tokens: 100 }, day: { block_tokens: 100 } }\n---\nAthena reviews inference limits.\n");
       let called = 0, aborted = false, maxBudget: number | undefined, receivedPrompt: string | undefined, receivedLimits: string | undefined, receivedContext: string | undefined;
       let admissionModel: string | null | undefined;
-      const backend = makeFakeBackend({ id: `budget-${adapter}`, profiles: [{ id: `budget-${adapter}`, label: "Athena", model: "configured-main" }], startTurn: async (req) => {
+      // The actual Pi runner acknowledges "pi"; the host collection must name
+      // that same backend, rather than fail safety admission before usage.
+      const backend = makeFakeBackend({ id: adapter, profiles: [{ id: `budget-${adapter}`, label: "Athena", model: "configured-main" }], startTurn: async (req) => {
           called++;
           admissionModel = app.wsHost.journal!.summary(req.turnId!).model;
           maxBudget = req.maxBudgetUsd;

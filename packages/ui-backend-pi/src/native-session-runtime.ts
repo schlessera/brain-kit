@@ -1,7 +1,10 @@
+import { installPiToolSafety, refusePiInput, type PiToolSafety } from "./tool-safety.js";
 import {
   createAgentSession,
   ModelRuntime,
   SessionManager,
+  type AgentSession,
+  type ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 
@@ -27,6 +30,7 @@ export interface SessionRuntime {
 
 export function createSessionRuntime(options: {
   backend: CreatePiBackendOptions;
+  toolSafety: PiToolSafety;
   sessionDir: string;
   resources: ReturnType<typeof createSessionResources>;
   sessionId: string;
@@ -37,6 +41,19 @@ export function createSessionRuntime(options: {
   const { backend, resources } = options;
   const brainPath = backend.brainPath;
 
+  async function load(toolkit: ReturnType<typeof resources.buildToolkit>, env: SessionEnv) {
+    let loaded: Awaited<ReturnType<typeof resources.build>>;
+    try { loaded = await resources.build(toolkit, env); }
+    catch { return refusePiInput(options.toolSafety); }
+    // Pi 0.99.2 CacheWarmer calls this public method dynamically, including
+    // during refresh validation. applyOverrides is insufficient: the installed
+    // getter reads globalSettings, not effective settings. Pin the worker-local
+    // method so reload()/setCacheWarmingMode() cannot enable direct dispatch.
+    loaded.settingsManager.getCacheWarmingMode = () => "off";
+    if (unqualifiedResources(loaded.loader)) await refusePiInput(options.toolSafety);
+    return loaded;
+  }
+
   return {
     async newSession(profileId, env) {
       // A bad profile throws BackendRequestError before anything is emitted.
@@ -46,7 +63,7 @@ export function createSessionRuntime(options: {
       const declaredModel = toModel(spec);
       const sm = SessionManager.inMemory(brainPath, { id: options.sessionId }, options.entries);
       options.observeManager(sm);
-      const loaded = await resources.build(toolkit, env);
+      const loaded = await load(toolkit, env);
       // Native discovery owns models/auth/cache paths and per-request auth.
       // Select from the SAME configured runtime that performs inference.
       const modelRuntime = await ModelRuntime.create(options.modelRuntimeOptions);
@@ -68,6 +85,7 @@ export function createSessionRuntime(options: {
         ...(model ? { model } : {}),
         ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
       });
+      installPiToolSafety(session.agent,options.toolSafety,()=>unqualifiedResources(loaded.loader,session));
       return { session, turnContext: toolkit.turnContext };
     },
 
@@ -78,7 +96,7 @@ export function createSessionRuntime(options: {
       }
       const sm = SessionManager.inMemory(brainPath, { id: options.sessionId }, options.entries);
       options.observeManager(sm);
-      const loaded = await resources.build(toolkit, env);
+      const loaded = await load(toolkit, env);
       const modelRuntime = await ModelRuntime.create(options.modelRuntimeOptions);
       const { session, modelFallbackMessage } = await createAgentSession({
         cwd: brainPath,
@@ -105,7 +123,15 @@ export function createSessionRuntime(options: {
             "Restore the credential (e.g. `pi login`) or start a new conversation."
         );
       }
+      installPiToolSafety(session.agent,options.toolSafety,()=>unqualifiedResources(loaded.loader,session));
       return { session, turnContext: toolkit.turnContext };
     },
   };
+}
+
+/** No extension identity/name/path is exempt: all extension code can add input
+ * outside the collector. Failed extension loading is unknown coverage too. */
+function unqualifiedResources(loader: ResourceLoader,session?:AgentSession):boolean {
+ const result=loader.getExtensions();
+ return result.extensions.length>0||result.errors.length>0||(session?.extensionRunner.getExtensionPaths().length??0)>0;
 }

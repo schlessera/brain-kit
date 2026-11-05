@@ -312,6 +312,10 @@ export function enforcementHookFor(ctx: PermissionContext): HookCallback {
           permissionDecisionReason: error instanceof Error ? error.message : "The search index could not be brought up to date." } };
       }
     }
+    if(hookInput.hook_event_name==="PreToolUse"&&req.bridge.inputSafety){
+      try { await req.bridge.inputSafety.begin(hookInput.tool_use_id,hookInput.tool_name,hookInput.tool_input as Record<string,unknown>); }
+      catch(error){return {continue:true,hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:error instanceof Error?error.message:"Safety recording unavailable"}};}
+    }
     if (
       hookInput.hook_event_name !== "PreToolUse" ||
       !outsideEnforcedAllowlist(enforced, allowed, hookInput.tool_name)
@@ -415,6 +419,7 @@ export function canUseToolFor(ctx: PermissionContext): NonNullable<Options["canU
       );
       if (!acquired.ok) return { behavior: "deny", message: acquired.reason };
       const stale = await nativeRefusal(toolName, effectiveInput);
+      if(!stale){try{await req.bridge.inputSafety?.begin(opts.toolUseID,toolName,effectiveInput);}catch(error){turnLock.releaseForTool(opts.toolUseID);return {behavior:"deny",message:error instanceof Error?error.message:"Safety recording unavailable"};}}
       if (stale) { turnLock.releaseForTool(opts.toolUseID); return { behavior: "deny", message: stale }; }
     }
     return toPermissionResult(decision);
@@ -557,6 +562,8 @@ export function mutatingHookFor(ctx: PermissionContext): HookCallback {
     }
     const stale = await nativeRefusal(hookInput.tool_name, edited ?? hookInput.tool_input);
     if (stale) { turnLock.releaseForTool(hookInput.tool_use_id); return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: stale } }; }
+    try{await req.bridge.inputSafety?.begin(hookInput.tool_use_id,hookInput.tool_name,(edited??hookInput.tool_input) as Record<string,unknown>);}
+    catch(error){turnLock.releaseForTool(hookInput.tool_use_id);return {continue:true,hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:error instanceof Error?error.message:"Safety recording unavailable"}};}
     if (edited !== undefined) {
       // Applied by returning `updatedInput` with NO permissionDecision. A
       // PreToolUse hook's rewrite takes effect without one — measured for #124
@@ -595,6 +602,8 @@ function createRewriteHooks(ctx: PermissionContext, options: PermissionWiringOpt
       output.hookSpecificOutput.updatedInput !== undefined && args[0].hook_event_name === "PreToolUse") {
       const refusal = recheckEdit(toolName, args[0].tool_input, output.hookSpecificOutput.updatedInput, args[0].tool_use_id);
       if (refusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } };
+      try{await req.bridge.inputSafety?.begin(args[0].tool_use_id,toolName,output.hookSpecificOutput.updatedInput as Record<string,unknown>);}
+      catch(error){return {continue:true,hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:error instanceof Error?error.message:"Safety recording unavailable"}};}
     }
     return output;
   };
@@ -632,6 +641,16 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   const canUseTool = canUseToolFor(ctx);
   const mutatingHook = mutatingHookFor(ctx);
   const { agentHook, rtkHook } = createRewriteHooks(ctx, options);
+  const safetyResult: HookCallback = async input => {
+    if((input.hook_event_name==="PostToolUse"||input.hook_event_name==="PostToolUseFailure")&&req.bridge.inputSafety){
+      const response=input.hook_event_name==="PostToolUse"?input.tool_response:input.error;
+      const parts=response&&typeof response==="object"&&Array.isArray((response as {content?:unknown}).content)
+        ? ((response as {content:{type?:string;text?:string}[]}).content).filter(part=>part.type==="text"&&typeof part.text==="string").map(part=>part.text!):undefined;
+      try { await req.bridge.inputSafety.result(input.tool_use_id,input.tool_name,typeof response==="string"?response:JSON.stringify(response)??"",true,parts); }
+      catch { return {continue:false,stopReason:"Safety input recording failed; stop before another provider request."}; }
+    }
+    return {continue:true};
+  };
 
   return {
     canUseTool,
@@ -648,11 +667,11 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
         { matcher: "^Agent$", hooks: [agentHook] },
         { matcher: "^Bash$", hooks: [rtkHook] },
         ...(!req.autonomous ? [{ matcher: "^Read$", hooks: [beginNativeRead] }] : []),
-        ...(!enforced && !req.autonomous ? [{ hooks: [enforcementHook] }] : []),
+        ...(!enforced && (!req.autonomous || req.bridge.inputSafety) ? [{ hooks: [enforcementHook] }] : []),
       ],
-      ...(!req.autonomous ? {
-        PostToolUse: [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }],
-        PostToolUseFailure: [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }],
+      ...(!req.autonomous || req.bridge.inputSafety ? {
+        PostToolUse: [...(!req.autonomous ? [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }] : []),{ hooks: [safetyResult] }],
+        PostToolUseFailure: [...(!req.autonomous ? [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }] : []),{ hooks: [safetyResult] }],
       } : {}),
       PermissionDenied: [
         {

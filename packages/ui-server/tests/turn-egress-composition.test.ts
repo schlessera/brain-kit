@@ -13,7 +13,10 @@ import { createActivityStore } from "../src/activity/store";
 import { createActivityStream } from "../src/activity/stream";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
-import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events";
+import { GOVERNANCE_EVENT_SCHEMAS, queryGovernanceEvents } from "../src/governance/events";
+import { createGovernanceWrites } from "../src/governance/event-writes";
+import { safetyProjection } from "../src/governance/safety-store";
+import { openSqliteWriter } from "../src/db/write-worker";
 import { WsHost } from "../src/ws/host";
 import { runSession } from "../src/ws/run-session";
 import { createSessionCatalog } from "../src/ws/session-catalog";
@@ -35,14 +38,20 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
   // The fixture origin is an outward host: only the classified read may reach it without a card.
   writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\noutward:\n  hosts: [127.0.0.1]\n---\nAthena reviews outward calls.\n");
   const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
+  const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer);
   const store = createActivityStore(db), stream = createActivityStream(store);
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report() {} });
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
   let proxyDir: string | undefined, output: string | undefined, workerExit: number | undefined, workerErrors = "", started = false;
+  let fallbackReason: string | undefined;
   const backend = makeFakeBackend({ id: kind, startTurn: async request => {
     started = true;
+    fallbackReason = request.workerSandbox?.fallbackReason;
+    // This fixture delivers no native provider input; the real host collector
+    // and proxy own every input below. Acknowledge before admitting a request.
+    await request.bridge.inputSafety!.ready(kind, 1);
     request.bridge.emit({ type: "session_info", sessionId: `voyage-${kind}`, isNew: true });
     // An ordinary shell command: behind the proxy it no longer taints (#3429).
     const help = { sessionId: `voyage-${kind}`, toolUseId: "diagram-help", toolName: "Bash" };
@@ -65,7 +74,7 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
     request.bridge.emit({ type: "result", sessionId: `voyage-${kind}`, durationMs: 1, numTurns: 1, isError: false });
   } });
   const host = new WsHost({ brainPath: brain, governedTurns: turns, registry: createStaticBackendRegistry([backend], kind), catalog: createSessionCatalog(() => db),
-    activity: { store, stream, governanceDb: db, governance: input => { recordGovernanceEvent(db, input); } },
+    activity: { store, stream, governanceDb: db, governanceWrites: writes, governance: writes.record },
     isPrincipalAuthorized: id => { const found = resolvePrincipal(db, id); return found !== null && isUsablePrincipal(found, Date.now()); } });
   try {
     if (!managed) {
@@ -78,16 +87,24 @@ test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as 
     }
     await runSession(host, { authorization: testAuthorization(principal.id), text: "Odysseus checks the harbour.", attachments: [] });
     const records = queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 10 });
-    const taints = queryGovernanceEvents(db, { kinds: ["taint"], limit: 10 }).map(event => event.payload.source);
+    const taintEvents = queryGovernanceEvents(db, { kinds: ["taint"], limit: 10 });
+    const taints = taintEvents.map(event => event.payload.source);
     // Only the proxy's admitted connection taints a proxied turn (#3429).
     expect(taints, "G6_PROXIED_TURN_SHELL_TAINT_IS_THE_CONNECTION").toEqual(["egress_connection"]);
     expect(proxyDir, "TURN_EGRESS_GOVERNED_TURN_COMPOSED").toBeDefined();
     expect(workerExit, `TURN_EGRESS_BACKEND_BRIDGE_TRACKS_CLASSIFICATION ${workerErrors}`).toBe(0);
     expect(output).toBe("Ithaca");
     expect(records, "TURN_EGRESS_COMPOSED_DURABLE_RECORD").toHaveLength(1);
-    expect(records[0]).toMatchObject({ actor: "interactive", profile: "governed", sessionId: `voyage-${kind}`,
+    const observed = GOVERNANCE_EVENT_SCHEMAS.taint.payload.parse(taintEvents[0]!.payload).occurrence!;
+    expect(observed).toMatchObject({ operationId: records[0]!.payload.connectionId, detector: "proxy_input", exposure: "open",
+      provenance: { kind: "web_origin", origin: { scheme: "http", host: "127.0.0.1", port: origin.port }, verifiedBy: "host_transport" } });
+    expect(queryGovernanceEvents(db, { kinds: ["taint_exposure"], limit: 10 }).map(event => event.payload),
+      "TURN_EGRESS_COMPLETION_FINALIZES_SAME_OCCURRENCE").toEqual([{ occurrenceId: observed.id, state: "finalized" }]);
+    expect(safetyProjection(db, null, `voyage-${kind}`), "TURN_EGRESS_INPUT_REMAINS_RESTRICTIVE").toMatchObject({
+      unresolvedCount: 1, restriction: "restricted", coverage: { state: "complete" } });
+    expect(records[0], `TURN_EGRESS_GOVERNED_PROFILE ${fallbackReason ?? ""}`).toMatchObject({ actor: "interactive", profile: "governed", sessionId: `voyage-${kind}`,
       payload: { method: "GET", host: "127.0.0.1", port: origin.port, path: "/voyage", outcome: "completed" } });
     expect(JSON.stringify(records)).not.toContain("odysseus-query");
     expect(existsSync(proxyDir!), "TURN_EGRESS_PROXY_REMOVED_AT_TURN_END").toBe(false);
-  } finally { storage.mockRestore(); refusal.mockRestore(); host.close(); origin.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally { storage.mockRestore(); refusal.mockRestore(); host.close(); origin.stop(true); await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

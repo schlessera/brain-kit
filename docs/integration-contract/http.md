@@ -285,6 +285,121 @@ that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
 
+**Durable session safety collection (breaking before 1.0, #3600).**
+The version 1 governance taint payload optionally adds strict host occurrence
+metadata; the source enum adds `legacy_unknown`. Every input/output/path/mark
+signal is independent, including later signals from the same source. Exact
+host-key retries deduplicate; changed identity/payload retries refuse. Admission
+records `trusted: false`, the admitted policy hash (or `null`) and trust revision
+`"0"`. Runtime source trust remains disabled. Verified proxy provenance records
+only the actual web origin or opaque tunnel authority; worker tool arguments
+never establish transport or repository provenance. The proxy's optional
+`connectionId` relates its admission and receipt, without guessing a tool call.
+
+An immutable occurrence starts open. The separate `taint_exposure` event records
+host-proven bounded HTTP/tool delivery completion, or interrupted/unknown
+completion. Each external result segment and later connection has independent
+evidence. A CONNECT close or shell completion cannot prove bounded input ended.
+Claude pre/post hooks and the Pi worker's awaited result RPC commit detection
+before execution/result delivery. The host provider relay also refuses
+unsettled/failed recording, independently of runtime hook cancellation, and
+rechecks recording health and cancellation after awaiting budget admission.
+Shared recording loss in another turn therefore fences the pending dispatch.
+Claude reserves resumed input synchronously so immediate follow-ups remain
+accepted while collector readiness is pending. Readiness must complete before
+worker or SDK startup; failure releases the input reservation for retry.
+Unsupported or metadata-free collectors retain
+an incomplete epoch. The version 1 detector manifest explicitly excludes
+proxied-shell local file reads and opaque tunnel inner protocols.
+
+Pi's outer Agent hooks collect curated tool results before continuation.
+Managed workers refuse all loaded external extensions and extension loading
+errors before session creation, and recheck the live loader/runner before Agent
+provider dispatch. No extension path, name or package identity is exempt. This
+includes web/MCP/subagent extensions and handlers registered during execution:
+live result/message mutation and independent custom-message injection make a
+handler blacklist insufficient. No arbitrary extension delivery is qualified.
+
+Refusal awaits the existing optional internal
+`BackendBridge.inputSafety.unavailable()` notice and stops the worker. The host
+owns durable failure retention; callback rejection alone cannot establish it.
+Startup collector loss uses a typed one-way worker error, without awaiting an
+RPC answer behind initialization. The host awaits its loss notice before
+acquisition settles; only successful initialization acknowledges the detector
+epoch. Ordinary cancellation, busy-session and caller refusals preserve their
+existing outcomes and do not fail recording across the app. A
+refused configuration must retain incomplete coverage through recovery. The
+notice cannot grant authority or clear evidence, and transformed history is
+never rewritten to recover coverage.
+
+Failure to commit a collector-loss notice retains a bounded connection-local
+loss marker and immediately refuses new collection/provider dispatch through
+every facade. Producer completion must durably retain that loss before sealing
+the epoch; failure leaves it open for restart classification. Explicit recovery
+commits affected historical gaps before clearing local state, even if the
+original notice rolled back. Unknown/capacity-overflow loss correlation retains
+conservative gaps for all epochs.
+
+No external extension receives nested `ctx.executeTool()` access; curated tools
+contain no nested calls. The prior inline nested gate is removed, and no nested
+execution capability is advertised. Managed workers pin the installed
+`SettingsManager.getCacheWarmingMode()` method to `off`, including across
+settings reloads and mode writes. This disables the installed CacheWarmer's
+separate direct `ModelRuntime.streamSimple()` dispatch, which the Agent stream
+fence does not wrap. Both provider-history guards and supported-host/selected
+hosted proof remain required qualification; focused in-memory SQLite loopback
+captures are not FULL write-worker/restart or namespace proof.
+Search paths and explicit marks remain independent signals when the same line
+also indicates truncation or contains ordinary excerpt words such as omitted.
+
+The host retains an independent durable ledger, decimal uint64 revision,
+once-only provisional-to-SessionKey binding and bounded coverage epochs. Every
+pre-upgrade session is incomplete, including those with no old taint row; an
+old row migrates as one known occurrence. Imported/discovered histories remain
+unknown, including provisional owners discovered after migration. Canonical
+aliases and actual history generations bind that evidence, including when
+the catalog announcement precedes retained-dialogue adoption. A later typed
+dialogue reuses the already-bound host owner; neither opening nor resuming it
+rewrites the original binding. Resumes/backend
+changes retain prior epochs, and forks inherit
+unresolved evidence and unknown coverage only on their first unresumed turn.
+Queued continuations retain that snapshot without recopying source evidence or
+importing later source activity. Actual catalog creator, principal,
+history owner, aliases and generation govern binding. Retired session/owner/turn
+identities refuse late callbacks even after private detail is removed.
+
+Effective admission is restricted for any unresolved occurrence, incomplete or
+unknown coverage, pending recording, failure or exhausted capacity. Only a
+proven new session with acknowledged mandatory collectors and zero unresolved
+records can be normal. This deliberately changes the former no-row-means-clean
+G6 default under the [dated ruling](../decisions/session-safety-reviews.md).
+Existing provider history remains byte-identical. No review/clearing route,
+verdict writer, trust enforcement or safety capability is enabled; the reviewed
+public safety-history DTOs remain prospective. Older clients continue under host
+restrictions without new mutation controls.
+
+The ledger enforces the design's 8192-byte occurrence, 100000-row/67108864-byte
+session and 1000000-row/536870912-byte brain ceilings, counting reserved verdict
+and terminal slots. Durable pending ceilings are 256 rows/1048576 bytes per
+session and 4096 rows/16777216 bytes per brain, shared across writers. Unbound
+collection is capped at 1024 bindings/8388608 bytes, with 128 epochs per session.
+Collection metadata and permanent retirement-fence capacity are reserved too.
+Catalog and collection admission atomically include all outstanding durable row
+and byte reservations in the same ceilings. Binding unbound collections also
+atomically checks their combined pending count and serialized pending bytes.
+Before accepting input, failure/capacity restrictions use preallocated durable
+emergency cells. Outstanding terminal evidence uses its existing reserve.
+Restart retains pending failure and unknown exposure; explicit internal recovery
+requires stopped producers, settled connection-local writes and available
+capacity. Only a committed recovery clears the shared local failure latch;
+existing and new facades retain historical gaps and unresolved evidence. Ended
+failure facts remain in epoch coverage but, after that recovery, no longer
+represent an active outage preventing a new restricted turn on that session.
+Detail pruning preserves IDs, counts and compact audit/reserved capacity;
+unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
+wrap. These foundations supply the later verdict slice's projection without
+publishing a mutation surface.
+
 <a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
 
 **Shell taint behind the egress proxy (breaking before 1.0, #3429).** On a

@@ -57,7 +57,7 @@ const code = (output: string) => { try { return JSON.parse(output).code; } catch
 const writerLaunches = (r: any) => r.receipt.spawned.filter((s: any) => s.worker && !s.hostProbe);
 function attacks(r: any) {
   const texts = r.receipt.toolResults.flatMap((t: any) => {
-    // pi's custom extension tool nests the attack's stdout in its JSON result.
+    // Reports may be nested in a runtime tool result.
     try { const nested = JSON.parse(t.output).attack; if (typeof nested === "string") return [t.output, nested]; } catch { /* plain text */ }
     return [t.output];
   });
@@ -65,13 +65,13 @@ function attacks(r: any) {
   expect(found.length, "the in-worker descriptor, mapping and /proc probe ran").toBe(adapter(r) === "pi" ? 2 : 1);
   return found;
 }
-const adapter = (r: any) => r.receipt.issued.some((c: any) => c.name === "probe_worker") ? "pi" : "claude";
+const adapter = (r: any) => r.receipt.adapter;
 
-/** Case 1: project MCP/hooks (Claude) and extension factories (pi) run before any tool event. */
+/** Claude pre-tool executors and the supported Pi curated shell executor. */
 function executorsHeld(r: any, adapter: "claude" | "pi"): void {
-  const sources = adapter === "claude" ? ["hook", "mcp"] : ["extension-factory"];
+  const sources = adapter === "claude" ? ["hook", "mcp"] : ["curated-bash"];
   const witnesses = r.receipt.witnesses.filter((w: any) => sources.includes(w.source));
-  expect(witnesses.map((w: any) => w.source).sort(), "each pre-tool executor actually ran in the worker").toEqual(sources);
+  expect(witnesses.map((w: any) => w.source).sort(), "each supported executor actually ran in the worker").toEqual(sources);
   for (const w of witnesses) {
     expect(w.results.length).toBeGreaterThan(30);
     expect(w.results.filter((x: any) => x.ok), `${w.source} could not change a policy alias`).toEqual([]);
@@ -125,7 +125,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
       for (const t of a.attempts.filter((t: any) => /^\/proc\/\d{4,}\//.test(t.target))) expect(t.error).toBe("ENOENT");
     }
 
-    // Case 1: executors that start before any tool event.
+    // Case 1: pre-tool executors where supported, otherwise curated bash.
     executorsHeld(r, adapter);
 
     // Case 7: shell, indirect and nested scripts, relative/symlink/alias paths
@@ -152,10 +152,9 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
       expect(sub[0]!.result.output).toContain("Read-only file system");
     } else {
       expect(r.receipt.unavailable).toEqual([]);
-      const custom = JSON.parse(calls(r, "probe_worker")[0]!.result.output);
-      expect(custom.custom.results.length).toBeGreaterThan(30);
-      expect(custom.custom.results.filter((x: any) => x.ok), "extension custom tool cannot change policy").toEqual([]);
-      expect(custom.factory.source).toBe("extension-factory");
+      // Arbitrary filesystem operations still run in the real worker via
+      // curated bash, including the writable-area alias controls above.
+      expect(calls(r, "bash").filter(c => c.input.command.includes("attack.py"))).toHaveLength(2);
     }
 
     // Cases 5 and 7: routed writes through the server application, including
@@ -181,6 +180,20 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
     expect(calls(r, route("ask_user"))[0]!.result.isError).toBe(false);
     expect(r.receipt.askRequests, "the ask-user answer naming policy is a value, not an effect").toBe(1);
     passed.push(`${adapter}:interactive`);
+  }, TIMEOUT);
+
+  if (adapter === "pi") test("external extension configuration refuses before inference or application effects", async () => {
+    const r = await probe(adapter, "external-extension");
+    policyHeld(r, []);
+    expect(r.after.target).toBe(TARGET);
+    expect(r.receipt.calls).toBe(0);
+    expect(r.receipt.parentPiStateUnchanged, "PI_EXTERNAL_CONFIGURATION_PRESERVES_PARENT_STATE").toBe(true);
+    expect(r.receipt.issued).toEqual([]);
+    expect(r.receipt.applications).toEqual([]);
+    expect(r.receipt.maskRequests).toBe(0);
+    expect(r.receipt.askRequests).toBe(0);
+    expect(r.receipt.frames.some((f: any) => f.type === "error" && f.message.includes("Pi input collection is not qualified"))).toBe(true);
+    passed.push("pi:external-extension");
   }, TIMEOUT);
 
   test("race: topology and alias swaps between route validation and commit refuse; a permitted edit still lands", async () => {
