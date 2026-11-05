@@ -1013,6 +1013,9 @@ the token nor the ledger. A run is refused as `accounting_unavailable`
 attribute its liability. A turn's cancellation, timeout or budget stop aborts
 the runs it started.
 
+Availability and approval-list tools advertise read-only MCP annotations;
+revoking an Actor approval advertises a mutation.
+
 Three additive tools complete the fixed roster in #3580:
 `brain_apify_availability` accepts `{ actor_id? }`, `brain_apify_approvals`
 accepts `{}`, and `brain_apify_revoke` accepts `{ actor_id }`. Actor ids are

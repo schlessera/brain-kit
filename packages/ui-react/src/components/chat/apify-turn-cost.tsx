@@ -44,9 +44,9 @@ export function ApifyTurnNotice({ state }: { state: ReturnType<typeof useApifyTu
   const bound = runs.reduce((sum, run) => sum + run.liability_usd, 0);
   const unconfirmed = runs.some(run => run.abort !== null || run.state === "aborting");
   const unknown = runs.some(run => run.remote_outcome_unknown);
-  const text = unconfirmed ? `Stopped here. Apify hasn't confirmed the run stopped. Up to ${usd(bound)} may be charged.`
-    : unknown ? `Apify hasn't confirmed whether a run started. Up to ${usd(bound)} stays reserved until it reports.`
-    : `${runs.length} Apify ${runs.length === 1 ? "run isn't" : "runs aren't"} settled yet. Up to ${usd(bound)} may be charged.`;
+  const text = unconfirmed ? `Stopped here. Apify hasn't confirmed the run stopped. ${usd(bound)} is held as an estimate; final charges may differ.`
+    : unknown ? `Apify hasn't confirmed whether a run started. ${usd(bound)} stays reserved as an estimate until it reports.`
+    : `${runs.length} Apify ${runs.length === 1 ? "run isn't" : "runs aren't"} settled yet. ${usd(bound)} is held as an estimate; final charges may differ.`;
   return <div className="mt-2 min-w-0 space-y-2" data-apify-turn-notice role="status">
     <Callout tone="gold" text={text} />
     <div className="flex flex-wrap gap-2">
@@ -64,7 +64,7 @@ export function ApifyTurnCost({ state }: { state: ReturnType<typeof useApifyTurn
     <h3 className="font-medium">Apify</h3>
     {share.state === "unknown"
       ? <p>Apify spend: unknown. The Apify ledger couldn't be read for this receipt, so its spend isn't counted here, and it isn't $0.</p>
-      : <p>Admitted Apify liability this turn: up to {usd(share.apifyUsd)}. It counts against the budgets above as dollars, never as tokens. Model inference: {share.inferenceUsd === null ? "price unknown" : `${usd(share.inferenceUsd)} observed lower bound`}.</p>}
+      : <p>Estimated Apify liability this turn: {usd(share.apifyUsd)}; final charges may differ. It counts against the budgets above as dollars, never as tokens. Model inference: {share.inferenceUsd === null ? "price unknown" : `${usd(share.inferenceUsd)} observed lower bound`}.</p>}
     {read?.spend.turn && <p>Now: {scopeSummary(read.spend.turn)}.</p>}
     {read?.spend.ledger === "unavailable" && <p>Now: unknown. The Apify ledger couldn't be read.</p>}
     {!!read?.spend.unresolved.length && <ul className="grid gap-1">{read.spend.unresolved.map(run => {

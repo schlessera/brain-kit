@@ -80,6 +80,9 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "brain_apify_availability",
+      "brain_apify_approvals",
+      "brain_apify_revoke",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -89,7 +92,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
+    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
     "mcpServers": [
       "brain-ui"
     ],
@@ -255,6 +258,9 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "brain_apify_availability",
+      "brain_apify_approvals",
+      "brain_apify_revoke",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -264,7 +270,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
+    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
     "mcpServers": [
       "brain-ui"
     ],
@@ -417,6 +423,9 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "brain_apify_availability",
+      "brain_apify_approvals",
+      "brain_apify_revoke",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -426,7 +435,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
+    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
     "mcpServers": [
       "brain-ui"
     ],
@@ -601,6 +610,9 @@
       "brain_apify_status",
       "brain_apify_results",
       "brain_apify_abort",
+      "brain_apify_availability",
+      "brain_apify_approvals",
+      "brain_apify_revoke",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -610,7 +622,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "fc912b57090cc486300c7541025e23e62bdfeb239bfe68d865fdc70eede3454e",
+    "toolSchemasSha256": "659fb27dfb6765f1b917c1006825ac5208b643ec9b1ccfd74eefc35b6fa477a4",
     "mcpServers": [
       "brain-ui"
     ],

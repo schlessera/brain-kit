@@ -147,7 +147,7 @@ export function ApifyResult({ tool }: { tool: ToolCallView }) {
     const abort = typeof data.abort === "string" ? data.abort : null;
     const unknown = data.remote_outcome_unknown === true;
     const note = unknown ? "Apify hasn't confirmed whether this run started. Its reservation is kept until Apify reports."
-      : abort === "unresolved" ? "Abort sent but not confirmed. Up to the reservation may still be charged."
+      : abort === "unresolved" ? "Abort sent but not confirmed. The reservation remains held as an estimate; final charges may differ."
       : abort === "requested" ? "Abort sent · not confirmed yet."
       : abort === "confirmed" ? "Apify confirmed the abort. Charges settle from Apify's report, not from the abort."
       : `Run ${String(data.state).replaceAll("_", " ")}.`;

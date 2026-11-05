@@ -11,6 +11,8 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * (418b037ae, after #3103 added the compute tools) when that landed, and the
  * split tree still matches it byte for byte. #3154 re-recorded it with this helper for one reviewed
  * change: `read_attachment` joins the stable roster of every mode, and nothing else moves.
+ * #3580 re-records the fixed Apify roster with availability/approvals/revoke
+ * and the reviewed Actor-approval guidance.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */
