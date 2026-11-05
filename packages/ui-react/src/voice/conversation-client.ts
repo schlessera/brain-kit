@@ -127,6 +127,23 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   let agreedEntry: number | undefined;
   let draftId: string | null = null;
   let savedVoice = "";
+  // Volatile presentation evidence, never tasks or provider input. Keep a
+  // bounded set of origins while projecting only the selected chat's count.
+  const unassignedWorkOwners: { conversationId: string; sessionId: string | null; draftId: string | null; count: number }[] = [];
+  function refreshUnassignedWork() {
+    const selected = root.stores.chat.getState().activeSessionId;
+    const drafts = root.stores.drafts.getState();
+    const count = unassignedWorkOwners.reduce((sum, owner) => sum + (owner.sessionId === selected
+      && (selected !== null || owner.draftId !== null && drafts.resolveId(owner.draftId) === drafts.resolveId(drafts.fresh)) ? owner.count : 0), 0);
+    if (state.getState().unassignedWork !== count) state.setState({ unassignedWork: count });
+  }
+  function moveUnassignedWork(from: string | null, to: string, conversationId?: string, sourceDraftId = draftId) {
+    const drafts = root.stores.drafts.getState();
+    for (const owner of unassignedWorkOwners) if (owner.sessionId === from
+      && (!conversationId || owner.conversationId === conversationId)
+      && (from !== null || owner.draftId !== null && sourceDraftId !== null && drafts.resolveId(owner.draftId) === drafts.resolveId(sourceDraftId))) owner.sessionId = to;
+    refreshUnassignedWork();
+  }
   let mic: ReturnType<typeof openConversationMicrophone> | undefined;
   let sequence = 0;
   let utterance: string | null = null;
@@ -378,9 +395,10 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     fragments.clear(); lastInput = undefined; utterance = null;
     state.setState(s => ({ active: false, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.unsaved || f.finalization !== "interim") }));
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
-    if (retainedOwner && !state.getState().sessionId) {
+    if (retainedOwner && leaving && !state.getState().sessionId) {
       const key = `dialogue:${retainedOwner}`;
       root.stores.chat.getState().setHistoryOwner(key, retainedOwner);
+      moveUnassignedWork(null, key, leaving.conversationId);
       // This is the existing host-only UI target, never a backend session.
       // Move this source's volatile evidence with its owner before selection;
       // a later missing-native-history error must not orphan its unsaved tail.
@@ -520,6 +538,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       || s.sessionId !== null && !historyOwnerFor(s.sessionId) || root.stores.chat.getState().activeSessionId !== s.sessionId) return;
     const provisionalKey = s.sessionId;
     const priorPage = provisionalKey ? s.dialogue[provisionalKey] : undefined;
+    moveUnassignedWork(provisionalKey, sessionId, work.conversationId);
     state.setState({ sessionId, ...(priorPage ? {dialogue:{...Object.fromEntries(Object.entries(s.dialogue).filter(([key])=>key!==provisionalKey)),[sessionId]:{...priorPage,sessionId}}} : {}),
       recognition: s.recognition.map(f => f.conversationId === work.conversationId && f.sessionId === null ? { ...f, sessionId } : f),
       outputs: s.outputs.map(o => o.conversationId === work.conversationId && o.sessionId === null ? outputInSession(o, sessionId) : o),
@@ -531,6 +550,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   /** Principal/auth boundaries drop all volatile evidence and old callback identities. */
   function clearPrivateDialogue() {
+    unassignedWorkOwners.length = 0;
     entryLifetime++; generation++; consent=false; ready=false; requested=false; openingId=undefined;
     // Retire the source before cutting playback: no old identity is sent on a new principal socket.
     state.setState({active:false,profile:null});
@@ -601,6 +621,13 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         const entries = Object.entries({...current.dialogue,[key]:page}).filter(([k,p])=>k===key || (k!==read?.key && p.ownerId!==message.ownerId)).slice(-8);
         return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: unsavedOverflow ? current.dialogueNotice : message.coverage === "partial" ? "Voice history may be incomplete." : ""};
       });
+      const retained = state.getState().dialogue[key];
+      if (message.sessionId && retained?.ownerId === message.ownerId && retained.generation === message.generation
+        && (!read || historyOwnerFor(read.key) === message.ownerId)) {
+        for (const from of new Set(unassignedWorkOwners.map(owner => owner.sessionId))) {
+          if (from && historyOwnerFor(from) === message.ownerId) moveUnassignedWork(from, message.sessionId);
+        }
+      }
       if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
       return null;
     }
@@ -644,6 +671,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const request = requests.get(message.requestId)!;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
       if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
+        moveUnassignedWork(request.sessionId, message.sessionId, request.conversationId, request.composerDraftId);
         state.setState({ sessionId: message.sessionId, recognition: state.getState().recognition.map(f => f.conversationId === request.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId } : f), outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;
@@ -776,7 +804,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       return null;
     }
     if (event.kind === "unassigned_delegation") {
-      state.setState({ unassignedWork: state.getState().unassignedWork + 1 }); return null;
+      const ownerDraft = s.sessionId === null ? root.stores.drafts.getState().resolveId(draftId ?? root.stores.drafts.getState().fresh) : null;
+      const owner = unassignedWorkOwners.find(item => item.conversationId === p.conversationId && item.sessionId === s.sessionId && item.draftId === ownerDraft);
+      if (owner) owner.count++;
+      else unassignedWorkOwners.push({ conversationId: p.conversationId, sessionId: s.sessionId, draftId: ownerDraft, count: 1 });
+      while (unassignedWorkOwners.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance) unassignedWorkOwners.shift();
+      refreshUnassignedWork(); return null;
     }
     if (event.kind === "input_fragment") {
       if (!capturedInputs.has(event.utteranceId) || retiredInputs.has(event.utteranceId)) return null;
@@ -834,10 +867,13 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     return null;
   }
   const unwatchChat = root.stores.chat.subscribe((next, previous) => {
-    if (!state.getState().active) return;
-    if (next.activeSessionId !== previous.activeSessionId && next.activeSessionId !== state.getState().sessionId) leave();
-    else refresh();
+    if (state.getState().active) {
+      if (next.activeSessionId !== previous.activeSessionId && next.activeSessionId !== state.getState().sessionId) leave();
+      else refresh();
+    }
+    if (next.activeSessionId !== previous.activeSessionId) refreshUnassignedWork();
   });
+  const unwatchDrafts = root.stores.drafts.subscribe(refreshUnassignedWork);
   const unwatchProvider = root.stores.provider.subscribe(() => { requireCurrentDisclosure(); });
   const unwatchConnection = root.stores.connection.subscribe((next, previous) => {
     if(next.wsStatus !== previous.wsStatus && next.wsStatus !== "connected") {dialogueReads.clear(); state.setState({conversationProfile:null,available:false});}
@@ -928,6 +964,6 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       refresh();
     },
     stopReply, leave,
-    dispose() { leave(); disposed = true; unwatchChat(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); },
+    dispose() { leave(); disposed = true; unwatchChat(); unwatchDrafts(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); unassignedWorkOwners.length = 0; },
   };
 }

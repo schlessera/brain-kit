@@ -244,6 +244,12 @@ produce the unsent-fragment notice or move into composer review. Recent context
 and retained review have independent finite bounds. Moving recognition is not
 submission or resolution of work requested without an input association, so
 that separate notice remains truthful.
+Unknown-work notices stay with their originating chat or fresh-draft identity,
+including retained-dialogue and admitted-session adoption; reviewing text does
+not resolve them or transfer them to another chat. Their volatile origin
+metadata retains at most 128 entries and is cleared at principal/auth
+boundaries. The public count projects the selected chat only, without adding
+provider input, task admission or durable work state.
 
 Source verification on October 28 used the installed OpenAI Live v1
 `DelegationCreatedEvent`, `ThinkingAppendEvent`, `CommentaryAppendEvent` and
