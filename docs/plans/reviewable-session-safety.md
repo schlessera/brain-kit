@@ -190,6 +190,18 @@ and credential grant. Test protocol v2, URL-rewrite precedence, push URLs,
 configuration overrides and revocation during parallel requests. If that candidate cannot enforce the boundary,
 use an explicit managed operation rather than a hostname exemption.
 
+The delivered [Git qualification](../../experiments/git-read-qualification.md)
+selects explicit managed acquisition: the endpoint-only relay admitted an
+unauthorized PR ref. Transparent rewriting remains unsupported for trust.
+The maintainer's [metadata ruling](../decisions/session-safety-reviews.md#live-enforcement-and-independent-controls)
+permits a fixed host-owned GitHub API metadata path with a live repository grant
+and separate credential-recipient checks. Existing github.com authority does
+not implicitly cover api.github.com. Recheck principal/grant/recipient authority
+after waits before dispatch/publication; keep public metadata anonymous and
+unknown/stale/mismatched identity restrictive. Metadata bytes, retries and
+cancellation count toward acquisition limits. This design choice exposes no
+generic relay or worker-chosen credential request and still needs production proof.
+
 Private access continues to require the existing principal/credential grant;
 trust is never permission to acquire a private repository. SSH, LFS, submodules,
 redirects, custom helpers and fork/PR refs require independently proven provenance

@@ -128,6 +128,18 @@ mutable worktree lineage is insufficient. A bounded qualification may choose
 explicit managed acquisition instead of transparent Git interception. Individual
 recovery and origin Settings need not wait for repository transparency.
 
+**Metadata authority ruling, 2026-11-05:** the maintainer selected a fixed
+host-owned GitHub API metadata path for private repository identity in
+[#3613](https://github.com/schlessera/brain-kit/issues/3613#issuecomment-6656692128).
+It requires a live repository grant and separate credential-recipient checks;
+an existing github.com credential grant does not implicitly authorize
+api.github.com. Bind the operation to the canonical repository, brain and live
+principal, recheck after waits before dispatch/publication, and include metadata
+bytes/retries/cancellation in acquisition limits. No worker-selected URL,
+generic authenticated relay or credential probing is authorized. Public metadata
+remains anonymous; unknown, stale or mismatched identity supplies no trust.
+This permits the bounded implementation, not an unqualified runtime exemption.
+
 ## Provider history and versioning
 
 [Provider history](provider-history.md) stays byte-identical as a prefix: no
