@@ -4839,3 +4839,22 @@ host-side. Progress append acknowledgements cannot settle the existing result
 acknowledgement promise. Reviewed-only tasks keep their existing admission and
 result behavior. The [wire/disclosure amendment](wire.md#live-orientation-disclosure-and-progress-additive-3623)
 adds no frame, revision or client permission grant.
+
+## Observed live content map (additive, 0.45.0, #3630)
+
+`ConversationOrientation.knowledge[].topic` gains `content_map`. It carries
+source-labeled **OBSERVED partial** directory-index purpose/summary leads as
+data, never effective runtime taxonomy, user instruction or authority. All
+existing topics and optional opening semantics remain. First-party startup
+enumerates/reads a bounded root/top-level sample under the same held root as
+provider policy; invalid/restrictive policy, detected root substitution or
+authorization loss withholds new repository knowledge. TypeScript config is
+never executed and does not disable the observed map. Unsupported anchored
+enumeration is an explicit gap. The map precedes supplemental knowledge;
+whole selected guidance still wins aggregate pressure. The 3,200-byte
+orientation and shared total startup ceilings remain unchanged. Exact source,
+count, byte and omission limits are in
+[the guidance reference](../live-conversation-guidance.md). Both profiles
+[disclose the additional data](wire.md#observed-content-map-disclosure-additive-3630)
+before Start; this adds no execution seam or startup host task. This is an
+additive minor SDK change, without a model-obedience or acoustic guarantee.

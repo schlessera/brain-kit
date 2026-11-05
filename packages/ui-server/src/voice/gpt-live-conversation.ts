@@ -41,7 +41,7 @@ export function createGptLiveConversationProvider(apiKey: string): LiveConversat
       voiceService: "OpenAI Live API v1, gpt-live-1, marin",
       destinations: ["Microphone audio and transcripts go through this host to OpenAI GPT-Live.",
         "Prior chat text, recognized/generated discussion and completed results go to OpenAI GPT-Live, including after switching voice services. store:false is not a zero-retention promise.",
-        "At Start, selected brain/user guidance, domain names and bounded identity/current-focus context go to OpenAI GPT-Live. Missing or withheld sources stay with the host.",
+        "At Start, selected brain/user guidance, domain names, a bounded observed partial content map and identity/current-focus context go to OpenAI GPT-Live. Missing or withheld sources stay with the host.",
         "Conversation tasks use the independently configured host agent backend and its ordinary permissions."],
     },
     open: (scope, options) => openGptLive(apiKey, scope, options),

@@ -6954,7 +6954,7 @@ signatures (every public export and the types it is made of)
         guidance: readonly ConversationGuidance[];
         knowledge: readonly {
             source: string;
-            topic: "identity" | "current_focus" | "domains";
+            topic: "identity" | "current_focus" | "domains" | "content_map";
             text: string;
         }[];
         unavailable: readonly string[];

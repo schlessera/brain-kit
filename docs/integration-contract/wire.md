@@ -2845,3 +2845,16 @@ explanation. A send/append is not a spoken acknowledgement or playback
 receipt. Screen-only approvals, stale-result suppression and no replay remain
 unchanged. [The guidance reference](../live-conversation-guidance.md) separates
 transport proof from real-model judgment and listening qualification.
+
+### Observed content map disclosure (additive, #3630)
+
+Both first-party Start profiles additionally name a bounded **observed partial
+content map** from existing directory indexes. The exact disclosed-profile
+check still precedes enumeration, reads, epoch replacement and provider open;
+an earlier profile cannot silently admit this transfer. The optional SDK
+[`content_map` knowledge topic](package-api.md#observed-live-content-map-additive-0450-3630)
+adds no wire field, frame, revision, authority or automatic work. Existing
+capture consent, task identities, ordinary screen approvals, append-only
+history and no replay remain. Exact accepted-task progress asks for one brief
+task-specific acknowledgement; running still means host admission, and does
+not renew the acknowledgement or establish backend/tool entry.

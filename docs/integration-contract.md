@@ -20,6 +20,18 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Observed live content map (additive, 0.45.0, #3630)
+
+`ConversationOrientation.knowledge[].topic` additionally accepts `content_map`:
+an observed, explicitly partial map of existing root/top-level directory index
+leads, never runtime taxonomy or instruction authority. Both first-party
+profiles disclose this transfer at Start. Existing policy-held root anchoring,
+authorization, whole-policy omission and startup byte ceilings apply. There is
+no new frame, provider seam, automatic task or repository-config execution.
+See [the package API](integration-contract/package-api.md#observed-live-content-map-additive-0450-3630),
+[the disclosure amendment](integration-contract/wire.md#observed-content-map-disclosure-additive-3630)
+and [source mapping and bounds](live-conversation-guidance.md). This ships in a minor.
+
 ## Refusals say why (additive, #3431)
 
 A relayed provider request refused by the CLI provider relay keeps its `403`

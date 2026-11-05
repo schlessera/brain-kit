@@ -25,6 +25,31 @@ no-replay fences remain in force. The
 [additive contract](../integration-contract/package-api.md#live-brain-orientation-and-task-status-additive-3623)
 does not qualify the separate #3131/#961 real-provider/device behavior.
 
+## Proactive discovery and observed index map — 2026-11-05 (#3630)
+
+The missing-context guidance above is refined: routine requested retrieval and
+repository discovery go to the host without asking the caller to supply paths
+or confirm the lookup again. Configurable taxonomy and per-directory
+`_index.md` purpose/registry navigation guide ordinary host exploration. Real
+semantic/recognition ambiguity, missing capture consent and required effects
+or permissions retain their clarification and screen-control boundaries.
+Each exact accepted task gets one brief acknowledgement naming its pending
+work; running does not renew it or establish backend/tool entry.
+
+Startup additionally supplies an **OBSERVED partial content map** from existing
+root/top-level index leads, as data rather than effective runtime taxonomy.
+TypeScript config presence cannot suppress the map, and nothing evaluates
+config/imports/skills or automatically starts host work. Enumeration and reads
+must share the existing policy-held root descriptor: listing a mutable root
+path under another root's policy could disclose replacement directory names
+even when later source reads are anchored. Platforms without anchored
+enumeration withhold this supplemental map. Policy, authorization and root
+identity changes preserve the existing withholding boundary. Bounded source
+selection and whole-row omissions retain the 3,200-byte orientation and total
+startup ceilings; whole selected guidance keeps priority. Limits and source
+mapping remain in [the guidance reference](../live-conversation-guidance.md).
+This is source/serialization proof, not model obedience or listening proof.
+
 ## Selected architecture — 2026-10-04
 
 2026-10-04. The maintainer's [October 3 ruling on #317](https://github.com/schlessera/brain-kit/issues/317#issuecomment-5973820627)
