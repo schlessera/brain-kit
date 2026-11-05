@@ -187,9 +187,26 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   GovernancePolicyReadError
   type GovernancePolicyReadRefusal
   GovernancePolicySchema
+  TRUST_LIMITS
+  TRUST_RUNTIME_CAPABILITIES
+  type TrustAdmission
+  type TrustMatch
+  type TrustProvenance
+  TrustProvenanceSchema
+  type TrustRule
+  TrustRuleSchema
+  type TrustSelector
+  TrustSelectorSchema
+  type TrustVerification
+  TrustedSourcesSchema
+  canonicalTrustHost
   checkGovernancePolicy
+  matchTrustRules
   openGovernancePolicyAnchored
   parseGovernancePolicy
+  parseTrustGithub
+  parseTrustOrigin
+  parseTrustTunnel
   providerAllows
   resolveGovernancePolicy
   verifyGovernancePolicyAnchored
