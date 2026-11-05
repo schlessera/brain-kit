@@ -315,7 +315,13 @@ delivery too. Configurations with `message_end`, `context`, `context_with_system
 unqualified: these handlers can replace or inject provider input outside that
 collector. A live check before each provider request refuses dispatch, including
 handlers registered during a tool call, and first persists collector failure.
-That epoch remains incomplete after explicit recording recovery. No transformed
+Failure to commit a collector-loss notice retains a bounded connection-local
+loss marker and immediately refuses new collection/provider dispatch through
+every facade. Producer completion must durably retain that loss before sealing
+the epoch; failure leaves it open for restart classification. Explicit recovery
+commits affected historical gaps before clearing local state, even if the
+original notice rolled back. Unknown/capacity-overflow loss correlation retains
+conservative gaps for all epochs. That epoch remains incomplete after recovery. No transformed
 history is rewritten to recover coverage. The optional internal
 `BackendBridge.inputSafety.unavailable()` notice can only retain failure; it
 cannot grant authority or clear evidence.

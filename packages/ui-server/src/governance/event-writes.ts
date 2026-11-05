@@ -6,7 +6,7 @@
  * writes. An event the journal records inside its own transaction stays
  * there (`brain/journal-store.ts`).
  */
-import { safetyQueue } from "./safety-queue.js";
+import { retainSafetyLoss, safetyQueue } from "./safety-queue.js";
 import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite,
   ensureSafetyEventCollection, latchSafety, SafetyUnavailable, type SafetyCollectionInput, type SafetyProjection } from "./safety-store.js";
 import type { Database } from "bun:sqlite";
@@ -28,7 +28,12 @@ export function setup(db: Database): WriteProcedures {
     },
     safetyBegin: (input:SafetyCollectionInput) => { try{return beginSafetyCollection(db,input);}catch(error){if(!(error instanceof ChatRetiredError))latchSafety(db,input.turnId,"capacity");throw error;} },
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
-    safetyEnd: (turnId:string) => endSafetyCollection(db,turnId),
+    safetyEnd: (turnId:string,loss=false) => {
+      // Never seal an apparently complete epoch if its loss notice rolled
+      // back. A failed retry leaves it open for restart classification.
+      if(loss&&!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))latchSafety(db,turnId,"recording_failed");
+      endSafetyCollection(db,turnId);
+    },
     safetyFail: (turnId:string|null) => {if(!turnId||!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))latchSafety(db,turnId,"recording_failed");},
     safetyReserve: (row:GovernanceEventRow,id:string,bytes:number) => {
       try {const turnId=ensureSafetyEventCollection(db,row);reserveSafetyWrite(db,turnId,id,bytes,row.kind==="taint_exposure"?JSON.parse(row.payload).occurrenceId:undefined);}
@@ -85,6 +90,10 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     shared.inflight++;
     return invoke<T>(name,...args).finally(()=>{shared.inflight--;});
   };
+  const safetyFail=(turnId:string|null):Promise<void>=>{
+    if(!turnId||!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))retainSafetyLoss(db,turnId);
+    return call("safetyFail",turnId);
+  };
   const record = (input: GovernanceEventInput): Promise<{ id: number; recorded: boolean }> => {
     const row = governanceEventRow(input);
     if (input.kind !== "taint" && input.kind !== "taint_exposure") return call("record", row);
@@ -93,29 +102,28 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     const session = [...pendingTaints].filter(p => row.sessionId !== null ? p.sessionId === row.sessionId : p.turnId === row.turnId);
     if (pendingTaints.size >= 4096 || shared.bytes + bytes > 16777216 || session.length >= 256
       || session.reduce((sum, p) => sum + p.bytes, 0) + bytes > 1048576) {
-      shared.failed = true;
-      void call("safetyFail",row.turnId).catch(()=>{});
+      void safetyFail(row.turnId).catch(()=>{});
       throw new Error("Safety occurrence write capacity exceeded; ingestion must stop");
     }
     const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
     pendingTaints.add(pending); shared.bytes += bytes;
     const reservation=crypto.randomUUID();
     const stored = call<void>("safetyReserve",row,reservation,bytes).then(()=>call<{id:number;recorded:boolean}>("safetyCommit",row,reservation));
-    return stored.catch(error => { if((error as {code?:string})?.code!=="chat_retired")shared.failed = true; throw error; })
+    return stored.catch(error => { if((error as {code?:string})?.code!=="chat_retired")retainSafetyLoss(db,row.turnId); throw error; })
       .finally(() => { pendingTaints.delete(pending); shared.bytes -= bytes; });
   };
   return {
     record,
-    safetyBegin: input=>call("safetyBegin",input),
+    async safetyBegin(input){if(shared.failed)throw new SafetyUnavailable("Safety recording requires recovery");return call("safetyBegin",input);},
     safetyReady: (turnId,backendId,version)=>call("safetyReady",turnId,backendId,version),
-    safetyEnd: turnId=>call("safetyEnd",turnId),
-    safetyFail: turnId=>call("safetyFail",turnId),
+    safetyEnd: turnId=>call("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId)),
+    safetyFail,
     safety: (turnId,sessionId)=>{
       const projection=safetyProjection(db,turnId,sessionId);
       const local=[...pendingTaints].filter(p=>(turnId!==null&&p.turnId===turnId)||(sessionId!==null&&p.sessionId===sessionId)).length;
       if(local||shared.failed){projection.restriction="restricted";projection.pendingCount=Math.max(local,projection.pendingCount);
         if(local&&!projection.reasons.includes("recording_pending"))projection.reasons.push("recording_pending");
-        if(shared.failed&&!projection.reasons.includes("recording_failed"))projection.reasons.push("recording_failed");}
+        if(shared.failed){projection.coverage.state="incomplete";if(!projection.reasons.includes("recording_failed"))projection.reasons.push("recording_failed");}}
       return projection;
     },
     recordingAvailable(turnId,sessionId){

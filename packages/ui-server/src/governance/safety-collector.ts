@@ -13,7 +13,14 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  const marked=(path:string)=>isMarkedUntrusted(db,path);
  const hash=(value:string)=>new Bun.CryptoHasher("sha256").update(value).digest("hex");
  const assertLive=()=>{if(options.signal.aborted)throw new Error("Safety input collection cancelled");};
- const fail=async(error:unknown)=>{options.stop?.(error instanceof Error?error:new Error(String(error)));await writes.safetyFail(options.turnId).catch(()=>{});throw error;};
+ const fail=async(error:unknown)=>{
+  const failures=[error];
+  try{options.stop?.(error instanceof Error?error:new Error(String(error)));}catch(stop){failures.push(stop);}
+  try{await writes.safetyFail(options.turnId);}
+  catch(notice){throw new AggregateError([...failures,notice],`Safety input refused: ${String(error)}; failure notice could not commit`);}
+  if(failures.length>1)throw new AggregateError(failures,`Safety input refused: ${String(error)}`);
+  throw error;
+ };
  const tails=new Map<string,Promise<void>>();let queued=0;
  const serial=(id:string,work:()=>Promise<void>):Promise<void>=>{
   if(queued>=256)return fail(new Error("Safety collection queue capacity exceeded"));

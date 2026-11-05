@@ -351,10 +351,12 @@ export function recoverSafetyRecording(db:Database):void {
   if(totals.used_rows+totals.scope_rows>=SAFETY_LIMITS.brainRows||totals.used_bytes+totals.scope_bytes>=SAFETY_LIMITS.brainBytes)throw new SafetyUnavailable("Safety capacity must be recovered first");
   // Reservations on ended epochs could never have released input: the event
   // and reservation consumption commit together. Retain the historical gap.
+  if(local.unscopedLoss)db.query("UPDATE safety_collections SET gap=COALESCE(gap,'recording_failed_recovered')").run();
+  else for(const turnId of local.lostTurns)db.query("UPDATE safety_collections SET gap=COALESCE(gap,'recording_failed_recovered') WHERE turn_id=?").run(turnId);
   db.query("UPDATE safety_collections SET gap=COALESCE(gap,'recording_failed_recovered') WHERE id IN (SELECT collection_id FROM safety_pending) OR failure IS NOT NULL").run();
   db.query("DELETE FROM safety_pending").run();
   db.query("UPDATE safety_emergency_reserve SET padding=zeroblob(65536) WHERE singleton=1").run();
   db.query("UPDATE safety_meta SET failed=0,reason=NULL WHERE singleton=1").run();advance(db);
  }).immediate();
- local.failed=false;
+ local.failed=false;local.lostTurns.clear();local.unscopedLoss=false;
 }
