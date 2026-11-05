@@ -281,9 +281,15 @@ export interface ApifyAvailability {
   reason: string | null;
 }
 
+/** A remembered Actor can be inspected without searching the catalog again. */
+export interface ApifyApprovedCandidate extends ApifyActorApproval {
+  /** Session-scoped reference, or null while unavailable or beyond the reference bound. Not an execution grant. */
+  candidate: string | null;
+}
+
 export interface ApifyConsent {
   availability(context: ApifyCallContext, actor_id?: string): Promise<ApifyAvailability>;
-  approvals(context: ApifyCallContext): Promise<ApifyActorApproval[]>;
+  approvals(context: ApifyCallContext): Promise<ApifyApprovedCandidate[]>;
   revoke(context: ApifyCallContext, actor_id: string): Promise<void>;
   discover(context: ApifyCallContext, input: { query: string; limit?: number }): Promise<ApifyDiscoverResult>;
   inspect(context: ApifyCallContext, input: { candidate: string }): Promise<ApifyInspectResult>;
@@ -616,8 +622,14 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
   const transientApprovals = new Map<string, ApifyActorApproval>();
   const approvalScope = (context: ApifyCallContext, account_id: string) => ({ brain_id: options.brain_id ?? "local", principal_id: context.principal_id, account_id });
   const approvalKey = (context: ApifyCallContext, account_id: string, actor_id: string) => canonicalJson({ ...approvalScope(context, account_id), actor_id });
+  function approvedActors(context: ApifyCallContext, account_id: string): ApifyActorApproval[] {
+    if (options.ledger) return options.ledger().actorApprovals(approvalScope(context, account_id));
+    const scope = approvalScope(context, account_id);
+    return [...transientApprovals].filter(([key]) => Object.entries(scope).every(([k, v]) => JSON.parse(key)[k] === v))
+      .map(([, entry]) => entry).sort((a, b) => a.approved_at - b.approved_at || a.actor_id.localeCompare(b.actor_id));
+  }
   function remembered(context: ApifyCallContext, account_id: string, actor_id: string): boolean {
-    return options.ledger ? options.ledger().actorApprovals(approvalScope(context, account_id)).some(entry => entry.actor_id === actor_id)
+    return options.ledger ? approvedActors(context, account_id).some(entry => entry.actor_id === actor_id)
       : transientApprovals.has(approvalKey(context, account_id, actor_id));
   }
   function remember(context: ApifyCallContext, account_id: string, actor_id: string, actor: string, approved: boolean) {
@@ -675,11 +687,25 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       } catch { return { state: "unavailable", reason: "accounting_unavailable" }; }
     },
     async approvals(context) {
-      const { account } = await options.authority.status();
-      if (!account) return [];
-      if (options.ledger) return options.ledger().actorApprovals(approvalScope(context, account.id));
-      const prefix = { ...approvalScope(context, account.id) };
-      return [...transientApprovals].filter(([key]) => Object.entries(prefix).every(([k,v]) => JSON.parse(key)[k] === v)).map(([,entry]) => entry);
+      const status = await options.authority.status();
+      if (!status.account) return [];
+      let entries = approvedActors(context, status.account.id);
+      if (!entries.length) return [];
+      if (status.state !== "configured") return entries.map(entry => ({ ...entry, candidate: null }));
+      const { binding } = await options.authority.admit(context.signal ? { signal: context.signal } : {});
+      // Admission refreshes the account: never attach another account's remembered approvals.
+      entries = approvedActors(context, binding.account_id);
+      const fresh: Array<[string, Candidate]> = [];
+      const result = entries.map((entry, index) => {
+        // Keep every approval visible, but never return a reference this same list immediately evicts.
+        if (index < entries.length - APIFY_DISCOVERY_LIMITS.candidates_per_session) return { ...entry, candidate: null };
+        const candidate = reference();
+        fresh.push([candidate, { principal_id: context.principal_id, session_id: context.session_id, binding,
+          actor_id: entry.actor_id, actor: entry.actor, inspected: null }]);
+        return { ...entry, candidate };
+      });
+      state.addCandidates(fresh, context.session_id, APIFY_DISCOVERY_LIMITS.candidates_per_session);
+      return result;
     },
     async revoke(context, actor_id) {
       const { account } = await options.authority.status();

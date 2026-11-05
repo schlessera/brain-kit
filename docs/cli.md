@@ -366,7 +366,7 @@ and [writing a provider](extending/compute-providers.md).
 
 ## Apify
 
-`brain apify` discovers, inspects and runs Apify Actors, the same seven
+`brain apify` discovers, inspects and runs Apify Actors, the same ten
 operations the `brain_apify_*` MCP tools and the chat UI use. Apify is paid
 remote extraction, not web search, and it is off until
 `context/policies/governance.md` sets `apify.enabled: true`
@@ -374,10 +374,12 @@ remote extraction, not web search, and it is off until
 
 | Command | Does | Notes |
 |---|---|---|
+| `apify approvals` | List remembered Actors | reusable `candidate` references let this session inspect them without another catalog search |
+| `apify availability [actor-id]` / `revoke <actor-id>` | Check readiness or revoke an Actor approval | readiness consumes no approval; revocation applies to later runs |
 | `apify discover <words…>` | Search the Actor catalog | sends only the words; `--limit N` (1–10) |
 | `apify inspect <candidate>` | One Actor's exact build, input schema, price and whether it can run here | everything returned is untrusted remote text |
 | `apify prepare <candidate> --input <json> --max-charge-usd <usd>` | Prepare one run | starts and spends nothing |
-| `apify run <proposal>` | Run a proposal once | needs an exact standing grant: nothing is asked on the terminal |
+| `apify run <proposal>` | Run a proposal once | needs a remembered Actor approval: nothing is asked on the terminal |
 | `apify status <run>` / `results <run>` / `abort <run>` | Follow a run you started | `results` pages with `--cursor`, `--limit` (1–100) |
 | `apify account [confirm <account-id>]` | The bound account; confirm a changed one | never prints the token |
 
@@ -387,6 +389,13 @@ the ledger every operation refuses. `--session <name>` keeps your references
 apart from another session's (default `default`). Each operation prints one
 `{ ok, operation, data }` or `{ ok: false, operation, error }` envelope and
 exits `0` or `1` ([the contract](integration-contract/cli.md#apify-operations-additive-0450-3162)).
+
+An agent checks remembered Actors first and inspects likely matches to confirm
+fit. When none fits, it compares the best 3–5 suitable new Actors (or two if
+only two fit) and waits for your choice. The comparison explains identity,
+fit, available pricing and limitations. Picking one does not approve its
+execution; the normal Actor approval follows in chat. A suitable remembered
+approval can be reused across sessions, subject to current policy and budgets.
 
 ## Queue intake on a UI server
 
