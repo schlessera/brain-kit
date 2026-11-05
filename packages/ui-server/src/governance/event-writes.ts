@@ -7,6 +7,7 @@
  * there (`brain/journal-store.ts`).
  */
 import { retainSafetyLoss, safetyQueue } from "./safety-queue.js";
+import { prepareSafetyReview, commitSafetyReview, type SafetyReviewBody, type SafetyReviewer, type SafetyReviewReceipt } from "./safety-reviews.js";
 import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite,
   ensureSafetyEventCollection, latchSafety, SafetyUnavailable, type SafetyCollectionInput, type SafetyProjection } from "./safety-store.js";
 import type { Database } from "bun:sqlite";
@@ -23,6 +24,8 @@ export const url = import.meta.url;
 /** Worker side: every procedure is one of the synchronous writers, run on the write connection. */
 export function setup(db: Database): WriteProcedures {
   return {
+    safetyPrepareReview: (body:SafetyReviewBody,actor:SafetyReviewer,at:number) => prepareSafetyReview(db,body,actor,at),
+    safetyCommitReview: (id:string,body:SafetyReviewBody,actor:SafetyReviewer,at:number,pending:boolean) => commitSafetyReview(db,id,body,actor,at,pending),
     record: (row: GovernanceEventRow) => {
       try { return insertGovernanceEvent(db,row); } catch(error) { if(!(error instanceof ChatRetiredError)&&(row.kind==="taint"||row.kind==="taint_exposure"))latchSafety(db,row.turnId,error instanceof SafetyUnavailable?"capacity":"recording_failed"); throw error; }
     },
@@ -52,6 +55,9 @@ export function setup(db: Database): WriteProcedures {
 }
 
 export interface GovernanceWrites {
+  /** Host-only persistence; callers must establish live owner authority. No route or capability is enabled here. */
+  safetyPrepareReview(body:SafetyReviewBody,actor:SafetyReviewer):Promise<SafetyReviewReceipt>;
+  safetyCommitReview(id:string,body:SafetyReviewBody,actor:SafetyReviewer):Promise<SafetyReviewReceipt>;
   safetyBegin(input:SafetyCollectionInput):Promise<string>;
   safetyReady(turnId:string,backendId:string,version:number):Promise<void>;
   safetyEnd(turnId:string):Promise<void>;
@@ -70,8 +76,8 @@ export interface GovernanceWrites {
   /**
    * The session's first taint (G6) as admission must see it: the committed
    * one, else one submitted and not yet committed. A pending taint has no row
-   * id yet (`eventId` 0). Taint is sticky, so a taint that later fails to
-   * commit stops its turn rather than loosening anything.
+   * id yet (`eventId` 0). Only committed individual verdicts can resolve
+   * retained evidence; failed recording remains restrictive.
    */
   taint(turnId: string | null, sessionId: string | null): SessionTaint | null;
   /** Attaches a turn's session-less events to its session once its catalog row exists. */
@@ -114,6 +120,8 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
   };
   return {
     record,
+    safetyPrepareReview: (body,actor)=>call("safetyPrepareReview",body,actor,Date.now()),
+    safetyCommitReview: (id,body,actor)=>call("safetyCommitReview",id,body,actor,Date.now(),shared.failed||[...pendingTaints].some(p=>p.sessionId===body.session.sessionId)),
     async safetyBegin(input){if(shared.failed)throw new SafetyUnavailable("Safety recording requires recovery");return call("safetyBegin",input);},
     safetyReady: (turnId,backendId,version)=>call("safetyReady",turnId,backendId,version),
     safetyEnd: turnId=>call("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId)),

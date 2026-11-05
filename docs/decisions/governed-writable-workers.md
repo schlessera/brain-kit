@@ -3885,6 +3885,16 @@ authorizes this breaking-before-1.0 default; individual verdict mutation remains
 unavailable in this recorder slice. The following original G6 rationale and
 dated implementation history remain historical context.
 
+**Verdict persistence supersession — 2026-11-05 (#3601).** Host-only storage
+now commits one finalized occurrence's immutable safe verdict and exact request
+receipt together with its new evidence revision. Complete coverage and zero
+unresolved/pending inputs are still required for normal; a later same-source
+occurrence never inherits that verdict. Receipt replay, expiry, capacity,
+pruning, restart and permanent retirement fences preserve this scope. No owner
+HTTP endpoint or review capability is enabled here. Live admission integration
+remains a separate slice; this changes neither existing provider prefixes nor
+the independent outward/credential/egress controls below.
+
 A session becomes **tainted** the first time a turn ingests content it did not
 author:
 

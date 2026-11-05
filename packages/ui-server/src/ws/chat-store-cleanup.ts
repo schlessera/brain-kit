@@ -51,6 +51,9 @@ function scrub(db: Database, lifecycleId: string, store: HostChatStore, at: numb
       // and the existing independently owned governance audit remain.
       for(const [column,values] of [["session_id",ids.sessions],["history_owner_id",ids.dialogueOwners]] as const){
         for(const value of values){
+          // Request payload digests and receipt projections are chat-owned too.
+          // The permanent lifecycle fence refuses even a formerly successful retry.
+          db.query(`DELETE FROM safety_review_requests WHERE ${column}=?`).run(value);
           const totals=db.query(`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
             JOIN safety_collections c ON c.id=r.collection_id WHERE c.${column}=?`).get(value) as {rows:number;bytes:number};
           db.query(`DELETE FROM safety_decisions WHERE occurrence_id IN (SELECT r.id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.${column}=?)`).run(value);
