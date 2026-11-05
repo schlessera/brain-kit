@@ -3866,6 +3866,14 @@ an opaque script also wait on the card. The coordinator chose this list for
 
 ### Untrusted input (G6)
 
+**Prospective supersession — 2026-11-05 (#3599).** The
+[owner-reviewed session-safety decision](session-safety-reviews.md) permits
+normal policy only after individually committed verdicts resolve every trigger
+and versioned collection is complete. Future trust rules are prospective;
+resolving one event never clears later same-source events. This is a ruling for
+qualified future implementation, not a change to the sticky runtime described
+below. Other G6 controls and append-only provider history remain binding.
+
 A session becomes **tainted** the first time a turn ingests content it did not
 author:
 
