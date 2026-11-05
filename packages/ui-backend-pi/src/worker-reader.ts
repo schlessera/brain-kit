@@ -12,7 +12,7 @@ import type { LaunchedWorker, NativeFileVersions, sessionPromptContext, WorkerRe
 
 import type { CreatePiBackendOptions, SessionEnv } from "./backend-options.js";
 import type { TurnContext } from "./turn-context.js";
-import { pipeMessages, piWorkerMessage, SessionTooLargeError } from "./worker-protocol.js";
+import { pipeMessages, piWorkerMessage, PiInputSafetyUnavailableError, SessionTooLargeError } from "./worker-protocol.js";
 import type { PiWorkerReceipts } from "./worker-receipts.js";
 import type { PiWorkerRpc } from "./worker-rpc.js";
 import type { provenToolExecution } from "./worker-session.js";
@@ -140,7 +140,8 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
       reportLimitHits();
       state.cost = msg.cost; nativeVersions.cancelPending(); state.ended = true;
       if (msg.error) done.reject(new Error(msg.error)); else done.resolve();
-    } else throw msg.errorClass === "session_too_large" ? new SessionTooLargeError() : new BackendRequestError(msg.message);
+    } else throw msg.errorClass === "session_too_large" ? new SessionTooLargeError()
+      :msg.errorClass === "input_safety_unavailable" ? new PiInputSafetyUnavailableError(new Error(msg.message)) : new BackendRequestError(msg.message);
   }
   if (!state.ended) throw (await limitEnded()) ?? new Error(`Pi worker exited before completion: ${diagnostic() || "protocol closed"}`);
 }

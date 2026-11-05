@@ -9,6 +9,13 @@ export const PI_PIPE_MAX_BYTES = 16 * 1024 * 1024;
 export const sessionReserveBytes = (payloadSize: number): number => Math.max(1024 * 1024, Math.ceil(payloadSize / 4));
 /** The pi runtime state inside turn temp (settings, models and login): never promoted (#1655). */
 export const PI_WORKER_STATE = `${WORKER_SCRATCH}/pi-state`;
+/** Internal loss signal, distinct from cancellation, busy and caller refusal. */
+export class PiInputSafetyUnavailableError extends Error {
+  constructor(cause?:unknown) {
+    super("Pi input collection is not qualified for this runtime configuration",{cause});
+    this.name="PiInputSafetyUnavailableError";
+  }
+}
 export class SessionTooLargeError extends BackendRequestError {
   readonly errorClass = FIRST_PARTY_FAILURE_CLASSES.session_too_large;
   constructor() {
@@ -75,7 +82,7 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
     toolCallId: text, toolName: text, input }).strict(),
   z.object({ type: z.literal("snapshot"), entries: z.array(transcriptEntry) }).strict(),
   z.object({ type: z.literal("done"), cost: usageNumber, error: text.optional() }).strict(),
-  z.object({ type: z.literal("error"), message: text, errorClass: z.literal("session_too_large").optional() }).strict(),
+  z.object({ type: z.literal("error"), message: text, errorClass: z.enum(["session_too_large","input_safety_unavailable"]).optional() }).strict(),
 ]);
 export type PiWorkerMessage = z.infer<typeof piWorkerMessage>;
 

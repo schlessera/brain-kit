@@ -10,6 +10,7 @@ test("offline Pi startup reports new/resumed phases and preserves private per-tu
   const receipt = JSON.parse(out).receipts[0];
   expect(receipt.archiveSessions).toBe(128);
   expect(receipt.selectedTranscriptBytes).toBeGreaterThan(256 * 1024);
+  expect(receipt.extensionRefusal,"PI_NATIVE_STARTUP_REFUSAL_HAS_NO_INITIALIZATION_RPC_DEADLOCK").toEqual({notices:1,acknowledged:0,providerRequests:0,deadlineAborted:false});
   const [fresh, resumed] = receipt.rows;
   expect(fresh.kind).toBe("new"); expect(resumed.kind).toBe("resumed");
   expect(fresh.sessionId).toBe(resumed.sessionId);

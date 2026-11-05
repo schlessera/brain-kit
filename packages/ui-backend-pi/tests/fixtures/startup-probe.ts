@@ -64,5 +64,18 @@ try {
   savePiSession(sessions,id,entries);
   for(let i=0;i<128;i++) { const other=randomUUID(); savePiSession(sessions,other,[{type:"session",version:3,id:other,cwd:brain,timestamp:"2026-07-12T00:00:00.000Z"},...entries.slice(1)]); }
   await run("resumed",id);
-  console.log(JSON.stringify({archiveSessions:128,selectedTranscriptBytes:statSync(join(sessions,`${id}.jsonl`)).size,rows}));
+  // Exercise the actual worker input loop: initialization must refuse an
+  // extension without waiting on an RPC answer behind its own initialize().
+  const extensionDir=join(brain,".pi/extensions");mkdirSync(extensionDir,{recursive:true});
+  writeFileSync(join(extensionDir,"voyage.ts"),"export default function voyage() {}\n");
+  const refusalSignal=AbortSignal.timeout(20000),retained=new Error("Odysseus startup loss retained");
+  let notices=0,acknowledged=0,refusal:unknown;current={started:performance.now(),phases:[],frames:[]};turnCalls=0;
+  try{await startFixtureTurn(backend,brain,{prompt:"Continue the voyage",profileId:"fixture",signal:refusalSignal,workerSandbox:sandbox,
+    bridge:{emit:frame=>current.frames.push(frame),requestPermission:async()=>({behavior:"allow"}),inputSafety:{
+      async ready(){acknowledged++;},async begin(){throw new Error("No startup tools");},async result(){throw new Error("No startup result");},
+      async unavailable(){notices++;throw retained;},
+    }}});}catch(error){refusal=error;}
+  if(refusalSignal.aborted||refusal!==retained||notices!==1||acknowledged!==0||turnCalls!==0)throw new Error("PI_NATIVE_STARTUP_REFUSAL_MUST_SETTLE_WITH_HOST_LOSS_BEFORE_DEADLINE "+JSON.stringify({deadlineAborted:refusalSignal.aborted,notices,acknowledged,providerRequests:turnCalls,error:String(refusal)}));
+  console.log(JSON.stringify({archiveSessions:128,selectedTranscriptBytes:statSync(join(sessions,`${id}.jsonl`)).size,rows,
+    extensionRefusal:{notices,acknowledged,providerRequests:turnCalls,deadlineAborted:refusalSignal.aborted}}));
 } finally { server.stop(true); }

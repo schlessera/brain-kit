@@ -317,8 +317,11 @@ handler blacklist insufficient. No arbitrary extension delivery is qualified.
 Refusal awaits the existing optional internal
 `BackendBridge.inputSafety.unavailable()` notice and stops the worker. The host
 owns durable failure retention; callback rejection alone cannot establish it.
-Initialization failures are reported through the host collector before acquisition
-settles; only successful initialization acknowledges the detector epoch. A
+Startup collector loss uses a typed one-way worker error, without awaiting an
+RPC answer behind initialization. The host awaits its loss notice before
+acquisition settles; only successful initialization acknowledges the detector
+epoch. Ordinary cancellation, busy-session and caller refusals preserve their
+existing outcomes and do not fail recording across the app. A
 refused configuration must retain incomplete coverage through recovery. The
 notice cannot grant authority or clear evidence, and transformed history is
 never rewritten to recover coverage.

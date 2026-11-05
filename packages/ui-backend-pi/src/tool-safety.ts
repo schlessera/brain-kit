@@ -1,6 +1,7 @@
 /** Final host fence around the installed Agent's supported tool hooks. */
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
+import {PiInputSafetyUnavailableError} from "./worker-protocol.js";
 
 type Content = import("@earendil-works/pi-agent-core").AfterToolCallContext["result"]["content"];
 export interface PiToolSafety {
@@ -13,9 +14,10 @@ export interface PiToolSafety {
 /** Await the existing host loss notice; rejection is never proof of durability.
  * The host owns durable failure retention. Either outcome stops this worker. */
 export async function refusePiInput(safety:PiToolSafety):Promise<never> {
- try{await safety.unavailable?.();}
- finally{safety.stop();}
- throw new Error("Pi extensions have no qualified final host input fence");
+ const failures:unknown[]=[];
+ try{await safety.unavailable?.();}catch(error){failures.push(error);}
+ try{safety.stop();}catch(error){failures.push(error);}
+ throw new PiInputSafetyUnavailableError(failures.length?new AggregateError(failures,"Pi input refusal failed"):undefined);
 }
 
 /** Pi's public afterToolCall runs after every tool_result extension and image
