@@ -764,13 +764,15 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && !f.utteranceId && f.sequence === event.sequence)) return null;
       // Review context is separate from exact archived recognition. Never merge
       // approximate session intervals into captured utterances.
-      const unassigned = [...retained, { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: p.capabilities.contextualTasks === "supported", ...event }];
-      if (p.capabilities.contextualTasks === "supported") { retainContext(unassigned.at(-1)!); return null; }
+      const fragment = { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: p.capabilities.contextualTasks === "supported", ...event };
+      if (fragment.taskContext) { retainContext(fragment); return null; }
+      // Earlier contextual discussion has its own bound and is never review text.
+      const unassigned = [...retained.filter(f => !f.taskContext), fragment];
       let reviewChars=unassigned.reduce((n,f)=>n+f.text.length,0), trimmed=false;
       while (unassigned.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance || reviewChars > CONVERSATION_LIMITS.maxUtteranceChars) {
         reviewChars-=unassigned.shift()!.text.length; trimmed=true;
       }
-      state.setState({unassigned,...(trimmed ? {notice:"Only recent recognition remains in the review buffer. Review retained dialogue before sending typed text."} : {})});
+      state.setState({unassigned:[...retained.filter(f => f.taskContext),...unassigned],...(trimmed ? {notice:"Only recent recognition remains in the review buffer. Review retained dialogue before sending typed text."} : {})});
       return null;
     }
     if (event.kind === "unassigned_delegation") {
@@ -902,7 +904,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     commit,
     reviewUnassigned() {
       const s = state.getState();
-      const selected = s.unassigned.filter(f => f.sessionId === root.stores.chat.getState().activeSessionId);
+      const selected = s.unassigned.filter(f => !f.taskContext && f.sessionId === root.stores.chat.getState().activeSessionId);
       if (!selected.length) return false;
       // One explicit transfer, with no send. Existing draft and review text
       // remain intact; the existing voice review path preserves provenance.
@@ -910,7 +912,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       leave();
       const voice = root.stores.voice.getState();
       voice.setReviewText([voice.reviewText, text].filter(Boolean).join("\n\n"));
-      state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), recognition: state.getState().recognition.map(f => selected.some(r => r.conversationId === f.conversationId && r.epoch === f.epoch && r.sequence === f.sequence && (f.kind === "input_fragment" ? r.utteranceId === f.utteranceId : !r.utteranceId)) ? { ...f, text: "", moved: true as const } : f), unassignedWork: 0 });
+      // Moving recognition does not resolve a work request with unknown association.
+      state.setState({ unassigned: s.unassigned.filter(f => !selected.includes(f)), recognition: state.getState().recognition.map(f => !f.contextual && selected.some(r => r.conversationId === f.conversationId && r.epoch === f.epoch && r.sequence === f.sequence && (f.kind === "input_fragment" ? r.utteranceId === f.utteranceId : !r.utteranceId)) ? { ...f, text: "", moved: true as const } : f) });
       return true;
     },
     discard() {

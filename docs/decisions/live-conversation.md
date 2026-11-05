@@ -67,7 +67,7 @@ posture. A speech provider cannot reinterpret a visual grant, widen an
 allowlist, or settle an approval because it generated an answer.
 
 The host resolves pending exchanges when a turn ends
-(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:711-745`). The
+(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:1030-1053`). The
 conversation integration must also reconcile client cards and audible claims;
 that server method is not proof of a client receipt. Completion requires host
 terminal state plus local playback drained or discarded. Provider generation
@@ -212,6 +212,13 @@ and exact delegation_id on bounded thinking/commentary appends. Acceptance and
 playback remain distinct; neither a socket send nor an append acknowledgement
 proves audible output. Source configuration and keyless fixtures do not qualify
 a live account, microphone, interruption, or device.
+
+Contextual recognition remains readable discussion, including after Leave; it
+is not an unsent manual task draft. Only genuine reviewed-mode candidates
+produce the unsent-fragment notice or move into composer review. Recent context
+and retained review have independent finite bounds. Moving recognition is not
+submission or resolution of work requested without an input association, so
+that separate notice remains truthful.
 
 Source verification on October 28 used the installed OpenAI Live v1
 `DelegationCreatedEvent`, `ThinkingAppendEvent`, `CommentaryAppendEvent` and

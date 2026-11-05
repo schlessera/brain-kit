@@ -996,6 +996,75 @@ test("unassigned review preserves captured and typed drafts exactly once", async
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
 });
 
+async function mixedReviewScene(ctx: TestContext) {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 320, true);
+  // Keep actual earlier contextual evidence, then negotiate reviewed mode in a
+  // replacement entry. No state-only fragments or ownership are fabricated.
+  s.opened(1, { ...CAPS, contextualTasks: "supported" });
+  s.client.enter(); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Odysseus discusses the harbour. ", timing: { kind: "unavailable" }, finalization: "final" });
+  s.input("Keep the mast in sight.", "final");
+  const context = s.client.state.getState().unassigned;
+  const recognition = s.client.state.getState().recognition;
+  expect(context).toHaveLength(2);
+  expect(context.every(f => f.taskContext)).toBe(true);
+  s.client.leave();
+  s.opened(2); s.client.enter(); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  return { ...s, context, contextualRecognition: recognition };
+}
+
+for (const afterLeave of [false, true]) test(`mixed review transfers only genuine candidates once${afterLeave ? " after Leave" : ""} and keeps unknown-work reporting`, async ctx => {
+  const s = await mixedReviewScene(ctx);
+  const drafts = s.ui.stores.drafts.getState(), id = drafts.idFor(SESSION);
+  drafts.edit(id, SESSION, { text: "Keep the typed raft draft." });
+  s.ui.stores.voice.getState().setReviewText("Existing voice review.");
+  s.event({ kind: "unassigned_input_fragment", sequence: 0, text: "Review the launch note.", timing: { kind: "unavailable" } });
+  s.event({ kind: "unassigned_delegation", handle: "watch-unassociated-work", offsetMs: 500 });
+  if (afterLeave) s.client.leave();
+  await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("1 voice fragment wasn't sent.");
+  expect(s.host.scrollWidth).toBeLessThanOrEqual(320);
+  expect(s.client.reviewUnassigned(), "MIXED_REVIEW_TRANSFERS_REAL_CANDIDATES").toBe(true);
+  expect(s.ui.stores.voice.getState().reviewText, "CONTEXT_NEVER_ENTERS_MIXED_COMPOSER_REVIEW").toBe("Existing voice review.\n\nReview the launch note.");
+  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Keep the typed raft draft.");
+  expect(s.client.state.getState().unassigned).toEqual(s.context);
+  expect(s.client.state.getState().recognition.filter(f => f.contextual), "contextual transcript is never marked moved").toEqual(s.contextualRecognition);
+  expect(s.client.state.getState().recognition.filter(f => !f.contextual)).toMatchObject([{ text: "", moved: true }]);
+  expect(s.client.state.getState().unassignedWork, "TEXT_REVIEW_DOES_NOT_RESOLVE_UNKNOWN_WORK").toBe(1);
+  await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("Voice requested agent work without an input association.");
+  expect(s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("No request was submitted or linked to running work.");
+  expect(s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).not.toContain("fragment wasn't sent");
+  expect(s.client.reviewUnassigned()).toBe(false);
+  expect(s.ui.stores.voice.getState().reviewText).toBe("Existing voice review.\n\nReview the launch note.");
+  expect(s.client.state.getState().active).toBe(false);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("tool_denial")).toHaveLength(0);
+  expect(s.socket.frames("conversation_playback")).toHaveLength(0);
+});
+
+for (const limit of ["fragments", "characters"] as const) test(`mixed review bounds ${limit} independently of contextual discussion`, async ctx => {
+  const s = await mixedReviewScene(ctx);
+  const text = limit === "fragments" ? " mast" : " mast".repeat(CONVERSATION_LIMITS.maxFragmentChars / 5);
+  const capacity = limit === "fragments" ? CONVERSATION_LIMITS.maxFragmentsPerUtterance : CONVERSATION_LIMITS.maxUtteranceChars / text.length;
+  const count = capacity + 5;
+  for (let sequence = 0; sequence < count; sequence++) s.event({ kind: "unassigned_input_fragment", sequence, text, timing: { kind: "unavailable" } });
+  expect(s.client.state.getState().unassigned.filter(f => f.taskContext), "REVIEW_ROLLOVER_PRESERVES_CONTEXT").toEqual(s.context);
+  const review = s.client.state.getState().unassigned.filter(f => !f.taskContext);
+  expect(review).toHaveLength(capacity);
+  expect(review.map(f => f.sequence)).toEqual(Array.from({ length: capacity }, (_, i) => i + 5));
+  expect(s.client.state.getState().micOn).toBe(true);
+  expect(s.client.state.getState().notice).toContain("Only recent recognition remains in the review buffer");
+  expect(s.client.reviewUnassigned()).toBe(true);
+  expect(s.ui.stores.voice.getState().reviewText).toBe(text.repeat(capacity));
+  expect(s.client.reviewUnassigned()).toBe(false);
+  expect(s.socket.frames("chat_message")).toHaveLength(0);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
+
 test("bounded unassigned review keeps capture continuous and transfers only the retained review", async ctx => {
   const s = await scene(ctx); await s.start();
   const count=CONVERSATION_LIMITS.maxFragmentsPerUtterance+5;
