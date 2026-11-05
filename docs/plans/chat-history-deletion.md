@@ -264,7 +264,7 @@ must be tested through their installed runtime, not inferred from directory name
   work/follow-up/retry/approval state, draft edit/send snapshots, handoff summaries,
   attachment object URLs and current history selection can expose text. Principal
   purge is an existing boundary, not a per-chat deletion API
-  (`clearPrivateDialogue`, `packages/ui-react/src/voice/conversation-client.ts:553-566`).
+  (`clearPrivateDialogue`, `packages/ui-react/src/voice/conversation-client.ts:594-607`).
   Root-owned IndexedDB answer delivery and account-partitioned local work can retain
   answers, drafts or transcripts independently
   (`persistent`, `packages/ui-react/src/root.ts:223-246`). Include positively bound

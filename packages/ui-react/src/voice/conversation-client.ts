@@ -132,6 +132,14 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   // Volatile presentation evidence, never tasks or provider input. Keep a
   // bounded set of origins while projecting only the selected chat's count.
   const unassignedWorkOwners: { conversationId: string; sessionId: string | null; draftOrigin: string | null; count: number }[] = [];
+  type NoticeBinding = { conversationId: string; noticeOwner: string | null; draftOrigin: string | null; nativeSessionId?: string };
+  type WorkIdentity = Pick<ConversationWorkReceipt, "conversationId" | "epoch" | "requestId" | "provenance" | "taskId" | "nativeHandle" | "turnId" | "sessionId" | "state">;
+  type ContextualBinding = NoticeBinding & { work: WorkIdentity };
+  function noticeBinding(conversationId: string, sessionId: string | null): NoticeBinding {
+    return { conversationId, noticeOwner: sessionId, draftOrigin,
+      ...(sessionId !== null && !historyOwnerFor(sessionId) ? { nativeSessionId: sessionId } : {}) };
+  }
+  const canBindNotice = (binding: NoticeBinding, sessionId: string) => !binding.nativeSessionId || binding.nativeSessionId === sessionId;
   function refreshUnassignedWork() {
     const selected = root.stores.chat.getState().activeSessionId;
     const drafts = root.stores.drafts.getState();
@@ -139,10 +147,20 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       && (selected !== null || owner.draftOrigin !== null && owner.draftOrigin === drafts.originOf(drafts.fresh)) ? owner.count : 0), 0);
     if (state.getState().unassignedWork !== count) state.setState({ unassignedWork: count });
   }
-  function moveUnassignedWork(from: string | null, to: string, conversationId?: string, sourceDraftOrigin = draftOrigin) {
+  function moveUnassignedWork(from: string | null, to: string, conversationId?: string, sourceDraftOrigin = draftOrigin, nativeOwner = true) {
     for (const owner of unassignedWorkOwners) if (owner.sessionId === from
       && (!conversationId || owner.conversationId === conversationId)
       && (from !== null || owner.draftOrigin !== null && owner.draftOrigin === sourceDraftOrigin)) owner.sessionId = to;
+    // Request correlation follows the same ownership transitions as its notice.
+    // The source may become a retained alias before acceptance, but the first
+    // native destination is final even when history is unavailable or merged.
+    for (const binding of [...requests.values(), ...contextualWork.values()]) if (binding.noticeOwner === from
+      && (!conversationId || binding.conversationId === conversationId)
+      && (from !== null || binding.draftOrigin !== null && binding.draftOrigin === sourceDraftOrigin)
+      && canBindNotice(binding, to)) {
+      binding.noticeOwner = to;
+      if (nativeOwner) binding.nativeSessionId = to;
+    }
     refreshUnassignedWork();
   }
   let mic: ReturnType<typeof openConversationMicrophone> | undefined;
@@ -165,7 +183,30 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const incompleteReview = new Set<string>();
   const fragments = new Map<string, Map<number, Extract<ConversationWireEvent, { kind: "input_fragment" }>>>();
   const reviewIsIncomplete = () => [...fragments.keys()].some(id=>incompleteReview.has(id));
-  const requests = new Map<string, { draftCorrelation?: string; composerDraftId: string | null; draftOrigin: string | null; sessionId: string | null; conversationId: string; epoch: number; text: string }>();
+  const requests = new Map<string, NoticeBinding & { draftCorrelation?: string; composerDraftId: string | null; sessionId: string | null; epoch: number; text: string }>();
+  // Only known task identities outlive an entry; no transcript or work payload
+  // is retained here. Late receipts cannot introduce a new inactive task.
+  const contextualWork = new Map<string, ContextualBinding>();
+  function retainContextualWork(message: Extract<ServerMessage, { type: "conversation_work" }>): ContextualBinding | false | undefined {
+    const known = contextualWork.get(message.requestId);
+    if (message.provenance !== "contextual") return known ? false : undefined;
+    const p = scope();
+    if (known) {
+      const old = known.work;
+      if (old.conversationId !== message.conversationId || old.epoch !== message.epoch || old.taskId !== message.taskId || old.nativeHandle !== message.nativeHandle
+        || old.turnId && message.turnId && old.turnId !== message.turnId
+        || message.sessionId && (!canBindNotice(known, message.sessionId) || old.sessionId && old.sessionId !== message.sessionId)) return false;
+    } else if (!state.getState().active || p?.conversationId !== message.conversationId || p.epoch !== message.epoch) return undefined;
+    const binding = known ?? noticeBinding(message.conversationId, state.getState().sessionId);
+    if (message.sessionId && !canBindNotice(binding, message.sessionId)) return false;
+    const work: WorkIdentity = { conversationId: message.conversationId, epoch: message.epoch, requestId: message.requestId,
+      provenance: "contextual", taskId: message.taskId, nativeHandle: message.nativeHandle, state: message.state,
+      turnId: message.turnId ?? known?.work.turnId, sessionId: message.sessionId ?? known?.work.sessionId };
+    const retained = { ...binding, work };
+    contextualWork.set(message.requestId, retained);
+    while (contextualWork.size > 128) contextualWork.delete(contextualWork.keys().next().value!);
+    return retained;
+  }
   const restoredRequests = new Set<string>();
   const scope = () => state.getState().profile;
   const current = (own: number) => !disposed && state.getState().active && own === generation;
@@ -399,7 +440,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (retainedOwner && leaving && !state.getState().sessionId) {
       const key = `dialogue:${retainedOwner}`;
       root.stores.chat.getState().setHistoryOwner(key, retainedOwner);
-      moveUnassignedWork(null, key, leaving.conversationId);
+      moveUnassignedWork(null, key, leaving.conversationId, draftOrigin, false);
       // This is the existing host-only UI target, never a backend session.
       // Move this source's volatile evidence with its owner before selection;
       // a later missing-native-history error must not orphan its unsaved tail.
@@ -514,7 +555,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const requestId = crypto.randomUUID();
     const chat = root.stores.chat.getState();
     const draftCorrelation = s.sessionId ? undefined : chat.startDraftTurn();
-    requests.set(requestId, { sessionId: s.sessionId, composerDraftId: draftId, draftOrigin, conversationId: profile.conversationId, epoch: profile.epoch, text, ...(draftCorrelation ? { draftCorrelation } : {}) });
+    requests.set(requestId, { ...noticeBinding(profile.conversationId, s.sessionId), sessionId: s.sessionId, composerDraftId: draftId, epoch: profile.epoch, text, ...(draftCorrelation ? { draftCorrelation } : {}) });
     if (!send({ type: "conversation_commit", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: lastInput.utteranceId, requestId, text })) { suspend(); startEpoch(); return false; }
     if (s.sessionId) root.stores.followUp.getState().addLocal(s.sessionId, { requestId, text, source: "voice-conversation", queuedAt: Date.now() });
     else { chat.addUserMessage(null, text, "voice-conversation", undefined, { requestId }); chat.startAssistantMessage(null, undefined, requestId); }
@@ -531,7 +572,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
 
   // Adopt only a task admitted in the live epoch. Update voice before selecting
   // its transcript: the chat subscription still treats other selections as leave.
-  function adoptContextualSession(work: ConversationWorkReceipt, sessionId: string) {
+  function adoptContextualSession(work: Pick<ConversationWorkReceipt, "provenance" | "state" | "turnId" | "conversationId" | "epoch">, sessionId: string) {
     const s = state.getState();
     const p = scope();
     if (!s.active || work.provenance !== "contextual" || work.state !== "running" || !work.turnId
@@ -557,7 +598,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     state.setState({active:false,profile:null});
     clearTimers(); resetRecovery(); stopMic(); playback.cut();
     unsavedOverflow=false; storageFailedScope=undefined; storageFailureCode=undefined; dialogueReads.clear();
-    requests.clear(); restoredRequests.clear(); agreedDisclosure=undefined; agreedEntry=undefined;
+    requests.clear(); contextualWork.clear(); restoredRequests.clear(); agreedDisclosure=undefined; agreedEntry=undefined;
     permissions.clear(); localTones.clear(); fragments.clear(); capturedInputs.clear(); retiredInputs.clear();
     manualReview.clear(); incompleteReview.clear(); unassignedThrough=-1; seenRecognition.clear();
     lastInput=undefined; utterance=null; draftId=null; draftOrigin=null; savedVoice="";
@@ -670,24 +711,24 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       }
     }
     if (message.type === "session_info" && message.requestId) {
-      const work = state.getState().work[message.requestId];
+      const binding = contextualWork.get(message.requestId);
+      const work = binding?.work;
       // The bridge broadcasts identity before the work receipt names the session.
       // Match both host request and turn; unrelated or stale frames cannot bind.
-      if (work?.turnId && work.turnId === (message as ServerMessage & { turnId?: string }).turnId && (!work.sessionId || work.sessionId === message.sessionId)) {
+      if (binding && work?.turnId && work.turnId === (message as ServerMessage & { turnId?: string }).turnId
+        && canBindNotice(binding, message.sessionId) && (!work.sessionId || work.sessionId === message.sessionId)) {
         // A known task may acquire its session after Leave. Bind only its
         // provisional notice; the visible chat still follows the active guards.
-        if (work.provenance === "contextual") for (const owner of unassignedWorkOwners) {
-          if (owner.conversationId === work.conversationId && (owner.sessionId === null || historyOwnerFor(owner.sessionId))) {
-            moveUnassignedWork(owner.sessionId, message.sessionId, work.conversationId, owner.draftOrigin);
-          }
-        }
+        moveUnassignedWork(binding.noticeOwner, message.sessionId, work.conversationId, binding.draftOrigin);
+        binding.work = { ...work, sessionId: message.sessionId };
         adoptContextualSession(work, message.sessionId);
       }
     }
     if (message.type === "session_info" && message.requestId && requests.has(message.requestId)) {
       const request = requests.get(message.requestId)!;
+      if (!canBindNotice(request, message.sessionId)) return null;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
-      if (request.sessionId === null || request.sessionId === message.sessionId) moveUnassignedWork(request.sessionId, message.sessionId, request.conversationId, request.draftOrigin);
+      moveUnassignedWork(request.noticeOwner, message.sessionId, request.conversationId, request.draftOrigin);
       if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
         state.setState({ sessionId: message.sessionId, recognition: state.getState().recognition.map(f => f.conversationId === request.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId } : f), outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
       }
@@ -740,7 +781,10 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const p = scope();
       const request = requests.get(message.requestId);
       const ownRequest = request?.conversationId === message.conversationId && request.epoch === message.epoch;
-      if (p?.conversationId !== message.conversationId && !ownRequest) return null;
+      if (p?.conversationId !== message.conversationId && !ownRequest && !contextualWork.has(message.requestId)) return null;
+      const contextual = retainContextualWork(message);
+      if (contextual === false) return null;
+      if (contextual && message.turnId && message.sessionId) moveUnassignedWork(contextual.noticeOwner, message.sessionId, message.conversationId, contextual.draftOrigin);
       const neverStarted = message.state === "refused" || (!message.turnId && (message.state === "cancelled" || message.state === "error"));
       if (ownRequest && neverStarted && request.composerDraftId && !restoredRequests.has(message.requestId)) {
         restoredRequests.add(message.requestId);
@@ -993,6 +1037,6 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       refresh();
     },
     stopReply, leave,
-    dispose() { leave(); disposed = true; unwatchChat(); unwatchDrafts(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); unassignedWorkOwners.length = 0; },
+    dispose() { leave(); disposed = true; unwatchChat(); unwatchDrafts(); unwatchProvider(); unwatchConnection(); unwatchAuth(); playback.dispose(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", hidden); requests.clear(); contextualWork.clear(); unassignedWorkOwners.length = 0; },
   };
 }

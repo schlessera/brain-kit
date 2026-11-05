@@ -252,7 +252,14 @@ metadata retains at most 128 entries and is cleared at principal/auth
 boundaries. The public count projects the selected chat only, without adding
 provider input, task admission or durable work state.
 A known task's late session identity can bind its notice after Leave without
-selecting a chat or authorizing work.
+selecting a chat or authorizing work. Reviewed requests follow notice ownership
+into retained aliases before acceptance; their first native binding remains
+final even if history is unavailable or returns a canonical owner. A separate
+bounded cache keeps the last 128 already-known contextual task identities
+across Leave and later entries, without retaining their recognition/submitted
+payloads. Only exact conversation/epoch/task/native/request identities can
+acquire a late turn and session; unknown inactive receipts cannot introduce
+an identity. Principal/auth boundaries and disposal clear this cache.
 Ordinary sends transfer the exact accepted draft's origin before consumption
 or rotation, regardless of current selection. Correlated owner-history reads
 can return a canonical owner, while native-history reads retain their exact
