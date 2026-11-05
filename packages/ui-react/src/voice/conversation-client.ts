@@ -665,13 +665,22 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const work = state.getState().work[message.requestId];
       // The bridge broadcasts identity before the work receipt names the session.
       // Match both host request and turn; unrelated or stale frames cannot bind.
-      if (work?.turnId && work.turnId === (message as ServerMessage & { turnId?: string }).turnId && (!work.sessionId || work.sessionId === message.sessionId)) adoptContextualSession(work, message.sessionId);
+      if (work?.turnId && work.turnId === (message as ServerMessage & { turnId?: string }).turnId && (!work.sessionId || work.sessionId === message.sessionId)) {
+        // A known task may acquire its session after Leave. Bind only its
+        // provisional notice; the visible chat still follows the active guards.
+        if (work.provenance === "contextual") for (const owner of unassignedWorkOwners) {
+          if (owner.conversationId === work.conversationId && (owner.sessionId === null || historyOwnerFor(owner.sessionId))) {
+            moveUnassignedWork(owner.sessionId, message.sessionId, work.conversationId, owner.draftId);
+          }
+        }
+        adoptContextualSession(work, message.sessionId);
+      }
     }
     if (message.type === "session_info" && message.requestId && requests.has(message.requestId)) {
       const request = requests.get(message.requestId)!;
       if (request.composerDraftId && request.sessionId === null) root.stores.drafts.getState().associateVoice(request.composerDraftId, message.sessionId, message.requestId);
+      if (request.sessionId === null || request.sessionId === message.sessionId) moveUnassignedWork(request.sessionId, message.sessionId, request.conversationId, request.composerDraftId);
       if (state.getState().active && scope()?.conversationId === request.conversationId && scope()?.epoch === request.epoch && state.getState().sessionId === request.sessionId) {
-        moveUnassignedWork(request.sessionId, message.sessionId, request.conversationId, request.composerDraftId);
         state.setState({ sessionId: message.sessionId, recognition: state.getState().recognition.map(f => f.conversationId === request.conversationId && f.sessionId === null ? { ...f, sessionId: message.sessionId } : f), outputs: state.getState().outputs.map((output) => output.conversationId === request.conversationId && output.sessionId === null ? outputInSession(output, message.sessionId) : output) });
       }
       return request.draftCorrelation ? { ...message, draftId: request.draftCorrelation } : message;

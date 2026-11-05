@@ -250,6 +250,8 @@ not resolve them or transfer them to another chat. Their volatile origin
 metadata retains at most 128 entries and is cleared at principal/auth
 boundaries. The public count projects the selected chat only, without adding
 provider input, task admission or durable work state.
+A known task's late session identity can bind its notice after Leave without
+selecting a chat or authorizing work.
 
 Source verification on October 28 used the installed OpenAI Live v1
 `DelegationCreatedEvent`, `ThinkingAppendEvent`, `CommentaryAppendEvent` and

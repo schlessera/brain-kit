@@ -1569,3 +1569,39 @@ for(const [code,copy] of [
   expect(JSON.stringify(s.client.state.getState())).not.toContain(REMOTE_CLOSE_TEXT);
  }else expect(s.client.state.getState().micOn).toBe(true);
 });
+
+test("late reviewed session identity preserves its original unknown-work notice", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  await s.start();
+  s.event({ kind: "unassigned_delegation", handle: "mast-unassociated", offsetMs: 500 });
+  s.input("Find the mast note.");
+  expect(s.client.commit(s.client.state.getState().token)).toBe(true);
+  const commit=s.socket.frames("conversation_commit")[0]!;
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  s.deliver({type:"session_info",sessionId:"odysseus-late-mast",requestId:String(commit.requestId),turnId:"mast-turn",isNew:true});
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-late-mast"));
+  expect(s.client.state.getState().unassignedWork,"LATE_REVIEWED_ADOPTION_PRESERVES_UNKNOWN_WORK").toBe(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(1);
+});
+test("late contextual session identity preserves its original unknown-work notice", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(null));
+  s.client.enter(); s.opened(1,CAPS,{sessionId:undefined,historyOwnerId:"odysseus-late-owner"}); s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.event({kind:"unassigned_delegation",handle:"watch-unassociated",offsetMs:500});
+  s.client.leave();
+  s.opened(2,{...CAPS,contextualTasks:"supported"},{sessionId:undefined,historyOwnerId:"odysseus-late-owner"});
+  s.client.enter();s.client.start();
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  s.deliver({type:"conversation_work",conversationId:PROFILE.conversationId,epoch:2,provenance:"contextual",taskId:"late-task",nativeHandle:"late-native",requestId:"late-request",turnId:"late-turn",state:"running",delivery:"pending",recognized:"Find the watch note.",submitted:"Find the watch note."});
+  s.client.leave();
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(SESSION));
+  expect(s.client.state.getState().unassignedWork).toBe(0);
+  s.deliver({type:"session_info",sessionId:"odysseus-late-watch",requestId:"late-request",turnId:"late-turn",isNew:true});
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-late-watch"));
+  expect(s.client.state.getState().unassignedWork,"LATE_CONTEXTUAL_ADOPTION_PRESERVES_UNKNOWN_WORK").toBe(1);
+  expect(s.socket.frames("conversation_commit")).toHaveLength(0);
+});
