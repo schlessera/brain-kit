@@ -403,6 +403,8 @@ principal, channel and generation, and expires after 900000 ms. New committed
 evidence stales a prepared review; pending input restricts immediately, and a
 pending verdict never decrements the aggregate. Failed verdict COMMIT rolls back
 decision, revision and receipt together without reporting success.
+Recording-loss refusals remain `recording_failed`, distinct from input that is
+still `recording_pending`, including loss retained only by the app connection.
 
 Same-body retries retain their exact original receipt, including its historical
 projection, for 86400000 ms after terminal commit; admission always reads the

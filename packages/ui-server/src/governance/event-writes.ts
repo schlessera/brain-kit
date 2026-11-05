@@ -25,7 +25,7 @@ export const url = import.meta.url;
 export function setup(db: Database): WriteProcedures {
   return {
     safetyPrepareReview: (body:SafetyReviewBody,actor:SafetyReviewer,at:number) => prepareSafetyReview(db,body,actor,at),
-    safetyCommitReview: (id:string,body:SafetyReviewBody,actor:SafetyReviewer,at:number,pending:boolean) => commitSafetyReview(db,id,body,actor,at,pending),
+    safetyCommitReview: (id:string,body:SafetyReviewBody,actor:SafetyReviewer,at:number,pending:boolean,failed:boolean=false) => commitSafetyReview(db,id,body,actor,at,pending,failed),
     record: (row: GovernanceEventRow) => {
       try { return insertGovernanceEvent(db,row); } catch(error) { if(!(error instanceof ChatRetiredError)&&(row.kind==="taint"||row.kind==="taint_exposure"))latchSafety(db,row.turnId,error instanceof SafetyUnavailable?"capacity":"recording_failed"); throw error; }
     },
@@ -121,7 +121,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
   return {
     record,
     safetyPrepareReview: (body,actor)=>call("safetyPrepareReview",body,actor,Date.now()),
-    safetyCommitReview: (id,body,actor)=>call("safetyCommitReview",id,body,actor,Date.now(),shared.failed||[...pendingTaints].some(p=>p.sessionId===body.session.sessionId)),
+    safetyCommitReview: (id,body,actor)=>call("safetyCommitReview",id,body,actor,Date.now(),[...pendingTaints].some(p=>p.sessionId===body.session.sessionId),shared.failed),
     async safetyBegin(input){if(shared.failed)throw new SafetyUnavailable("Safety recording requires recovery");return call("safetyBegin",input);},
     safetyReady: (turnId,backendId,version)=>call("safetyReady",turnId,backendId,version),
     safetyEnd: turnId=>call("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId)),

@@ -95,7 +95,7 @@ export function prepareSafetyReview(db: Database, value: SafetyReviewBody, actor
   }).immediate();
 }
 export function commitSafetyReview(db: Database, requestId: string, value: SafetyReviewBody, actor: SafetyReviewer, at: number,
-  locallyPending: boolean): SafetyReviewReceipt {
+  locallyPending: boolean, locallyFailed: boolean = false): SafetyReviewReceipt {
   const body = bodySchema.parse(value); id.parse(requestId); reviewer(actor); clock(at);
   return db.transaction(() => {
     // Retirement and exact host ownership precede even successful receipt replay.
@@ -111,8 +111,8 @@ export function commitSafetyReview(db: Database, requestId: string, value: Safet
     }
     let projection = safetyProjection(db, null, body.session.sessionId);
     const reason = at < row.issued_at || at >= row.expires_at ? "request_expired" : eligible(db, body)
+      ?? (locallyFailed || projection.reasons.some(r => r === "recording_failed" || r === "capacity") ? "recording_failed" : null)
       ?? (locallyPending || projection.pendingCount ? "recording_pending" : null)
-      ?? (projection.reasons.some(r => r === "recording_failed" || r === "capacity") ? "recording_failed" : null)
       ?? (projection.evidenceRevision !== body.expectedEvidenceRevision ? "stale_revision" : null);
     if (!reason) {
       // Each occurrence prepaid this one decision's row/bytes. No capacity

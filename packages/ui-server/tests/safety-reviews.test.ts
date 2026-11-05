@@ -216,10 +216,26 @@ test("failed new recording cannot be hidden by resolving previously retained evi
       CREATE TRIGGER fail_new_occurrence AFTER INSERT ON safety_records BEGIN INSERT INTO occurrence_commit_probe VALUES('missing-raft'); END`);
     await expectRejection(f.collector.begin("B", "WebFetch", { url: "https://troy.invalid" }), "FOREIGN KEY constraint failed");
     expect(f.state().reasons, "REVIEW_LOST_INPUT_RETAINS_FAILURE_LATCH").toContain("recording_failed");
-    expect((await f.writes.safetyCommitReview(prepared.requestId!, value, f.actor)).stage).toBe("refused");
+    expect(await f.writes.safetyCommitReview(prepared.requestId!, value, f.actor))
+      .toMatchObject({ stage: "refused", reason: "recording_failed" });
     expect(f.state().restriction).toBe("restricted");
     expect(f.state().unresolvedCount).toBe(1);
     expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({ n: 1 });
+  } finally { await f.close(); }
+});
+
+test("a loss notice whose COMMIT rolls back still refuses verdicts through the shared local failure marker", async () => {
+  const f = await fixture(); try {
+    const a = await f.add("A"), value = f.body(a), prepared = await f.writes.safetyPrepareReview(value, f.actor);
+    f.db.exec(`CREATE TABLE loss_commit_probe(id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED);
+      CREATE TRIGGER fail_loss_commit AFTER UPDATE OF failed ON safety_meta WHEN NEW.failed=1
+      BEGIN INSERT INTO loss_commit_probe VALUES('missing-raft'); END`);
+    await expectRejection(f.writes.safetyFail("voyage"), "FOREIGN KEY constraint failed");
+    expect(f.db.query("SELECT failed FROM safety_meta").get()).toEqual({ failed: 0 });
+    expect(await f.writes.safetyCommitReview(prepared.requestId!, value, f.actor), "REVIEW_LOCAL_LOSS_REFUSES_WITH_RECORDING_FAILED")
+      .toMatchObject({ stage: "refused", reason: "recording_failed", projection: null });
+    expect(f.state().unresolvedCount).toBe(1);
+    expect(createGovernanceWrites(f.db, f.writer).recordingAvailable(null, "ithaca")).toBe(false);
   } finally { await f.close(); }
 });
 
