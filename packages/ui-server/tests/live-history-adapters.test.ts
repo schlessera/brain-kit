@@ -148,6 +148,7 @@ for (const engine of ["gemini","gpt"] as const) {
     const { provider, sockets } = loopback(engine);
     const selected = projectConversationGuidance("# Response surface\nRender a mermaid diagram.\n# Personal Rules\nUse brief plain language with Odysseus.\n# Capture policy\nAsk before keeping a newly mentioned preference.\n# Turn lifecycle\nFan out with Agent and collect subprocesses.", "configured systemPromptAppend");
     const orientation = { guidance: selected, knowledge: [
+      { source: "observed voyages/_index.md", topic: "content_map" as const, text: "OBSERVED partial content map: voyages/_index.md — routes and raft decisions; not runtime taxonomy." },
       { source: "me/identity.md", topic: "identity" as const, text: "Odysseus is returning to Ithaca." },
       { source: "context/current-focus.md", topic: "current_focus" as const, text: "2026-07-12: repair the mast." },
     ], unavailable: ["module procedures stay with host"] };
@@ -160,6 +161,8 @@ for (const engine of ["gemini","gpt"] as const) {
     expect(seed[0], "SELECTED_USER_GUIDANCE_REACHES_STARTUP").toContain("Use brief plain language with Odysseus.");
     expect(seed[0]).toContain('"guidance"'); expect(seed[0]).toContain('"knowledge"');
     expect(seed[0]).toContain("repair the mast"); expect(seed[0]).toContain("returning to Ithaca");
+    expect(seed[0], "OBSERVED_MAP_REACHES_NATIVE_STARTUP").toContain("voyages/_index.md");
+    expect(seed[0]).toContain('"topic":"content_map"');
     expect(seed[0]).not.toContain("mermaid"); expect(seed[0]).not.toContain("subprocesses");
     const instructions = engine === "gemini" ? sockets[0]![0].setup.systemInstruction.parts[0].text : sockets[0]![0].session.instructions;
     const shared = "useful new facts, decisions and preferences";
@@ -167,7 +170,8 @@ for (const engine of ["gemini","gpt"] as const) {
     expect(instructions).toContain("follow-ups answerable from reliable current results stay conversational");
     expect(instructions).toContain("external research"); expect(instructions).toContain("substantial reasoning");
     orientation.guidance[0]!.text = "Changed after Start.";
-    orientation.knowledge[0]!.text = "Changed identity after Start.";
+    orientation.knowledge[0]!.text = "OBSERVED partial map changed after Start: watch/_index.md.";
+    orientation.knowledge[1]!.text = "Changed identity after Start.";
     session.appendAudio({ utteranceId: "u1", sequence: 1, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
     await until(() => sockets[0]!.filter(m => isInput(engine, m)).length === 2);
     expect(JSON.stringify(sockets[0]!.filter(m => !isInput(engine, m) && !m.realtimeInput)), "STARTUP_PREFIX_STAYS_BYTE_IDENTICAL").toBe(startup);
@@ -176,6 +180,7 @@ for (const engine of ["gemini","gpt"] as const) {
     next.appendAudio({ utteranceId: "u1", sequence: 0, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
     await until(() => sockets[1]!.some(m => isInput(engine, m)));
     expect(historyTexts(engine, sockets[1]!).join("\n")).toContain("Changed identity after Start.");
+    expect(historyTexts(engine, sockets[1]!).join("\n")).toContain("partial map changed after Start");
     expect(sockets[1]!.some(m => m.toolResponse || m.delegation_id)).toBe(false);
     await next.close();
   });
@@ -218,6 +223,16 @@ for (const engine of ["gemini","gpt"] as const) {
     const instructions = engine === "gemini" ? first.setup.systemInstruction.parts[0].text : first.session.instructions;
     expect(instructions, "LIVE_BRAIN_PURPOSE_REACHES_PROVIDER").toContain("file-first knowledge base");
     expect(instructions, "LIVE_ACCEPTANCE_IS_EXPLICIT").toContain("brief spoken acknowledgement");
+    expect(instructions, "LIVE_DISCOVERY_IS_PROACTIVE").toContain("ordinary lookups and repository discovery");
+    expect(instructions).toContain("without asking the user for filenames, where things live, or confirmation to retrieve");
+    expect(instructions).toContain("configured taxonomy"); expect(instructions).toContain("search/list tools");
+    expect(instructions).toContain("per-directory _index.md purpose/registry navigation");
+    expect(instructions).toContain("Clarify real ambiguity in meaning or recognition, missing capture consent");
+    expect(instructions).toContain("one brief spoken acknowledgement per accepted task");
+    expect(instructions).toContain("only after its exact acceptance");
+    expect(instructions).toContain("Do not repeat that acknowledgement on running updates");
+    expect(instructions).toContain("backend/tools may not have started");
+    expect(instructions).not.toContain("we can keep talking");
     expect(instructions).toContain("useful new facts, decisions and preferences");
     expect(instructions).toContain("not a saved brain note");
     expect(instructions).not.toContain("# Response surface");

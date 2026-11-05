@@ -63,7 +63,7 @@ export function createGeminiConversationProvider(apiKey: string): LiveConversati
       destinations: [
         "Microphone audio and transcripts go through this host to Google Gemini Live.",
         "Prior chat text, recognized/generated discussion and completed results go to Google Gemini Live, including after switching voice services.",
-        "At Start, selected brain/user guidance, domain names and bounded identity/current-focus context go to Google Gemini Live. Missing or withheld sources stay with the host.",
+        "At Start, selected brain/user guidance, domain names, a bounded observed partial content map and identity/current-focus context go to Google Gemini Live. Missing or withheld sources stay with the host.",
         "Conversation tasks use the independently configured host agent backend and its ordinary permissions.",
       ],
     },

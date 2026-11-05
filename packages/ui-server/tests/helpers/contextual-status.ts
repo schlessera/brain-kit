@@ -1,8 +1,9 @@
 /** Actual adapters + actual host admission; scripted provider, no semantic or acoustic claim. */
-import { expect } from "bun:test";
+import { expect, spyOn } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as fsPromises from "node:fs/promises";
 import type { LiveConversationProvider, LiveConversationSession, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { projectConversationGuidance } from "@schlessera/brain-ui-sdk/internal";
 import { createStaticBackendRegistry } from "../../src/agent/backend";
@@ -13,6 +14,7 @@ import type { WSContext } from "../../src/ws/clients";
 import { WsHost } from "../../src/ws/host";
 import { makeFakeBackend } from "./fake-backend";
 import { testPrincipal } from "./principal";
+import * as walker from "../../src/files/walker";
 
 export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete" | "storage" | "replace" | "withdraw" | "status-error", f: {
   provider: LiveConversationProvider; emit: (frame: any) => void; sent: any[];
@@ -23,6 +25,9 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
   };
   const root = mkdtempSync(join(tmpdir(), "odyssey-live-status-"));
   mkdirSync(join(root, "me")); mkdirSync(join(root, "context"));
+  mkdirSync(join(root, "voyages"));
+  writeFileSync(join(root, "brain.config.ts"), 'throw Error("STARTUP_MUST_NOT_EXECUTE_CONFIG");\n');
+  writeFileSync(join(root, "voyages/_index.md"), "---\nsummary: Routes and raft decisions for Ithaca.\n---\n## Registry\nHOST_ONLY_REGISTRY\n");
   writeFileSync(join(root, "CLAUDE.md"), "# Personal Rules\nUse short plain answers for Odysseus.\n# Capture policy\nAsk before capturing a new preference.\n## Exceptions\nNever capture private watch details without an explicit request.\n# Response surface\nHOST_ONLY_RENDERING\n");
   writeFileSync(join(root, "me/identity.md"), "---\nsummary: Odysseus returns to Ithaca.\n---\nHe commands the raft.\n\n## More\nHOST_ONLY_IDENTITY_DETAIL\n");
   writeFileSync(join(root, "context/current-focus.md"), "Repair the mast on 2026-07-12.\n");
@@ -64,9 +69,13 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
     return save(principal, receipt, facts);
   };
   const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry([backend], "fake"), catalog, conversationProvider: provider });
-  registerCleanup(async () => { finishAdmission?.(); for (const release of releaseTurns) release(); await host.close(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  const sourceReads = spyOn(walker, "readAnchoredSnapshot"), enumerations = spyOn(fsPromises, "opendir");
+  registerCleanup(async () => { finishAdmission?.(); for (const release of releaseTurns) release(); await host.close(); db.close(); sourceReads.mockRestore(); enumerations.mockRestore(); rmSync(root, { recursive: true, force: true }); });
   const frames: any[] = [], ws = { send: (raw: string) => frames.push(JSON.parse(raw)) } as WSContext;
   const handlers = createWsHandlers(host, testPrincipal()); await handlers.onOpen(undefined as never, ws);
+  expect(sourceReads, "HELLO_PERFORMS_NO_ORIENTATION_SOURCE_READS").not.toHaveBeenCalled();
+  expect(enumerations, "HELLO_PERFORMS_NO_MAP_ENUMERATION").not.toHaveBeenCalled();
+  expect(f.provider.disclosure.destinations.join(" ")).toContain("observed partial content map");
   const send = (frame: unknown) => handlers.onMessage({ data: JSON.stringify(frame) } as MessageEvent, ws);
   const start = () => send({ type: "conversation_start", contextualTasks: true, disclosed: host.conversations!.profile(true) });
   // Stale disclosure refuses before reading configured guidance or opening another socket.
@@ -75,6 +84,8 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
   await until(() => frames.some(frame => frame.code === "CONVERSATION_DISCLOSURE"));
   expect(f.sent.filter(frame => frame.setup || frame.type === "session.start")).toHaveLength(beforeStarts);
   expect(guidanceReads, "START_DISCLOSURE_PRECEDES_CONFIGURED_GUIDANCE_READ").toBe(0);
+  expect(sourceReads, "START_DISCLOSURE_PRECEDES_SOURCE_READS").not.toHaveBeenCalled();
+  expect(enumerations, "START_DISCLOSURE_PRECEDES_MAP_ENUMERATION").not.toHaveBeenCalled();
   start(); await until(() => frames.some(frame => frame.type === "conversation_opened"));
   const { conversationId, epoch } = frames.find(frame => frame.type === "conversation_opened");
   await until(() => f.sent.some(frame => JSON.stringify(frame).includes("Odysseus returns to Ithaca.")));
@@ -82,6 +93,9 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
   expect(startup, "HOST_READS_SELECTED_GUIDANCE_INTO_ACTUAL_PROVIDER_STARTUP").toContain("Use short plain answers for Odysseus.");
   expect(startup, "COMPLETE_NESTED_CAPTURE_POLICY_REACHES_PROVIDER").toContain("Never capture private watch details without an explicit request.");
   expect(startup).toContain("Repair the mast on 2026-07-12."); expect(startup).toContain("Be concise.");
+  expect(startup, "OBSERVED_MAP_REACHES_ACTUAL_HOST_AND_PROVIDER_STARTUP").toContain("Routes and raft decisions for Ithaca.");
+  expect(startup).toContain("voyages/_index.md"); expect(startup).toContain("OBSERVED partial");
+  expect(startup).toContain("not runtime taxonomy"); expect(turns, "STARTUP_DOES_NOT_BOOTSTRAP_HOST_WORK").toHaveLength(0);
   expect(startup).not.toContain("HOST_ONLY");
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "capture", sequence: 0, rate: engine === "gemini" ? 16000 : 24000, pcm: "AAA=" });
   await until(() => f.sent.some(frame => frame.realtimeInput?.audio || frame.type === "session.input_audio.append"));
@@ -101,8 +115,11 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
   expect(statuses(), "NO_PROVIDER_ACCEPTANCE_BEFORE_DURABLE_ADMISSION").toEqual([]);
   expect(turns).toHaveLength(0);
   if (mode === "replace") {
+    writeFileSync(join(root, "voyages/_index.md"), "Athena's updated route registry on 2026-07-12.\n");
     send({ type: "conversation_start", conversationId, contextualTasks: true, disclosed: host.conversations!.profile(true) });
     await until(() => frames.filter(frame => frame.type === "conversation_opened").length === 2);
+    await until(() => f.sent.some(frame => JSON.stringify(frame).includes("Athena's updated route registry")));
+    expect(startup, "EARLIER_MAP_SNAPSHOT_IS_IMMUTABLE").not.toContain("Athena's updated route registry");
   } else if (mode === "withdraw") {
     // GPT Live v1 has no withdrawal event; exercise host withdrawal with the
     // already opened real adapter while retaining its actual native binding.
@@ -127,6 +144,11 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
   expect(observed.every(item => item.durable), "STATUS_REQUIRES_COMMITTED_IDENTITY").toBe(true);
   const receipt = frames.find(frame => frame.nativeHandle === "mast-native" && frame.state === "running");
   expect(observed[0]!.ref).toEqual({ conversationId, epoch, taskId: receipt.taskId, requestId: receipt.requestId, nativeHandle: "mast-native" });
+  expect(JSON.parse(statuses()[0]!.content).guidance).toContain("one brief spoken acknowledgement");
+  expect(JSON.parse(statuses()[0]!.content).guidance).toContain("only once after exact acceptance");
+  expect(JSON.parse(statuses()[1]!.content).guidance).toContain("backend/tools may not have started");
+  expect(JSON.parse(statuses()[1]!.content).guidance).toContain("Do not repeat this task's acknowledgement");
+  for (const status of statuses()) expect(status.content.toLowerCase()).not.toContain("keep talking");
   for (const status of statuses()) {
     expect(Buffer.byteLength(status.content)).toBeLessThanOrEqual(500);
     expect(status.content).not.toContain(receipt.taskId); expect(status.content).not.toContain(receipt.turnId);

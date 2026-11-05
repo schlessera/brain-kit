@@ -179,7 +179,7 @@ export interface ConversationGuidance {
 /** Selected user guidance is instruction; knowledge is data, never authority. */
 export interface ConversationOrientation {
   guidance: readonly ConversationGuidance[];
-  knowledge: readonly { source: string; topic: "identity" | "current_focus" | "domains"; text: string }[];
+  knowledge: readonly { source: string; topic: "identity" | "current_focus" | "domains" | "content_map"; text: string }[];
   /** Sanitized source/category names only, never read errors or file contents. */
   unavailable: readonly string[];
 }
