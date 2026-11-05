@@ -2820,3 +2820,28 @@ a generic tool grant and a generic remembered tool permission never answers an
 Actor request. Once and deny retain their existing wire shapes. The host stores
 Actor approval by brain, principal, account and immutable Actor id, and the
 owner can revoke it in Apify settings.
+
+### Live orientation disclosure and progress (additive, #3623)
+
+Both first-party profiles now disclose transfer at Start of selected
+brain/user guidance, domain names and bounded identity/current-focus context,
+including in a fresh chat with no history. The existing exact
+`conversation_start.disclosed` echo check rejects an older profile before
+repository reads, recovery/takeover or provider open. There is no new grant
+resource, wire frame or protocol revision. Enter/Cancel remain local and new
+content is never transferred silently before Start. The
+[package contract](package-api.md#live-brain-orientation-and-task-status-additive-3623)
+defines the optional frozen orientation and provider status methods.
+
+Existing `conversation_work` states remain unchanged. For contextual tasks
+the first-party adapters additionally receive minimal exact-task queued and
+running feedback after persistence and host turn admission starts,
+respectively. Running does not establish backend/tool invocation; governance
+admission may still be pending. This does
+not convert a request proposal into acceptance or a status into completion;
+provider/native and host identities remain bound, and refused work executes
+no turn. Refused Gemini responses are scheduled `WHEN_IDLE` to allow an
+explanation. A send/append is not a spoken acknowledgement or playback
+receipt. Screen-only approvals, stale-result suppression and no replay remain
+unchanged. [The guidance reference](../live-conversation-guidance.md) separates
+transport proof from real-model judgment and listening qualification.

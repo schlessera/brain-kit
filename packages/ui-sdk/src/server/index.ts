@@ -94,6 +94,9 @@ export { defineSpeechProvider, SpeechTranscriptionError } from "./speech.js";
 
 export type {
   ConversationResync,
+  ConversationGuidance,
+  ConversationOrientation,
+  ConversationTaskRef,
   ConversationHistoryEnvelope,
   HistoricalItem,
   HistoricalResultRef,

@@ -778,6 +778,8 @@ export interface FollowUpRequest {
 export interface AgentBackend {
   /** Stable identity, e.g. "pi" | "claude". Persisted per session (backend_id). */
   id: string;
+  /** Selected configured interaction/capture guidance for live startup; no execution or surface prompt. */
+  conversationGuidance?: readonly import("./conversation.js").ConversationGuidance[];
   capabilities: BackendCapabilities;
   /** Current intrinsic resumed-state allowance, for invalidating older observations. Not aggregate free capacity. */
   stateRoomAllowanceBytes?: number;
