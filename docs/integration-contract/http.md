@@ -306,28 +306,40 @@ unsettled/failed recording, independently of runtime hook cancellation. Unsuppor
 an incomplete epoch. The version 1 detector manifest explicitly excludes
 proxied-shell local file reads and opaque tunnel inner protocols.
 
-Pi records the final result after all installed `tool_result` transformations
-and image normalization through the installed Agent's public hooks, for curated
-and extension-registered tools. Blocked extension results are recorded before
-delivery too. Configurations with `message_end`, `context`, `context_with_system`,
-`before_provider_request`, `before_agent_start`, `input`, `turn_end`,
-`agent_before_settle`, `session_before_compact` or `session_before_tree` handlers are
-unqualified: these handlers can replace or inject provider input outside that
-collector. A live check before each provider request refuses dispatch, including
-handlers registered during a tool call, and first persists collector failure.
+Pi's outer Agent hooks collect curated tool results before continuation.
+Managed workers refuse all loaded external extensions and extension loading
+errors before session creation, and recheck the live loader/runner before Agent
+provider dispatch. No extension path, name or package identity is exempt. This
+includes web/MCP/subagent extensions and handlers registered during execution:
+live result/message mutation and independent custom-message injection make a
+handler blacklist insufficient. No arbitrary extension delivery is qualified.
+
+Refusal awaits the existing optional internal
+`BackendBridge.inputSafety.unavailable()` notice and stops the worker. The host
+owns durable failure retention; callback rejection alone cannot establish it.
+Initialization failures are reported through the host collector before acquisition
+settles; only successful initialization acknowledges the detector epoch. A
+refused configuration must retain incomplete coverage through recovery. The
+notice cannot grant authority or clear evidence, and transformed history is
+never rewritten to recover coverage.
+
 Failure to commit a collector-loss notice retains a bounded connection-local
 loss marker and immediately refuses new collection/provider dispatch through
 every facade. Producer completion must durably retain that loss before sealing
 the epoch; failure leaves it open for restart classification. Explicit recovery
 commits affected historical gaps before clearing local state, even if the
 original notice rolled back. Unknown/capacity-overflow loss correlation retains
-conservative gaps for all epochs. That epoch remains incomplete after recovery. No transformed
-history is rewritten to recover coverage. The optional internal
-`BackendBridge.inputSafety.unavailable()` notice can only retain failure; it
-cannot grant authority or clear evidence.
-Nested `ctx.executeTool()` calls are refused before execution:
-the pinned SDK bypasses those public hooks for nested calls. A recording failure
-aborts provider continuation; it cannot become a swallowed extension exception.
+conservative gaps for all epochs.
+
+No external extension receives nested `ctx.executeTool()` access; curated tools
+contain no nested calls. The prior inline nested gate is removed, and no nested
+execution capability is advertised. Managed workers pin the installed
+`SettingsManager.getCacheWarmingMode()` method to `off`, including across
+settings reloads and mode writes. This disables the installed CacheWarmer's
+separate direct `ModelRuntime.streamSimple()` dispatch, which the Agent stream
+fence does not wrap. Both provider-history guards and supported-host/selected
+hosted proof remain required qualification; focused in-memory SQLite loopback
+captures are not FULL write-worker/restart or namespace proof.
 Search paths and explicit marks remain independent signals when the same line
 also indicates truncation or contains ordinary excerpt words such as omitted.
 

@@ -52,7 +52,6 @@ export function createPiTurnRunner(
     // pi has none of the runtime shortcuts the pairing guards against, but the
     // declaration is refused here too so it means the same on both backends.
     assertTurnPosture(req, !options.sessionFactory, !options.sessionFactory);
-    if(!options.sessionFactory)await req.bridge.inputSafety?.ready("pi",1);
     // pi declares no voice tool posture. Running a voice turn on its ordinary
     // allowlist would be the silent widening the posture exists to prevent.
     if (req.posture === "voice") {
@@ -63,8 +62,18 @@ export function createPiTurnRunner(
     // the same classified terminal failure as an overflow during the turn.
     let acquired: Awaited<ReturnType<SessionPool["acquire"]>>;
     try { acquired = await pool.acquire(req); }
-    catch (error) { refuseAcquisition(req, startedAt, error); return; }
+    catch (error) {
+      // Initialization RPCs cannot use the active-turn bridge. Retain native
+      // initialization loss through the host's existing collector instead;
+      // await it before reporting any terminal acquisition failure. A rejected
+      // notice is propagated, never treated as durable success.
+      if(!options.sessionFactory)await req.bridge.inputSafety?.unavailable?.();
+      refuseAcquisition(req, startedAt, error); return;
+    }
     const { entry, isNew } = acquired;
+    // Only a successfully initialized worker can acknowledge this epoch.
+    try { if(!options.sessionFactory)await req.bridge.inputSafety?.ready("pi",1); }
+    catch (error) { try { await entry.session.abort(); } finally { pool.finish(entry); } throw error; }
     const { session, turnContext } = entry;
     const sessionId = session.sessionId;
     try { holdSession(sessionId); }

@@ -77,6 +77,7 @@ describe("pi builtin catalog", () => {
           allowedTools: new Set<string>(),
           confirmPatterns: [],
           loadExtensions: false,
+          managedToolSafety: true,
         });
         // This catalog unit test constructs the worker-local SDK directly.
         // Ordinary-turn containment and tool transport are proven separately

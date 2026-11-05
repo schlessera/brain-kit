@@ -1,4 +1,3 @@
-import { nestedToolSafetyGate } from "./tool-safety.js";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 /** Imported only after the shared launcher's descriptor and namespace gate. */
 import { existsSync, mkdirSync, readFileSync, statfsSync, symlinkSync, writeFileSync } from "node:fs";
@@ -157,7 +156,7 @@ async function initialize(init: Init): Promise<void> {
     } }) } : { shellCwd: init.dataTree ? WORKER_DATA_ROOT : WORKER_SCRATCH }),
     ...(init.sandboxNote ? { sandboxNote: init.sandboxNote } : {}),
     fixedAppend: init.fixedAppend, observeAppend: append => { renderedAppend = append; },
-    permissionFactory: () => nestedToolSafetyGate(),
+    managedToolSafety: true,
   });
   const buildResources = resources.build;
   resources.build = async (...args) => {

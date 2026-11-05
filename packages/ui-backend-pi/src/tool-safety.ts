@@ -1,6 +1,5 @@
 /** Final host fence around the installed Agent's supported tool hooks. */
 import type { Agent } from "@earendil-works/pi-agent-core";
-import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 
 type Content = import("@earendil-works/pi-agent-core").AfterToolCallContext["result"]["content"];
@@ -11,12 +10,12 @@ export interface PiToolSafety {
   stop():void;
 }
 
-/** Nested ctx.executeTool calls bypass the public Agent hooks in Pi 0.99.2.
- * Refuse them before execution until upstream exposes the final nested fence. */
-export function nestedToolSafetyGate():InlineExtension {
- return {name:"brain-nested-tool-safety",factory:pi=>{
-  pi.on("tool_call",event=>event.parentToolCallId?{block:true,terminate:true,reason:"Nested tool execution has no qualified final host safety fence."}:undefined);
- }};
+/** Await the existing host loss notice; rejection is never proof of durability.
+ * The host owns durable failure retention. Either outcome stops this worker. */
+export async function refusePiInput(safety:PiToolSafety):Promise<never> {
+ try{await safety.unavailable?.();}
+ finally{safety.stop();}
+ throw new Error("Pi extensions have no qualified final host input fence");
 }
 
 /** Pi's public afterToolCall runs after every tool_result extension and image
@@ -27,16 +26,14 @@ export function installPiToolSafety(agent:Agent,safety:PiToolSafety,hasUnqualifi
  const before=agent.beforeToolCall,after=agent.afterToolCall;
  const stop=()=>{safety.stop();agent.abort();};
  const stream=agent.streamFunction;
- // message_end/context/provider hooks can change bytes after afterToolCall,
- // including persisted history. Refuse these unqualified configurations and
- // durably retain the coverage loss, even if a handler is registered mid-turn.
- // This outer stream fence runs after context projection, before any provider
- // request or cache warming. The original provider context is never rewritten.
+ // Recheck the whole extension set after reloads, not a handler blacklist.
+ // Even tool_result can independently inject messages via pi.sendMessage().
+ // This covers Agent dispatch (including summaries), not CacheWarmer's direct
+ // ModelRuntime dispatch. The managed runtime disables that separate path.
  agent.streamFunction=async(...args)=>{
   if(hasUnqualifiedInput()){
-   try{await safety.unavailable?.();}
-   finally{stop();}
-   throw new Error("Pi input transformations have no qualified final host safety fence");
+   try{return await refusePiInput(safety);}
+   finally{agent.abort();}
   }
   return stream(...args);
  };

@@ -38,7 +38,8 @@ export function createSessionResources(options: {
   pinnedSettings?: Record<string, unknown>;
   /** Per-turn workers consume prepared packages; installation belongs to setup. */
   requireInstalledPackages?: boolean;
-  permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
+  /** Managed workers gate tools through the outer Agent hooks and host RPC. */
+  managedToolSafety?: boolean;
   shellCwd?: string;
   directWrites?: boolean;
   nativeFileObservation?: import("./tools.js").BrainToolDeps["nativeFileObservation"];
@@ -96,8 +97,8 @@ export function createSessionResources(options: {
     const agentDir = getAgentDir();
     if (env.autonomous?.containment === "restricted") {
       return restrictedResources(brainPath, agentDir, env.autonomous, options.sandboxNote,
-        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
-          allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }));
+        createPermissionGate({ turn: toolkit.turnContext,
+          allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }), options.managedToolSafety);
     }
     const settingsManager = options.settingsSnapshot !== undefined
       ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),
@@ -127,8 +128,8 @@ export function createSessionResources(options: {
       agentDir,
       settingsManager,
       noExtensions: !loadExtensions,
-      extensionFactories: [
-        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
+      extensionFactories: options.managedToolSafety ? [] : [
+        createPermissionGate({ turn: toolkit.turnContext,
           allowedTools: env.autonomous ? new Set(env.autonomous.allowedTools) : allowedTools, confirmPatterns }),
       ],
       agentsFilesOverride: withCwdContextFiles,
