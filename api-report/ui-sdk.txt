@@ -14,6 +14,7 @@ export "." (./src/index.ts)
   ATTACHMENT_MAX_FILE_BYTES
   ATTACHMENT_MAX_TOTAL_BYTES
   ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_READS_CAPABILITY
   ATTACHMENT_UNBOUND_TTL_MS
   type ActionDigestEntry
   type ActionDigestState
@@ -79,6 +80,7 @@ export "." (./src/index.ts)
   type AttachmentFile
   type AttachmentKind
   type AttachmentLimits
+  type AttachmentReadEntry
   type AttachmentReader
   type BillingMode
   type BrainSearchResult
@@ -330,6 +332,7 @@ export "." (./src/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerAttachmentRead
   type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
@@ -369,6 +372,7 @@ export "." (./src/index.ts)
   type ServerToolUseStart
   type ServerTurnJournal
   type ServerUsage
+  type SessionAttachmentReadsResponse
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRecovery
@@ -518,6 +522,7 @@ export "./client" (./src/client/index.ts)
   ATTACHMENT_MAX_FILE_BYTES
   ATTACHMENT_MAX_TOTAL_BYTES
   ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_READS_CAPABILITY
   ATTACHMENT_READ_MAX_CALL_BYTES
   ATTACHMENT_READ_MAX_PAGES
   ATTACHMENT_READ_MAX_TURN_BYTES
@@ -603,6 +608,7 @@ export "./client" (./src/client/index.ts)
   type AttachmentFile
   type AttachmentKind
   type AttachmentLimits
+  type AttachmentReadEntry
   type AttachmentReadFailure
   type AttachmentReadOutcome
   type AttachmentReadResult
@@ -969,6 +975,7 @@ export "./client" (./src/client/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerAttachmentRead
   type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
@@ -1009,6 +1016,7 @@ export "./client" (./src/client/index.ts)
   type ServerToolUseStart
   type ServerTurnJournal
   type ServerUsage
+  type SessionAttachmentReadsResponse
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRecovery
@@ -1430,6 +1438,7 @@ export "./protocol" (./src/protocol.ts)
   ATTACHMENT_MAX_FILE_BYTES
   ATTACHMENT_MAX_TOTAL_BYTES
   ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_READS_CAPABILITY
   ATTACHMENT_UNBOUND_TTL_MS
   type ActionDigestEntry
   type ActionDigestState
@@ -1495,6 +1504,7 @@ export "./protocol" (./src/protocol.ts)
   type AttachmentFile
   type AttachmentKind
   type AttachmentLimits
+  type AttachmentReadEntry
   type AttachmentReader
   type BillingMode
   type BrainSearchResult
@@ -1738,6 +1748,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerAttachmentRead
   type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
@@ -1777,6 +1788,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerToolUseStart
   type ServerTurnJournal
   type ServerUsage
+  type SessionAttachmentReadsResponse
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionRecovery
@@ -2021,6 +2033,7 @@ export "./schemas" (./src/schemas.ts)
   serverAskUserListRequestSchema
   serverAskUserRankRequestSchema
   serverAskUserRequestSchema
+  serverAttachmentReadSchema
   serverChatRetiredSchema
   serverConversationClosedSchema
   serverConversationEventSchema
@@ -2056,6 +2069,7 @@ export "./schemas" (./src/schemas.ts)
   serverToolUseStartSchema
   serverTurnJournalSchema
   serverUsageSchema
+  sessionAttachmentReadsResponseSchema
   sessionDraftLimitsSchema
   sessionRecoverySchema
   sessionWorkerProfileSchema
@@ -2104,6 +2118,7 @@ export "./server" (./src/server/index.ts)
   ATTACHMENT_MAX_FILE_BYTES
   ATTACHMENT_MAX_TOTAL_BYTES
   ATTACHMENT_POOL_DEFAULT_BYTES
+  ATTACHMENT_READS_CAPABILITY
   ATTACHMENT_READ_MAX_CALL_BYTES
   ATTACHMENT_READ_MAX_PAGES
   ATTACHMENT_READ_MAX_TURN_BYTES
@@ -2192,6 +2207,7 @@ export "./server" (./src/server/index.ts)
   type AttachmentFile
   type AttachmentKind
   type AttachmentLimits
+  type AttachmentReadEntry
   type AttachmentReadFailure
   type AttachmentReadOutcome
   type AttachmentReadResult
@@ -2633,6 +2649,7 @@ export "./server" (./src/server/index.ts)
   type ServerAskUserListRequest
   type ServerAskUserRankRequest
   type ServerAskUserRequest
+  type ServerAttachmentRead
   type ServerChatRetired
   type ServerConversationClosed
   type ServerConversationEvent
@@ -2672,6 +2689,7 @@ export "./server" (./src/server/index.ts)
   type ServerToolUseStart
   type ServerTurnJournal
   type ServerUsage
+  type SessionAttachmentReadsResponse
   type SessionDraftLimits
   type SessionHistoryMessage
   type SessionHistoryRemovalOutcome
@@ -3601,6 +3619,8 @@ signatures (every public export and the types it is made of)
     const ATTACHMENT_MAX_TOTAL_BYTES: 50000000;
   ATTACHMENT_POOL_DEFAULT_BYTES (packages/ui-sdk/src/protocol.ts)
     const ATTACHMENT_POOL_DEFAULT_BYTES: 1073741824;
+  ATTACHMENT_READS_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const ATTACHMENT_READS_CAPABILITY: "attachmentReads";
   ATTACHMENT_READ_MAX_CALL_BYTES (packages/ui-sdk/src/tool-contracts/attachment.ts)
     const ATTACHMENT_READ_MAX_CALL_BYTES: 65536;
   ATTACHMENT_READ_MAX_PAGES (packages/ui-sdk/src/tool-contracts/attachment.ts)
@@ -4351,6 +4371,14 @@ signatures (every public export and the types it is made of)
         maxFileBytes: number;
         maxTotalBytes: number;
         poolBytes: number;
+    }
+  AttachmentReadEntry (packages/ui-sdk/src/protocol.ts)
+    export interface AttachmentReadEntry {
+        fileId: string;
+        turnId: string;
+        outcome: Exclude<import("./tool-contracts/attachment.js").AttachmentReadOutcome, "refused">;
+        scope: NonNullable<import("./tool-contracts/attachment.js").AttachmentReadResult["scope"]> | null;
+        at: number;
     }
   AttachmentReadFailure (packages/ui-sdk/src/tool-contracts/attachment.ts)
     export type AttachmentReadFailure = "timeout" | "resource_limit" | "crash" | "error";
@@ -10799,6 +10827,12 @@ signatures (every public export and the types it is made of)
         requestId: string;
         questions: AskUserQuestion[];
     }
+  ServerAttachmentRead (packages/ui-sdk/src/protocol.ts)
+    export interface ServerAttachmentRead {
+        type: "attachment_read";
+        sessionId: string;
+        read: AttachmentReadEntry;
+    }
   ServerChatRetired (packages/ui-sdk/src/protocol.ts)
     export interface ServerChatRetired {
         type: "chat_retired";
@@ -10938,7 +10972,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired;
+    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired | ServerAttachmentRead;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -11127,6 +11161,11 @@ signatures (every public export and the types it is made of)
         skipWaiting(): Promise<unknown>;
         addEventListener(type: "install", listener: () => void): void;
         addEventListener(type: "activate", listener: (event: ExtendableEventLike) => void): void;
+    }
+  SessionAttachmentReadsResponse (packages/ui-sdk/src/protocol.ts)
+    export interface SessionAttachmentReadsResponse {
+        sessionId: string;
+        reads: AttachmentReadEntry[];
     }
   SessionDraftLimits (packages/ui-sdk/src/protocol.ts)
     export interface SessionDraftLimits {
@@ -18922,6 +18961,33 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"ask_user_request">;
     }, z.core.$loose>;
+  serverAttachmentReadSchema (packages/ui-sdk/src/schemas.ts)
+    const serverAttachmentReadSchema: z.ZodObject<{
+        read: z.ZodObject<{
+            at: z.ZodNumber;
+            fileId: z.ZodString;
+            outcome: z.ZodEnum<{
+                changed: "changed";
+                encrypted: "encrypted";
+                failed: "failed";
+                malformed: "malformed";
+                no_text: "no_text";
+                partial: "partial";
+                read: "read";
+                unavailable: "unavailable";
+            }>;
+            scope: z.ZodNullable<z.ZodUnion<readonly [z.ZodObject<{
+                pageCount: z.ZodNumber;
+                pages: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            }, z.core.$loose>, z.ZodObject<{
+                bytes: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                totalBytes: z.ZodNumber;
+            }, z.core.$loose>]>>;
+            turnId: z.ZodString;
+        }, z.core.$loose>;
+        sessionId: z.ZodString;
+        type: z.ZodLiteral<"attachment_read">;
+    }, z.core.$loose>;
   serverChatRetiredSchema (packages/ui-sdk/src/schemas.ts)
     const serverChatRetiredSchema: z.ZodObject<{
         generation: z.ZodNumber;
@@ -19985,6 +20051,31 @@ signatures (every public export and the types it is made of)
         historyOwnerIds: z.ZodArray<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"chat_retired">;
+    }, z.core.$loose>, z.ZodObject<{
+        read: z.ZodObject<{
+            at: z.ZodNumber;
+            fileId: z.ZodString;
+            outcome: z.ZodEnum<{
+                changed: "changed";
+                encrypted: "encrypted";
+                failed: "failed";
+                malformed: "malformed";
+                no_text: "no_text";
+                partial: "partial";
+                read: "read";
+                unavailable: "unavailable";
+            }>;
+            scope: z.ZodNullable<z.ZodUnion<readonly [z.ZodObject<{
+                pageCount: z.ZodNumber;
+                pages: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            }, z.core.$loose>, z.ZodObject<{
+                bytes: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                totalBytes: z.ZodNumber;
+            }, z.core.$loose>]>>;
+            turnId: z.ZodString;
+        }, z.core.$loose>;
+        sessionId: z.ZodString;
+        type: z.ZodLiteral<"attachment_read">;
     }, z.core.$loose>, z.ZodObject<{
         attachmentCount: z.ZodOptional<z.ZodNumber>;
         files: z.ZodOptional<z.ZodArray<z.ZodType<import("./protocol.js").SharedFileMeta, unknown, z.core.$ZodTypeInternals<import("./protocol.js").SharedFileMeta, unknown>>>>;
@@ -24745,6 +24836,32 @@ signatures (every public export and the types it is made of)
                 outputTokens: z.ZodOptional<z.ZodNumber>;
             }, z.core.$loose>>>;
         }, z.core.$loose>;
+    }, z.core.$loose>;
+  sessionAttachmentReadsResponseSchema (packages/ui-sdk/src/schemas.ts)
+    const sessionAttachmentReadsResponseSchema: z.ZodObject<{
+        reads: z.ZodArray<z.ZodObject<{
+            at: z.ZodNumber;
+            fileId: z.ZodString;
+            outcome: z.ZodEnum<{
+                changed: "changed";
+                encrypted: "encrypted";
+                failed: "failed";
+                malformed: "malformed";
+                no_text: "no_text";
+                partial: "partial";
+                read: "read";
+                unavailable: "unavailable";
+            }>;
+            scope: z.ZodNullable<z.ZodUnion<readonly [z.ZodObject<{
+                pageCount: z.ZodNumber;
+                pages: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+            }, z.core.$loose>, z.ZodObject<{
+                bytes: z.ZodTuple<[z.ZodNumber, z.ZodNumber], null>;
+                totalBytes: z.ZodNumber;
+            }, z.core.$loose>]>>;
+            turnId: z.ZodString;
+        }, z.core.$loose>>;
+        sessionId: z.ZodString;
     }, z.core.$loose>;
   sessionDraftLimitsSchema (packages/ui-sdk/src/schemas.ts)
     const sessionDraftLimitsSchema: z.ZodObject<{

@@ -1989,6 +1989,29 @@ export const serverChatRetiredSchema = z.looseObject({
   generation: z.number().int().min(1),
 }) satisfies z.ZodType<ServerChatRetired>;
 
+const attachmentReadEntrySchema = z.looseObject({
+  fileId: z.string().regex(/^[a-f0-9-]{36}$/),
+  turnId: id,
+  outcome: z.enum(["read", "partial", "no_text", "encrypted", "malformed", "failed", "unavailable", "changed"]),
+  scope: z.union([
+    z.looseObject({ pages: z.tuple([z.number().int().positive(), z.number().int().positive()]), pageCount: z.number().int().nonnegative() }),
+    z.looseObject({ bytes: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]), totalBytes: z.number().int().nonnegative() }),
+  ]).nullable(),
+  at: z.number().int().nonnegative(),
+}) satisfies z.ZodType<import("./protocol.js").AttachmentReadEntry>;
+
+/** `GET /api/sessions/:id/attachment-reads` (#3589). */
+export const sessionAttachmentReadsResponseSchema = z.looseObject({
+  sessionId: id,
+  reads: z.array(attachmentReadEntrySchema),
+}) satisfies z.ZodType<import("./protocol.js").SessionAttachmentReadsResponse>;
+
+export const serverAttachmentReadSchema = z.looseObject({
+  type: z.literal("attachment_read"),
+  sessionId: id,
+  read: attachmentReadEntrySchema,
+}) satisfies z.ZodType<import("./protocol.js").ServerAttachmentRead>;
+
 export const serverUsageSchema = z.looseObject({ type:z.literal("usage"),sessionId:id.optional(),turnId:id,
   usage:turnUsageSchema,observedAt:z.number().int().nonnegative(),budget:turnBudgetReceiptSchema.optional().catch(undefined),
 }) satisfies z.ZodType<import("./protocol.js").ServerUsage>;
@@ -2004,6 +2027,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverTurnJournalSchema,
   serverUsageSchema,
   serverChatRetiredSchema,
+  serverAttachmentReadSchema,
   serverRetryReceiptSchema,
   serverHelloSchema,
   serverTextDeltaSchema,

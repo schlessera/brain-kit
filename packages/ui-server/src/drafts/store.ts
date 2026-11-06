@@ -179,8 +179,8 @@ export interface DraftStore {
   /** Remove a deleted chat's `message` references, starting their seven-day clocks, and its read records. */
   releaseSession(sessionId: string): void;
   /** Record one `read_attachment` call (#3154): UI and internal data, never provider context. */
-  recordAttachmentRead(read: import("../attachments/store.js").AttachmentReadRecord): void;
-  /** Read side: one session's recorded attachment reads, oldest first. */
+  recordAttachmentRead(read: import("../attachments/store.js").AttachmentReadRecord): { at: number };
+  /** Read side: one session's recorded reads of originals its messages name, oldest first. */
   attachmentReads(sessionId: string): Array<import("../attachments/store.js").AttachmentReadRecord & { at: number }>;
   /** Read side: recorded originals by id (any state). */
   attachments(fileIds: readonly string[]): Map<string, import("../attachments/store.js").AttachmentRow>;
@@ -975,7 +975,9 @@ export function createDraftStore(
     },
 
     recordAttachmentRead(read) {
-      db.transaction(() => insertAttachmentRead(db, read, now())).immediate();
+      const at = now();
+      db.transaction(() => insertAttachmentRead(db, read, at)).immediate();
+      return { at };
     },
 
     attachmentReads(sessionId) {

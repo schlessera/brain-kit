@@ -62,6 +62,7 @@ import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
 import { createAttachmentRoutes } from "./attachments/routes.js";
+import { createAttachmentReadRoutes } from "./routes/attachment-reads.js";
 import { ATTACHMENT_SWEEP_INTERVAL_MS, reconcileAttachments, sweepAttachments } from "./attachments/sweep.js";
 import { ATTACHMENT_MAX_FILES, ATTACHMENT_MAX_FILE_BYTES, ATTACHMENT_MAX_TOTAL_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { createActivityRoutes } from "./routes/activity.js";
@@ -1167,6 +1168,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));
   app.route("/api", createAttachmentRoutes({ brainRoot: config.brainPath, store: drafts, instanceId: attachmentInstanceId }));
+  // Only where server_hello advertises attachmentReads (#3589).
+  if (host.attachmentLimits) app.route("/api", createAttachmentReadRoutes(host));
   // Behind the guard by mount position, like /api/status: the activity
   // record leaks strictly more (session activity, errors, spend).
   app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));

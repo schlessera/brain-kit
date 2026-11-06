@@ -963,7 +963,8 @@ export type ServerMessage =
   | ServerConversationPermission
   | ServerTurnJournal
   | ServerUsage
-  | ServerChatRetired;
+  | ServerChatRetired
+  | ServerAttachmentRead;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -2746,6 +2747,49 @@ export interface AttachmentFile {
   trackRejected?: true;
   /** Exactly the existing track metadata, when `kind` is `track`. */
   track?: SharedFileMeta;
+}
+
+/**
+ * `server_hello`/`client_hello` capability (additive, #3589): the host
+ * answers `GET /api/sessions/:id/attachment-reads` and sends
+ * `attachment_read` frames, only to connections that declared the flag.
+ * Without it a client shows no read state for a sent original.
+ */
+export const ATTACHMENT_READS_CAPABILITY = "attachmentReads";
+
+/**
+ * One recorded `read_attachment` call of a session (#3589): what the agent
+ * read of one original, never the text. UI evidence only; it never reaches a
+ * provider.
+ */
+export interface AttachmentReadEntry {
+  fileId: string;
+  /** The turn whose agent made the call. */
+  turnId: string;
+  /** `refused` calls reached no original and are not recorded. */
+  outcome: Exclude<import("./tool-contracts/attachment.js").AttachmentReadOutcome, "refused">;
+  /** The pages or byte range the result covered, or null when nothing was read. */
+  scope: NonNullable<import("./tool-contracts/attachment.js").AttachmentReadResult["scope"]> | null;
+  /** Host milliseconds since epoch when it was recorded. */
+  at: number;
+}
+
+/** `GET /api/sessions/:id/attachment-reads` (additive, #3589). */
+export interface SessionAttachmentReadsResponse {
+  sessionId: string;
+  /** Reads of the originals this session's messages name, oldest first. */
+  reads: AttachmentReadEntry[];
+}
+
+/**
+ * Server → Client (additive, #3589). A turn of `sessionId` just recorded one
+ * read. Sent only to connections that declared
+ * {@link ATTACHMENT_READS_CAPABILITY}; never part of a transcript.
+ */
+export interface ServerAttachmentRead {
+  type: "attachment_read";
+  sessionId: string;
+  read: AttachmentReadEntry;
 }
 
 /** `server_hello.attachmentLimits`. */

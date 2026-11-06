@@ -43,10 +43,12 @@ const declarations=[
         "name": "providerFrameHandlers",
         "source": "0de9131781f27ba26a4469640e849170b9e063ed1d595a90361ac815128b617f"
       },
+      // Re-audited for #3589: the added attachment_read handler is a no-op
+      // that reads no runtime input, like chat_retired.
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "1274d2b9466c5d6e27de3bdaef3ab9287dc2dc76b98af2a2c79d699731b622b0"
+        "source": "847362ebc5510a0dbede9bbbe50cedfdf03346685efe2286238f6be445ece2fe"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

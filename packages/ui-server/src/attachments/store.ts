@@ -221,14 +221,25 @@ export interface AttachmentReadRecord {
   scope: AttachmentReadResult["scope"] | null;
 }
 
+/** The client-facing shape of one recorded read (#3589): no session, since the caller asked for one. */
+export function toAttachmentReadEntry(read: AttachmentReadRecord & { at: number }): import("@schlessera/brain-ui-sdk/protocol").AttachmentReadEntry {
+  return { fileId: read.fileId, turnId: read.turnId, outcome: read.outcome, scope: read.scope ?? null, at: read.at };
+}
+
 export function insertAttachmentRead(db: Database, read: AttachmentReadRecord, at: number): void {
   db.prepare("INSERT INTO attachment_reads (file_id, session_id, turn_id, outcome, scope_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
     .run(read.fileId, read.sessionId, read.turnId, read.outcome, read.scope ? JSON.stringify(read.scope) : null, at);
 }
 
-/** The recorded reads of one session's originals, oldest first. */
+/**
+ * The recorded reads of one session's originals, oldest first: only of files a
+ * `message` reference of that same session still names, so a read never shows
+ * on a chat that was not sent the file.
+ */
 export function listAttachmentReads(db: Database, sessionId: string): Array<AttachmentReadRecord & { at: number }> {
-  const rows = db.query("SELECT file_id, session_id, turn_id, outcome, scope_json, created_at FROM attachment_reads WHERE session_id = ? ORDER BY rowid")
+  const rows = db.query(`SELECT a.file_id, a.session_id, a.turn_id, a.outcome, a.scope_json, a.created_at FROM attachment_reads a
+     WHERE a.session_id = ?1 AND EXISTS (SELECT 1 FROM attachment_refs r WHERE r.file_id = a.file_id AND r.owner = 'message' AND r.owner_id = ?1)
+     ORDER BY a.rowid`)
     .all(sessionId) as Array<{ file_id: string; session_id: string; turn_id: string; outcome: AttachmentReadRecord["outcome"]; scope_json: string | null; created_at: number }>;
   return rows.map((r) => {
     let scope: AttachmentReadRecord["scope"] = null;

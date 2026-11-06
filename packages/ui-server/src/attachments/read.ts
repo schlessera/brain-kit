@@ -23,7 +23,7 @@ interface AttachmentReadBudget { used: number }
 
 export interface AttachmentReadContext {
   brainRoot: string;
-  store: Pick<AwaitableDraftStore, "attachments" | "attachmentRef" | "settled" | "recordAttachmentRead">;
+  store: AttachmentReadStore;
   /** The calling turn's session; null before the backend reported one. */
   sessionId: string | null | undefined;
   turnId: string;
@@ -45,6 +45,9 @@ const TEXT_CURSOR = /^t\.([a-f0-9]{12})\.(\d{1,9})$/;
 function refused(id: string, message: string, row?: AttachmentRow): AttachmentReadResult {
   return { id, ...(row ? { name: row.stored_name, kind: row.kind } : {}), outcome: "refused", message };
 }
+
+/** The draft store calls a read makes. */
+export type AttachmentReadStore = Pick<AwaitableDraftStore, "attachments" | "attachmentRef" | "settled" | "recordAttachmentRead">;
 
 export function createAttachmentReader(extractor: Extractor) {
   async function read(ctx: AttachmentReadContext, input: ReadAttachmentInput): Promise<AttachmentReadResult> {

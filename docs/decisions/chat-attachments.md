@@ -237,6 +237,16 @@ The shared reader of the design's §7, with these concrete choices:
   provider. Session release and the sweep's forget remove a session's or a
   file's rows. There is no derived cache, so nothing new is charged to the
   pool.
+- **Delivering reads (#3589).** The records reach the browser two ways. A
+  route, `GET /api/sessions/:id/attachment-reads`, returns a session's reads
+  when its view opens. A capability-gated `attachment_read` frame carries a
+  read recorded during a live turn. The frame is sent with `sendToCapable`,
+  which bypasses the dialogue recorder, so it never joins a transcript or a
+  replay. Both return only reads of files that a `message` reference of the
+  same session still names. They use the history replay's authorization,
+  which is a usable principal of this host's shared namespace; the route adds
+  no ownership rule that a replay does not have. A replay field was not used:
+  the native transcript, not the host, owns a replayed message.
 - **Adding a reader.** A reader is concrete code, not a registry: add a rule
   to `detectKind` (`packages/ui-server/src/attachments/detect.ts`) and a
   `reader` value to `AttachmentReader` and migration 077's check; route it in
