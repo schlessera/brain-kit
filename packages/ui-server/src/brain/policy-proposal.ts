@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
 import { parseGovernancePolicy, GOVERNANCE_POLICY_PATH, GovernancePolicyReadError, openGovernancePolicyAnchored, verifyGovernancePolicyAnchored,
   type AnchoredGovernancePolicy, type GovernancePolicyReadRefusal } from "@schlessera/brain-common/internal/governance-policy";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -42,9 +43,23 @@ function diff(before: string, after: string) {
   if (before === after) return "";
   return before.split("\n").map(line => `- ${line}`).concat(after.split("\n").map(line => `+ ${line}`)).join("\n");
 }
+/**
+ * The review's frontmatter/body split ends the frontmatter where
+ * `parseFrontmatter`, and so the policy validator, ends it
+ * (`frontmatterBlock`, #2507). The approver then sees every enforced line as
+ * frontmatter and no unenforced line as frontmatter: an unclosed block is
+ * frontmatter to the end of the file, and a closing `---x` ends it after the
+ * dashes. A `...` line does not close it, because the parser does not close
+ * there. One rule is kept from the old splitter: when only whitespace follows
+ * the closing dashes, the whole closing line and its line ending are
+ * frontmatter rather than the start of the body.
+ */
 function split(text: string) {
-  const match = /^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(text);
-  return match ? { frontmatter: match[0], body: text.slice(match[0].length) } : { frontmatter: "", body: text };
+  const block = frontmatterBlock(text);
+  if (!block) return { frontmatter: "", body: text };
+  const rest = block.closed ? /^[ \t]*(?:\r?\n|$)/.exec(text.slice(block.innerEnd + 3)) : null;
+  const end = rest ? block.innerEnd + 3 + rest[0].length : block.end;
+  return { frontmatter: text.slice(0, end), body: text.slice(end) };
 }
 function sections(before: string, after: string) {
   let a: Record<string, unknown> = {};

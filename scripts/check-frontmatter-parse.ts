@@ -84,10 +84,6 @@ export const FENCE_ALLOWED: ReadonlyArray<{ pattern: RegExp; reason: string }> =
     pattern: /^packages\/core\/src\/lib\/frontmatter\.ts$/,
     reason: "stringifyDocument post-processes the LF-only block gray-matter's stringify just emitted",
   },
-  {
-    pattern: /^packages\/ui-server\/src\/brain\/policy-proposal\.ts$/,
-    reason: "pending: its review splitter still accepts a `...` closer; moving it onto frontmatterBlock is open work on #2507",
-  },
 ];
 
 /** Package source, where rule 3 applies. */
