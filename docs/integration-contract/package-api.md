@@ -4890,6 +4890,12 @@ Recorder health remains separate from principal lifetime and does not rotate
 the authority epoch or reload ordinary policy. Completed per-use approvals
 retain their existing scope; pending input or recording loss cannot authorize
 a new irreversible publication.
+Inference and provider relays wait for their turn proxy's already submitted
+egress records before taking a fresh admission snapshot. This cancellable
+settlement prevents a completed connection's pending exposure commit from
+spuriously refusing the next model request. It excludes no occurrence and
+grants no authority: independent pending input, recorder loss and revoked
+authority still refuse, with final dispatch checks after later waits.
 Absent input retains the existing taint callback fallback and grants no new
 capability. The live trust input is revision/notification only; matching and
 publication have separate implementations. See the [effective admission

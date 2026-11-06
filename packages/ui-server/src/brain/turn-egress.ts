@@ -245,5 +245,25 @@ export async function prepareTurnEgress(options: {
     emit(message) { calls.emitted(message); original.emit(message); },
     activity(event) { calls.activity(event); original.activity?.(event); },
   };
-  return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled };
+  const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
+    const operation = proxy[kind](method, target, signal);
+    return { ...operation, async admit() {
+      // A completed worker connection may still be committing its terminal
+      // exposure. Join only this turn proxy's submitted records before taking
+      // a fresh admission snapshot; independent pending input still refuses.
+      if (operation.signal.aborted) return false;
+      let abort: (() => void) | undefined;
+      try {
+        const ready = await Promise.race([settled().then(() => true), new Promise<false>(resolve => {
+          abort = () => resolve(false);
+          operation.signal.addEventListener("abort", abort, { once: true });
+          if (operation.signal.aborted) resolve(false);
+        })]);
+        return ready && !operation.signal.aborted && await operation.admit();
+      } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
+    } };
+  };
+  return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled,
+    inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
+    relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal) };
 }

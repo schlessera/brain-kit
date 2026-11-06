@@ -12,3 +12,5 @@ Fence parallel Claude hook waits and direct host approvals, and retain claimed-c
 Fence host publication after application/policy locks and related effect waits, while preserving principal epochs, completed per-use approvals and frozen ordinary policy.
 
 Wait for initial session identity binding before capturing an approval card's safety snapshot; recheck recorder health and authority after that bounded wait.
+
+Let inference and provider relay admission join their own turn proxy's submitted terminal records before reading fresh safety state. Keep that wait cancellable and continue refusing independent pending input, recorder loss and revoked authority.
