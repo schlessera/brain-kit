@@ -210,6 +210,11 @@ export function ApifySection({ active, layout = "inline", onOpen, onPresence }: 
         focusIn('[data-apify-settings] section[aria-labelledby="apify-provider-heading"] [role="button"]', () => headings.provider.current))}
       onMode={(field, mode: ApifyPolicyMode) => propose(field, `${field === "discovery" ? "Catalog search" : "Running Actors"} is ${MODE_LABELS[mode]}`, { [field]: mode } as ApifyPolicyChange,
         focusIn(`[data-apify-mode="${field}"] [role="radio"][aria-checked="true"]`, () => headings[field].current))}
+      onRevokeActor={async actor_id => {
+        const token = generation.current;
+        try { await api.apifyActorRevoke(actor_id); if (current(token)) { announce("Actor approval revoked."); returnFocus.current = () => headings.grants.current?.focus(); await load(); restore(); } }
+        catch { if (current(token)) announce("Actor approval could not be revoked. Check again."); }
+      }}
       onRevoke={(grant: ApifyGrantRead, index: number) => propose(`grant:${index}`, `${grant.actor_id} build ${grant.build_number} revoked`,
         { remove_grant: { account_id: grant.account_id, actor_id: grant.actor_id, build_number: grant.build_number, profile_id: grant.profile_id, expires_at: grant.expires_at } },
         () => { const rows = container.current?.querySelectorAll<HTMLElement>("[data-apify-grant] [role=\"button\"]"); (rows?.[index] ?? rows?.[index - 1] ?? headings.grants.current)?.focus(); })}

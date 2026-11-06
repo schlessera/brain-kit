@@ -17,17 +17,21 @@ export "./internal/apify" (./src/internal-apify.ts)
   APIFY_TERMINAL_STATES
   type ApifyAbortView
   type ApifyAccount
+  type ApifyActorApproval
+  type ApifyActorApprovalScope
   type ApifyActorFacts
   type ApifyActorGrant
   type ApifyActorReview
   type ApifyAdmission
   type ApifyAdmissionLimits
   type ApifyApprovalSurface
+  type ApifyApprovedCandidate
   type ApifyAuthority
   ApifyAuthorityError
   type ApifyAuthorityOptions
   type ApifyAuthorityRecord
   type ApifyAuthorityStore
+  type ApifyAvailability
   type ApifyBinding
   type ApifyCallContext
   type ApifyCandidateSummary
@@ -66,6 +70,7 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyQualifiedProfile
   type ApifyRefusalCode
   type ApifyRequest
+  type ApifyRequestEstimate
   type ApifyRequestMeter
   type ApifyReservation
   type ApifyResponse
@@ -90,9 +95,11 @@ export "./internal/apify" (./src/internal-apify.ts)
   type ApifyStoredCandidate
   type ApifyStoredProposal
   apifyBrainId
+  apifyCredentialRisk
   apifyRefusal
   callApifyOperation
   canonicalJson
+  checkApifyAvailability
   createApifyAuthority
   createApifyConsent
   createApifyRequestMeter
@@ -181,9 +188,26 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   GovernancePolicyReadError
   type GovernancePolicyReadRefusal
   GovernancePolicySchema
+  TRUST_LIMITS
+  TRUST_RUNTIME_CAPABILITIES
+  type TrustAdmission
+  type TrustMatch
+  type TrustProvenance
+  TrustProvenanceSchema
+  type TrustRule
+  TrustRuleSchema
+  type TrustSelector
+  TrustSelectorSchema
+  type TrustVerification
+  TrustedSourcesSchema
+  canonicalTrustHost
   checkGovernancePolicy
+  matchTrustRules
   openGovernancePolicyAnchored
   parseGovernancePolicy
+  parseTrustGithub
+  parseTrustOrigin
+  parseTrustTunnel
   providerAllows
   resolveGovernancePolicy
   verifyGovernancePolicyAnchored

@@ -68,9 +68,77 @@ objects merge per field. No value grants authority to autonomous turns.
 | `commands` | `deny`, `confirm`: arrays of `{ pattern: string, reason?: string }` | Additions to existing permissions, default `[]`. Regex sources preserve their literal anchors and compile case-insensitively under [confirmation rules](decisions/confirm-patterns.md). Mixed lists retain valid entries in order and report skipped sources; nonempty entirely invalid lists refuse. |
 | `egress` | `mode`: `record`/`allowlist`; `allow`, `deny`: string arrays; `max_bytes_per_turn`: nonnegative safe integer | `record`, empty lists and no byte cap by default. This reader does not establish network enforcement. |
 | `outward` | `allow`: array of `{ command: string, remotes: string[] }`; `hosts`: string array | Default empty additions to the existing outward-action rules and built-in destination list. Parsing grants no action. |
-| `taint` | `egress: { allow: string[] }` | Default empty additions; session-derived hosts/inference relay and taint enforcement remain their owning guardrail's responsibility. Validated provider-relay requests are outside taint narrowing and create no taint ([#3246](integration-contract.md#provider-relay-requests-and-session-taint-breaking-before-10-3246)); this list never needs a provider host for them. |
+| `taint` | `egress: { allow: string[] }`, `trusted_sources: TrustRule[]` | Both lists default to `[]`; trust data and pure candidate matching are described below (#3607). No runtime trust capability is enabled. Default empty egress additions; session-derived hosts/inference relay and taint enforcement remain their owning guardrail's responsibility. Validated provider-relay requests are outside taint narrowing and create no taint ([#3246](integration-contract.md#provider-relay-requests-and-session-taint-breaking-before-10-3246)); this list never needs a provider host for them. |
 | `providers` | Array of `{ paths?: string[], types?: string[], allow: string[] }` | Default `[]`. At least one selector is present. Paths use canonical brain-relative Bun glob patterns; types are exact runtime taxonomy names. Either selector matches; every matching rule must allow the actual recipient. Unknown recipients cannot authorize matching content. |
-| `apify` | `enabled`: boolean; `discovery`, `actors`: `deny`, `ask` or `allow`; `actor_grants`: array of `{ account_id, actor_id, build_number, profile_id, schema_sha256, pricing_sha256, origins, expires_at, max_run_usd }` (at most 64); `limits`: `{ run_usd, turn_usd, session_usd, day_usd, max_runs_per_turn, max_requests_per_turn, max_concurrent_runs, max_runtime_seconds, max_result_items, max_result_bytes, max_retention_seconds }` | Default `{ enabled: false, discovery: ask, actors: ask, actor_grants: [], limits: null }` (additive, #3159, #3160 and #3161). Only `enabled: true` lets the server use its host-only `APIFY_TOKEN`; until then it contacts no Apify endpoint, whatever credential exists. An invalid policy file disables Apify rather than keeping an earlier enablement. `discovery` governs catalog searches and Actor inspection, which send the query or the chosen Actor's identifier to Apify; it never permits a run. `actors: ask` reviews every run, once; `deny` refuses every run; `allow` skips the review only for a run an unexpired grant matches exactly: the bound account, the immutable Actor id (not its name), an exact `build_number` such as `1.4.2` (not a tag), the qualified `profile_id`, the lowercase hex SHA-256 of the build's canonical input schema and of the Actor's price list, every https target origin the input names, and a run cap no larger than `max_run_usd` (positive, at most 1,000,000). Any other run is reviewed. `expires_at` is an ISO 8601 instant. An approved run never adds a grant; grants change only through a policy edit. `limits` is the only spending entitlement: without it no run is admitted. With it, every field is required. Amounts are USD from 0 to 1,000,000. Counts are whole numbers up to 1,000,000. `max_runtime_seconds` is at most 7 days, `max_result_items` at most 1,000,000, `max_result_bytes` at most 1 GiB and `max_retention_seconds` at most 30 days. Zero refuses what it bounds. `run_usd` bounds a run's whole reservation: its cap plus its reserved lifecycle requests and remote storage. `turn_usd`, `session_usd` and `day_usd` count pending reservations as spent and apply alongside, never above, `budgets`. `day_usd` and `max_concurrent_runs` are account-wide across brains. `max_requests_per_turn` counts every Apify request in a turn. Results stay readable for `max_retention_seconds` after a run ends, which never shortens Apify's own storage retention. See the [Apify contract](decisions/apify-capability.md). |
+| `apify` | `enabled`: boolean; `discovery`, `actors`: `deny`, `ask` or `allow`; `actor_grants`: array of `{ account_id, actor_id, build_number, profile_id, schema_sha256, pricing_sha256, origins, expires_at, max_run_usd }` (at most 64); `limits`: `{ run_usd, turn_usd, session_usd, day_usd, max_runs_per_turn, max_requests_per_turn, max_concurrent_runs, max_runtime_seconds, max_result_items, max_result_bytes, max_retention_seconds }` | Default `{ enabled: false, discovery: ask, actors: ask, actor_grants: [], limits: null }` (additive, #3159, #3160 and #3161). Only `enabled: true` lets the server use its host-only `APIFY_TOKEN`; until then it contacts no Apify endpoint, whatever credential exists. An invalid policy file disables Apify rather than keeping an earlier enablement. `discovery` governs catalog searches and Actor inspection, which send the query or the chosen Actor's identifier to Apify; it never permits a run. `actors: deny` refuses every run; both `ask` and `allow` require an Actor's first approval. Approve once authorizes one prepared invocation; approve always persists approval by brain, principal, account and immutable Actor id across sessions, inputs and builds. Historical `actor_grants` entries remain parseable and revocable but do not become Actor-wide approvals. Their legacy fields and expiry syntax are unchanged. `limits` is the only spending entitlement: without it no run is admitted. With it, every field is required. Amounts are USD from 0 to 1,000,000. Counts are whole numbers up to 1,000,000. `max_runtime_seconds` is at most 7 days, `max_result_items` at most 1,000,000, `max_result_bytes` at most 1 GiB and `max_retention_seconds` at most 30 days. Legacy `max_result_items` and `max_result_bytes` remain parseable but do not truncate Actor content (#3580). Zero refuses the remaining allowances. `run_usd` bounds a run's whole reservation: its cap plus its reserved lifecycle requests and remote storage. `turn_usd`, `session_usd` and `day_usd` count pending reservations as spent and apply alongside, never above, `budgets`. `day_usd` and `max_concurrent_runs` are account-wide across brains. `max_requests_per_turn` counts every Apify request in a turn. Results stay readable for `max_retention_seconds` after a run ends, which never shortens Apify's own storage retention. See the [current Apify decision](decisions/apify-actor-approval.md). |
+
+### Prospective trust policy data (additive, #3607)
+
+`taint.trusted_sources` accepts at most 256 strict objects, with 262144 UTF-8
+bytes for the resolved JSON section and 1024 bytes per selector. Entries are
+`{ id, label, selector, incomingContent?, recipientWhileRestricted? }`.
+`id` is opaque ASCII `[A-Za-z0-9_-]`, 1–128 bytes; `label` is at most 128 UTF-8
+bytes. `incomingContent` defaults true and `recipientWhileRestricted` false.
+An origin/tunnel needs at least one true capability. Repository/owner rules
+require incoming true and recipient false. Unknown keys, duplicate IDs,
+duplicate canonical selectors and repository/namespace name or stable-ID
+aliases are invalid; capabilities are never silently merged.
+
+Selectors are strict tagged objects:
+
+| `kind` | Other required fields |
+| --- | --- |
+| `web_origin` | `scheme: http\|https`, canonical `host`, integer `port` 1–65535 (effective default 80/443 explicit) |
+| `tunnel_authority` | canonical `host`, explicit integer `port` 1–65535 |
+| `github_repository` | `host: github.com`, lowercase `owner`, lowercase `repository`, stable `repositoryId` |
+| `github_owner` | `host: github.com`, lowercase `owner`, stable `ownerId` |
+
+Policy stores canonical fields; the internal input parsers accept a bare
+HTTP(S) origin with an optional root slash, an explicit `host:port` tunnel,
+and a GitHub owner or owner/repository, optionally prefixed exactly
+`https://github.com/`. GitHub repository input removes one terminal `.git`.
+Credentials, paths on origins, queries/fragments, percent escapes, wildcards,
+extra GitHub segments, alternate GitHub hosts/ports, SSH and helpers refuse.
+DNS is lowercase URL-parser IDNA ASCII, with one trailing DNS dot removed,
+labels 1–63 bytes and full name at most 253 bytes; empty labels refuse.
+IPv4 must already be dotted decimal; shorthand/octal/hex and numeric forms
+refuse. IPv6 must already be bracketed compressed lowercase, without zone ID.
+Origin matching is exact scheme/host/effective-port; opaque tunnels are separate
+and never imply HTTPS identity. Redirects require separate proof/matching.
+GitHub owner tokens are 1–39 ASCII alphanumeric/hyphen bytes, without edge or
+repeated hyphens; repository tokens are 1–100 ASCII alphanumeric/`_.-` bytes,
+excluding `.` and `..`. Stable provider IDs are nonzero decimal strings of
+at most 20 digits. A parsed worker remote never proves provider identity.
+
+These are policy data and pure candidate matching only. All runtime origin,
+recipient and repository rule capabilities remain **disabled**, with an
+explicit reason in the internal availability facts. There is no new Settings
+writer, transport, admission exemption, historical reclassification or safe
+verdict. Incoming-only rules cannot authorize a restricted destination; repo
+rules cannot authorize a generic host, outward write or private acquisition.
+The existing `taint.egress.allow` list is not populated from these entries.
+
+Candidate matching requires an independent host verifier for each actual
+provenance/rule pair, in addition to structurally valid claimed provenance.
+Absent, unknown or stale verification refuses. Exact repository matching needs
+stable repository ID and the approved current owner boundary; a different
+repository name additionally needs authoritative same-owner rename
+revalidation. Owner matching requires the exact namespace and stable owner ID,
+and explicitly includes current and future repositories there. Transfers and
+name reuse cannot inherit trust. The verifier must prove the approved-owner
+boundary against independent retained authority, including namespace identity;
+a worker-supplied boolean is not that evidence. No such transport/verifier is
+implemented by this slice. #3613 owns the qualified managed immutable read and
+fixed GitHub metadata path, with separate live repository-grant and API
+credential-recipient checks.
+
+Pure matches take a prospective admission snapshot and retain its rule ID,
+capability, policy SHA-256, trust revision, collection revision and copied
+provenance. Revisions are canonical unsigned decimal strings up to
+18446744073709551615; hashes are lowercase 64-character hex. Deleting a rule
+cannot change an already returned audit. This helper persists nothing and
+clears no occurrence. The future recorder/publisher must retain these facts
+and fence live admissions under the [reviewed design](plans/reviewable-session-safety.md).
 
 The [budget](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128541024)
 and [scope](https://github.com/schlessera/brain-kit/issues/1670#issuecomment-6128541457)

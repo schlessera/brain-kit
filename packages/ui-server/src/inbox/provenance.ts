@@ -21,6 +21,7 @@
  * - a copy (`derived_from`) carries its source's origin.
  * An item a conversation without such a lineage added has none.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { stagedArrival, stagedArrivalDigest, type StagedArrival } from "./arrival.js";
@@ -39,7 +40,6 @@ interface ProvenanceRow { subject: string; digest: string; origin: "person" | "s
   run_id: string | null; turn_id: string | null; derived_from: string | null; evidence: string | null }
 
 const key = (subject: InboxSubject): string => "item" in subject ? `item:${subject.item}` : `checkpoint:${subject.checkpoint}`;
-const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 function canonical(value: unknown): string {
   const sort = (entry: unknown): unknown => Array.isArray(entry) ? entry.map(sort)
@@ -131,7 +131,7 @@ function unqualified(db: Database, threadId: string, masked: readonly string[]):
     // Only a person or the server writes text from no brain content; a run's or
     // a conversation's text qualifies for the folders it had hidden.
     const compatible = row !== null && row.digest === current?.digest &&
-      (row.hidden === null ? row.origin === "person" || row.origin === "server" : masked.every(folder => hidden.some(outer => within(folder, outer))));
+      (row.hidden === null ? row.origin === "person" || row.origin === "server" : masked.every(folder => hidden.some(outer => isWithin(outer, folder))));
     if (compatible) qualified.push(row); else refused.push(key(subject));
   }
   return { subjects: refused, qualified };

@@ -1,5 +1,5 @@
 /**
- * The Apify bridge tools (#3162): the same seven fixed operations, names and
+ * The Apify bridge tools (#3162): the same ten fixed operations, names and
  * strict schemas as `brain apify` and the core MCP server's `brain_apify_*`
  * tools, forwarded to the host. Inputs carry the operation's own fields only:
  * principal, session, turn, posture, approval surface, account and spend
@@ -16,7 +16,7 @@ import { defineToolContract, type ToolContract } from "./contract.js";
 export type { ApifyEnvelope, ApifyErrorCode, ApifyOperation, ApifyToolName } from "@schlessera/brain-common/internal/apify-operations";
 export { APIFY_ERROR_CODES, APIFY_GUIDANCE, APIFY_OPERATIONS, APIFY_TOOL_NAMES, apifyOperationOf } from "@schlessera/brain-common/internal/apify-operations";
 
-/** The seven contracts, in the order discovery leads to execution. */
+/** The ten contracts, in the order discovery leads to execution. */
 export const APIFY_TOOL_CONTRACTS: readonly ToolContract<ApifyToolName>[] = Object.freeze(APIFY_OPERATIONS.map((operation: ApifyOperation) => defineToolContract({
   name: APIFY_TOOL_NAMES[operation],
   input: APIFY_INPUT_SCHEMAS[operation],

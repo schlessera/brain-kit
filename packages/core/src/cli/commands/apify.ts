@@ -16,12 +16,15 @@ const USAGE = `brain apify <operation> [--session <name>] [--json]
   status <run>                                     A run's state
   results <run> [--cursor C] [--limit N]           One page of results
   abort <run>                                      Ask Apify to stop a run
+  availability [actor-id]                          Module/workflow readiness; no paid work
+  approvals                                        Remembered Actor approvals
+  revoke <actor-id>                                 Revoke remembered Actor approval
   account [confirm <account-id>]                   The bound account; confirm a changed one
 
 The same operations as the brain_apify_* MCP tools, under the governance
 policy's apify block. Needs APIFY_TOKEN and BRAIN_APIFY_LEDGER (the shared
-ledger file). Nothing is ever asked on stdin: a run needs an exact standing
-grant in the policy, else it refuses as approval_required. Every operation
+ledger file). Nothing is ever asked on stdin: a run needs a remembered Actor
+approval, else it refuses as approval_required. Every operation
 prints { ok, operation, data } or { ok: false, operation, error: { code,
 reason, message } } and exits 0 or 1.`;
 
@@ -43,6 +46,13 @@ function inputFor(operation: ApifyOperation, positional: string[], flags: Record
     return positional[0]!;
   };
   switch (operation) {
+    case "availability":
+      if (positional.length > 1) throw new UsageError("availability takes at most one Actor id.");
+      return positional.length ? { actor_id: positional[0] } : {};
+    case "approvals":
+      if (positional.length) throw new UsageError("approvals takes no arguments.");
+      return {};
+    case "revoke": return { actor_id: one("Actor id") };
     case "discover": {
       if (!positional.length) throw new UsageError("brain apify discover needs a few words to search for.");
       const limit = number("limit", flags.limit);
@@ -69,7 +79,7 @@ function inputFor(operation: ApifyOperation, positional: string[], flags: Record
 }
 
 const ALLOWED_FLAGS: Record<ApifyOperation, readonly string[]> = {
-  discover: ["limit"], inspect: [], prepare: ["input", "max-charge-usd"], run: [], status: [], results: ["cursor", "limit"], abort: [],
+  availability: [], approvals: [], revoke: [], discover: ["limit"], inspect: [], prepare: ["input", "max-charge-usd"], run: [], status: [], results: ["cursor", "limit"], abort: [],
 };
 
 function human(envelope: ApifyEnvelope): void {

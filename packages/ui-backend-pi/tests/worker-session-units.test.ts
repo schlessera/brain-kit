@@ -14,7 +14,7 @@ import type { SessionEnv } from "../src/backend-options";
 import { readPiSession } from "../src/session-storage";
 import { createTurnContext } from "../src/turn-context";
 import { superviseWorker } from "../src/worker-launch";
-import { sendPipe } from "../src/worker-protocol";
+import { PiInputSafetyUnavailableError, sendPipe } from "../src/worker-protocol";
 import { readPiWorkerProtocol, type PiWorkerTurnState } from "../src/worker-reader";
 import { createPiWorkerReceipts } from "../src/worker-receipts";
 
@@ -80,6 +80,20 @@ test("the reader binds the worker's ready frame and refuses a protocol that clos
   await ready.promise;
   expect(state).toMatchObject({ initialized: true, cost: 0.25, levels: ["low", "high"] });
   await expect(reading).rejects.toThrow("Pi worker exited before completion: protocol closed");
+});
+
+test("startup collector loss crosses the real pipe reader without an active-turn RPC",async()=>{
+ const {child,stdout}=fakeChild();let rpcs=0,answers=0;
+ const state:PiWorkerTurnState={active:false,initialized:false,ended:false,error:undefined,cost:0,thinkingLevel:undefined,levels:[],model:undefined,ownedPrompt:undefined};
+ const reading=readPiWorkerProtocol({child,state,ready:Promise.withResolvers<void>(),done:Promise.withResolvers<void>(),sessionId:SESSION,backend:{brainPath:brain},
+  startupStarted:0,promptContext:undefined,sessionBudgetLimits:undefined,autonomous:false,resumed:false,turnContext:createTurnContext(),
+  nativeVersions:{} as NativeFileVersions,receipts:receipts(),resumedIds:new Set(),listeners:new Set(),proof:{started(){},ended(){return undefined;}},
+  toolExecution:undefined,dispatch:async()=>{rpcs++;throw new Error("No active turn");},send(){answers++;},fail(){},reportLimitHits(){},limitEnded:async()=>undefined,diagnostic:()=>""});
+ sendPipe(stdout,{type:"error",errorClass:"input_safety_unavailable",message:"Unqualified voyage extension"});stdout.end();
+ const refusal=await reading.then(()=>undefined,error=>error);
+ expect(refusal,"PI_STARTUP_ONE_WAY_LOSS_SIGNAL_REACHES_HOST").toBeInstanceOf(PiInputSafetyUnavailableError);
+ expect({rpcs,answers},"PI_STARTUP_LOSS_NEVER_WAITS_FOR_AN_RPC_ANSWER").toEqual({rpcs:0,answers:0});
+ expect(state.initialized).toBe(false);
 });
 
 test("supervision frees an unprompted worker's turn temp once on exit, and releases its locks", async () => {

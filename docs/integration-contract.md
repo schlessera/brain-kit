@@ -20,6 +20,18 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Observed live content map (additive, 0.45.0, #3630)
+
+`ConversationOrientation.knowledge[].topic` additionally accepts `content_map`:
+an observed, explicitly partial map of existing root/top-level directory index
+leads, never runtime taxonomy or instruction authority. Both first-party
+profiles disclose this transfer at Start. Existing policy-held root anchoring,
+authorization, whole-policy omission and startup byte ceilings apply. There is
+no new frame, provider seam, automatic task or repository-config execution.
+See [the package API](integration-contract/package-api.md#observed-live-content-map-additive-0450-3630),
+[the disclosure amendment](integration-contract/wire.md#observed-content-map-disclosure-additive-3630)
+and [source mapping and bounds](live-conversation-guidance.md). This ships in a minor.
+
 ## Refusals say why (additive, #3431)
 
 A relayed provider request refused by the CLI provider relay keeps its `403`
@@ -315,76 +327,57 @@ breaking ruling is required.
 
 ## Apify discovery and concrete Actor consent (additive, 0.45.0, #3160)
 
-The governance policy's `apify` block adds `discovery` and `actors`
-(`deny`, `ask` or `allow`, default `ask`) and `actor_grants`, each grant
-`{ account_id, actor_id, build_number, profile_id, schema_sha256, pricing_sha256, origins, expires_at, max_run_usd }`
-([supported inputs](supported-inputs.md#governance-policy),
-[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)).
-The modes are independent: discovery permission never permits a run, and
-`actors: allow` admits only a run an unexpired grant matches exactly; every
-other run asks. The host's catalog calls use only the hosted MCP server's
-`search-actors` and `fetch-actor-details` tools, with telemetry off and no
-use-case text; build, input-schema and pricing facts come from the REST API.
-A run proposal binds account and authority generation, principal, session,
-turn, policy version, the immutable Actor id, the build id and number, the
-schema and pricing fingerprints, the qualified profile, the exact input, its
-target origins and the run cap. All of it is read again before and after the
-approval, and each proposal is consumed once before dispatch. Every approval is a
-per-use `command` confirmation, so neither a remembered tool grant nor an
-approval for a catalog tool, the MCP server or a tool name authorizes a run.
-Voice, autonomous and surfaceless turns are never prompted and get
-`approval_required`. Refusals use the contract's `provider_disabled`,
-`policy_denied`, `approval_required`, `proposal_stale`, `actor_unsupported`,
-`budget_exceeded` and `upstream_incompatible` codes. This adds no CLI command, MCP tool, wire frame,
-route or runnable Actor. No build is qualified yet, so every Actor can be
-inspected and none can run; spend admission, CLI/MCP operations and their
-presentation follow in #3161–#3163. It ships in a minor; no breaking ruling is
-required.
+This is a pre-1.0 breaking minor under the maintainer ruling on #3580:
+legacy exact-build grants stop authorizing runs, and profile/content restrictions
+no longer gate Actor execution. Reapprove each Actor using the new Actor card.
 
-## Apify spending limits, qualified profiles and the run ledger (additive, 0.45.0, #3161)
+The current [Actor approval decision](decisions/apify-actor-approval.md)
+(#3580) revises the original #3160/#3161 qualification and consent model.
+`apify.discovery` and `apify.actors` remain independent `deny`/`ask`/`allow`
+modes. Discovery permission never authorizes a run. `actors: deny` refuses;
+otherwise every Actor needs its own once/always/deny decision. Always is
+scoped to brain, principal, bound Apify account and immutable Actor id,
+across sessions, builds and inputs. Historical `actor_grants` policy entries
+remain valid data but are not silently widened into Actor approvals.
 
-The governance policy's `apify` block adds `limits`
-([supported inputs](supported-inputs.md#governance-policy),
-[CLI envelope](integration-contract/cli.md#governance-policy-check-additive-1650)):
+Each proposal still binds the account generation, principal, session, turn,
+policy, resolved build, schema/pricing fingerprints, input and cap. Those
+facts are revalidated before dispatch, including after an approval. Each
+proposal admits at most once. Generic tool grants authorize no Actor. The
+`actor` approval kind carries the persistent choice separately from generic
+tool permissions; discovery/inspection use per-use `command` cards.
+Voice, autonomous and surfaceless calls cannot obtain a new approval.
+
+## Apify spending limits and the run ledger (revised, #3580)
+
+The strict `apify.limits` object retains
 `{ run_usd, turn_usd, session_usd, day_usd, max_runs_per_turn, max_requests_per_turn, max_concurrent_runs, max_runtime_seconds, max_result_items, max_result_bytes, max_retention_seconds }`.
-Absent, `effective.apify.limits` is `null` and no Apify run is admitted;
-there is no default spending entitlement. Present, every field is required.
-A missing, negative, nonfinite or out-of-range field invalidates the policy,
-which disables Apify. Zero refuses what it bounds. `day_usd` and
-`max_concurrent_runs` are account-wide: they count every brain and principal
-that uses the same Apify account through the same ledger. With limits set,
-`max_requests_per_turn` replaces the fixed 32-operation discovery bound and
-counts every Apify request a turn makes, durably.
+Absent limits admit no spending. Account-wide day and concurrency limits
+span Actors, brains and principals using the same ledger. Turn/session/day
+admission also counts inference. Every admitted run reserves its cap plus
+estimated lifecycle requests, transfer and storage atomically before the
+single start request. Estimates do not guarantee a final invoice; independently
+billed platform activity can exceed estimates. Independent Console/other-app
+activity is not attributed to these turns.
 
-A run is admitted only for a build with a qualified profile. The profile pins
-the build's exact input schema and price list, and qualifies only all-in
-pay-per-event builds with a verified currency cap and every event priced.
-The full input is validated against that schema. URLs may appear only in the
-profile's target fields. Work bounds are mapped to `max_result_items`. Targets
-need robots.txt permission checked by the host, or a written site permission
-for named origins. The cap must be at least Apify's minimum charge.
-No production build is qualified yet. Admission intersects
-`apify.limits` with the global `budgets` less inference already spent. It
-reserves the run cap plus the profile's bounded lifecycle (status, result and
-abort requests, and remote storage retention) in one atomic transaction before
-the start request. That request is sent once, with `build`, `timeout`,
-`memory`, `maxTotalChargeUsd`, `waitForFinish=0` and `restartOnError=false`
-as run options.
+Actors no longer require a qualified profile or host-proven remote collection
+methods. Input JSON objects pass through unchanged after credential-extraction
+scanning; the host does not impose Actor schema field or output content
+allowlists. Results remain paginated through the validated run's dataset,
+under opaque session handles and request/retention limits. Legacy result
+item/byte policy fields remain parseable but do not truncate Actor content.
 
-The ledger is private operational state: a host-owned SQLite file (mode 0600)
-outside every brain and never `brain.db`. Every process opening the same file
-shares its `ledger_id` and one write lock. An unknown start
-(`remote_outcome_unknown`) keeps its reservation and is never sent again;
-only the run's own identity or an operator's attestation resolves it.
-Charge reports settle a run's liability exactly once, and a late report only
-raises it. A missing or unpriced report keeps the reservation. An abort, even
-a confirmed one, never zeroes a charge. Results are read only from the
-validated run's own dataset, under the session's opaque handle, within the
-item, byte, request and retention bounds. Redirects and signed URLs are refused.
-New refusal codes are `accounting_unavailable`, `remote_outcome_unknown` and
-`result_expired`. This adds no CLI command, MCP tool, wire frame or route;
-those follow in #3162 and #3163. It ships in a minor; no breaking ruling is
-required.
+Catalog-only API/transfer estimates also count in the shared ledger and
+overall turn/session/day budgets before requests, even without an Actor run.
+
+The ledger stays private operational state outside the brain. Unknown start
+outcomes keep the reservation and are never automatically retried. Authenticated
+`usageTotalUsd` supplies observed run cost when present; event counts/prices
+are a fallback. Terminal cost reports remain provisional until observed again
+at least ten seconds after first completion. Missing or unpriced reports
+retain liability. Late observed amounts can raise liability; an abort never
+zeroes a charge. The [CLI component](integration-contract/cli.md#actor-approval-revision-3580)
+records current operation shapes and accounting coverage.
 
 ## Apify liability in the global turn budgets (additive, 0.45.0, #3307)
 
@@ -403,9 +396,9 @@ It ships in a minor; no breaking ruling is required, under the same reading as
 
 ## Apify operations through the CLI, MCP and both chat backends (additive, 0.45.0, #3162)
 
-Seven fixed operations reach Apify, each with one strict input schema shared
+Ten fixed operations reach Apify, each with one strict input schema shared
 by every front door: `discover`, `inspect`, `prepare`, `run`, `status`,
-`results` and `abort`. `brain apify <operation> --json`
+`results`, `abort`, `availability`, `approvals` and `revoke`. `brain apify <operation> --json`
 ([CLI component](integration-contract/cli.md#apify-operations-additive-0450-3162)),
 the core MCP server's `brain_apify_<operation>` tools and both first-party
 backends' bridge tools of the same names
@@ -449,7 +442,7 @@ and the shared ledger named by the new `BRAIN_APIFY_LEDGER`
 ([supported inputs](supported-inputs.md)); the server opens the same variable,
 defaulting to `DB_PATH.apify-ledger.sqlite`. Without the ledger every
 standalone operation refuses as `accounting_unavailable`. Nobody can be asked
-there: a run needs an exact standing grant, else `approval_required`. Neither
+there: a run needs a remembered Actor approval for its principal, else `approval_required`. Neither
 variable reaches any worker. This adds no wire frame or HTTP route. It ships
 in a minor; no breaking ruling is required.
 
@@ -544,6 +537,14 @@ selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
 `tailOmitted`. This is data receipt/selection evidence, never a guarantee of
 semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
 and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
+
+Additive (#3623): optional startup brain orientation, selected configured
+backend guidance and exact contextual task progress are inventoried in the
+[package API](integration-contract/package-api.md#live-brain-orientation-and-task-status-additive-3623).
+First-party disclosure now names the extra startup source categories under
+the existing exact Start echo; no new frame or permission grant is added.
+See [source selection and behavior](live-conversation-guidance.md) and the
+[wire amendment](integration-contract/wire.md#live-orientation-disclosure-and-progress-additive-3623).
 
 ## Continuous conversation (breaking, #3053)
 

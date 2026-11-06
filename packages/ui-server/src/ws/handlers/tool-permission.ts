@@ -85,11 +85,12 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
   const store = host.toolPermissions;
   const remembers =
     store !== null &&
-    pending.request.kind !== "command" && pending.request.kind !== "policy" &&
+    pending.request.kind !== "actor" && pending.request.kind !== "command" && pending.request.kind !== "policy" &&
     !pending.request.outsideEnforcedAllowlist;
+  const actorAlways = pending.request.kind === "actor" && !pending.request.outsideEnforcedAllowlist && msg.always === true;
   if (msg.always && remembers) {
     await store.add(pending.request.toolName);
-  } else if (msg.always) {
+  } else if (msg.always && !actorAlways) {
     // The user asked for something the host will not do. Recorded for
     // the same reason the bridge records a grant it declines to apply:
     // a refusal nobody can see is indistinguishable from a bug, and for
@@ -115,10 +116,10 @@ export const handleToolApproval: ClientMessageHandler<"tool_approval"> = async (
     pending,
     msg.updatedInput
       ? { behavior: "allow", updatedInput: msg.updatedInput }
-      : { behavior: "allow" },
+      : { behavior: "allow", ...(actorAlways ? { always: true } : {}) },
     {
       principalId: connection.authorization.principalId,
-      ...(msg.always && remembers ? { always: true } : {}),
+      ...(msg.always && (remembers || actorAlways) ? { always: true } : {}),
       ...(msg.channel ? { channel: msg.channel } : {}),
     }
   );

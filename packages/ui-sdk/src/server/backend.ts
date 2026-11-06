@@ -109,7 +109,7 @@ export interface BackendCapabilities {
 }
 
 export type PermissionDecision =
-  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | { behavior: "allow"; updatedInput?: Record<string, unknown>; always?: boolean }
   | { behavior: "deny"; message: string };
 
 export interface PermissionRequest {
@@ -123,7 +123,7 @@ export interface PermissionRequest {
    * set and may offer "always allow". "command" — a destructive-pattern
    * confirmation for an otherwise auto-allowed tool; never remembered.
    */
-  kind?: "tool" | "command" | "policy";
+  kind?: "tool" | "command" | "policy" | "actor";
   /**
    * This turn declared `enforceAllowedTools` and the tool is NOT on its
    * allowlist. The host must decide the request on its own merits: it may
@@ -171,6 +171,15 @@ export interface LocationFix {
  * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
+  /** @internal Host-owned versioned input collection. Await before executing a
+   * tool and before returning its result to the provider. Never a grant. */
+  inputSafety?: {
+    ready(backendId: string, detectorVersion: number): Promise<void>;
+    /** @internal Persist collector loss before refusing unqualified input. */
+    unavailable?(): Promise<void>;
+    begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
+    result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
+  };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;
   /** Host-owned, turn-bound application. Absent means no authoritative route. */
@@ -373,7 +382,7 @@ export type BackendActivityEvent =
       /** The tool call the refusal belongs to. */
       toolUseId: string;
       /** The request that would have been raised, had anyone been able to answer it. */
-      requestKind: "tool" | "command" | "policy";
+      requestKind: "tool" | "command" | "policy" | "actor";
       /** Why, in the words the model was given. */
       reason: string;
     }
@@ -769,6 +778,8 @@ export interface FollowUpRequest {
 export interface AgentBackend {
   /** Stable identity, e.g. "pi" | "claude". Persisted per session (backend_id). */
   id: string;
+  /** Selected configured interaction/capture guidance for live startup; no execution or surface prompt. */
+  conversationGuidance?: readonly import("./conversation.js").ConversationGuidance[];
   capabilities: BackendCapabilities;
   /** Current intrinsic resumed-state allowance, for invalidating older observations. Not aggregate free capacity. */
   stateRoomAllowanceBytes?: number;

@@ -137,7 +137,10 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         throw new Error("Dialogue provisional owner unavailable");
       if (owner) assertLive(db, [["dialogue_owner", owner.id]]);
       if (!owner) {
-        const id = input.conversationId;
+        // A typed first turn already has a once-bound host safety owner. Reuse
+        // that identity when its first retained dialogue opens later.
+        const safety=input.sessionId?db.query("SELECT history_owner_id FROM safety_sessions WHERE session_id=? AND principal_id=? AND classification='new'").get(input.sessionId,input.principalId) as {history_owner_id:string}|null:null;
+        const id = safety?.history_owner_id ?? input.conversationId;
         db.prepare(
           "INSERT INTO dialogue_owners(id,principal_id,session_id,coverage,created_at) VALUES(?,?,?,?,?)"
         ).run(

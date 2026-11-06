@@ -9,6 +9,7 @@
  * is a load error surfaced by the bin entry.
  */
 
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { BrainContext } from "../lib/context.js";
 import type { CommandModule } from "../lib/module-types.js";
 import { CORE_COMMANDS } from "./commands/index.js";
@@ -36,7 +37,7 @@ function outsideBrain(root: string, path: string | undefined): boolean {
   if (!path) return true;
   let brain = root;
   try { brain = realpathSync(root); } catch { /* compare lexically */ }
-  return !(path === brain || path.startsWith(brain + sep) || path === root || path.startsWith(root + sep));
+  return !(isWithin(brain, path, { separator: sep }) || isWithin(root, path, { separator: sep }));
 }
 
 export interface RegisteredCommand {

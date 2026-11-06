@@ -29,7 +29,7 @@ import {
   type TurnUsageAccumulator,
 } from "./usage.js";
 
-import { SessionTooLargeError } from "./worker-protocol.js";
+import { PiInputSafetyUnavailableError, SessionTooLargeError } from "./worker-protocol.js";
 
 const BACKEND_ID = "pi";
 
@@ -62,8 +62,18 @@ export function createPiTurnRunner(
     // the same classified terminal failure as an overflow during the turn.
     let acquired: Awaited<ReturnType<SessionPool["acquire"]>>;
     try { acquired = await pool.acquire(req); }
-    catch (error) { refuseAcquisition(req, startedAt, error); return; }
+    catch (error) {
+      // Only explicit detector loss requests the host loss notice. Busy,
+      // caller and cancellation refusals preserve their existing outcomes.
+      // Startup carries this signal one-way: its worker cannot await an RPC
+      // answer while the input loop is awaiting initialization.
+      if(!options.sessionFactory&&error instanceof PiInputSafetyUnavailableError)await req.bridge.inputSafety?.unavailable?.();
+      refuseAcquisition(req, startedAt, error); return;
+    }
     const { entry, isNew } = acquired;
+    // Only a successfully initialized worker can acknowledge this epoch.
+    try { if(!options.sessionFactory)await req.bridge.inputSafety?.ready("pi",1); }
+    catch (error) { try { await entry.session.abort(); } finally { pool.finish(entry); } throw error; }
     const { session, turnContext } = entry;
     const sessionId = session.sessionId;
     try { holdSession(sessionId); }

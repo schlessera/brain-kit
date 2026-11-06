@@ -544,8 +544,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
   }
   if (input.stateBytes !== undefined) {
     validWorkerStateBytes(input.stateBytes, "the worker's runtime-state allowance");
-    if (brain === WORKER_STATE || brain.startsWith(`${WORKER_STATE}/`) || scratch === WORKER_STATE
-      || scratch.startsWith(`${WORKER_STATE}/`) || WORKER_STATE.startsWith(`${scratch}/`)) {
+    if (isWithin(WORKER_STATE, brain) || isWithin(WORKER_STATE, scratch) || isWithin(scratch, WORKER_STATE)) {
       throw new WorkerHostError("runtime state must be a separate location outside the brain and scratch");
     }
   }
@@ -722,7 +721,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     // Resolve these sources inside the trusted keeper's mount namespace. The
     // worker receives no server descriptor and still gets its own fresh namespaces.
     for (let i = 0; i < argv.length - 2; i++) {
-      if (["--bind", "--ro-bind"].includes(argv[i]!) && (argv[i + 1] === storage.root || argv[i + 1]!.startsWith(`${storage.root}/`))) {
+      if (["--bind", "--ro-bind"].includes(argv[i]!) && isWithin(storage.root, argv[i + 1]!)) {
         argv[i + 1] = argv[i + 1] === storage.root ? storage.mount : `${storage.mount}/${argv[i + 1]!.slice(storage.root.length + 1)}`;
       }
     }

@@ -36,10 +36,10 @@ describe("provider states", () => {
 });
 
 describe("amounts", () => {
-  test("an unknown start, an unconfirmed abort and an unsettled finish are upper bounds, never $0 (APIFY_UNKNOWN_NOT_ZERO)", () => {
+  test("an unknown start, an unconfirmed abort and an unsettled finish are held estimates, never $0 (APIFY_UNKNOWN_NOT_ZERO)", () => {
     for (const line of [runLine(run({ state: "unknown", remote_outcome_unknown: true })), runLine(run({ abort: "unresolved", state: "aborting" })),
       runLine(run({ state: "succeeded" })), runLine(run({ abort: "requested" }))]) {
-      expect(line.value, "APIFY_UNKNOWN_NOT_ZERO").toBe("up to $1.15");
+      expect(line.value, "APIFY_UNKNOWN_NOT_ZERO").toBe("$1.15 held estimate");
       expect(line.value).not.toContain("$0.00");
     }
     expect(runLine(run({ abort: "unresolved", state: "aborting" })).note).toContain("not confirmed");

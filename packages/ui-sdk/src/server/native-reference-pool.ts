@@ -260,7 +260,7 @@ export function referencePoolMount(mountinfo: string, pool: string, device: stri
   if (mounted.length !== 1 || mounted[0]!.type !== "btrfs" || mounted[0]!.root !== "/" || !mounted[0]!.options.includes("rw") || mounted[0]!.source !== device)
     throw new NativeBrainManagerError("unsupported", "Provision one read-write top-level Btrfs mount of the configured reference pool device.");
   // Btrfs reports anonymous per-subvolume st_dev numbers in mountinfo; the mount source names the volume.
-  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views", "/access"].some(managed => row.root === managed || row.root.startsWith(managed + "/"))))
+  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views", "/access"].some(managed => isWithin(managed, row.root))))
     throw new NativeBrainManagerError("unsupported", "The reference pool volume is also mounted outside its managed roots; one capacity must not be presented twice.");
   if (rows.some(row => row.path !== pool && inside(row.path, pool)))
     throw new NativeBrainManagerError("unsupported", "The reference pool must not contain nested mounts.");

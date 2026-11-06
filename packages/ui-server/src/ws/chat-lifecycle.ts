@@ -94,11 +94,19 @@ export function resolveChat(db: Database, target: ChatTarget): Resolved | { refu
     if (!target.ownerId || target.ownerId.length > MAX_ID) return { refused: "unavailable" };
     const owner = db.query("SELECT id,principal_id,session_id,generation FROM dialogue_owners WHERE id=COALESCE((SELECT owner_id FROM dialogue_aliases WHERE id=?),?)")
       .get(target.ownerId, target.ownerId) as { id: string; principal_id: string; session_id: string | null; generation: number } | null;
-    if (!owner) return { refused: "unavailable" };
-    // Adoption made this a backend session's chat: the reviewed target changed.
-    if (owner.session_id || owner.id !== target.ownerId) return { refused: "stale" };
-    id = owner.id; kind = "provisional"; generation = owner.generation;
-    owners.add(owner.id); principals.add(owner.principal_id);
+    if (!owner) {
+      // A typed first turn has a host-minted safety/history owner before a
+      // native session exists. No dialogue or agent turn is fabricated.
+      const retained=db.query("SELECT DISTINCT principal_id,generation FROM safety_collections WHERE history_owner_id=? AND session_id IS NULL").all(target.ownerId) as {principal_id:string|null;generation:string}[];
+      if(retained.length!==1||!retained[0]!.principal_id)return {refused:"unavailable"};
+      id=target.ownerId;kind="provisional";generation=Number(retained[0]!.generation);
+      owners.add(target.ownerId);principals.add(retained[0]!.principal_id!);
+    } else {
+      // Adoption made this a backend session's chat: the reviewed target changed.
+      if (owner.session_id || owner.id !== target.ownerId) return { refused: "stale" };
+      id = owner.id; kind = "provisional"; generation = owner.generation;
+      owners.add(owner.id); principals.add(owner.principal_id);
+    }
   }
   for (const owner of [...owners]) {
     for (const row of db.query("SELECT id FROM dialogue_aliases WHERE owner_id=?").all(owner) as { id: string }[]) owners.add(row.id);
@@ -183,6 +191,11 @@ export function retireChat(db: Database, input: RetireChatInput): RetireChatResu
     const kinds: [RetiredKind, string[]][] = [["session", chat.identities.sessions], ["dialogue_owner", chat.identities.dialogueOwners],
       ["conversation", chat.identities.conversations], ["task", chat.identities.tasks], ["request", chat.identities.requests], ["native_task", chat.identities.nativeTasks]];
     for (const [kind, ids] of kinds) for (const id of ids) fence.run(kind, id, chat.id);
+    // Preserve negative callback identity before any safety evidence is scrubbed.
+    for(const sessionId of chat.identities.sessions)db.query(`INSERT OR IGNORE INTO safety_retired_turns
+      SELECT turn_id,? FROM safety_collections WHERE session_id=?`).run(chat.id,sessionId);
+    for(const ownerId of chat.identities.dialogueOwners)db.query(`INSERT OR IGNORE INTO safety_retired_turns
+      SELECT turn_id,? FROM safety_collections WHERE history_owner_id=?`).run(chat.id,ownerId);
     const stores: ChatStore[] = [...(chat.backendId !== null ? ["native" as const] : []), "dialogue", "tasks", "projections", "drafts"];
     const intent = db.prepare("INSERT INTO chat_retirement_stores(lifecycle_id,store,outcome,updated_at) VALUES(?,?,'pending',?)");
     for (const store of stores) intent.run(chat.id, store, input.at);

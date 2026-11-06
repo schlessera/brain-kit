@@ -5,6 +5,7 @@
  * and no filesystem. That is what lets `validate` and the OKF exporter reuse
  * them to resolve links without running an index.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { DEFAULT_DIR_ANCHORS } from "../config.js";
 
 /**
@@ -150,7 +151,7 @@ function disambiguateCandidates(
 
   if (sourcePath) {
     const srcBase = sourcePath.replace(/\.md$/, "");
-    const namesakeSub = candidates.filter((p) => p.startsWith(srcBase + "/"));
+    const namesakeSub = candidates.filter((p) => isWithin(srcBase, p, { includeRoot: false }));
     if (namesakeSub.length === 1) return namesakeSub[0];
     if (namesakeSub.length > 1) return null;
 

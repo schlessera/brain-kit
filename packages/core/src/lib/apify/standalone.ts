@@ -14,11 +14,8 @@
  *   every operation refuses as `accounting_unavailable` before anything is
  *   sent. A governed worker can open neither the variable nor the file.
  * - There is nobody to ask. A call that needs an approval refuses as
- *   `approval_required` without prompting; only an exact standing grant in
- *   the policy admits a run.
- * - A robots-authorized profile's targets are checked against their sites'
- *   robots.txt through the scrape package before the start request, by one
- *   checker (and one robots cache) per process (#3330).
+ *   `approval_required` without prompting; only a remembered approval for this Actor and local
+ *   principal admits a run.
  *
  * Identity: the principal is the local operator (`local`), the session is a
  * name the caller chooses (default `default`), and the turn is that session's
@@ -97,9 +94,9 @@ export function createStandaloneApify(options: StandaloneApifyOptions): Standalo
       ...(options.origin ? { origin: options.origin } : {}), ...(options.mcpOrigin ? { mcpOrigin: options.mcpOrigin } : {}),
       ...(options.fetch ? { fetch: options.fetch } : {}), now });
     const runPolicy = governanceApifyRunPolicy(options.root);
-    const meter = createApifyRequestMeter({ ledger: () => store, policy: runPolicy, brain_id: brainId });
+    const meter = createApifyRequestMeter({ ledger: () => store, policy: runPolicy, brain_id: brainId, account: async () => (await authority.status()).account?.id ?? null, now });
     // No routing rules: a provider-folder policy refuses as unproven, since nothing here knows what a conversation was shown.
-    const consent = createApifyConsent({ authority, policy: governanceApifyConsentPolicy(options.root), meter, state: ledgerConsentState(() => store),
+    const consent = createApifyConsent({ ledger: () => store, brain_id: brainId, budgetAvailability: (context, account) => runs.budgetAvailability(context, account), authority, policy: governanceApifyConsentPolicy(options.root), meter, state: ledgerConsentState(() => store),
       ...(options.profiles ? { profiles: options.profiles } : {}), now });
     // One robots cache for the process, kept across close(), as the scrape clients keep theirs.
     sitePermission ??= options.sitePermission ?? createApifySitePermission();
@@ -117,6 +114,7 @@ export function createStandaloneApify(options: StandaloneApifyOptions): Standalo
       // Provider enablement is decided first, as on the server: a disabled provider opens nothing.
       const policy = enablement();
       if (!policy.valid || !policy.enabled) {
+        if (operation === "availability") return { ok: true, operation, data: { state: "unavailable", reason: policy.valid ? "not_enabled" : "policy_invalid" } };
         return { ok: false, operation, error: { code: "provider_disabled", reason: policy.valid ? "not_enabled" : "policy_invalid",
           message: policy.valid ? "Apify is disabled. Set apify.enabled: true in context/policies/governance.md to enable it."
             : "Apify is disabled because context/policies/governance.md is invalid. Repair it (brain policy check) before using Apify." } };
@@ -125,6 +123,7 @@ export function createStandaloneApify(options: StandaloneApifyOptions): Standalo
       try { service = services(); }
       catch (error) {
         const refusal = apifyRefusal(operation, error instanceof ApifyLedgerUnavailable || error instanceof ApifyOperationRefusal ? error : new ApifyLedgerUnavailable());
+        if (operation === "availability") return { ok: true, operation, data: { state: "unavailable", reason: refusal!.error.reason ?? refusal!.error.code } };
         return refusal!;
       }
       const day = new Date(utcDay(now())).toISOString().slice(0, 10);

@@ -100,7 +100,9 @@ export async function contextualRefusals(provider: "gemini" | "gpt", mode: "miss
   await recognize(); await request("valid-after-refusals");
   await until(() => turns.length === accepted + 1);
   releases.at(-1)!();
-  await until(() => f.sent.some(f => provider === "gemini" ? f.toolResponse?.functionResponses.some((r: any) => r.id === "valid-after-refusals") : f.delegation_id === "valid-after-refusals"));
+  await until(() => f.sent.some(f => provider === "gemini"
+    ? f.toolResponse?.functionResponses.some((r: any) => r.id === "valid-after-refusals" && r.response.outcome === "completed")
+    : f.delegation_id === "valid-after-refusals" && f.content?.includes("bronze owl")));
   await host.catalog.settled!();
   const stored = await host.catalog.loadConversation!(conversationId, testPrincipal().id);
   expect(stored?.receipts.filter(r => r.state === "refused")).toHaveLength(CONVERSATION_LIMITS.maxPendingNativeRequests + 3);

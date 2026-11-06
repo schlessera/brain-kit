@@ -21,6 +21,7 @@
  *   touch a package skill — those are symlinks and stay refused.
  */
 
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { Unzip, UnzipInflate } from "fflate";
 import { existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -198,7 +199,7 @@ export function installSkillsFromEntries(
     const skillFiles = new Map<string, Uint8Array>();
     for (const [path, bytes] of files) {
       if (!path.startsWith(rootPrefix)) continue;
-      if (deeper.some((d) => path.startsWith(d + "/"))) continue;
+      if (deeper.some((d) => isWithin(d, path, { includeRoot: false }))) continue;
       skillFiles.set(path.slice(rootPrefix.length), bytes);
     }
 

@@ -191,6 +191,7 @@ export function createInbound(root: BrainUiServices, deps: InboundDeps) {
     const routed = deps.conversation.frame(msg);
     if (!routed) return;
     msg = routed;
+    if (deps.services.safety.frame(msg)) return;
     if (!prefilter(msg)) return;
     handleFrame(msg);
     // After the demux, so a draft that just became this session is already

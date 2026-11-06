@@ -6,7 +6,7 @@
  * none implies another: the provider is enabled and authenticated (#3159,
  * {@link ApifyAuthority}); catalog discovery is permitted (`apify.discovery`);
  * this exact Actor build, input, price and destination set is consented to
- * (`apify.actors`, an exact standing grant or a one-use approval); and the
+ * (`apify.actors`, a remembered Actor approval or a one-use approval); and the
  * spend is admitted (#3161, the `dispatch` callback of {@link ApifyConsent.admitRun}).
  *
  * Discovery and inspection send data to Apify, so they follow the discovery
@@ -16,13 +16,13 @@
  *
  * A proposal binds account and authority generation, principal, session,
  * turn, policy version, the immutable Actor id, the resolved build id and
- * number, the full input-schema and pricing fingerprints, the qualified
- * profile, the exact canonical input, its target origins and the run cap.
+ * number, the full input-schema and pricing fingerprints, the exact canonical
+ * input and the run cap.
  * {@link ApifyConsent.admitRun} re-reads all of it live before and after any
  * approval, and consumes the proposal before dispatch, so a changed fact,
  * a second use, a declined, edited or unanswerable approval dispatches
  * nothing. Tool-name approvals and remembered tool grants never reach here:
- * every approval this module requests is a per-use `command` confirmation.
+ * catalog requests use `command`; runs use Actor-scoped `actor` confirmations.
  *
  * Candidate and proposal references are opaque random values held only in
  * this process. A restart forgets them, which refuses rather than grants.
@@ -42,12 +42,11 @@
  * surface and provider-folder routing in.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { isIP } from "node:net";
-import { APIFY_LIMIT_BOUNDS, APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "../governance-policy.js";
+import { APIFY_MAX_RUN_USD, checkGovernancePolicy, type EffectiveGovernancePolicy } from "../governance-policy.js";
 import { APIFY_API_ORIGIN, APIFY_MCP_ORIGIN, type ApifyAuthority, type ApifyBinding } from "./authority.js";
-import type { ApifyLedger } from "./ledger.js";
+import type { ApifyLedger, ApifyActorApproval } from "./ledger.js";
 import { canonicalJson, sha256 } from "./canonical.js";
-import { APIFY_QUALIFIED_PROFILES, ApifyProfileInputError, profileInput, type ApifyQualifiedProfile } from "./profiles.js";
+import { APIFY_QUALIFIED_PROFILES, type ApifyQualifiedProfile } from "./profiles.js";
 
 export { canonicalJson, sha256 } from "./canonical.js";
 export { APIFY_QUALIFIED_PROFILES, type ApifyQualifiedProfile } from "./profiles.js";
@@ -102,11 +101,11 @@ export interface ApifyPermissionRequest {
   description: string;
   input: Record<string, unknown>;
   /** Always a per-use command confirmation: never a rememberable tool grant. */
-  kind: "command";
+  kind: "command" | "actor";
 }
 /** A live turn's approval surface: the host bridge's `requestPermission`, by structure. */
 export interface ApifyApprovalSurface {
-  requestPermission(request: ApifyPermissionRequest): Promise<{ behavior: "allow" | "deny"; updatedInput?: unknown; message?: string }>;
+  requestPermission(request: ApifyPermissionRequest): Promise<{ behavior: "allow" | "deny"; updatedInput?: unknown; message?: string; always?: boolean }>;
 }
 /** What one earlier turn of the conversation showed its recipient of the provider folders (G2). */
 export interface ApifyProviderExposure {
@@ -214,6 +213,7 @@ export interface ApifyActorFacts {
   pricing_sha256: string;
   permission_level: "LIMITED_PERMISSIONS" | "FULL_PERMISSIONS" | null;
   pricing: ApifyPricingSummary;
+  memory_mbytes?: number;
   input_fields: string[];
   secret_fields: string[];
   required_fields: string[];
@@ -260,6 +260,7 @@ export interface ApifyRunTicket {
   readonly build_id: string;
   readonly build_number: string;
   readonly profile_id: string;
+  readonly memory_mbytes?: number;
   /** The live build's input-schema and price-list fingerprints, which the profile must pin exactly. */
   readonly schema_sha256: string;
   readonly pricing_sha256: string;
@@ -275,7 +276,21 @@ export interface ApifyRunTicket {
   readonly turn_id: string;
 }
 
+export interface ApifyAvailability {
+  state: "unavailable" | "approval_required" | "ready";
+  reason: string | null;
+}
+
+/** A remembered Actor can be inspected without searching the catalog again. */
+export interface ApifyApprovedCandidate extends ApifyActorApproval {
+  /** Session-scoped reference, or null while unavailable or beyond the reference bound. Not an execution grant. */
+  candidate: string | null;
+}
+
 export interface ApifyConsent {
+  availability(context: ApifyCallContext, actor_id?: string): Promise<ApifyAvailability>;
+  approvals(context: ApifyCallContext): Promise<ApifyApprovedCandidate[]>;
+  revoke(context: ApifyCallContext, actor_id: string): Promise<void>;
   discover(context: ApifyCallContext, input: { query: string; limit?: number }): Promise<ApifyDiscoverResult>;
   inspect(context: ApifyCallContext, input: { candidate: string }): Promise<ApifyInspectResult>;
   prepare(context: ApifyCallContext, input: { candidate: string; input: unknown; max_charge_usd: number }): Promise<ApifyPrepareResult>;
@@ -287,6 +302,9 @@ export interface ApifyConsent {
 }
 
 export interface ApifyConsentOptions {
+  ledger?: () => ApifyLedger;
+  brain_id?: string;
+  budgetAvailability?: (context: ApifyCallContext, account_id: string) => Promise<string | null>;
   authority: ApifyAuthority;
   policy: () => ApifyConsentPolicy;
   /** @internal Test seam; production uses {@link APIFY_QUALIFIED_PROFILES}. */
@@ -400,64 +418,13 @@ function plainInput(value: unknown): Record<string, unknown> {
   if (!record(value)) throw new ApifyInputError("Actor input must be a JSON object.");
   let text: string;
   try { text = JSON.stringify(value); } catch { throw new ApifyInputError("Actor input must be plain JSON."); }
-  if (Buffer.byteLength(text) > APIFY_DISCOVERY_LIMITS.input_bytes) throw new ApifyInputError(`Actor input exceeds ${APIFY_DISCOVERY_LIMITS.input_bytes} bytes.`);
+
   const copy = JSON.parse(text) as Record<string, unknown>;
-  const walk = (node: unknown, depth: number): void => {
-    if (depth > APIFY_DISCOVERY_LIMITS.input_depth) throw new ApifyInputError(`Actor input nests deeper than ${APIFY_DISCOVERY_LIMITS.input_depth} levels.`);
-    if (Array.isArray(node)) { for (const item of node) walk(item, depth + 1); return; }
-    const object = record(node);
-    if (!object) return;
-    for (const key of Object.keys(object)) {
-      if (key === "__proto__" || key === "constructor" || key === "prototype") throw new ApifyInputError("Actor input uses a reserved key.");
-      walk(object[key], depth + 1);
-    }
-  };
-  walk(copy, 0);
   return copy;
 }
 
-function privateHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/gu, "").toLowerCase();
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || !host.includes(".") && !isIP(host)) return true;
-  if (isIP(host) === 4) {
-    const [a = 0, b = 0] = host.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
-      || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
-  }
-  if (isIP(host) === 6) {
-    if (host === "::" || host === "::1") return true;
-    const mapped = /^::ffff:([0-9.]+)$/u.exec(host);
-    if (mapped) return privateHost(mapped[1]!);
-    return /^(fc|fd|fe[89ab])/u.test(host) || host.startsWith("::ffff:");
-  }
-  return false;
-}
-
-/** Every web origin the input names. Credentials in a URL, other schemes and private or local hosts refuse. */
-function targetOrigins(input: Record<string, unknown>): string[] {
-  const origins = new Set<string>();
-  const walk = (node: unknown): void => {
-    if (typeof node === "string") {
-      const trimmed = node.trim();
-      if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(trimmed)) return;
-      let url: URL;
-      try { url = new URL(trimmed); } catch { throw new ApifyInputError("Actor input contains a URL that does not parse."); }
-      if (url.protocol !== "https:" && url.protocol !== "http:") throw new ApifyInputError(`Actor input names an unsupported ${url.protocol} URL.`);
-      if (url.username || url.password) throw new ApifyInputError("Actor input must not carry credentials in a URL.");
-      if (privateHost(url.hostname)) throw new ApifyInputError("Actor input must not target a private, local or link-local host.");
-      origins.add(url.origin);
-      return;
-    }
-    if (Array.isArray(node)) { for (const item of node) walk(item); return; }
-    const object = record(node);
-    if (object) for (const value of Object.values(object)) walk(value);
-  };
-  walk(input);
-  return [...origins].sort();
-}
-
 /** The pricing entry in force now: the latest that has started. */
-function pricingSummary(pricingInfos: unknown, now: number): ApifyPricingSummary {
+function pricingSummary(pricingInfos: unknown, now: number, tier: string | null = null): ApifyPricingSummary {
   const uncertainty: string[] = [];
   const entries = Array.isArray(pricingInfos) ? pricingInfos.map(record).filter((entry): entry is Record<string, unknown> => entry !== null) : [];
   const started = entries.filter(entry => { const at = Date.parse(String(entry.startedAt ?? "")); return Number.isFinite(at) && at <= now; })
@@ -475,8 +442,9 @@ function pricingSummary(pricingInfos: unknown, now: number): ApifyPricingSummary
     const event = record(raw);
     if (!event) continue;
     const tiered = record(event.eventTieredPricingUsd) !== null;
-    const price = typeof event.eventPriceUsd === "number" && Number.isFinite(event.eventPriceUsd) && event.eventPriceUsd >= 0 ? event.eventPriceUsd : null;
-    if (tiered) uncertainty.push(`account_tier_unverified:${name.slice(0, 64)}`);
+    const effective = tiered && tier ? record(record(event.eventTieredPricingUsd)?.[tier])?.tieredEventPriceUsd : event.eventPriceUsd;
+    const price = typeof effective === "number" && Number.isFinite(effective) && effective >= 0 ? effective : null;
+    if (tiered && price === null) uncertainty.push(`account_tier_unverified:${name.slice(0, 64)}`);
     else if (price === null) uncertainty.push(`event_price_unknown:${name.slice(0, 64)}`);
     events.push({ name: name.slice(0, 64), title: clip(event.eventTitle, 120), price_usd: price, tiered });
   }
@@ -559,13 +527,13 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
    * approval; every other outcome throws. Voice and autonomous turns, and a
    * turn without a surface, are never prompted.
    */
-  async function approve(context: ApifyCallContext, request: Omit<ApifyPermissionRequest, "toolUseId" | "kind">): Promise<void> {
+  async function approve(context: ApifyCallContext, request: Omit<ApifyPermissionRequest, "toolUseId" | "kind">, actor = false): Promise<boolean> {
     const noGrantSurface = context.posture !== "interactive" || context.approvals === null;
     if (noGrantSurface) {
       throw refuse("approval_required", "no_grant_surface",
         "This needs a person's approval, and nobody can be asked from here. Ask in an interactive conversation, or add an exact grant through a policy change.");
     }
-    const full: ApifyPermissionRequest = { ...request, toolUseId: randomUUID(), kind: "command" };
+    const full: ApifyPermissionRequest = { ...request, toolUseId: randomUUID(), kind: actor ? "actor" : "command" };
     const decision = await context.approvals!.requestPermission(full);
     // Each field is read once: an accessor cannot answer the check one way and the use another.
     const behavior = decision.behavior, updatedInput = decision.updatedInput;
@@ -573,6 +541,7 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
     if (behavior !== "allow") throw refuse("policy_denied", "declined", "The approval was declined; nothing was sent to Apify.");
     if (updatedInput !== undefined)
       throw refuse("proposal_stale", "edited", "The approval came back with a changed request, which nobody reviewed as it is; nothing was sent. Prepare it again as wanted.");
+    return actor && decision.always === true;
   }
 
   /** Authoritative REST facts for one Actor's default build, refreshed every time they matter. */
@@ -603,28 +572,37 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       if (!schema && typeof build.inputSchema === "string") {
         try { schema = record(JSON.parse(build.inputSchema)); } catch { schema = null; }
       }
-      if (!schema) reasons.push("input_schema_unknown");
     }
-    const pricing = pricingSummary(act.pricingInfos, now());
+    const tieredPricing = JSON.stringify(act.pricingInfos ?? null).includes('"eventTieredPricingUsd"');
+    let tier: string | null = null;
+    if (tieredPricing) {
+      await spendRequest(context, policyGate());
+      const response = await options.authority.request(binding, { method: "GET", path: "/v2/users/me", ...signal });
+      const account = record(record(response.data)?.data);
+      if (response.status === 200 && account?.id === binding.account_id) {
+        const value = record(account.plan)?.tier;
+        if (typeof value === "string" && ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"].includes(value)) tier = value;
+      }
+    }
+    const pricing = pricingSummary(act.pricingInfos, now(), tier);
+    if (!schema) pricing.uncertainty.push("input_schema_unknown");
     const permission = act.actorPermissionLevel === "LIMITED_PERMISSIONS" || act.actorPermissionLevel === "FULL_PERMISSIONS" ? act.actorPermissionLevel : null;
-    if (permission === null) reasons.push("permission_level_unknown");
-    else if (permission === "FULL_PERMISSIONS") reasons.push("full_permissions");
-    if (pricing.uncertainty.length) reasons.push("pricing_not_bounded");
-    if (act.isDeprecated === true) reasons.push("deprecated");
+
     const schemaSha = sha256(canonicalJson(schema));
     // The whole price list, scheduled changes included: any change is a different price.
-    const pricingSha = sha256(canonicalJson(Array.isArray(act.pricingInfos) ? act.pricingInfos : null));
+    const pricingSha = sha256(canonicalJson(tieredPricing ? { prices: act.pricingInfos, tier } : Array.isArray(act.pricingInfos) ? act.pricingInfos : null));
     const named = buildNumber ? profiles.find(entry => entry.actor_id === actorId && entry.build_number === buildNumber) ?? null : null;
     // A profile qualifies the exact schema and price it was measured against, nothing else.
     const profile = named && named.schema_sha256 === schemaSha && named.pricing_sha256 === pricingSha ? named : null;
-    if (!named) reasons.push("no_qualified_profile");
-    else if (!profile) reasons.push(named.schema_sha256 !== schemaSha ? "profile_schema_mismatch" : "profile_pricing_mismatch");
+
     return {
       actor_id: actorId, actor: `${act.username}/${act.name}`.slice(0, 201),
       title: clip(act.title, 200), description: clip(act.description, APIFY_DISCOVERY_LIMITS.description_chars),
       build_id: buildId ?? "", build_number: buildNumber ?? "", build_tag: tag.slice(0, 64),
       schema_sha256: schemaSha, pricing_sha256: pricingSha,
-      permission_level: permission, pricing, ...schemaFields(schema),
+      permission_level: permission, pricing,
+      memory_mbytes: typeof record(act.defaultRunOptions)?.memoryMbytes === "number" ? Number(record(act.defaultRunOptions)!.memoryMbytes) : 256,
+      ...schemaFields(schema),
       profile_id: profile?.id ?? null,
       eligibility: { executable: reasons.length === 0, reasons },
     };
@@ -641,13 +619,24 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
     return null;
   }
 
-  function grantFor(policy: ApifyConsentPolicy, proposal: Proposal): ApifyActorGrant | null {
-    const facts = proposal.facts;
-    return policy.grants.find(grant => grant.account_id === proposal.binding.account_id && grant.actor_id === facts.actor_id
-      && grant.build_number === facts.build_number && facts.profile_id !== null && grant.profile_id === facts.profile_id
-      && grant.schema_sha256 === facts.schema_sha256 && grant.pricing_sha256 === facts.pricing_sha256
-      && proposal.origins.every(origin => grant.origins.includes(origin))
-      && Date.parse(grant.expires_at) > now() && proposal.max_charge_usd <= grant.max_run_usd) ?? null;
+  const transientApprovals = new Map<string, ApifyActorApproval>();
+  const approvalScope = (context: ApifyCallContext, account_id: string) => ({ brain_id: options.brain_id ?? "local", principal_id: context.principal_id, account_id });
+  const approvalKey = (context: ApifyCallContext, account_id: string, actor_id: string) => canonicalJson({ ...approvalScope(context, account_id), actor_id });
+  function approvedActors(context: ApifyCallContext, account_id: string): ApifyActorApproval[] {
+    if (options.ledger) return options.ledger().actorApprovals(approvalScope(context, account_id));
+    const scope = approvalScope(context, account_id);
+    return [...transientApprovals].filter(([key]) => Object.entries(scope).every(([k, v]) => JSON.parse(key)[k] === v))
+      .map(([, entry]) => entry).sort((a, b) => a.approved_at - b.approved_at || a.actor_id.localeCompare(b.actor_id));
+  }
+  function remembered(context: ApifyCallContext, account_id: string, actor_id: string): boolean {
+    return options.ledger ? approvedActors(context, account_id).some(entry => entry.actor_id === actor_id)
+      : transientApprovals.has(approvalKey(context, account_id, actor_id));
+  }
+  function remember(context: ApifyCallContext, account_id: string, actor_id: string, actor: string, approved: boolean) {
+    const entry = { actor_id, actor, approved_at: now() };
+    if (options.ledger) options.ledger().setActorApproval(approvalScope(context, account_id), entry, approved);
+    else if (approved) transientApprovals.set(approvalKey(context, account_id, actor_id), entry);
+    else transientApprovals.delete(approvalKey(context, account_id, actor_id));
   }
 
   function review(proposal: Proposal): ApifyActorReview {
@@ -675,14 +664,54 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
     await spendRequest(context, policy, 2);
     const live = await actorFacts(proposal.binding, proposal.facts.actor_id, context);
     const difference = changed(proposal.facts, live);
-    if (difference) throw refuse("proposal_stale", difference, "The Actor's build, input schema, price, permissions or qualification changed after review. Inspect and prepare it again.");
+    if (difference) throw refuse("proposal_stale", difference, "The Actor's build, input schema, price or permissions changed after review. Inspect and prepare it again.");
     if (!live.eligibility.executable)
       throw refuse("actor_unsupported", live.eligibility.reasons[0] ?? "unsupported",
-        "This Actor build is not qualified for bounded execution here, so it cannot run. It can still be inspected.");
+        "The Actor build could not be resolved for this invocation. Inspect it again.");
     return policy;
   }
 
   return {
+    async availability(context, actor_id) {
+      const policy = options.policy();
+      if (!policy.valid || !policy.enabled) return { state: "unavailable", reason: policy.valid ? "not_enabled" : "policy_invalid" };
+      if (policy.actors === "deny") return { state: "unavailable", reason: "actors_denied" };
+      if (!policy.limits) return { state: "unavailable", reason: "limits_unset" };
+      if (context.posture !== "interactive") return { state: "unavailable", reason: `${context.posture}_posture` };
+      try {
+        const status = await options.authority.status();
+        if (status.state !== "configured" || !status.account) return { state: "unavailable", reason: status.reason ?? status.state };
+        const budget = await options.budgetAvailability?.(context, status.account.id);
+        if (budget) return { state: "unavailable", reason: budget };
+        return { state: actor_id && !remembered(context, status.account.id, actor_id) ? "approval_required" : "ready", reason: null };
+      } catch { return { state: "unavailable", reason: "accounting_unavailable" }; }
+    },
+    async approvals(context) {
+      const status = await options.authority.status();
+      if (!status.account) return [];
+      let entries = approvedActors(context, status.account.id);
+      if (!entries.length) return [];
+      if (status.state !== "configured") return entries.map(entry => ({ ...entry, candidate: null }));
+      const { binding } = await options.authority.admit(context.signal ? { signal: context.signal } : {});
+      // Admission refreshes the account: never attach another account's remembered approvals.
+      entries = approvedActors(context, binding.account_id);
+      const fresh: Array<[string, Candidate]> = [];
+      const result = entries.map((entry, index) => {
+        // Keep every approval visible, but never return a reference this same list immediately evicts.
+        if (index < entries.length - APIFY_DISCOVERY_LIMITS.candidates_per_session) return { ...entry, candidate: null };
+        const candidate = reference();
+        fresh.push([candidate, { principal_id: context.principal_id, session_id: context.session_id, binding,
+          actor_id: entry.actor_id, actor: entry.actor, inspected: null }]);
+        return { ...entry, candidate };
+      });
+      state.addCandidates(fresh, context.session_id, APIFY_DISCOVERY_LIMITS.candidates_per_session);
+      return result;
+    },
+    async revoke(context, actor_id) {
+      const { account } = await options.authority.status();
+      if (!account) throw refuse("approval_required", "account_unknown", "There is no bound Apify account.");
+      remember(context, account.id, actor_id, actor_id, false);
+    },
     async discover(context, input) {
       const raw = record(input);
       if (!raw || Object.keys(raw).some(key => key !== "query" && key !== "limit")) throw new ApifyInputError("Expected { query, limit? }.");
@@ -765,19 +794,8 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       if (policy.actors === "deny") throw refuse("policy_denied", "actors_denied", "Running Apify Actors is denied by apify.actors in the governance policy.");
       await options.authority.check(candidate.binding);
       const bound = candidate.inspected;
-      const unknown = Object.keys(actorInput).filter(key => !bound.input_fields.includes(key));
-      if (unknown.length) throw new ApifyInputError(`Actor input names fields its schema does not define: ${unknown.sort().join(", ")}.`);
-      const secrets = Object.keys(actorInput).filter(key => bound.secret_fields.includes(key));
-      if (secrets.length) throw new ApifyInputError(`Actor input sets secret fields, which never leave the host this way: ${secrets.join(", ")}.`);
-      const missing = bound.required_fields.filter(key => !(key in actorInput));
-      if (missing.length) throw new ApifyInputError(`Actor input lacks required fields: ${missing.join(", ")}.`);
-      const origins = targetOrigins(actorInput);
-      const qualified = profiles.find(entry => entry.id === bound.profile_id) ?? null;
-      if (qualified) {
-        // The qualified profile validates the whole input against the exact build's schema now, not only at dispatch.
-        try { profileInput(qualified, actorInput, policy.limits?.max_result_items ?? APIFY_LIMIT_BOUNDS.result_items); }
-        catch (error) { if (error instanceof ApifyProfileInputError) throw new ApifyInputError(error.message); throw error; }
-      }
+      if (options.authority.credentialRisk(actorInput)) throw refuse("policy_denied", "credential_extraction", "Actor input attempts to extract or disclose credentials; nothing was sent.");
+      const origins: string[] = [];
       const minimum = bound.pricing.minimal_max_total_charge_usd;
       if (minimum !== null && cap < minimum)
         throw new ApifyInputError(`max_charge_usd is below this Actor's minimum run charge of $${minimum}.`);
@@ -793,7 +811,7 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
       };
       const ref = reference();
       state.addProposal(ref, proposal, now());
-      return { proposal: ref, review: review(proposal), admission: policy.actors === "allow" && grantFor(policy, proposal) ? "grant" : "ask",
+      return { proposal: ref, review: review(proposal), admission: remembered(context, proposal.binding.account_id, proposal.facts.actor_id) ? "grant" : "ask",
         expires_at: new Date(proposal.expires_at).toISOString() };
     },
 
@@ -807,31 +825,31 @@ export function createApifyConsent(options: ApifyConsentOptions): ApifyConsent {
         || !state.transition(ref, "prepared", "admitting")) throw STALE_REFERENCE();
       let admitting = true;
       try {
-        let policy = await revalidate(context, proposal);
-        let grant = policy.actors === "allow" ? grantFor(policy, proposal) : null;
-        if (!grant) {
-          await approve(context, { toolName: "Apify Actor run",
-            description: `Run ${proposal.facts.actor} build ${proposal.facts.build_number} once, with the input shown, charging at most $${proposal.max_charge_usd}. Approving does not allow any later run.`,
-            input: review(proposal) as unknown as Record<string, unknown> });
-          // Waiting for a person takes time: everything is read again.
-          policy = await revalidate(context, proposal);
-          grant = null;
+        await revalidate(context, proposal);
+        const standing = remembered(context, proposal.binding.account_id, proposal.facts.actor_id);
+        let persist = false;
+        if (!standing) {
+          persist = await approve(context, { toolName: "Apify Actor run",
+            description: `Approve Actor ${proposal.facts.actor}. Approve once runs this request; approve always remembers this Actor. The $${proposal.max_charge_usd} run cap excludes independently billed platform operations; final costs may differ.`,
+            input: review(proposal) as unknown as Record<string, unknown> }, true);
+          await revalidate(context, proposal);
         } else {
-          // The grant matched under the policy just read; it must still be the one in force.
-          policy = policyGate();
-          if (policy.hash !== proposal.policy_hash || !grantFor(policy, proposal)) throw refuse("proposal_stale", "grant_changed", "The standing grant changed; prepare the run again.");
+          await revalidate(context, proposal);
+          if (!remembered(context, proposal.binding.account_id, proposal.facts.actor_id)) throw refuse("approval_required", "approval_revoked", "This Actor's remembered approval was revoked. Prepare it again.");
         }
+        if (options.authority.credentialRisk(proposal.input)) throw refuse("policy_denied", "credential_extraction", "Actor input attempts to extract or disclose credentials; nothing was sent.");
+        if (persist) remember(context, proposal.binding.account_id, proposal.facts.actor_id, proposal.facts.actor, true);
         await options.authority.check(proposal.binding);
         admitting = false;
         if (!state.transition(ref, "admitting", "consumed")) throw STALE_REFERENCE();
         const facts = proposal.facts;
         const ticket: ApifyRunTicket = Object.freeze({
           proposal: raw.proposal as string, binding: proposal.binding, actor_id: facts.actor_id, build_id: facts.build_id,
-          build_number: facts.build_number, profile_id: facts.profile_id!, schema_sha256: facts.schema_sha256, pricing_sha256: facts.pricing_sha256,
+          build_number: facts.build_number, memory_mbytes: facts.memory_mbytes, profile_id: facts.profile_id ?? "actor-approved", schema_sha256: facts.schema_sha256, pricing_sha256: facts.pricing_sha256,
           input: deepFreeze(structuredClone(proposal.input)),
           input_sha256: proposal.input_sha256, origins: Object.freeze([...proposal.origins]), max_charge_usd: proposal.max_charge_usd,
           max_charge_microusd: Math.ceil(Math.round(proposal.max_charge_usd * 1e9) / 1e3),
-          consent: grant ? { source: "grant" as const, expires_at: grant.expires_at } : { source: "approval" as const },
+          consent: standing ? { source: "grant" as const, expires_at: "9999-12-31T23:59:59.999Z" } : { source: "approval" as const },
           principal_id: proposal.principal_id, session_id: proposal.session_id, turn_id: proposal.turn_id,
         });
         return await dispatch(ticket);

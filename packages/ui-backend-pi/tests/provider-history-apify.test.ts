@@ -18,7 +18,7 @@ test("Pi Apify tools reach the host and keep tools, instructions and history sta
   expect(capture.calls, "APIFY_PI_HOST_RECEIVES_EVERY_CALL").toEqual(["brain_apify_discover", "brain_apify_discover", "brain_apify_inspect",
     "brain_apify_prepare", "brain_apify_run", "brain_apify_results"]);
   expect(outcome.calls, "APIFY_PI_HOST_DECIDES").toEqual(["provider_disabled", "ok", "ok", "ok", "ok", "ok"]);
-  expect(outcome.cards, "APIFY_PI_PER_USE_REVIEW").toEqual(["command:Apify catalog search", "command:Apify Actor inspection", "command:Apify Actor run"]);
+  expect(outcome.cards, "APIFY_PI_PER_USE_REVIEW").toEqual(["command:Apify catalog search", "command:Apify Actor inspection", "actor:Apify Actor run"]);
   expect(outcome.starts, "APIFY_PI_ONE_BOUNDED_RUN").toBe(1);
   expect(outcome.items, "APIFY_PI_BOUNDED_RESULTS").toBe(2);
   expect(JSON.stringify(messages(main(capture)[1]!).at(-1)), "APIFY_PI_DISABLED_IS_TOOL_ERROR").toContain("provider_disabled");

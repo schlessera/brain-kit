@@ -605,15 +605,15 @@ export function registerComputeTools(server: McpServer, ops: ComputeOps, driver:
   );
 }
 
-/** Read-only Apify operations: they read the catalog or an owned run and spend nothing. */
-const APIFY_READ_ONLY = new Set(["discover", "inspect", "prepare", "status", "results"]);
+/** Read-only Apify operations: no Actor starts or approval revocations; platform overhead can apply. */
+const APIFY_READ_ONLY = new Set(["discover", "inspect", "prepare", "status", "results", "availability", "approvals"]);
 
 /**
  * brain_apify_discover … brain_apify_abort (#3162): fixed names and strict
  * schemas, shared with `brain apify` and both chat backends. Each calls the
  * same standalone operation `brain apify` calls, under this process's own
  * policy, token and shared ledger; nothing here can ask anyone, so a run
- * needs an exact standing grant. Discovered Actor schemas are returned as
+ * needs a remembered Actor approval. Discovered Actor schemas are returned as
  * data: choosing an Actor never adds or removes a tool.
  */
 export function registerApifyTools(server: McpServer, apify: () => StandaloneApify): void {

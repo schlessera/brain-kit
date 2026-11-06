@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 171 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 173 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -156,6 +156,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
+| GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Exact authenticated history owner; immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -191,7 +192,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/vpn-check` | I | Probe authenticated reachability and name the account partition | React ConnectionGate probe; mode-independent {vpn:true} is UI transport, not a VPN assertion for integrations. Additive `accountKey` names the device-local account partition ([contract](integration-contract/http.md#account-partition-key-additive-1014)). |
 | GET | `/api/web-search` | I | Read backend web-search settings | Pi settings UI; backend-specific config editor rather than a query API. |
 | PUT | `/api/web-search` | I | Update provider routing/keys and invalidate cache | Pi settings UI; backend-specific config editor rather than a query API. |
-| GET | `/api/apify` | I | Read Apify provider state, policy and spend | Settings UI (#3159, #3163); live human owners only. Reports `disabled`, `authentication_required`, `configured` or `unavailable`; never a token. Contacts Apify only while the policy enables it. Additively since #3163 also `policy` (the effective `apify` block, each grant's `active`/`expired`/`other_account` status, the policy hash an edit names as its base) and `spend` (`ledger` `absent`/`read`/`unavailable`, today's account-wide and brain ledger scopes, and unsettled runs, never as $0). `?session=&turn=` adds that turn's scope; `?refresh=1` re-verifies the token and settles open runs first. |
+| GET | `/api/apify` | I | Read Apify provider state, policy and spend | Additively #3580: `actor_approvals: [{ actor_id, actor, approved_at }]` lists remembered Actor approvals, timestamp in Unix milliseconds.  Settings UI (#3159, #3163); live human owners only. Reports `disabled`, `authentication_required`, `configured` or `unavailable`; never a token. Contacts Apify only while the policy enables it. Additively since #3163 also `policy` (the effective `apify` block, each grant's `active`/`expired`/`other_account` status, the policy hash an edit names as its base) and `spend` (`ledger` `absent`/`read`/`unavailable`, today's account-wide and brain ledger scopes, and unsettled runs, never as $0). `?session=&turn=` adds that turn's scope; `?refresh=1` re-verifies the token and settles open runs first. |
+| POST | `/api/apify/actors/revoke` | I | Revoke one remembered Actor approval | Live human owners only. Strict `{ actor_id }`, immutable alphanumeric id. Returns `{ revoked: true }`; idempotent, scoped to brain, principal and bound account. |
 | POST | `/api/apify/account` | I | Confirm the token's changed Apify account | Settings UI (#3159); live human owners only. Starts a new authority generation; accepts no token. |
 | POST | `/api/apify/policy` | I | Propose one Apify setting through the policy-change review | Settings UI (#3163); live human owners only. `{ change, base_hash }` names exactly one of `enabled`, `discovery`, `actors` or `remove_grant` and the policy version it changes. Returns `{ turn_id, request_id, review }` with a pending `PolicyChangeReview` of the complete proposed `governance.md`; writes nothing. 409 when the policy changed since it was read; 422 when the file cannot be rewritten exactly. |
 | POST | `/api/apify/policy/:turnId/:requestId` | I | Answer that exact review | Settings UI (#3163); only the proposing owner. `{ approve }`; an approval lets the existing policy writer publish it inside a user journal window. A repeated or late answer returns the recorded receipt and never writes again; a lost answer is reconciled through `GET /api/policy-proposals/:turnId/:requestId`. |
@@ -204,7 +206,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 171 declared endpoints are mounted regardless of backend, renderer or
+All 173 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1370,7 +1372,12 @@ in `brain.db` or the brain, and are kept with the session's catalog row rather
 than with the pruned Activity span detail: pruning span detail leaves them, and
 deleting a session deletes them. An event whose turn never named a session (a
 new conversation refused before it started, a crash before `session_info`) has
-`sessionId: null` and is kept for 90 days.
+`sessionId: null` and is kept for 90 days, except `taint` and
+`taint_exposure`: unresolved safety evidence has no time-based eviction. A
+content-free once-only turn/session binding survives catalog removal and
+refuses contradictory binding or late writes under a retired session identity.
+Explicit chat retirement retains governance under its existing independent
+audit owner; it does not claim those audit records were erased.
 
 Query parameters, each optional and combined with AND: `session` (one session
 id), `turn` (one turn id), `kind` (repeatable or comma-separated kinds from the
@@ -1407,6 +1414,28 @@ unknown kinds and unknown payload fields, and should read a payload only for a
 `schemaVersion` they know. Until a release emits a kind, its version 1 payload
 may still change.
 
+Collection metadata on new tool/proxy taint rows is a strict optional object:
+`{ id, epochId, operationId, signalId, exposureId, detector, exposure, provenance, admission? }`.
+IDs are host-minted opaque ASCII `[A-Za-z0-9_-]`, 1–128 bytes;
+`operationId` may be null. The detector names follow the version 1 inventory in
+[the reviewed plan](plans/reviewable-session-safety.md#detector-contract-and-coverage).
+`exposure` is `open`, `finalized` or `interrupted_unknown`. Verified proxy
+provenance is `{kind: web_origin, origin: {scheme, host, port}, verifiedBy:
+host_transport}` or `{kind: tunnel_authority, authority: {host, port}, verifiedBy:
+host_proxy}`; unverified tool/repository provenance is `null`. Admission records
+`{trusted: false, policyHash: <SHA-256>|null, trustRevision: "0"}`. Source trust
+is disabled. A separate terminal event records host-proven delivery completion;
+a display frame or opaque tunnel close cannot establish it.
+
+The host's durable projection includes all unresolved identities and explicit
+coverage/failure facts, independently of this paginated governance history.
+Legacy/no-row and unsupported histories are restricted. Collector metadata alone
+never proves complete coverage: a new host-bound session needs every mandatory
+versioned acknowledgement. Old rows remain readable as stored. No safety query,
+review/clearing endpoint or mutation capability is enabled by these additions.
+Provider dispatch refuses unsettled or failed input recording at the host relay,
+including when a runtime continues after a hook failure.
+
 ### Governance event kinds
 
 Counts and byte sizes are non-negative integers. Amounts are non-negative
@@ -1421,7 +1450,7 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
-| `egress_connection` | 1 | `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, and only a validated provider-relay operation sets `provider: true`; a record never carries both. Neither relay's record makes its host a contacted one for a tainted session's worker traffic. Headers, query strings and content are absent. |
+| `egress_connection` | 1 | `connectionId` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, and only a validated provider-relay operation sets `provider: true`; a record never carries both. Neither relay's record makes its host a contacted one for a tainted session's worker traffic. Headers, query strings and content are absent. |
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds` | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is an existing prior taint event or `null`. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
@@ -1442,7 +1471,8 @@ read by any authenticated principal.
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
 | `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write`, `outward_host_connect` or `compute_run` (a hosted external compute job start, #3108, its `target` the instance id); `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
-| `taint` | 1 | `source`, `tool`, `detail` | The untrusted input that tainted the session. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). |
+| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). |
+| `taint_exposure` | 1 | `occurrenceId`, `state` | A separate terminal observation for an open occurrence: `finalized` only after a completed bounded HTTP response, otherwise `interrupted_unknown`. Opaque CONNECT closure never establishes source finalization. This observation authorizes no safe verdict. |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider whose key the host withheld from the worker. Recorded from the token the CLI prints ([CLI contract](integration-contract/cli.md#withheld-provider-keys-additive-0440-1666)), one event per distinct token in a tool result and at most 20 per turn. `capability` is `embeddings`, `completions`, `reranking` or `image`; `command` is the shell command, or the tool's name for any other tool; `degradedTo` names the fallback used (`keyword_search`, `keyword_index`, `lifecycle_order`) or is `null`. The token is text in tool output, so the event is a diagnostic, not proof. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
 | `roadblock` | 1 | `category`, `family`, `signature`, `failures`, `resolution`, `remedy`, `waste`, `eventIds` | One classified roadblock episode, written when its turn ends ([classification](decisions/governed-writable-workers.md#roadblocks)). An episode opens at a failed step and closes at the next successful call of the same `family`, or at turn end. `family` is the tool family: `shell:<program>` (with the subcommand for multi-command programs, such as `shell:git push`), `file_write`, `file_read`, `search`, `web`, `brain_write`, `subagent`, `mcp:<server>:<tool>` or `tool:<name>`; a governance event with no call has `budget`, `scope`, `network`, `policy` or `outward`. `category` is `tool_error`, `shell_nonzero`, `fs_denied`, `permission_denied`, `policy_block`, `budget`, `scope_cap`, `network_refused` or `retry`. It is `retry` when the episode repeated a near-identical failed input, and otherwise the first failure's category. `signature` is the grouping key `<family>\|<target>\|<category> <detail>` of the first failure, for example `file_write\|.brain/*\|fs_denied EROFS .brain/*`. The target is the command's program and, for multi-command programs, its subcommand (`<script>` for a program run by path); the directory a path sits in, by its last name, when that is one of the brain's structural or write areas (`<dir>` otherwise); or a URL's scheme (`https-url`). A signature therefore never carries file names, arguments, hosts, user-chosen directory names or absolute roots. The detail after the category is the error code and target area, `exit <code>`, or the deciding rule or limit, so equal signatures mean the same roadblock. Each failure is `{ toolCallId, signature, category }`, where `toolCallId` is `null` for a governance event with no call. `resolution` is `{ toolCallId, signature }` or `null`. `remedy` is `guidance` when a call the turn could already make resolved the episode. It is `abandoned` for exactly one unresolved failure with no retry followed by an eligible later success; repeated unresolved failures or turn-temp workarounds remain `capability`. `waste` is `{ tokens, costUsd, ms }`, measured from the first failed call's start to the resolving call's start; unresolved waste stops at the first successful call starting strictly after the last failure was known, otherwise at turn end. That accounting boundary does not create semantic resolution. Usage is sampled at that boundary; final usage cannot fill an earlier bound. Unknown tokens or cost are `null`, never 0. `eventIds` names the governance events the episode drew on. |
@@ -1780,3 +1810,40 @@ unknown is terminal for automatic retry. Three attempts per episode/subscription
 are the maximum, with one/five-minute delays only after known non-delivery.
 Restored episodes never regain notification authority. See
 [Storage history](storage-history.md) for sampling, recovery and physical costs.
+
+### Session safety sidecars
+
+`GET /api/sessions/:id/safety?limit=50&cursor=...` is an authenticated,
+read-only view of host evidence. `limit` is an integer 1–100; cursor is absent
+on the first page and opaque on subsequent pages. The query is at most 8192
+bytes. A successful `SafetyPage` has `version: 1`, canonical `identity`,
+`snapshotId`, input `cursor` (null initially), decimal-string `highWater`,
+`projection`, up to 100 immutable records, `nextCursor`, `snapshotComplete`
+and `detailPruned`. Responses are `Cache-Control: no-store` and at most 262144
+UTF-8 bytes. No request invokes a verdict, policy writer, backend turn or
+provider transcript write.
+
+The exact live principal must own the retained history. There is no equivalence
+between separate owner logins, delegated credentials or ambient identities.
+The existing native-history and dialogue APIs keep their visibility rules.
+Unknown/unowned legacy safety collections return explicit unavailable; known
+legacy collection gaps never imply normal. Revoked/expired callers receive
+401, malformed queries 400, expired/generation-changed or membership-gap cursors 409, capacity
+503, and absent/retired/unavailable evidence 404. Safety refusals carry
+`{version:1,reason}` without records; pre-handler auth keeps its existing error
+envelope. An older host's absent route means unavailable, never normal.
+
+Each cursor is an unguessable server-side position bound to this host process,
+principal, exact target, canonical generation, snapshot, high-water and last
+sequence. Its lifetime is five minutes; restart invalidates it. Every page
+retains the first page's aggregate and high-water despite later verdicts or
+input. Adoption that changes pre-watermark collection membership invalidates
+the snapshot with `gap`, including at final delivery after an awaited read;
+the client obtains a fresh snapshot. Newly pending input or a local recording
+loss also fences final delivery of an older unqualified view, even when the
+durable failure notice rolls back without advancing the evidence revision.
+Fresh reads expose the restrictive local overlay. Detail pruning invalidates earlier cursors; a fresh snapshot returns
+explicit bounded stubs retaining occurrence IDs. The final page means that
+snapshot has been assembled, separately from detector completeness. Read
+[revisioned delivery](integration-contract/wire.md#session-safety-history-additive-3604)
+for reconnect, subscription and client rules.

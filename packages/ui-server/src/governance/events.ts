@@ -1,5 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import { appendSafetyEvent, bindSafetyCollection } from "./safety-store.js";
+import { OccurrenceSchema } from "./occurrence.js";
+import { assertLive } from "../ws/chat-lifecycle.js";
 
 import { redactCredentials } from "../activity/runtime-status.js";
 
@@ -62,6 +65,7 @@ function kind<T extends z.ZodType>(version: number, payload: T) {
 export const GOVERNANCE_EVENT_SCHEMAS = {
   /** Completed or refused connection, using the proxy's actual visibility. */
   egress_connection: kind(1, z.strictObject({
+    connectionId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
     host: z.string().min(1).max(255), port: z.number().int().min(1).max(65535),
     method: z.string().min(1).max(20), path: z.string().max(16384).optional(), bytes: count,
     accounting: z.enum(["http_wire_bound", "opaque_bytes"]), durationMs: amount,
@@ -206,15 +210,20 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     decision: z.enum(["policy_allowed", "approved", "declined", "refused"]),
     rule: policyRule(["outward.allow"]).nullable(),
   })),
-  /** The first untrusted input that tainted the session. */
+  /** Every independently observed untrusted-input occurrence. */
   taint: kind(1, z.strictObject({
     source: z.enum(["web_fetch", "web_search", "staged_share", "chat_attachment", "workspace_read", "mcp_document", "user_marked",
       "egress_connection", "fetching_command", "unclassified_command",
       // Additive (#3108): a collected external compute job's output, text from a remote machine.
       "compute_output",
-      "apify_result"]),
+      "apify_result", "legacy_unknown"]),
     tool: z.string().min(1).max(200).nullable(),
     detail: text.nullable(),
+    occurrence: OccurrenceSchema.optional(),
+  })),
+  taint_exposure: kind(1, z.strictObject({
+    occurrenceId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+    state: z.enum(["finalized", "interrupted_unknown"]),
   })),
   /** A provider a worker command needed but could not reach without a key (#1666). */
   provider_unavailable: kind(1, z.strictObject({
@@ -339,8 +348,11 @@ export function governanceEventRow(input: GovernanceEventInput): GovernanceEvent
     throw new GovernanceEventError(`${input.kind} payload exceeds ${GOVERNANCE_PAYLOAD_MAX_BYTES} bytes`);
   }
   const m = meta.data;
+  if((input.kind==="taint"||input.kind==="taint_exposure")&&m.at!==undefined&&!Number.isSafeInteger(m.at))throw new GovernanceEventError("Invalid safety clock");
+  const occurrence = input.kind === "taint" ? (data.occurrence as { id: string } | undefined) : undefined;
+  if (occurrence && m.dedupeKey && m.dedupeKey !== occurrence.id) throw new GovernanceEventError("Occurrence key mismatch");
   return { sessionId: m.sessionId, turnId: m.turnId, at: m.at ?? Date.now(), kind: input.kind, version: spec.version,
-    actor: m.actor, model: m.model, profile: m.profile, payload: json, dedupeKey: m.dedupeKey ?? null };
+    actor: m.actor, model: m.model, profile: m.profile, payload: json, dedupeKey: occurrence?.id ?? m.dedupeKey ?? null };
 }
 
 /**
@@ -352,18 +364,34 @@ export function governanceEventRow(input: GovernanceEventInput): GovernanceEvent
  * never has to know whether `session_info` has landed yet; `bindTurnEvents`
  * attaches the rest when it does.
  */
-export function insertGovernanceEvent(db: Database, row: GovernanceEventRow): { id: number; recorded: boolean } {
+export function insertGovernanceEvent(db: Database, row: GovernanceEventRow, safetyReserved = false): { id: number; recorded: boolean } {
   return db.transaction(() => {
-    db.query("DELETE FROM governance_events WHERE session_id IS NULL AND at < ?").run(row.at - UNBOUND_GOVERNANCE_RETENTION_MS);
+    const binding = row.turnId ? db.query("SELECT session_id FROM governance_turn_bindings WHERE turn_id=?").get(row.turnId) as { session_id: string } | null : null;
+    if (binding && row.sessionId && row.sessionId !== binding.session_id) throw new GovernanceEventError("Conflicting turn binding");
+    const sessionId = binding?.session_id ?? row.sessionId;
+    assertLive(db, [["session", sessionId]]);
+    if (row.turnId && sessionId && db.query("SELECT 1 FROM sessions WHERE id=?").get(sessionId)) {
+      db.query("INSERT INTO governance_turn_bindings(turn_id,session_id) VALUES (?,?) ON CONFLICT DO NOTHING").run(row.turnId, sessionId);
+    }
+    db.query("DELETE FROM governance_events WHERE session_id IS NULL AND kind NOT IN ('taint', 'taint_exposure') AND at < ?").run(row.at - UNBOUND_GOVERNANCE_RETENTION_MS);
     const stored = db.query(`INSERT INTO governance_events
         (session_id, turn_id, at, kind, schema_version, actor, model, profile, payload, dedupe_key)
       VALUES ((SELECT id FROM sessions WHERE id = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
       ON CONFLICT(kind, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
       RETURNING id`)
-      .get(row.sessionId, row.turnId, row.at, row.kind, row.version, row.actor, row.model, row.profile, row.payload, row.dedupeKey) as { id: number } | null;
-    if (stored) return { id: stored.id, recorded: true };
-    const existing = db.query("SELECT id FROM governance_events WHERE kind = ? AND dedupe_key = ?")
-      .get(row.kind, row.dedupeKey) as { id: number };
+      .get(sessionId, row.turnId, row.at, row.kind, row.version, row.actor, row.model, row.profile, row.payload, row.dedupeKey) as { id: number } | null;
+    if (stored) {
+      const recordId=appendSafetyEvent(db,{...row,sessionId},safetyReserved);
+      if(row.kind==="taint")db.query("INSERT INTO safety_legacy_events VALUES(?,?)").run(stored.id,recordId!);
+      return { id: stored.id, recorded: true };
+    }
+    const existing = db.query("SELECT id,turn_id,session_id,payload,actor,model,profile FROM governance_events WHERE kind = ? AND dedupe_key = ?")
+      .get(row.kind, row.dedupeKey) as { id: number; turn_id: string | null; session_id: string | null; payload: string; actor: string; model: string | null; profile: string | null };
+    if ((row.kind === "taint" || row.kind === "taint_exposure") && (existing.turn_id !== row.turnId || existing.payload !== row.payload
+      || existing.actor !== row.actor || existing.model !== row.model || existing.profile !== row.profile
+      || row.sessionId !== null && existing.session_id !== null && existing.session_id !== row.sessionId)) {
+      throw new GovernanceEventError("Conflicting occurrence retry");
+    }
     return { id: existing.id, recorded: false };
   }).immediate();
 }
@@ -383,9 +411,20 @@ export function recordGovernanceEvent(db: Database, input: GovernanceEventInput)
  * catalog row exists. Returns how many rows it bound.
  */
 export function bindTurnEvents(db: Database, turnId: string, sessionId: string): number {
-  return db.query(`UPDATE governance_events SET session_id = ?1
-    WHERE turn_id = ?2 AND session_id IS NULL AND EXISTS (SELECT 1 FROM sessions WHERE id = ?1)`)
-    .run(sessionId, turnId).changes;
+  return db.transaction(() => {
+    assertLive(db, [["session", sessionId]]);
+    if(db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))throw new GovernanceEventError("Safety turn retired");
+    if (!db.query("SELECT 1 FROM sessions WHERE id=?").get(sessionId)) return 0;
+    const previous = db.query("SELECT session_id FROM governance_turn_bindings WHERE turn_id=?").get(turnId) as { session_id: string } | null;
+    if (previous && previous.session_id !== sessionId) throw new GovernanceEventError("Conflicting turn binding");
+    if (db.query("SELECT 1 FROM governance_events WHERE turn_id=? AND session_id IS NOT NULL AND session_id<>?").get(turnId, sessionId)) {
+      throw new GovernanceEventError("Conflicting historical turn binding");
+    }
+    bindSafetyCollection(db,turnId,sessionId);
+    db.query("INSERT INTO governance_turn_bindings(turn_id,session_id) VALUES (?,?) ON CONFLICT DO NOTHING").run(turnId, sessionId);
+    return db.query(`UPDATE governance_events SET session_id = ?1
+      WHERE turn_id = ?2 AND session_id IS NULL`).run(sessionId, turnId).changes;
+  }).immediate();
 }
 
 export interface GovernanceEventQuery {

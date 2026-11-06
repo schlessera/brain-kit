@@ -141,7 +141,7 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     // its owner, content-free, so the owner can delete it (#3337). Resumes
     // and host work bind nothing; the write binds only a new row.
     const creator = !resumedSession && work === undefined && turn.turnId === turnId && authorization.valid && host.isPrincipalAuthorized(principalId) ? principalId : undefined;
-    catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator);
+    catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator,creator?turnId:undefined);
     // Governance events recorded before the row existed join it now (#1651).
     catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
     // Submitted after the catalog row; every share read/effect joins this queue.

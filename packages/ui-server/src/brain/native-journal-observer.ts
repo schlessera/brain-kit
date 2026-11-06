@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { isJournalSteeringPath } from "./journal-steering.js";
 /** One metadata index and rolling sealed roots; no initial content capture. */
 import { randomUUID } from "node:crypto";
@@ -278,7 +279,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   let index = new MetadataIndex(), root: NativeJournalCheckpoint | undefined;
   let missingInventory = new Map<string, NativeJournalUnreadable>();
   const uncertain = (path: string) => {
-    for (const prefix of missingInventory.keys()) if (prefix === "." || prefix === path || path.startsWith(prefix + "/")) return true;
+    for (const prefix of missingInventory.keys()) if (prefix === "." || isWithin(prefix, path)) return true;
     return false;
   };
   function* visible(entries: IterableIterator<NativeJournalMetadata>): IterableIterator<NativeJournalMetadata> {

@@ -132,6 +132,27 @@ async function contextualScene(ctx: TestContext, provider: "gemini" | "gpt", act
   return { ...s, mic, pump, upstream, downstream, manualDraftId, evidence: () => evidence };
 }
 
+/** Progress appends retain the binding; only a later outcome is a task result. */
+function nativeTaskUpdates(provider: "gemini" | "gpt", frames: any[]): Array<{
+  native: string; text: string; scheduling: string; frame: any; progress?: "queued" | "running";
+}> {
+  return frames.flatMap(frame => {
+    if (provider === "gemini") return (frame.toolResponse?.functionResponses ?? []).map((response: any) => ({
+      native: response.id, text: response.response.output, scheduling: response.scheduling, frame: response,
+      ...(response.willContinue === true && ["queued", "running"].includes(response.response.status) ? { progress: response.response.status } : {}),
+    }));
+    if (frame.type !== "session.thinking.append" && frame.type !== "session.commentary.append") return [];
+    let status: any;
+    try { status = JSON.parse(frame.content); } catch { /* Ordinary result text. */ }
+    return [{ native: frame.delegation_id, text: frame.content, scheduling: frame.type, frame,
+      ...(status?.pending === true && ["queued", "running"].includes(status.hostTaskStatus) ? { progress: status.hostTaskStatus } : {}) }];
+  });
+}
+
+function nativeTaskResults(provider: "gemini" | "gpt", frames: any[]) {
+  return nativeTaskUpdates(provider, frames).filter(update => !update.progress);
+}
+
 // #3131 characterization: the peer scripts recognition/output and acknowledges
 // transport only. No assertion here establishes a provider's semantic recall.
 for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-result evidence: exact bytes, later references, interruption and replacement context`, async ctx => {
@@ -147,8 +168,7 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
     : [{ type: "session.output_transcript.delta", event_id: `recall-output-${n}`, delta: text, start_ms: n * 2000 + 600, end_ms: n * 2000 + 800 }, { type: "session.output_audio.delta", delta: outputPcm(seconds) }];
   const native = provider === "gemini" ? { toolCall: { functionCalls: [{ id: "recall-research", name: "host_task" }] } }
     : { type: "session.delegation.created", event_id: "recall-delegation", offset_ms: 500, delegation: { id: "recall-research", type: "delegation", target: "client" } };
-  const returns = () => s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => ({ native: r.id, text: r.response.output, scheduling: r.scheduling }))
-    : f.type === "session.thinking.append" || f.type === "session.commentary.append" ? [{ native: f.delegation_id, text: f.content, scheduling: f.type }] : []);
+  const returns = () => nativeTaskResults(provider, s.upstream).map(({ native, text, scheduling }) => ({ native, text, scheduling }));
   expect(JSON.stringify(s.upstream)).not.toContain("bronze owl");
   await s.pump([recognize(0, "Find the departure signal note."), native]);
   await s.pump([], false, true);
@@ -176,6 +196,8 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} research-re
     expect(returns()).toHaveLength(0);
   }
   expect(s.host.textContent).not.toContain(fact);
+  expect(nativeTaskUpdates(provider, s.upstream).filter(update => update.progress).map(update => [update.native, update.progress]),
+    "ACCEPTANCE_AND_RUNNING_ARE_NOT_RESEARCH_RESULTS").toEqual([["recall-research", "queued"], ["recall-research", "running"]]);
   expect(s.evidence().tasks[0].prompt).not.toContain("bronze owl");
   await s.pump([], true);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks[0]?.completed; }).toBe(true);
@@ -293,14 +315,16 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   expect(s.downstream.some(f => f.type === "conversation_closed")).toBe(false);
-  expect(s.upstream.some(f => f.toolResponse || f.type === "session.commentary.append")).toBe(false);
+  expect(nativeTaskResults(provider, s.upstream), "PENDING_WORK_HAS_NO_COMPLETED_RESULT").toHaveLength(0);
+  expect(nativeTaskUpdates(provider, s.upstream).filter(update => update.progress).map(update => [update.native, update.progress]),
+    "EACH_ACCEPTED_TASK_HAS_ITS_OWN_PENDING_FEEDBACK").toEqual([["departure-1", "queued"], ["departure-1", "running"], ["route-2", "queued"]]);
   expect(s.host.scrollWidth).toBeLessThanOrEqual(s.host.clientWidth);
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/conversation/contextual-${provider}-${mode}.png` });
   await s.pump([native("departure-1")]); // duplicate while pending cannot replay an effect
   expect(s.evidence().tasks).toHaveLength(1);
   await s.pump([], true);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks.length === 2 && s.evidence().tasks.every((task: any) => task.completed); }).toBe(true);
-  await expect.poll(async () => { await s.pump(); return s.upstream.some(f => f.toolResponse || f.type === "session.commentary.append"); }).toBe(true);
+  await expect.poll(async () => { await s.pump(); return nativeTaskResults(provider, s.upstream).length; }).toBe(2);
   // The result arrived after four continued exchanges, not at its request's position.
   await expect.poll(() => s.host.querySelector(".chat-message-body")?.textContent?.includes("bronze owl")).toBe(true);
   const transcript = s.host.querySelector('[data-reading-column]') ?? s.host;
@@ -308,10 +332,10 @@ for (const provider of ["gemini", "gpt"] as const) for (const mode of ["missing-
   expect(order.indexOf("The departure signal is a bronze owl."), "new backend answer follows the already displayed fourth exchange").toBeGreaterThan(order.indexOf("Continuing the voyage conversation 4."));
   expect(s.evidence().effect).toBe(true);
   expect(s.evidence().tasks.every((task: any) => task.applied.ok)).toBe(true);
-  const identities = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.id) : f.type === "session.commentary.append" ? [f.delegation_id] : []);
+  const identities = nativeTaskResults(provider, s.upstream).map(update => update.native);
   expect(identities).toEqual(["departure-1", "route-2"]);
   expect(s.downstream.filter(f => f.type === "tool_approval_request")).toHaveLength(0);
-  const returned = provider === "gemini" ? s.upstream.find(f => f.toolResponse).toolResponse.functionResponses[0] : s.upstream.find(f => f.type === "session.commentary.append");
+  const returned = nativeTaskResults(provider, s.upstream)[0]!.frame;
   expect(provider === "gemini" ? returned.id : returned.delegation_id).toBe("departure-1");
   if (provider === "gemini") expect(returned).toMatchObject({ scheduling: "WHEN_IDLE", willContinue: false });
   const facts = provider === "gemini" ? returned.response.output : returned.content;
@@ -405,9 +429,12 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} delayed bac
   await s.pump([provider === "gemini" ? { serverContent: { inputTranscription: { text: "Check the signal once more." } } }
     : { ...recognized, event_id: "identity-followup-input", delta: "Check the signal once more.", start_ms: 1000, end_ms: 1400 }, native("identity-followup")]);
   await expect.poll(async () => { await s.pump(); return s.evidence().tasks.filter((task: any) => task.completed).length; }).toBe(3);
-  const identities = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.id) : f.type === "session.commentary.append" ? [f.delegation_id] : []);
+  await expect.poll(async () => { await s.pump(); return nativeTaskResults(provider, s.upstream).length; }).toBe(3);
+  const identities = nativeTaskResults(provider, s.upstream).map(update => update.native);
   expect(identities).toEqual(["identity-first", "identity-queued", "identity-followup"]);
-  const facts = s.upstream.flatMap(f => provider === "gemini" ? (f.toolResponse?.functionResponses ?? []).map((r: any) => r.response.output) : f.type === "session.commentary.append" ? [f.content] : []);
+  const facts = nativeTaskResults(provider, s.upstream).map(update => update.text);
+  for (const id of identities) expect(nativeTaskUpdates(provider, s.upstream).filter(update => update.native === id && update.progress).map(update => update.progress),
+    "PROGRESS_RETAINS_THE_NATIVE_BINDING_UNTIL_THE_REAL_RESULT").toEqual(["queued", "running"]);
   expect(facts).toHaveLength(3);
   expect(facts.every((text: string) => text.includes("bronze owl")), "each exact native binding receives the retrieved backend fact").toBe(true);
   expect(s.evidence().tasks.every((task: any) => task.applied.ok)).toBe(true);
