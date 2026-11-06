@@ -385,7 +385,7 @@ async function finishRender(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
     const frame = () => new Promise<void>(done => requestAnimationFrame(() => done()));
-    const geometry = () => [...document.querySelectorAll("textarea[data-composer], [data-reading-column], [data-pill], [data-track-chip]")].map(el => {
+    const geometry = () => [...document.querySelectorAll("textarea[data-composer], [data-reading-column], [data-pill], [data-file-chip]")].map(el => {
       const rect = el.getBoundingClientRect();
       return [rect.x, rect.y, rect.width, rect.height, el.parentElement?.scrollTop];
     });
@@ -448,7 +448,9 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
   const net: Net = { held: [], holdTracks: true, uploads: 0, sent: [], holdQueues: false, queues: [], trace: [] };
   // Keep the real browser offline apart from this one local host.
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
-  await context.route("**/api/track-upload", (route) => {
+  // The host keeps composer originals (composerFiles), so the track goes to the
+  // neutral composer route as a generic file and the host detects it (#3155).
+  await context.route("**/api/drafts/*/files", (route) => {
     net.uploads++;
     if (net.holdTracks) net.held.push(route);
     else void route.continue();
@@ -530,8 +532,8 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
   await composer(page).fill(draft);
   await page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "sail.png", mimeType: "image/png", buffer: SAIL });
   await until(page, "p.draft().images === 1");
-  await page.locator('input[type="file"][accept*=".gpx"]').setInputFiles({ name: TRACK_NAME, mimeType: "application/geo+json", buffer: TRACK });
-  await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
+  await page.locator("input[data-files-input]").setInputFiles({ name: TRACK_NAME, mimeType: "application/geo+json", buffer: TRACK });
+  await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
   await page.locator('[data-draft-save="saved"]').waitFor();
   await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draft));
 
@@ -645,7 +647,7 @@ function measure(page: Page): Promise<Measure> {
       selectionEnd: field.selectionEnd,
       replaced: marks.nodes.filter((n) => !n.isConnected).length,
       previews: [...document.querySelectorAll("[data-composer] img")].map((img) => (img as HTMLImageElement).src),
-      track: document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? "",
+      track: document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? "",
       pills: [...document.querySelectorAll('[data-row-half="right"] [data-pill]')].map((pill) => pill.textContent ?? ""),
       transcriptPreviews: [...column.querySelectorAll("img")].map((img) => img.src),
       replacedImages: marks.images.filter((img) => !img.isConnected).length,
@@ -661,7 +663,7 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">, preparation: "sc
   // of the drop: the order that cannot hide a failure behind a pause.
   const uploading = s.net.held.splice(0);
   for (const route of uploading) await route.abort("connectionreset").catch(() => {});
-  if (uploading.length) await s.page.waitForFunction(() => !/uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
+  if (uploading.length) await s.page.waitForFunction(() => !/uploading/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
   await probe(s.page, p => p.backoff.pause());
   server!.stop(true);
   const beforeOffline = await connectivity(s.page);
@@ -1148,8 +1150,8 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           // original identity/layout assertions. Recovery's preceding 500ms
           // window and every drop/final/IME window remain independent.
           await finishRender(page);
-          if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
-          else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
+          if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
+          else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
           expect(net.uploads, `cycle ${cycle}: the upload resumed after reconnect`).toBe(uploadsBefore + 1);
           const after = await measure(page);
           log.push({ cycle, phase: "after", ...after });

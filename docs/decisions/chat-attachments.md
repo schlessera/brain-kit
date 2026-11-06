@@ -6,8 +6,9 @@ linked in each section below. The
 schemas, bounds and proof briefs; its six §13 recommendations were approved
 at review on 2026-11-02. Admission, storage, ownership and cleanup are built
 ([what #3153 built](#what-3153-built)), and so is reading contents
-([what #3154 built](#what-3154-built)); the composer is open work in epic
-#3150.
+([what #3154 built](#what-3154-built)). The composer's first slice is built
+([what #3155 built so far](#what-3155-built-so-far)); the rest is open work in
+epic #3150.
 
 ## Sources and one pipeline
 
@@ -115,8 +116,10 @@ The server side of admission, storage, ownership and cleanup, as the design's
   operational database beside the drafts, and every mutation runs on the
   draft store's write channel. A save, an acceptance and a sweep mark
   therefore see one serialized state. Reference owners are `draft` and
-  `outgoing` (both keyed by the draft id; a draft has at most one outgoing
-  snapshot) and `message` (keyed by the session id). The design's compound
+  `outgoing` (both keyed by the draft id) and `message` (keyed by the session
+  id). #3153 shipped one outgoing slot per draft; #3588 replaced it with the
+  list described below, and the `outgoing` owner now covers every file of the
+  draft's snapshots. The design's compound
   owner ids were simplified this way because a draft id may itself contain
   `:`, and one reference per session protects a file as well as one per turn.
 - **References on the wire.** A message names its originals in a new optional
@@ -148,6 +151,39 @@ The server side of admission, storage, ownership and cleanup, as the design's
   deletion belongs to #3231's flow.
 - **Kept as before.** `/share`, `/track-upload`, staged-track references,
   inline images and D52's tab-only legacy track path behave as they did.
+
+## What #3588 built
+
+The G1 A snapshot list
+([ruling](https://github.com/schlessera/brain-kit/issues/3155#issuecomment-6591807939)),
+replacing #3153's single slot:
+
+- **A column, not a table.** The list is one JSON column on the draft row
+  (`outgoing_snapshots`, migration 079), so a save checks and writes it in the
+  draft's own immediate transaction. Migration 079 turns a saved slot into the
+  first snapshot, with its request id as its `snapshotId`. The ruling rejected
+  a send-intent table.
+- **A chat is its session.** The capacity count sums the snapshots of every
+  live draft bound to the same `sessionId`, which is what one chat's tabs and
+  devices share; a draft with no session is a chat of its own. Only a save
+  that adds a `snapshotId` is counted against the ten.
+- **The whole list on every save.** `snapshots` replaces the draft's list
+  under `If-Match`, as `PUT` replaces the rest of the draft. The host refuses
+  any change but an allowed state move or a held snapshot's files, and refuses
+  to drop anything but a `returned` snapshot. The save body bound rose to
+  4,390,912 bytes so ten snapshot texts fit at JSON's worst escapes.
+- **Additive compatibility.** Retyping `outgoing` would break readers, so it
+  stays: `Draft.outgoing` shows the newest held or unconfirmed snapshot in the
+  old shape, and the old write creates or dispatches the snapshot of its
+  request, or removes the one it shows.
+- **Nothing evicted by a send or a delete.** An acceptance that consumes a
+  draft still holding other snapshots keeps the row at the next revision with
+  an empty composer instead of a tombstone. A `DELETE` that would drop a held
+  or unconfirmed snapshot is `409 DRAFT_OUTGOING_PENDING`.
+- **The composer keeps its envelope.** An upload's per-draft count now covers
+  the current revision and unbound uploads only. A snapshot's files are
+  checked against the per-message envelope when a save lists it, and stay in
+  the draft sub-limit and the pool.
 
 ## What #3154 built
 
@@ -201,6 +237,16 @@ The shared reader of the design's §7, with these concrete choices:
   provider. Session release and the sweep's forget remove a session's or a
   file's rows. There is no derived cache, so nothing new is charged to the
   pool.
+- **Delivering reads (#3589).** The records reach the browser two ways. A
+  route, `GET /api/sessions/:id/attachment-reads`, returns a session's reads
+  when its view opens. A capability-gated `attachment_read` frame carries a
+  read recorded during a live turn. The frame is sent with `sendToCapable`,
+  which bypasses the dialogue recorder, so it never joins a transcript or a
+  replay. Both return only reads of files that a `message` reference of the
+  same session still names. They use the history replay's authorization,
+  which is a usable principal of this host's shared namespace; the route adds
+  no ownership rule that a replay does not have. A replay field was not used:
+  the native transcript, not the host, owns a replayed message.
 - **Adding a reader.** A reader is concrete code, not a registry: add a rule
   to `detectKind` (`packages/ui-server/src/attachments/detect.ts`) and a
   `reader` value to `AttachmentReader` and migration 077's check; route it in
@@ -210,7 +256,52 @@ The shared reader of the design's §7, with these concrete choices:
   parsing; then add an Odysseus fixture and its outcome tests. The composer's
   Files picker has no `accept` filter, so it does not change.
 
-## Rejected alternatives
+## What #3155 built so far
+
+The composer's Files source, its upload queue and the draft binding of
+originals, on a host that advertises `composerFiles`:
+
+- **Menus as ruled.** Desktop shows Files… and paste-or-drop guidance, and no
+  Photo library or Camera. A phone keeps both beside Files. The Files input
+  has no `accept`, and paste and drop feed the same pipeline. A host without
+  `composerFiles` keeps the old menu and D52's tab-only track queue.
+- **One route for everything but images.** Every file that is not an image
+  goes to `POST /api/drafts/:draftId/files` as its raw bytes. The client
+  never routes by MIME type or extension; detection is the host's. Images
+  keep their existing frame processing. They do not upload an original yet,
+  so the image half of "a real file for every attachment" is still open.
+- **A queue item keeps one key for its whole life.** The idempotency key is
+  minted once per item. A lost answer becomes `unknown`, never "not stored".
+  It is uploaded again with the same key once on reconnect, or through
+  **Upload again**. A `503` waits and retries with that key. Only a received
+  `4xx` says *not stored*. `fetch` reports no upload progress, so the chip
+  says `uploading…` rather than invent a percentage.
+- **Stored originals are draft content.** A stored original joins
+  `ComposerDraft.files`, together with the draft id it was uploaded to (its
+  lineage). It is saved as `fileIds`, and it reads as saved only when an
+  acknowledged revision lists it. A file carried to another draft id, by a
+  rotation or a kept copy, cannot be bound there. It shows *not attached*,
+  blocks Send and is never listed in that id's save. The device copy of a
+  draft (#1014) keeps the references, so a restore cannot unbind them.
+- **Send waits for the binding.** Send holds while an upload or the save
+  that binds the originals is pending, and then sends `attachmentRefs` with
+  the acknowledged `draftRef`. A refused or failed upload, or a detached
+  file, blocks Send with a reason. Unread contents, and kinds with no
+  reader, never block it. The hold uses the composer's existing tab-local
+  hold. The durable held snapshot, recovery bubbles and queue-full notice of
+  design brief rev 5 wait for the snapshot list (#3588).
+- **Tracks follow the host.** On a host with `composerFiles` a picked track
+  is a generic original: the host detects it, the draft binds it and a reload
+  restores it, so it is not a tab-only staged track and the #1150 leave guard
+  no longer applies once its binding is acknowledged. D52's tab-only path
+  remains for a host without `composerFiles`. The mounted-app suites that
+  prove it (#1112, #1150, #1018) remove that capability from the real host's
+  hello so they keep proving it. The drop-and-reconnect suite (#1013) runs
+  the generic path against the real host.
+- **Sent rows claim no read.** A sent message lists its originals by name,
+  kind and size. The read records are not delivered to clients yet (#3589),
+  so a row shows neither *read* nor *not read yet*.
+
 
 The rejected options were offered in the rulings above:
 

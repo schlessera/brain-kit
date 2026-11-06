@@ -111,6 +111,7 @@ const checks: Record<string, Check> = {
   "GET /api/journal/configuration-coverage": { path: "/api/journal/configuration-coverage", status: 200, body: { state: "unknown" } },
   // Imported history: the session exists, and the host proves nothing about it.
   "GET /api/sessions/:id/safety": {path:"/api/sessions/fixture-session/safety",status:404,body:{version:1,reason:"unavailable"},verify:async r=>{expect(r.headers.get("cache-control")).toBe("no-store");}},
+  "GET /api/sessions/:id/attachment-reads": { path: "/api/sessions/fixture-session/attachment-reads", body: { sessionId: "fixture-session", reads: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },
   "GET /api/push/subscriptions": { body: { subscriptions: [] } },

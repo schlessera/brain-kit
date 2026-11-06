@@ -283,6 +283,7 @@ signatures (every public export and the types it is made of)
         askUserExchanges?: AskUserExchange[];
         attachments?: MessageAttachment[];
         files?: SharedFileMeta[];
+        attachmentFiles?: AttachmentFile[];
         attachmentCount?: number;
         blocks?: MessageBlock[];
         journal?: TurnJournalSummary;

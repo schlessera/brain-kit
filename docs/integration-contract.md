@@ -87,6 +87,20 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
 
+## Outgoing snapshot list (additive, 0.45.0, #3588)
+
+A draft keeps up to 10 outgoing snapshots per chat instead of #3153's one
+slot: `Draft.snapshots?` and `DraftSaveRequest.snapshots?`, each snapshot
+`{ snapshotId, requestId, text, fileIds, state: "held" | "returned" |
+"dispatched", createdAt }`, and `SessionDraftLimits.maxOutgoingSnapshots`.
+The save that creates one is refused with the new 409 `DRAFT_OUTGOING_FULL`
+when the chat is full; a delete that would drop a held or unconfirmed one is
+the new 409 `DRAFT_OUTGOING_PENDING`. `Draft.outgoing` and the single-slot
+write keep their shape and meaning for one held or unconfirmed send. The save
+body bound rises from 512 KiB to 4,390,912 bytes to carry ten snapshot texts.
+See [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153)
+and [the HTTP API](http-api.md#outgoing-snapshot-list-additive-0450-3588).
+
 ## Reading composer attachments on demand (additive, 0.45.0, #3154)
 
 Both first-party backends gain one host-executed bridge tool, `read_attachment`
@@ -106,6 +120,19 @@ files answers `unavailable`. See
 [the MCP component](integration-contract/mcp.md#read_attachment-additive-0450-3154)
 and [the package component](integration-contract/package-api.md#reading-composer-attachments-additive-0450-3154).
 This ships in a minor.
+
+## Attachment reads for sent rows (additive, 0.45.0, #3589)
+
+A host with composer files advertises `server_hello.capabilities.attachmentReads`.
+`GET /api/sessions/:id/attachment-reads` returns the recorded `read_attachment`
+calls of the originals a session's messages name, as `{ fileId, turnId,
+outcome, scope, at }` and never their text, under the session's existing
+authorization. A read recorded during a live turn reaches the connections that
+declared the same flag as one new `attachment_read` frame. `ServerMessage`
+gains that variant; a client without the flag never receives it. Nothing of
+either reaches a provider. See [the wire component](integration-contract/wire.md#attachment-reads-additive-0450-3589)
+and [the HTTP API](http-api.md#attachment-reads-additive-0450-3589). This
+ships in a minor.
 
 ## Reading a chat deletion's outcome (additive, #3455)
 

@@ -503,6 +503,12 @@ export interface SessionDraftLimits {
   maxDraftFileBytes?: number;
   /** Most original bytes of one draft's or message's attachments together, images included (additive; #3153). */
   maxDraftFilesBytes?: number;
+  /**
+   * Most live outgoing snapshots one chat keeps, across its drafts, tabs and
+   * devices (additive; #3588). Only a save that creates a snapshot is refused
+   * at this count, with `409 DRAFT_OUTGOING_FULL`.
+   */
+  maxOutgoingSnapshots?: number;
 }
 
 /** The limits a host ships with (the #943 R2 ruling). */
@@ -514,6 +520,7 @@ export const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits> = Object.freeze(
   maxDraftFiles: 10,
   maxDraftFileBytes: 25_000_000,
   maxDraftFilesBytes: 50_000_000,
+  maxOutgoingSnapshots: 10,
 });
 
 /** Names one saved revision of one draft. */
@@ -561,14 +568,24 @@ export interface Draft {
   attachments: DraftAttachment[];
   /** File originals the saved revision binds, in its order (additive; #3153). */
   files?: AttachmentFile[];
-  /** The held or unconfirmed send of this draft, if one is saved (additive; #3153). */
+  /**
+   * The newest `held` or `dispatched` snapshot of {@link Draft.snapshots}, in
+   * the single-slot shape #3153 shipped (additive; #3153). Absent when no
+   * snapshot is held or unconfirmed. Read `snapshots` for the whole list.
+   */
   outgoing?: DraftOutgoing | null;
+  /**
+   * This draft's outgoing snapshots, oldest first (additive; #3588). Each is
+   * a send that is held, returned unsent or not yet confirmed, and owns its
+   * files. Absent when there are none.
+   */
+  snapshots?: DraftSnapshot[];
 }
 
 /**
- * A draft's one durable outgoing snapshot (#3153): the exact text and files of
- * a send that is held or not yet confirmed. It owns its files, so newer
- * revisions cannot orphan them. A restored `held` snapshot never sends itself.
+ * The single-slot view of an outgoing snapshot (#3153), kept for clients that
+ * read and write `Draft.outgoing`. A restored `held` snapshot never sends
+ * itself.
  */
 export interface DraftOutgoing {
   requestId: string;
@@ -576,6 +593,30 @@ export interface DraftOutgoing {
   fileIds: string[];
   state: "held" | "dispatched";
 }
+
+/** Where an outgoing snapshot stands (#3588). */
+export type DraftSnapshotState = "held" | "returned" | "dispatched";
+
+/**
+ * One durable outgoing snapshot (#3588): the exact text and files of one send
+ * that is held, returned unsent, or dispatched and not yet confirmed. It owns
+ * its files, so newer revisions cannot orphan them. A chat keeps at most
+ * `SessionDraftLimits.maxOutgoingSnapshots` of them across its drafts.
+ */
+export interface DraftSnapshot {
+  /** Client-minted; addresses the snapshot in every later save. */
+  snapshotId: string;
+  /** The `chat_message.requestId` this snapshot sends, or sent, as. */
+  requestId: string;
+  text: string;
+  fileIds: string[];
+  state: DraftSnapshotState;
+  /** Host milliseconds since epoch of the save that created it. */
+  createdAt: number;
+}
+
+/** A snapshot as a save names it: the host stamps `createdAt`. */
+export type DraftSnapshotWrite = Omit<DraftSnapshot, "createdAt">;
 
 export interface DraftListResponse {
   /** Every live draft, newest change first; bounded by `maxDrafts`. */
@@ -594,8 +635,23 @@ export interface DraftSaveRequest {
    * keeps none.
    */
   fileIds?: string[];
-  /** Set (object), clear (null) or keep (absent) the outgoing snapshot (additive; #3153). */
+  /**
+   * The single-slot write (additive; #3153): an object creates the snapshot
+   * of its `requestId`, or moves it from `held` to `dispatched`; null removes
+   * the snapshot `Draft.outgoing` shows. Absent keeps every snapshot. Not
+   * combined with `snapshots`.
+   */
   outgoing?: DraftOutgoing | null;
+  /**
+   * The draft's whole snapshot list, oldest first (additive; #3588). Absent
+   * keeps it. A new `snapshotId` creates a `held` or `dispatched` snapshot
+   * and is refused with `409 DRAFT_OUTGOING_FULL` when its chat already holds
+   * `maxOutgoingSnapshots`. A listed one may move `held` to `returned` or
+   * `dispatched`, or `dispatched` to `returned`, and a `held` one may change
+   * its `fileIds`; nothing else of it changes. Only a `returned` snapshot may
+   * be left out, which deletes it.
+   */
+  snapshots?: DraftSnapshotWrite[];
 }
 
 export interface DraftSaveResponse {
@@ -630,7 +686,9 @@ export type DraftErrorCode =
   | "DRAFT_PRECONDITION_REQUIRED"
   | "DRAFT_KEY_REUSED"
   | "DRAFT_NOT_ACCEPTED"
-  | "DRAFT_CHAT_RETIRED";
+  | "DRAFT_CHAT_RETIRED"
+  | "DRAFT_OUTGOING_FULL"
+  | "DRAFT_OUTGOING_PENDING";
 
 /** A draft route's failure body, discriminated by `error`. */
 export type DraftErrorResponse =
@@ -651,7 +709,11 @@ export type DraftErrorResponse =
   /** 409: no accepted message of that session carried this draft and request. */
   | { error: "DRAFT_NOT_ACCEPTED"; message: string }
   /** 410 (additive, #3230): the draft's chat was deleted. Nothing was stored; save the local content as a new, unbound draft. */
-  | { error: "DRAFT_CHAT_RETIRED"; message: string };
+  | { error: "DRAFT_CHAT_RETIRED"; message: string }
+  /** 409 (additive, #3588): the chat already keeps `limit` outgoing snapshots. Nothing was stored; no send happened. */
+  | { error: "DRAFT_OUTGOING_FULL"; message: string; limit: number }
+  /** 409 (additive, #3588): a delete would drop a `held` or `dispatched` snapshot. Nothing was removed. */
+  | { error: "DRAFT_OUTGOING_PENDING"; message: string; current: Draft };
 
 // ============================================================
 // Session recovery (additive; #964, design D52 §4 and §6)
@@ -901,7 +963,8 @@ export type ServerMessage =
   | ServerConversationPermission
   | ServerTurnJournal
   | ServerUsage
-  | ServerChatRetired;
+  | ServerChatRetired
+  | ServerAttachmentRead;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -2684,6 +2747,49 @@ export interface AttachmentFile {
   trackRejected?: true;
   /** Exactly the existing track metadata, when `kind` is `track`. */
   track?: SharedFileMeta;
+}
+
+/**
+ * `server_hello`/`client_hello` capability (additive, #3589): the host
+ * answers `GET /api/sessions/:id/attachment-reads` and sends
+ * `attachment_read` frames, only to connections that declared the flag.
+ * Without it a client shows no read state for a sent original.
+ */
+export const ATTACHMENT_READS_CAPABILITY = "attachmentReads";
+
+/**
+ * One recorded `read_attachment` call of a session (#3589): what the agent
+ * read of one original, never the text. UI evidence only; it never reaches a
+ * provider.
+ */
+export interface AttachmentReadEntry {
+  fileId: string;
+  /** The turn whose agent made the call. */
+  turnId: string;
+  /** `refused` calls reached no original and are not recorded. */
+  outcome: Exclude<import("./tool-contracts/attachment.js").AttachmentReadOutcome, "refused">;
+  /** The pages or byte range the result covered, or null when nothing was read. */
+  scope: NonNullable<import("./tool-contracts/attachment.js").AttachmentReadResult["scope"]> | null;
+  /** Host milliseconds since epoch when it was recorded. */
+  at: number;
+}
+
+/** `GET /api/sessions/:id/attachment-reads` (additive, #3589). */
+export interface SessionAttachmentReadsResponse {
+  sessionId: string;
+  /** Reads of the originals this session's messages name, oldest first. */
+  reads: AttachmentReadEntry[];
+}
+
+/**
+ * Server → Client (additive, #3589). A turn of `sessionId` just recorded one
+ * read. Sent only to connections that declared
+ * {@link ATTACHMENT_READS_CAPABILITY}; never part of a transcript.
+ */
+export interface ServerAttachmentRead {
+  type: "attachment_read";
+  sessionId: string;
+  read: AttachmentReadEntry;
 }
 
 /** `server_hello.attachmentLimits`. */

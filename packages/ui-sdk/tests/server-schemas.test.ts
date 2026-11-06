@@ -136,6 +136,10 @@ const SAMPLES: ServerMessage[] = [
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
   { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", reason: "Turn timed out" },
   { type: "chat_retired", sessionId: "s1", historyOwnerIds: ["ithaca"], generation: 2 },
+  { type: "attachment_read", sessionId: "s1", read: {
+    fileId: "8e9a1c52-3f4b-4d6e-9a7b-1c2d3e4f5a6b", turnId: "turn-1", outcome: "partial",
+    scope: { pages: [1, 20], pageCount: 48 }, at: 1_783_814_400_000,
+  } },
   { type: "safety_history", requestId: "history-ithaca", page: {
     version: 1, identity: safetyIdentity, snapshotId: "snapshot-ithaca", cursor: null, highWater: "0",
     projection: safetyProjection, records: [], nextCursor: null, snapshotComplete: true, detailPruned: false,
