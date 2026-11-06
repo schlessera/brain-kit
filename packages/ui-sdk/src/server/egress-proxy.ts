@@ -5,6 +5,7 @@ import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { workerIdentityHelper } from "./worker-identity.js";
 import { join } from "node:path";
+import { safetyAdmissionRefusal, type AdmissionSafety, type AdmissionSafetySnapshot } from "./admission-safety.js";
 
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
 export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
@@ -31,6 +32,8 @@ export interface EgressRecord {
   reason?: string;
 }
 export interface EgressProxyOptions {
+  /** Host-owned effective state. No request header or concurrent operation supplies authority. */
+  admissionSafety?: AdmissionSafety;
   mode: "record" | "allowlist";
   /** Exact DNS names/IPs or *.suffix; deny always wins. */
   allow: readonly string[];
@@ -50,7 +53,7 @@ export interface EgressProxyOptions {
    * asks before refusing a narrowed destination (#3430); absent, or resolving
    * anything but `true`, refuses.
    */
-  taint?: { allow: readonly string[]; tainted(): boolean; contacted(host: string): boolean;
+  taint?: { allow: readonly string[]; tainted(connectionId?: string): boolean; contacted(host: string): boolean;
     approve?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
     /** What tainted the session, as "it …" completes it, for a refusal's message (#3431). */
     cause?(): string | null };
@@ -60,6 +63,8 @@ export interface EgressProxyOptions {
    * before any byte flows; its rejection refuses the connection.
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?: string }): unknown;
+  /** Synchronous notification only after final admission, immediately before dispatch. */
+  committed?(destination: { host: string; connectionId: string; inference: boolean; provider: boolean }): void;
   signal?: AbortSignal;
 }
 const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
@@ -147,6 +152,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   function operation(method: string, url: URL, relay?: "inference" | "provider") {
     const inference = relay === "inference", provider = relay === "provider";
     const connectionId = crypto.randomUUID();
+    let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
@@ -188,7 +194,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let granted = false;
     // Checked again after an approval wait, during which another connection may taint the session.
     // Neither host relay is narrowed by taint (G6; #3246 for the provider relay).
-    const narrowed = () => !granted && !relay && options.taint?.tainted() && !matches(host, options.taint.allow) && !options.taint.contacted(host);
+    const narrowed = (final = false) => !granted && !relay && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host);
     const narrowing = async () => {
       if (!narrowed()) return true;
       if (options.taint?.approve) granted = await approval(options.taint.approve.bind(options.taint));
@@ -196,6 +202,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       return granted;
     };
     const admit = async () => {
+      snapshot = options.admissionSafety?.read();
+      if (safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
@@ -209,6 +217,14 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
+    // No await may intervene between this check and connect/request/fetch.
+    const commit = () => {
+      if (stopped || controller.signal.aborted || safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
+      if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+      if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
+      options.committed?.({ host, connectionId, inference, provider });
+      return true;
+    };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
     const refusal = () => {
       if (finalOutcome !== "denied") return undefined;
@@ -216,7 +232,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { finish, charge, admit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason };
+    return { finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -230,7 +246,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     let connected = false;
     client.once("close", () => op.finish(stopped || !connected ? "cancelled" : "completed"));
     void (async () => {
-      if (!await op.admit() || client.destroyed) {
+      if (!await op.admit() || client.destroyed || !op.commit()) {
         const declined = refusalHead(op.refusal(), op.reason());
         client.end(declined ? `HTTP/1.1 403 ${declined.status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(declined.body)}\r\nConnection: close\r\n\r\n${declined.body}`
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
@@ -267,7 +283,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       else { response.writeHead(403); response.end(); }
     };
     void (async () => {
-      if (!await op.admit() || response.destroyed) { refuse(); return; }
+      if (!await op.admit() || response.destroyed || !op.commit()) { refuse(); return; }
       const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
       // Include the complete observable target and headers: a body-only cap
       // would allow uncharged exfiltration in query strings or header values.
@@ -335,7 +351,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
     return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal,
-      admit: async () => !op.signal.aborted && await op.admit(),
+      admit: async () => !op.signal.aborted && await op.admit() && op.commit(),
+      /** The concrete relay calls this again after its own final async waits. */
+      commit: op.commit,
       finish(outcome: EgressRecord["outcome"], reason?: string) {
         signal.removeEventListener("abort", abort); op.finish(outcome, reason);
       },

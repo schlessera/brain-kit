@@ -1,6 +1,7 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
+import { sameSafetyAdmission, STALE_SAFETY_ADMISSION } from "@schlessera/brain-ui-sdk/internal";
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice } from "./context.js";
 
@@ -60,6 +61,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         return Promise.resolve({ behavior: "allow" });
       }
       return new Promise<PermissionDecision>((resolve) => {
+        let unsubscribe: (() => void) | undefined;
         // The decision stamps the wait/execution boundary on the tool span
         // (grant) or lands the denied outcome (deny) before the backend's
         // own error tool_result can mislabel it — write-once protects it.
@@ -67,6 +69,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           decision: PermissionDecision,
           response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
         ) => {
+          unsubscribe?.(); unsubscribe = undefined;
           recorder?.onApprovalDecision(
             req.toolUseId,
             decision.behavior === "deny"
@@ -91,6 +94,34 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded })) {
           resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
           return;
+        }
+        const safety = self().admissionSafety, snapshot = req.admissionSnapshot;
+        const invalidate = () => {
+          let current = false;
+          try { current = !!safety && !!snapshot && sameSafetyAdmission(snapshot, safety.read()); } catch { /* Refuse unavailable state. */ }
+          if (current) return;
+          const claimed = coordinator.claimApproval(req.toolUseId, p => p.turn === turn && p.request === req);
+          if (!claimed) return;
+          unsubscribe?.(); unsubscribe = undefined;
+          const writes = host.activity?.governanceWrites;
+          // Claim first to fence a simultaneous answer, then retain the terminal
+          // fact before publishing it or settling the backend's pending wait.
+          const committed = writes && snapshot ? Promise.resolve().then(() => writes.record({ kind: "safety_admission_expired", turnId,
+            sessionId: turn.sessionId ?? null, actor: "server", model: null, profile: null,
+            payload: { toolUseId: req.toolUseId, evidenceRevision: snapshot.evidenceRevision,
+              trustRevision: snapshot.trustRevision, authorityEpoch: snapshot.authorityEpoch, reason: "safety_changed" } })) : Promise.resolve();
+          void committed.then(() => {
+            coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: STALE_SAFETY_ADMISSION });
+            claimed.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+          }, error => {
+            turn.abortController.abort(error);
+            claimed.resolve({ behavior: "deny", message: "Safety withdrawal could not be retained; the turn was stopped." });
+          });
+        };
+        if (safety && snapshot) {
+          unsubscribe = safety.subscribe(invalidate);
+          invalidate();
+          if (!coordinator.pendingApprovals.has(req.toolUseId)) { unsubscribe?.(); unsubscribe = undefined; return; }
         }
         if (!host.clients.hasClients()) {
           // Not a failure — the card is parked and re-delivered on reconnect

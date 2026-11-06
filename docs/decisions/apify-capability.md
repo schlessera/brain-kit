@@ -35,7 +35,7 @@ egress, outward rules and recipient restrictions, but no discovery or Actor gran
 fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`).
 Name-based permission admission cannot distinguish different Actors supplied to
 one execution tool (`decideToolPermission`,
-`packages/ui-sdk/src/server/permission-gate.ts:62-92`). Provider accounting is
+`packages/ui-sdk/src/server/permission-gate.ts:63-93`). Provider accounting is
 already attributed and settled on the host (`observeProvider`,
 `packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 

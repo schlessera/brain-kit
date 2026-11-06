@@ -189,6 +189,7 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         // Body/credential waits may have crossed an input-recording failure.
         // Re-enter the concrete host admission at the last dispatch boundary.
         if(operation&&!await operation.admit())return denied("inference_admission_refused");
+        if(operation&&!operation.commit())return denied("inference_admission_refused");
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.

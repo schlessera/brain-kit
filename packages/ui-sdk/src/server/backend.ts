@@ -113,6 +113,8 @@ export type PermissionDecision =
   | { behavior: "deny"; message: string };
 
 export interface PermissionRequest {
+  /** @internal Host snapshot for withdrawing stale cards; never client authority. */
+  admissionSnapshot?: import("./admission-safety.js").AdmissionSafetySnapshot;
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
@@ -171,6 +173,10 @@ export interface LocationFix {
  * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
+  /** @internal Worker-to-host final admission after local rewrite/lock waits. Never an approval surface. */
+  commitToolAdmission?(toolUseId: string, toolName: string, input: Record<string, unknown>): Promise<void>;
+  /** @internal Live host state, never sent to a worker or model provider. */
+  admissionSafety?: import("./admission-safety.js").AdmissionSafety;
   /** @internal Host-owned versioned input collection. Await before executing a
    * tool and before returning its result to the provider. Never a grant. */
   inputSafety?: {

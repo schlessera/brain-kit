@@ -7,6 +7,7 @@ import { occurrence, type Occurrence } from "../governance/occurrence.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
+import { safetyProjection } from "../governance/safety-store.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -96,7 +97,7 @@ export async function prepareTurnEgress(options: {
    * before that commit lands (#2850). Absent: the taint commits on
    * `governanceDb` through `record`.
    */
-  governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint"> & Partial<Pick<GovernanceWrites,"recordingAvailable">>;
+  governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint"> & Partial<Pick<GovernanceWrites,"recordingAvailable" | "safety">>;
 }) {
   const calls = createOutwardCalls();
   let recordingFailure: Error | undefined;
@@ -112,6 +113,7 @@ export async function prepareTurnEgress(options: {
   const contacted = new Set(db ? contactedHosts(db, options.sessionId()) : []);
   const collectionEpoch = (db?.query("SELECT id FROM safety_collections WHERE turn_id=?").get(options.turnId) as {id:string}|null)?.id??crypto.randomUUID();
   const exposures = new Map<string, Occurrence>();
+  const normalBefore = new Set<string>();
   const base = () => ({ turnId: options.turnId, sessionId: options.sessionId(), model: options.model(),
     actor: options.origin, profile: options.profile });
   const fail = () => {
@@ -130,6 +132,7 @@ export async function prepareTurnEgress(options: {
       const exposure = record.connectionId ? exposures.get(record.connectionId) : undefined;
       if (exposure) {
         exposures.delete(record.connectionId!);
+        normalBefore.delete(record.connectionId!);
         // A clean HTTP completion proves bounded input ended. A tunnel close
         // or cancellation alone cannot prove all opaque delivery completed.
         track(options.record({ ...base(), kind: "taint_exposure", dedupeKey: exposure.id,
@@ -175,7 +178,17 @@ export async function prepareTurnEgress(options: {
   };
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
-    tainted: () => firstTaint() !== null,
+    tainted: (connectionId?: string) => {
+      if (connectionId && normalBefore.has(connectionId)) {
+        const projection = options.governanceWrites?.safety?.(options.turnId, options.sessionId()) ?? safetyProjection(db, options.turnId, options.sessionId());
+        // Only this request's own newly recorded input may be excluded from
+        // its first-byte check. A second connection gets no such authority.
+        if (projection.coverage.state === "complete" && projection.unresolvedCount === 1 &&
+          projection.earliestUnresolvedId === exposures.get(connectionId)?.id &&
+          projection.reasons.every(reason => reason === "unresolved")) return false;
+      }
+      return firstTaint() !== null;
+    },
     contacted: (host: string) => contacted.has(host),
     // A refusal names what tainted the session, as the card does (#3431).
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
@@ -194,7 +207,7 @@ export async function prepareTurnEgress(options: {
       if(writes?.recordingAvailable&&!writes.recordingAvailable(options.turnId,options.sessionId())){fail();throw new Error("Input recording unavailable before provider dispatch");}
       return;
     }
-    contacted.add(destination.host);
+    if (firstTaint() === null) normalBefore.add(destination.connectionId);
     if (!writes) return;
     const exposure = occurrence(collectionEpoch, "proxy_input", destination.connectionId, "open");
     exposure.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
@@ -211,10 +224,12 @@ export async function prepareTurnEgress(options: {
   /** Settles once every record submitted so far has committed or failed; `recordingFailure()` is final after it. */
   const settled = async () => { while (recording.size) await Promise.all([...recording]); };
   const proxy = await startEgressProxy({ mode: options.policy.egress.mode, allow: options.policy.egress.allow,
+    ...(options.bridge.admissionSafety ? { admissionSafety: options.bridge.admissionSafety } : {}),
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
-    signal: options.controller.signal, observe: report, admitted, ...(taint ? { taint } : {}),
+    signal: options.controller.signal, observe: report, admitted,
+    committed: destination => { if (!destination.inference && !destination.provider) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",

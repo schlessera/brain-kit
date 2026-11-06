@@ -295,7 +295,7 @@ test("a governed turn whose runtime sends only relayed inference stays untainted
     // A validated provider-relay request is a host relay's operation: it never taints (G6, #3246).
     expect(events("taint"), "PROVIDER_RELAY_NEVER_TAINTS").toEqual([]);
     // WebFetch's own target, reached first in a fresh turn of a clean session.
-    connectedSafetySession(db,"calypso","turn-calypso");
+    connectedSafetySession(db,"calypso","turn-fetch");
     const fresh = await prepareTurnEgress({ ...inputs(new AbortController()), turnId: "turn-fetch", sessionId: () => "calypso",
       record: event => recordGovernanceEvent(db, event), governanceDb: db });
     try {

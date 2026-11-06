@@ -4858,3 +4858,29 @@ count, byte and omission limits are in
 [disclose the additional data](wire.md#observed-content-map-disclosure-additive-3630)
 before Start; this adds no execution seam or startup host task. This is an
 additive minor SDK change, without a model-obedience or acoustic guarantee.
+
+
+## Live safety admission (additive host input, #3602)
+
+`BackendBridge` accepts an optional internal `admissionSafety` host callback with
+synchronous `read()` and invalidation subscription. Its snapshot binds decimal
+`evidenceRevision`, `trustRevision`, `authorityEpoch`, the host's turn/session
+scope, frozen ordinary `policyHash`, effective restriction, recorder health and
+current authority. `PermissionRequest.admissionSnapshot` is host-only metadata;
+it is never a wire field, worker initialization input or provider content.
+The shared `requestToolPermission` snapshots and rechecks the live input after
+approval waits. First-party backend gates additionally revalidate in their
+final dispatch continuations after locks, index barriers and occurrence writes.
+Absent input retains the existing taint callback fallback and grants no new
+capability. The live trust input is revision/notification only; matching and
+publication have separate implementations. See the [effective admission
+contract](http.md#governance-events-additive-1651) and
+[the ruling](../decisions/session-safety-reviews.md).
+
+Pi's internal worker pipe also has an `admission` request for the exact
+host-held permission input. The worker sends it after RTK and lock waits,
+immediately before spawning bash. It consumes the host's one-use admission
+ticket and cannot approve, widen or replay a call. In-process bash uses the
+same revalidation at that point. The internal `commitToolAdmission` bridge
+callback transports that check; it carries no provider-facing data or new
+public tool. Lock and native observation RPCs also recheck current host safety.

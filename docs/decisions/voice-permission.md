@@ -58,7 +58,7 @@ which is the largest thing this answer changes.
 ## The question
 
 The permission bridge asks the user to approve a tool call before it runs
-(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:254-292`).
+(`requestToolPermission`, `packages/ui-sdk/src/server/permission-gate.ts:255-298`).
 In chat the user is
 looking at a card: the transcript copy in
 (`export function ToolPermissionCard`,
@@ -341,7 +341,7 @@ the matched pattern's effect, so the same words are already on the card.
 they are exhaustive.** A kind-`tool` request has no pattern at all — the
 description is the SDK's own (`canUseTool` passes `description:
 opts.description` straight through to `createToolPermissionRequest`,
-`permission-hooks.ts:387-397`) and is not
+`permission-hooks.ts:392-402`) and is not
 written to be heard. And `ClaudeBackendOptions.confirmBashPatterns`
 (`Regex sources`, `packages/ui-backend-claude/src/options.ts:55-65`)
 lets a deployment supply its own patterns, which have no phrase when given as
@@ -436,7 +436,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `tool-permission.ts:86-92`, and the lookup computing
-`remembered`, `ws/bridge-capabilities/permissions.ts:28-48`), and 192 of 192 measured
+`remembered`, `ws/bridge-capabilities/permissions.ts:29-49`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -493,7 +493,7 @@ the request kind, and it patches the span
 (`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:715-730`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:66-81`).
+(`const recorded`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:68-84`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -620,7 +620,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:636`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:642`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -628,7 +628,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   without granting
   (`RewriteHookOptions`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:17-31`;
   `!mayGrant`, `:70-78`; wired at their `agentHook`/`rtkHook` constructions,
-  `const agentHook`, `permission-hooks.ts:610-631`).
+  `const agentHook`, `permission-hooks.ts:632-653`).
   The premise the old grant rested on was measured false in the process:
   `permissionDecision: "allow"` was never what
   made `updatedInput` take effect, so the grant was a side effect and it is the
@@ -638,7 +638,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:28-48`,
+  `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:29-49`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/handlers/tool-permission.ts:86-92`).
   The evaluation happens
@@ -719,7 +719,7 @@ before permission
 evaluation and evaluates the confirm patterns against `commandAllowed`, which
 adds `Bash` back unconditionally (`commandAllowed`,
 `permission-hooks.ts:90-92`, and the call in `mutatingHook` that reads it,
-`decideToolPermission`, `:485-492`). So a
+`decideToolPermission`, `:497-504`). So a
 destructive shell command in a voice turn raises a `command` request — and
 parks — before the tool grant is ever considered. A fail-closed rule written
 only for kind `tool` would leave exactly the calls this whole record is about

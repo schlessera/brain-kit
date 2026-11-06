@@ -13,6 +13,7 @@ import { createPolicyProposal } from "./bridge-capabilities/policy-proposal.js";
 import { createApplication } from "./bridge-capabilities/application.js";
 import { createScratch } from "./bridge-capabilities/scratch.js";
 import { createAttachmentRead } from "./bridge-capabilities/attachments.js";
+import { createEffectiveSafety } from "../governance/effective-safety.js";
 
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
 
@@ -73,6 +74,20 @@ export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeB
   Object.assign(bridge, createAttachmentRead(ctx, transcript));
   guardMaskedRecords(ctx, bridge);
   if (ctx.backendId === "claude" || ctx.backendId === "pi") applyLiveAuthority(ctx, bridge);
+  if (host.activity?.governanceDb) {
+    let epoch = 0n, previous = ctx.current();
+    bridge.admissionSafety = createEffectiveSafety(host.activity.governanceDb, {
+      brain: host.brainPath, turnId: ctx.turnId, sessionId: () => turn.sessionId ?? null, policyHash: options.governance?.policy.hash ?? null,
+      writes: host.activity.governanceWrites, trust: host.safetyTrust, signal: ctx.signal,
+      authority: () => {
+        // Journal/scope holds retain their existing wait semantics; they are
+        // not principal revocation and do not mint a new authority epoch.
+        const current = ctx.current();
+        if (current !== previous) { epoch++; previous = current; }
+        return { current, epoch: String(epoch) };
+      },
+    });
+  }
   return bridge;
 }
 

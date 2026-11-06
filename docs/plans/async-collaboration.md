@@ -28,7 +28,7 @@ than last.
 ## Problem Frame
 
 Collaboration is synchronous-only: background work cannot ask (`requestPermission` parks a
-promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:17-123`)), inbound material
+promise nobody resolves — (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:18-154`)), inbound material
 has no path that survives until the user is present, and no decision accumulates into
 standing authority. See origin for the full frame.
 
@@ -134,7 +134,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1015`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:184-244`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
-- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:17-123`). Timeout unwind is
+- **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:18-154`). Timeout unwind is
   (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
 - **Tool enforcement:** (`export function enforcementHookFor`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`) closes measured bypasses.
@@ -144,7 +144,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-152`) and
-  (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:102-131`). Built-ins are disabled,
+  (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:103-134`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
 - **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:787`) settles after execution;
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) explicitly counts unpriced runs.
@@ -1189,7 +1189,7 @@ and a server-selected tool policy.
 **Files:**
 - Modify: `packages/ui-sdk/src/server/backend.ts` (the additive `StartTurnRequest.autonomous` mode carries persistence,
   origin, tool policy and prompt configuration —
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:547-637`))
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:553-643`))
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (server-selected

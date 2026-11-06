@@ -3,6 +3,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "./backend.js";
+import { sameSafetyAdmission, STALE_SAFETY_ADMISSION } from "./admission-safety.js";
 import {
   ARCHIVING_UPDATE_REASON,
   archivesDocument,
@@ -252,7 +253,7 @@ function noGrantSurfaceMessage(request: PermissionRequest): string {
  * @experimental
  */
 export function requestToolPermission(
-  bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null | undefined,
+  bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission" | "admissionSafety"> | null | undefined,
   request: PermissionRequest,
   options: RequestToolPermissionOptions = {}
 ): Promise<PermissionDecision> {
@@ -288,7 +289,12 @@ export function requestToolPermission(
       message: `No active turn to approve ${request.toolName}.`,
     });
   }
-  return bridge.requestPermission(request).then((decision) => snapshotEdit(request, decision));
+  const guarded = bridge.admissionSafety ? { ...request, admissionSnapshot: bridge.admissionSafety.read() } : request;
+  return bridge.requestPermission(guarded).then((decision) => {
+    if (bridge.admissionSafety && guarded.admissionSnapshot && !sameSafetyAdmission(guarded.admissionSnapshot, bridge.admissionSafety.read()))
+      return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+    return snapshotEdit(request, decision);
+  });
 }
 
 /**

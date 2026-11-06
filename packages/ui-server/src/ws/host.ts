@@ -17,6 +17,7 @@ import type { ActivityStream } from "../activity/stream.js";
 import type { AwaitablePushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
 import type { GovernanceEventInput } from "../governance/events.js";
+import { notifySafetyChanged } from "../governance/safety-queue.js";
 import type { Principal } from "../db/principals.js";
 import type { createInboxBridgeTools } from "../inbox/bridge-tools.js";
 import type { InboxStream } from "../inbox/stream.js";
@@ -69,6 +70,8 @@ export {
 } from "./limits.js";
 
 export interface WsHostOptions {
+  /** @internal Live trust publication input; no matching or publication authority. */
+  safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
   /** @internal Concrete user history service mounted by this host, not agent authority. */
   turnReverts?: import("../brain/turn-revert.js").TurnReverts;
   /** @internal The brain/git lock the host shares, when the app built a service that needs it first. */
@@ -233,6 +236,8 @@ export interface ToolPermissions {
  * modules (#1053; docs/decisions/public-export-boundary.md).
  */
 export class WsHost {
+  /** @internal Live trust revision supplied by the concrete host publisher. */
+  readonly safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
   /** @internal Concrete user history service mounted by this host, not agent authority. */
   readonly turnReverts?: import("../brain/turn-revert.js").TurnReverts;
   /** Explicit local chat deletion (#3230); present when the host answers `POST /api/chat-deletions`. */
@@ -353,6 +358,7 @@ export class WsHost {
   private readonly historyReads = new Set<{ sessionId: string; changed: boolean; resultTurnId?: string }>();
 
   constructor(options: WsHostOptions) {
+    this.safetyTrust = options.safetyTrust;
     this.turnReverts = options.turnReverts;
     this.workerLock = options.workerLock ?? createKeyedLock();
     this.journal = options.journal;
@@ -375,6 +381,7 @@ export class WsHost {
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);
+      if (this.activity?.governanceDb) notifySafetyChanged(this.activity.governanceDb);
     });
     this.registry = options.registry;
     this.catalog = options.catalog;
@@ -799,6 +806,7 @@ export class WsHost {
     const revoked = new Set(principalIds);
     if (revoked.size === 0) return;
     const affectedRunning = this.coordinator.revokePrincipals(revoked);
+    if (this.activity?.governanceDb) notifySafetyChanged(this.activity.governanceDb);
     const unbinding: Promise<number>[] = [];
     for (const principalId of revoked) {
       this.clients.closeFor(principalId, code, reason);

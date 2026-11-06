@@ -965,6 +965,16 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>;
             version: number;
         };
+        readonly safety_admission_expired: {
+            payload: z.ZodObject<{
+                authorityEpoch: z.ZodString;
+                evidenceRevision: z.ZodString;
+                reason: z.ZodLiteral<"safety_changed">;
+                toolUseId: z.ZodString;
+                trustRevision: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
         readonly scope_cap: {
             payload: z.ZodObject<{
                 cap: z.ZodEnum<{
@@ -1017,6 +1027,7 @@ signatures (every public export and the types it is made of)
                 path: z.ZodString;
                 sequence: z.ZodNumber;
                 taintSourceEventId: z.ZodNullable<z.ZodNumber>;
+                tainted: z.ZodOptional<z.ZodLiteral<true>>;
             }, z.core.$strict>;
             version: number;
         };

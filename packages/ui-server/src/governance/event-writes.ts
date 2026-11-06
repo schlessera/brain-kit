@@ -6,7 +6,7 @@
  * writes. An event the journal records inside its own transaction stays
  * there (`brain/journal-store.ts`).
  */
-import { retainSafetyLoss, safetyQueue } from "./safety-queue.js";
+import { retainSafetyLoss, safetyQueue, notifySafetyChanged } from "./safety-queue.js";
 import { prepareSafetyReview, commitSafetyReview, type SafetyReviewBody, type SafetyReviewer, type SafetyReviewReceipt } from "./safety-reviews.js";
 import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite,
   ensureSafetyEventCollection, latchSafety, SafetyUnavailable, type SafetyCollectionInput, type SafetyProjection } from "./safety-store.js";
@@ -94,7 +94,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
   const shared=safetyQueue(db),pendingTaints=shared.pending;
   const call:typeof invoke=<T>(name:string,...args:unknown[])=>{
     shared.inflight++;
-    return invoke<T>(name,...args).finally(()=>{shared.inflight--;});
+    return invoke<T>(name,...args).finally(()=>{shared.inflight--;notifySafetyChanged(db);});
   };
   const safetyFail=(turnId:string|null):Promise<void>=>{
     if(!turnId||!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))retainSafetyLoss(db,turnId);
@@ -113,10 +113,11 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     }
     const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
     pendingTaints.add(pending); shared.bytes += bytes;
+    notifySafetyChanged(db);
     const reservation=crypto.randomUUID();
     const stored = call<void>("safetyReserve",row,reservation,bytes).then(()=>call<{id:number;recorded:boolean}>("safetyCommit",row,reservation));
     return stored.catch(error => { if((error as {code?:string})?.code!=="chat_retired")retainSafetyLoss(db,row.turnId); throw error; })
-      .finally(() => { pendingTaints.delete(pending); shared.bytes -= bytes; });
+      .finally(() => { pendingTaints.delete(pending); shared.bytes -= bytes; notifySafetyChanged(db); });
   };
   return {
     record,

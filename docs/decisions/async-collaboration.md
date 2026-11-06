@@ -71,7 +71,7 @@ requires one enforcement mechanism with different named memberships for voice
 and unattended work. Keep that requirement when implementing availability
 control. Existing mandatory backend conformance supports safe rejection of an
 unsupported restricted request; silently ignoring it is forbidden. The current
-optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:636`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:660`). These are permission primitives,
+optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:642`) and (`noGrantSurface?: boolean`, `packages/ui-sdk/src/server/backend.ts:666`). These are permission primitives,
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
@@ -85,7 +85,7 @@ is historical. Preserve subscription billing and the selected runtime identity.
 Pi disables built-in tools but currently loads resources and extensions
 (`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:29-149`)
 and gates extension calls (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:102-131`). Removing four curated
+`packages/ui-backend-pi/src/permission-gate.ts:103-134`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have
 no egress or write access. Both first-party runtimes owe executable evidence;
 the plan's earlier “pi is easy” claim is not a containment result.
@@ -204,7 +204,7 @@ permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
 parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge-capabilities/permissions.ts:17-123`); it is not a durable Action store.
+`packages/ui-server/src/ws/bridge-capabilities/permissions.ts:18-154`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.

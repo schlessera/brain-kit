@@ -52,7 +52,7 @@ const KEPT_CHANGE = `NOT (path IN (SELECT value FROM json_each(?)) OR path GLOB 
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
   ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; configuration_set: string | null; failure: string };
-type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; conflict_observations: string; overlaps: string };
+type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; effective_taint: number | null; conflict_observations: string; overlaps: string };
 const statement = (sql: string, ...params: SQLQueryBindings[]): JournalStatement => ({ sql, params });
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
   kind: entry.kind, mode: entry.mode, bytes: entry.bytes, ignored: entry.ignored,
@@ -737,7 +737,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
       if (!row) return null;
       const changes = (db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[]).map(item => ({ sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
-        before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.taint_source_event_id ? { tainted: true as const, taintSourceEventId: item.taint_source_event_id } : {}),
+        before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.effective_taint === 1 || item.taint_source_event_id ? { tainted: true as const } : {}), ...(item.taint_source_event_id ? { taintSourceEventId: item.taint_source_event_id } : {}),
         ...(JSON.parse(item.conflict_observations).length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: JSON.parse(item.conflict_observations) as JournalObservationReference[],
           latest: { turnId, sequence: (db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id=? AND path=?").get(turnId,item.path) as {sequence:number}).sequence, side:"after" as const } } } : {}) }));
       const failure = failures.get(turnId) ?? row.failure.trim();
