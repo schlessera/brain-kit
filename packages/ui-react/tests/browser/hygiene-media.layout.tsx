@@ -39,7 +39,12 @@ afterEach(async () => {
   u?.dispose();
   s?.close();
   h?.remove();
-  if (f) await commands.hygieneServer({ op: "stop", id: f.id });
+  if (f) {
+    // Stop drains every forwarded request, so a failure while a plan is held must release it first,
+    // or the drain waits on the held preview until Node's fetch times out (#3657).
+    try { await commands.hygieneServer({ op: "set", id: f.id, patch: { releasePlans: true } }); }
+    finally { await commands.hygieneServer({ op: "stop", id: f.id }); }
+  }
   if (originalTheme === undefined) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = originalTheme;
 });
@@ -318,7 +323,7 @@ test("dark 320: a preview that throws is a 409 the card states, and nothing was 
   await radio("Move to a final location").click();
   await destination("places/throw.png");
   // A 409 with no newer Action states its failure only after the card's one-second wait for a
-  // newer version (`newerThan`, packages/ui-react/src/components/activity/hygiene-media.tsx:341-348),
+  // newer version (`newerThan`, packages/ui-react/src/components/activity/hygiene-media.tsx:343-350),
   // so the default one-second poll races that window. Allow the wait plus the request.
   await expect.poll(() => alertText(), { timeout: 5000 }).toBe("Couldn't prepare a preview. Nothing was changed.");
   expect(page.getByRole("button", { name: "Try again", exact: true }).query()).not.toBeNull();

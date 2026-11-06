@@ -316,6 +316,8 @@ export function MediaFinding({ item, controller: c }: { item: InboxActionItem; c
   const [texts, setTexts] = useState<Partial<Record<Row, string>>>({});
   const [preview, setPreview] = useState<Preview | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  /** Counts stale applies; each one focuses the banner once it has rendered. */
+  const [bannerFocus, setBannerFocus] = useState(0);
   const [filesOpen, setFilesOpen] = useState(false);
   const latest = useRef<string | null>(null);
   const aborter = useRef<AbortController | null>(null);
@@ -414,12 +416,17 @@ export function MediaFinding({ item, controller: c }: { item: InboxActionItem; c
     handled.current = item.version;
     if (outcome.status === "stale" && row) {
       setBanner(outcome.reason === "stale-approval" ? refusalText({ code: "stale-approval" }) : "Changed since the preview. Updated below. Check it before applying.");
+      setBannerFocus((n) => n + 1);
       void run(row, texts[row] ?? "");
-      requestAnimationFrame(() => bannerRef.current?.focus());
     } else if (receipt?.outcome === "partial") requestAnimationFrame(() => showFiles.current?.focus());
     else requestAnimationFrame(() => recoveryRef.current?.focus());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.version]);
+  // The banner is state set just above, so it mounts in a later commit than this card's
+  // outcome: focus it after that commit, never on a frame that may come first (#3657).
+  useEffect(() => {
+    if (bannerFocus > 0) bannerRef.current?.focus();
+  }, [bannerFocus]);
 
   const current = preview?.state === "done" && row !== null && preview.row === row && preview.text === text ? preview : null;
   const replicatedPlan = row ? planFor(options.get(row), row, text) : null;
