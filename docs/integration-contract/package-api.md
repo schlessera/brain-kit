@@ -4869,8 +4869,14 @@ scope, frozen ordinary `policyHash`, effective restriction, recorder health and
 current authority. `PermissionRequest.admissionSnapshot` is host-only metadata;
 it is never a wire field, worker initialization input or provider content.
 The shared `requestToolPermission` snapshots and rechecks the live input after
-approval waits. First-party backend gates additionally revalidate in their
-final dispatch continuations after locks, index barriers and occurrence writes.
+approval waits. The host's `requestPermission` boundary also owns its initial
+snapshot and final revalidation for direct application, policy, compute and
+actor callers; caller metadata cannot opt out. Claimed answers remain under
+coordinator ownership through grant storage and may expire during that wait.
+First-party backend gates additionally revalidate in their final dispatch
+continuations after locks, index barriers and occurrence writes. Every Claude
+pre-tool hook fences its own final asynchronous wait, including parallel
+rewrites and native file observations.
 Absent input retains the existing taint callback fallback and grants no new
 capability. The live trust input is revision/notification only; matching and
 publication have separate implementations. See the [effective admission

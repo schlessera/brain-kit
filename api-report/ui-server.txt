@@ -969,7 +969,11 @@ signatures (every public export and the types it is made of)
             payload: z.ZodObject<{
                 authorityEpoch: z.ZodString;
                 evidenceRevision: z.ZodString;
-                reason: z.ZodLiteral<"safety_changed">;
+                reason: z.ZodEnum<{
+                    grant_storage_failed: "grant_storage_failed";
+                    safety_changed: "safety_changed";
+                    turn_ended: "turn_ended";
+                }>;
                 toolUseId: z.ZodString;
                 trustRevision: z.ZodString;
             }, z.core.$strict>;

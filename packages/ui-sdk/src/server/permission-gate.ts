@@ -3,7 +3,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "./backend.js";
-import { sameSafetyAdmission, STALE_SAFETY_ADMISSION } from "./admission-safety.js";
+import { sameSafetyAdmission, safetySnapshotRefusal, STALE_SAFETY_ADMISSION } from "./admission-safety.js";
 import {
   ARCHIVING_UPDATE_REASON,
   archivesDocument,
@@ -289,10 +289,22 @@ export function requestToolPermission(
       message: `No active turn to approve ${request.toolName}.`,
     });
   }
-  const guarded = bridge.admissionSafety ? { ...request, admissionSnapshot: bridge.admissionSafety.read() } : request;
+  let guarded = request;
+  try {
+    if (bridge.admissionSafety) {
+      const snapshot = bridge.admissionSafety.read();
+      if (safetySnapshotRefusal(snapshot)) return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+      guarded = { ...request, admissionSnapshot: snapshot };
+    }
+  } catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
   return bridge.requestPermission(guarded).then((decision) => {
-    if (bridge.admissionSafety && guarded.admissionSnapshot && !sameSafetyAdmission(guarded.admissionSnapshot, bridge.admissionSafety.read()))
-      return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+    try {
+      if (bridge.admissionSafety && guarded.admissionSnapshot) {
+        const current = bridge.admissionSafety.read();
+        if (safetySnapshotRefusal(current) || !sameSafetyAdmission(guarded.admissionSnapshot, current))
+          return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+      }
+    } catch { return { behavior: "deny", message: STALE_SAFETY_ADMISSION }; }
     return snapshotEdit(request, decision);
   });
 }

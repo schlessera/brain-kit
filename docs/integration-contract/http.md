@@ -396,8 +396,15 @@ An earlier standing allowance is recomputed at dispatch; a stale pending card
 is claimed/withdrawn through the coordinator, with a durable
 `safety_admission_expired` governance event before the backend wait settles.
 Its existing tool-resolution outcome is `expired`. No denied or interrupted
-operation replays automatically. Receipt-storage failure stops the turn rather
-than reporting successful withdrawal. Ordinary budgets, commands, profiles,
+operation replays automatically. Direct host permission callers have the same
+host-owned snapshot and withdrawal behavior. An answer claimed by a handler
+stays under coordinator ownership while its legacy grant write waits; safety
+invalidation, cancellation and grant-write failure settle it exactly once and
+cannot dispatch a stale grant. Terminal event reasons are `safety_changed`,
+`turn_ended` and `grant_storage_failed`. A successfully persisted legacy grant
+remains its independent historical fact and cannot revive the expired call.
+Receipt-storage failure stops the turn and emits an explicit failed terminal
+outcome, without claiming durable withdrawal. Ordinary budgets, commands, profiles,
 egress configuration, credential routing and outward/voice controls keep their
 existing independent, turn-bound meanings. No persistent source matching,
 Settings publication, scoped-network capability or owner review route is enabled

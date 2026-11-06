@@ -35,6 +35,12 @@ import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 import { requestToolPermission } from "@schlessera/brain-ui-sdk/server";
+import { NativeFileVersions } from "@schlessera/brain-ui-sdk/internal";
+import { handleToolApproval, handleToolDenial } from "../src/ws/handlers/tool-permission";
+import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { createSettingsWrites } from "../src/db/settings-writes";
+import { getAutoAllowedTools } from "../src/db/settings";
+import { retireChat, resolveChat } from "../src/ws/chat-lifecycle";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture";
 import { createTurnJournal } from "../src/brain/turn-journal";
 
@@ -380,4 +386,234 @@ test("zero reviewed triggers cannot clear unknown coverage or waive ordinary den
       finally { proxy.stop(); await proxy.settled(); }
     }
   } finally { origin.stop(true); await f.close(); }
+});
+
+
+// Each hook sees the original input concurrently. The last hook must fence its
+// own final wait even when every other hook already returned an allow/continue.
+for (const last of ["rtk", "agent", "native-read", "index"] as const) {
+  for (const change of ["healthy", "recording-loss", "revoke", "cancel"] as const) {
+    test(`parallel Claude ${last}: final wait fences ${change} before process/file delivery`, async () => {
+      const f = await fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+      const wait = async () => { entered.resolve(); await release.promise; };
+      const versions = new NativeFileVersions(), begin = versions.beginRead.bind(versions);
+      versions.beginRead = async (...args) => { await begin(...args); await wait(); };
+      writeFileSync(join(f.root, "notice.md"), "Ithaca");
+      let finished = 0;
+      const name = last === "agent" ? "Agent" : last === "native-read" || last === "index" ? "Read" : "Bash";
+      const input = name === "Bash" ? { command: "echo Ithaca" } : name === "Agent" ? { prompt: "Return to Ithaca" } : { file_path: "notice.md" };
+      const bridge: BackendBridge = { emit() {}, admissionSafety: f.safety, requestPermission: async () => ({ behavior: "allow" }),
+        inputSafety: { ...f.collector, async begin(id, tool, value) {
+          await f.collector.begin(id, tool, value);
+          if (last === "rtk" && value.command === "printf Ithaca" || last === "agent" && value.run_in_background === false) await wait();
+        } }, ...(last === "index" ? { awaitIndex: async () => { await wait(); } } : {}) };
+      const wiring = createPermissionWiring({ req: { prompt: "Return to Ithaca", bridge, signal: f.controller.signal,
+        workerSandbox: { brain: f.root, profile: "governed" } as never }, allowedTools: [name], confirmPatterns: [], brainPath: f.root,
+        turnLock: { async acquireForTool() { return { ok: true }; }, releaseForTool() {} } as never,
+        ...(last === "native-read" ? { fileVersions: versions } : {}), childEnv: {}, rewriteRtk: async () => "printf Ithaca", log() {} });
+      const calls = wiring.hooks!.PreToolUse!.filter(group => !group.matcher || new RegExp(group.matcher).test(name))
+        .flatMap(group => group.hooks).map(hook => hook({ hook_event_name: "PreToolUse", tool_name: name,
+          tool_input: input, tool_use_id: "parallel-admission" } as never, "parallel-admission", { signal: f.controller.signal })
+          .then(output => { finished++; return output; }));
+      try {
+        await entered.promise;
+        await new Promise(resolve => setImmediate(resolve));
+        expect(finished, "PARALLEL_PROBE_REACHES_LAST_HOOK_WAIT").toBe(calls.length - 1);
+        if (change === "recording-loss") await f.writes.safetyFail("another-turn");
+        if (change === "revoke") f.revoke();
+        if (change === "cancel") f.controller.abort();
+        release.resolve();
+        const outputs = await Promise.all(calls);
+        const denied = outputs.some(output => "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse" && output.hookSpecificOutput.permissionDecision === "deny");
+        const marker = join(f.root, "parallel-effect");
+        let delivered: string | null = null;
+        if (!denied) {
+          if (name === "Read") delivered = readFileSync(join(f.root, "notice.md"), "utf8");
+          else {
+            const command = name === "Bash" ? "printf Ithaca" : "printf Odyssey";
+            const child = Bun.spawn(["/bin/sh", "-c", command], { stdout: Bun.file(marker), stderr: "pipe" });
+            expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
+          }
+        }
+        expect(name === "Read" ? delivered !== null : existsSync(marker), "PARALLEL_LAST_WAIT_MUST_FENCE_REAL_DELIVERY").toBe(change === "healthy");
+      } finally { release.resolve(); await Promise.allSettled(calls); await f.close(); }
+    });
+  }
+}
+
+for (const kind of ["tool", "command", "policy", "actor"] as const) for (const change of ["healthy", "remove"] as const) {
+  test(`direct host ${kind} approval: host-owned snapshot fences ${change}`, async () => {
+    const f = await fixture(), raised = Promise.withResolvers<void>();
+    let reached = 0, decision: string | undefined, run: Promise<void> | undefined;
+    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { reached++; return new Response("Ithaca"); } });
+    const backend = makeFakeBackend({ id: "claude", async startTurn(req) {
+      await req.bridge.inputSafety!.ready("claude", 1);
+      req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: false });
+      // Application, policy, compute and Apify callers all use this boundary.
+      const result = await req.bridge.requestPermission({ toolUseId: "direct-card", toolName: "OdysseyTool", kind, input: {} });
+      decision = result.behavior;
+      if (result.behavior === "allow") await fetch(origin.url);
+      req.bridge.emit({ type: "result", sessionId: "ithaca", isError: false, durationMs: 1, numTurns: 1 });
+    } });
+    const store = createActivityStore(f.db);
+    const host = new WsHost({ brainPath: f.root, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => f.db),
+      isPrincipalAuthorized: id => id === f.principal.id,
+      safetyTrust: { revision: () => f.safety.read().trustRevision, subscribe: changed => f.safety.subscribe(changed) },
+      activity: { store, stream: createActivityStream(store), governanceDb: f.db, governanceWrites: f.writes } });
+    const frames: ServerMessage[] = [];
+    const ws = { send(text: string) { const frame = JSON.parse(text) as ServerMessage; frames.push(frame); if (frame.type === "tool_approval_request") raised.resolve(); } };
+    host.clients.add(ws, f.principal.id);
+    host.clients.setCapabilities(ws, { toolResolution: true });
+    try {
+      run = runSession(host, { authorization: testAuthorization(f.principal.id), text: "Return to Ithaca", attachments: [], sessionId: "ithaca" });
+      await raised.promise;
+      const pending = host.coordinator.pendingApprovals.get("direct-card")!;
+      if (change === "remove") f.remove();
+      // A simultaneous answer must neither revive nor grant a withdrawn card.
+      await handleToolApproval({ host, ws, requireEcho: true, connection: { principal: f.principal,
+        authorization: testAuthorization(f.principal.id), capabilities: { toolResolution: true } } },
+        { type: "tool_approval", toolUseId: "direct-card", turnId: pending.turnId, channel: "card" });
+      await run;
+      expect(reached, "DIRECT_HOST_STALE_CARD_CANNOT_DISPATCH_LOOPBACK").toBe(change === "healthy" ? 1 : 0);
+      expect(decision).toBe(change === "healthy" ? "allow" : "deny");
+      expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["safety_admission_expired"], limit: 100 })).toHaveLength(change === "healthy" ? 0 : 1);
+      expect(host.coordinator.resolvedApprovals.get("direct-card")?.outcome).toBe(change === "healthy" ? "granted" : "expired");
+      expect(frames.filter(frame => frame.type === "tool_resolution" && frame.outcome === (change === "healthy" ? "granted" : "expired"))).toHaveLength(1);
+    } finally { host.close(); await run; origin.stop(true); await f.close(); }
+  });
+}
+
+for (const failStore of [false, true]) for (const change of ["healthy", "remove", "revoke", "cancel", "shutdown", "silent-remove", "retire"] as const) {
+  test(`claimed approval grant-storage ${failStore ? "failure" : "success"}: ${change} settles once without stale dispatch`, async () => {
+    const f = await fixture(), raised = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    let decision: string | undefined, reached = 0, adds = 0, run: Promise<void> | undefined, answer: Promise<unknown> | undefined;
+    let trust = "0", principalCurrent = true;
+    const grants = createSettingsWrites(f.db, f.writer);
+    const flush = f.writer.channel(probe, { table: "approval_flush" }); await flush.ready;
+    expect(await flush.call<number>("level")).toBe(2);
+    let pendingCard: import("../src/ws/turns").PendingApproval | undefined;
+    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { reached++; return new Response("Ithaca"); } });
+    const backend = makeFakeBackend({ id: "claude", async startTurn(req) {
+      await req.bridge.inputSafety!.ready("claude", 1);
+      req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: false });
+      const result = await requestToolPermission(req.bridge, { toolUseId: "stored-card", toolName: "OdysseyTool", kind: "tool", input: {} });
+      decision = result.behavior;
+      if (result.behavior === "allow") await fetch(origin.url);
+      req.bridge.emit({ type: "result", sessionId: "ithaca", isError: false, durationMs: 1, numTurns: 1 });
+    } });
+    const store = createActivityStore(f.db);
+    const host = new WsHost({ brainPath: f.root, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => f.db),
+      isPrincipalAuthorized: id => principalCurrent && id === f.principal.id,
+      safetyTrust: { revision: () => change === "silent-remove" ? trust : f.safety.read().trustRevision, subscribe: changed => f.safety.subscribe(changed) },
+      toolPermissions: { isAutoAllowed: () => false, async add(name) { adds++; entered.resolve(); await release.promise; if (failStore) throw new Error("injected grant write failure"); await grants.addAutoAllowedTool(name); } },
+      activity: { store, stream: createActivityStream(store), governanceDb: f.db, governanceWrites: f.writes } });
+    const frames: ServerMessage[] = [];
+    const ws = { send(text: string) { const frame = JSON.parse(text) as ServerMessage; frames.push(frame); if (frame.type === "tool_approval_request") raised.resolve(); } };
+    host.clients.add(ws, f.principal.id);
+    host.clients.setCapabilities(ws, { toolResolution: true });
+    const ctx = { host, ws, requireEcho: true, connection: { principal: f.principal, authorization: testAuthorization(f.principal.id) } };
+    try {
+      run = runSession(host, { authorization: testAuthorization(f.principal.id), text: "Return to Ithaca", attachments: [], sessionId: "ithaca" });
+      await raised.promise;
+      const pending = host.coordinator.pendingApprovals.get("stored-card")!;
+      pendingCard = pending;
+      const reply = { type: "tool_approval" as const, toolUseId: "stored-card", turnId: pending.turnId, always: true, channel: "card" as const };
+      answer = Promise.resolve(handleToolApproval(ctx, reply));
+      // Observe handler errors without masking the eventual success assertion.
+      void answer.catch(() => {});
+      await entered.promise;
+      expect(host.coordinator.pendingApprovals.has("stored-card")).toBe(false);
+      expect(host.chatBusy({ sessions: ["ithaca"], dialogueOwners: [], conversations: [], tasks: [], requests: [], nativeTasks: [] }),
+        "CLAIMED_CARD_KEEPS_CHAT_BUSY_BEFORE_RETIREMENT").toBe(true);
+      await handleToolApproval(ctx, reply);
+      handleToolDenial(ctx, { type: "tool_denial", toolUseId: "stored-card", turnId: pending.turnId, message: "Late denial", channel: "card" });
+      expect(adds, "CLAIMED_CARD_HAS_ONE_GRANT_STORE_WRITER").toBe(1);
+      if (change === "remove") f.remove();
+      if (change === "silent-remove") trust = "1";
+      if (change === "revoke") { principalCurrent = false; await host.revokePrincipals([f.principal.id], 1008, "Revoked"); }
+      if (change === "cancel") host.coordinator.cancelTurn(pending.turn, "Odysseus cancelled");
+      if (change === "shutdown") host.close();
+      if (change === "retire") {
+        // Simulate a separate lifecycle writer; the public deletion path above
+        // refuses busy work, and must keep doing so.
+        const chat = resolveChat(f.db, { sessionId: "ithaca" });
+        if ("refused" in chat) throw new Error(chat.refused);
+        expect(retireChat(f.db, { operationId: "retire-stored-card", principalId: f.principal.id, target: { sessionId: "ithaca" },
+          expected: { backendId: chat.backendId, generation: chat.generation }, removableBackends: ["claude"], at: Date.now() }).status).toBe("retired");
+      }
+      if (["remove", "revoke", "cancel", "shutdown"].includes(change)) {
+        await Promise.resolve(); // Let the invalidation enqueue its durable terminal first.
+        await flush.call("level");
+        await new Promise(resolve => setImmediate(resolve));
+        expect(decision, "INVALIDATION_SETTLES_BACKEND_WHILE_GRANT_STORE_STILL_WAITS").toBe("deny");
+      }
+      release.resolve();
+      await answer.catch(() => {});
+      // Drain the real FULL writer and settlement continuations, without a timeout oracle.
+      await Promise.resolve();
+      await flush.call("level");
+      await new Promise(resolve => setImmediate(resolve));
+      const expired = queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["safety_admission_expired"], limit: 100 });
+      const allowed = change === "healthy" && !failStore;
+      if (allowed) await run;
+      expect(expired, "CLAIMED_CARD_RETAINS_EXACTLY_ONE_DURABLE_TERMINAL").toHaveLength(allowed || change === "retire" ? 0 : 1);
+      if (change === "retire") {
+        expect(host.coordinator.resolvedApprovals.get("stored-card")?.reason).toContain("could not be retained");
+        expect(pending.turn.abortController.signal.aborted).toBe(true);
+        expect(f.db.query("SELECT generation FROM chat_lifecycles WHERE operation_id='retire-stored-card'").get()).toEqual({ generation: 2 });
+      }
+      expect(decision, "GRANT_FAILURE_OR_WITHDRAWAL_NEVER_ORPHANS_BACKEND").toBe(allowed ? "allow" : "deny");
+      expect(reached, "CLAIMED_CARD_CANNOT_DISPATCH_STALE_GRANT").toBe(allowed ? 1 : 0);
+      expect(host.coordinator.resolvedApprovals.get("stored-card")?.outcome).toBe(allowed ? "granted" : "expired");
+      expect(frames.filter(frame => frame.type === "tool_resolution")).toHaveLength(change === "revoke" ? 0 : 1);
+      // The already-requested legacy standing grant is independent of whether
+      // this operation expired; it must never revive that operation.
+      expect(getAutoAllowedTools(f.db)).toEqual(failStore ? [] : ["OdysseyTool"]);
+      await run;
+      await answer;
+    } finally {
+      release.resolve();
+      if (decision === undefined) pendingCard?.resolve({ behavior: "deny", message: "Probe cleanup" });
+      host.close();
+      await answer?.catch(() => {});
+      await run;
+      origin.stop(true); await f.close();
+    }
+  });
+}
+
+
+test("withdrawal receipt storage failure explicitly terminates and stops the backend without dispatch", async () => {
+  const f = await fixture(), raised = Promise.withResolvers<void>();
+  let decision: string | undefined, aborted = false, reached = 0, run: Promise<void> | undefined;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { reached++; return new Response("Ithaca"); } });
+  const backend = makeFakeBackend({ id: "claude", async startTurn(req) {
+    await req.bridge.inputSafety!.ready("claude", 1);
+    req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: false });
+    const result = await req.bridge.requestPermission({ toolUseId: "failed-terminal", toolName: "OdysseyTool", kind: "command", input: {} });
+    decision = result.behavior; aborted = req.signal.aborted;
+    if (result.behavior === "allow") await fetch(origin.url);
+  } });
+  const store = createActivityStore(f.db);
+  const host = new WsHost({ brainPath: f.root, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => f.db),
+    isPrincipalAuthorized: id => id === f.principal.id,
+    safetyTrust: { revision: () => f.safety.read().trustRevision, subscribe: changed => f.safety.subscribe(changed) },
+    activity: { store, stream: createActivityStream(store), governanceDb: f.db, governanceWrites: f.writes } });
+  const frames: ServerMessage[] = [];
+  const ws = { send(text: string) { const frame = JSON.parse(text) as ServerMessage; frames.push(frame); if (frame.type === "tool_approval_request") raised.resolve(); } };
+  host.clients.add(ws, f.principal.id); host.clients.setCapabilities(ws, { toolResolution: true });
+  try {
+    run = runSession(host, { authorization: testAuthorization(f.principal.id), text: "Return to Ithaca", attachments: [], sessionId: "ithaca" });
+    await raised.promise;
+    f.db.exec("CREATE TRIGGER fail_terminal BEFORE INSERT ON governance_events WHEN NEW.kind='safety_admission_expired' BEGIN SELECT RAISE(FAIL,'injected terminal storage failure'); END");
+    f.remove(); await run;
+    expect(decision, "FAILED_WITHDRAWAL_STILL_SETTLES_BACKEND").toBe("deny");
+    expect(aborted, "FAILED_WITHDRAWAL_STOPS_PROVIDER_CONTINUATION").toBe(true);
+    expect(reached, "FAILED_WITHDRAWAL_CANNOT_DISPATCH").toBe(0);
+    expect(host.coordinator.resolvedApprovals.get("failed-terminal")).toMatchObject({ outcome: "expired", reason: "Safety withdrawal could not be retained; the turn was stopped." });
+    expect(frames.filter(frame => frame.type === "tool_resolution")).toHaveLength(1);
+    expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", kinds: ["safety_admission_expired"], limit: 100 })).toHaveLength(0);
+  } finally {
+    host.close(); await run; origin.stop(true); await f.close();
+  }
 });

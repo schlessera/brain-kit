@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { createWorkerFileObserver, NativeFileVersions, WORKER_AREA_ROOT, type ObservedWorkerFile } from "@schlessera/brain-ui-sdk/internal";
 import type { HookCallback, Options, PermissionResult } from "@anthropic-ai/claude-agent-sdk";
-import { type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
+import { type AdmissionSafetySnapshot, type CompiledWorkerCommandPolicy, compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import {
   checkEditedApproval,
@@ -608,6 +608,7 @@ function createRewriteHooks(ctx: PermissionContext, options: PermissionWiringOpt
   // contain the foreground/RTK rewrite, so restrict that final form too: a
   // rewrite's auto-allow must not re-admit an already completed effect.
   const restrictRewrite = (hook: HookCallback, toolName: string): HookCallback => async (...args) => {
+    const snapshot = req.bridge.admissionSafety?.read();
     const output = await hook(...args);
     const admissionRefusal = safetyAdmissionRefusal(req.bridge.admissionSafety);
     if (admissionRefusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: admissionRefusal } };
@@ -626,6 +627,11 @@ function createRewriteHooks(ctx: PermissionContext, options: PermissionWiringOpt
       if (refusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } };
       try{await req.bridge.inputSafety?.begin(args[0].tool_use_id,toolName,output.hookSpecificOutput.updatedInput as Record<string,unknown>);}
       catch(error){return {continue:true,hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:error instanceof Error?error.message:"Safety recording unavailable"}};}
+      // Recording the rewritten input is another wait. Recompute its standing
+      // authority afterwards; parallel hooks only checked the original input.
+      const finalPlan = outward(toolName, output.hookSpecificOutput.updatedInput);
+      const finalRefusal = commitOutwardPlan(finalPlan, { bridge: req.bridge, before: snapshot, approved: false, signal: req.signal });
+      if (finalRefusal) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: finalRefusal } };
     }
     return output;
   };
@@ -663,6 +669,28 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   const canUseTool = canUseToolFor(ctx);
   const mutatingHook = mutatingHookFor(ctx);
   const { agentHook, rtkHook } = createRewriteHooks(ctx, options);
+  // Claude runs matching hooks in parallel. Every hook, including a read
+  // observation or rewrite that finishes last, must fence its own final wait.
+  // Outward gates still recompute standing/per-use authority in their bodies.
+  const fence: (hook: HookCallback) => HookCallback = hook => async (...args) => {
+    let snapshot: AdmissionSafetySnapshot | undefined;
+    let output: Awaited<ReturnType<HookCallback>>;
+    try {
+      snapshot = req.bridge.admissionSafety?.read();
+      output = await hook(...args);
+    } catch (error) {
+      if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);
+      return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+        permissionDecisionReason: error instanceof Error ? error.message : "Host tool admission is unavailable." } };
+    }
+    const refusal = safetyAdmissionRefusal(req.bridge.admissionSafety, snapshot)
+      ?? (req.signal.aborted || args[2].signal.aborted ? "Turn cancelled before tool admission." : null);
+    if (refusal) {
+      if (args[0].hook_event_name === "PreToolUse") turnLock.releaseForTool(args[0].tool_use_id);
+      return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } };
+    }
+    return output;
+  };
   const safetyResult: HookCallback = async input => {
     if((input.hook_event_name==="PostToolUse"||input.hook_event_name==="PostToolUseFailure")&&req.bridge.inputSafety){
       const response=input.hook_event_name==="PostToolUse"?input.tool_response:input.error;
@@ -684,12 +712,12 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
         // First rather than last because that is the order the merge was
         // measured in. Note that tests index this array positionally, so a
         // test for an enforced turn must match on the matcher, not the index.
-        ...(enforced ? [{ hooks: [enforcementHook] }] : []),
-        { matcher: MUTATING_TOOL_MATCHER, hooks: [mutatingHook] },
-        { matcher: "^Agent$", hooks: [agentHook] },
-        { matcher: "^Bash$", hooks: [rtkHook] },
-        ...(!req.autonomous ? [{ matcher: "^Read$", hooks: [beginNativeRead] }] : []),
-        ...(!enforced && (!req.autonomous || req.bridge.inputSafety) ? [{ hooks: [enforcementHook] }] : []),
+        ...(enforced ? [{ hooks: [fence(enforcementHook)] }] : []),
+        { matcher: MUTATING_TOOL_MATCHER, hooks: [fence(mutatingHook)] },
+        { matcher: "^Agent$", hooks: [fence(agentHook)] },
+        { matcher: "^Bash$", hooks: [fence(rtkHook)] },
+        ...(!req.autonomous ? [{ matcher: "^Read$", hooks: [fence(beginNativeRead)] }] : []),
+        ...(!enforced && (!req.autonomous || req.bridge.inputSafety) ? [{ hooks: [fence(enforcementHook)] }] : []),
       ],
       ...(!req.autonomous || req.bridge.inputSafety ? {
         PostToolUse: [...(!req.autonomous ? [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }] : []),{ hooks: [safetyResult] }],

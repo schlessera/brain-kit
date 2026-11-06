@@ -302,7 +302,7 @@ Never add a spoken approve or always-allow path.
 
 On the evidence date the denial handler removed/resolved a matched request but
 provided no dedicated denial receipt at that branch; #957 added one
-(`handleToolDenial`, `packages/ui-server/src/ws/handlers/tool-permission.ts:128-141`). The
+(`handleToolDenial`, `packages/ui-server/src/ws/handlers/tool-permission.ts:137-150`). The
 integration therefore needs host-authoritative resolution/replay: denied,
 already granted, expired, or unknown/disconnected. Speak a denial confirmation
 only for a confirmed denied outcome. A visual grant winning the race remains

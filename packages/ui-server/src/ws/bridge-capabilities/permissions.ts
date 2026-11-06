@@ -1,7 +1,7 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { ApprovalChannel } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
-import { sameSafetyAdmission, STALE_SAFETY_ADMISSION } from "@schlessera/brain-ui-sdk/internal";
+import { sameSafetyAdmission, safetyAdmissionRefusal, STALE_SAFETY_ADMISSION, type AdmissionSafetySnapshot } from "@schlessera/brain-ui-sdk/internal";
 import { approvalRequestFrame, withTurnScope } from "../frames.js";
 import type { BridgeContext, BridgeSlice } from "./context.js";
 
@@ -16,6 +16,31 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
   const { coordinator } = host;
   return {
     requestPermission: (req) => {
+      // Retain the coordinator's original terminal reason for a late request;
+      // cancellation must not replace it with a new safety diagnosis.
+      const drained = coordinator.drainedReason(turn, turnId);
+      if (drained !== undefined) {
+        coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: drained });
+        recorder?.onApprovalDecision(req.toolUseId, "deny", req.kind ?? "tool");
+        return Promise.resolve({ behavior: "deny", message: drained });
+      }
+      // This is the common boundary for SDK tools AND host-internal callers
+      // (applications, policy publication, compute and actors). Caller metadata
+      // cannot opt a card out of withdrawal or supply its authority.
+      const safety = self().admissionSafety;
+      let snapshot: AdmissionSafetySnapshot | undefined;
+      try { snapshot = safety?.read(); }
+      catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
+      const revalidate = (): string | null => {
+        if (ctx.signal.aborted || (safety || ctx.backendId === "claude" || ctx.backendId === "pi") && !ctx.current()) return STALE_SAFETY_ADMISSION;
+        try {
+          if (safetyAdmissionRefusal(safety, snapshot) || safety && snapshot && !sameSafetyAdmission(snapshot, safety.read())) return STALE_SAFETY_ADMISSION;
+        } catch { return STALE_SAFETY_ADMISSION; }
+        return null;
+      };
+      if (revalidate() || safety && snapshot && req.admissionSnapshot && !sameSafetyAdmission(req.admissionSnapshot, snapshot))
+        return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+      if (snapshot) req = { ...req, admissionSnapshot: snapshot };
       // A native permission checkpoint delegates this particular operation to
       // the host validator. Invalid input never raises a generic approval card.
       // Its handler later reads the SAME request receipt, without another write.
@@ -23,7 +48,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         const bridge = self();
         if (!bridge.proposePolicyChange) return Promise.resolve({ behavior: "deny", message: "Policy proposals are unavailable in this turn." });
         return bridge.proposePolicyChange(req.toolUseId, req.input as PolicyChangeInput)
-          .then(review => review.state === "updated" ? { behavior: "allow" as const } : { behavior: "deny" as const, message: review.message },
+          .then(review => review.state === "updated" && !revalidate() ? { behavior: "allow" as const } : { behavior: "deny" as const, message: revalidate() ?? review.message },
             error => ({ behavior: "deny" as const, message: error instanceof Error ? error.message : "Invalid policy proposal." }));
       }
       // A remembered "always allow" answers grantable tool requests without
@@ -58,7 +83,10 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
         });
       }
       if (remembered && !req.outsideEnforcedAllowlist) {
-        return Promise.resolve({ behavior: "allow" });
+        return Promise.resolve().then(() => {
+          const refusal = revalidate();
+          return refusal ? { behavior: "deny", message: refusal } : { behavior: "allow" };
+        });
       }
       return new Promise<PermissionDecision>((resolve) => {
         let unsubscribe: (() => void) | undefined;
@@ -91,32 +119,37 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
           recorded({ behavior: "deny", message: drained });
           return;
         }
-        if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded })) {
+        const expire = (reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed") => {
+          unsubscribe?.(); unsubscribe = undefined;
+          const writes = host.activity?.governanceWrites;
+          const sessionId = turn.sessionId;
+          // Coordinator ownership has already been removed from both waiting
+          // and in-flight answers. Retain exactly one terminal fact before
+          // publishing the outcome or settling the backend wait.
+          const committed = writes && snapshot ? Promise.resolve().then(() => writes.record({ kind: "safety_admission_expired", turnId,
+            sessionId: sessionId ?? null, actor: "server", model: null, profile: null,
+            payload: { toolUseId: req.toolUseId, evidenceRevision: snapshot.evidenceRevision,
+              trustRevision: snapshot.trustRevision, authorityEpoch: snapshot.authorityEpoch, reason: cause } }))
+            : snapshot ? Promise.reject(new Error("Safety withdrawal storage is unavailable")) : Promise.resolve();
+          void committed.then(() => {
+            coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, reason });
+            recorded({ behavior: "deny", message: reason });
+          }, error => {
+            // No successful durable-withdrawal claim on storage failure, but
+            // cleanup and the backend still receive one explicit terminal.
+            const failed = "Safety withdrawal could not be retained; the turn was stopped.";
+            coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId, reason: failed });
+            recorded({ behavior: "deny", message: failed });
+            turn.abortController.abort(error);
+          });
+        };
+        if (!coordinator.openApproval(req.toolUseId, { turn, turnId, request: req, resolve: recorded, revalidate, ...(snapshot ? { expire } : {}) })) {
           resolve({ behavior: "deny", message: "Duplicate tool-approval id" });
           return;
         }
-        const safety = self().admissionSafety, snapshot = req.admissionSnapshot;
         const invalidate = () => {
-          let current = false;
-          try { current = !!safety && !!snapshot && sameSafetyAdmission(snapshot, safety.read()); } catch { /* Refuse unavailable state. */ }
-          if (current) return;
-          const claimed = coordinator.claimApproval(req.toolUseId, p => p.turn === turn && p.request === req);
-          if (!claimed) return;
-          unsubscribe?.(); unsubscribe = undefined;
-          const writes = host.activity?.governanceWrites;
-          // Claim first to fence a simultaneous answer, then retain the terminal
-          // fact before publishing it or settling the backend's pending wait.
-          const committed = writes && snapshot ? Promise.resolve().then(() => writes.record({ kind: "safety_admission_expired", turnId,
-            sessionId: turn.sessionId ?? null, actor: "server", model: null, profile: null,
-            payload: { toolUseId: req.toolUseId, evidenceRevision: snapshot.evidenceRevision,
-              trustRevision: snapshot.trustRevision, authorityEpoch: snapshot.authorityEpoch, reason: "safety_changed" } })) : Promise.resolve();
-          void committed.then(() => {
-            coordinator.recordApprovalOutcome(req.toolUseId, { outcome: "expired", turnId, sessionId: turn.sessionId, reason: STALE_SAFETY_ADMISSION });
-            claimed.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
-          }, error => {
-            turn.abortController.abort(error);
-            claimed.resolve({ behavior: "deny", message: "Safety withdrawal could not be retained; the turn was stopped." });
-          });
+          if (!revalidate()) return;
+          coordinator.expireApproval(req.toolUseId, STALE_SAFETY_ADMISSION, "safety_changed", p => p.turn === turn && p.request === req);
         };
         if (safety && snapshot) {
           unsubscribe = safety.subscribe(invalidate);

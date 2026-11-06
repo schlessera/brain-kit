@@ -69,7 +69,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     evidenceRevision: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
     trustRevision: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
     authorityEpoch: z.string().regex(/^(0|[1-9][0-9]{0,19})$/),
-    reason: z.literal("safety_changed"),
+    reason: z.enum(["safety_changed", "turn_ended", "grant_storage_failed"]),
   })),
   /** Completed or refused connection, using the proxy's actual visibility. */
   egress_connection: kind(1, z.strictObject({
