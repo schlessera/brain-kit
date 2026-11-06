@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { scanText } from "./check-leakage";
 import { GitReservationStore, assertLease, holderToken, holds, LEASE_MS, liveLease, reservationServerTime, reservationTransition, RENEW_MS, sameCandidate,
   type Candidate, type Operation, type Lease } from "./integration-reservation";
-import { latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
+import { contractReadiness, latestIntegrationRun, verifyIntegrationProof } from "./integration-proof";
 import { declareFix, gateDecision, recordExpedited, type RedMainRecord } from "./red-main";
 import { isAncestor } from "./red-main-cli";
 import { expeditedProblems, expeditedTests, fixProbeTitle, probeReceipt, type FeedbackEvidence, type ProbeEvidence } from "./red-main-expedite";
@@ -20,6 +20,8 @@ class Fatal extends Error {}
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).trim().split("\n").slice(0, 3).join(" | ");
 /** Never act on a lease that may have expired: give up one renewal interval before it could. */
 const SAFETY_MS = LEASE_MS - RENEW_MS;
+/** How long `confirm` waits for a pending contract run before refusing (#3573). */
+const CONTRACT_WAIT_MS = 10 * RENEW_MS;
 
 async function gh(...args: string[]): Promise<string> {
   const child = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -133,6 +135,21 @@ if (import.meta.main) {
       console.error(`Proof poll failed (failing for ${failing}s); retrying next tick: ${describe(error)}`);
       if (failing * 1000 >= SAFETY_MS) throw new Error(`Proof polls failed for ${failing}s; last error: ${describe(error)}`);
       return undefined;
+    }
+  }
+  /**
+   * Hold confirmation until the newest exact-head contract run has passed (#3573). The merge path
+   * refuses anything else, so requesting candidate CI first would spend a whole run on a refusal.
+   * A pending run is waited for, without a reservation, for a bounded time.
+   */
+  async function contractPassed(desired: Candidate) {
+    for (let waited = 0; ; waited += RENEW_MS) {
+      const readiness = contractReadiness(await latestIntegrationRun(api, "contract.yml", desired), desired.head);
+      if (readiness.state === "passed") return;
+      if (readiness.state === "refused") throw new Error(readiness.message);
+      if (waited >= CONTRACT_WAIT_MS) throw new Error(`${readiness.message} after ${waited / 1000}s; confirm again once it completes. No reservation was taken and no candidate CI was requested.`);
+      console.error(`${readiness.message}; waiting before taking the reservation`);
+      await Bun.sleep(RENEW_MS);
     }
   }
   async function stopHeartbeat() { if (timer) clearInterval(timer); timer = undefined; await pending; }
@@ -313,6 +330,7 @@ if (import.meta.main) {
         }
         if (lost) throw lost;
       } else {
+        if (command === "confirm") await contractPassed(desired);
         own = await acquire(desired);
         // Only an explicit acquire prints the holder token, once; confirm keeps it in memory.
         console.log(JSON.stringify(command === "acquire" ? { acquired: own, token } : { acquired: own }));
