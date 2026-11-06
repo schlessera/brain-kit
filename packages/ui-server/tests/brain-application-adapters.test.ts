@@ -8,6 +8,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createKeyedLock, type BackendBridge, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
 import { createClaudeSdkTurn } from "../../ui-backend-claude/src/sdk-options.js";
+import { createTurnLockBinding } from "../../ui-backend-claude/src/turn-lock.js";
+import { runToolCall } from "../../ui-backend-claude/tests/helpers/run-tool-call.js";
 import { DEFAULT_ALLOWED_TOOLS, VOICE_ALLOWED_TOOLS } from "../../ui-backend-claude/src/tool-policy.js";
 import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
 import { createBrainTools, toolLockFromKeyed } from "../../ui-backend-pi/src/tools.js";
@@ -91,23 +93,23 @@ async function adapter(kind: "claude" | "pi", voice = false) {
     awaitIndex: async name => { if (!readsIndex(name)) return; if (index.pending()) indexRuns++; await index.barrier(); } };
   const search = async (query: string) => (await createBrainAccess(root).search({ query, limit: 50 })).results.map(result => result.path);
   if (kind === "claude") {
+    const turnLock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() },
+      writeLock: createKeyedLock(), lockWaitMs: 1000, log() {} });
+    closes.push(async () => turnLock.close());
     const { options } = createClaudeSdkTurn({ backend: { brainPath: root }, req: { prompt: "Odysseus repairs a raft", signal: new AbortController().signal, bridge,
       ...(voice ? { posture: "voice", noGrantSurface: true, enforceAllowedTools: true } : {}) },
       profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never,
       abortController: new AbortController(), allowedTools: voice ? VOICE_ALLOWED_TOOLS : DEFAULT_ALLOWED_TOOLS,
-      confirmPatterns: [], turnLock: { acquire: () => {}, release: () => {} } as never, log: () => {} });
+      confirmPatterns: [], turnLock, log: () => {} });
     const client = new Client({ name: "hosted-application", version: "0.1.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const server = options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } };
     await server.instance.connect(serverTransport); await client.connect(clientTransport); closes.push(() => client.close());
-    // The runtime's admission of a tool: every unmatched PreToolUse hook, as the SDK runs them.
+    // The runtime runs all matching PreToolUse hooks in parallel, including
+    // the brain MCP hook that owns the final index barrier after its lock wait.
     const admit = async (name: string) => {
-      for (const matcher of options.hooks!.PreToolUse!.filter(entry => !entry.matcher)) for (const hook of matcher.hooks) {
-        const output = await hook({ hook_event_name: "PreToolUse", tool_name: name, tool_input: { query: "raft" }, tool_use_id: `admit-${name}`,
-          session_id: "hosted", transcript_path: "", cwd: root } as never, `admit-${name}`, { signal: new AbortController().signal }) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
-        if (output.hookSpecificOutput?.permissionDecision === "deny") return { allowed: false, message: output.hookSpecificOutput.permissionDecisionReason };
-      }
-      return { allowed: true };
+      const result = await runToolCall(options, name, { query: "raft" }, `admit-${name}`);
+      return result.executed ? { allowed: true } : { allowed: false, message: result.message };
     };
     return { options, approvals, receipts, indexFailure, admit, search, indexRuns: () => indexRuns, tools: (await client.listTools()).tools.map(t => t.name),
       call: async (name: string, input: Record<string, unknown>) => {

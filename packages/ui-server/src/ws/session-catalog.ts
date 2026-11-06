@@ -602,7 +602,11 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
 
     bindGovernanceEvents(turnId, sessionId) {
-      try { governance().bind(turnId, sessionId).catch((err: unknown) => reportWriteFailure(sessionId, err)); }
+      try {
+        const bound = governance().bind(turnId, sessionId);
+        settle(bound);
+        void bound.catch((err: unknown) => reportWriteFailure(sessionId, err));
+      }
       catch (err) { reportWriteFailure(sessionId, err); }
     },
 

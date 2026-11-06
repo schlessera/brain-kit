@@ -64,7 +64,7 @@ function harness(overrides: Partial<PiWorkerRpcContext> = {}, bridge: Partial<Ba
 
 test("the handler table has exactly one handler per protocol method", () => {
   expect(Object.keys(PI_WORKER_RPC_HANDLERS).sort())
-    .toEqual(["apply", "bridge", "fileObservation", "lock", "permission", "readBase", "safetyResult", "safetyUnavailable", "syncAuth", "unlock"]);
+    .toEqual(["admission", "apply", "bridge", "fileObservation", "lock", "permission", "readBase", "safetyResult", "safetyUnavailable", "syncAuth", "unlock"]);
 });
 
 test("a method without a handler is refused, including inherited object keys", async () => {

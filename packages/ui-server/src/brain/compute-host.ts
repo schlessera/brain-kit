@@ -53,7 +53,7 @@ import type { ActivityRuntime } from "../activity/runtime.js";
 import { COMPUTE_RUN_PREFIX } from "../activity/stream.js";
 import type { SpanOutcome } from "../activity/store.js";
 import type { GovernanceEventInput } from "../governance/events.js";
-import { queryGovernanceEvents } from "../governance/events.js";
+import { sessionTaint } from "../governance/session-taint.js";
 import { ProviderMaskRefusedError } from "./provider-mask-refusal.js";
 import type { TurnBudgets } from "./turn-budgets.js";
 
@@ -699,8 +699,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
     // The conversation's earlier turns, and this turn's events not yet bound to its session.
     const tainted = (session: string) => {
       try {
-        return queryGovernanceEvents(db, { sessionId: session, kinds: ["taint"], limit: 1 }).length > 0
-          || queryGovernanceEvents(db, { turnId: ctx.turnId, kinds: ["taint"], limit: 1 }).length > 0;
+        return sessionTaint(db, ctx.turnId, session) !== null;
       } catch { return true; }
     };
     const canAsk = () => !ctx.autonomous && ctx.posture !== "voice" && !ctx.noGrantSurface && ctx.hasClient();

@@ -378,12 +378,45 @@ trust enforcement or safety capability is enabled; the reviewed
 public safety-history DTOs remain prospective. Older clients continue under host
 restrictions without new mutation controls.
 
+**Live admission supersession (breaking before 1.0, #3602).** Proxy dispatch,
+both first-party backend gates, outward policy allowances and new journal
+attribution use the current effective aggregate. The host reads
+`(evidenceRevision, trustRevision, authorityEpoch)` with the exact turn/session
+generation and frozen ordinary policy hash after its last asynchronous wait,
+in the continuation that dispatches. Pi also rechecks after its post-permission
+RTK and lock waits, with an exact-input, one-use final worker admission. New/pending input, recording loss and
+unknown coverage remain restrictive; pending/failed verdicts never clear them.
+A proxy may exclude only its own newly retained input from that request's
+first-byte test when it was otherwise normal. A concurrent connection cannot
+borrow that authority. Contacted-host legacy grants begin only at dispatch;
+validated provider relays remain excluded from those grants.
+
+A completed per-use outward approval is distinct from standing policy authority.
+An earlier standing allowance is recomputed at dispatch; a stale pending card
+is claimed/withdrawn through the coordinator, with a durable
+`safety_admission_expired` governance event before the backend wait settles.
+Its existing tool-resolution outcome is `expired`. No denied or interrupted
+operation replays automatically. Direct host permission callers have the same
+host-owned snapshot and withdrawal behavior. An answer claimed by a handler
+stays under coordinator ownership while its legacy grant write waits; safety
+invalidation, cancellation and grant-write failure settle it exactly once and
+cannot dispatch a stale grant. Terminal event reasons are `safety_changed`,
+`turn_ended` and `grant_storage_failed`. A successfully persisted legacy grant
+remains its independent historical fact and cannot revive the expired call.
+Receipt-storage failure stops the turn and emits an explicit failed terminal
+outcome, without claiming durable withdrawal. Ordinary budgets, commands, profiles,
+egress configuration, credential routing and outward/voice controls keep their
+existing independent, turn-bound meanings. No persistent source matching,
+Settings publication, scoped-network capability or owner review route is enabled
+by this admission slice. Historical journal/egress/approval facts and provider
+prefixes are unchanged; only later decisions and new journal attribution use
+the live state.
+
 **Individual verdict persistence (breaking before 1.0, #3601).** The host-only
 writer now prepares one selected finalized occurrence and atomically commits
 its immutable `safe` decision, revision and terminal request receipt on the FULL
 SQLite write worker. This implements the dated
-[G6 ruling](../decisions/session-safety-reviews.md); live admission revalidation
-and owner-authenticated HTTP/wire operations are separate implementation slices.
+[G6 ruling](../decisions/session-safety-reviews.md); owner-authenticated HTTP/wire operations remain a separate implementation slice.
 No endpoint or capability is added by this persistence layer. Host identity
 arguments do not establish human authorization.
 
@@ -812,16 +845,17 @@ with actor `user`.
 
 ### Steering observations (additive, #1658)
 
-Journal details may add `tainted: true` and `taintSourceEventId` to a steering
-change only when an existing taint record preceded the observation in that
-session or turn. The ID is retained with the change; replay never derives it
-from later events. A missing flag is not a claim that untrusted-input coverage
+Journal details may add `tainted: true` and an optional `taintSourceEventId` to a steering
+change. New observations capture effective restriction, including unknown
+coverage without an attributable source. An available ID names the current
+unresolved event. Older rows retain their original attribution; replay never
+derives it from later events or verdicts. A missing flag is not a claim that untrusted-input coverage
 is complete. Policy changes remain class `policy`, with user attribution, and
 are excluded from `steeringFiles`.
 
 The governance event API accepts/returns `steering_change`, version 1, with
 `path`, journal `sequence`, nullable `beforeHash`/`afterHash`, nullable
-`taintSourceEventId`, and `overlappingTurnIds`. It records an observation, not
+`taintSourceEventId`, `overlappingTurnIds` and optional `tainted: true`. New observations retain effective restriction even when unknown coverage has no attributable source; older rows and events are unchanged. It records an observation, not
 an exclusive writer or per-write interception. Configuration inventory that
 cannot identify a retained local input is named in journal `missing` with
 `configuration_inputs_not_fully_identified`; raw-version availability remains

@@ -4882,6 +4882,66 @@ count, byte and omission limits are in
 before Start; this adds no execution seam or startup host task. This is an
 additive minor SDK change, without a model-obedience or acoustic guarantee.
 
+
+## Live safety admission (additive host input, #3602)
+
+`BackendBridge` accepts an optional internal `admissionSafety` host callback with
+synchronous `read()` and invalidation subscription. Its snapshot binds decimal
+`evidenceRevision`, `trustRevision`, `authorityEpoch`, the host's turn/session
+scope, frozen ordinary `policyHash`, effective restriction, recorder health and
+current authority. `PermissionRequest.admissionSnapshot` is host-only metadata;
+it is never a wire field, worker initialization input or provider content.
+The shared `requestToolPermission` snapshots and rechecks the live input after
+approval waits. The host's `requestPermission` boundary also owns its initial
+snapshot and final revalidation for direct application, policy, compute and
+actor callers; caller metadata cannot opt out. Claimed answers remain under
+coordinator ownership through grant storage and may expire during that wait.
+On initial session naming, the host waits for its catalog/governance identity
+binding before taking the first card snapshot. This wait is bounded and
+cancellable; health and authority are checked again afterward. A healthy
+first card therefore survives its own binding, while later changes still
+withdraw stale authority.
+Admission evidence revisions are monotonic within the host's canonical safety
+scope, independently of the brain-wide history/review cursor. Unrelated sessions
+do not withdraw a pending approval. Own immutable lifecycle appends, canonical
+history adoption, locally pending input and shared recorder loss still invalidate
+it, including changes that leave the unresolved aggregate or global cursor
+unchanged. Projection, membership and latest scoped sequence are read from one
+SQLite snapshot; revision exhaustion refuses admission. Pending-input reads and
+capacity checks include retained provisional aliases before their SQL reservation
+commits. HTTP/WS history cursors and review request revisions remain brain-wide.
+First-party backend gates additionally revalidate in their final dispatch
+continuations after locks, index barriers and occurrence writes. Every Claude
+pre-tool hook fences its own final asynchronous wait, including parallel
+rewrites and native file observations.
+Host publication also checks qualified recording after its own lock/hold waits.
+Application, image-mask, inbox and compute effects share that final host health
+predicate; policy publication checks health independently of its own journal
+observation, and share completion retains it through its final submission.
+Recorder health remains separate from principal lifetime and does not rotate
+the authority epoch or reload ordinary policy. Completed per-use approvals
+retain their existing scope; pending input or recording loss cannot authorize
+a new irreversible publication.
+Inference and provider relays wait for their turn proxy's already submitted
+egress records before taking a fresh admission snapshot. This cancellable
+settlement prevents a completed connection's pending exposure commit from
+spuriously refusing the next model request. It excludes no occurrence and
+grants no authority: independent pending input, recorder loss and revoked
+authority still refuse, with final dispatch checks after later waits.
+Absent input retains the existing taint callback fallback and grants no new
+capability. The live trust input is revision/notification only; matching and
+publication have separate implementations. See the [effective admission
+contract](http.md#governance-events-additive-1651) and
+[the ruling](../decisions/session-safety-reviews.md).
+
+Pi's internal worker pipe also has an `admission` request for the exact
+host-held permission input. The worker sends it after RTK and lock waits,
+immediately before spawning bash. It consumes the host's one-use admission
+ticket and cannot approve, widen or replay a call. In-process bash uses the
+same revalidation at that point. The internal `commitToolAdmission` bridge
+callback transports that check; it carries no provider-facing data or new
+public tool. Lock and native observation RPCs also recheck current host safety.
+
 ## Session safety read DTOs (additive, #3604)
 
 The generated React store declarations retain the named `SafetyState` type

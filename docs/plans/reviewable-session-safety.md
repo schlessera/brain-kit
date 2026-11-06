@@ -25,7 +25,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:230`). Legacy rows prove
+  `packages/ui-server/src/governance/safety-store.ts:232-237`). Legacy rows prove
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
@@ -36,11 +36,13 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   never prove finalized delivery or complete coverage.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:82-241`). A raw CONNECT reveals
+  `packages/ui-server/src/brain/turn-egress.ts:83-269`). Relay admissions join
+  this proxy's submitted terminal observations before reading fresh safety,
+  without excluding independent pending input. A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
-  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:119-354`).
+  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:124-359`).
 - Outward decisions read session taint at admission (`prepareOutwardPlan`,
-  `packages/ui-sdk/src/server/outward-policy.ts:46-73`). Existing historical
+  `packages/ui-sdk/src/server/outward-policy.ts:47-94`). Existing historical
   steering attribution must remain attribution at the time of a write.
 - Governance policy is protected Markdown, validated by a strict schema
   (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`).

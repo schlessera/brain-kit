@@ -6,11 +6,11 @@
  * writes. An event the journal records inside its own transaction stays
  * there (`brain/journal-store.ts`).
  */
-import { retainSafetyLoss, safetyQueue } from "./safety-queue.js";
+import { retainSafetyLoss, safetyQueue, notifySafetyChanged } from "./safety-queue.js";
 import { prepareSafetyReview, commitSafetyReview, type SafetyReviewBody, type SafetyReviewer, type SafetyReviewReceipt } from "./safety-reviews.js";
 import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite,
-  ensureSafetyEventCollection, latchSafety, SafetyUnavailable, type SafetyCollectionInput, type SafetyProjection } from "./safety-store.js";
-import type { Database } from "bun:sqlite";
+  ensureSafetyEventCollection, latchSafety, SafetyUnavailable, safetyScopeTurns, type SafetyCollectionInput, type SafetyProjection } from "./safety-store.js";
+import { Database } from "bun:sqlite";
 import {assertLive,ChatRetiredError} from "../ws/chat-lifecycle.js";
 
 import { procedureCaller, type SqliteWriter, type WriteProcedures } from "../db/write-worker.js";
@@ -92,9 +92,15 @@ export interface GovernanceWrites {
 export function createGovernanceWrites(db: Database, writer?: SqliteWriter): GovernanceWrites {
   const invoke = procedureCaller(db, { url, setup }, undefined, writer);
   const shared=safetyQueue(db),pendingTaints=shared.pending;
+  const snapshot=<T>(read:()=>T):T=>db.inTransaction?read():Database.prototype.transaction.call(db,read).deferred() as T;
+  const pendingInScope=(turnId:string|null,sessionId:string|null)=>{
+    if(!pendingTaints.size)return [];
+    const turns=safetyScopeTurns(db,turnId,sessionId);
+    return [...pendingTaints].filter(p=>(p.turnId!==null&&turns.has(p.turnId))||(sessionId!==null&&p.sessionId===sessionId));
+  };
   const call:typeof invoke=<T>(name:string,...args:unknown[])=>{
     shared.inflight++;
-    return invoke<T>(name,...args).finally(()=>{shared.inflight--;});
+    return invoke<T>(name,...args).finally(()=>{shared.inflight--;notifySafetyChanged(db);});
   };
   const safetyFail=(turnId:string|null):Promise<void>=>{
     if(!turnId||!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId))retainSafetyLoss(db,turnId);
@@ -105,7 +111,8 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     if (input.kind !== "taint" && input.kind !== "taint_exposure") return call("record", row);
     if (shared.failed&&input.kind!=="taint_exposure") throw new Error("Safety occurrence writer requires recovery");
     const bytes = Buffer.byteLength(JSON.stringify(row))+1024;
-    const session = [...pendingTaints].filter(p => row.sessionId !== null ? p.sessionId === row.sessionId : p.turnId === row.turnId);
+    const session = snapshot(()=>row.turnId===null&&row.sessionId===null
+      ? [...pendingTaints].filter(p=>p.turnId===null&&p.sessionId===null) : pendingInScope(row.turnId,row.sessionId));
     if (pendingTaints.size >= 4096 || shared.bytes + bytes > 16777216 || session.length >= 256
       || session.reduce((sum, p) => sum + p.bytes, 0) + bytes > 1048576) {
       void safetyFail(row.turnId).catch(()=>{});
@@ -113,41 +120,51 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     }
     const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };
     pendingTaints.add(pending); shared.bytes += bytes;
+    notifySafetyChanged(db);
     const reservation=crypto.randomUUID();
     const stored = call<void>("safetyReserve",row,reservation,bytes).then(()=>call<{id:number;recorded:boolean}>("safetyCommit",row,reservation));
     return stored.catch(error => { if((error as {code?:string})?.code!=="chat_retired")retainSafetyLoss(db,row.turnId); throw error; })
-      .finally(() => { pendingTaints.delete(pending); shared.bytes -= bytes; });
+      .finally(() => { pendingTaints.delete(pending); shared.bytes -= bytes; notifySafetyChanged(db); });
   };
   return {
     record,
     safetyPrepareReview: (body,actor)=>call("safetyPrepareReview",body,actor),
-    safetyCommitReview: (id,body,actor)=>call("safetyCommitReview",id,body,actor,[...pendingTaints].some(p=>p.sessionId===body.session.sessionId),shared.failed),
+    safetyCommitReview(id,body,actor){
+      let pending=true;
+      try {pending=snapshot(()=>pendingInScope(null,body.session.sessionId).length>0);}
+      catch(error){if(!(error instanceof ChatRetiredError))throw error;}
+      // Retirement is an explicit worker-side receipt, including on retry.
+      return call("safetyCommitReview",id,body,actor,pending,shared.failed);
+    },
     async safetyBegin(input){if(shared.failed)throw new SafetyUnavailable("Safety recording requires recovery");return call("safetyBegin",input);},
     safetyReady: (turnId,backendId,version)=>call("safetyReady",turnId,backendId,version),
     safetyEnd: turnId=>call("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId)),
     safetyFail,
-    safety: (turnId,sessionId)=>{
+    safety: (turnId,sessionId)=>snapshot(()=>{
       const projection=safetyProjection(db,turnId,sessionId);
-      const local=[...pendingTaints].filter(p=>(turnId!==null&&p.turnId===turnId)||(sessionId!==null&&p.sessionId===sessionId)).length;
+      const local=pendingInScope(turnId,sessionId).length;
       if(local||shared.failed){projection.restriction="restricted";projection.pendingCount=Math.max(local,projection.pendingCount);
         if(local&&!projection.reasons.includes("recording_pending"))projection.reasons.push("recording_pending");
         if(shared.failed){projection.coverage.state="incomplete";if(!projection.reasons.includes("recording_failed"))projection.reasons.push("recording_failed");}}
       return projection;
-    },
+    }),
     recordingAvailable(turnId,sessionId){
-      if(shared.failed||[...pendingTaints].some(p=>(turnId!==null&&p.turnId===turnId)||(sessionId!==null&&p.sessionId===sessionId)))return false;
-      const state=safetyProjection(db,turnId,sessionId);
-      return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
+      return snapshot(()=>{
+        if(shared.failed||pendingInScope(turnId,sessionId).length)return false;
+        const state=safetyProjection(db,turnId,sessionId);
+        return !state.reasons.some(reason=>["recording_failed","recording_pending","capacity"].includes(reason));
+      });
     },
     firstTaint: input => record(input).then(result => result.recorded),
     taint(turnId, sessionId) {
-      if (shared.failed) return { eventId: 0, source: "legacy_unknown" };
-      const committed = sessionTaint(db, turnId, sessionId);
-      if (committed && committed.eventId>0) return committed;
-      for (const pending of pendingTaints) {
-        if ((turnId !== null && pending.turnId === turnId) || (sessionId !== null && pending.sessionId === sessionId)) return { eventId: 0, source: pending.source };
-      }
-      return committed;
+      return snapshot(()=>{
+        if (shared.failed) return { eventId: 0, source: "legacy_unknown" };
+        const committed = sessionTaint(db, turnId, sessionId);
+        if (committed && committed.eventId>0) return committed;
+        const pending=pendingInScope(turnId,sessionId)[0];
+        if(pending)return {eventId:0,source:pending.source};
+        return committed;
+      });
     },
     bind: async (turnId, sessionId) => {
       const bound = await call<number>("bind", turnId, sessionId);

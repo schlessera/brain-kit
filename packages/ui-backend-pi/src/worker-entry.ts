@@ -188,6 +188,7 @@ async function initialize(init: Init): Promise<void> {
     turn.turnContext.bridge = {
       emit() { throw new Error("Workers cannot emit privileged bridge frames"); },
       requestPermission() { throw new Error("Use the server permission RPC"); },
+      commitToolAdmission: async (id, name, input) => { await rpc("admission", name, id, input); },
       applyBrain: input => rpc("apply", toolScope.getStore()?.name ?? "", toolScope.getStore()?.id ?? "", input as unknown as Record<string, unknown>),
       readBrainBase: path => rpc("readBase", "brain_read_base", toolScope.getStore()?.id ?? "", { path }),
     };

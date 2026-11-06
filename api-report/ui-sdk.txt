@@ -1167,6 +1167,8 @@ export "./client" (./src/client/index.ts)
 export "./internal" (./src/internal.ts)
   AGENT_INFERENCE_CREDENTIAL_ENV
   ANTHROPIC_INFERENCE_ROUTES
+  type AdmissionSafety
+  type AdmissionSafetySnapshot
   BRAIN_INTERACTION_GUIDANCE
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
@@ -1230,6 +1232,7 @@ export "./internal" (./src/internal.ts)
   RTK_WORKER_ENV
   type RemovalRun
   type Reservation
+  STALE_SAFETY_ADMISSION
   SUBPROCESS_ENV
   type SessionPromptFacts
   type SessionRetirement
@@ -1289,6 +1292,7 @@ export "./internal" (./src/internal.ts)
   claudeMaskFilename
   claudeReportedMaskPath
   combineRemovalOutcomes
+  commitOutwardPlan
   compileWorkerCommandPolicy
   conversationOrientation
   createLimitTracker
@@ -1375,6 +1379,8 @@ export "./internal" (./src/internal.ts)
   rewriteWorkerRtk
   runMaintenanceWorker
   runMaintenanceWorkerSync
+  safetyAdmissionRefusal
+  sameSafetyAdmission
   sessionPromptContext
   sessionPromptContextLocation
   sessionReplay
@@ -17908,7 +17914,7 @@ signatures (every public export and the types it is made of)
   registerToolRenderers (packages/ui-sdk/src/client/renderers.ts)
     export function registerToolRenderers(pack: RendererPack): void;
   requestToolPermission (packages/ui-sdk/src/server/permission-gate.ts)
-    export function requestToolPermission(bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null | undefined, request: PermissionRequest, options?: RequestToolPermissionOptions): Promise<PermissionDecision>;
+    export function requestToolPermission(bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission" | "admissionSafety"> | null | undefined, request: PermissionRequest, options?: RequestToolPermissionOptions): Promise<PermissionDecision>;
   resolutionEffectSchema (packages/ui-sdk/src/schemas.ts)
     const resolutionEffectSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         approvedBy: z.ZodOptional<z.ZodString>;

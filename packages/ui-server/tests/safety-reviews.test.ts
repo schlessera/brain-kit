@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
-import { openSqliteWriter } from "../src/db/write-worker";
+import { openSqliteWriter, type SqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import * as procedures from "../src/governance/event-writes";
 import * as probe from "./fixtures/write-worker-probe";
@@ -18,6 +18,8 @@ import { retireChat } from "../src/ws/chat-lifecycle";
 import { cleanChatStore } from "../src/ws/chat-store-cleanup";
 import type { SafetyReviewBody, SafetyReviewReceipt, SafetyReviewer } from "../src/governance/safety-reviews";
 import { expectRejection } from "./helpers/expect-rejection";
+import { openDialogue, bindDialogue } from "../src/ws/dialogue-storage";
+import * as heldWriter from "./fixtures/held-publication-writer";
 
 async function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-safety-reviews-")), path = join(root, "ui.db");
@@ -73,6 +75,51 @@ test("individual committed A/B/C verdicts preserve same-source restrictions inde
     expect(f.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 3 });
     expect(() => f.db.query("UPDATE safety_decisions SET verdict='safe'").run()).toThrow("immutable safety decision");
   } finally { await f.close(); }
+});
+
+test("a queued review sees adopted provisional input before its reservation commits", async () => {
+  const f = await fixture(), release = new Int32Array(new SharedArrayBuffer(4));
+  const submitReservation = Promise.withResolvers<void>();
+  let held: Promise<unknown> | undefined, pending: Promise<unknown> | undefined;
+  try {
+    const id = await f.add("A");
+    openDialogue(f.db, { conversationId: "target-voice", principalId: f.actor.principalId, epoch: 1, providerId: "voice", sessionId: "ithaca" });
+    const scout = openDialogue(f.db, { conversationId: "scout-voice", principalId: f.actor.principalId, epoch: 1, providerId: "voice" });
+    await f.writes.safetyBegin({ turnId: "scout", bindingId: "scout-binding", sessionId: null,
+      historyOwnerId: scout.id, principalId: f.actor.principalId, backendId: "claude", at: 0 });
+    await f.writes.safetyReady("scout", "claude", 1);
+    bindDialogue(f.db, "scout-voice", f.actor.principalId, "ithaca");
+    const body = f.body(id), prepared = await f.writes.safetyPrepareReview(body, f.actor);
+    expect(prepared.stage).toBe("prepared");
+    const channel = f.writer.channel(heldWriter, {}); await channel.ready;
+    const entered = new Int32Array(new SharedArrayBuffer(4)); held = channel.call("hold", entered, release);
+    const waiting = Atomics.waitAsync(entered, 0, 0, 5000); if (waiting.async) await waiting.value;
+    expect(Atomics.load(entered, 0)).toBe(1);
+    // Hold only submission of the reservation, forwarding every call to the
+    // real FULL writer. The local overlay must restrict before SQL exists.
+    const delayedWriter: SqliteWriter = { ...f.writer, channel(module, options, revive) {
+      const channel = f.writer.channel(module, options, revive);
+      return { ...channel, call<T>(name: string, ...args: unknown[]): Promise<T> {
+        return name === "safetyReserve" ? submitReservation.promise.then(() => channel.call<T>(name, ...args)) : channel.call<T>(name, ...args);
+      } };
+    } };
+    const queuedWrites = createGovernanceWrites(f.db, delayedWriter);
+    pending = queuedWrites.firstTaint({ kind: "taint", turnId: "scout", sessionId: null,
+      actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: null,
+        occurrence: occurrence("scout-binding", "tool_web_input", "scout-input", "open") } });
+    const result = f.writes.safetyCommitReview(prepared.requestId!, body, f.actor);
+    Atomics.store(release, 0, 1); Atomics.notify(release, 0); await held;
+    expect(await result, "ADOPTED_LOCAL_INPUT_PREVENTS_SAFE_VERDICT").toMatchObject({ stage: "refused", reason: "recording_pending" });
+    expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({ n: 0 });
+    submitReservation.resolve();
+    await pending;
+    expect(f.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 0 });
+    expect(f.state().unresolvedCount).toBe(2);
+  } finally {
+    submitReservation.resolve();
+    Atomics.store(release, 0, 1); Atomics.notify(release, 0);
+    await Promise.allSettled([held, pending]); await f.close();
+  }
 });
 
 for (const mode of ["open", "interrupted_unknown", "finalized"] as const) test(`review eligibility requires explicit finalized delivery: ${mode}`, async () => {

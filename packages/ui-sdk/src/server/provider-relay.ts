@@ -503,6 +503,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish("denied", "budget_exceeded");
       return refuse(403, "budget_exceeded", now.message);
     }
+    if (operation && !operation.commit()) return denied("provider_admission_refused");
     const attemptId = crypto.randomUUID();
     let reported = false;
     const observe = (outcome: ProviderRelayReceipt["outcome"], status: number, usage: ProviderUsage | null): void => {
@@ -674,6 +675,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       catch { /* The host's own accounting reports its failure. */ }
     };
     observe("dispatched", 0);
+    if (operation && !operation.commit()) return;
     try {
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
       await response.body?.cancel().catch(() => {});

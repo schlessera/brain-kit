@@ -11,6 +11,7 @@ import { safetyCatalogCreated,safetyProjection,safetyRecords,pruneSafetyDetail }
 import { governanceEventRow } from "../src/governance/events";
 import * as procedures from "../src/governance/event-writes";
 import * as decisions from "./fixtures/safety-decision-seed";
+import { openDialogue, bindDialogue } from "../src/ws/dialogue-storage";
 
 function fixture(){const root=mkdtempSync(join(tmpdir(),"odysseus-safety-ledger-")),path=join(root,"ui.db");
  const db=createUiDb(path),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
@@ -25,6 +26,20 @@ async function fresh(f:ReturnType<typeof fixture>,turnId="voyage",sessionId="ith
  await collector.ready("claude",1);return {bindingId,collector};
 }
 const triggers=(f:ReturnType<typeof fixture>,sid="ithaca")=>safetyRecords(f.db,sid).filter(r=>r.kind==="occurrence");
+
+test("durable pending capacity is shared by a session and its adopted provisional collection",async()=>{
+ const f=fixture();try{await fresh(f);
+ openDialogue(f.db,{conversationId:"target-voice",principalId:"odysseus",epoch:1,providerId:"voice",sessionId:"ithaca"});
+ const scout=openDialogue(f.db,{conversationId:"scout-voice",principalId:"odysseus",epoch:1,providerId:"voice"});
+ await f.writes.safetyBegin({turnId:"scout",bindingId:"scout-binding",sessionId:null,principalId:"odysseus",historyOwnerId:scout.id,backendId:"claude",at:0});
+ bindDialogue(f.db,"scout-voice","odysseus","ithaca");
+ const calls=f.writer.channel(procedures,undefined);
+ const row=(turnId:string)=>governanceEventRow({kind:"taint",turnId,sessionId:turnId==="voyage"?"ithaca":null,actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
+ for(let n=0;n<256;n++)await calls.call("safetyReserve",row(n%2?"voyage":"scout"),`reserved-${n}`,100);
+ expect(f.writes.safety("voyage","ithaca").pendingCount).toBe(256);
+ await expectRejection(calls.call("safetyReserve",row("scout"),"overflow",100),"Safety pending capacity exhausted","ADOPTED_COLLECTION_SHARES_PENDING_LIMIT");
+ expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:256});
+ }finally{await f.close();}});
 
 test("complete durable aggregate retains B/C after a committed decision for A, independently of pruned pages",async()=>{
  const f=fixture();try{const {collector}=await fresh(f);

@@ -7,6 +7,7 @@ import { AUTHORITY_HOLD_WAIT_MS, waitForAuthority, waitWhile, type AuthorityHold
 import type { TurnRecorder } from "../../activity/recorder.js";
 import type { RunningTurn } from "../turns.js";
 import type { WsHost } from "../host.js";
+import { createEffectiveSafety } from "../../governance/effective-safety.js";
 
 /** What one turn's bridge is built from, besides its host and turn (#2516). */
 export interface MakeBridgeOptions {
@@ -66,8 +67,12 @@ export interface BridgeContext {
   readonly workerProfile: WorkerProfileBinding | undefined;
   /** Read when the bridge is built, like the identity above. */
   readonly queryActivity: NonNullable<WsHost["activity"]>["query"] | undefined;
+  /** This bridge's announced session identity must commit before its first approval snapshot. */
+  readonly sessionBinding: { pending?: Promise<void>; failed: boolean };
   /** The turn's own authority: its identity, authorization and principal are current. */
   principalIsAuthorized(): boolean;
+  /** Final host effects require qualified input recording independently of principal authority. */
+  recordingAvailable(): boolean;
   scopePaused(): boolean;
   isAuthorized(): boolean;
   holdOf(held: () => boolean): AuthorityHold;
@@ -94,11 +99,19 @@ export function createBridgeContext(host: WsHost, turn: RunningTurn, options: Ma
   const work = turn.work;
   const principalIsAuthorized = () => turn.turnId === turnId && turn.startedAt !== undefined && authorization.valid &&
     authorization.expiresAt > Date.now() && !turn.cancelled && host.isPrincipalAuthorized(principalId);
+  const safety = host.activity?.governanceDb ? createEffectiveSafety(host.activity.governanceDb, {
+    brain: host.brainPath, turnId, sessionId: () => turn.sessionId ?? null, policyHash: null,
+    writes: host.activity.governanceWrites, trust: host.safetyTrust,
+    authority: () => ({ current: principalIsAuthorized(), epoch: "0" }),
+  }) : undefined;
+  const recordingAvailable = () => {
+    try { return safety?.read().recordingAvailable ?? true; } catch { return false; }
+  };
   // A journal observation or a scope pause stops host effects for a while but
   // revokes nothing (#2853). An effect waits for one, bounded, and checks again;
   // `isAuthorized` stays false while one is active, so nothing commits under it.
   const scopePaused = () => !!host.scope?.isPaused(turnId);
-  const isAuthorized = () => principalIsAuthorized() && !host.journal?.isHeld() && !scopePaused();
+  const isAuthorized = () => principalIsAuthorized() && recordingAvailable() && !host.journal?.isHeld() && !scopePaused();
   // A pause ends with the user's answer, which has no event here; the wait rechecks it.
   const holdOf = (held: () => boolean): AuthorityHold => ({ waitMs: AUTHORITY_HOLD_WAIT_MS,
     active: () => !signal.aborted && principalIsAuthorized() && held(),
@@ -132,8 +145,8 @@ export function createBridgeContext(host: WsHost, turn: RunningTurn, options: Ma
       payload: { ...refusal, policyHash: providerMasks.policy.hash } }) }) : undefined;
   return {
     host, turn, backendId, turnId, requestId: turn.requestId, principalId, authorization, signal, work,
-    recorder, mainModel, workerProfile, queryActivity: host.activity?.query,
-    principalIsAuthorized, scopePaused, isAuthorized, holdOf, hold, assertAuthority, afterHolds,
+    recorder, mainModel, workerProfile, queryActivity: host.activity?.query, sessionBinding: { failed: false },
+    principalIsAuthorized, recordingAvailable, scopePaused, isAuthorized, holdOf, hold, assertAuthority, afterHolds,
     current: () => !signal.aborted && principalIsAuthorized(),
     toolName: (name: string) => backendId === "claude" ? `mcp__brain-ui__${name}` : name,
     maskGuard,

@@ -14,6 +14,8 @@ import type { LaunchedWorker, NativeFileVersions, WorkerSandbox } from "@schless
 import type { SessionCaps } from "./backend-options.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { decidePiToolPermission } from "./permission-gate.js";
+import { revalidatePiAdmission } from "./tool-admission.js";
+import { safetyAdmissionRefusal } from "@schlessera/brain-ui-sdk/internal";
 import { syncPiAuth } from "./session-storage.js";
 import type { TurnContext } from "./turn-context.js";
 import type { PiWorkerMessage } from "./worker-protocol.js";
@@ -85,7 +87,11 @@ async function lock(msg: PiWorkerRpc, _bridge: BackendBridge, context: PiWorkerR
     : fileTool ? target && `path:${target}` : BRAIN_LOCK_KEY;
   if (typeof key !== "string" || msg.input.key !== key || Object.keys(msg.input).length !== 1) throw new Error("Pi worker lock does not match the authorized operation");
   const release = await workerLock.acquire(key, { signal: turnContext.signal ?? undefined });
-  try { live(); } catch (error) { release(); throw error; }
+  try {
+    live();
+    const stale = revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, input);
+    if (stale) { grants.delete(msg.toolCallId); throw new Error(stale); }
+  } catch (error) { release(); throw error; }
   const lockId = randomUUID(); releases.set(lockId, release); executed(msg).lock = true; return { lockId };
 }
 
@@ -111,6 +117,8 @@ async function fileObservation(msg: PiWorkerRpc, _bridge: BackendBridge, context
     await nativeVersions.beginWrite(observed.key);
   } else await nativeVersions.finishWrite(observed.key, observed.version);
   executed(msg).phases.add(phase as string);
+  const unavailable = safetyAdmissionRefusal(context.turn.bridge?.admissionSafety);
+  if (unavailable) throw new Error(unavailable);
   return { ok: true };
 }
 
@@ -137,11 +145,18 @@ async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWo
   if (application && bridge.applyBrain) {
     // Exact application authorization belongs to the server route.
     await bridge.inputSafety?.begin(msg.toolCallId,msg.toolName,msg.input);
+    live();
+    const unavailable = safetyAdmissionRefusal(bridge.admissionSafety);
+    if (unavailable) return { behavior: "deny", message: unavailable };
     return { behavior: "allow" };
   }
   grants.delete(msg.toolCallId);
   const decision = await decidePiToolPermission({ turn: turnContext, allowedTools, confirmPatterns }, msg.toolName, msg.input, msg.toolCallId);
   live();
+  if (decision.behavior === "allow") {
+    const stale = revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, decision.updatedInput ?? msg.input);
+    if (stale) return { behavior: "deny", message: stale };
+  }
   if (decision.behavior === "allow") grants.set(msg.toolCallId, { name: msg.toolName, input: JSON.stringify(decision.updatedInput ?? msg.input) });
   return decision;
 }
@@ -229,6 +244,14 @@ async function apply(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerR
 /** One handler per worker RPC method. */
 export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorkerRpcHandler>> = {
   unlock, lock, fileObservation, syncAuth, permission, bridge: bridgeCall, readBase, apply,
+  admission: async (msg, _bridge, context) => {
+    const grant = context.grants.get(msg.toolCallId);
+    if (msg.toolName !== "bash" || !grant || grant.name !== msg.toolName || grant.input !== JSON.stringify(msg.input)) throw new Error("Pi final admission has no exact permission grant");
+    const stale = revalidatePiAdmission(context.turn, msg.toolName, msg.toolCallId, msg.input, true);
+    if (stale) { context.grants.delete(msg.toolCallId); throw new Error(stale); }
+    context.grants.delete(msg.toolCallId);
+    return { ok: true };
+  },
   safetyUnavailable: async(msg,bridge)=>{
     if(msg.toolName||msg.toolCallId||Object.keys(msg.input).length)throw new Error("Malformed safety unavailable notice");
     await bridge.inputSafety?.unavailable?.();

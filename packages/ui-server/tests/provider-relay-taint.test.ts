@@ -18,6 +18,7 @@ import {connectedSafetySession} from "./helpers/connected-safety";
 import { createUiDb } from "../src/db/client.js";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events.js";
 import { prepareTurnEgress } from "../src/brain/turn-egress.js";
+import { beginSafetyCollection, acknowledgeSafety } from "../src/governance/safety-store.js";
 
 const HOST_KEY = "odysseus-host-gemini-key";
 const RERANK = "/v1beta/models/gemini-2.5-flash:generateContent";
@@ -58,6 +59,8 @@ const bridge = { requestPermission: async () => ({ behavior: "deny", message: "O
 async function turn(db: Database, sessionId: string, turnId: string, policy: GovernancePolicyInput = { schema_version: 1 },
   relayOptions: Partial<ProviderRelayOptions> = {}) {
   const controller = new AbortController();
+  beginSafetyCollection(db, { turnId, bindingId: crypto.randomUUID(), sessionId, principalId: "odysseus", backendId: "claude", at: 0 });
+  acknowledgeSafety(db, turnId, "claude", 1);
   const egress = await prepareTurnEgress({ controller, policy: resolveGovernancePolicy(policy), turnId, sessionId: () => sessionId,
     model: () => "claude-haiku-4-5", profile: "governed", origin: "interactive", bridge,
     record: event => recordGovernanceEvent(db, event), governanceDb: db });
