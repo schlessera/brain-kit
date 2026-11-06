@@ -1,9 +1,7 @@
 /**
- * Robots-authorized Apify profiles (#3330): the hosted server and a standalone
- * `brain apify` / `brain mcp` process check every target against its site's
- * robots.txt through core's scrape-backed checker before the start request.
- * A disallowed target refuses with nothing started; a host that cannot load
- * the checker refuses every such run.
+ * The #3580 Actor approval revision supersedes the mandatory host robots
+ * check from #3330. Approved Actors control remote collection methods; the
+ * former optional checker cannot restrict arbitrary Actor inputs.
  *
  * Keyless and offline: the loopback fake serves Apify, a loopback server
  * serves the Odysseus site's robots.txt, and the fictional target origin is
@@ -17,8 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ApifyEnvelope } from "@schlessera/brain-common/internal/apify-operations";
 import { APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";
-import { qualifyProfile } from "@schlessera/brain-common/internal/apify";
-import { apifyRobotsUserAgent, createApifySitePermission, createStandaloneApify, type StandaloneApify } from "@schlessera/brain/internal/apify";
+import { apifyBrainId, openApifyLedger, qualifyProfile } from "@schlessera/brain-common/internal/apify";
+import { createApifySitePermission, createStandaloneApify, type StandaloneApify } from "@schlessera/brain/internal/apify";
 import type { ApifyHost, ApifyHostTurn } from "../src/apify/host.js";
 import { coreSitePermission } from "../src/apify/site-permission.js";
 import { APIFY_LIMITS, APIFY_SENTINEL, apifyGrant, apifyPolicy, fakeApify, fixtureApifyHost, type FakeApify } from "./fixtures/apify-host-fixture.js";
@@ -81,7 +79,7 @@ async function runThrough(call: (operation: keyof typeof APIFY_TOOL_NAMES, input
   const candidate = data<{ candidates: Array<{ candidate: string }> }>(await call("discover", { query: "sea charts" })).candidates[0]!.candidate;
   data(await call("inspect", { candidate }));
   const prepared = data<{ proposal: string; admission: string }>(await call("prepare", { candidate, input, max_charge_usd: 2 }));
-  expect(prepared.admission, "APIFY_ROBOTS_GRANT_ADMITS").toBe("grant");
+  expect(["ask", "grant"]).toContain(prepared.admission);
   return call("run", { proposal: prepared.proposal });
 }
 
@@ -94,6 +92,10 @@ function hosted(sitePermission = coreSitePermission({ addressPolicy: "any" })): 
 }
 
 function standalone(): (operation: keyof typeof APIFY_TOOL_NAMES, input: unknown) => Promise<ApifyEnvelope> {
+  const ledger = openApifyLedger(ledgerPath);
+  ledger.setActorApproval({ brain_id: apifyBrainId(brain), principal_id: "local", account_id: "IthacaHousehold01" },
+    { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: Date.now() }, true);
+  ledger.close();
   const service: StandaloneApify = createStandaloneApify({ root: brain, env: { APIFY_TOKEN: APIFY_SENTINEL, BRAIN_APIFY_LEDGER: ledgerPath },
     origin: fake.origin, mcpOrigin: fake.origin, profiles: [ROBOTS_PROFILE], waitSeconds: 1, pollMs: 1,
     sitePermission: createApifySitePermission({ addressPolicy: "any" }) });
@@ -101,31 +103,21 @@ function standalone(): (operation: keyof typeof APIFY_TOOL_NAMES, input: unknown
   return (operation, input) => service.call(operation, input);
 }
 
-describe("robots-authorized Apify runs", () => {
+describe("Actor approval delegates remote collection methods to the Actor", () => {
   for (const [door, open] of [["hosted", () => hosted()], ["standalone", standalone]] as const) {
-    test(`${door}: a disallowed target refuses with nothing started`, async () => {
-      const refused = await runThrough(open(), DISALLOWED);
-      expect(refused, `APIFY_ROBOTS_${door.toUpperCase()}_DISALLOWED`).toMatchObject({ ok: false, error: { code: "policy_denied", reason: "robots_disallowed" } });
-      expect(fake.starts(), `APIFY_ROBOTS_${door.toUpperCase()}_NO_START`).toBe(0);
-      // Checked through the scrape package's cache: one robots.txt fetch for the origin, as the scrape client.
-      expect(robotsHits, `APIFY_ROBOTS_${door.toUpperCase()}_CHECKED_THROUGH_SCRAPE`).toEqual([{ path: "/robots.txt", ua: await apifyRobotsUserAgent(), startsBefore: 0 }]);
-    });
-
-    test(`${door}: allowed targets are checked before the start request, which is sent once`, async () => {
-      const started = await runThrough(open(), ALLOWED);
-      expect(data<{ state: string }>(started).state).toBe("succeeded");
-      expect(fake.starts(), `APIFY_ROBOTS_${door.toUpperCase()}_ONE_START`).toBe(1);
-      expect(robotsHits, `APIFY_ROBOTS_${door.toUpperCase()}_CHECKED_BEFORE_START`).toEqual([{ path: "/robots.txt", ua: await apifyRobotsUserAgent(), startsBefore: 0 }]);
-    });
-  }
-
-  test("hosted without core: the checker cannot load, so every robots-authorized run refuses", async () => {
-    const call = hosted(coreSitePermission({ load: () => Promise.reject(new Error("Cannot find package '@schlessera/brain'")) }));
-    for (const input of [ALLOWED, DISALLOWED]) {
-      expect(await runThrough(call, input), "APIFY_ROBOTS_NO_CORE_FAILS_CLOSED")
-        .toMatchObject({ ok: false, error: { code: "policy_denied", reason: "site_permission_unproven" } });
+    for (const [label, input] of [["ordinary targets", ALLOWED], ["targets disallowed by the former host robots check", DISALLOWED]] as const) {
+      test(`${door}: user-approved ${label} pass unchanged without a host robots requirement`, async () => {
+        const started = await runThrough(open(), input);
+        expect(data<{ state: string }>(started).state).toBe("succeeded");
+        expect(fake.starts(), "APIFY_APPROVED_ONE_START").toBe(1);
+        expect(robotsHits, "APIFY_REMOTE_METHODS_NOT_HOST_PROVEN").toEqual([]);
+      });
     }
-    expect(fake.starts(), "APIFY_ROBOTS_NO_CORE_NO_START").toBe(0);
+  }
+  test("hosted Actors run without core's former robots checker", async () => {
+    const call = hosted(coreSitePermission({ load: () => Promise.reject(new Error("Cannot find package '@schlessera/brain'")) }));
+    expect(data<{ state: string }>(await runThrough(call, DISALLOWED)).state).toBe("succeeded");
+    expect(fake.starts()).toBe(1);
     expect(robotsHits).toEqual([]);
   });
 });

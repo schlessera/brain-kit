@@ -1,3 +1,5 @@
+export { safetySessionKeySchema, safetyPageSchema, safetyUpdateSchema, safetyCapabilitiesSchema } from "./safety.js";
+import { clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema, serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
 import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaMatches, HygieneMediaPlan, HygieneMediaProbe, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
@@ -930,6 +932,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientHandoffPrepareCancelSchema,
   clientHandoffStatusSchema,
   clientInboxResolveSchema, clientInboxSnoozeSchema, clientInboxSubscribeSchema, clientInboxUnsubscribeSchema,
+  clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema,
   clientDialogueReadSchema,
   clientConversationStartSchema,
   clientConversationAudioSchema,
@@ -1175,6 +1178,7 @@ export const sessionDraftLimitsSchema = z.looseObject({
   maxDraftFiles: byteCount.optional(),
   maxDraftFileBytes: byteCount.optional(),
   maxDraftFilesBytes: byteCount.optional(),
+  maxOutgoingSnapshots: byteCount.optional(),
 }) satisfies z.ZodType<SessionDraftLimits>;
 
 export const attachmentLimitsSchema = z.looseObject({
@@ -1185,6 +1189,7 @@ export const attachmentLimitsSchema = z.looseObject({
 }) satisfies z.ZodType<import("./protocol.js").AttachmentLimits>;
 
 export const serverHelloSchema = z.looseObject({
+  safetyCapabilities: safetyCapabilitiesSchema.optional().catch(undefined),
   type: z.literal("server_hello"),
   conversationProfile: z.lazy(() => conversationProfileSchema).optional().catch(undefined),
   protocolRev: z.number(),
@@ -1235,6 +1240,14 @@ export const draftSchema = z.looseObject({
     fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
     state: z.enum(["held", "dispatched"]),
   }).nullable().optional(),
+  snapshots: z.array(z.looseObject({
+    snapshotId: id,
+    requestId: id,
+    text: z.string(),
+    fileIds: z.array(z.string().regex(/^[a-f0-9-]{36}$/)).max(10),
+    state: z.enum(["held", "returned", "dispatched"]),
+    createdAt: byteCount,
+  })).max(SESSION_DRAFT_LIMITS.maxOutgoingSnapshots ?? 10).optional(),
 }) satisfies z.ZodType<Draft>;
 
 export const draftSaveResponseSchema = z.looseObject({
@@ -1339,7 +1352,7 @@ export const serverToolApprovalRequestSchema = z.looseObject({
   toolName: z.string(),
   input: z.record(z.string(), z.unknown()),
   description: z.string().optional(),
-  kind: z.enum(["tool", "command", "policy"]).optional(),
+  kind: z.enum(["tool", "command", "policy", "actor"]).optional(),
   rememberable: z.boolean().optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerToolApprovalRequest>;
@@ -2023,6 +2036,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   inboxSnapshotSchema, inboxDeltaSchema,
   serverToolResolutionSchema,
   serverSessionQueueSchema,
+  serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema,
   serverDialogueHistorySchema,
   serverConversationOpenedSchema,
   serverConversationClosedSchema,

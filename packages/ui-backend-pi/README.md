@@ -9,8 +9,9 @@ brain-kit chat UI, purpose-built on the upstream
 It gives a knowledge-base agent a brain-repo-scoped tool surface with the same
 approval posture as the Claude backend: pi's built-in read/bash/edit/write are
 disabled (`noTools: "builtin"`) and replaced with a curated set scoped to the
-brain repository, gated by a single `tool_call` permission gate that also
-covers extension-registered tools (web search, MCP adapters).
+brain repository, gated by the outer Agent tool hooks and host permission RPC.
+Externally configured extensions are currently refused because their complete
+provider-input paths are unqualified.
 
 ```ts
 import { createPiBackend } from "@schlessera/brain-backend-pi";
@@ -134,7 +135,7 @@ on the provider's credentials and model availability.
 | `model` | — | Fallback model, `"vendor/modelId"` or `"modelId"`, when no profiles are set. |
 | `profiles` | — | Selectable `{id,label,vendor?,model,thinkingLevel?}` profiles; first is the default for new sessions. |
 | `sessionDir` | `~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions` | Server-owned session JSONL trees outside the brain and its ancestors; aliases into the brain refuse. |
-| `loadExtensions` | `true` | pi extensions (installed pi packages, repo-local extensions) load by default — the `tool_call` gate covers their tools, so e.g. `pi-mcp-adapter` (MCP servers from `.mcp.json`) and `pi-web-access` (web search/fetch) extend the surface safely. Set `false` to pin the surface to the curated tools. Skills + `AGENTS.md`/`CLAUDE.md` context always load — and BOTH cwd context files load when both exist, matching what the Claude backend reads. |
+| `loadExtensions` | `true` | Discovery remains enabled, but a loaded extension or loading error refuses a managed turn and reports incomplete collection. Set `false` to use the curated tools. Skills and both cwd `AGENTS.md`/`CLAUDE.md` files still load. |
 | `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources, or `{ pattern, effect }`; a matching `bash` command raises a confirmation card even though bash is auto-allowed, and the card shows the pattern's `effect` (a bare source gets a generic sentence). `[]` disables confirmation. A nonempty list with no valid regex rejects construction; mixed lists report invalid entries and retain valid patterns and effects. |
 | `allowedTools` | `DEFAULT_PI_ALLOWED_TOOLS` | Tool names that run without an approval card. Every executed tool NOT in the list raises one. |
 | `writeLock` | fresh keyed lock | Legacy whole-lock serialization for authoritative server applications. Inject one to share a lock with another server writer. Worker scratch is separate per turn. |
@@ -161,7 +162,7 @@ request as separate turns. Legacy messages can still use native `followUp()`.
 | Capability | Value | Justification |
 |---|---|---|
 | `resume` | `true` | The server reads JSONL by id and reconstructs the worker session with `SessionManager.inMemory`. |
-| `permissions` | `true` | The `tool_call` gate awaits `bridge.requestPermission()` for gated calls (non-allowlisted tools, destructive bash shapes). |
+| `permissions` | `true` | The outer Agent tool hook awaits `bridge.requestPermission()` for gated calls (non-allowlisted tools, destructive bash shapes). |
 | `thinking` | `true` | `message_update`'s `thinking_delta` maps to `thinking_delta` frames. |
 | `attachments` | `true` | Image attachments become pi `ImageContent` on `session.prompt({ images })`. |
 | `askUser` | `true` | The `ask_user` tool routes to `bridge.askUser`; degrades to a tool error if the host lacks it. |
@@ -307,47 +308,39 @@ behaviour the CLI has).
 
 ## Extensions (web search, MCP)
 
-pi has no built-in web access or MCP client; both come from the pi package
-ecosystem, loaded by default (`loadExtensions: true`):
+Managed turns currently refuse every loaded external extension, including
+`pi-web-access`, `pi-mcp-adapter` and `pi-subagents`. A tool permission gate or a
+final `tool_result` observer cannot qualify these packages: Pi also exposes live
+messages/results after that observer, independent custom-message injection and
+provider-payload hooks. There is no trusted extension path, name or package
+exception. Use `loadExtensions: false` for the host's curated tools.
 
-- **`pi-web-access`** — `web_search` / `fetch_content`, auto-allowed,
-  mirroring Claude's WebSearch/WebFetch. Providers are configured in
-  `~/.pi/web-search.json`; Settings → Models → Web search writes it (the
-  catalog is ui-sdk's first-party `WEB_SEARCH_PROVIDERS`, in its
-  unsupported `/internal` entry). Enabled providers are written as `searchRouting.providers`
-  ordered cheapest-first, so a free provider (zero-config Exa) answers the
-  ordinary case and a paid one is reached only when the cheap ones fail.
+The runtime checks the complete loaded extension set and loading errors before
+session creation and again before Agent provider dispatch, including changed
+configuration and resume. Refusal awaits the existing host failure notice and
+stops the worker. The host also reports initialization loss before acquisition
+settles and acknowledges coverage only after successful initialization. Durable
+retention belongs to the host collector; a rejected
+notice alone does not prove it. Unknown history remains restrictive under the
+[session safety contract](../../docs/integration-contract/http.md).
 
-  Two traps, handled in `webSearchBrief` and the settings route: a
-  `provider`/`searchProvider` key in that file OVERRIDES `searchRouting`
-  outright — and pi's own `/curator` command writes one back — so a write
-  that owns the chain must delete both; and the extension's tool description
-  statically names ~28 providers regardless of configuration, so the
-  system-prompt brief names the ones actually reachable and says the others
-  are not. A provider with no credential (config key or env var) is dropped
-  from the brief and refused by the settings route, since the extension
-  would skip it at search time anyway.
-- **`pi-mcp-adapter`** — MCP servers from the repo's `.mcp.json` (and standard
-  MCP config paths) behind one lazy proxy tool. Its calls are NOT allowlisted,
-  so each one raises an approval card — same posture as non-allowlisted MCP
-  tools on the Claude backend. Note the brain's own MCP server is redundant
-  here (the curated tools above cover it in-process).
-- **`pi-subagents`** — the `subagent` fan-out tool (parallel reviews,
-  research, scoped worker agents), parity with Claude's Agent tool and
-  auto-allowed like it. When the package is installed, the system-prompt
-  brief names the tool and encourages fan-out; without it, the brief tells
-  the model to batch independent tool calls instead (pi executes sibling
-  tool calls concurrently by default). NOTE: a child agent's own tool calls
-  run inside pi's child session with that agent's declared tools, not
-  through this backend's gate — delegation itself is the reviewed act.
+No managed extension receives `ctx.executeTool()`. The curated tool
+implementations do not call it, so nested extension execution is unavailable;
+no nested-call safety capability is claimed. The prior inline nested guard has
+been removed with extension execution.
 
-Install them into the pi agent dir (`pi install npm:pi-web-access
-npm:pi-mcp-adapter npm:pi-subagents`) before starting turns. Ordinary workers
-reuse the prepared global `npm/node_modules` tree read-only. SDK settings,
-models and login writes stay in bounded private per-turn state. A missing or
-mismatched configured package reports a setup error before loading. Keep the
-prepared package tree stable while turns initialize; it is trusted installed
-code, not a transactional snapshot of concurrent setup changes.
+Managed workers also disable cache warming. In the pinned SDK, warming refresh
+calls `ModelRuntime.streamSimple()` directly, outside the Agent stream hook.
+The worker pins `SettingsManager.getCacheWarmingMode()` to `off`, which the
+installed warmer checks before starting and again during refresh. Settings
+reloads and mode writes cannot enable that path. No provider-facing message,
+prompt, tool definition or historical result is rewritten by these fences.
+
+Installed-SDK loopback captures exercise refusal, real curated grep, changed
+configuration and an actual seeded warming refresh without a timer wait. They
+use in-memory SQLite for the focused collector proof. Supported-host native
+workers, both keyless provider-history guards and complete selected hosted proof
+remain required; these local captures do not establish those qualifications.
 
 ## Event mapping (pi → wire protocol)
 
@@ -391,7 +384,7 @@ calls with its own error result.
 
 ## Testing
 
-`bun test` — no live LLM calls. Covers permission gating, path containment,
+`bun run test packages/ui-backend-pi` — no live LLM calls. Covers permission gating, path containment,
 the in-process `brain_search`/`brain_context` wrappers against a keyless FTS
 corpus, the pure `mapPiEvent` adapter, and history normalization (synthetic +
 a real `SessionManager` session file).

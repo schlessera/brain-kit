@@ -116,8 +116,10 @@ The server side of admission, storage, ownership and cleanup, as the design's
   operational database beside the drafts, and every mutation runs on the
   draft store's write channel. A save, an acceptance and a sweep mark
   therefore see one serialized state. Reference owners are `draft` and
-  `outgoing` (both keyed by the draft id; a draft has at most one outgoing
-  snapshot) and `message` (keyed by the session id). The design's compound
+  `outgoing` (both keyed by the draft id) and `message` (keyed by the session
+  id). #3153 shipped one outgoing slot per draft; #3588 replaced it with the
+  list described below, and the `outgoing` owner now covers every file of the
+  draft's snapshots. The design's compound
   owner ids were simplified this way because a draft id may itself contain
   `:`, and one reference per session protects a file as well as one per turn.
 - **References on the wire.** A message names its originals in a new optional
@@ -149,6 +151,39 @@ The server side of admission, storage, ownership and cleanup, as the design's
   deletion belongs to #3231's flow.
 - **Kept as before.** `/share`, `/track-upload`, staged-track references,
   inline images and D52's tab-only legacy track path behave as they did.
+
+## What #3588 built
+
+The G1 A snapshot list
+([ruling](https://github.com/schlessera/brain-kit/issues/3155#issuecomment-6591807939)),
+replacing #3153's single slot:
+
+- **A column, not a table.** The list is one JSON column on the draft row
+  (`outgoing_snapshots`, migration 079), so a save checks and writes it in the
+  draft's own immediate transaction. Migration 079 turns a saved slot into the
+  first snapshot, with its request id as its `snapshotId`. The ruling rejected
+  a send-intent table.
+- **A chat is its session.** The capacity count sums the snapshots of every
+  live draft bound to the same `sessionId`, which is what one chat's tabs and
+  devices share; a draft with no session is a chat of its own. Only a save
+  that adds a `snapshotId` is counted against the ten.
+- **The whole list on every save.** `snapshots` replaces the draft's list
+  under `If-Match`, as `PUT` replaces the rest of the draft. The host refuses
+  any change but an allowed state move or a held snapshot's files, and refuses
+  to drop anything but a `returned` snapshot. The save body bound rose to
+  4,390,912 bytes so ten snapshot texts fit at JSON's worst escapes.
+- **Additive compatibility.** Retyping `outgoing` would break readers, so it
+  stays: `Draft.outgoing` shows the newest held or unconfirmed snapshot in the
+  old shape, and the old write creates or dispatches the snapshot of its
+  request, or removes the one it shows.
+- **Nothing evicted by a send or a delete.** An acceptance that consumes a
+  draft still holding other snapshots keeps the row at the next revision with
+  an empty composer instead of a tombstone. A `DELETE` that would drop a held
+  or unconfirmed snapshot is `409 DRAFT_OUTGOING_PENDING`.
+- **The composer keeps its envelope.** An upload's per-draft count now covers
+  the current revision and unbound uploads only. A snapshot's files are
+  checked against the per-message envelope when a save lists it, and stay in
+  the draft sub-limit and the pool.
 
 ## What #3154 built
 

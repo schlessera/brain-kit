@@ -30,6 +30,7 @@
  * reaches only a run's status or abort path, and only while the current token
  * still belongs to the binding's account. Without that, the run stays unresolved.
  */
+import { apifyCredentialRisk } from "./credentials.js";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { checkGovernancePolicy } from "../governance-policy.js";
 
@@ -203,6 +204,8 @@ type Verification =
   | { kind: "refused"; reason: "token_rejected" | "upstream_unreachable" | "upstream_incompatible" };
 
 export interface ApifyAuthority {
+  /** Scan data without exposing the host token to a caller. */
+  credentialRisk(value: unknown): boolean;
   /** Truthful current state. Contacts Apify only while enabled with a token, at most once per TTL unless `refresh`. */
   status(options?: { refresh?: boolean; signal?: AbortSignal }): Promise<ApifyStatus>;
   /** Live admission of a new call: re-reads policy, re-verifies the account. Throws {@link ApifyAuthorityError}. */
@@ -450,6 +453,7 @@ export function createApifyAuthority(options: ApifyAuthorityOptions): ApifyAutho
   }
 
   return {
+    credentialRisk: value => apifyCredentialRisk(value, [options.token() ?? ""]),
     status,
     async admit(opts = {}) {
       const current = await status({ refresh: true, signal: opts.signal });

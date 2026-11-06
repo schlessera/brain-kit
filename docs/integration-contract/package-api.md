@@ -4786,3 +4786,100 @@ it is "Attach — photo, camera, files" (previously the fixed
 an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
 composer's, has neither. Existing props and defaults are otherwise unchanged,
 and no wire schema changes. `api-report/` records the added prop.
+
+
+## Prospective trust policy data (additive, #3607)
+
+The governance policy types reachable through ui-server's public signatures
+accept optional `taint.trusted_sources` and resolve it to a validated list,
+empty by default. The [supported input](../supported-inputs.md#prospective-trust-policy-data-additive-3607)
+defines strict selectors, capability defaults and bounds. The same-commit API
+reports record this additive type change. Pure canonicalization and matching
+helpers remain on the existing brain-common internal governance-policy entry
+point and establish no new extension seam or runtime authority. No SDK safety
+capability, HTTP endpoint, history DTO or provider conversation changes here.
+
+## Live brain orientation and task status (additive, #3623)
+
+`LiveConversationOpenOptions.orientation?: ConversationOrientation` supplies an
+authorized per-epoch snapshot. Its `guidance` entries are
+`ConversationGuidance { source, topic, text }`, with topics `preferences`,
+`capture_policy`, `purpose` and `conventions`; its `knowledge` entries have
+`source`, `text` and topic `identity`, `current_focus` or `domains`.
+`unavailable: readonly string[]` names missing/withheld source categories.
+Guidance is scoped user instruction; knowledge and history are data, never
+execution or permission authority. Absence preserves the prior startup data
+shape. First-party adapters bound the whole serialized orientation to 3,200
+UTF-8 bytes and subtract its actual bytes from the existing shared
+history/resync ceilings. Source/selection bounds and omissions are specified
+in [the guidance reference](../live-conversation-guidance.md).
+
+`AgentBackend.conversationGuidance?: readonly ConversationGuidance[]` exposes
+only selected configured conversation/capture guidance. Both first-party
+factories derive it from their existing `systemPromptAppend` option with the
+same section selector; their full append is never exported to voice. Older
+and third-party backends may omit it, yielding explicit missing context.
+This is an additive input to the existing two-backend/two-engine seams, not
+a new context-provider extension point. API reports include the reachable
+types. The common interaction brief also appears in the default typed append;
+configured overrides retain their existing replacement semantics.
+
+`LiveConversationSession.reportWorkStatus?(ref: ConversationTaskRef, status:
+{ state: "queued" | "running"; intent: string }): void` is optional ordered
+progress feedback. `ConversationTaskRef` contains `conversationId`, `epoch`,
+`taskId`, `requestId` and `nativeHandle`. A first-party session requires its
+exact current contextual binding, rejects backward progress and suppresses
+duplicate state. Status does not consume the handle, settle the request, grant
+permission or acknowledge a result. A missing method preserves older provider
+behavior; the host never fabricates provider acceptance feedback for it.
+The host calls queued only after initial task persistence and running only
+after host turn admission starts (before governance/backend entry may finish);
+stale, withdrawn, ended or unauthorized tasks receive
+neither. Status-send failure ends the epoch without retry/replay. This API
+does not report provider acceptance or audible output.
+
+Gemini uses continuing function responses with the exact call id, queued
+`WHEN_IDLE` and running `SILENT`. GPT uses commentary/thinking appends with the
+exact `delegation_id`, at most 500 serialized UTF-8 content bytes. These minimal
+model-needed facts are appended once; UI receipts and internal accounting stay
+host-side. Progress append acknowledgements cannot settle the existing result
+acknowledgement promise. Reviewed-only tasks keep their existing admission and
+result behavior. The [wire/disclosure amendment](wire.md#live-orientation-disclosure-and-progress-additive-3623)
+adds no frame, revision or client permission grant.
+
+## Observed live content map (additive, 0.45.0, #3630)
+
+`ConversationOrientation.knowledge[].topic` gains `content_map`. It carries
+source-labeled **OBSERVED partial** directory-index purpose/summary leads as
+data, never effective runtime taxonomy, user instruction or authority. All
+existing topics and optional opening semantics remain. First-party startup
+enumerates/reads a bounded root/top-level sample under the same held root as
+provider policy; invalid/restrictive policy, detected root substitution or
+authorization loss withholds new repository knowledge. TypeScript config is
+never executed and does not disable the observed map. Unsupported anchored
+enumeration is an explicit gap. The map precedes supplemental knowledge;
+whole selected guidance still wins aggregate pressure. The 3,200-byte
+orientation and shared total startup ceilings remain unchanged. Exact source,
+count, byte and omission limits are in
+[the guidance reference](../live-conversation-guidance.md). Both profiles
+[disclose the additional data](wire.md#observed-content-map-disclosure-additive-3630)
+before Start; this adds no execution seam or startup host task. This is an
+additive minor SDK change, without a model-obedience or acoustic guarantee.
+
+## Session safety read DTOs (additive, #3604)
+
+The generated React store declarations retain the named `SafetyState` type
+used by the existing store factory and service types.
+
+`@schlessera/brain-ui-sdk/protocol` adds `SafetySessionKey`, `SafetyTarget`,
+`SafetyIdentity`, `SafetyHistoryProjection`, `SafetyRecord`, `SafetyPage`,
+`SafetyUpdate`, `SafetyUnavailable`, `SafetyCapabilities`, the three client
+read/subscribe/unsubscribe frame types and three server read/update/unavailable
+frame types. `SESSION_SAFETY_CAPABILITY` names `sessionSafetyHistory`;
+`SAFETY_READ_CAPABILITIES` describes only the qualified read transport, with all
+mutation flags false. `ServerHello.safetyCapabilities` is optional. Runtime
+`safeParse` schemas are exported from `/schemas`: `safetySessionKeySchema`,
+`safetyPageSchema`, `safetyUpdateSchema` and `safetyCapabilitiesSchema`. Normal
+client/server frame parsers validate the additive frames. They are concrete
+wire DTOs, not a new extension seam. Bounds and recovery semantics are in
+[the wire contract](wire.md#session-safety-history-additive-3604).

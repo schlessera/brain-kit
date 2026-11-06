@@ -39,7 +39,7 @@ export function createPermissions(ctx: BridgeContext, self: () => BackendBridge)
       // enforced posture forbids is answering from the store (here) and
       // adding to it (dispatch.ts) — not knowing what is in it.
       const remembered =
-        req.kind !== "command" && req.kind !== "policy" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
+        req.kind !== "actor" && req.kind !== "command" && req.kind !== "policy" && host.toolPermissions?.isAutoAllowed(req.toolName) === true;
       if (remembered && req.outsideEnforcedAllowlist) {
         // Body stays constant and the reason rides as an attribute, matching
         // the refusal dispatch.ts records on the write side. A reason spliced

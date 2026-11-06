@@ -1,0 +1,160 @@
+# Owner-reviewed session safety and prospective trust
+
+**Maintainer decision, 2026-11-05:** individual finalized-trigger review may
+restore normal policy, and Settings may manage future source trust with
+separate recipient permission. The ruling is recorded in
+[#3596](https://github.com/schlessera/brain-kit/issues/3596) and
+[#3597](https://github.com/schlessera/brain-kit/issues/3597), with the
+[complete design](https://github.com/schlessera/brain-kit/issues/3596#issuecomment-6652590345)
+and [requested review disposition](https://github.com/schlessera/brain-kit/issues/3596#issuecomment-6652590730).
+This ADR records that ruling and its binding constraints. It does not implement
+an API, enable a trust rule or establish runtime qualification. The
+[future implementation contract](../plans/reviewable-session-safety.md#proposed-version-1-data-contract)
+pins DTOs, explicit numeric bounds, matching, ownership and proof obligations.
+
+## Conditional G6 supersession
+
+[G6](governed-writable-workers.md#untrusted-input-g6) now records every trigger
+and restricts unknown/incomplete histories through the durable collection
+foundation (#3600). The host-only verdict store (#3601) commits individual
+decisions and durable receipts; owner-authorized mutation transport and review capability
+remain unavailable until their separate enforcement slices are qualified. This ruling supersedes only
+unconditional stickiness: a fully observed chat may return to normal **only
+after every unresolved trigger has its own committed safe verdict**, complete
+versioned detector coverage is established and no recording/capacity failure
+remains. Trusted future inputs have immutable trust-decision evidence rather
+than unresolved triggers. A human verdict accepts retained input; it never
+removes that input from context or proves it objectively safe.
+
+Every distinct signal is retained while already restricted. A, then B, then C
+from A's origin have independent identities. Resolving A and saving its origin
+rule leaves B and C unresolved; only future matching D can use that rule.
+Resolving B leaves C. Resolving C can restore normal only with complete
+coverage. There is no session-wide clear, historical origin/repository clear,
+range verdict or verdict inherited by later input.
+
+Only finalized bounded exposure is reviewable. Open streams/tunnels, delayed
+results and interrupted/unknown delivery stay unresolved. Ending an operation
+allows review only after host proof that delivery ended; later segments need
+new occurrences. Evidence, lifecycle transitions, decisions and historical
+policy hashes remain append-only host records.
+
+## Coverage, identity and bounded evidence
+
+Completeness is relative to the enumerated versioned detector contract, never
+all possible untrusted content. Applicable input/output signals are independent;
+trusted input does not suppress an untrusted search output or explicit user
+mark. Disclose the proxied-shell local-read exclusion and opaque transport
+limitations. Unsupported collectors prevent capability advertisement.
+
+Every pre-upgrade history is classified, including those without old taint
+rows. A first-taint row proves that event, not absence of later triggers.
+Imported/resumed/forked histories and backend changes retain unknown epochs
+unless explicit tested reconstruction proves completeness. Reviewing known
+legacy events cannot clear unknown history; offer a new chat instead.
+
+Use actual session/history owner, generation, native aliases and retirement
+boundaries. Preserve provisional first-turn evidence through safe binding;
+never guess correlation or create sessions from late callbacks. Auth revocation
+and session deletion invalidate read cursors, subscriptions, pending reviews
+and retries. Follow [local deletion](chat-history-deletion.md), including
+permanent minimized non-content fences and retained independent audit owners;
+this ruling grants neither recursive audit erasure nor fence expiry.
+
+Aggregates are durable and independent of paginated detail. Page completeness
+is distinct from detector completeness. Detail pruning never drops unresolved
+IDs or minimal audit facts. Finite queues/rows/bytes, unbound retention and
+idempotency lifetimes have explicit hard ceilings in the plan. Reserve verdict
+and failure capacity before ingestion; stop/restrict before overflow loses a
+signal. A failed pending write must not disappear into apparently normal state,
+including across restart. No test count or arbitrary cleanup TTL proves safety.
+
+## Human authority and policy publication
+
+Initially **only a live password-mode human owner** may commit a verdict or
+change trust through Settings. Proxy, tailscale and local/no-auth ambient modes
+are read-only until a separately qualified human-owner mechanism exists. Reads
+remain within existing authenticated history/session visibility. Agent, voice,
+model/tool, system, caller-supplied principal and forged UI/channel fields grant
+no mutation authority. Bind and recheck brain, session generation, principal,
+reviewed bytes/base and authority epoch at commit after asynchronous waits.
+The [plan's matrix](../plans/reviewable-session-safety.md#authorization-and-admission-matrix)
+also preserves current private reference-grant boundaries.
+
+Protected Markdown is authoritative with empty built-in trust lists. Reuse or
+extract the descriptor-bound protected publisher; no second privileged writer
+and no fabricated agent turn. A human Settings operation has its own host audit
+identity and exact reviewed policy bytes/base hash. No personal accounts,
+configuration or real deployment details belong in the public tree.
+
+Source trust and recipient permission are distinct. Incoming trust never
+silently permits sending data while another trigger restricts the chat.
+Recipient permission defaults off and needs its own explicit review. Exact
+web origin, explicit opaque tunnel, verified repository and verified current
+owner namespace are separate selectors. No wildcard, hostname-wide GitHub
+exemption or timestamp/argv inference follows. Owner scope explicitly includes
+future repositories in that current namespace; stable IDs plus approved-owner
+boundaries prevent name reuse/transfer from silently inheriting exact-repo trust.
+
+Rules apply only prospectively from publication revision; Settings CRUD clears
+no past occurrence. Combined rule-plus-verdict first publishes/proves the exact
+rule, then commits only the selected finalized verdict. Prepared, published,
+verdict, partial and unknown stages are durable and recoverable. Equal file
+bytes alone do not prove publication. Failed publication leaves the trigger
+active; a later verdict failure returns partial/unknown and never blind replay.
+Report if a different device has since removed the saved rule. Bound idempotent
+request identity and reject changed-body/expired/deleted-session retries.
+
+## Live enforcement and independent controls
+
+One revisioned projection supplies proxy, backend outward admission,
+policy-derived allowances and new journal attribution. Revalidate
+`(evidenceRevision, trustRevision, authorityEpoch)` immediately before
+irreversible dispatch, after every async wait. Pending input restricts
+immediately; pending verdict never loosens before commit. Preserve original
+journal/egress facts and historical approvals.
+
+Only effective taint and the trust slice update live. Ordinary governance
+budgets, profiles and commands keep turn-bound semantics. Trust removal fences
+new active-turn dispatch before its enforcing receipt; ongoing input must split
+or stop at the removed-rule boundary. Invalid publication retains last-valid
+policy with an honest error. No retroactive recall or automatic operation replay
+is implied; stale cards terminate through the existing coordinator.
+
+Deny/allowlist rules, byte ceilings, credentials, provider routing, Git writes
+and force-push approval, outward effects and voice authority remain independent.
+Private Git still requires a live principal's repository/credential grant.
+Repository rules cannot enforce until actual repo/ref/read transport and stable
+identity are qualified. Initially only immutable managed-source bytes qualify;
+mutable worktree lineage is insufficient. A bounded qualification may choose
+explicit managed acquisition instead of transparent Git interception. Individual
+recovery and origin Settings need not wait for repository transparency.
+
+**Metadata authority ruling, 2026-11-05:** the maintainer selected a fixed
+host-owned GitHub API metadata path for private repository identity in
+[#3613](https://github.com/schlessera/brain-kit/issues/3613#issuecomment-6656692128).
+It requires a live repository grant and separate credential-recipient checks;
+an existing github.com credential grant does not implicitly authorize
+api.github.com. Bind the operation to the canonical repository, brain and live
+principal, recheck after waits before dispatch/publication, and include metadata
+bytes/retries/cancellation in acquisition limits. No worker-selected URL,
+generic authenticated relay or credential probing is authorized. Public metadata
+remains anonymous; unknown, stale or mismatched identity supplies no trust.
+This permits the bounded implementation, not an unqualified runtime exemption.
+
+## Provider history and versioning
+
+[Provider history](provider-history.md) stays byte-identical as a prefix: no
+rewritten system prompts, tools, earlier messages or scripted answers. UI
+annotations/decision receipts remain host-owned. A necessary changed fact may
+appear once in the new tail; old sticky wording is not regenerated on upgrade.
+Both keyless provider-history guards are implementation proof obligations.
+
+Changing effective stickiness is **breaking before 1.0**. Each implementing
+commit/PR must carry `CONTRACT:` metadata, same-commit authoritative contract
+updates and `contract`; the semantic-break implementation also carries
+`breaking`, this prior maintainer ruling recorded on its issue, and a minor
+changeset naming the break, under [contract versioning](contract-versioning.md).
+The proposed policy, SDK history/update and query/review contracts ship only
+with their implementations and capability negotiation. This design-only ADR
+changes no current schema, runtime behavior, package artifact or release version.

@@ -1,3 +1,6 @@
+export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety.js";
+export type { SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
+import type { ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable, SafetyCapabilities } from "./safety.js";
 // ============================================================
 // brain-kit chat-UI wire protocol
 //
@@ -117,6 +120,7 @@ export interface SessionRef {
 // --- Client -> Server ---
 
 export type ClientMessage =
+  | ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe
   | ClientScopeDecision
   | ClientHello
   | ClientRetryTurn
@@ -499,6 +503,12 @@ export interface SessionDraftLimits {
   maxDraftFileBytes?: number;
   /** Most original bytes of one draft's or message's attachments together, images included (additive; #3153). */
   maxDraftFilesBytes?: number;
+  /**
+   * Most live outgoing snapshots one chat keeps, across its drafts, tabs and
+   * devices (additive; #3588). Only a save that creates a snapshot is refused
+   * at this count, with `409 DRAFT_OUTGOING_FULL`.
+   */
+  maxOutgoingSnapshots?: number;
 }
 
 /** The limits a host ships with (the #943 R2 ruling). */
@@ -510,6 +520,7 @@ export const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits> = Object.freeze(
   maxDraftFiles: 10,
   maxDraftFileBytes: 25_000_000,
   maxDraftFilesBytes: 50_000_000,
+  maxOutgoingSnapshots: 10,
 });
 
 /** Names one saved revision of one draft. */
@@ -557,14 +568,24 @@ export interface Draft {
   attachments: DraftAttachment[];
   /** File originals the saved revision binds, in its order (additive; #3153). */
   files?: AttachmentFile[];
-  /** The held or unconfirmed send of this draft, if one is saved (additive; #3153). */
+  /**
+   * The newest `held` or `dispatched` snapshot of {@link Draft.snapshots}, in
+   * the single-slot shape #3153 shipped (additive; #3153). Absent when no
+   * snapshot is held or unconfirmed. Read `snapshots` for the whole list.
+   */
   outgoing?: DraftOutgoing | null;
+  /**
+   * This draft's outgoing snapshots, oldest first (additive; #3588). Each is
+   * a send that is held, returned unsent or not yet confirmed, and owns its
+   * files. Absent when there are none.
+   */
+  snapshots?: DraftSnapshot[];
 }
 
 /**
- * A draft's one durable outgoing snapshot (#3153): the exact text and files of
- * a send that is held or not yet confirmed. It owns its files, so newer
- * revisions cannot orphan them. A restored `held` snapshot never sends itself.
+ * The single-slot view of an outgoing snapshot (#3153), kept for clients that
+ * read and write `Draft.outgoing`. A restored `held` snapshot never sends
+ * itself.
  */
 export interface DraftOutgoing {
   requestId: string;
@@ -572,6 +593,30 @@ export interface DraftOutgoing {
   fileIds: string[];
   state: "held" | "dispatched";
 }
+
+/** Where an outgoing snapshot stands (#3588). */
+export type DraftSnapshotState = "held" | "returned" | "dispatched";
+
+/**
+ * One durable outgoing snapshot (#3588): the exact text and files of one send
+ * that is held, returned unsent, or dispatched and not yet confirmed. It owns
+ * its files, so newer revisions cannot orphan them. A chat keeps at most
+ * `SessionDraftLimits.maxOutgoingSnapshots` of them across its drafts.
+ */
+export interface DraftSnapshot {
+  /** Client-minted; addresses the snapshot in every later save. */
+  snapshotId: string;
+  /** The `chat_message.requestId` this snapshot sends, or sent, as. */
+  requestId: string;
+  text: string;
+  fileIds: string[];
+  state: DraftSnapshotState;
+  /** Host milliseconds since epoch of the save that created it. */
+  createdAt: number;
+}
+
+/** A snapshot as a save names it: the host stamps `createdAt`. */
+export type DraftSnapshotWrite = Omit<DraftSnapshot, "createdAt">;
 
 export interface DraftListResponse {
   /** Every live draft, newest change first; bounded by `maxDrafts`. */
@@ -590,8 +635,23 @@ export interface DraftSaveRequest {
    * keeps none.
    */
   fileIds?: string[];
-  /** Set (object), clear (null) or keep (absent) the outgoing snapshot (additive; #3153). */
+  /**
+   * The single-slot write (additive; #3153): an object creates the snapshot
+   * of its `requestId`, or moves it from `held` to `dispatched`; null removes
+   * the snapshot `Draft.outgoing` shows. Absent keeps every snapshot. Not
+   * combined with `snapshots`.
+   */
   outgoing?: DraftOutgoing | null;
+  /**
+   * The draft's whole snapshot list, oldest first (additive; #3588). Absent
+   * keeps it. A new `snapshotId` creates a `held` or `dispatched` snapshot
+   * and is refused with `409 DRAFT_OUTGOING_FULL` when its chat already holds
+   * `maxOutgoingSnapshots`. A listed one may move `held` to `returned` or
+   * `dispatched`, or `dispatched` to `returned`, and a `held` one may change
+   * its `fileIds`; nothing else of it changes. Only a `returned` snapshot may
+   * be left out, which deletes it.
+   */
+  snapshots?: DraftSnapshotWrite[];
 }
 
 export interface DraftSaveResponse {
@@ -626,7 +686,9 @@ export type DraftErrorCode =
   | "DRAFT_PRECONDITION_REQUIRED"
   | "DRAFT_KEY_REUSED"
   | "DRAFT_NOT_ACCEPTED"
-  | "DRAFT_CHAT_RETIRED";
+  | "DRAFT_CHAT_RETIRED"
+  | "DRAFT_OUTGOING_FULL"
+  | "DRAFT_OUTGOING_PENDING";
 
 /** A draft route's failure body, discriminated by `error`. */
 export type DraftErrorResponse =
@@ -647,7 +709,11 @@ export type DraftErrorResponse =
   /** 409: no accepted message of that session carried this draft and request. */
   | { error: "DRAFT_NOT_ACCEPTED"; message: string }
   /** 410 (additive, #3230): the draft's chat was deleted. Nothing was stored; save the local content as a new, unbound draft. */
-  | { error: "DRAFT_CHAT_RETIRED"; message: string };
+  | { error: "DRAFT_CHAT_RETIRED"; message: string }
+  /** 409 (additive, #3588): the chat already keeps `limit` outgoing snapshots. Nothing was stored; no send happened. */
+  | { error: "DRAFT_OUTGOING_FULL"; message: string; limit: number }
+  /** 409 (additive, #3588): a delete would drop a `held` or `dispatched` snapshot. Nothing was removed. */
+  | { error: "DRAFT_OUTGOING_PENDING"; message: string; current: Draft };
 
 // ============================================================
 // Session recovery (additive; #964, design D52 §4 and §6)
@@ -853,6 +919,7 @@ export interface ServerRetryReceipt extends SessionScoped {
 // --- Server -> Client ---
 
 export type ServerMessage =
+  | ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable
   | ServerScopeDecisionReceipt
   | ServerHello
   | ServerRetryReceipt
@@ -906,6 +973,8 @@ export type ServerMessage =
  * existing chat flow on the client having seen this frame.
  */
 export interface ServerHello {
+  /** Read sidecar only; absent means unavailable. */
+  safetyCapabilities?: SafetyCapabilities;
   /** Known destination/profile before explicit Start; no provider has opened. */
   conversationProfile?: ConversationProfile;
   type: "server_hello";
@@ -1186,7 +1255,7 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * "command" — a destructive-pattern confirmation for an otherwise
    * auto-allowed tool (bash); always per-use, never rememberable.
    */
-  kind?: "tool" | "command" | "policy";
+  kind?: "tool" | "command" | "policy" | "actor";
   /**
    * Whether the host will keep an "always allow" given on this card (rev 4,
    * additive). Sent as `false` when the host will refuse to remember the
@@ -1296,7 +1365,7 @@ type FirstPartyFailureClass =
   | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1329,6 +1398,7 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   budget_unavailable:"budget_unavailable",
   journal_capacity: "journal_capacity",
   journal_unavailable: "journal_unavailable",
+  input_safety_unavailable: "input_safety_unavailable",
   unknown: "unknown",
 });
 

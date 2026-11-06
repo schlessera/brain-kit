@@ -1,4 +1,5 @@
 /** Host-owned integrity metadata. Never included in a worker transcript or brain index. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
@@ -15,7 +16,7 @@ const MAX_BYTES = 16 * 1024 * 1024;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
 async function directory(path: string, brain: string): Promise<void> {
-  if (path === brain || path.startsWith(brain + "/")) throw new Error("Native observations must be outside the brain.");
+  if (isWithin(brain, path)) throw new Error("Native observations must be outside the brain.");
   try {
     if (!(await lstat(path)).isDirectory() || await realpath(path) !== path) throw new Error("Native observation storage is redirected.");
   } catch (error) {
@@ -40,7 +41,7 @@ export function nativeObservationIdentity(realBrainPath: string, sessionId: stri
 }
 async function location(storage: NativeObservationStorage): Promise<{ path: string; identity: string }> {
   const brain = await realpath(storage.brainPath), root = resolve(storage.directory);
-  if (brain === root || brain.startsWith(root + "/")) throw new Error("Native observation storage must not contain the brain.");
+  if (isWithin(root, brain)) throw new Error("Native observation storage must not contain the brain.");
   await directory(root, brain);
   const identity = nativeObservationIdentity(brain, storage.sessionId);
   return { path: join(root, identity + ".json"), identity };

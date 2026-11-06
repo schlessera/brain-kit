@@ -26,6 +26,7 @@ interface ApifyViewProps {
   checking: boolean;
   onTurn(enabled: boolean): void;
   onMode(field: "discovery" | "actors", mode: ApifyPolicyMode): void;
+  onRevokeActor?(actor_id: string): void;
   onRevoke(grant: ApifyGrantRead, index: number): void;
   onCheck(): void;
   onConfirmAccount(): void;
@@ -58,10 +59,10 @@ export function ApifyView(props: ApifyViewProps) {
     <ProviderCard {...props} card={card} busy={busy} />
     {!off && <>
       <ModeGroup id="discovery" title="Catalog search" headingRef={props.headings.discovery}
-        text="Agents look up Actors in the Apify Store. Only search words are sent; nothing runs or spends."
+        text="Agents look up Actors in the Apify Store. Only search words are sent. Catalog requests can incur platform overhead; no Actor starts."
         value={read.policy.discovery} disabled={!editable || busy} onChoose={mode => props.onMode("discovery", mode)} {...props} />
       <ModeGroup id="actors" title="Running Actors" headingRef={props.headings.actors}
-        text="Allow only skips review for an approved Actor below, at its exact build, input schema and price. Every other run still asks. Catalog search never lets anything run."
+        text="An Actor asks before it runs. Approve once, approve always for that Actor, or deny. Remembered approvals never bypass the shared Apify budget."
         value={read.policy.actors} disabled={!editable || busy} onChoose={mode => props.onMode("actors", mode)} {...props} />
     </>}
     <Grants {...props} off={off} busy={busy} editable={editable} />
@@ -131,11 +132,16 @@ function ModeGroup(props: ApifyViewProps & { id: "discovery" | "actors"; title: 
   </section>;
 }
 
-function Grants({ read, edit, off, busy, editable, onRevoke, onOpenPolicy, headings, ...rest }: ApifyViewProps & { off: boolean; busy: boolean; editable: boolean }) {
+function Grants({ read, edit, off, busy, editable, onRevoke, onRevokeActor, onOpenPolicy, headings, ...rest }: ApifyViewProps & { off: boolean; busy: boolean; editable: boolean }) {
   return <section aria-labelledby="apify-grants-heading" className="space-y-2">
-    <h4 id="apify-grants-heading" ref={headings.grants} tabIndex={-1} className={HEADING}>Approved Actors · {read.policy.grants.length}</h4>
-    <p className={LINE}>Only this build, input schema and price, up to the cap. Any change asks again. Grants are added in the policy file, never by approving a run.</p>
-    {read.policy.grants.length === 0 ? <p className="text-sm">No approved Actors. Every run asks first.</p>
+    <h4 id="apify-grants-heading" ref={headings.grants} tabIndex={-1} className={HEADING}>Approved Actors · {read.actor_approvals?.length ?? 0}</h4>
+    <p className={LINE}>Approve always remembers the Actor across sessions for this account. Revoke to ask again. Platform charges and uncertain costs remain part of the shared budget.</p>
+    {(read.actor_approvals ?? []).map(actor => <div key={actor.actor_id} data-apify-actor-approval className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border-subtle p-3">
+      <span className="min-w-0 break-all text-sm">{actor.actor}</span>
+      <Button label="Revoke" ariaLabel={`Revoke ${actor.actor}`} tone="quiet" block={false} reach disabled={busy} onClick={() => onRevokeActor?.(actor.actor_id)} />
+    </div>)}
+    {read.policy.grants.length > 0 && <p className={LINE}>Historical build-specific grants below do not become Actor-wide approvals. Remove them when no longer needed.</p>}
+    {(read.actor_approvals?.length ?? 0) === 0 && read.policy.grants.length === 0 ? <p className="text-sm">No approved Actors. Every Actor asks first.</p>
       : <ul className="space-y-2" data-apify-grants>
         {read.policy.grants.map((grant, index) => {
           const target = `grant:${index}`;

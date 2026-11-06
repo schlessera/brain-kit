@@ -27,12 +27,15 @@ export interface FakeApify {
   seen: Array<{ method: string; path: string; authorization: string | null }>;
   /** Start requests received: each is a paid run. */
   starts(): number;
+  /** Catalog searches received, independently from metadata inspection. */
+  searches(): number;
   stop(): void;
 }
 
 /** One loopback server for both the REST API and the Streamable HTTP catalog. Runs succeed on their first status read. */
 export function fakeApify(): FakeApify {
   const seen: FakeApify["seen"] = [];
+  let searches = 0;
   const runs = new Map<string, { query: URLSearchParams; aborted: boolean; reads: number }>();
   const runObject = (id: string, entry: { query: URLSearchParams; aborted: boolean; reads: number }) => ({
     id, actId: "SeaCharts01", userId: APIFY_ACCOUNT.id, buildId: "SeaBuild142", buildNumber: "1.4.2",
@@ -50,6 +53,7 @@ export function fakeApify(): FakeApify {
     seen.push({ method: request.method, path: url.pathname, authorization });
     if (authorization !== `Bearer ${APIFY_SENTINEL}`) return Response.json({ error: { type: "token-not-valid", message: `bad ${authorization}` } }, { status: 401 });
     if (url.pathname === "/") {
+      if (body?.params?.name === "search-actors") searches++;
       if (request.method === "DELETE") return new Response(null, { status: 200 });
       if (body?.id === undefined) return new Response(null, { status: 202 });
       const reply = (result: unknown) => Response.json({ jsonrpc: "2.0", id: body.id, result }, { headers: { "mcp-session-id": "IthacaSession7" } });
@@ -90,6 +94,7 @@ export function fakeApify(): FakeApify {
   return {
     origin: `http://127.0.0.1:${server.port}`, seen,
     starts: () => seen.filter(entry => entry.method === "POST" && entry.path === "/v2/acts/SeaCharts01/runs").length,
+    searches: () => searches,
     stop: () => { void server.stop(true); },
   };
 }

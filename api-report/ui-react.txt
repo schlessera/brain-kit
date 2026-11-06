@@ -880,7 +880,7 @@ signatures (every public export and the types it is made of)
         output?: string;
         isError?: boolean;
         status: "streaming" | "pending_approval" | "approved" | "denied" | "complete";
-        approvalKind?: "tool" | "command" | "policy";
+        approvalKind?: "tool" | "command" | "policy" | "actor";
         approvalRememberable?: false;
         approvalDescription?: string;
         restored?: true;
@@ -1053,6 +1053,9 @@ signatures (every public export and the types it is made of)
             signal?: AbortSignal;
             turn?: string;
         }) => Promise<ApifySettingsRead>;
+        apifyActorRevoke: (actor_id: string) => Promise<{
+            revoked: boolean;
+        }>;
         apifyConfirmAccount: (accountId: string) => Promise<unknown>;
         apifyPolicyDecide: (turnId: string, requestId: string, approve: boolean) => Promise<{
             baseHash: null | string;
@@ -1543,6 +1546,9 @@ signatures (every public export and the types it is made of)
             signal?: AbortSignal;
             turn?: string;
         }) => Promise<import("@schlessera/brain-ui-sdk").ApifySettingsRead>;
+        apifyActorRevoke: (actor_id: string) => Promise<{
+            revoked: boolean;
+        }>;
         apifyConfirmAccount: (accountId: string) => Promise<unknown>;
         apifyPolicyDecide: (turnId: string, requestId: string, approve: boolean) => Promise<{
             baseHash: null | string;

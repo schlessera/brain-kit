@@ -17,7 +17,7 @@ test("Claude Apify tools reach the host and keep tools, system and history stabl
   expect(capture.calls, "APIFY_CLAUDE_HOST_RECEIVES_EVERY_CALL").toEqual(["brain_apify_discover", "brain_apify_discover", "brain_apify_inspect",
     "brain_apify_prepare", "brain_apify_run", "brain_apify_results"]);
   expect(outcome.calls, "APIFY_CLAUDE_HOST_DECIDES").toEqual(["provider_disabled", "ok", "ok", "ok", "ok", "ok"]);
-  expect(outcome.cards, "APIFY_CLAUDE_PER_USE_REVIEW").toEqual(["command:Apify catalog search", "command:Apify Actor inspection", "command:Apify Actor run"]);
+  expect(outcome.cards, "APIFY_CLAUDE_PER_USE_REVIEW").toEqual(["command:Apify catalog search", "command:Apify Actor inspection", "actor:Apify Actor run"]);
   expect(outcome.starts, "APIFY_CLAUDE_ONE_BOUNDED_RUN").toBe(1);
   expect(outcome.items, "APIFY_CLAUDE_BOUNDED_RESULTS").toBe(2);
   // The disabled turn's refusal is a model-readable tool error, and the roster did not change for it.
@@ -33,7 +33,7 @@ test("Claude Apify tools reach the host and keep tools, system and history stabl
   const [firstAppend, ...rest] = capture.appends;
   for (const next of rest) identical(firstAppend, next, "APIFY_CLAUDE_SYSTEM_OPTION_STABLE");
   const names = body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.includes("brain_apify_"));
-  // The CLI orders its provider tool list itself; the set is the fixed seven.
+  // The CLI orders its provider tool list itself; the set is the fixed ten.
   expect(names, "APIFY_CLAUDE_FIXED_NAMES").toEqual(APIFY_OPERATIONS.map(operation => `mcp__brain-ui__${APIFY_TOOL_NAMES[operation]}`).sort());
   for (const exchange of capture.exchanges) expect(exchange.raw.includes(SENTINEL), "APIFY_CLAUDE_TOKEN_NEVER_IN_PROVIDER_REQUESTS").toBe(false);
 });

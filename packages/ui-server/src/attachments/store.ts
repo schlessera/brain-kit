@@ -17,8 +17,8 @@ import type { AttachmentReadOutcome, AttachmentReadResult } from "@schlessera/br
  * acceptance and a sweep mark see one serialized state.
  *
  * Reference owners: `draft` (owner_id = draft id, the current revision's
- * binding), `outgoing` (owner_id = draft id; a draft keeps at most one
- * outgoing snapshot) and `message` (owner_id = session id).
+ * binding), `outgoing` (owner_id = draft id; every file any of the draft's
+ * outgoing snapshots owns) and `message` (owner_id = session id).
  */
 
 export type AttachmentOwner = "draft" | "outgoing" | "message";
@@ -126,15 +126,18 @@ export function addRef(db: Database, fileId: string, owner: AttachmentOwner, own
 
 /**
  * The files counted against one draft's envelope at upload: everything its
- * revision or outgoing snapshot references, plus uploads for it that no save
- * has bound yet and that are still inside their one-hour window. So a burst
- * of uploads cannot exceed the envelope before a save names them.
+ * current revision references, plus uploads for it that no save has bound yet
+ * and that are still inside their one-hour window. So a burst of uploads
+ * cannot exceed the envelope before a save names them. Files its outgoing
+ * snapshots own are not counted: each snapshot is its own message, checked
+ * against the envelope when a save lists it, and the newer composer revision
+ * keeps a whole envelope of its own (#3588).
  */
 export function draftEnvelope(db: Database, draftId: string, at: number): { count: number; bytes: number } {
   const row = db.query(
     `SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS b FROM attachment_files f
      WHERE f.draft_id = ?1 AND f.state = 'stored' AND (
-       EXISTS (SELECT 1 FROM attachment_refs r WHERE r.file_id = f.file_id AND r.owner IN ('draft', 'outgoing') AND r.owner_id = ?1)
+       EXISTS (SELECT 1 FROM attachment_refs r WHERE r.file_id = f.file_id AND r.owner = 'draft' AND r.owner_id = ?1)
        OR (f.ever_referenced = 0 AND f.created_at >= ?2
            AND NOT EXISTS (SELECT 1 FROM attachment_refs r WHERE r.file_id = f.file_id)))`
   ).get(draftId, at - ATTACHMENT_UNBOUND_TTL_MS) as { n: number; b: number };

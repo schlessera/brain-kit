@@ -139,7 +139,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const extensionFree = envelope !== undefined || backend.loadExtensions === false;
   const proof = createExecutionProof(extensionFree, new Set(["read_file", "write_file", "edit_file", "brain_read_base", ...bridgeTools.map(tool => tool.name)]));
   const dispatch = createPiWorkerRpcDispatcher({ brainPath: backend.brainPath, turn: turnContext, live, grants, releases, workerLock,
-    executed: proof.executed, admitTool: proof.admit, autonomous: Boolean(env.autonomous), sandbox, workerSandbox,
+    executed: proof.executed, admitTool: proof.admit, canFinalizeSafety: proof.canFinalize, autonomous: Boolean(env.autonomous), sandbox, workerSandbox,
     observeFile: path => child.observeFile?.(path), nativeVersions, relayed: Boolean(hostInference), agentDir, agentFiles, allowedTools,
     confirmPatterns, bridgeTools, capabilities: env.caps, receipts });
   const received = readPiWorkerProtocol({ child, state, ready, done, sessionId, backend, startupStarted, promptContext,
@@ -250,6 +250,7 @@ function createExecutionProof(extensionFree: boolean, provableTools: ReadonlySet
       else if (seen.name !== msg.toolName) seen.name = "";
       return seen;
     },
+    canFinalize: (toolName:string,toolCallId:string):boolean => provable&&running.has(toolCallId)&&provenToolExecution(toolName,executions.get(toolCallId))!==undefined,
     admit: (toolName: string): void => { if (!provableTools.has(toolName)) provable = false; },
     started: (toolCallId: string): void => {
       if (running.has(toolCallId)) provable = false;

@@ -90,6 +90,7 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { shared: true, effects: "Missing journal returns before object reads or leases." },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { shared: true, effects: "Missing journal returns before streaming or read leases." },
   "GET /api/journal/configuration-coverage": { shared: true, effects: "Reads the journal's turn and set rows only; no write, lease or object access." },
+  "GET /api/sessions/:id/safety": { shared: false, effects: "Bounded principal/generation-scoped safety snapshots and cursors; fresh host reader and exact unavailable legacy fixture." },
   "GET /api/sessions/:id/recovery": { shared: false, effects: "History/list/recovery reconciliation, pending listings, or revert admission; fresh host/catalog and task state." },
   "GET /api/push/public-key": { shared: false, effects: "GET lazily creates VAPID keys in SQLite; retain fresh first-use semantics." },
   "GET /api/push/subscriptions": { shared: true, effects: "Reads only the new owner's empty subscription set." },

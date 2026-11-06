@@ -131,6 +131,34 @@ describe("one implementation behind every front door", () => {
     expect(fake.seen).toEqual([]);
   });
 
+  test("catalog-only platform estimates persist across hosts and exhaust the account allowance before another request", async () => {
+    apifyPolicy(brain, { enabled: true, discovery: "allow", limits: { ...APIFY_LIMITS, day_usd: 0.001 } });
+    const first = hosted();
+    expect((await viaHost(first, turn(), "discover", { query: "sea charts" })).ok).toBe(true);
+    const store = openApifyLedger(ledgerPath);
+    try {
+      const scopes = store.totals({ brain_id: first.brain_id, account_id: "IthacaHousehold01", session_id: "s-voyage", turn_id: "t-voyage" }, Date.now());
+      expect(scopes.day.liability_micro, "APIFY_CATALOG_COST_WITHOUT_ACTOR").toBe(1000);
+      expect(scopes.day.charged_micro).toBe(0);
+      expect(scopes.day.residual_micro).toBe(1000);
+      expect(scopes.day.runs).toBe(0);
+    } finally { store.close(); }
+    const before = fake.seen.filter(r => r.path === "/").length;
+    const second = await viaHost(hosted(), turn({ turnId: "t-second", sessionId: () => "s-second" }), "discover", { query: "harbour notices" });
+    expect(second).toMatchObject({ ok: false, error: { code: "budget_exceeded", reason: "day_usd" } });
+    expect(fake.seen.filter(r => r.path === "/")).toHaveLength(before);
+    expect(fake.starts()).toBe(0);
+  });
+
+  test("standalone module availability reports disabled and missing accounting without a run", async () => {
+    apifyPolicy(brain, null);
+    expect((await cli(["availability"])).envelope).toMatchObject({ ok: true, operation: "availability", data: { state: "unavailable", reason: "not_enabled" } });
+    apifyPolicy(brain, { enabled: true, discovery: "allow", limits: APIFY_LIMITS });
+    expect((await cli(["availability", "SeaCharts01"], { APIFY_TOKEN: APIFY_SENTINEL })).envelope)
+      .toMatchObject({ ok: true, data: { state: "unavailable", reason: "ledger_unset" } });
+    expect(fake.seen).toEqual([]);
+  });
+
   test("a standalone process without the shared ledger or the token refuses before contacting Apify", async () => {
     apifyPolicy(brain, { enabled: true, discovery: "allow", limits: APIFY_LIMITS });
     const noLedger = await cli(["discover", "sea", "charts"], { APIFY_TOKEN: APIFY_SENTINEL });
@@ -163,9 +191,17 @@ describe("one implementation behind every front door", () => {
     expect(stdout.join("\n"), "APIFY_CLI_SENTINEL_NEVER_PRINTED").not.toContain(APIFY_SENTINEL);
   });
 
-  test("an exact standing grant admits a standalone run once; status, results and abort follow", async () => {
+  test("a remembered Actor approval admits a standalone run once; status, results and abort follow", async () => {
     apifyPolicy(brain, { enabled: true, discovery: "allow", actors: "allow", actor_grants: [apifyGrant()], limits: APIFY_LIMITS });
-    const candidate = data<{ candidates: Array<{ candidate: string }> }>((await cli(["discover", "sea", "charts"])).envelope).candidates[0]!.candidate;
+    const approvals = openApifyLedger(ledgerPath);
+    approvals.setActorApproval({ brain_id: (await import("@schlessera/brain-common/internal/apify")).apifyBrainId(brain), principal_id: "local", account_id: "IthacaHousehold01" },
+      { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: Date.now() }, true);
+    approvals.close();
+    const remembered = data<Array<{ actor_id: string; actor: string; candidate: string | null }>>((await cli(["approvals"])).envelope);
+    expect(remembered).toHaveLength(1);
+    expect(remembered[0]).toMatchObject({ actor_id: "SeaCharts01", actor: "odysseus/sea-charts" });
+    const candidate = remembered[0]!.candidate!;
+    expect(typeof candidate, "APIFY_APPROVED_ACTOR_REFERENCE").toBe("string");
     await cli(["inspect", candidate]);
     const prepared = data<{ proposal: string; admission: string }>((await cli(["prepare", candidate, "--input", JSON.stringify(APIFY_INPUT), "--max-charge-usd", "2"])).envelope);
     expect(prepared.admission, "APIFY_GRANT_MATCHES_EXACTLY").toBe("grant");
@@ -180,6 +216,7 @@ describe("one implementation behind every front door", () => {
     expect(page.untrusted).toBe(true);
     expect(data<{ outcome: string }>((await cli(["abort", started.run])).envelope).outcome).toBe("not_needed");
     expect(fake.starts(), "APIFY_ONE_START").toBe(1);
+    expect(fake.searches(), "APIFY_APPROVED_REUSE_WITHOUT_CATALOG_SEARCH").toBe(0);
     expect(stdout.join("\n")).not.toContain(APIFY_SENTINEL);
     expect(fake.seen.every(entry => !entry.path.includes(APIFY_SENTINEL))).toBe(true);
   });
@@ -194,7 +231,8 @@ describe("one implementation behind every front door", () => {
     const inspected = data<{ input_fields: string[] }>((await door.call("brain_apify_inspect", { candidate })).envelope);
     expect(inspected.input_fields, "APIFY_SCHEMA_AS_DATA").toEqual(["harbour", "maxPages", "startUrls"]);
     const proposal = data<{ proposal: string }>((await door.call("brain_apify_prepare", { candidate, input: APIFY_INPUT, max_charge_usd: 2 })).envelope).proposal;
-    expect(code((await door.call("brain_apify_run", { proposal })).envelope)).toBe("ok");
+    expect(code((await door.call("brain_apify_run", { proposal })).envelope)).toBe("approval_required");
+    expect((await door.call("brain_apify_availability", {})).envelope).toMatchObject({ ok: true, data: { state: "ready" } });
     expect(await roster(), "APIFY_MCP_ROSTER_UNCHANGED_BY_ACTOR").toEqual(before);
     // Raw remote ids, transport options and extra fields are refused by the shared strict schema,
     // as every core tool's schema violation is: an error result without structured content.
@@ -202,7 +240,28 @@ describe("one implementation behind every front door", () => {
     expect(raw.isError, "APIFY_MCP_STRICT_INPUT").toBe(true);
     expect(raw.structured, "APIFY_MCP_STRICT_INPUT_NO_ENVELOPE").toBeUndefined();
     expect(raw.text).toContain("actor");
-    expect(fake.starts()).toBe(1);
+    expect(fake.starts()).toBe(0);
+  });
+
+  test("MCP lists reusable approved candidates with the shared comparison guidance", async () => {
+    apifyPolicy(brain, { enabled: true, discovery: "allow", actors: "ask", limits: APIFY_LIMITS });
+    const store = openApifyLedger(ledgerPath);
+    try {
+      store.setActorApproval({ brain_id: (await import("@schlessera/brain-common/internal/apify")).apifyBrainId(brain), principal_id: "local", account_id: "IthacaHousehold01" },
+        { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: Date.now() }, true);
+    } finally { store.close(); }
+    const door = await mcp();
+    const tools = (await door.client.listTools()).tools;
+    const guidance = tools.find(tool => tool.name === "brain_apify_discover")!.description!;
+    expect(guidance).toContain("Before searching for a new Actor, call brain_apify_approvals");
+    expect(guidance).toContain("best 3-5 suitable new Actors");
+    expect(guidance).toContain("wait for the answer before preparing or running one");
+    expect(guidance).toContain("ask_user_form with one single-choice node");
+    const approved = data<Array<{ candidate: string }>>((await door.call("brain_apify_approvals", {})).envelope);
+    const inspected = data<{ actor_id: string }>((await door.call("brain_apify_inspect", { candidate: approved[0]!.candidate })).envelope);
+    expect(inspected.actor_id).toBe("SeaCharts01");
+    expect(fake.searches()).toBe(0);
+    expect(fake.starts()).toBe(0);
   });
 });
 
@@ -216,7 +275,10 @@ describe("shared accounting and authority", () => {
     await viaHost(host, t, "inspect", { candidate });
     const proposal = data<{ proposal: string }>(await viaHost(host, t, "prepare", { candidate, input: APIFY_INPUT, max_charge_usd: 2 })).proposal;
     const hostedRun = data<{ run: string }>(await viaHost(host, t, "run", { proposal }));
-    expect(asked, "APIFY_GRANT_ADMITS_WITHOUT_A_CARD").toEqual([]);
+    expect(asked, "APIFY_LEGACY_GRANT_NOT_BROADENED").toEqual(["actor:Apify Actor run"]);
+    const approved = openApifyLedger(ledgerPath);
+    approved.setActorApproval({ brain_id: host.brain_id, principal_id: "local", account_id: "IthacaHousehold01" }, { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: Date.now() }, true);
+    approved.close();
     const local = standalone();
     const standaloneCandidate = data<{ candidates: Array<{ candidate: string }> }>(await local.call("discover", { query: "sea charts" })).candidates[0]!.candidate;
     await local.call("inspect", { candidate: standaloneCandidate });

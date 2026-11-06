@@ -9,6 +9,7 @@
  * the host read-only, masked and unreachable
  * (docs/decisions/governed-writable-workers.md, "The host execution boundary").
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { killWorker, registerWorker, workerStopCompletion } from "./maintenance-worker-kill.js";
 import { Readable } from "node:stream";
@@ -238,7 +239,7 @@ function tempDomain(input: MaintenanceCommand): MaintenanceTempDomain | undefine
   }
   const brain = realpathSync(input.brainPath);
   const parent = dirname(statePath);
-  if (parent === brain || parent.startsWith(`${brain}/`)) throw new WorkerHostError("maintenance admission state must be outside the authoritative brain");
+  if (isWithin(brain, parent)) throw new WorkerHostError("maintenance admission state must be outside the authoritative brain");
   return { statePath };
 }
 

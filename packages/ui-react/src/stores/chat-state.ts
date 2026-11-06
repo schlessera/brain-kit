@@ -174,7 +174,7 @@ export interface ToolCall {
    * What the pending approval is for: "tool" may be remembered via "Always
    * allow"; "command" (a destructive-bash confirmation) is per-use only.
    */
-  approvalKind?: "tool" | "command" | "policy";
+  approvalKind?: "tool" | "command" | "policy" | "actor";
   /**
    * `false` when the host said it will not keep an "always allow" given on
    * this card (#147) — the request is outside the turn's enforced allowlist.
@@ -467,7 +467,7 @@ export interface ChatState {
     toolName: string,
     input: Record<string, unknown>,
     description?: string,
-    kind?: "tool" | "command" | "policy",
+    kind?: "tool" | "command" | "policy" | "actor",
     rememberable?: boolean,
     /** The host turn the request belongs to, from the frame. */
     turnId?: string

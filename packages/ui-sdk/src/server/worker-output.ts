@@ -1,4 +1,5 @@
 /** Publication of maintenance results. The worker never receives the live brain as a write mount. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync,
   renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -114,9 +115,9 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
       // Mount points for absent read-only Git inputs are namespace plumbing,
       // not new repository outputs. Nonempty/modified entries are still checked.
       for (const rel of [".git/hooks", ".git/info", ".git/modules"]) {
-        if (!before.has(rel) && after.get(rel)?.type === "directory" && ![...after.keys()].some(path => path.startsWith(`${rel}/`))) after.delete(rel);
+        if (!before.has(rel) && after.get(rel)?.type === "directory" && ![...after.keys()].some(path => isWithin(rel, path, { includeRoot: false }))) after.delete(rel);
       }
-      const selected = (rel: string) => !options.areas || options.areas.some(area => rel === area || rel.startsWith(`${area}/`));
+      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
       const changed = [...new Set([...before.keys(), ...after.keys()])].filter(rel => selected(rel) && !equalOutput(before.get(rel), after.get(rel)));
       for (const rel of changed) {
         const previous = before.get(rel);
@@ -125,14 +126,14 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
         if (previous && next && (previous.type === "directory") !== (next.type === "directory")) {
           throw new Error(`maintenance cannot replace a directory with a non-directory or vice versa: ${rel}`);
         }
-        if (isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(path => rel === path || rel.startsWith(`${path}/`))) {
+        if (isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(path => isWithin(path, rel))) {
           throw new Error(`maintenance output cannot change protected input ${rel}`);
         }
         const entry = after.get(rel);
         if (entry?.type === "symlink") {
           const target = resolve(brain, join(rel, ".."), entry.link!);
-          if ((target !== brain && !target.startsWith(`${brain}/`)) || rel.startsWith(".git/")
-            || PROTECTED_TIER_A.some(path => path.startsWith(`${rel}/`))) throw new Error(`maintenance output has an escaping link: ${rel}`);
+          if (!isWithin(brain, target) || rel.startsWith(".git/")
+            || PROTECTED_TIER_A.some(path => isWithin(rel, path, { includeRoot: false }))) throw new Error(`maintenance output has an escaping link: ${rel}`);
         }
         const authoritative = current(brain, rel);
         const matches = before.get(rel)?.type === "directory" && !after.has(rel)
@@ -247,7 +248,7 @@ export function prepareWorkerOutput(brain: string, options: { startupView?: Work
   return { ...publication,
     async publishLocked(lock: KeyedLock) {
       const after = inventory(output.root);
-      const selected = (rel: string) => !options.areas || options.areas.some(area => rel === area || rel.startsWith(`${area}/`));
+      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
       const paths = [...new Set([...before.keys(), ...after.keys()])]
         .filter(rel => selected(rel) && !equalOutput(before.get(rel), after.get(rel))).sort();
       const releases: (() => void)[] = [];

@@ -55,7 +55,7 @@ tries the shared track parser on every file
 MIME-to-extension table lists PDF
 (`EXTENSION_BY_TYPE`, `packages/ui-server/src/share/staging.ts:91-114`), which
 only names the stored file and reads nothing. Staged shares are pruned after
-seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2484`).
+seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2614`).
 
 **Chat admission.** `chat_message` validates inline images, then resolves every
 `files` reference as a staged track
@@ -70,29 +70,29 @@ reference is refused here even if it could be staged.
 `<brain-track-files>` block (`withTrackFiles`, `packages/ui-server/src/tracks/read.ts:69-73`).
 Images travel as inline base64 frames: Claude gets content blocks
 (`userMessage`, `packages/ui-backend-claude/src/turn-input.ts:124`) and pi gets
-`ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:300`).
+`ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:345`).
 No image original is kept as a file. Frames are limited to four images and
 8,000,000 decoded bytes per message
-(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:741`;
-`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:757`).
+(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:756`;
+`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:772`).
 
 **Drafts.** Draft text and images are stored in the operational SQLite store,
 with image bytes as BLOBs. An upload that no save names is swept after one hour
 (`PENDING_ATTACHMENT_TTL_MS`, `packages/ui-server/src/drafts/store.ts:74`). A
 save checks the per-draft limit (`maxDraftBytes`, 8,388,608) and the host limit
 (`maxTotalBytes`, 268,435,456)
-(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:497-502`). On
+(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:509-514`). On
 acceptance the host consumes only the named revision
 (`accept(input)`, `packages/ui-server/src/drafts/store.ts:666-699`). Track
 files are not draft content: D52 keeps them in the tab only.
 
 **Opening a file.** The raw file route refuses anything over 10,485,760 bytes
-(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2419`). Originals may
+(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2549`). Originals may
 be up to 25,000,000 bytes, so opening a large original needs its own route
 ([§6.5](#65-reading-an-original-back)).
 
 **Taint.** Reading `.brain-ui/inbox/` or `workspaces/` taints the session
-(`leadingArea`, `packages/ui-server/src/activity/ingestion-taint.ts:20-23`). A
+(`leadingArea`, `packages/ui-server/src/activity/ingestion-taint.ts:28-31`). A
 new attachment area is not covered until it is added there.
 
 ## 2. Capability matrix
@@ -108,7 +108,7 @@ already a workspace dependency.
 | Password-protected PDF | the same library | The installed build exports `PasswordException` and `PasswordResponses`. No password is ever supplied. | Outcome `encrypted` |
 | Scanned or image-only page | the same library | Probe: a valid page with only drawing operators returns zero text items. | Outcome `no_text`, per page and per document |
 | Claude native read | `@anthropic-ai/claude-agent-sdk` 0.3.293 `Read` | `sdk-tools.d.ts` documents a `pages` input for PDFs, at most 20 pages per request. | Optional supplement only. The baseline does not depend on it. |
-| pi native read | `read_file` in `@schlessera/brain-ui-backend-pi` | It decodes bytes as UTF-8 and clips them (`read_file`, `packages/ui-backend-pi/src/tools.ts:359-374`). | Reads text originals. It cannot read a PDF. |
+| pi native read | `read_file` in `@schlessera/brain-ui-backend-pi` | It decodes bytes as UTF-8 and clips them (`read_file`, `packages/ui-backend-pi/src/tools.ts:179-194`). | Reads text originals. It cannot read a PDF. |
 | Validated tracks | `parseImportedTrack` in `@schlessera/brain-geo` | The parser already runs in staging and in chat admission (see §1). | Unchanged specialized route |
 | Images | browser-side `fileToAttachment` and the server's `validateAttachments` | `fileToAttachment`, `packages/ui-react/src/lib/image-attachments.ts:97`; `validateAttachments`, `packages/ui-server/src/ws/attachments.ts:19` | Unchanged inline frames, plus a retained original |
 | OCR, archives, office documents, media | none installed | None of these is approved. | Outcome `unavailable`. These are future readers ([§7.6](#76-adding-a-reader)). |
@@ -312,7 +312,7 @@ attachment_files(file_id PK, draft_id, sha256, bytes, stored_name, incoming_name
     state: stored | deleting | missing
 attachment_refs(file_id, owner, owner_id, created_at)        PK(file_id, owner, owner_id)
     owner: draft   (owner_id = draftId; the current revision's binding)
-           outgoing(owner_id = draftId; the draft's one held or unconfirmed snapshot)
+           outgoing(owner_id = draftId; every file the draft's outgoing snapshots own)
            message (owner_id = sessionId; an accepted send)
 attachment_reservations(reservation_id PK, bytes, instance_id, created_at)
 attachment_reads(file_id, session_id, turn_id, outcome, scope_json, at)   -- UI evidence only
@@ -340,20 +340,34 @@ attachment_reads(file_id, session_id, turn_id, outcome, scope_json, at)   -- UI 
 `Draft` returns `files: AttachmentFile[]`. `saved` therefore covers the exact
 text, images and file bindings, as D52 requires.
 
-**Outgoing snapshot.** `DraftSaveRequest` gains `outgoing?: { requestId; text;
-fileIds; state: "held" | "dispatched" } | null`. There is at most one per
-draft. The client writes it in the same save that clears the composer when
-Send creates a held snapshot (#3155 D1), and keeps it while a send is
-unconfirmed. It is the durable owner of that snapshot's files, so newer
-revisions cannot orphan them. It survives reload, and a restored `held`
-snapshot never sends on its own (#3155 correction 2). The client clears it on
-Cancel, on Edit, or when Check proves the message was not accepted and the user
-discards it.
+**Outgoing snapshots.** Under the maintainer's G1 A ruling on #3155, a draft
+keeps a list of snapshots rather than one slot (#3588). `Draft.snapshots?` and
+`DraftSaveRequest.snapshots?` carry `{ snapshotId; requestId; text; fileIds;
+state: "held" | "returned" | "dispatched"; createdAt }`, at most 10 per chat
+across its drafts, tabs and devices (`SessionDraftLimits.maxOutgoingSnapshots`).
+The save that **creates** a snapshot counts every live snapshot of the chat in
+the same immediate transaction and refuses the eleventh with `409
+DRAFT_OUTGOING_FULL` before any send effect; that save is the reservation. The
+client writes it in the same save that clears the composer when Send creates a
+held snapshot (#3155 D1), and an ordinary all-ready send records a
+`dispatched` one the same way. Cancel and upload failure (held → returned),
+dispatch (held → dispatched) and a recovery read showing non-acceptance
+(dispatched → returned) edit a snapshot in place and never need a free slot; a
+held snapshot's files may grow as its uploads are admitted. A snapshot is
+released only on confirmed acceptance, Edit into the composer revision or
+Delete… of a `returned` one; nothing is evicted, merged or overwritten. Each
+snapshot owns its files, so newer revisions cannot orphan them. It survives
+reload, and a restored `held` snapshot never sends on its own (#3155
+correction 2). #3153's single `outgoing?` field stays as a view of the newest
+held or unconfirmed snapshot, and its write still creates or dispatches the
+snapshot of its `requestId`; the
+[HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588) has the
+rules.
 
 **Message.** On acceptance, the same transaction that settles the draft:
 
 1. inserts `message` refs for the files the message named;
-2. clears the outgoing snapshot whose `requestId` matches;
+2. releases only the outgoing snapshot whose `requestId` matches;
 3. consumes the draft revision under the existing rules.
 
 The `message` ref is written before the draft ref goes. That is how "unresolved

@@ -28,7 +28,7 @@ worker-backed sessions.
 
 **The pool.** A production backend has no `sessionFactory`, so it never
 retains a session (`createSessionPool(runtime, Boolean(options.sessionFactory), options.log)`,
-`packages/ui-backend-pi/src/backend.ts:117-120`). `finish()` removes and
+`packages/ui-backend-pi/src/backend.ts:118-121`). `finish()` removes and
 disposes every interactive entry when its turn ends. That makes every resume
 non-resident, and every resume opens a worker. A resumed acquisition checks
 the map, awaits `runtime.openSession` and then checks the map again. If
@@ -38,11 +38,11 @@ synchronous `disposeSession(opened.session)` and then either refuses
 `packages/ui-backend-pi/src/session-pool.ts:77-101`). Without retention, an
 entry in the map is always running, so in production the loser always
 refuses busy. The runner re-throws that refusal to its caller unchanged
-(`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:63-84`).
+(`let acquired`, `packages/ui-backend-pi/src/turn-runner.ts:63-86`).
 
 **The new-session branch.** A worker-backed session's identity is
 `resumeId ?? randomUUID()` (`const sessionId = resumeId`,
-`packages/ui-backend-pi/src/worker-session.ts:112`). Autonomous acquisitions
+`packages/ui-backend-pi/src/worker-session.ts:88`). Autonomous acquisitions
 return before the map is consulted (`runtime.newSession`, `packages/ui-backend-pi/src/session-pool.ts:103-105`).
 So the duplicate check
 (`sessions.get(created.session.sessionId)`, `packages/ui-backend-pi/src/session-pool.ts:106-119`)
@@ -75,14 +75,14 @@ reach the loser branch.
 ## Losing-worker lifecycle today
 
 `dispose()` sets `ended`, ends stdin and requests SIGKILL synchronously
-(`dispose()`, `packages/ui-backend-pi/src/worker-session.ts:776`). For a worker that was
+(`dispose()`, `packages/ui-backend-pi/src/worker-session.ts:230`). For a worker that was
 never prompted, the only turn-temp close is a detached hook on exit, and its
-refusal is swallowed (`A worker that never ran a turn`, `packages/ui-backend-pi/src/worker-session.ts:318-322`).
+refusal is swallowed (`A worker that never ran a turn`, `packages/ui-backend-pi/src/worker-session.ts:173-177`).
 Nothing calls the launcher's `released()` (`stdioReleased`,
-`packages/ui-backend-pi/src/worker-session.ts:357`) for this worker. The
+`packages/ui-backend-pi/src/worker-session.ts:219`) for this worker. The
 awaited owner already exists: the session's shared inactive `abort()` waits
 for exit and protocol consumption, then the turn-temp close, then the bounded
-stdio release (`abort()`, `packages/ui-backend-pi/src/worker-session.ts:758-774`).
+stdio release (`abort()`, `packages/ui-backend-pi/src/worker-session.ts:212-228`).
 #2880 uses it for cancelled acquisitions (`cancelAcquiredSession`,
 `packages/ui-backend-pi/src/session-pool.ts:176-183`).
 

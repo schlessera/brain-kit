@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneMediaPlan, HygieneMediaReceipt, HygieneMediaRefusal, HygienePreviewResponse, HygieneReviewRead, HygieneReviewState, HygieneWorktreeDetailsRead, InboxActionItem, InboxItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { hygieneEffectSchema, hygieneInputSchema, hygieneMediaPlanSchema, hygieneMediaRefusalSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { MediaEffects } from "./media-effects.js";
 import type { BrainClient } from "../brain/client.js";
@@ -174,7 +175,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
           options.push(inboxOptionSchema.parse(needsPath ? option : withPlan(option, await mediaPlan(finding, operation))));
           // Persist by a broader media.track rule (rev 4 §7): the person enters the
           // rule, and its preview lists every current match before approval.
-          if (operation === "media-persist" && !scratch && !finding.path.startsWith(`${SHARE_STAGING_DIR}/`)) {
+          if (operation === "media-persist" && !scratch && !isWithin(SHARE_STAGING_DIR, finding.path, { includeRoot: false })) {
             options.push(inboxOptionSchema.parse({ id: PERSIST_RULE, label: "Persist with a broader rule…", input: { type: "string", example: ruleExample(finding.path) }, effect: effect(finding, operation) }));
           }
         }

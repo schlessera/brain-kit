@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:177-196`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:180-199`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -124,6 +124,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview` | J |
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
 | `GET /api/journal/configuration-coverage` | `mounted supported handler: GET /api/journal/configuration-coverage` | J |
+| `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
 | `GET /api/schedules` | `mounted supported handler: GET /api/schedules` | K |
@@ -386,8 +387,8 @@ the additive `query_activity` scope carries the supported agent contract.
 - `governance events filter by session, turn and kind, and page in id order` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events filter by session, turn and kind, and page in id order`, `packages/ui-server/tests/governance-events-http.test.ts:48-71`)
 - `governance events refuse malformed parameters` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events refuse malformed parameters`, `packages/ui-server/tests/governance-events-http.test.ts:73-82`)
 - `a governance event storage failure is a 500` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`a governance event storage failure is a 500`, `packages/ui-server/tests/governance-events-http.test.ts:84-91`)
-- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:179-193`)
-- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:195-204`)
+- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:184-198`)
+- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:200-209`)
 
 **N — Speech grants.**
 
@@ -535,3 +536,7 @@ byte-identical `not_admitted` for unknown, foreign, refused, agent and ambient
 callers, a read admitting and cleaning nothing, and revocation during the read;
 [the real-host test](../packages/ui-server/tests/chat-deletion-http.test.ts) repeats
 the owner, foreign, agent and unknown answers through `createApp` and cookies.
+
+The safety read additionally runs real password-authenticated loopback HTTP/WS
+fixtures in `packages/ui-server/tests/safety-history.test.ts`, including stale
+cursors, revocation/retirement after a held read and independent A/B/C records.

@@ -283,6 +283,9 @@ describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
   function seededPriced() {
     const db = createUiDb(":memory:");
     const store = createActivityStore(db, { writer: "test", pricing: rates });
+    // A completed UTC hour keeps all five runs on one day, even at midnight,
+    // while staying within the query API's default 24-hour window.
+    const fixtureNow = Math.floor(Date.now() / 3_600_000) * 3_600_000;
     const sessionRun = (
       runId: string,
       billing: "subscription" | "api",
@@ -296,11 +299,11 @@ describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
         origin: "session",
         sessionId: "sess-1",
         attrs: { "brain.billing_mode": billing, "brain.profile_id": "default" },
-        startedAt: Date.now() - 60_000,
+        startedAt: fixtureNow - 60_000,
       });
       store.endSpan(`${runId}:turn`, {
         outcome: "success",
-        endedAt: Date.now() - 45_000,
+        endedAt: fixtureNow - 45_000,
         ...(perModel ? { attrs: { "gen_ai.usage.per_model": perModel } } : {}),
       });
       store.rollupRun(runId);
@@ -317,9 +320,9 @@ describe("activity aggregation: effective cost + unpriced counts (U5)", () => {
         origin: "cron",
         jobName: "sync",
         attrs: { "brain.billing_mode": billing },
-        startedAt: Date.now() - 30_000,
+        startedAt: fixtureNow - 30_000,
       });
-      store.endSpan(`${runId}:root`, { outcome: "success", endedAt: Date.now() - 15_000 });
+      store.endSpan(`${runId}:root`, { outcome: "success", endedAt: fixtureNow - 15_000 });
       store.rollupRun(runId);
     };
     cronRun("cron-sub", "subscription");

@@ -1,4 +1,5 @@
 /** Host-owned append snapshots and exact user-message ownership. Never mounted into a worker. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -30,7 +31,7 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
   let ancestor = dir;
   while (!existsSync(ancestor)) ancestor = dirname(ancestor);
   const actual = resolve(realpathSync(ancestor), dir.slice(ancestor.length).replace(/^\//, ""));
-  if (actual === brain || actual.startsWith(brain + "/") || brain.startsWith(actual + "/")) {
+  if (isWithin(brain, actual) || isWithin(actual, brain)) {
     throw new Error("Session prompt storage must be outside the authoritative brain");
   }
   const path = join(dir, name);

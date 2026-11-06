@@ -64,7 +64,7 @@ function harness(overrides: Partial<PiWorkerRpcContext> = {}, bridge: Partial<Ba
 
 test("the handler table has exactly one handler per protocol method", () => {
   expect(Object.keys(PI_WORKER_RPC_HANDLERS).sort())
-    .toEqual(["apply", "bridge", "fileObservation", "lock", "permission", "readBase", "syncAuth", "unlock"]);
+    .toEqual(["apply", "bridge", "fileObservation", "lock", "permission", "readBase", "safetyResult", "safetyUnavailable", "syncAuth", "unlock"]);
 });
 
 test("a method without a handler is refused, including inherited object keys", async () => {
@@ -190,4 +190,24 @@ test("apply sends one application to the server route and keeps its receipt", as
   expect(context.turn.pendingMutations.size).toBe(0);
   const unrouted = harness();
   await expect(unrouted.dispatch(rpc("apply", "brain_add", { operation: "add", content: "Ithaca" }))).rejects.toThrow("No authoritative server application route");
+});
+
+
+test("the result RPC awaits host evidence before release and cannot self-assert finalization",async()=>{
+ let release!:()=>void;const committed=new Promise<void>(resolve=>{release=resolve});const seen:unknown[]=[];
+ const {dispatch}=harness({}, {inputSafety:{ready:async()=>{},begin:async()=>{},result:async(...args)=>{seen.push(args);await committed;}}});
+ let returned=false;const result=dispatch(rpc("safetyResult","read_file",{output:"Ithaca"})).then(()=>{returned=true});
+ await Promise.resolve();expect(returned,"PI_SAFETY_RESULT_WAITS_FOR_COMMIT").toBe(false);
+ expect(seen).toEqual([["call-1","read_file","Ithaca",false]]);release();await result;
+});
+
+test("an unavailable collector notice awaits durable failure and carries no tool or caller details",async()=>{
+ let release!:()=>void,called=0;const committed=new Promise<void>(resolve=>{release=resolve});
+ const {dispatch}=harness({}, {inputSafety:{ready:async()=>{},begin:async()=>{},result:async()=>{},unavailable:async()=>{called++;await committed;}}});
+ await expect(dispatch(rpc("safetyUnavailable","grep",{},""))).rejects.toThrow("Malformed safety unavailable");
+ await expect(dispatch(rpc("safetyUnavailable","",{reason:"safe"},""))).rejects.toThrow("Malformed safety unavailable");
+ expect(called).toBe(0);
+ let returned=false;const result=dispatch(rpc("safetyUnavailable","",{},"")).catch(error=>{returned=true;return error;});
+ await Promise.resolve();expect(returned,"PI_SAFETY_UNAVAILABLE_WAITS_FOR_COMMIT").toBe(false);
+ expect(called).toBe(1);release();expect(String(await result)).toContain("Unqualified Pi input transformations");
 });

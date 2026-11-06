@@ -118,12 +118,11 @@ export interface CreatePiBackendOptions {
   sessionDir?: string;
   /**
    * Load pi extensions (installed pi packages and repo-local extensions).
-   * Default TRUE since the tool_call permission gate covers extension tools:
-   * a tool the gate's allowlist does not know raises an approval card before
-   * it runs, so installing e.g. `pi-mcp-adapter` (MCP servers from the repo's
-   * `.mcp.json`) or `pi-web-access` (web search/fetch) extends the surface
-   * with the same approval posture the Claude backend gives MCP tools.
-   * Set false to pin the surface to the curated tools alone.
+   * Default TRUE preserves discovery, but managed workers refuse any loaded
+   * extension or extension loading error: the pinned SDK's extension message
+   * injection and final dispatch paths are not qualified for safety collection.
+   * This includes web, MCP and subagent extensions. Set false to use only the
+   * host's curated tools. Skills and context files still load.
    */
   loadExtensions?: boolean;
   /**

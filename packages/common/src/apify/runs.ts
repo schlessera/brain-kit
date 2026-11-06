@@ -2,14 +2,13 @@
  * The trusted Apify run service (#3161,
  * [the contract](../../../../docs/decisions/apify-capability.md#selected-execution-eligibility-and-monetary-enforcement)):
  * reservation, dispatch, bounded waiting, results, abort, settlement and
- * reconciliation of qualified batch runs.
+ * reconciliation of user-approved Actor runs.
  *
  * Every paid step is admitted the same way. {@link ApifyConsent.admitRun}
  * re-reads the proposal's facts and consumes it; the dispatch here then
- * validates the input against the build's qualified profile, applies the
- * site authorization, intersects the policy's `apify.limits` with the global
+ * scans input for credential extraction, intersects `apify.limits` with global
  * `budgets` (less inference already spent) and reserves the run cap plus its
- * whole lifecycle (status, result and abort requests, and the remote storage
+ * estimated lifecycle (status, result and abort requests, and the remote storage
  * it can leave behind) in the shared ledger, atomically and before the start
  * request. The start is sent once, never retried, with the build number,
  * timeout, memory and `maxTotalChargeUsd` as run options rather than input.
@@ -24,7 +23,7 @@
  * Cancellation, timeout, budget exhaustion and disablement stop new work and
  * send an owned abort through {@link ApifyAuthority.cleanupRequest}. A
  * requested or even confirmed abort never asserts that nothing was charged:
- * the run's liability settles only from its charged-event report, and an
+ * the run's liability settles only from observed run charges, and an
  * unpriced or missing report keeps the reservation.
  *
  * Exposure through CLI, MCP and both chat backends is #3162; presentation is
@@ -39,7 +38,7 @@ import {
   ApifyLedgerRefusal, APIFY_TERMINAL_STATES, liability, type ApifyLedger, type ApifyRunRow, type ApifyRunState, type ApifyScopeTotals,
 } from "./ledger.js";
 import {
-  APIFY_QUALIFIED_PROFILES, ApifyProfileInputError, eventMicros, lifecycleMicros, micros, profileFor, profileInput, type ApifyQualifiedProfile,
+  APIFY_QUALIFIED_PROFILES, eventMicros, lifecycleMicros, micros, profileFor, type ApifyQualifiedProfile,
 } from "./profiles.js";
 
 /** The contract's machine refusal codes this service raises. */
@@ -64,6 +63,8 @@ export const APIFY_RUN_LIMITS = Object.freeze({
   poll_ms: 5_000,
   /** Status reads kept back from the bounded wait for settlement after it. */
   settlement_reads: 3,
+  /** Provider completion figures can be preliminary; require a later observation. */
+  settlement_delay_ms: 10_000,
   /** A start older than this without a recorded answer was interrupted: its outcome is unknown. */
   dispatch_grace_ms: 120_000,
   /** How long past its timeout a run may stay open before it is aborted. */
@@ -72,7 +73,7 @@ export const APIFY_RUN_LIMITS = Object.freeze({
 
 /** What the coverage of these numbers is, stated beside inference spend. */
 export const APIFY_COVERAGE =
-  "Apify runs this host admitted: qualified pay-per-event charges, plus reserved lifecycle requests and remote storage. Activity in Apify Console or other applications on the same account is not metered." as const;
+  "BrainKit-admitted Apify work across Actors: observed run charges plus estimated platform requests, transfer and storage. Pending costs and later charges may change the total; run caps are not an all-cost guarantee. Independent account activity is not attributed to these turns." as const;
 
 /** The governance facts a dispatch reads live. */
 export interface ApifyRunPolicy {
@@ -119,7 +120,7 @@ export interface ApifyRunsOptions {
   /** @internal Test seam; production uses {@link APIFY_QUALIFIED_PROFILES}. */
   profiles?: readonly ApifyQualifiedProfile[];
   inference?: ApifyInferenceSpend;
-  /** Required for a profile authorized by robots.txt; without it such a run refuses. */
+  /** Legacy optional checker; Actor approval delegates remote collection methods to the Actor. */
   sitePermission?: ApifySitePermission;
   waitSeconds?: number;
   pollMs?: number;
@@ -186,6 +187,7 @@ export interface ApifyCoverage {
 }
 
 export interface ApifyRuns {
+  budgetAvailability(context: ApifyCallContext, account_id: string): Promise<string | null>;
   /** Admit, reserve and start one consented run, then wait a bounded time. */
   run(context: ApifyCallContext, input: { proposal: string }): Promise<ApifyRunView>;
   status(context: ApifyCallContext, input: { run: string }): Promise<ApifyRunView>;
@@ -207,6 +209,7 @@ export interface ApifyRuns {
 
 /** The validated parts of an Apify run object the service relies on. */
 interface RemoteRun {
+  total_micro: number | null;
   id: string; actId: string; userId: string; buildId: string; buildNumber: string | null; status: string;
   defaultDatasetId: string;
   options: { build: unknown; timeoutSecs: unknown; memoryMbytes: unknown; maxTotalChargeUsd: unknown; restartOnError: unknown };
@@ -260,6 +263,7 @@ function remoteRun(data: unknown): RemoteRun | null {
     buildNumber: typeof run.buildNumber === "string" ? run.buildNumber : null, status: run.status, defaultDatasetId: run.defaultDatasetId,
     options: { build: options.build, timeoutSecs: options.timeoutSecs, memoryMbytes: options.memoryMbytes, maxTotalChargeUsd: options.maxTotalChargeUsd,
       restartOnError: options.restartOnError },
+    total_micro: typeof run.usageTotalUsd === "number" && Number.isFinite(run.usageTotalUsd) && run.usageTotalUsd >= 0 && Number.isSafeInteger(micros(run.usageTotalUsd)) ? micros(run.usageTotalUsd) : null,
     counts, prices, pricingModel: typeof pricing?.pricingModel === "string" ? pricing.pricingModel : null,
     metamorphs: Array.isArray(run.metamorphs) ? run.metamorphs.length : 0,
   };
@@ -285,11 +289,24 @@ function mismatch(row: ApifyRunRow, run: RemoteRun): string | null {
  * The durable per-turn request meter consent and runs share: every Apify
  * request a turn makes counts once, across processes.
  */
-export function createApifyRequestMeter(options: { ledger: () => ApifyLedger; policy: () => ApifyRunPolicy; brain_id: string }): ApifyRequestMeter {
-  return (scope, requests) => {
-    const bound = options.policy().limits?.max_requests_per_turn ?? APIFY_DISCOVERY_LIMITS.requests_per_turn;
-    try { options.ledger().countRequests({ brain_id: options.brain_id, session_id: scope.session_id, turn_id: scope.turn_id }, requests, bound); }
-    catch (error) { throw translate(error); }
+export function createApifyRequestMeter(options: {
+  ledger: () => ApifyLedger; policy: () => ApifyRunPolicy; brain_id: string;
+  account?: () => Promise<string | null>; inference?: ApifyInferenceSpend; now?: () => number;
+}): ApifyRequestMeter {
+  return async (scope, requests) => {
+    const policy = options.policy(), limits = policy.limits;
+    const bound = limits?.max_requests_per_turn ?? APIFY_DISCOVERY_LIMITS.requests_per_turn;
+    try {
+      const account_id = await options.account?.();
+      const inference = account_id ? await options.inference?.(scope) : undefined;
+      const headroom = (cap: number, spent?: number | null) => floorMicros(Math.max(0, cap - (spent ?? 0)));
+      options.ledger().countRequests({ brain_id: options.brain_id, session_id: scope.session_id, turn_id: scope.turn_id }, requests, bound,
+        account_id ? { account_id, micro: micros(requests * 0.001), now: (options.now ?? Date.now)(), limits: {
+          turn_micro: Math.min(headroom(policy.budgets.turn_usd, inference?.turn_usd), floorMicros(limits?.turn_usd ?? 1_000_000)),
+          session_micro: Math.min(headroom(policy.budgets.session_usd, inference?.session_usd), floorMicros(limits?.session_usd ?? 1_000_000)),
+          day_micro: floorMicros(limits?.day_usd ?? 1_000_000), brain_day_micro: headroom(policy.budgets.day_usd, inference?.day_usd),
+        } } : undefined);
+    } catch (error) { throw translate(error); }
   };
 }
 
@@ -351,22 +368,24 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
     const profile = profileOf(row);
     const state = STATES[run.status]!;
     let price_changed = false;
-    let micro: number | null = null;
-    if (profile && run.counts) {
+    let micro: number | null = run.total_micro;
+    if (micro === null && run.counts) {
       if (run.pricingModel !== null && run.pricingModel !== "PAY_PER_EVENT") micro = null;
       else {
-        price_changed = run.prices !== null && Object.entries(run.prices).some(([event, price]) => profile.billing.events[event] !== price);
-        micro = eventMicros(profile, run.counts, run.prices);
+        price_changed = run.prices !== null && Object.entries(run.prices).some(([event, price]) => profile?.billing.events[event] !== price);
+        micro = profile ? eventMicros(profile, run.counts, run.prices) : run.prices && Object.keys(run.counts).every(event => run.counts![event] === 0 || event in run.prices!)
+          ? micros(Object.entries(run.counts).reduce((sum, [event, count]) => sum + count * (run.prices![event] ?? 0), 0)) : null;
       }
     }
     let current = book(store => store.update(row.handle, current => ({
       state: current.settled ? current.state : state, validated: 1, dataset_id: run.defaultDatasetId,
       finished_at: terminal(state) ? current.finished_at ?? now() : current.finished_at,
     }), now()));
-    if (run.counts) current = book(store => store.charge(row.handle, { counts: run.counts!, status: run.status, micro, price_changed }, now())).row;
+    if (run.counts || micro !== null) current = book(store => store.charge(row.handle, { counts: run.counts ?? {}, status: run.status, micro, price_changed }, now())).row;
     else if (terminal(state)) current = book(store => store.update(row.handle, () => ({ cost_basis: "unknown" }), now()));
     // Settle once: a finished run with a fully priced report. Late reports raise the settled amount in the ledger.
-    if (terminal(state) && !current.settled && micro !== null && current.cost_basis !== "unknown") {
+    if (terminal(state) && !current.settled && micro !== null && current.cost_basis !== "unknown"
+      && current.finished_at !== null && now() - current.finished_at >= APIFY_RUN_LIMITS.settlement_delay_ms) {
       current = book(store => store.update(row.handle, latest => latest.settled ? null : ({
         settled: 1, cost_basis: "events",
         final_micro: (latest.charged_micro ?? micro!) + latest.request_micro + latest.storage_micro,
@@ -430,34 +449,17 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
     const limits = policy.limits;
     if (!limits) throw refuse("budget_exceeded", "limits_unset", "The governance policy sets no apify.limits, so no Apify spending is allowed. Nothing was started.");
     const profile = profileFor(profiles, ticket);
-    if (!profile) throw refuse("actor_unsupported", "no_qualified_profile", "This Actor build has no qualified profile for its exact schema and price, so it cannot run.");
-    let profiled;
-    try { profiled = profileInput(profile, ticket.input, limits.max_result_items); }
-    catch (error) {
-      if (error instanceof ApifyProfileInputError) throw refuse("policy_denied", "input_refused", `The run's input is outside its qualified profile: ${error.message} Nothing was started.`);
-      throw error;
-    }
-    if (profiled.origins.some(origin => !ticket.origins.includes(origin)))
-      throw refuse("proposal_stale", "origins_changed", "The run's targets differ from the reviewed ones. Prepare it again.");
-    if (profile.site.authorization === "robots") {
-      if (!options.sitePermission) throw refuse("policy_denied", "site_permission_unproven", "This host cannot check the targets' robots.txt, so the run was not started.");
-      for (const url of profiled.urls) {
-        let allowed = false;
-        try { allowed = await options.sitePermission(url, context.signal); }
-        catch (error) {
-          if (error instanceof ApifySitePermissionUnavailable) throw refuse("policy_denied", "site_permission_unproven", "This host cannot check the targets' robots.txt, so the run was not started.");
-          allowed = false;
-        }
-        if (!allowed) throw refuse("policy_denied", "robots_disallowed", "A target's robots.txt does not allow fetching it (or could not be checked), so the run was not started.");
-      }
-    }
-    const minimum = profile.billing.minimal_max_total_charge_usd;
-    if (minimum !== null && ticket.max_charge_usd < minimum)
-      throw refuse("actor_unsupported", "below_minimum_charge", `This Actor needs a run cap of at least $${minimum}. Nothing was started.`);
-    const timeout = Math.min(limits.max_runtime_seconds, profile.run.max_timeout_seconds);
-    if (timeout <= 0) throw refuse("budget_exceeded", "max_runtime_seconds", "apify.limits.max_runtime_seconds is zero, so no run may start.");
-    const life = lifecycleMicros(profile, profiled.items_bound);
-
+    if (options.authority.credentialRisk(ticket.input)) throw refuse("policy_denied", "credential_extraction", "Actor input attempts to extract or disclose credentials; nothing was sent.");
+    const requestedMemory = ticket.memory_mbytes ?? profile?.run.memory_mbytes ?? 256;
+    const memory = Number.isInteger(requestedMemory) && requestedMemory >= 128 && requestedMemory <= 32768 && (requestedMemory & (requestedMemory - 1)) === 0 ? requestedMemory : 256;
+    const timeout = limits.max_runtime_seconds;
+    if (timeout <= 0) throw refuse("budget_exceeded", "max_runtime_seconds", "The configured runtime allowance is exhausted.");
+    // Estimates are held beside the run cap, not presented as guaranteed tariff coverage.
+    const statusBudget = 20, resultBudget = Math.max(1, limits.max_requests_per_turn), abortBudget = 2;
+    const life = profile ? lifecycleMicros(profile, limits.max_result_items) : {
+      requests: micros(0.001 * (statusBudget + resultBudget + abortBudget)),
+      storage: micros(0.01 * Math.max(1, Math.ceil(limits.max_retention_seconds / 86_400))),
+    };
     let spent = { turn_usd: null as number | null, session_usd: null as number | null, day_usd: null as number | null };
     if (options.inference) {
       try { spent = await options.inference({ session_id: context.session_id, turn_id: context.turn_id }); }
@@ -478,19 +480,19 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
     let row = book(store => store.reserve({
         account_id: ticket.binding.account_id, generation: ticket.binding.generation, brain_id: options.brain_id,
         principal_id: context.principal_id, session_id: context.session_id, turn_id: context.turn_id, proposal_digest: sha256(ticket.proposal),
-        actor_id: ticket.actor_id, build_id: ticket.build_id, build_number: ticket.build_number, profile_id: profile.id, input_sha256: ticket.input_sha256,
-        run_cap_micro: ticket.max_charge_microusd, request_micro: life.requests, storage_micro: life.storage, request_unit_micro: micros(profile.lifecycle.request_usd),
+        require_actor_approval: ticket.consent.source === "grant", actor_id: ticket.actor_id, build_id: ticket.build_id, build_number: ticket.build_number, profile_id: profile?.id ?? "actor-approved", input_sha256: ticket.input_sha256,
+        run_cap_micro: ticket.max_charge_microusd, request_micro: life.requests, storage_micro: life.storage, request_unit_micro: profile ? micros(profile.lifecycle.request_usd) : micros(0.001),
         deadline_at: at + timeout * 1000 + APIFY_RUN_LIMITS.deadline_grace_ms, retention_seconds: limits.max_retention_seconds,
-        timeout_secs: timeout, memory_mbytes: profile.run.memory_mbytes, items_bound: profiled.items_bound,
-        max_result_items: Math.min(limits.max_result_items, profiled.items_bound), max_result_bytes: limits.max_result_bytes,
-        status_budget: profile.lifecycle.status_requests, result_budget: profile.lifecycle.result_requests, abort_budget: profile.lifecycle.abort_requests,
+        timeout_secs: timeout, memory_mbytes: memory, items_bound: Number.MAX_SAFE_INTEGER,
+        max_result_items: Number.MAX_SAFE_INTEGER, max_result_bytes: Number.MAX_SAFE_INTEGER,
+        status_budget: profile?.lifecycle.status_requests ?? statusBudget, result_budget: profile?.lifecycle.result_requests ?? resultBudget, abort_budget: profile?.lifecycle.abort_requests ?? abortBudget,
       }, admission, at, limits.max_requests_per_turn));
 
     let response;
     try {
       // Sent once, never retried. Not tied to the turn's signal: an answer is better evidence than a cut connection.
       response = await options.authority.request(ticket.binding, { method: "POST", path: `/v2/acts/${ticket.actor_id}/runs`,
-        query: { build: ticket.build_number, timeout, memory: profile.run.memory_mbytes, maxTotalChargeUsd: ticket.max_charge_usd,
+        query: { build: ticket.build_number, timeout, memory, maxTotalChargeUsd: ticket.max_charge_usd,
           waitForFinish: 0, restartOnError: false },
         body: ticket.input });
     } catch (error) {
@@ -533,7 +535,7 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
   async function settle(context: ApifyCallContext, start: ApifyRunRow): Promise<ApifyRunView> {
     let row = start;
     const until = now() + waitMs;
-    while (!terminal(row.state) && now() < until && row.status_requests < row.status_budget - APIFY_RUN_LIMITS.settlement_reads) {
+    while ((!terminal(row.state) || !row.settled) && now() < until && row.status_requests < row.status_budget - APIFY_RUN_LIMITS.settlement_reads) {
       if (context.signal?.aborted) return abortRun(row, "stopped:cancelled");
       await sleep(Math.min(pollMs, Math.max(0, until - now())), context.signal);
       if (context.signal?.aborted) return abortRun(row, "stopped:cancelled");
@@ -555,6 +557,21 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
   }
 
   return {
+    async budgetAvailability(context, account_id) {
+      const policy = options.policy();
+      if (!policy.valid || !policy.enabled) return "not_enabled";
+      if (!policy.limits) return "limits_unset";
+      const totals = book(store => store.totals({ brain_id: options.brain_id, account_id, session_id: context.session_id, turn_id: context.turn_id }, now()));
+      const inference = options.inference ? await options.inference(context) : { turn_usd: 0, session_usd: 0, day_usd: 0 };
+      const limits = policy.limits;
+      if (limits.run_usd <= 0 || totals.turn.liability_micro >= micros(Math.min(limits.turn_usd, Math.max(0, policy.budgets.turn_usd - (inference.turn_usd ?? 0))))
+        || totals.session.liability_micro >= micros(Math.min(limits.session_usd, Math.max(0, policy.budgets.session_usd - (inference.session_usd ?? 0))))
+        || totals.day.liability_micro >= micros(limits.day_usd)
+        || totals.brain_day.liability_micro >= micros(Math.max(0, policy.budgets.day_usd - (inference.day_usd ?? 0)))) return "budget_exhausted";
+      if (totals.day.open_runs >= limits.max_concurrent_runs) return "max_concurrent_runs";
+      if (totals.turn.runs >= limits.max_runs_per_turn) return "max_runs_per_turn";
+      return null;
+    },
     async run(context, input) {
       return options.consent.admitRun(context, input, ticket => dispatch(context, ticket));
     },
@@ -607,14 +624,13 @@ export function createApifyRuns(options: ApifyRunsOptions): ApifyRuns {
         query: { offset, limit: asked, clean: true, format: "json" }, ...(context.signal ? { signal: context.signal } : {}) });
       if (response.status !== 200 || !Array.isArray(response.data))
         throw refuse("upstream_incompatible", "dataset_items", "Apify returned dataset items this host does not recognise.");
-      const profile = profileOf(row);
+      if (options.authority.credentialRisk(response.data)) throw refuse("policy_denied", "credential_extraction", "Actor output attempts to extract or disclose credentials; no result content was returned.");
       const items: unknown[] = [];
       let bytes = 0;
       let truncated = false;
       const warnings: string[] = [];
       for (const item of response.data.slice(0, asked)) {
         const size = Buffer.byteLength(JSON.stringify(item) ?? "null");
-        if (profile && size > profile.output.max_item_bytes) { truncated = true; warnings.push("An item larger than the profile's item bound was withheld."); items.push(null); continue; }
         if (bytes + size > bytesLeft) { truncated = true; break; }
         bytes += size;
         items.push(item);

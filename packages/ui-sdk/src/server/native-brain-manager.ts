@@ -4,6 +4,7 @@
  * It cannot format, resize, execute repository code or accept caller host paths.
  * Its fixed staging operation mounts one bounded private trusted OverlayFS.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { constants, openSync, closeSync, fsyncSync, fstatSync, writeFileSync, readFileSync, renameSync, lstatSync, statSync,
   mkdirSync, chmodSync, chownSync, readdirSync, realpathSync, existsSync, unlinkSync, ftruncateSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
@@ -81,7 +82,7 @@ export function nativeStoreMount(mountinfo: string, store: string, brain: string
   const mounted = rows.filter(row => row.path === store);
   if (mounted.length !== 1 || mounted[0]!.type !== "btrfs" || mounted[0]!.root !== "/" || !mounted[0]!.options.includes("rw"))
     throw new NativeBrainManagerError("unsupported", "Provision one read-write top-level Btrfs mount at the configured native store; no directory/full-copy fallback exists.");
-  if (rows.some(row => row.path === brain || row.path.startsWith(brain + "/")))
+  if (rows.some(row => isWithin(brain, row.path)))
     throw new NativeBrainManagerError("unsupported", "The managed brain must not contain nested mounts.");
   return mounted[0]!;
 }
@@ -117,7 +118,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     throw new NativeBrainManagerError("unsupported", "Native manager requires the separately qualified trusted Linux x86-64 root service; the app and workers remain unprivileged.");
   const fixed = Object.freeze({ ...config, operationTimeoutMs: config.operationTimeoutMs ?? NATIVE_MANAGER_OPERATION_TIMEOUT_MS, maxDeltaBytes: config.maxDeltaBytes ?? NATIVE_MANAGER_MAX_DELTA_BYTES }), brain = join(fixed.storePath, "brain"), privateRoot = join(fixed.storePath, ".brain-native"), state = join(privateRoot, "state"), roots = join(privateRoot, "checkpoints"), reserve = join(privateRoot, "emergency"), stages = join(privateRoot, "stages");
   trustedAncestors(fixed.storePath); trustedAncestors(dirname(fixed.socketPath));
-  if (realpathSync(fixed.storePath) !== fixed.storePath || fixed.socketPath === brain || fixed.socketPath.startsWith(brain + "/"))
+  if (realpathSync(fixed.storePath) !== fixed.storePath || isWithin(brain, fixed.socketPath))
     throw new NativeBrainManagerError("unsupported", "Native store and socket require protected canonical paths outside the live brain.");
   for (const binary of [BTRFS, PYTHON, FALLOCATE]) {
     const executable = statSync(binary);
