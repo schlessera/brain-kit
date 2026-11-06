@@ -1,3 +1,6 @@
+export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety.js";
+export type { SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
+import type { ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable, SafetyCapabilities } from "./safety.js";
 // ============================================================
 // brain-kit chat-UI wire protocol
 //
@@ -117,6 +120,7 @@ export interface SessionRef {
 // --- Client -> Server ---
 
 export type ClientMessage =
+  | ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe
   | ClientScopeDecision
   | ClientHello
   | ClientRetryTurn
@@ -853,6 +857,7 @@ export interface ServerRetryReceipt extends SessionScoped {
 // --- Server -> Client ---
 
 export type ServerMessage =
+  | ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable
   | ServerScopeDecisionReceipt
   | ServerHello
   | ServerRetryReceipt
@@ -906,6 +911,8 @@ export type ServerMessage =
  * existing chat flow on the client having seen this frame.
  */
 export interface ServerHello {
+  /** Read sidecar only; absent means unavailable. */
+  safetyCapabilities?: SafetyCapabilities;
   /** Known destination/profile before explicit Start; no provider has opened. */
   conversationProfile?: ConversationProfile;
   type: "server_hello";

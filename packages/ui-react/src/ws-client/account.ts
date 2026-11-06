@@ -1,3 +1,4 @@
+import { createSafetyClient } from "../lib/safety-client.js";
 import type { BrainUiClient, WebSocketClose } from "@schlessera/brain-ui-sdk/client";
 import type { ClientMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
@@ -53,6 +54,7 @@ export function createAccountServices(
   void answers.start();
   const services = {
     answers,
+    safety: createSafetyClient(root,message=>deps.send(message)),
     /** Work left running, tracked until seen (D52 §4, #948). Reads only. */
     trackers: createTrackerClient(root),
     /** Every session's own composer draft, kept on the host when it can (D52 §5, #951). */
@@ -76,15 +78,17 @@ export function createAccountServices(
     },
     /** The socket is no longer connected: queued answers wait for the next hello. */
     socketDown(): void {
+      services.safety.disconnected();
       if (!answersReady) return;
       answersReady = false;
       services.answers.disconnected();
     },
     dispose(): void {
-      services.answers.dispose(); services.trackers.dispose(); services.drafts.dispose();
+      services.answers.dispose(); services.trackers.dispose(); services.drafts.dispose(); services.safety.dispose();
     },
     restore(): void {
       services.answers = makeAnswers(); void services.answers.start();
+      services.safety = createSafetyClient(root,message=>deps.send(message));
       services.trackers = createTrackerClient(root);
       services.drafts = makeDrafts();
     },

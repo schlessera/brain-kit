@@ -1,0 +1,38 @@
+/** Host evidence is kept beside chat state, never in its message objects. */
+import { createStore } from "zustand/vanilla";
+import type { SafetyIdentity, SafetyPage, SafetyUpdate, SafetyRecord, SafetyHistoryProjection } from "@schlessera/brain-ui-sdk/protocol";
+const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
+interface SafetyState {
+  supported:boolean; status:"unavailable"|"loading"|"partial"|"ready"; reason:string|null;
+  identity:SafetyIdentity|null; projection:SafetyHistoryProjection|null; records:Record<string,SafetyRecord>; revision:string;
+  snapshotId:string|null; requestId:string|null; normal:boolean; nextCursor:string|null;
+  reset(supported?:boolean):void; begin(requestId:string):void; page(requestId:string,page:SafetyPage):boolean;
+  update(update:SafetyUpdate):boolean; unavailable(reason:string):void; retire(sessionId?:string,ownerIds?:string[]):void;
+}
+const empty={status:"unavailable" as const,reason:"unavailable",identity:null,projection:null,records:{},revision:"0",snapshotId:null,requestId:null,normal:false,nextCursor:null};
+export function createSafetyStore(){
+  return createStore<SafetyState>()((set,get)=>({supported:false,...empty,
+    reset(supported=false){set({...empty,supported});},
+    begin(requestId){set({...empty,supported:get().supported,status:"loading",reason:null,requestId});},
+    page(requestId,page){
+      const s=get();if(!s.supported||s.requestId!==requestId)return false;
+      if(s.snapshotId&&(s.snapshotId!==page.snapshotId||s.revision!==page.highWater||!same(s.identity,page.identity)))return false;
+      if(page.cursor!==s.nextCursor||page.snapshotComplete!==(page.nextCursor===null))return false;
+      if(page.projection.evidenceRevision!==page.highWater)return false;
+      const records:Record<string,SafetyRecord>=Object.assign(Object.create(null),s.records);for(const r of page.records){if(BigInt(r.sequence)>BigInt(page.highWater))return false;const old=records[r.id];if(old&&!same(old,r))return false;records[r.id]=r;}
+      set({identity:page.identity,projection:page.projection,records,revision:page.highWater,snapshotId:page.snapshotId,nextCursor:page.nextCursor,
+        status:page.snapshotComplete?"ready":"partial",normal:page.snapshotComplete&&page.projection.restriction==="normal",reason:null});return true;
+    },
+    update(update){
+      const s=get();if(!s.supported||s.status!=="ready"||!same(s.identity,update.identity))return false;
+      if(BigInt(update.toRevision)<=BigInt(s.revision))return true; // duplicate/older frames cannot lower the aggregate
+      if(update.fromRevision!==s.revision||update.projection.evidenceRevision!==update.toRevision){set({normal:false,status:"partial",reason:"gap"});return false;}
+      const records:Record<string,SafetyRecord>=Object.assign(Object.create(null),s.records);for(const r of update.records){if(BigInt(r.sequence)<=BigInt(update.fromRevision)||BigInt(r.sequence)>BigInt(update.toRevision))return false;
+        const old=records[r.id];if(old&&!same(old,r))return false;records[r.id]=r;}
+      if(Object.keys(records).length>100000){set({normal:false,status:"partial",reason:"capacity"});return false;}
+      set({records,projection:update.projection,revision:update.toRevision,normal:update.projection.restriction==="normal"});return true;
+    },
+    unavailable(reason){set({...empty,supported:get().supported,reason});},
+    retire(sessionId,ownerIds){const i=get().identity;if(i&&"sessionId" in i&&(i.sessionId===sessionId||ownerIds?.includes(i.historyOwnerId)))set({...empty,supported:get().supported,reason:"retired"});},
+  }));
+}

@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1105-1123`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1108-1126`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -131,8 +131,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4228-4234`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1979-1981`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4236-4242`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1983-1985`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -2862,3 +2862,72 @@ capture consent, task identities, ordinary screen approvals, append-only
 history and no replay remain. Exact accepted-task progress asks for one brief
 task-specific acknowledgement; running still means host admission, and does
 not renew the acknowledgement or establish backend/tool entry.
+
+## Session safety history (additive, #3604)
+
+The optional boolean `sessionSafetyHistory` in `server_hello.capabilities`
+advertises read-only host sidecars. The optional sibling `safetyCapabilities`
+is version 1: `read:true`, `review:false`, `originRules:false`,
+`repositoryRules:false`, `recipientRules:false`,
+`readOnlyReason:"review_unavailable"`, detector version 1 and effective page,
+frame and cursor limits. Older clients ignore these optional fields; clients
+without both read declarations report unavailable. No verdict endpoint,
+mutation authority or fully qualified detector is implied by read support.
+
+After declaring the same capability in `client_hello`, clients may send:
+
+- `safety_read`: `{type,version:1,requestId,target,cursor?,limit?}`. The target
+  is `{sessionId}` or the exact provisional `{turnId,bindingId}`. Reads cannot
+  discover/create a session by guessing aliases. The host replies
+  `safety_history: {type,requestId,page:SafetyPage}`.
+- `safety_subscribe`: `{type,version:1,requestId,identity,afterRevision}`.
+  One selected history subscription per connection replaces its predecessor.
+  `identity` is the canonical `{sessionId,historyOwnerId,historyGeneration}`
+  or provisional `{turnId,bindingId}`. `safety_unsubscribe: {type,version:1}`
+  removes it; disconnect/auth loss also removes it.
+- `safety_update`: `{type,update:{version:1,identity,fromRevision,toRevision,
+  projection,records}}`. Both revisions are canonical unsigned decimal strings
+  bounded by uint64. Each update contains all selected-history records in its
+  `(fromRevision,toRevision]` interval and the authoritative aggregate at its
+  end, including changes with no detail rows. Revision numbers are brain-wide;
+  unrelated history revisions need not have a selected-history record.
+- `safety_unavailable`: `{type,version:1,requestId?,reason}` where reason is
+  `unavailable|unauthorized|expired|capacity|generation_changed|gap`. Gaps,
+  expired snapshots, generation changes and oversized deltas require a fresh
+  snapshot. No partial delta claims continuity.
+
+Pages echo their input `cursor` to prove ordering. The aggregate is independent
+of paginated detail and stored with the snapshot. `snapshotComplete` is true
+only when `nextCursor` is null. A client assembles one snapshot in cursor order
+and accepts updates only when `fromRevision` equals its current revision;
+older/duplicate updates cannot decrement its aggregate. Partial pages, historic
+review receipts and missing fields cannot label a session normal. After a gap,
+first-turn adoption, reconnect or restart, obtain a new snapshot. Canonical
+occurrence/decision IDs survive adoption and replay; client caches are cleared
+on retirement and auth loss and late request IDs cannot repopulate them.
+
+Records are tagged `occurrence`, `exposure` or `safe_decision`, with immutable
+host record ID, original sequence/time, turn, binding and occurrence ID.
+Occurrences retain their exact host operation/signal/exposure IDs where
+available, source, detector, exposure state and allowlisted transport provenance.
+Opaque connections have null operation/provenance, never inferred Git/tool
+attribution. Pruned details explicitly use null unavailable correlation fields;
+independent occurrence IDs and aggregate counts survive. Text is display data,
+never HTML, instructions or provider conversation content. Commands, file/page
+bodies, URL credentials/query strings and arbitrary model text are omitted.
+
+Each page/update is bounded to 100 records and 262144 bytes. Oversized replay
+requires resync from the durable ledger; there is no unbounded delta cache.
+Snapshots use at most 256 entries, 32 per principal and 4194304 aggregate bytes;
+the shared cursor table caps at 4096 positions, each at most 512 bytes and valid
+for 300000 ms. At most 256 reads (32 per principal) wait at once, and 256
+subscriptions exist per host. Capacity refusal preserves all durable evidence.
+The existing one-second authorization sweep drives bounded live read delivery.
+Every asynchronous settlement and final delivery rechecks live principal,
+canonical generation, retirement and snapshot expiry. Permanent minimized
+retirement fences remain owned by the existing chat lifecycle.
+
+These sidecars never change provider messages, tools or system prefixes. The
+host-only verdict store remains separate; this slice changes no effective-taint
+admission semantics or Settings policy. The semantic G6 break remains governed
+by the prior maintainer ruling in the session-safety ADR.

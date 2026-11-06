@@ -26,8 +26,8 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
   `packages/ui-server/src/governance/safety-store.ts:230`). Legacy rows prove
-  their own event, never a complete history. No product verdict writer or
-  review capability is enabled by this foundation.
+  their own event, never a complete history. Owner review transport and its
+  mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
   `packages/ui-server/src/activity/ingestion-taint.ts:150`;
   `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:172`).
@@ -60,8 +60,9 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 The original source review used main
 `35217d283b849b5ef81700d5d4c2ec7486405d12`; the current collection path retains
 input **and** output signals (`if(!safetyHooked&&ingestion)`,
-`packages/ui-server/src/activity/recorder.ts:384`). These collectors provide the internal coverage/projection foundation; public
-review/history DTOs and mutation remain prospective. The earlier design
+`packages/ui-server/src/activity/recorder.ts:384`). These collectors provide the internal coverage/projection foundation. The
+read-only history DTOs and recovery follow the [authoritative wire contract](../integration-contract/wire.md#session-safety-history-additive-3604); public
+review and Settings mutation remain prospective. The earlier design
 comment also inspected local #3595 work; this document does not assume that
 work has merged. #3595 is adjacent scoped network approval, not persistent
 trust or taint resolution. The extraction-classifier spike #3434 remains separate.
@@ -453,10 +454,12 @@ remain independently enforceable throughout.
 
 ## Proposed version 1 data contract
 
-Everything in this section is **prospective**, not an exported TypeScript type,
-registered route, wire frame or accepted policy key. Implementations must add
-runtime schemas and the authoritative HTTP/wire/package/policy contract with
-code. Strict objects reject unknown keys. No client fields supply principal,
+This section specifies the version 1 design. The read-only history subset is
+refined by the [implemented wire contract](../integration-contract/wire.md#session-safety-history-additive-3604), including provisional identities,
+cursor ordering and the actually retained record variants. The review, trust
+and publication DTOs below remain **prospective**, not registered routes or
+accepted policy keys. Implementations must add runtime schemas and the
+authoritative HTTP/wire/package/policy contract with code. Strict objects reject unknown keys. No client fields supply principal,
 brain, author, channel, authority epoch or operation provenance. Time is host
 UTC epoch milliseconds; strings below are UTF-8 byte bounded, never HTML.
 

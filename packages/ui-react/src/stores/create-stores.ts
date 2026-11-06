@@ -1,3 +1,4 @@
+import { createSafetyStore } from "./safety-state.js";
 import { createContentRendererStore } from "./content-renderer-state.js";
 import { createUIStore } from "./ui-state.js";
 import { createConnectionStore } from "./connection-state.js";
@@ -26,6 +27,7 @@ export function createBrainStores(env: StoreEnvironment) {
   return {
     contentRenderers: createContentRendererStore(env),
     provider,
+    safety: createSafetyStore(),
     drafts,
     chat: createChatStore(env, provider, drafts),
     ui: createUIStore(env),
