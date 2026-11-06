@@ -1,7 +1,7 @@
 import { ConversationTaskContext } from "../voice/conversation-outputs.js";
 import type { TranscriptRange } from "../../lib/transcript-timeline.js";
 import { AttachmentRow } from "@schlessera/brain-ui-kit";
-import { trackRowProps } from "../../lib/track-attachment.js";
+import { attachmentRowProps, trackRowProps } from "../../lib/track-attachment.js";
 import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
@@ -146,6 +146,7 @@ export const MessageBubble = memo(function MessageBubble({
         <UserTurn>
           <UserAttachments message={message} />
           {!!message.files?.length && <div className="grid gap-2">{message.files.map(file => <AttachmentRow key={file.path} {...trackRowProps(file)} />)}</div>}
+          {!!message.attachmentFiles?.length && <div className="grid gap-2" data-sent-files="">{message.attachmentFiles.map(file => <AttachmentRow key={file.fileId} {...attachmentRowProps(file)} />)}</div>}
           {message.content && (
             <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}

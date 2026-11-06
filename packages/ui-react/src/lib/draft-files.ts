@@ -1,0 +1,80 @@
+import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
+import type { BrainUiServices } from "../root.js";
+import { apiBaseFor } from "./backend.js";
+import { createAttachmentQueue, type AttachmentQueue } from "./attachment-queue.js";
+
+/**
+ * One root's generic upload queues, per composer view (#3155).
+ *
+ * A queue holds only files the host has not stored yet. A stored original
+ * goes straight into its draft (`ComposerDraft.files`), whose saved
+ * revision then binds it on the host; that, not the upload, is what can
+ * read as saved. What is still in a queue lives in this page only, so a
+ * reload or closing the tab while any queue holds a file asks the browser
+ * to confirm, as staged tracks do (#1150).
+ *
+ * Keyed as `trackKey` keys tracks: a session's view by its session id, so
+ * its queue survives the draft id rotating under it; the new-chat view by
+ * its draft's first id.
+ */
+type Entry = { queue: AttachmentQueue; listeners: Set<() => void> };
+type Registry = { entries: Map<string, Entry>; leaving: ((event: BeforeUnloadEvent) => void) | null };
+
+const registries = new WeakMap<object, Registry>();
+
+function registry(root: BrainUiServices): Registry {
+  let reg = registries.get(root.stores);
+  if (!reg) { reg = { entries: new Map(), leaving: null }; registries.set(root.stores, reg); }
+  return reg;
+}
+
+function guardLeaving(reg: Registry) {
+  if (typeof window === "undefined") return;
+  const queued = [...reg.entries.values()].some((entry) => entry.queue.files.length > 0);
+  if (queued && !reg.leaving) {
+    reg.leaving = (event) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", reg.leaving);
+  } else if (!queued && reg.leaving) {
+    window.removeEventListener("beforeunload", reg.leaving);
+    reg.leaving = null;
+  }
+}
+
+/** The stored original joins its draft: the draft's next save binds it. */
+function storedInto(root: BrainUiServices, sessionId: string | null, draftId: string, file: AttachmentFile) {
+  const drafts = root.stores.drafts.getState();
+  const { draftId: target } = drafts.resolveTarget(draftId, sessionId);
+  const current = drafts.drafts[target]?.files ?? [];
+  if (current.some((f) => f.file.fileId === file.fileId)) return;
+  drafts.edit(draftId, sessionId, { files: [...current, { file, lineage: draftId }] });
+}
+
+export function filesFor(root: BrainUiServices, key: string, sessionId: string | null): Entry {
+  const reg = registry(root);
+  let entry = reg.entries.get(key);
+  if (!entry) {
+    const listeners = new Set<() => void>();
+    const created: Entry = {
+      queue: createAttachmentQueue({
+        request: root.request,
+        apiBase: apiBaseFor(root.config),
+        resolveDraft: (draftId) => root.stores.drafts.getState().resolveId(draftId),
+        stored: (item, file) => storedInto(root, sessionId, item.draftId, file),
+        changed: () => { for (const l of listeners) l(); guardLeaving(reg); },
+      }),
+      listeners,
+    };
+    entry = created;
+    reg.entries.set(key, entry);
+  }
+  return entry;
+}
+
+/** The root is going: every upload is aborted, and none starts another. */
+export function disposeFiles(root: BrainUiServices): void {
+  const reg = registries.get(root.stores);
+  if (!reg) return;
+  for (const entry of reg.entries.values()) entry.queue.dispose();
+  reg.entries.clear();
+  guardLeaving(reg);
+}

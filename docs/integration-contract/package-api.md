@@ -517,6 +517,13 @@ root now exports the share pipeline (`shareMarkdown`, `renderBlockHtml`,
 website's demo uses exactly these, so it builds from the public entry instead of
 from ui-react's source tree.
 
+**Additive: `ChatMessage.attachmentFiles` (#3155).** A user message in
+ui-react's chat store may carry `attachmentFiles?: AttachmentFile[]`: the
+composer originals it named in `chat_message.attachmentRefs`, from the
+optimistic send or from `SessionHistoryMessage.attachmentFiles` on replay. It
+lists the stored originals only. It says nothing about which of their contents
+the agent read, and a reader must not infer a read state from it.
+
 **Additive: `AppErrorBoundary` (#1377).** `@schlessera/brain-ui-react` exports
 `AppErrorBoundary` and `AppErrorBoundaryProps` (`children`, plus a `reload`
 hook for tests). A shell wraps its whole tree in it, providers included, so a

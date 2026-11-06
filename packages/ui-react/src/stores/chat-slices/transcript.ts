@@ -323,6 +323,7 @@ function mergeLive(old: ChatMessage, m: ChatMessage): ChatMessage {
     retryOfTurnId: m.failure ? m.retryOfTurnId : base.retryOfTurnId,
     failureLive: m.failure ? undefined : base.failureLive,
     files: m.files ?? base.files,
+    attachmentFiles: m.attachmentFiles ?? base.attachmentFiles,
     blocks: m.blocks ?? base.blocks,
     id: old.id, timestamp: old.timestamp, isStreaming: true,
     turnId: m.turnId, streamTurnId: old.turnId ?? old.streamTurnId,

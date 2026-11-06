@@ -1949,17 +1949,55 @@ D52's tab-only track path.
   `DraftSaveRequest` gains `fileIds?` and `outgoing?`, `Draft` gains `files?`
   and `outgoing?`, and `DraftSummary` gains `fileCount?`. The routes are in
   the [HTTP API](../http-api.md#composer-file-attachments-additive-0450-3153).
+- **Outgoing snapshot list (additive, #3588).** `Draft.snapshots?` and
+  `DraftSaveRequest.snapshots?` carry up to 10 `DraftSnapshot`s per chat,
+  each `{ snapshotId, requestId, text, fileIds, state: "held" | "returned" |
+  "dispatched", createdAt }`. The save that creates one counts the chat's
+  live snapshots across its drafts, tabs and devices and is refused with 409
+  `DRAFT_OUTGOING_FULL` at `SessionDraftLimits.maxOutgoingSnapshots` (10)
+  before any send; state changes edit a snapshot in place and are never
+  refused for capacity. Acceptance releases only the snapshot of its
+  `requestId`. `Draft.outgoing` keeps its shape and shows the newest held or
+  unconfirmed snapshot; the single-slot write still works. `DELETE` of a draft
+  holding a held or unconfirmed snapshot is 409 `DRAFT_OUTGOING_PENDING`. The
+  rules are in the [HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588).
 
 The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
 `ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,
 `ATTACHMENT_MAX_TOTAL_BYTES`, `ATTACHMENT_POOL_DEFAULT_BYTES`,
 `ATTACHMENT_UNBOUND_TTL_MS`, `ATTACHMENT_GRACE_MS`, the
 `ChatAttachmentReference`, `AttachmentKind`, `AttachmentReader`,
-`AttachmentFile`, `AttachmentLimits`, `DraftOutgoing`, `AttachmentErrorCode`
+`AttachmentFile`, `AttachmentLimits`, `DraftOutgoing`, `DraftSnapshot`,
+`DraftSnapshotState`, `DraftSnapshotWrite`, `AttachmentErrorCode`
 and `AttachmentErrorResponse` types, and `attachmentFileSchema` and
 `attachmentLimitsSchema`. The governance `taint` event's `source` gains
 `chat_attachment`: reading under `.brain-ui/attachments/` taints the session
 as reading a staged share does.
+<a id="attachment-reads-additive-0450-3589"></a>
+
+### Attachment reads (additive, 0.45.0, #3589)
+
+A host with composer files sends `server_hello.capabilities.attachmentReads:
+true` (`ATTACHMENT_READS_CAPABILITY`). It then answers
+[`GET /api/sessions/:id/attachment-reads`](../http-api.md#attachment-reads-additive-0450-3589)
+and sends `attachment_read` frames to the connections that declared the same
+flag in `client_hello`. A connection without the flag never receives one, and a
+client on a host without the capability shows no read state for a sent file.
+
+- **`attachment_read`** `{ type: "attachment_read", sessionId, read:
+  AttachmentReadEntry }` follows each `read_attachment` call that reached an
+  original during a turn of `sessionId`, once the read is recorded. `read` is
+  `{ fileId, turnId, outcome, scope, at }`: outcome and scope only, never text.
+  A refused call sends nothing, and nothing is sent for a retired chat.
+- **Not conversation content.** The frame is not part of the transcript, the
+  host dialogue or a history replay, and it never reaches a provider: the
+  provider-facing history is unchanged.
+
+The SDK publishes `ATTACHMENT_READS_CAPABILITY`, `AttachmentReadEntry`,
+`SessionAttachmentReadsResponse` and `ServerAttachmentRead`, and the
+`serverAttachmentReadSchema` and `sessionAttachmentReadsResponseSchema`
+schemas; `serverMessageSchema` accepts the new frame.
+
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ### Explicit chat deletion (additive, #3230)

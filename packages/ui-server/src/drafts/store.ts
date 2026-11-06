@@ -9,6 +9,8 @@ import {
   type AttachmentErrorResponse,
   type AttachmentFile,
   type DraftOutgoing,
+  type DraftSnapshot,
+  type DraftSnapshotWrite,
   DRAFT_PREVIEW_CHARS,
   MAX_IMAGE_BYTES,
   MAX_IMAGES_PER_MESSAGE,
@@ -89,8 +91,10 @@ interface SaveDraftInput {
   attachmentIds: string[];
   /** File originals this revision binds (#3153). Absent binds none. */
   fileIds?: string[];
-  /** Set, clear (null) or keep (absent) the outgoing snapshot (#3153). */
+  /** The single-slot write (#3153): create or dispatch its snapshot, or remove the one `outgoing` shows (null). */
   outgoing?: DraftOutgoing | null;
+  /** The whole outgoing snapshot list (#3588). Absent keeps it. Not combined with `outgoing`. */
+  snapshots?: DraftSnapshotWrite[];
 }
 
 interface ReserveAttachmentInput {
@@ -175,8 +179,8 @@ export interface DraftStore {
   /** Remove a deleted chat's `message` references, starting their seven-day clocks, and its read records. */
   releaseSession(sessionId: string): void;
   /** Record one `read_attachment` call (#3154): UI and internal data, never provider context. */
-  recordAttachmentRead(read: import("../attachments/store.js").AttachmentReadRecord): void;
-  /** Read side: one session's recorded attachment reads, oldest first. */
+  recordAttachmentRead(read: import("../attachments/store.js").AttachmentReadRecord): { at: number };
+  /** Read side: one session's recorded reads of originals its messages name, oldest first. */
   attachmentReads(sessionId: string): Array<import("../attachments/store.js").AttachmentReadRecord & { at: number }>;
   /** Read side: recorded originals by id (any state). */
   attachments(fileIds: readonly string[]): Map<string, import("../attachments/store.js").AttachmentRow>;
@@ -197,7 +201,7 @@ interface DraftRow {
   text: string;
   attachment_ids: string;
   file_ids: string;
-  outgoing_json: string | null;
+  outgoing_snapshots: string;
   updated_at: number;
   deleted_at: number | null;
 }
@@ -286,8 +290,9 @@ export function createDraftStore(
   const maxFileBytes = limits.maxDraftFileBytes ?? ATTACHMENT_MAX_FILE_BYTES;
   const maxFilesBytes = limits.maxDraftFilesBytes ?? ATTACHMENT_MAX_TOTAL_BYTES;
 
+  const maxSnapshots = limits.maxOutgoingSnapshots ?? SESSION_DRAFT_LIMITS.maxOutgoingSnapshots ?? 10;
   const selectDraft = db.prepare(
-    "SELECT draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_json, updated_at, deleted_at FROM session_drafts WHERE draft_id = ?"
+    "SELECT draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_snapshots, updated_at, deleted_at FROM session_drafts WHERE draft_id = ?"
   );
   const selectAttachments = db.prepare(
     "SELECT attachment_id, mime, name, bytes, size_bytes, attached FROM session_draft_attachments WHERE draft_id = ?"
@@ -317,8 +322,94 @@ export function createDraftStore(
     return JSON.parse(row.file_ids) as string[];
   }
 
-  function outgoingOf(row: DraftRow): DraftOutgoing | null {
-    return row.outgoing_json ? JSON.parse(row.outgoing_json) as DraftOutgoing : null;
+  function snapshotsOf(row: DraftRow): DraftSnapshot[] {
+    return JSON.parse(row.outgoing_snapshots) as DraftSnapshot[];
+  }
+
+  /** The single-slot view: the newest snapshot still held or unconfirmed. */
+  function legacyOutgoing(snapshots: readonly DraftSnapshot[]): DraftSnapshot | null {
+    for (let i = snapshots.length - 1; i >= 0; i--) if (snapshots[i]!.state !== "returned") return snapshots[i]!;
+    return null;
+  }
+
+  /** Every file a draft's snapshots own, once each. */
+  function snapshotFiles(snapshots: readonly DraftSnapshotWrite[]): string[] {
+    return [...new Set(snapshots.flatMap((s) => s.fileIds))];
+  }
+
+  /**
+   * Live snapshots of the chat a draft belongs to, outside that draft: every
+   * other live draft bound to the same session, whichever tab or device saved
+   * it. A draft with no session yet is a chat of its own.
+   */
+  function otherChatSnapshots(draftId: string, sessionId: string | null): number {
+    if (sessionId === null) return 0;
+    const row = db.query(
+      "SELECT COALESCE(SUM(json_array_length(outgoing_snapshots)), 0) AS n FROM session_drafts WHERE session_id = ? AND draft_id != ? AND deleted_at IS NULL"
+    ).get(sessionId, draftId) as { n: number };
+    return row.n;
+  }
+
+  function outgoingInvalid(message: string): DraftError {
+    return invalid(message);
+  }
+
+  /**
+   * The list a save leaves, from the stored list and what the request names.
+   * Edits happen in place and never need a free slot; `created` lists the new
+   * snapshots, which the caller counts against the chat's capacity.
+   */
+  function nextSnapshots(stored: readonly DraftSnapshot[], input: SaveDraftInput, at: number): { list: DraftSnapshot[]; created: DraftSnapshot[] } {
+    if (input.snapshots !== undefined && input.outgoing !== undefined) throw outgoingInvalid("Send either outgoing or snapshots, not both.");
+    if (input.snapshots === undefined && input.outgoing === undefined) return { list: [...stored], created: [] };
+    const byId = new Map(stored.map((s) => [s.snapshotId, s]));
+    if (input.outgoing === null) {
+      // The single-slot clear removes the snapshot that slot shows, as #3153 did.
+      const shown = legacyOutgoing(stored);
+      return { list: stored.filter((s) => s !== shown), created: [] };
+    }
+    const writes: DraftSnapshotWrite[] = input.outgoing !== undefined
+      ? (() => {
+        // The single-slot write addresses the snapshot of its request.
+        const o = input.outgoing;
+        const existing = stored.find((s) => s.requestId === o.requestId);
+        const write = { snapshotId: existing?.snapshotId ?? o.requestId, requestId: o.requestId, text: o.text, fileIds: o.fileIds, state: o.state };
+        return existing ? stored.map((s) => (s === existing ? write : s)) : [...stored, write];
+      })()
+      : input.snapshots!;
+    const seen = new Set<string>();
+    const requests = new Set<string>();
+    const list: DraftSnapshot[] = [];
+    const created: DraftSnapshot[] = [];
+    for (const write of writes) {
+      if (seen.has(write.snapshotId)) throw outgoingInvalid("A snapshot is listed twice.");
+      if (requests.has(write.requestId)) throw outgoingInvalid("Two snapshots name the same requestId.");
+      seen.add(write.snapshotId); requests.add(write.requestId);
+      const prior = byId.get(write.snapshotId);
+      if (!prior) {
+        if (write.state === "returned") throw outgoingInvalid("A new snapshot is held or dispatched.");
+        if (stored.some((s) => s.requestId === write.requestId)) throw outgoingInvalid("Another snapshot already sends this requestId.");
+        const snapshot = { ...write, fileIds: [...write.fileIds], createdAt: at };
+        list.push(snapshot); created.push(snapshot);
+        continue;
+      }
+      // Nothing of a snapshot changes but its state, and a held one's files.
+      if (write.requestId !== prior.requestId || write.text !== prior.text) throw outgoingInvalid("A snapshot's text and requestId do not change.");
+      const sameFiles = write.fileIds.length === prior.fileIds.length && write.fileIds.every((id, i) => id === prior.fileIds[i]);
+      if (!sameFiles && prior.state !== "held") throw outgoingInvalid("Only a held snapshot's files change.");
+      const allowed = write.state === prior.state
+        || (prior.state === "held" && (write.state === "returned" || write.state === "dispatched"))
+        || (prior.state === "dispatched" && write.state === "returned");
+      if (!allowed) throw outgoingInvalid(`A ${prior.state} snapshot cannot become ${write.state}.`);
+      list.push({ ...prior, fileIds: [...write.fileIds], state: write.state });
+    }
+    // Leaving a snapshot out deletes it, which only a returned one may be.
+    for (const prior of stored) {
+      if (!seen.has(prior.snapshotId) && prior.state !== "returned") {
+        throw outgoingInvalid(`A ${prior.state} snapshot is not deleted; return it first.`);
+      }
+    }
+    return { list, created };
   }
 
   function toDraft(row: DraftRow): Draft {
@@ -326,12 +417,17 @@ export function createDraftStore(
       (selectAttachments.all(row.draft_id) as AttachmentRow[]).map((a) => [a.attachment_id, a])
     );
     const fileIds = fileIdsOf(row);
-    const outgoing = outgoingOf(row);
+    const snapshots = snapshotsOf(row);
+    const shown = legacyOutgoing(snapshots);
+    const outgoing: DraftOutgoing | null = shown
+      ? { requestId: shown.requestId, text: shown.text, fileIds: shown.fileIds, state: shown.state as DraftOutgoing["state"] }
+      : null;
     const files = readAttachments(db, fileIds);
     return {
       // Only files the revision still binds and that exist: a saved claim is never invented.
       ...(fileIds.length ? { files: fileIds.flatMap((id) => { const f = files.get(id); return f && f.state === "stored" ? [toAttachmentFile(f)] : []; }) } : {}),
       ...(outgoing ? { outgoing } : {}),
+      ...(snapshots.length ? { snapshots } : {}),
       draftId: row.draft_id,
       sessionId: row.session_id,
       revision: row.revision,
@@ -443,7 +539,7 @@ export function createDraftStore(
     // acceptance keeps protecting what was sent.
     setRefs(db, "draft", row.draft_id, [], at);
     setRefs(db, "outgoing", row.draft_id, [], at);
-    db.prepare("UPDATE session_drafts SET file_ids = '[]', outgoing_json = NULL WHERE draft_id = ?").run(row.draft_id);
+    db.prepare("UPDATE session_drafts SET file_ids = '[]', outgoing_snapshots = '[]' WHERE draft_id = ?").run(row.draft_id);
   }
 
   return {
@@ -454,7 +550,7 @@ export function createDraftStore(
       return db.transaction(() => {
         authorize(principalId);
         const rows = db.query(
-          `SELECT draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_json, updated_at, deleted_at FROM session_drafts
+          `SELECT draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_snapshots, updated_at, deleted_at FROM session_drafts
            WHERE deleted_at IS NULL AND (session_id IS NULL OR session_id NOT IN (SELECT id FROM chat_retired_identities WHERE kind = 'session'))
            ORDER BY updated_at DESC, draft_id ASC LIMIT ?`
         ).all(limits.maxDrafts) as DraftRow[];
@@ -490,9 +586,11 @@ export function createDraftStore(
         const fileIds = input.fileIds ?? [];
         // Older requests keep their exact fingerprint; file fields join it only when sent.
         const fingerprint = sha256("save", String(input.ifMatch), JSON.stringify(
-          input.fileIds === undefined && input.outgoing === undefined
+          input.fileIds === undefined && input.outgoing === undefined && input.snapshots === undefined
             ? [input.sessionId, input.text, input.attachmentIds]
-            : [input.sessionId, input.text, input.attachmentIds, fileIds, input.outgoing ?? null, input.outgoing === undefined]));
+            : input.snapshots === undefined
+              ? [input.sessionId, input.text, input.attachmentIds, fileIds, input.outgoing ?? null, input.outgoing === undefined]
+              : [input.sessionId, input.text, input.attachmentIds, fileIds, "snapshots", input.snapshots]));
         const replay = receipt(draftId, "save", input.idempotencyKey, fingerprint);
         if (replay !== undefined) return replay as DraftSaveResponse;
 
@@ -503,8 +601,8 @@ export function createDraftStore(
         // Binding is its own proven operation; a save cannot move a draft.
         if (row && input.sessionId !== row.session_id) throw conflict(row);
 
-        const outgoing = input.outgoing === undefined ? (row ? outgoingOf(row) : null) : input.outgoing;
-        if (input.text.length === 0 && input.attachmentIds.length === 0 && fileIds.length === 0 && !outgoing) {
+        const { list: snapshots, created } = nextSnapshots(row ? snapshotsOf(row) : [], input, at);
+        if (input.text.length === 0 && input.attachmentIds.length === 0 && fileIds.length === 0 && snapshots.length === 0) {
           throw invalid("An empty draft is deleted, not saved.");
         }
         const textBytes = utf8Bytes(input.text);
@@ -532,11 +630,25 @@ export function createDraftStore(
         }
         // File originals have their own envelope; the old draft ceiling bounds only text and inline images.
         checkFiles(draftId, fileIds, input.attachmentIds.length, imageBytes);
-        if (outgoing && input.outgoing !== undefined) {
-          if (utf8Bytes(outgoing.text) > limits.maxTextBytes) {
+        // Each snapshot is its own message: new ones, and a held one whose files changed, meet its envelope.
+        const priorSnapshots = new Map((row ? snapshotsOf(row) : []).map((s) => [s.snapshotId, s]));
+        for (const snapshot of snapshots) {
+          const prior = priorSnapshots.get(snapshot.snapshotId);
+          if (prior && prior.fileIds.join() === snapshot.fileIds.join()) continue;
+          if (!prior && utf8Bytes(snapshot.text) > limits.maxTextBytes) {
             throw new DraftError(413, { error: "DRAFT_TOO_LARGE", message: "Draft text is too large.", limit: limits.maxTextBytes, bound: "text" });
           }
-          checkFiles(draftId, outgoing.fileIds, 0, 0);
+          checkFiles(draftId, snapshot.fileIds, 0, 0);
+        }
+        // The save that creates a snapshot is its reservation: it counts every
+        // live snapshot of the chat, across drafts, tabs and devices, inside
+        // this immediate transaction. Edits in place are never refused here.
+        if (created.length > 0 && otherChatSnapshots(draftId, input.sessionId) + snapshots.length > maxSnapshots) {
+          throw new DraftError(409, {
+            error: "DRAFT_OUTGOING_FULL",
+            message: `${maxSnapshots} messages in this chat are waiting or need recovery. Nothing was sent.`,
+            limit: maxSnapshots,
+          });
         }
         if (!row) {
           const live = (db.query("SELECT COUNT(*) AS n FROM session_drafts WHERE deleted_at IS NULL").get() as { n: number }).n;
@@ -555,7 +667,7 @@ export function createDraftStore(
         // Files are charged to the draft sub-limit once, by whichever live
         // draft or snapshot references them; only newly bound ones grow it.
         const growth = textBytes - previousTextBytes - droppedBytes
-          + newlyReferencedBytes([...fileIds, ...(outgoing?.fileIds ?? [])], draftId);
+          + newlyReferencedBytes([...fileIds, ...snapshotFiles(snapshots)], draftId);
         if (growth > 0 && totalBytes() + growth > limits.maxTotalBytes) {
           throw new DraftError(507, { error: "DRAFT_CAPACITY", message: "This host's draft storage is full.", limit: limits.maxTotalBytes, bound: "total" });
         }
@@ -564,19 +676,21 @@ export function createDraftStore(
         const ids = JSON.stringify(input.attachmentIds);
         if (row) {
           db.prepare(
-            "UPDATE session_drafts SET revision = ?, text = ?, attachment_ids = ?, file_ids = ?, outgoing_json = ?, size_bytes = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?"
-          ).run(revision, input.text, ids, JSON.stringify(fileIds), outgoing ? JSON.stringify(outgoing) : null, textBytes + imageBytes, at, principalId, draftId);
+            "UPDATE session_drafts SET revision = ?, text = ?, attachment_ids = ?, file_ids = ?, outgoing_snapshots = ?, size_bytes = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?"
+          ).run(revision, input.text, ids, JSON.stringify(fileIds), JSON.stringify(snapshots), textBytes + imageBytes, at, principalId, draftId);
         } else {
           db.prepare(
-            `INSERT INTO session_drafts (draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_json, size_bytes, created_at, created_by, updated_at, updated_by)
+            `INSERT INTO session_drafts (draft_id, session_id, revision, text, attachment_ids, file_ids, outgoing_snapshots, size_bytes, created_at, created_by, updated_at, updated_by)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(draftId, input.sessionId, revision, input.text, ids, JSON.stringify(fileIds), outgoing ? JSON.stringify(outgoing) : null, textBytes + imageBytes, at, principalId, at, principalId);
+          ).run(draftId, input.sessionId, revision, input.text, ids, JSON.stringify(fileIds), JSON.stringify(snapshots), textBytes + imageBytes, at, principalId, at, principalId);
         }
-        // Exactly this revision's bindings; the outgoing snapshot owns its own.
-        // Insert before removal so a file moving between them never looks unreferenced.
-        for (const id of outgoing?.fileIds ?? []) addRef(db, id, "outgoing", draftId, at);
+        // Exactly this revision's bindings; the snapshots own theirs together.
+        // Insert before removal so a file moving between them never looks
+        // unreferenced. A deleted snapshot's files start their seven-day clock.
+        const owned = snapshotFiles(snapshots);
+        for (const id of owned) addRef(db, id, "outgoing", draftId, at);
         setRefs(db, "draft", draftId, fileIds, at);
-        setRefs(db, "outgoing", draftId, outgoing?.fileIds ?? [], at);
+        setRefs(db, "outgoing", draftId, owned, at);
         // An image the previous revision listed and this one dropped is gone;
         // an upload no revision has listed yet waits for its own save.
         for (const attachment of stored.values()) {
@@ -650,6 +764,15 @@ export function createDraftStore(
           throw deleted(row);
         }
         if (ifMatch !== row.revision) throw conflict(row);
+        // Deleting the draft deletes its returned snapshots; a held or
+        // unconfirmed one is never dropped this way.
+        if (snapshotsOf(row).some((s) => s.state !== "returned")) {
+          throw new DraftError(409, {
+            error: "DRAFT_OUTGOING_PENDING",
+            message: "A message of this draft is still waiting or unconfirmed. Cancel it or check it first.",
+            current: toDraft(row),
+          });
+        }
         tombstone(row, "deleted", principalId, at);
       }).immediate();
     },
@@ -692,11 +815,12 @@ export function createDraftStore(
         for (const [id, file] of readAttachments(db, [...new Set(input.fileIds ?? [])])) {
           if (file.draft_id === draftId && file.state === "stored") addRef(db, id, "message", input.sessionId, at);
         }
+        // Only the accepted request's snapshot is released; the others stay.
         const settled = readDraft(draftId);
-        const snapshot = settled ? outgoingOf(settled) : null;
-        if (settled && snapshot && input.requestId && snapshot.requestId === input.requestId) {
-          setRefs(db, "outgoing", draftId, [], at);
-          db.prepare("UPDATE session_drafts SET outgoing_json = NULL WHERE draft_id = ?").run(draftId);
+        const kept = settled && input.requestId ? snapshotsOf(settled).filter((s) => s.requestId !== input.requestId) : null;
+        if (settled && kept && kept.length !== snapshotsOf(settled).length) {
+          setRefs(db, "outgoing", draftId, snapshotFiles(kept), at);
+          db.prepare("UPDATE session_drafts SET outgoing_snapshots = ? WHERE draft_id = ?").run(JSON.stringify(kept), draftId);
         }
         if (!input.resumed && input.requestId) {
           db.prepare(
@@ -720,6 +844,18 @@ export function createDraftStore(
             db.prepare("UPDATE session_drafts SET session_id=?,revision=?,updated_at=?,updated_by=? WHERE draft_id=?")
               .run(input.sessionId,row.revision+1,at,input.principalId,draftId);
           return "kept";
+        }
+        const remaining = snapshotsOf(row);
+        if (remaining.length > 0) {
+          // The sent revision is consumed, but the chat's other snapshots are
+          // never evicted with it: the draft stays, at the next revision, with
+          // an empty composer and those snapshots.
+          setRefs(db, "draft", draftId, [], at);
+          db.prepare("DELETE FROM session_draft_attachments WHERE draft_id = ?").run(draftId);
+          db.prepare(
+            "UPDATE session_drafts SET revision = ?, text = '', attachment_ids = '[]', file_ids = '[]', size_bytes = 0, updated_at = ?, updated_by = ? WHERE draft_id = ?"
+          ).run(row.revision + 1, at, input.principalId, draftId);
+          return "consumed";
         }
         tombstone(row, "sent", input.principalId, at);
         return "consumed";
@@ -839,7 +975,9 @@ export function createDraftStore(
     },
 
     recordAttachmentRead(read) {
-      db.transaction(() => insertAttachmentRead(db, read, now())).immediate();
+      const at = now();
+      db.transaction(() => insertAttachmentRead(db, read, at)).immediate();
+      return { at };
     },
 
     attachmentReads(sessionId) {

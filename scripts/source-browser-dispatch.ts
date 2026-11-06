@@ -14,6 +14,8 @@ const helperConsumers:Record<string,string>={
   "packages/ui-react/src/ws-client/inbound.ts":"b66c9fc53d5fdf3418f290331d2cdbf4d8a24d4f7767fbcf152a5ccd79041a8d",
   "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
+// Re-audited for #3155: chat.ts only gained `attachmentFiles` in its history
+// message mapping; chatFrameHandlers and its dispatch are unchanged.
 const declarations=[
   {
     "owner": "packages/ui-react/src/hooks/websocket-handlers/index.ts",
@@ -24,7 +26,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "5c314921924458ce67f6a815553740b3828b447a2b34031f222745fdfb3bd15c"
+        "source": "7293732dfe85e43815c013e86af467a6d57c33d0eb8232310938ed3a6d5e3048"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
@@ -41,10 +43,12 @@ const declarations=[
         "name": "providerFrameHandlers",
         "source": "0de9131781f27ba26a4469640e849170b9e063ed1d595a90361ac815128b617f"
       },
+      // Re-audited for #3589: the added attachment_read handler is a no-op
+      // that reads no runtime input, like chat_retired.
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "1274d2b9466c5d6e27de3bdaef3ab9287dc2dc76b98af2a2c79d699731b622b0"
+        "source": "847362ebc5510a0dbede9bbbe50cedfdf03346685efe2286238f6be445ece2fe"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

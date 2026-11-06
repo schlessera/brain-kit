@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 173 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 174 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -157,6 +157,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
 | GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Exact authenticated history owner; immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
+| GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -206,7 +207,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 173 declared endpoints are mounted regardless of backend, renderer or
+All 174 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -998,7 +999,8 @@ decoded bytes base64-encoded in `bytes`.
 
 **PUT /api/drafts/:draftId** takes `If-Match: <revision>` (`0` creates),
 `Idempotency-Key` and the JSON body `{ sessionId: string | null, text,
-attachmentIds: string[] }`, at most 512 KiB, and answers 200 `{ revision,
+attachmentIds: string[] }`, at most 4,390,912 bytes (the composer's text and
+ten snapshots' at JSON's six-byte escapes; 512 KiB before #3588), and answers 200 `{ revision,
 updatedAt }` only after the commit. A save cannot change `sessionId`; that
 is a conflict. An empty draft is deleted, not saved (400). **POST
 /api/drafts/:draftId/attachments** takes the raw image as the body, its type
@@ -1063,9 +1065,11 @@ second copy.
 | 409 | `ATTACHMENT_KEY_REUSED` | the key named a different upload |
 | 503 | `busy` | three composer uploads are already running; retry |
 
-`draftCount` and `draftFiles` count everything the draft's revision and
-outgoing snapshot reference, plus uploads for the same draft that no save has
-bound yet and that are under an hour old. The pool counts every recorded
+`draftCount` and `draftFiles` count everything the draft's current revision
+references, plus uploads for the same draft that no save has bound yet and
+that are under an hour old. Files its outgoing snapshots own are not counted
+(#3588): each snapshot is its own message, checked against the envelope when a
+save lists it, and the newer composer revision keeps a whole envelope. The pool counts every recorded
 original in any state, every live reservation and the legacy draft images.
 Reservations are taken in one immediate transaction, so concurrent uploads
 cannot multiply the cap. At capacity nothing is removed to make room.
@@ -1080,6 +1084,60 @@ original bytes together (413 `DRAFT_TOO_LARGE`, `bound` `draftCount` or
 `draftFiles`). The old `maxDraftBytes` ceiling bounds text and legacy images
 only. `GET` returns `files` (only files still stored) and `outgoing`.
 
+<a id="outgoing-snapshot-list-additive-0450-3588"></a>
+
+#### Outgoing snapshot list (additive, 0.45.0, #3588)
+
+A draft keeps a list of outgoing snapshots instead of one slot, under the
+maintainer's G1 A ruling on #3155. Each `DraftSnapshot` is `{ snapshotId,
+requestId, text, fileIds, state: "held" | "returned" | "dispatched", createdAt
+}`: a send that is held while its files upload, returned unsent, or dispatched
+and not yet confirmed. The client mints `snapshotId`; the host stamps
+`createdAt` at creation. `GET` returns them as `snapshots`, oldest first, and
+omits the field when there are none.
+
+`PUT` takes the whole list as `snapshots` (each item without `createdAt`);
+absent keeps it. Under the save's `If-Match` and `Idempotency-Key`:
+
+- **Create.** A `snapshotId` the draft does not hold creates a `held` or
+  `dispatched` snapshot; its `requestId` must be new to the draft. The save
+  counts every live snapshot of the chat — every live draft bound to the same
+  `sessionId`, whichever tab or device saved it, or this draft alone when it
+  has no session — in the same immediate transaction. If the result would
+  exceed `maxOutgoingSnapshots` (10, advertised in `SessionDraftLimits`), it
+  is 409 `{ error: "DRAFT_OUTGOING_FULL", message, limit }` and nothing is
+  stored. That save is the reservation: the client sends the message only
+  after it succeeds. An ordinary send with every file ready records a
+  `dispatched` snapshot the same way.
+- **Edit in place.** A listed snapshot may move `held` → `returned` (Cancel,
+  or a file failed), `held` → `dispatched` (dispatch) or `dispatched` →
+  `returned` (a recovery read showed it was not accepted). A `held` one may
+  change its `fileIds` as its uploads are admitted. Its `requestId` and `text`
+  never change. These saves never need a free slot, even at 10 of 10.
+- **Release.** Leaving a `returned` snapshot out deletes it: Edit, when its
+  text and files move into the composer revision of the same save, or
+  Delete…. Its files lose their snapshot reference, and those no longer
+  referenced start their seven-day clock. A `held` or `dispatched` snapshot
+  cannot be left out (400 `DRAFT_INVALID`); nothing is evicted, merged or
+  overwritten. Accepting the message whose `requestId` a snapshot carries
+  releases that snapshot alone, its files moving to the conversation in the
+  acceptance transaction.
+
+Every snapshot's files stay referenced, charged to the draft sub-limit and the
+pool, and each snapshot is checked against the per-message envelope. When an
+acceptance consumes a draft that still holds other snapshots, the draft is not
+a tombstone: it stays at the next revision with an empty composer and those
+snapshots. `DELETE` of a draft holding a `held` or `dispatched` snapshot is
+409 `{ error: "DRAFT_OUTGOING_PENDING", message, current }`; its `returned`
+snapshots go with it.
+
+The single-slot fields of #3153 keep working. `Draft.outgoing` shows the
+newest `held` or `dispatched` snapshot in the old shape. A save's `outgoing`
+object creates the snapshot of its `requestId` (with that id as `snapshotId`)
+or edits it in place, and `null` removes the snapshot `outgoing` shows. A save
+naming both `outgoing` and `snapshots` is 400. A draft saved with a slot
+before migration 079 has that slot as its first snapshot.
+
 ### `GET /api/attachments/:fileId`
 
 Streams one original up to 25,000,000 bytes, after checking its recorded size
@@ -1090,6 +1148,33 @@ nosniff`, and `Content-Disposition: attachment` for every kind except an image
 preview. `404 ATTACHMENT_NOT_FOUND` for an unknown, unreferenced or missing
 file; `409 ATTACHMENT_CHANGED` when the bytes no longer match, with none of
 them served. The raw file route keeps its 10,485,760-byte cap.
+
+<a id="attachment-reads-additive-0450-3589"></a>
+
+### `GET /api/sessions/:id/attachment-reads` (additive, 0.45.0, #3589)
+
+Advertised by `server_hello.capabilities.attachmentReads`; absent on a host
+without composer files, which a client reads as "show no read state". Behind
+the same authentication guard as the other session routes, with the same
+authority a history replay of the session has: a usable principal of this host,
+whose namespace every authenticated principal shares. A revoked or expired one
+gets the guard's `401 { error: "Authentication required", authRequired: true }`
+and nothing about the session.
+
+`200` returns `SessionAttachmentReadsResponse` `{ sessionId, reads }`, with
+`Cache-Control: no-store`. Each `AttachmentReadEntry` is `{ fileId, turnId,
+outcome, scope, at }`: one recorded `read_attachment` call that reached an
+original, oldest first. `outcome` is any outcome but `refused`, whose calls
+reach no original and are not recorded. `scope` is the pages or byte range
+the result covered, or `null` when nothing was read. Only reads recorded by
+this session's turns, of originals a message of this session still names, are
+returned. A session with none, or one the host does not know, answers an empty
+list. A retired chat is `404 SESSION_NOT_FOUND`. Text is never kept or
+returned, and nothing here reaches a provider.
+
+A read recorded during a live turn also reaches every connection that declared
+`attachmentReads` in its `client_hello`, as one
+[`attachment_read` frame](integration-contract/wire.md#attachment-reads-additive-0450-3589).
 
 ### Lifetime
 
