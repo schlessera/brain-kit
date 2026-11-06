@@ -3,7 +3,7 @@ import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contr
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
-import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygieneWorktreeDetailsRead, InboxActionItem, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygienePreviewResponse, HygieneWorktreeDetailsRead, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -351,7 +351,17 @@ export function createBrainApi(
     turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/revert/${encodeURIComponent(operationId)}`, { signal }),
     hygieneReview: () => fetchJson<HygieneReviewRead>("/hygiene/review"),
     hygieneCommand: (operation: HygieneReviewCommand["operation"]) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation }) }),
-    hygienePreview: (request: HygienePreviewRequest) => fetchJson<InboxActionItem>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request) }),
+    /**
+     * Undo a confirmed media effect from its resolved card (#2782): the
+     * response carries `mediaUndo`, the Undo's own receipt.
+     */
+    hygieneMediaUndo: (journalId: string) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation: "undo-media", journalId }) }),
+    /**
+     * A preview's 200 body: the pending Action plus `requestId`, named
+     * `refusals` and, for a media option, `media` (#2782). `signal` aborts only
+     * this device's wait; the server aborts its own superseded scan.
+     */
+    hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => fetchJson<HygienePreviewResponse>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request), ...(signal ? { signal } : {}) }),
     /** The owner-only recorded facts behind a private managed-worktree card (#2734); never cached. */
     hygieneDetails: (itemId: string) => fetchJson<HygieneWorktreeDetailsRead>(`/hygiene/review/details/${encodeURIComponent(itemId)}`, { cache: "no-store" }),
 

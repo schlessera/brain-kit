@@ -74,6 +74,17 @@ A brain usually hits the pain well before those limits.
   `--expect-sha` edits only that entry and leaves every other byte of the
   config as it was. In hygiene review, *Persist with a broader rule…* does the
   same for one media file, and asks you to approve the rule with its matches.
+- **The review card** in Actions shows the file with a small preview, its
+  size and type, which notes use it and which conversations link it. Choosing
+  *Persist here*, *Move to a final location…*, *Keep a permanent copy…* or
+  *Delete…* shows a preview of exactly what will change before anything is
+  written, and an unavailable choice says why. *Leave pending* skips the file
+  for the rest of the pass and still counts it as awaiting review. An image
+  loads when the card is shown. A scratch video or audio file, and any file
+  over the size limit, waits for *Load preview*, because the host reads a
+  scratch file whole for every request. A file too large for the files route
+  shows no preview at all. After a change, the receipt stays above the next
+  file with *Undo…* while its rollback data is retained.
 - **The template's `.gitignore`** has a commented media section to start from.
 
 ## Git LFS for large masters
