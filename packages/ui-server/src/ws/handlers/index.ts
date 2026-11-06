@@ -1,3 +1,4 @@
+import { handleSafetyRead, handleSafetySubscribe, handleSafetyUnsubscribe } from "./safety.js";
 import type { ClientMessageHandlers } from "./context.js";
 import { handleActivitySubscribe, handleActivityUnsubscribe } from "./activity.js";
 import { handleAskAnswerFrame, handleAskAnswerStatusFrame, handleAskUserCancel } from "./ask.js";
@@ -29,6 +30,7 @@ import { handleToolApproval, handleToolDenial } from "./tool-permission.js";
  * kind added to `ClientMessage` without a handler here fails typecheck.
  */
 export const CLIENT_MESSAGE_HANDLERS: ClientMessageHandlers = {
+  safety_read: handleSafetyRead, safety_subscribe: handleSafetySubscribe, safety_unsubscribe: handleSafetyUnsubscribe,
   client_hello: handleClientHello,
   chat_message: handleChatMessageFrame,
   handoff_status: handleHandoffStatus,

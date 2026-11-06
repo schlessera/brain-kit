@@ -28,7 +28,7 @@ Brain-kit source was read at `a62db8f27a22fd2df744308e9b1ee12bc50f3da2`.
   `packages/ui-server/src/agent/backend.ts:43-57`).
 - Governance already owns budgets, egress, outward actions, taint and
   path-to-recipient restrictions (`export const GovernancePolicySchema`,
-  `packages/common/src/governance-policy.ts:35-49`). Turn budgets refuse
+  `packages/common/src/governance-policy.ts:101-130`). Turn budgets refuse
   admission once any scope is blocked, but reserve nothing in advance
   (`async providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:377-382`).
   The Queue budget is the existing reserve-then-settle ledger

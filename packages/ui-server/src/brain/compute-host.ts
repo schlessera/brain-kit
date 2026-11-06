@@ -37,6 +37,7 @@
  *
  * docs/decisions/external-compute.md ("Settled by #3108").
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database } from "bun:sqlite";
 import { posix } from "node:path";
 import { z } from "zod";
@@ -788,7 +789,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
       }
       for (const path of [...(input.source ?? []), ...(input.cwd !== undefined ? [input.cwd] : [])]) {
         const normalized = posix.normalize(path).replace(/^\.\//, "");
-        if (isEnvName(normalized.split("/")[0]!) || PROTECTED_TIER_A.some(protectedPath => normalized === protectedPath || normalized.startsWith(`${protectedPath}/`))) {
+        if (isEnvName(normalized.split("/")[0]!) || PROTECTED_TIER_A.some(protectedPath => isWithin(protectedPath, normalized))) {
           return refusal("source_refused", `${path} is a protected path (secrets, governance or start-up code) and is never sent to a provider`);
         }
       }

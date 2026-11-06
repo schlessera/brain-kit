@@ -6,3 +6,5 @@
  */
 export * from "./lib/apify/standalone.js";
 export * from "./lib/apify/site-permission.js";
+
+export { checkApifyAvailability, type ApifyAvailability } from "@schlessera/brain-common/internal/apify";

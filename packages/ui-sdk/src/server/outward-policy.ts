@@ -1,4 +1,5 @@
 /** Existing per-use approvals for visible outward calls; this is not an egress grant. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import type { BackendBridge, PermissionDecision } from "./backend.js";
@@ -31,7 +32,7 @@ export function resolveOutwardGitRemote(action: VisibleOutwardAction, options: {
     const root = realpathSync(options.configurationRoot), git = Bun.which("git");
     if (!git) return null;
     const native = realpathSync(git);
-    if (native === root || native.startsWith(root + "/")) return null;
+    if (isWithin(root, native)) return null;
     const args = [...(action.gitOptions ?? []), "-c", `safe.directory=${root}`, "remote", "get-url", "--push", "--all", action.remote];
     const result = runMaintenanceWorkerSync({ brainPath: root, command: [native, ...args], env: { PATH: [dirname(native), "/usr/bin:/bin"].join(":") },
       ...options.maintenance, credentials: false, ...(options.maskPaths ? { maskPaths: options.maskPaths } : {}), timeoutMs: 5000 });

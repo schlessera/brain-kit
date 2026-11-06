@@ -285,6 +285,168 @@ that refused a path the turn's provider folder masks hide: the tool as the
 agent called it, the brain-relative path, the `providers` rule and the policy
 hash. One event is written per refused call.
 
+**Durable session safety collection (breaking before 1.0, #3600).**
+The version 1 governance taint payload optionally adds strict host occurrence
+metadata; the source enum adds `legacy_unknown`. Every input/output/path/mark
+signal is independent, including later signals from the same source. Exact
+host-key retries deduplicate; changed identity/payload retries refuse. Admission
+records `trusted: false`, the admitted policy hash (or `null`) and trust revision
+`"0"`. Runtime source trust remains disabled. Verified proxy provenance records
+only the actual web origin or opaque tunnel authority; worker tool arguments
+never establish transport or repository provenance. The proxy's optional
+`connectionId` relates its admission and receipt, without guessing a tool call.
+
+An immutable occurrence starts open. The separate `taint_exposure` event records
+host-proven bounded HTTP/tool delivery completion, or interrupted/unknown
+completion. Each external result segment and later connection has independent
+evidence. A CONNECT close or shell completion cannot prove bounded input ended.
+Claude pre/post hooks and the Pi worker's awaited result RPC commit detection
+before execution/result delivery. The host provider relay also refuses
+unsettled/failed recording, independently of runtime hook cancellation, and
+rechecks recording health and cancellation after awaiting budget admission.
+Shared recording loss in another turn therefore fences the pending dispatch.
+Claude reserves resumed input synchronously so immediate follow-ups remain
+accepted while collector readiness is pending. Readiness must complete before
+worker or SDK startup; failure releases the input reservation for retry.
+Unsupported or metadata-free collectors retain
+an incomplete epoch. The version 1 detector manifest explicitly excludes
+proxied-shell local file reads and opaque tunnel inner protocols.
+
+Pi's outer Agent hooks collect curated tool results before continuation.
+Managed workers refuse all loaded external extensions and extension loading
+errors before session creation, and recheck the live loader/runner before Agent
+provider dispatch. No extension path, name or package identity is exempt. This
+includes web/MCP/subagent extensions and handlers registered during execution:
+live result/message mutation and independent custom-message injection make a
+handler blacklist insufficient. No arbitrary extension delivery is qualified.
+
+Refusal awaits the existing optional internal
+`BackendBridge.inputSafety.unavailable()` notice and stops the worker. The host
+owns durable failure retention; callback rejection alone cannot establish it.
+Startup collector loss uses a typed one-way worker error, without awaiting an
+RPC answer behind initialization. The host awaits its loss notice before
+acquisition settles; only successful initialization acknowledges the detector
+epoch. Ordinary cancellation, busy-session and caller refusals preserve their
+existing outcomes and do not fail recording across the app. A
+refused configuration must retain incomplete coverage through recovery. The
+notice cannot grant authority or clear evidence, and transformed history is
+never rewritten to recover coverage.
+
+Failure to commit a collector-loss notice retains a bounded connection-local
+loss marker and immediately refuses new collection/provider dispatch through
+every facade. Producer completion must durably retain that loss before sealing
+the epoch; failure leaves it open for restart classification. Explicit recovery
+commits affected historical gaps before clearing local state, even if the
+original notice rolled back. Unknown/capacity-overflow loss correlation retains
+conservative gaps for all epochs.
+
+No external extension receives nested `ctx.executeTool()` access; curated tools
+contain no nested calls. The prior inline nested gate is removed, and no nested
+execution capability is advertised. Managed workers pin the installed
+`SettingsManager.getCacheWarmingMode()` method to `off`, including across
+settings reloads and mode writes. This disables the installed CacheWarmer's
+separate direct `ModelRuntime.streamSimple()` dispatch, which the Agent stream
+fence does not wrap. Both provider-history guards and supported-host/selected
+hosted proof remain required qualification; focused in-memory SQLite loopback
+captures are not FULL write-worker/restart or namespace proof.
+Search paths and explicit marks remain independent signals when the same line
+also indicates truncation or contains ordinary excerpt words such as omitted.
+
+The host retains an independent durable ledger, decimal uint64 revision,
+once-only provisional-to-SessionKey binding and bounded coverage epochs. Every
+pre-upgrade session is incomplete, including those with no old taint row; an
+old row migrates as one known occurrence. Imported/discovered histories remain
+unknown, including provisional owners discovered after migration. Canonical
+aliases and actual history generations bind that evidence, including when
+the catalog announcement precedes retained-dialogue adoption. A later typed
+dialogue reuses the already-bound host owner; neither opening nor resuming it
+rewrites the original binding. Resumes/backend
+changes retain prior epochs, and forks inherit
+unresolved evidence and unknown coverage only on their first unresumed turn.
+Queued continuations retain that snapshot without recopying source evidence or
+importing later source activity. Actual catalog creator, principal,
+history owner, aliases and generation govern binding. Retired session/owner/turn
+identities refuse late callbacks even after private detail is removed.
+
+Effective admission is restricted for any unresolved occurrence, incomplete or
+unknown coverage, pending recording, failure or exhausted capacity. Only a
+proven new session with acknowledged mandatory collectors and zero unresolved
+records can be normal. This deliberately changes the former no-row-means-clean
+G6 default under the [dated ruling](../decisions/session-safety-reviews.md).
+Existing provider history remains byte-identical. No review/clearing route,
+trust enforcement or safety capability is enabled; the reviewed
+public safety-history DTOs remain prospective. Older clients continue under host
+restrictions without new mutation controls.
+
+**Individual verdict persistence (breaking before 1.0, #3601).** The host-only
+writer now prepares one selected finalized occurrence and atomically commits
+its immutable `safe` decision, revision and terminal request receipt on the FULL
+SQLite write worker. This implements the dated
+[G6 ruling](../decisions/session-safety-reviews.md); live admission revalidation
+and owner-authenticated HTTP/wire operations are separate implementation slices.
+No endpoint or capability is added by this persistence layer. Host identity
+arguments do not establish human authorization.
+
+The authoritative projection reduces all retained compact identities and
+committed decisions, independently of any history page. Resolving A leaves B
+and later same-source C unresolved. Only complete detector coverage, zero
+unresolved/pending occurrences and no recording/capacity latch permit normal.
+Open/interrupted exposures refuse review; original occurrences, transitions,
+decisions and historical policy facts remain immutable. Pruning removes display
+detail only; selected IDs, verdict references, counts and revision survive.
+
+Internal preparation accepts a strict version-1 single-occurrence body bound to
+the exact SessionKey and expected evidence revision. Ranges, source-wide clears,
+session-wide clears and caller authority fields refuse. Trust publication is not
+part of this operation. A host-minted request binds canonical body digest,
+principal, channel and generation, and expires after 900000 ms.
+Time is sampled inside the acquired write transaction, after writer-queue and
+SQLite lock waits. Issuance starts the full handle lifetime; decision and replay
+expiry use execution time, and receipt retention starts at terminal storage.
+New committed evidence stales a prepared review; pending input restricts immediately, and a
+pending verdict never decrements the aggregate. Failed verdict COMMIT rolls back
+decision, revision and receipt together without reporting success.
+Recording-loss refusals remain `recording_failed`, distinct from input that is
+still `recording_pending`, including loss retained only by the app connection.
+
+Same-body retries retain their exact original receipt, including its historical
+projection, for 86400000 ms after terminal commit; admission always reads the
+current projection separately. Changed-body reuse returns `request_conflict`;
+already-resolved, nonfinal, stale, expired and unavailable requests have explicit
+refused outcomes. Refusals carry no normal projection. Receipts are reserved
+before handle issuance: 32 outstanding per principal, maximum 256 per brain,
+10000 retained receipts and 16777216 reserved bytes. The implementation reserves
+262144 bytes per receipt, so the effective brain ceiling is 64 retained handles.
+Capacity refuses new preparation without evicting live receipts or consuming the
+verdict space prepaid by retained occurrences. Unknown/pruned handles can never
+become fresh requests. Restart preserves prepared and terminal receipts; open
+collection epochs still degrade under the existing restart rule. Retirement
+precedes successful replay and returns `retired` for the owning identity even
+after private request/decision detail is removed. Permanent lifecycle fences
+remain; no request TTL recreates a retired session. Provider history is unchanged.
+
+The ledger enforces the design's 8192-byte occurrence, 100000-row/67108864-byte
+session and 1000000-row/536870912-byte brain ceilings, counting reserved verdict
+and terminal slots. Durable pending ceilings are 256 rows/1048576 bytes per
+session and 4096 rows/16777216 bytes per brain, shared across writers. Unbound
+collection is capped at 1024 bindings/8388608 bytes, with 128 epochs per session.
+Collection metadata and permanent retirement-fence capacity are reserved too.
+Catalog and collection admission atomically include all outstanding durable row
+and byte reservations in the same ceilings. Binding unbound collections also
+atomically checks their combined pending count and serialized pending bytes.
+Before accepting input, failure/capacity restrictions use preallocated durable
+emergency cells. Outstanding terminal evidence uses its existing reserve.
+Restart retains pending failure and unknown exposure; explicit internal recovery
+requires stopped producers, settled connection-local writes and available
+capacity. Only a committed recovery clears the shared local failure latch;
+existing and new facades retain historical gaps and unresolved evidence. Ended
+failure facts remain in epoch coverage but, after that recovery, no longer
+represent an active outage preventing a new restricted turn on that session.
+Detail pruning preserves IDs, counts and compact audit/reserved capacity;
+unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
+wrap. These foundations supply the later verdict slice's projection without
+publishing a mutation surface.
+
 <a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
 
 **Shell taint behind the egress proxy (breaking before 1.0, #3429).** On a
@@ -825,3 +987,14 @@ The payload contains no client/static entry specifier and authorizes no imports.
 The build registers trusted client packs. Missing packs retain source with a
 “Renderer not bundled.” note. Explicit development mode warns once per root and
 known differing version pair; unknown versions do not imply a mismatch.
+
+## Session safety history read (additive, #3604)
+
+`GET /api/sessions/:id/safety` adds the bounded authenticated `SafetyPage`
+read defined by [the HTTP specification](../http-api.md#session-safety-sidecars)
+and [wire sidecars](wire.md#session-safety-history-additive-3604). Queries never
+execute a review or policy change. Principal, generation, retirement and cursor
+expiry are rechecked at delivery after settlement. `snapshotComplete` and
+detector completeness are separate; neither omitted details nor a review receipt
+replace the aggregate. Route absence and refused reads are explicitly
+unavailable. Existing history visibility and mutation authority remain intact.

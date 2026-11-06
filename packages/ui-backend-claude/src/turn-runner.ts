@@ -168,6 +168,9 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
   let fileVersions: NativeFileVersions | undefined;
   let yielded = false;
   try {
+    // Claim resumed input synchronously, then await collection before any
+    // worker or SDK work. A refusal releases the claim through this catch.
+    await req.bridge.inputSafety?.ready("claude",1);
     workerHost = await requireWorkerHostAsync(options.backend.brainPath);
     profile = resolveProfile(options.resolveProfiles(), req.profileId);
     turnLock = createTurnLockBinding({

@@ -218,10 +218,10 @@ describe("settings routes", () => {
   const owner = { id: "p-penelope", kind: "owner" } as Principal;
   const agent = { id: "p-athena", kind: "agent" } as Principal;
   const post = (body: unknown) => ({ method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", origin: "http://localhost", host: "localhost" } });
-  function app(principal: Principal, spend?: Parameters<typeof createApifyRoutes>[0]["spend"]) {
+  function app(principal: Principal, spend?: Parameters<typeof createApifyRoutes>[0]["spend"], extra: Partial<Parameters<typeof createApifyRoutes>[0]> = {}) {
     const { edits } = writer();
     const routes = new Hono<AppEnv>().use("*", async (c, next) => { c.set("principal", principal); await next(); });
-    return routes.route("/api", createApifyRoutes({ authority: authority(), authorized: id => id === owner.id, brainPath: brain, edits, now: () => NOW, ...(spend ? { spend } : {}) }));
+    return routes.route("/api", createApifyRoutes({ authority: authority(), authorized: id => id === owner.id, brainPath: brain, edits, now: () => NOW, ...(spend ? { spend } : {}), ...extra }));
   }
 
   test("agents reach neither the read nor a policy change (APIFY_SETTINGS_AGENT_REFUSED)", async () => {
@@ -229,6 +229,21 @@ describe("settings routes", () => {
     expect((await routes.request("/api/apify")).status).toBe(403);
     expect((await routes.request("/api/apify/policy", post({ change: { actors: "allow" }, base_hash: sha(POLICY) }))).status, "APIFY_SETTINGS_AGENT_REFUSED").toBe(403);
     expect(readFileSync(path, "utf8")).toBe(POLICY);
+  });
+
+  test("only the owner can list and revoke remembered Actors, with strict input", async () => {
+    let actors = [{ actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: NOW }];
+    const calls: string[] = [];
+    const extra = { actorApprovals: async (principal: string) => { calls.push(principal); return actors; },
+      revokeActor: async (principal: string, id: string) => { calls.push(principal); actors = actors.filter(a => a.actor_id !== id); } };
+    const routes = app(owner, undefined, extra);
+    expect((await (await routes.request("/api/apify")).json() as ApifySettingsRead).actor_approvals).toEqual(actors);
+    expect((await routes.request("/api/apify/actors/revoke", post({ actor_id: "SeaCharts01", always: true }))).status).toBe(400);
+    expect((await app(agent, undefined, extra).request("/api/apify/actors/revoke", post({ actor_id: "SeaCharts01" }))).status).toBe(403);
+    expect(actors).toHaveLength(1);
+    expect(await (await routes.request("/api/apify/actors/revoke", post({ actor_id: "SeaCharts01" }))).json()).toEqual({ revoked: true });
+    expect((await (await routes.request("/api/apify")).json() as ApifySettingsRead).actor_approvals).toEqual([]);
+    expect(calls).toEqual([owner.id, owner.id, owner.id]);
   });
 
   test("the owner's read carries policy, grant applicability and spend, and never the token", async () => {

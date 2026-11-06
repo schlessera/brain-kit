@@ -109,6 +109,8 @@ export interface ApifySpendRead {
 }
 
 export interface ApifySettingsRead {
+  /** Actor-scoped approvals; historical exact-build policy grants are not broadened. */
+  actor_approvals?: Array<{ actor_id: string; actor: string; approved_at: number }>;
   state: ApifyProviderState;
   reason: ApifyProviderReason | null;
   account: ApifyAccountRead | null;

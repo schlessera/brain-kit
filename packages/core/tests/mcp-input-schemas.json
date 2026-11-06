@@ -35,6 +35,23 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "additionalProperties": false
   },
+  "brain_apify_approvals": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_availability": {
+    "type": "object",
+    "properties": {
+      "actor_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9]{1,64}$"
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
   "brain_apify_discover": {
     "type": "object",
     "properties": {
@@ -120,6 +137,20 @@
     },
     "required": [
       "run"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "brain_apify_revoke": {
+    "type": "object",
+    "properties": {
+      "actor_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9]{1,64}$"
+      }
+    },
+    "required": [
+      "actor_id"
     ],
     "$schema": "http://json-schema.org/draft-07/schema#",
     "additionalProperties": false

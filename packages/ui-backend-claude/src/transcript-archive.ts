@@ -1,4 +1,5 @@
 /** Native Claude transcripts remain authoritative; this is their cold storage. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { listSessions as sdkListSessions } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -31,7 +32,7 @@ export interface ArchiveOptions {
 export function transcriptPaths(brainPath: string, env: Record<string, string | undefined> = envSnapshot()) {
   const brain = existsSync(brainPath) ? realpathSync(brainPath) : resolve(brainPath);
   const config = resolve(env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude"));
-  if (config === brain || config.startsWith(`${brain}/`) || brain.startsWith(`${config}/`))
+  if (isWithin(brain, config) || isWithin(config, brain))
     throw new WorkerHostError("Claude transcripts must be outside the authoritative brain and its ancestors");
   // Read-only callers must not create a config tree just to list history.
   if (existsSync(config)) directory(config);
@@ -106,7 +107,7 @@ function manifest(root: string, id: string): Manifest {
   directory(join(root, id));
   const value = JSON.parse(regular(join(root, id, "manifest.json"), METADATA_BYTES).toString()) as Manifest;
   if (value.session?.id !== id || !Array.isArray(value.files) || !value.files.every(f =>
-    typeof f.path === "string" && (f.path === `${id}.jsonl` || f.path.startsWith(`${id}/`)) &&
+    typeof f.path === "string" && (f.path === `${id}.jsonl` || isWithin(id, f.path, { includeRoot: false })) &&
     f.path.split("/").every(p => p !== ".." && p !== "." && p !== "" && !p.includes("\\")) &&
     typeof f.hash === "string")) throw new Error("Invalid transcript archive manifest");
   return value;

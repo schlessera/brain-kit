@@ -707,3 +707,19 @@ component loads, source remains visible. Hosts can register `React.lazy`
 components backed by a build-time `import()`; that chunk is requested only
 when a matching block is rendered. The generic browser bundling integration
 and server declaration wiring are separate from this dispatch layer.
+
+## Optional Apify workflows
+
+At execution time, modules can call `brain apify availability [actor-id] --json`
+and branch on `data.state`: `ready`, `approval_required` or `unavailable`.
+`reason` explains a disabled provider, missing credentials/limits, exhausted
+budget or unsupported posture. Without an Actor id, readiness covers only the
+provider. Show a fallback or disabled notice for unavailable workflows; explain
+the required Actor approval for `approval_required`. The check starts no Actor
+and consumes no one-use approval. Actual admission rechecks live state.
+
+Code already holding the host's Apify services and call context can import
+`checkApifyAvailability(services, context, actor_id?)` from
+`@schlessera/brain/internal/apify`. Module setup stays static: check at execution
+time so a token, policy or approval change takes effect without reloading the
+module. See [the operation contract](integration-contract/cli.md#actor-approval-revision-3580).

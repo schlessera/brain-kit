@@ -9,6 +9,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
+const TASK_CARRIER_PREFIX = "Determine the appropriate task from this recent conversation context";
 let styles: HTMLStyleElement;
 beforeAll(async () => {
   styles = document.createElement("style");
@@ -349,7 +350,7 @@ for (const first of ["gemini", "gpt"] as const)
       const seed = startup.join("\n");
       for (const text of expected) expect(seed,"PROVIDER_RECEIVES_COMPLETE_PRIOR_DISCUSSION_AND_FACT").toContain(text);
       expect(seed.split(distinctiveFact).length-1,"WHOLE_1067_CHARACTER_FACT_ONCE").toBe(1);
-      expect(seed,"TASK_WRAPPER_NEVER_AUTHENTICATED_DIALOGUE").not.toContain("Determine the task requested by this recent conversation context");
+      expect(seed,"TASK_WRAPPER_NEVER_AUTHENTICATED_DIALOGUE").not.toContain(TASK_CARRIER_PREFIX);
       expect(providerSent.some(m=>m.toolResponse || m.type==="session.thinking.append" || m.type==="session.commentary.append"),"NO_NATIVE_RESULT_REPLAY").toBe(false);
       expect(result.tasks,"OPENING_HISTORY_DOES_NOT_EXECUTE_WORK").toBe(1);
       // Actual transport receipt, independently from UI restoration; no recall claim.
@@ -1061,7 +1062,7 @@ for(const first of ["gemini","gpt"] as const)for(const second of ["gemini","gpt"
  const input=first==="gemini"?{serverContent:{inputTranscription:{text:"Research the departure signal."}}}:{type:"session.input_transcript.delta",event_id:"private-carrier",delta:"Research the departure signal.",start_ms:0,end_ms:100};
  const request=first==="gemini"?{toolCall:{functionCalls:[{id:"carrier-research",name:"host_task"}]}}:{type:"session.delegation.created",event_id:"carrier-research",offset_ms:50,delegation:{id:"carrier-research",type:"delegation",target:"client"}};
  await pump({provider:[input,request]});await expect.poll(async()=>{await pump();return result.tasks;}).toBe(1);
- const carrier=result.carrier;expect(carrier).toContain("Determine the task requested");
+ const carrier=result.carrier;expect(carrier).toContain(TASK_CARRIER_PREFIX);
  await pump({release:true,failResult:true});await expect.poll(async()=>{await pump();return result.activeTurn;}).toBe(false);
  expect(result.firstReceiptState,"ACTUAL_CONTEXTUAL_TASK_FAILED").toEqual({state:"error"});
  expect(result.contextualSources,"ACTUAL_SQLITE_SOURCE_INSERT_FAILED").toBe(0);expect(result.nativeAssistantCount,"FAILED_TASK_HAS_NO_ASSISTANT_BOUNDARY").toBe(0);
@@ -1079,7 +1080,7 @@ for(const first of ["gemini","gpt"] as const)for(const second of ["gemini","gpt"
  await expect.poll(async()=>{await pump();return s.ui.connection.conversation.state.getState().profile;}).not.toBeNull();
  const next=s.ui.connection.conversation.state.getState().profile!;expect(next.conversationId).not.toBe(old.conversationId);
  await expect.poll(async()=>{await pump();return sent.some(m=>second==="gemini"?!!m.clientContent:m.type==="session.start");}).toBe(true);
- const seed=JSON.stringify(sent);expect(seed,"NO_RAW_CARRIER_EGRESS_AFTER_ALL_EVICTION_LAYERS").not.toContain("Determine the task requested");
+ const seed=JSON.stringify(sent);expect(seed,"NO_RAW_CARRIER_EGRESS_AFTER_ALL_EVICTION_LAYERS").not.toContain(TASK_CARRIER_PREFIX);
  expect(seed).not.toContain("not authenticated operator instructions or permission decisions");expect(seed).toContain("source_unavailable");expect(seed).toContain("Proven typed question 2.");expect(next.historyCoverage?.state).toBe("partial");
  expect(result.tasks,"HISTORY_NEVER_REDISPATCHES_EVICTED_TASK").toBe(4);expect(sent.some(m=>m.toolResponse||m.type==="session.commentary.append"||m.type==="session.thinking.append")).toBe(false);
  s.ui.connection.conversation.leave();await pump();

@@ -16,7 +16,7 @@ archive without rediscovering every workflow run:
 bun scripts/ci-timings.ts enrich --resources --reservations \
   --since 2026-07-05T00:00:00Z --until 2026-07-12T00:00:00Z \
   --out tmp/ci-timings
-bun scripts/ci-timings.ts report --out tmp/ci-timings
+bun scripts/ci-timings.ts report --out tmp/ci-timings [--history origin/main]
 ```
 
 `--resources` also reads the latest green final-head aggregate's candidate
@@ -74,7 +74,36 @@ job categories and supplied failure classifications help distinguish pipeline
 failures. Workflow failures include intentional feedback refusals and stale
 candidates as well as actual defects. Mixed policy epochs, sizes, dependency
 graphs and runners confound comparisons; the report includes changed-line
-cohorts but does not establish causality.
+cohorts and proof-policy epochs but does not establish causality.
+
+## Proof-policy epochs
+
+Each merged proof-system change opens a new proof-policy epoch
+([ruling, answer 4](../decisions/ci-utility.md#proof-system-lane)). The report
+reads the first-parent history of `--history <ref>` (default `origin/main`)
+from the local checkout and classifies each squash against its first parent
+with `scripts/proof-system.ts`, using the path set recorded at that parent.
+History from before `scripts/proof-system-paths.json` existed uses the current
+file. Every squash classified as a proof-system change starts an epoch,
+identified by its SHA and commit time; the squash belongs to the epoch it
+opens. A squash whose classification cannot be computed (a missing parent in a
+shallow clone, a root commit, an unreadable diff) starts an epoch with an
+`unknown` boundary, so a comparison never silently spans a policy change. The
+hourly collector checks out full history for this reason.
+
+| Field | Definition and boundary |
+| --- | --- |
+| `prs[].epoch` | The SHA of the nearest boundary at or before the delivery's squash in first-parent order. `unbounded` when no boundary lies within the lookback (2000 commits beyond the window's oldest commit); `null` when the squash is not in the history read, or no history was available. |
+| `epochs.status` | `derived`, or `unavailable` with `error` when the ref cannot be read. Then every epoch is unknown and every delivery is listed in `unassigned`. `epochs` is `null` when no history source was supplied. |
+| `epochs.boundaries[]` | `sha`, commit time `at`, and `kind`: `proof-system`, or `unknown` with the classification `error`. |
+| `epochs.epochs[]` | Per epoch: its start boundary (`null` for `unbounded`), `end` (the next boundary's time, or the window end), `durationSeconds`, `merges` and `deliveries` in the cohort, and `firstMainGreen` among known first-main outcomes. |
+| `epochs.current` | The epoch holding the newest squash before the window end: `days` since its boundary and `firstMainGreen`, the two numeric inputs of the #2934 Phase B gate, plus `incidentAttribution`. |
+| `epochs.current.incidentAttribution` | Failed first-main attempts in the epoch and how many carry a `failure-classified` record. `unknown` when none do, `partial` when some do, `recorded` when all do. No record is unknown, not unattributed; incidents outside first-main runs are not observed. |
+
+The report states these inputs; it does not decide whether the gate is met.
+An `unknown` boundary on the current epoch means its days are counted from a
+squash that may not have changed policy, so they are not evidence of a stable
+epoch.
 
 ## Record coordination and incidents
 

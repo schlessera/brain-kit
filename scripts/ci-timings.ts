@@ -8,6 +8,7 @@ import { collectPullObservation, summarizeThroughput, throughputMarkdown, valida
 import { collectReservationHistory, mergeLeaseObservations, type ReservationArchive } from "./ci-coordination";
 import { TimingClient, TimingBudgetStop } from "./ci-timing-api";
 import { seedTimings } from "./ci-timing-seed";
+import { gitEpochSource } from "./ci-epochs";
 
 export interface TimingAPI { json(path: string): Promise<any>; log(job: number): Promise<string>; }
 interface RawRun {
@@ -427,7 +428,7 @@ function reservationCoverage(input: ReservationArchive[]) {
     complete: archives.every(a => a.error === undefined), observed: archives.some(a => a.error === undefined),
     leases: mergeLeaseObservations(archives.flatMap(a => a.leases)) };
 }
-async function writeReport(dir: string, scenario?: Scenario) {
+async function writeReport(dir: string, history: string, scenario?: Scenario) {
   const snapshots = await readSnapshots(dir), rawCollections = await readCollections(dir);
   const collections = [...new Map(rawCollections.map(c => [c.id ?? JSON.stringify(c), c])).values()];
   const observed = new Set(snapshots.map(s => `${s.repository}/${s.run.id}/${s.run.attempt}`));
@@ -447,7 +448,7 @@ async function writeReport(dir: string, scenario?: Scenario) {
   const lifecycleAcquisition = lifecycleCoverage(operational.acquisitions, operational.pulls);
   const reservationAcquisition = reservationCoverage(operational.reservations);
   const report = { ...basic, lifecycleAcquisition, reservationAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
-    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.complete ? reservationAcquisition.leases : undefined) : null,
+    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.complete ? reservationAcquisition.leases : undefined, gitEpochSource(process.cwd(), history)) : null,
     collectionCoverage: { missingAttempts: [...missing],
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
       collectedAt: c.collectedAt, status: c.status, errors: c.errors, requestBudget: c.requestBudget, seed: c.seed })) } };
@@ -514,10 +515,12 @@ if (import.meta.main) {
       const flag = args.shift()!;
       if (flag === "--resources") { resources = true; continue; }
       if (flag === "--reservations") { reservations = true; continue; }
-      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
+      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve", "--history"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
       options.set(flag, args.shift()!);
     }
     const dir = resolve(options.get("--out") ?? "tmp/ci-timings");
+    // Proof-policy epochs read this ref's first-parent history from the local checkout.
+    const history = options.get("--history") ?? "origin/main";
     await mkdir(dir, { recursive: true });
     const repository = options.get("--repo") ?? "schlessera/brain-kit";
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
@@ -544,8 +547,8 @@ if (import.meta.main) {
         if (JSON.stringify(validateWorkEvent(await Bun.file(path).json())) !== JSON.stringify(event)) throw new Error("Event ID already exists with different content");
       }
       console.log(`Recorded ${event.id}`);
-    } else if (mode === "enrich") { if ((await enrich(dir, api, repository, resources)).some(e => !budgetProblem(e.problem))) process.exitCode = 1; await writeReport(dir); console.log(`Enriched ${dir}`); }
-    else if (mode === "report") { await writeReport(dir); console.log(`Report written to ${dir}`); }
+    } else if (mode === "enrich") { if ((await enrich(dir, api, repository, resources)).some(e => !budgetProblem(e.problem))) process.exitCode = 1; await writeReport(dir, history); console.log(`Enriched ${dir}`); }
+    else if (mode === "report") { await writeReport(dir, history); console.log(`Report written to ${dir}`); }
     else if (mode === "collect") {
       const cutoff = options.get("--until") ?? new Date(Date.now() - 15 * 60000).toISOString();
       const since = options.get("--since");
@@ -630,11 +633,11 @@ if (import.meta.main) {
       collection.status = errors.length || enrichmentErrors.length || incomplete ? "partial" : "completed";
       await Bun.write(join(dir, "collection.json"), JSON.stringify(collection, null, 2) + "\n");
       await Bun.write(collectionArchive, JSON.stringify(collection, null, 2) + "\n");
-      const report = await writeReport(dir);
+      const report = await writeReport(dir, history);
       console.log(JSON.stringify({ directory: dir, coverage: report.coverage, errors: errors.length }));
       if (errors.some(e => !budgetProblem(e.error)) || enrichmentErrors.some(e => !budgetProblem(e.problem)) ||
         (await readSnapshots(dir)).some(s => s.problems.some(p => !budgetProblem(p))) ||
         !api.budget.stopped && report.collectionCoverage.missingAttempts.length) process.exitCode = 1;
-    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--event JSON] [--scenario JSON] [--repo owner/repo] [--out DIR]");
+    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--event JSON] [--scenario JSON] [--history REF] [--repo owner/repo] [--out DIR]");
   } catch (error) { console.error(error); process.exitCode = 1; }
 }

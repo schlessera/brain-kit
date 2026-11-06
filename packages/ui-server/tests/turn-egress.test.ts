@@ -1,3 +1,4 @@
+import { connectedSafetySession } from "./helpers/connected-safety";
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
@@ -241,7 +242,7 @@ test("without a governance recorder the turn proxy still enforces its policy", a
 
 test("the first admitted connection taints the session before its bytes; later turns keep contacted and taint-allowed hosts only", async () => {
   const db = createUiDb(":memory:");
-  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+  connectedSafetySession(db,"ithaca","turn-harbour");
   const harbour = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
   const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("Aeaea") });
   const turn = async (turnId: string, policy: GovernancePolicyInput = { schema_version: 1 }) => prepareTurnEgress({ ...inputs(new AbortController(), policy),
@@ -266,13 +267,13 @@ test("the first admitted connection taints the session before its bytes; later t
     const third = await turn("turn-allowed", { schema_version: 1, taint: { egress: { allow: ["127.0.0.2"] } } });
     expect(await get(third.socketPath, island.url.href), "TURN_EGRESS_TAINT_ALLOW_LIST").toBe(200);
     third.stop();
-    expect(events("taint"), "TURN_EGRESS_FIRST_SOURCE_ONLY").toHaveLength(1);
+    expect(events("taint"), "TURN_EGRESS_EVERY_ADMITTED_CONNECTION").toHaveLength(3);
   } finally { harbour.stop(true); island.stop(true); db.close(); }
 });
 
 test("a governed turn whose runtime sends only relayed inference stays untainted until its WebFetch target, then narrows the next new host (#3244)", async () => {
   const db = createUiDb(":memory:");
-  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+  connectedSafetySession(db,"ithaca","turn-harbour");
   const harbour = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
   const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("Aeaea") });
   const proxy = await prepareTurnEgress({ ...inputs(new AbortController()), turnId: "turn-harbour", sessionId: () => "ithaca",
@@ -294,12 +295,12 @@ test("a governed turn whose runtime sends only relayed inference stays untainted
     // A validated provider-relay request is a host relay's operation: it never taints (G6, #3246).
     expect(events("taint"), "PROVIDER_RELAY_NEVER_TAINTS").toEqual([]);
     // WebFetch's own target, reached first in a fresh turn of a clean session.
-    db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('calypso','Calypso',0,0)").run();
+    connectedSafetySession(db,"calypso","turn-calypso");
     const fresh = await prepareTurnEgress({ ...inputs(new AbortController()), turnId: "turn-fetch", sessionId: () => "calypso",
       record: event => recordGovernanceEvent(db, event), governanceDb: db });
     try {
       expect(await connectStatus(fresh.socketPath, `127.0.0.1:${harbour.port}`), "UNTAINTED_WEBFETCH_ADMITTED").toBe(200);
-      expect(queryGovernanceEvents(db, { sessionId: "calypso", kinds: ["taint"], limit: 5 }).map(event => event.payload), "WEBFETCH_TARGET_IS_FIRST_TAINT").toEqual([
+      expect(queryGovernanceEvents(db, { sessionId: "calypso", kinds: ["taint"], limit: 5 }).map(event => event.payload), "WEBFETCH_TARGET_IS_FIRST_TAINT").toMatchObject([
         { source: "egress_connection", tool: null, detail: `CONNECT 127.0.0.1:${harbour.port}` }]);
       expect(await connectStatus(fresh.socketPath, `127.0.0.2:${island.port}`), "TAINTED_NEW_HOST_STILL_NARROWED").toBe(403);
     } finally { fresh.stop(); }
@@ -309,7 +310,7 @@ test("a governed turn whose runtime sends only relayed inference stays untainted
 
 test("on the write worker, a connection's bytes wait for its taint commit and a pending taint narrows the next host", async () => {
   const root = mkdtempSync(join(tmpdir(), "turn-egress-worker-odysseus-")), db = createUiDb(join(root, "ui.db")), writer = openSqliteWriter(db);
-  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+  connectedSafetySession(db,"ithaca","turn-harbour");
   const hits: number[] = [];
   const harbour = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { hits.push(Date.now()); return new Response("Ithaca"); } });
   const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => { hits.push(-1); return new Response("Aeaea"); } });

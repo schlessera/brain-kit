@@ -1,3 +1,6 @@
+export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety.js";
+export type { SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
+import type { ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable, SafetyCapabilities } from "./safety.js";
 // ============================================================
 // brain-kit chat-UI wire protocol
 //
@@ -117,6 +120,7 @@ export interface SessionRef {
 // --- Client -> Server ---
 
 export type ClientMessage =
+  | ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe
   | ClientScopeDecision
   | ClientHello
   | ClientRetryTurn
@@ -915,6 +919,7 @@ export interface ServerRetryReceipt extends SessionScoped {
 // --- Server -> Client ---
 
 export type ServerMessage =
+  | ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable
   | ServerScopeDecisionReceipt
   | ServerHello
   | ServerRetryReceipt
@@ -969,6 +974,8 @@ export type ServerMessage =
  * existing chat flow on the client having seen this frame.
  */
 export interface ServerHello {
+  /** Read sidecar only; absent means unavailable. */
+  safetyCapabilities?: SafetyCapabilities;
   /** Known destination/profile before explicit Start; no provider has opened. */
   conversationProfile?: ConversationProfile;
   type: "server_hello";
@@ -1249,7 +1256,7 @@ export interface ServerToolApprovalRequest extends SessionScoped {
    * "command" — a destructive-pattern confirmation for an otherwise
    * auto-allowed tool (bash); always per-use, never rememberable.
    */
-  kind?: "tool" | "command" | "policy";
+  kind?: "tool" | "command" | "policy" | "actor";
   /**
    * Whether the host will keep an "always allow" given on this card (rev 4,
    * additive). Sent as `false` when the host will refuse to remember the
@@ -1359,7 +1366,7 @@ type FirstPartyFailureClass =
   | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
-  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "unknown";
+  | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "unknown";
 
 /**
  * First-party failure classes, shared by emitters and reviewed diagnostics.
@@ -1392,6 +1399,7 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   budget_unavailable:"budget_unavailable",
   journal_capacity: "journal_capacity",
   journal_unavailable: "journal_unavailable",
+  input_safety_unavailable: "input_safety_unavailable",
   unknown: "unknown",
 });
 

@@ -1,3 +1,4 @@
+import { SAFETY_READ_CAPABILITIES } from "@schlessera/brain-ui-sdk/protocol";
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
@@ -68,7 +69,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         return;
       }
       if (
-        !host.clients.add(ws, principal.id, { onRemove: connection.authorization.release })
+        !host.clients.add(ws, principal.id, { onRemove: () => { connection.authorization.release(); host.safetyHistory?.unsubscribe((ws.raw??ws) as object); } })
       ) {
         connection.authorization.release();
         host.reportRefusedConnection();
@@ -87,7 +88,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         type: "server_hello",
         protocolRev: PROTOCOL_REV,
         principalKey: answerQueueKey(principal.id),
+        ...(host.safetyHistory ? {safetyCapabilities: SAFETY_READ_CAPABILITIES} : {}),
         capabilities: {
+          ...(host.safetyHistory ? {sessionSafetyHistory:true} : {}),
           multiSession: true,
           askUser: true,
           askUserList: true,

@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1097-1115`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1108-1126`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -131,8 +131,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4200-4206`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1973-1975`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4236-4242`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1983-1985`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -976,6 +976,10 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   third-party classes still appear as `unknown` in the default outgoing review;
   the wire field remains free-form. This additive SDK export ships in a minor
   release under the contract versioning rules.
+  `input_safety_unavailable` identifies refusal because the runtime's input
+  collector is unqualified or unavailable, including externally configured Pi
+  extensions. It is a registered host safety failure, not a provider error or
+  proof that every input was durably retained.
 - **`authAction`** is set only on a Claude subscription's auth failure:
   `relogin`, `check_account` or `check_config`, as
   `subscriptionAuthAction(errorClass)` maps it, with
@@ -2847,3 +2851,142 @@ are shown only from an actual post-Start opened receipt, not pre-Start estimates
 Legacy undisclosed starts now refuse intentionally under the
 [parent direction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935);
 this is a breaking pre-1.0 privacy admission correction shipped in a minor.
+
+### Actor-specific approval (additive, #3580)
+
+`tool_approval_request.kind` additionally accepts `actor`. For this kind,
+`rememberable` offers the existing `Always allow` choice even when generic
+tool permission storage is unavailable. A `tool_approval` with `always: true`
+returns that choice to the host-owned Actor consent service. It never creates
+a generic tool grant and a generic remembered tool permission never answers an
+Actor request. Once and deny retain their existing wire shapes. The host stores
+Actor approval by brain, principal, account and immutable Actor id, and the
+owner can revoke it in Apify settings.
+
+### Live orientation disclosure and progress (additive, #3623)
+
+Both first-party profiles now disclose transfer at Start of selected
+brain/user guidance, domain names and bounded identity/current-focus context,
+including in a fresh chat with no history. The existing exact
+`conversation_start.disclosed` echo check rejects an older profile before
+repository reads, recovery/takeover or provider open. There is no new grant
+resource, wire frame or protocol revision. Enter/Cancel remain local and new
+content is never transferred silently before Start. The
+[package contract](package-api.md#live-brain-orientation-and-task-status-additive-3623)
+defines the optional frozen orientation and provider status methods.
+
+Existing `conversation_work` states remain unchanged. For contextual tasks
+the first-party adapters additionally receive minimal exact-task queued and
+running feedback after persistence and host turn admission starts,
+respectively. Running does not establish backend/tool invocation; governance
+admission may still be pending. This does
+not convert a request proposal into acceptance or a status into completion;
+provider/native and host identities remain bound, and refused work executes
+no turn. Refused Gemini responses are scheduled `WHEN_IDLE` to allow an
+explanation. A send/append is not a spoken acknowledgement or playback
+receipt. Screen-only approvals, stale-result suppression and no replay remain
+unchanged. [The guidance reference](../live-conversation-guidance.md) separates
+transport proof from real-model judgment and listening qualification.
+
+### Observed content map disclosure (additive, #3630)
+
+Both first-party Start profiles additionally name a bounded **observed partial
+content map** from existing directory indexes. The exact disclosed-profile
+check still precedes enumeration, reads, epoch replacement and provider open;
+an earlier profile cannot silently admit this transfer. The optional SDK
+[`content_map` knowledge topic](package-api.md#observed-live-content-map-additive-0450-3630)
+adds no wire field, frame, revision, authority or automatic work. Existing
+capture consent, task identities, ordinary screen approvals, append-only
+history and no replay remain. Exact accepted-task progress asks for one brief
+task-specific acknowledgement; running still means host admission, and does
+not renew the acknowledgement or establish backend/tool entry.
+
+## Session safety history (additive, #3604)
+
+The optional boolean `sessionSafetyHistory` in `server_hello.capabilities`
+advertises read-only host sidecars. The optional sibling `safetyCapabilities`
+is version 1: `read:true`, `review:false`, `originRules:false`,
+`repositoryRules:false`, `recipientRules:false`,
+`readOnlyReason:"review_unavailable"`, detector version 1 and effective page,
+frame and cursor limits. Older clients ignore these optional fields; clients
+without both read declarations report unavailable and send no read/unsubscribe
+frames to an unsupported host. No verdict endpoint,
+mutation authority or fully qualified detector is implied by read support.
+
+After declaring the same capability in `client_hello`, clients may send:
+
+- `safety_read`: `{type,version:1,requestId,target,cursor?,limit?}`. The target
+  is `{sessionId}` or the exact provisional `{turnId,bindingId}`. Reads cannot
+  discover/create a session by guessing aliases. The host replies
+  `safety_history: {type,requestId,page:SafetyPage}`.
+- `safety_subscribe`: `{type,version:1,requestId,identity,afterRevision,snapshotId}`.
+  One selected history subscription per connection replaces its predecessor.
+  `identity` is the canonical `{sessionId,historyOwnerId,historyGeneration}`
+  or provisional `{turnId,bindingId}`. The snapshot must have been issued to
+  this exact principal and identity at `afterRevision` and remain unexpired
+  when the subscription is accepted. Its opaque ID pins the exact collection
+  membership even if adoption has not yet advanced the brain-wide revision.
+  `safety_unsubscribe: {type,version:1}`
+  removes it; disconnect/auth loss also removes it.
+- `safety_update`: `{type,update:{version:1,identity,fromRevision,toRevision,
+  projection,records}}`. Both revisions are canonical unsigned decimal strings
+  bounded by uint64. Each update contains all selected-history records in its
+  `(fromRevision,toRevision]` interval and the authoritative aggregate at its
+  end, including changes with no detail rows. Revision numbers are brain-wide;
+  unrelated history revisions need not have a selected-history record.
+- `safety_unavailable`: `{type,version:1,requestId?,reason}` where reason is
+  `unavailable|unauthorized|expired|capacity|generation_changed|gap`. Gaps,
+  expired snapshots, generation changes and oversized deltas require a fresh
+  snapshot. No partial delta claims continuity.
+
+Pages echo their input `cursor` to prove ordering. The aggregate is independent
+of paginated detail and stored with the snapshot. `snapshotComplete` is true
+only when `nextCursor` is null. A client assembles one snapshot in cursor order
+and accepts updates only when `fromRevision` equals its current revision;
+older/duplicate updates cannot decrement its aggregate. Partial pages, historic
+review receipts and missing fields cannot label a session normal. After a gap,
+first-turn adoption, reconnect or restart, obtain a new snapshot. Canonical
+occurrence/decision IDs survive adoption and replay; client caches are cleared
+on retirement and auth loss and late request IDs cannot repopulate them.
+Adoption that adds pre-watermark collections invalidates paging and live
+continuity with `gap`; it cannot insert old records beneath a pinned aggregate
+or silently skip them in a delta. New post-watermark collections remain eligible
+for ordinary contiguous delivery. Duplicate pages after completion and updates
+from a previous subscription during pagination leave the aggregate intact;
+the final-page subscription replays from the pinned watermark.
+Local pending input and recording-loss latches can change without a committed
+revision, including when the failure notice itself rolls back. A subscription
+whose projection changes at an unchanged revision emits `gap` and requires a
+fresh snapshot. Final delivery also rejects a view that omits newly pending
+input or known local recording loss. A same-revision restrictive update is not
+an ordinary duplicate: clients retain the more restrictive aggregate and
+resynchronize; a same-revision normal frame cannot loosen that state.
+
+Records are tagged `occurrence`, `exposure` or `safe_decision`, with immutable
+host record ID, original sequence/time, turn, binding and occurrence ID.
+Occurrences retain their exact host operation/signal/exposure IDs where
+available, source, detector, exposure state and allowlisted transport provenance.
+The source inventory includes every durable taint source, including
+`apify_result` from supported host discovery, inspection and Actor results.
+Opaque connections have null operation/provenance, never inferred Git/tool
+attribution. Pruned details explicitly use null unavailable correlation fields;
+independent occurrence IDs and aggregate counts survive. Text is display data,
+never HTML, instructions or provider conversation content. Commands, file/page
+bodies, URL credentials/query strings and arbitrary model text are omitted.
+
+Each page/update is bounded to 100 records and 262144 bytes. Oversized replay
+requires resync from the durable ledger; there is no unbounded delta cache.
+Snapshots use at most 256 entries, 32 per principal and 4194304 aggregate bytes;
+the shared cursor table caps at 4096 positions, each at most 512 bytes and valid
+for 300000 ms. At most 256 reads (32 per principal) wait at once, and 256
+subscriptions exist per host. Replaced subscriptions keep their in-flight reads
+inside those same read limits until settlement. Capacity refusal preserves all durable evidence.
+The existing one-second authorization sweep drives bounded live read delivery.
+Every asynchronous settlement and final delivery rechecks live principal,
+canonical generation, retirement and snapshot expiry. Permanent minimized
+retirement fences remain owned by the existing chat lifecycle.
+
+These sidecars never change provider messages, tools or system prefixes. The
+host-only verdict store remains separate; this slice changes no effective-taint
+admission semantics or Settings policy. The semantic G6 break remains governed
+by the prior maintainer ruling in the session-safety ADR.

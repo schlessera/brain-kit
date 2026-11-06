@@ -1,7 +1,7 @@
 // Apify approvals and results (#3163).
 //
 // The host raises a per-use `command` card for each catalog search or
-// inspection under `ask`, and for each Actor run without an exact grant
+// inspection under `ask`, and an Actor card for each run without Actor approval
 // (#3162). Those cards arrive under the fixed names below with the host's
 // own review as their input; the `brain_apify_*` tools' results are the one
 // envelope every front door returns. Everything an Actor or the catalog said
@@ -68,27 +68,29 @@ function ApifyRunReview({ tool }: { tool: ToolCallView }) {
   const events = Array.isArray(pricing?.events) ? pricing!.events.map(record).filter(Boolean).slice(0, 10) as Record<string, unknown>[] : [];
   const uncertainty = Array.isArray(pricing?.uncertainty) ? pricing!.uncertainty.filter((u): u is string => typeof u === "string").slice(0, 10) : [];
   const reasons = Array.isArray(eligibility?.reasons) ? eligibility!.reasons.filter((r): r is string => typeof r === "string").slice(0, 10) : [];
-  const executable = eligibility?.executable === true && typeof review.profile_id === "string";
+  const executable = eligibility?.executable === true;
   const cap = typeof review.max_charge_usd === "number" && Number.isFinite(review.max_charge_usd) ? review.max_charge_usd : null;
   const account = text(review.account_id, 64);
-  const inputText = (() => { try { return JSON.stringify(review.input ?? null, null, 2).slice(0, 20_000); } catch { return "unreadable"; } })();
+  const inputText = (() => { try { return JSON.stringify(review.input ?? null, null, 2); } catch { return "unreadable"; } })();
   const fields = record(review.input) ? Object.keys(record(review.input)!).length : 0;
   return <div className="min-w-0 space-y-2" data-apify-run-review>
     <dl className="grid min-w-0 gap-2">
       <Row name="Actor"><span className="font-mono">{text(actor?.name, 201) ?? "unknown"}</span>
-        <span className="block text-xs text-muted-foreground">build {text(build?.number, 32) ?? "unknown"}{typeof review.profile_id === "string" ? ` · qualified profile ${review.profile_id.slice(0, 128)}` : " · no qualified profile"}</span>
+        <span className="block text-xs text-muted-foreground">Actor id {text(actor?.id, 64) ?? "unknown"} · build {text(build?.number, 32) ?? "unknown"}</span>
         {text(actor?.title, 200) && <span className="block text-xs text-muted-foreground">{text(actor?.title, 200)} · described by the Actor, not checked</span>}</Row>
+      <Row name="Purpose">{text(actor?.purpose, 4000) ?? "No purpose supplied by the Actor."}<span className="block text-xs text-muted-foreground">Described by the Actor.</span></Row>
+      <Row name="Permissions">{text(review.permission_level, 64)?.replaceAll("_", " ") ?? "unknown"}</Row>
       <Row name="Sends to Apify">{fields} input {fields === 1 ? "field" : "fields"} to {text(review.recipient, 120) ?? "Apify"}.
-        <span className="block text-xs text-muted-foreground">{origins.length ? `Visits ${origins.join(", ")} only.` : "Names no target sites."}</span></Row>
+        <span className="block text-xs text-muted-foreground">{origins.length ? `Declared sites: ${origins.join(", ")}.` : "Remote collection methods are controlled by the Actor."}</span></Row>
       <Row name="Charged to">{account ? `Apify account …${account.slice(-4)}` : "an unknown account"}</Row>
-      <Row name="Cost">{cap === null ? "No cap stated" : `Up to ${usd(cap)}`}{events.length > 0 && <span className="block text-xs text-muted-foreground">
+      <Row name="Cost">{cap === null ? "No cap stated" : `Run cap ${usd(cap)}`}{events.length > 0 && <span className="block text-xs text-muted-foreground">
         {events.map(event => `${text(event.title, 80) ?? text(event.name, 80) ?? "event"} ${typeof event.price_usd === "number" ? usd(event.price_usd) : "price unknown"}${event.tiered ? " (tiered)" : ""}`).join(" · ")}</span>}
-        <span className="block text-xs text-muted-foreground">{executable ? "A qualified profile backs this cap, and Apify is told to stop charging at it. Reading results and remote storage are reserved too, within your limits." : "This build isn't qualified to run here, so approving can't start it."}</span></Row>
+        <span className="block text-xs text-muted-foreground">{executable ? "Apify receives this run cap. Platform operations, data transfer and storage are estimated separately; the final total may differ." : "The Actor build could not be resolved. Inspect it again before running."}</span></Row>
       {(uncertainty.length > 0 || (!executable && reasons.length > 0)) && <Row name="Not covered" warn>
         {[...uncertainty, ...(!executable ? reasons : [])].map(reason => reason.replaceAll("_", " ")).join(" · ")}
-        <span className="block text-xs">Something here is not bounded, so no paid run of it can start.</span></Row>}
+        <span className="block text-xs">These uncertainties are part of the Actor approval. Shared Apify and turn spending controls still apply.</span></Row>}
       <Row name="Limits">{effective.limits
-          ? <span data-apify-effective-limits>{`≤ ${usd(effective.limits.run_usd)} a run · ${Math.round(effective.limits.max_runtime_seconds / 60)} min · ${effective.limits.max_result_items} items · ${Math.round(effective.limits.max_result_bytes / 1024)} KB · results kept ${Math.round(effective.limits.max_retention_seconds / 86400)} days`}</span>
+          ? <span data-apify-effective-limits>{`≤ ${usd(effective.limits.run_usd)} a run · ${Math.round(effective.limits.max_runtime_seconds / 60)} min · results kept ${Math.round(effective.limits.max_retention_seconds / 86400)} days`}</span>
           : effective.read ? "No Apify limits are set, so this can't run." : null}
         <span className="block text-xs text-muted-foreground">Your Apify limits and overall budgets apply; the lower one wins.</span>
         <span className="mt-1 flex flex-wrap gap-2"><Button label="Show limits" tone="quiet" size="sm" block={false} reach onClick={() => openApifySettings(root, "limits")} /></span></Row>
@@ -96,7 +98,7 @@ function ApifyRunReview({ tool }: { tool: ToolCallView }) {
     <div className="[&_[role=button]]:min-h-11"><Disclosure label={`Full input · ${fields} ${fields === 1 ? "field" : "fields"}`}>
       <pre tabIndex={0} aria-label="Full Actor input, as sent" className="max-h-60 min-w-0 overflow-auto whitespace-pre-wrap text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary/50" data-apify-full-input style={{ overflowWrap: "anywhere" }}>{inputText}</pre>
     </Disclosure></div>
-    <p className="text-xs text-muted-foreground">Allow once runs exactly this, once. To skip this review for this exact Actor, add a grant in the policy (Settings › Accounts › Apify).</p>
+    <p className="text-xs text-muted-foreground">Approve once runs this request. Approve always remembers this Actor across sessions. Deny starts nothing. Revoke remembered Actors in Settings › Accounts › Apify.</p>
   </div>;
 }
 
@@ -145,7 +147,7 @@ export function ApifyResult({ tool }: { tool: ToolCallView }) {
     const abort = typeof data.abort === "string" ? data.abort : null;
     const unknown = data.remote_outcome_unknown === true;
     const note = unknown ? "Apify hasn't confirmed whether this run started. Its reservation is kept until Apify reports."
-      : abort === "unresolved" ? "Abort sent but not confirmed. Up to the reservation may still be charged."
+      : abort === "unresolved" ? "Abort sent but not confirmed. The reservation remains held as an estimate; final charges may differ."
       : abort === "requested" ? "Abort sent · not confirmed yet."
       : abort === "confirmed" ? "Apify confirmed the abort. Charges settle from Apify's report, not from the abort."
       : `Run ${String(data.state).replaceAll("_", " ")}.`;

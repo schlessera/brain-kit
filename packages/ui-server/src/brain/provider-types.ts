@@ -13,6 +13,7 @@
  * view, data only, for documents of a translated type outside its folders.
  * Whatever the taxonomy claims, such a document refuses the turn.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, normalize, resolve } from "node:path";
 import { z } from "zod";
@@ -69,15 +70,15 @@ export function taxonomyProtection(brainPath: string, policy: { protect?: readon
   if (real !== brain) return { ok: false, reason: "the configured brain path is not its canonical path, so the live brain may be visible to the taxonomy under another name" };
   // Turn state and host staging the server writes for turns (`.brain/`
   // areas, the `.brain-ui/` inbox) are never shown, even when protected.
-  const visible = protectedPaths(policy).filter(path => ![".git", ...TURN_STATE_FOLDERS].some(folder => path === folder || path.startsWith(`${folder}/`)));
+  const visible = protectedPaths(policy).filter(path => ![".git", ...TURN_STATE_FOLDERS].some(folder => isWithin(folder, path)));
   // The CLI part of the argv the taxonomy worker runs, without `config check --json`.
   const argv = taxonomyArgv(brainPath, command).slice(0, -3);
   // Every argument that names something in the brain, however spelled.
   const files = argv.slice(1).map(arg => isAbsolute(arg) ? normalize(arg) : normalize(join(brain, arg)))
-    .filter(path => path === brain || path.startsWith(`${brain}/`)).map(path => path.slice(brain.length + 1))
-    .concat(isAbsolute(argv[0] ?? "") && normalize(argv[0]!).startsWith(`${brain}/`) ? [normalize(argv[0]!).slice(brain.length + 1)] : []);
+    .filter(path => isWithin(brain, path)).map(path => path.slice(brain.length + 1))
+    .concat(isAbsolute(argv[0] ?? "") && isWithin(brain, normalize(argv[0]!), { includeRoot: false }) ? [normalize(argv[0]!).slice(brain.length + 1)] : []);
   const unprotected = files.filter(file => existsSync(join(brain, file)) || /\.[cm]?[jt]sx?$/u.test(file) || !file)
-    .filter(file => !visible.some(path => file === path || file.startsWith(`${path}/`)));
+    .filter(file => !visible.some(path => isWithin(path, file)));
   if (unprotected.length) return { ok: false, reason: `${command ? "" : "the brain has no packaged CLI (node_modules/.bin/brain), and "}the CLI it runs, ${unprotected.map(file => file || "the brain itself").join(", ")}, is not a protected path` };
   return { ok: true, visible };
 }
@@ -128,7 +129,7 @@ export function strayTypedDocuments(root: string, types: readonly string[], mask
   const skipped = new Set([".git", INDEX_DIR, ...masked]);
   const real = (path: string) => { try { return realpathSync(path); } catch { return path; } };
   const bases = [real(root), real(brainPath)];
-  const within = (target: string, folders: readonly string[]) => folders.some(folder => target === folder || target.startsWith(`${folder}/`));
+  const within = (target: string, folders: readonly string[]) => folders.some(folder => isWithin(folder, target));
   const hidden = bases.flatMap(base => masked.map(folder => join(base, folder)));
   // One nonblocking descriptor, checked before it is read: a peer may swap a
   // live link target for a FIFO, and reopening by name could then block.
@@ -185,7 +186,7 @@ export async function translateProviderTypesInView(options: {
   const protection = taxonomyProtection(options.brainPath, options.policy, options.command);
   if (!protection.ok) return refuse(`the brain's taxonomy is not protected: ${protection.reason}`);
   const appeared = (options.appeared?.(options.view.root) ?? [])
-    .filter(path => protection.visible.some(rel => path === rel || path.startsWith(`${rel}/`) || rel.startsWith(`${path}/`)));
+    .filter(path => protection.visible.some(rel => isWithin(rel, path) || isWithin(path, rel)));
   if (appeared.length) return refuse(`the brain's taxonomy is not protected: ${appeared.join(", ")} appeared during a governed turn and ${appeared.length === 1 ? "is" : "are"} not yet reconciled`);
   const read = (visible?: readonly string[]) => {
     const scratch = createPrivateIndexDirectory();

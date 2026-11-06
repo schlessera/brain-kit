@@ -1,3 +1,7 @@
+import { SafetyHistory } from "./governance/safety-history.js";
+import { createSessionSafetyRoutes } from "./routes/session-safety.js";
+import { occurrence } from "./governance/occurrence.js";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
 import { guardSqliteCleanup } from "./db/write-worker.js";
 import { createStorageHistory } from "./storage/history-store.js";
@@ -738,14 +742,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     inference: budgets.inferenceSpend,
     exposures: sessionIds => governedTurns.exposures(sessionIds),
     untrusted: async (turn, event) => {
-      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "apify_result", tool: `brain_apify_${event.operation}`, detail: event.detail.slice(0, 200) },
+      // The host has acquired this bounded catalog/result page and withholds
+      // its bytes until the independent remote-input occurrence commits.
+      const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;
+      const observed=occurrence(collection?.id??crypto.randomUUID(),"compute_input",null,"finalized");
+      observed.admission={trusted:false,policyHash:collection?.policy_hash??null,trustRevision:"0"};
+      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "apify_result", tool: `brain_apify_${event.operation}`, detail: event.detail.slice(0, 200),occurrence:observed },
         sessionId: turn.sessionId(), turnId: turn.turnId, actor: "interactive", model: null, profile: null });
     },
     report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   // Settle, time out and clean up open runs now and periodically; a no-op until a ledger exists.
   const stopApifyReconciler = apifyHost.startReconciler();
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
+  const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
   const host = new WsHost({
+    safetyHistory,
     turnReverts: reverts,
     workerLock,
     computeTools: computeHost,
@@ -1131,7 +1142,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createStorageMaintenanceRoutes(storageMaintenance));
 
   const storageRemoval = createStorageRemoval(db, { brainPath: config.brainPath, retainedRoot: journalRoot, boundary, journal, gate: hostExecution.gate()!, lock: host.workerLock, storage,
-    protectedPaths: [...storageStores.map(store => store.path), ...config.storage?.gitRoots ?? []].filter(path => path === config.brainPath || path.startsWith(config.brainPath + "/")).map(path => path === config.brainPath ? "." : path.slice(config.brainPath.length + 1)),
+    protectedPaths: [...storageStores.map(store => store.path), ...config.storage?.gitRoots ?? []].filter(path => isWithin(config.brainPath, path)).map(path => path === config.brainPath ? "." : path.slice(config.brainPath.length + 1)),
     authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
   });
   bootCleanup.push(() => storageRemoval.close());
@@ -1152,6 +1163,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
+  app.route("/api", createSessionSafetyRoutes(safetyHistory,principal=>host.isPrincipalValid(principal)));
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));
@@ -1195,6 +1207,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });
   bootCleanup.push(() => apifyEdits.close());
   app.route("/api", createApifyRoutes({ authority: apify, authorized: apifyOwner, brainPath: config.brainPath, edits: apifyEdits,
+    actorApprovals: principalId => apifyHost.actorApprovals(principalId), revokeActor: (principalId, actor_id) => apifyHost.revokeActor(principalId, actor_id),
     spend: { ledgerPath: apifyLedgerFile, ledger: openApifyLedgerOnce, runs: apifyHost.runs, brain_id: apifyHost.brain_id },
     reconcile: () => apifyHost.reconcile() }));
   app.route("/api", createToolPermissionRoutes({ db, settingsWrites, log: dbLog }));

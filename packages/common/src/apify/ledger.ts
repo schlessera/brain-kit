@@ -128,6 +128,7 @@ export interface ApifyReservation {
   deadline_at: number; retention_seconds: number; timeout_secs: number; memory_mbytes: number;
   items_bound: number; max_result_items: number; max_result_bytes: number;
   status_budget: number; result_budget: number; abort_budget: number;
+  require_actor_approval?: boolean;
 }
 
 /** Liability in one scope, microdollars. Pending reservations count as spend. */
@@ -137,7 +138,7 @@ export interface ApifyScopeTotals {
   charged_micro: number;
   /** Held for work whose charges are not yet (or never) known. */
   reserved_micro: number;
-  /** Settled runs' lifecycle requests and remote storage still held, which local expiry never releases. */
+  /** Estimated platform overhead, including catalog-only requests and settled runs' lifecycle/storage. */
   residual_micro: number;
   runs: number;
   open_runs: number;
@@ -146,12 +147,22 @@ export interface ApifyScopeTotals {
   operator_resolved: number;
 }
 
+export interface ApifyRequestEstimate {
+  account_id: string; micro: number; now: number;
+  limits: Pick<ApifyAdmissionLimits, "turn_micro" | "session_micro" | "day_micro" | "brain_day_micro">;
+}
+
+export interface ApifyActorApprovalScope { brain_id: string; principal_id: string; account_id: string }
+export interface ApifyActorApproval { actor_id: string; actor: string; approved_at: number }
+
 export interface ApifyLedger {
+  actorApprovals(scope: ApifyActorApprovalScope): ApifyActorApproval[];
+  setActorApproval(scope: ApifyActorApprovalScope, actor: ApifyActorApproval, approved: boolean): void;
   /** The identity every process opening this file shares. */
   readonly id: string;
   readonly path: string;
   /** Count `requests` against the turn's bound; throws `budget_exceeded` past it. */
-  countRequests(scope: { brain_id: string; session_id: string; turn_id: string }, requests: number, bound: number): void;
+  countRequests(scope: { brain_id: string; session_id: string; turn_id: string }, requests: number, bound: number, estimate?: ApifyRequestEstimate): void;
   /**
    * Atomic admission: checks every scope, counts the start request against the
    * turn's `requestBound` and writes the dispatch intent, or throws without writing.
@@ -251,7 +262,13 @@ export function openApifyLedger(path: string): ApifyLedger {
         CREATE TABLE IF NOT EXISTS refs (ref TEXT PRIMARY KEY, kind TEXT NOT NULL, session_id TEXT NOT NULL, state TEXT NOT NULL,
           expires_at INTEGER, created_at INTEGER NOT NULL, body TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS refs_session ON refs(kind, session_id, created_at);
-        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS request_estimates (brain_id TEXT NOT NULL, account_id TEXT NOT NULL, session_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL, day INTEGER NOT NULL, micro INTEGER NOT NULL,
+          PRIMARY KEY(brain_id,account_id,session_id,turn_id,day));
+        CREATE TABLE IF NOT EXISTS actor_approvals (brain_id TEXT NOT NULL, principal_id TEXT NOT NULL, account_id TEXT NOT NULL,
+          actor_id TEXT NOT NULL, actor TEXT NOT NULL, approved_at INTEGER NOT NULL,
+          PRIMARY KEY(brain_id, principal_id, account_id, actor_id));`);
       const version = db.query("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | null;
       if (version && Number(version.value) !== SCHEMA_VERSION) throw new ApifyLedgerUnavailable("The Apify ledger was written by a different version.");
       db.query("INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?), ('ledger_id', ?), ('cursor_key', ?)")
@@ -294,12 +311,22 @@ export function openApifyLedger(path: string): ApifyLedger {
     db.query(`SELECT * FROM runs WHERE ${where} = ? AND ((settled = 0 AND state <> 'refused' AND opened_day <= ?) OR opened_day = ?)`).all(value, day, day) as ApifyRunRow[];
   const totals: ApifyLedger["totals"] = (scope, now) => {
     const day = utcDay(now);
-    return {
+    const result = {
       turn: sum(db.query("SELECT * FROM runs WHERE brain_id = ? AND session_id = ? AND turn_id = ?").all(scope.brain_id, scope.session_id, scope.turn_id) as ApifyRunRow[]),
       session: sum(db.query("SELECT * FROM runs WHERE brain_id = ? AND session_id = ?").all(scope.brain_id, scope.session_id) as ApifyRunRow[]),
       day: sum(dayRows("account_id", scope.account_id, day)),
       brain_day: sum(dayRows("brain_id", scope.brain_id, day)),
     };
+    const add = (name: keyof typeof result, where: string, values: Array<string | number>) => {
+      const micro = (db.query(`SELECT COALESCE(SUM(micro),0) AS micro FROM request_estimates WHERE ${where}`).get(...values) as { micro: number }).micro;
+      result[name].liability_micro += micro;
+      result[name].residual_micro += micro;
+    };
+    add("turn", "brain_id=? AND session_id=? AND turn_id=?", [scope.brain_id, scope.session_id, scope.turn_id]);
+    add("session", "brain_id=? AND session_id=?", [scope.brain_id, scope.session_id]);
+    add("day", "account_id=? AND day=?", [scope.account_id, day]);
+    add("brain_day", "brain_id=? AND day=?", [scope.brain_id, day]);
+    return result;
   };
   const over = (reason: string, message: string) => new ApifyLedgerRefusal("budget_exceeded", reason, message);
   /** Inside a write transaction: count `requests` for the turn, refusing past `bound`. */
@@ -313,9 +340,32 @@ export function openApifyLedger(path: string): ApifyLedger {
 
   return {
     id, path,
-    countRequests(scope, requests, bound) { guarded(() => db.transaction(() => count(scope, requests, bound)).immediate()); },
+    actorApprovals: scope => guarded(() => db.query("SELECT actor_id, actor, approved_at FROM actor_approvals WHERE brain_id = ? AND principal_id = ? AND account_id = ? ORDER BY approved_at, actor_id")
+      .all(scope.brain_id, scope.principal_id, scope.account_id) as ApifyActorApproval[]),
+    setActorApproval(scope, actor, approved) {
+      guarded(() => approved
+        ? db.query("INSERT INTO actor_approvals VALUES (?,?,?,?,?,?) ON CONFLICT(brain_id,principal_id,account_id,actor_id) DO UPDATE SET actor=excluded.actor, approved_at=excluded.approved_at")
+          .run(scope.brain_id, scope.principal_id, scope.account_id, actor.actor_id, actor.actor, actor.approved_at)
+        : db.query("DELETE FROM actor_approvals WHERE brain_id=? AND principal_id=? AND account_id=? AND actor_id=?")
+          .run(scope.brain_id, scope.principal_id, scope.account_id, actor.actor_id));
+    },
+    countRequests(scope, requests, bound, estimate) { guarded(() => db.transaction(() => {
+      if (estimate) {
+        if (!Number.isSafeInteger(estimate.micro) || estimate.micro < 0) throw new ApifyLedgerUnavailable();
+        const current = totals({ ...scope, account_id: estimate.account_id }, estimate.now);
+        for (const [name, reason] of [["turn", "turn_usd"], ["session", "session_usd"], ["day", "day_usd"], ["brain_day", "day_budget"]] as const)
+          if (current[name].liability_micro + estimate.micro > estimate.limits[`${name}_micro`])
+            throw over(reason, "The platform-request estimate exceeds the remaining Apify or overall spending allowance.");
+        db.query("INSERT INTO request_estimates VALUES (?,?,?,?,?,?) ON CONFLICT(brain_id,account_id,session_id,turn_id,day) DO UPDATE SET micro=micro+excluded.micro")
+          .run(scope.brain_id, estimate.account_id, scope.session_id, scope.turn_id, utcDay(estimate.now), estimate.micro);
+      }
+      count(scope, requests, bound);
+    }).immediate()); },
     reserve(reservation, limits, now, requestBound) {
       return guarded(() => db.transaction(() => {
+        if (reservation.require_actor_approval && !db.query("SELECT 1 FROM actor_approvals WHERE brain_id=? AND principal_id=? AND account_id=? AND actor_id=?")
+          .get(reservation.brain_id, reservation.principal_id, reservation.account_id, reservation.actor_id))
+          throw new ApifyLedgerRefusal("proposal_stale", "approval_revoked", "This Actor's remembered approval was revoked before admission.");
         const reserved = reservation.run_cap_micro + reservation.request_micro + reservation.storage_micro;
         if (!Number.isSafeInteger(reserved) || reserved <= 0) throw over("run_usd", "This run has no finite positive reservation.");
         if (reserved > limits.run_micro)
@@ -370,7 +420,7 @@ export function openApifyLedger(path: string): ApifyLedger {
       return guarded(() => db.transaction(() => {
         const current = row(handle);
         if (!current) throw new ApifyLedgerRefusal("proposal_stale", "unknown_run", "That Apify run is unknown.");
-        const receipt = sha256(canonicalJson({ handle, counts: report.counts, status: report.status }));
+        const receipt = sha256(canonicalJson({ handle, counts: report.counts, status: report.status, micro: report.micro }));
         const fresh = db.query("INSERT OR IGNORE INTO charges(receipt, handle, observed_at, status, counts, micro) VALUES (?,?,?,?,?,?)")
           .run(receipt, handle, now, report.status, canonicalJson(report.counts), report.micro).changes > 0;
         if (!fresh) return { fresh, row: current };

@@ -200,15 +200,23 @@ test("marks survive a restart and brain index --force; reading a marked file tai
     const clean = await chat("notes/raft-reference.md");
     expect(taints(clean), "UNMARKED_READ_RECORDS_NOTHING").toEqual([]);
     const tainted = await chat(MESSAGE);
-    expect(taints(tainted), "MARKED_READ_TAINTS").toEqual([{ source: "user_marked", tool: "Read", detail: null }]);
+    const markedSignal = expect.objectContaining({ source: "user_marked", tool: "Read", detail: null,
+      occurrence: expect.objectContaining({ id: expect.any(String), epochId: expect.any(String),
+        exposureId: expect.any(String), operationId: expect.any(String), signalId: expect.any(String),
+        detector: "explicit_untrusted_input", exposure: "interrupted_unknown",
+        admission: { trusted: false, trustRevision: "0", policyHash: null }, provenance: null }) });
+    const retained = taints(tainted);
+    expect(retained, "MARKED_READ_TAINTS").toEqual([markedSignal]);
     // The retained old-path record applies again once a file returns to it.
     const returned = await chat(LETTER);
-    expect(taints(returned), "RETURNED_FILE_MARKED_AGAIN").toEqual([{ source: "user_marked", tool: "Read", detail: null }]);
+    expect(taints(returned), "RETURNED_FILE_MARKED_AGAIN").toEqual([markedSignal]);
 
     expect(await (await call(app, `/api/files/untrusted${q(MESSAGE)}`, { method: "DELETE" })).json()).toEqual({ status: "cleared" });
     const fresh = await chat(MESSAGE);
     expect(taints(fresh), "CLEARED_MARK_SPARES_NEW_SESSION").toEqual([]);
     await chat(MESSAGE, tainted);
-    expect(taints(tainted), "CLEARED_MARK_KEEPS_EXISTING_TAINT").toEqual([{ source: "user_marked", tool: "Read", detail: null }]);
+    expect(taints(tainted), "CLEARED_MARK_KEEPS_EXISTING_TAINT").toEqual(retained);
+    expect(app.wsHost.activity!.governanceWrites!.safety(null, tainted), "CLEARED_MARK_KEEPS_UNRESOLVED_OCCURRENCE")
+      .toMatchObject({ restriction: "restricted", unresolvedCount: 1 });
   } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
 }, 120_000);

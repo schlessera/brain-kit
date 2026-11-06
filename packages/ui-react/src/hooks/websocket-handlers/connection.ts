@@ -1,7 +1,7 @@
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessageHandlerMap } from "./types.js";
 
-type ConnectionFrame =
+type ConnectionFrame = "safety_history" | "safety_update" | "safety_unavailable"
   | "dialogue_history" | "scope_decision_receipt"
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
   | "tool_resolution" | "session_queue" | "conversation_opened" | "conversation_closed"
@@ -9,6 +9,7 @@ type ConnectionFrame =
   | "attachment_read";
 
 export const connectionFrameHandlers = {
+  safety_history: () => {}, safety_update: () => {}, safety_unavailable: () => {},
   dialogue_history: () => {},
   scope_decision_receipt: (msg, context) => context.state.setScopeDecisionReceipt(msg),
   server_hello: (msg, context) => {

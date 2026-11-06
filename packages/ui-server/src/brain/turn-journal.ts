@@ -1,4 +1,5 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
@@ -651,7 +652,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         if (!change) throw new JournalStorageUnavailable("native memory persistence could not be inspected");
         if (!change.note.endsWith(".md") || /[\\/\u0000-\u001f\u007f]/u.test(change.note) || [".", ".."].includes(change.note)) throw new Error("invalid memory note");
         const directory = realpathSync(change.directory), info = lstatSync(directory);
-        if (directory !== change.directory || !info.isDirectory() || directory === options.brainPath || directory.startsWith(`${options.brainPath}/`)) throw new Error("invalid external memory store");
+        if (directory !== change.directory || !info.isDirectory() || isWithin(options.brainPath, directory)) throw new Error("invalid external memory store");
         const retained = async (bytes: Uint8Array | null, mode: number): Promise<JournalVersion | null> => bytes === null ? null : {
           kind: "file", mode, bytes: bytes.length, hash: await retain(() => objects.putBytes(bytes)), ignored: false,
         };
