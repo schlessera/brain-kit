@@ -8,6 +8,7 @@ import { createBrainStores, type BrainStores } from "./stores/create-stores.js";
 import { createWebSocketClient, dropConnectionContext, restoreConnectionContext } from "./connection.js";
 import { createIndexedDbAnswerStorage, createMemoryAnswerStorage, type AnswerStorage } from "./lib/answer-delivery/storage.js";
 import { createBrowserTabCoordinator, type TabCoordinator } from "./lib/answer-delivery/tabs.js";
+import { disposeFiles } from "./lib/draft-files.js";
 import { disposeTracks, tracksFor, subscribeAllTracks, trackKey, trackRefs, stagedTrackViews } from "./lib/draft-tracks.js";
 import { registerBuiltInUpdateHolds } from "./lib/update-holds.js";
 import type { LocalCaptureSink } from "./voice/local-capture.js";
@@ -301,6 +302,7 @@ export function createRoot(
       // Previews of images still in a draft or a held send: nothing else will release them.
       stores.drafts.getState().release();
       disposeTracks(services);
+      disposeFiles(services);
       answerTabs?.dispose();
       stores.activity.dispose();
       stores.graph.dispose();
