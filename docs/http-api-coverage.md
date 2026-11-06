@@ -125,6 +125,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
 | `GET /api/journal/configuration-coverage` | `mounted supported handler: GET /api/journal/configuration-coverage` | J |
 | `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
+| `GET /api/sessions/:id/attachment-reads` | `mounted supported handler: GET /api/sessions/:id/attachment-reads` | X |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
 | `GET /api/schedules` | `mounted supported handler: GET /api/schedules` | K |
@@ -343,6 +344,7 @@ checks both nonempty priced and mixed-knownness fixtures
 - `an upload retried after its bytes were swept stores them again under a usable id` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`an upload retried after its bytes were swept stores them again under a usable id`, `packages/ui-server/tests/drafts-store.test.ts:87-95`)
 - `acceptance consumes only a matching, current, same-session revision` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`acceptance consumes only a matching, current, same-session revision`, `packages/ui-server/tests/drafts-store.test.ts:97-109`)
 - `a revoked sender's acceptance consumes nothing` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a revoked sender's acceptance consumes nothing`, `packages/ui-server/tests/drafts-store.test.ts:111-117`)
+- `a client viewing a session gets that session's recorded reads, live and on request, and nothing else` ([source](../packages/ui-server/tests/attachment-reads-delivery.test.ts)), (`a client viewing a session gets that session's recorded reads, live and on request, and nothing else`, `packages/ui-server/tests/attachment-reads-delivery.test.ts:80-153`)
 
 **J — Confirmed share intake.**
 
