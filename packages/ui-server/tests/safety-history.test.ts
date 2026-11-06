@@ -205,3 +205,16 @@ test("authenticated history query validation refuses oversized, duplicated or au
     expect(f.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({n:0});expect(f.starts()).toBe(0);
   }finally{await f.close();}
 });
+
+test("replaced or concurrent delta reads retain bounded ownership until their asynchronous wait settles",async()=>{
+  const f=await safetyHistoryFixture();try{
+    const initial=await page(await f.get()),held=f.hold();
+    const requests=Array.from({length:33},()=>f.history.delta(f.principal,initial.identity,initial.highWater).then(value=>({ok:true as const,value}),error=>({ok:false as const,error})));
+    await held.arrived;
+    const refused=await Promise.race([requests.at(-1)!,Promise.resolve({ok:true as const,value:null})]);held.release();
+    expect(refused.ok,"DELTA_WAIT_CAPACITY_FENCE").toBe(false);
+    if(!refused.ok)expect(refused.error.message).toBe("capacity");
+    const results=await Promise.all(requests);expect(results.filter(r=>r.ok)).toHaveLength(32);
+    expect((await f.history.delta(f.principal,initial.identity,initial.highWater)).projection.unresolvedCount).toBe(0);
+  }finally{await f.close();}
+});

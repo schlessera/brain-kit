@@ -107,13 +107,17 @@ export class SafetyHistory {
     for(const [cursor,value] of this.cursors)if(value.snapshotId===id)this.cursors.delete(cursor);
   }
   private prune():void {const at=this.clock();for(const s of this.snapshots.values())if(at>=s.expiresAt)this.drop(s.id);}
+  private reserveRead(principal:Principal):()=>void {
+    const count=this.pendingReads.get(principal.id)??0;
+    if(count>=32||[...this.pendingReads.values()].reduce((a,b)=>a+b,0)>=256)throw new SafetyReadUnavailable("capacity");
+    this.pendingReads.set(principal.id,count+1);
+    return ()=>{const left=this.pendingReads.get(principal.id)!-1;if(left)this.pendingReads.set(principal.id,left);else this.pendingReads.delete(principal.id);};
+  }
   /** Every await precedes fresh authority, identity and clock checks. */
   async read(principal:Principal,target:SafetyTarget,cursor:string|null=null,limit:number=50):Promise<SafetyPage> {
     if(!Number.isInteger(limit)||limit<1||limit>100||cursor!==null&&cursor.length>512)throw new SafetyReadUnavailable();
     this.authorize(principal,target);
-    const count=this.pendingReads.get(principal.id)??0;
-    if(count>=32||[...this.pendingReads.values()].reduce((a,b)=>a+b,0)>=256)throw new SafetyReadUnavailable("capacity");
-    this.pendingReads.set(principal.id,count+1);
+    const release=this.reserveRead(principal);
     try { await this.settled();
     return Database.prototype.transaction.call(this.db,()=>{
       const identity=this.authorize(principal,target);this.prune();
@@ -148,11 +152,12 @@ export class SafetyHistory {
       if(!same(identity,this.authorize(principal,target)))throw new SafetyReadUnavailable("generation_changed");
       return safetyPageSchema.parse(page);
     }).deferred() as SafetyPage;
-    }finally{const left=this.pendingReads.get(principal.id)!-1;if(left)this.pendingReads.set(principal.id,left);else this.pendingReads.delete(principal.id);}
+    }finally{release();}
   }
   async delta(principal:Principal,identity:SafetyIdentity,after:string):Promise<SafetyUpdate> {
     const target:SafetyTarget="sessionId" in identity?{sessionId:identity.sessionId}:identity;
-    this.authorize(principal,target);await this.settled();
+    this.authorize(principal,target);const release=this.reserveRead(principal);
+    try{await this.settled();
     return Database.prototype.transaction.call(this.db,()=>{
       if(!same(this.authorize(principal,target),identity))throw new SafetyReadUnavailable("generation_changed");
       const projection=this.projection(identity);
@@ -163,6 +168,7 @@ export class SafetyHistory {
       this.authorize(principal,target);this.clock();
       return safetyUpdateSchema.parse(update);
     }).deferred() as SafetyUpdate;
+    }finally{release();}
   }
   subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");

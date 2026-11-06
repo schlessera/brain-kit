@@ -2922,7 +2922,8 @@ requires resync from the durable ledger; there is no unbounded delta cache.
 Snapshots use at most 256 entries, 32 per principal and 4194304 aggregate bytes;
 the shared cursor table caps at 4096 positions, each at most 512 bytes and valid
 for 300000 ms. At most 256 reads (32 per principal) wait at once, and 256
-subscriptions exist per host. Capacity refusal preserves all durable evidence.
+subscriptions exist per host. Replaced subscriptions keep their in-flight reads
+inside those same read limits until settlement. Capacity refusal preserves all durable evidence.
 The existing one-second authorization sweep drives bounded live read delivery.
 Every asynchronous settlement and final delivery rechecks live principal,
 canonical generation, retirement and snapshot expiry. Permanent minimized
