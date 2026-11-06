@@ -1,8 +1,9 @@
 import { followDraftTarget } from "./draft-target.js";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
+import type { AttachmentFile, SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
+import { attachmentFileSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainStores } from "../stores/create-stores.js";
-import { hasContent, type ComposerDraft, type LocalDraft } from "../stores/draft-state.js";
+import { hasContent, type ComposerDraft, type DraftFile, type LocalDraft } from "../stores/draft-state.js";
 import { mintDraftId } from "./drafts.js";
 import type { PendingAttachment } from "./image-attachments.js";
 import { PartitionRefusedError, accountPartition, type LocalPartitions, type PartitionHandle, type PartitionWrite } from "./local-partitions.js";
@@ -125,7 +126,8 @@ function serializedDraft(value: unknown): string | undefined {
   const { deviceRevision: _revision, ...content } = value as StoredDraft;
   return JSON.stringify(content);
 }
-const sameContent = (a: StoredDraft, b: StoredDraft): boolean => a.sessionId === b.sessionId && a.text === b.text && JSON.stringify(a.attachments) === JSON.stringify(b.attachments);
+const sameContent = (a: StoredDraft, b: StoredDraft): boolean => a.sessionId === b.sessionId && a.text === b.text && JSON.stringify(a.attachments) === JSON.stringify(b.attachments)
+  && JSON.stringify(a.files ?? []) === JSON.stringify(b.files ?? []);
 type StoredContext = WorkContext & { v: 1 };
 
 const isStr = (v: unknown): v is string => typeof v === "string";
@@ -141,6 +143,13 @@ export function parseDraft(raw: unknown): LocalDraft | null {
     if (!a || !isStr(a.data) || !isStr(a.mediaType) || !a.mediaType.startsWith("image/") || !isNum(a.bytes) || !isStr(a.name)) return null;
     attachments.push({ attachment: { data: a.data, mediaType: a.mediaType as PendingAttachment["attachment"]["mediaType"] }, previewUrl: `data:${a.mediaType};base64,${a.data}`, bytes: a.bytes, name: a.name });
   }
+  // Originals are host references (#3155). One that does not parse is
+  // dropped on its own; the host's copy of the draft still lists it.
+  const files: DraftFile[] = [];
+  for (const f of Array.isArray(r.files) ? r.files : []) {
+    const parsed = f && isStr(f.lineage) ? attachmentFileSchema.safeParse(f.file) : null;
+    if (parsed?.success) files.push({ file: parsed.data as AttachmentFile, lineage: f.lineage });
+  }
   const h = r.host;
   const host = h && isNum(h.revision) && isStrOrNull(h.sessionId ?? null) && isNum(h.updatedAt) && typeof h.clean === "boolean"
     ? { revision: h.revision, sessionId: h.sessionId ?? null, updatedAt: h.updatedAt, clean: h.clean } : null;
@@ -148,7 +157,7 @@ export function parseDraft(raw: unknown): LocalDraft | null {
   // A malformed bind is dropped on its own, never the whole draft.
   const b = r.bind;
   const bind = b && isStr(b.sessionId) && isStr(b.requestId) ? { sessionId: b.sessionId, requestId: b.requestId } : null;
-  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}),
+  return { draftId: r.draftId, sessionId: r.sessionId ?? null, text: r.text, attachments, ...(files.length ? { files } : {}), editedAt: r.editedAt, host, deviceOnly: r.deviceOnly === true, ...(r.deviceConflict && isStr(r.deviceConflict.otherId) && isStrOrNull(r.deviceConflict.sessionId) ? { deviceConflict: r.deviceConflict } : {}),
     ...(r.uncertain === true ? { uncertain: true } : {}), ...(bind ? { bind } : {}) };
 }
 
@@ -179,6 +188,7 @@ export function storeDraft(d: ComposerDraft): StoredDraft {
     sessionId: d.sessionId,
     text: d.text,
     attachments: d.attachments.map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, bytes: a.bytes, name: a.name })),
+    ...(d.files?.length ? { files: d.files.map((f) => ({ file: f.file, lineage: f.lineage })) } : {}),
     editedAt: d.editedAt,
     deviceOnly: d.deviceOnly === true,
     ...(d.deviceConflict ? { deviceConflict: d.deviceConflict } : {}),
@@ -723,7 +733,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
           const current = state.drafts[targetId];
           const before = current?.text ?? "";
           const base: ComposerDraft = current ?? {
-            draftId: targetId, sessionId: owner, text: "", attachments: [], editedAt: Date.now(), edit: 0, host: null,
+            draftId: targetId, sessionId: owner, text: "", attachments: [], files: [], editedAt: Date.now(), edit: 0, host: null,
             uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
           };
           const draft: ComposerDraft = { ...base, text: before ? `${before}\n${text}` : text, edit: base.edit + 1, deviceOnly: true };

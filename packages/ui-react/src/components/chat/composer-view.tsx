@@ -1,10 +1,13 @@
 import { Overlay, Button, IconButton, Callout, Composer as KitComposer, ModelPicker, ListRow, type ComposerState, type ModelPickerProps } from "@schlessera/brain-ui-kit";
 import { TrackChip } from "./track-chip.js";
+import { FileChip } from "./file-chip.js";
 import type { PendingTrack } from "../../lib/track-uploads.js";
+import type { QueuedFile } from "../../lib/attachment-queue.js";
+import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
 import { X } from "lucide-react";
 import { useId } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
-import type { ClipboardEvent, KeyboardEvent, ReactNode, RefObject } from "react";
+import type { ClipboardEvent, DragEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 /**
@@ -80,6 +83,17 @@ export interface ComposerViewProps {
   tracks?: PendingTrack[];
   onRemoveTrack?: (id: string) => void;
   onRetryTrack?: (id: string) => void;
+  /**
+   * The draft's composer files (#3155): uploads still queued, then the
+   * originals the host stored. `detached` marks one this draft's id cannot
+   * bind. Shown only with `onPickFiles`.
+   */
+  files?: { queued: readonly QueuedFile[]; stored: readonly { file: AttachmentFile; detached: boolean }[] };
+  onRemoveQueuedFile?: (id: string) => void;
+  onRetryQueuedFile?: (id: string) => void;
+  onRemoveStoredFile?: (fileId: string) => void;
+  /** Polite, once: a file's upload reached an end state (stored, failed, refused). */
+  fileAnnouncement?: string;
   attachErrors: string[];
   provider: ComposerProvider | null;
   chatProfile?: ModelPickerProps["chat"];
@@ -96,6 +110,13 @@ export interface ComposerViewProps {
   onPickLibrary: () => void;
   onPickCamera: () => void;
   onPickTracks?: () => void;
+  /**
+   * The unrestricted Files source (additive; #3155). Present when the host
+   * keeps composer originals: the menu then offers Files instead of Track
+   * files, desktop drops Photo library and Camera, and dropped files feed
+   * the same pipeline as pasted ones. `onPickTracks` stays supported.
+   */
+  onPickFiles?: () => void;
   onPasteFiles: (files: File[]) => void;
   onRecall: () => void;
   onEscape: () => void;
@@ -129,25 +150,58 @@ export function ComposerView(p: ComposerViewProps) {
     p.onPasteFiles(Array.from(files));
   }
 
+  function onDrop(e: DragEvent<HTMLDivElement>) {
+    const files = e.dataTransfer?.files;
+    if (!p.onPickFiles || !files || files.length === 0) return;
+    e.preventDefault();
+    p.onPasteFiles(Array.from(files));
+  }
+  function onDragOver(e: DragEvent<HTMLDivElement>) {
+    if (p.onPickFiles && e.dataTransfer?.types.includes("Files")) e.preventDefault();
+  }
+
+  /** After Remove: the next chip, then the previous one, then Attach (§8.4). */
+  function removeAndRefocus(index: number, remove: () => void) {
+    const frame = p.frameRef.current;
+    const hadFocus = !!frame?.querySelector("[data-file-chips]")?.contains(document.activeElement);
+    remove();
+    if (!hadFocus) return;
+    setTimeout(() => {
+      const buttons = frame?.querySelectorAll<HTMLElement>('[data-file-chips] [data-file-chip] button[aria-label^="Remove "]');
+      const target = buttons?.[index] ?? buttons?.[index - 1] ?? frame?.querySelector<HTMLElement>('[role="button"][aria-label^="Attach"]');
+      target?.focus();
+    }, 0);
+  }
+
   const pointer = useMediaQuery("(min-width: 900px)");
+  const files = p.onPickFiles ? p.files : undefined;
+  const fileCount = (files?.queued.length ?? 0) + (files?.stored.length ?? 0);
   // The trigger's name lists what its menu offers, in menu order (#3045):
   // live conversation is reached through the paperclip, so the paperclip says
   // so whenever the row is there. The kit paints the same string as the
   // pointer tooltip; a phone's sheet names the actions in its subtitle.
-  const attachLabel = p.onConversation ? "Attach — live conversation, photo, camera, files" : undefined;
-  const attachSubtitle = `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, ${p.onPickTracks ? "track files, " : ""}or paste.`;
+  // Desktop with composer files: one unrestricted Files action (desktop
+  // menu A, #3155); phones keep Photo library and Camera beside it.
+  const desktopFiles = pointer && !!p.onPickFiles;
+  const attachLabel = p.onConversation ? `Attach — live conversation, ${desktopFiles ? "files" : "photo, camera, files"}` : desktopFiles ? "Attach — files" : undefined;
+  const attachSubtitle = p.onPickFiles
+    ? `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, files or paste.`
+    : `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, ${p.onPickTracks ? "track files, " : ""}or paste.`;
   const attachMenu = (
     <div className={pointer ? "bk-focus-clip flex flex-col rounded-[inherit]" : "flex flex-col"}>
       {p.onConversation && <ListRow variant="group" icon="mic" iconTone="teal" title="Live conversation" subtitle="Talk while your agent works" onClick={p.onConversation} />}
-      <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />
-      <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />
-      {p.onPickTracks && <ListRow variant="group" icon="file" iconTone="teal" title="Track files" subtitle="GPX, KML or GeoJSON" onClick={p.onPickTracks} />}
-      <ListRow variant="group" icon="copy" iconTone="neutral" title="Paste" subtitle="Images and track files paste into the field" last />
+      {!desktopFiles && <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />}
+      {!desktopFiles && <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />}
+      {p.onPickFiles
+        ? <ListRow variant="group" icon="file" iconTone="teal" title={desktopFiles ? "Files…" : "Files"} subtitle="Images, PDFs, tracks, any file" onClick={p.onPickFiles} />
+        : p.onPickTracks && <ListRow variant="group" icon="file" iconTone="teal" title="Track files" subtitle="GPX, KML or GeoJSON" onClick={p.onPickTracks} />}
+      <ListRow variant="group" icon="copy" iconTone="neutral" title={desktopFiles ? "Paste or drop" : "Paste"}
+        subtitle={p.onPickFiles ? desktopFiles ? "Files paste or drop into the field" : "Files paste into the field" : "Images and track files paste into the field"} last />
     </div>
   );
 
   return (
-    <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste}>
+    <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver}>
       {p.dictation}
       {p.dictationNotice && (
         <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="dictation" onPointerDown={(event) => {
@@ -187,6 +241,14 @@ export function ComposerView(p: ComposerViewProps) {
           ))}
         </div>
       )}
+
+      {p.onPickFiles && <div className="sr-only" aria-live="polite" data-file-announcement="">{p.fileAnnouncement ?? ""}</div>}
+      {fileCount > 0 && files && <div className="mb-2 grid gap-2" data-file-chips="">
+        {files.queued.map((item, i) => <FileChip key={item.id} queued={item}
+          onRemove={() => removeAndRefocus(i, () => p.onRemoveQueuedFile?.(item.id))} onRetry={() => p.onRetryQueuedFile?.(item.id)} />)}
+        {files.stored.map((entry, i) => <FileChip key={entry.file.fileId} stored={entry.file} detached={entry.detached}
+          onRemove={() => removeAndRefocus(files.queued.length + i, () => p.onRemoveStoredFile?.(entry.file.fileId))} />)}
+      </div>}
 
       {!!p.tracks?.length && <div className="mb-2 grid gap-2" aria-live="polite">{p.tracks.map(track => <TrackChip key={track.id} track={track} onRemove={() => p.onRemoveTrack?.(track.id)} onRetry={() => p.onRetryTrack?.(track.id)} />)}</div>}
 
