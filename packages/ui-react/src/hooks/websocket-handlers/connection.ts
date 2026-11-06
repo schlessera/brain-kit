@@ -5,7 +5,8 @@ type ConnectionFrame =
   | "dialogue_history" | "scope_decision_receipt"
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
   | "tool_resolution" | "session_queue" | "conversation_opened" | "conversation_closed"
-  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired";
+  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired"
+  | "attachment_read";
 
 export const connectionFrameHandlers = {
   dialogue_history: () => {},
@@ -47,6 +48,9 @@ export const connectionFrameHandlers = {
   // Browser invalidation is #3231's: this client does not declare
   // `chatDeletion`, so the host never sends it this frame.
   chat_retired: () => {},
+  // Sent-row read states are #3155's: this client does not declare
+  // `attachmentReads`, so the host never sends it this frame.
+  attachment_read: () => {},
   conversation_opened: () => {},
   conversation_closed: () => {},
   conversation_event: () => {},

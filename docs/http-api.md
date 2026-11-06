@@ -1146,6 +1146,33 @@ preview. `404 ATTACHMENT_NOT_FOUND` for an unknown, unreferenced or missing
 file; `409 ATTACHMENT_CHANGED` when the bytes no longer match, with none of
 them served. The raw file route keeps its 10,485,760-byte cap.
 
+<a id="attachment-reads-additive-0450-3589"></a>
+
+### `GET /api/sessions/:id/attachment-reads` (additive, 0.45.0, #3589)
+
+Advertised by `server_hello.capabilities.attachmentReads`; absent on a host
+without composer files, which a client reads as "show no read state". Behind
+the same authentication guard as the other session routes, with the same
+authority a history replay of the session has: a usable principal of this host,
+whose namespace every authenticated principal shares. A revoked or expired one
+gets the guard's `401 { error: "Authentication required", authRequired: true }`
+and nothing about the session.
+
+`200` returns `SessionAttachmentReadsResponse` `{ sessionId, reads }`, with
+`Cache-Control: no-store`. Each `AttachmentReadEntry` is `{ fileId, turnId,
+outcome, scope, at }`: one recorded `read_attachment` call that reached an
+original, oldest first. `outcome` is any outcome but `refused`, whose calls
+reach no original and are not recorded. `scope` is the pages or byte range
+the result covered, or `null` when nothing was read. Only reads recorded by
+this session's turns, of originals a message of this session still names, are
+returned. A session with none, or one the host does not know, answers an empty
+list. A retired chat is `404 SESSION_NOT_FOUND`. Text is never kept or
+returned, and nothing here reaches a provider.
+
+A read recorded during a live turn also reaches every connection that declared
+`attachmentReads` in its `client_hello`, as one
+[`attachment_read` frame](integration-contract/wire.md#attachment-reads-additive-0450-3589).
+
 ### Lifetime
 
 An upload no save or message ever bound is removed an hour after upload. An

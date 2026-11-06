@@ -109,6 +109,19 @@ files answers `unavailable`. See
 and [the package component](integration-contract/package-api.md#reading-composer-attachments-additive-0450-3154).
 This ships in a minor.
 
+## Attachment reads for sent rows (additive, 0.45.0, #3589)
+
+A host with composer files advertises `server_hello.capabilities.attachmentReads`.
+`GET /api/sessions/:id/attachment-reads` returns the recorded `read_attachment`
+calls of the originals a session's messages name, as `{ fileId, turnId,
+outcome, scope, at }` and never their text, under the session's existing
+authorization. A read recorded during a live turn reaches the connections that
+declared the same flag as one new `attachment_read` frame. `ServerMessage`
+gains that variant; a client without the flag never receives it. Nothing of
+either reaches a provider. See [the wire component](integration-contract/wire.md#attachment-reads-additive-0450-3589)
+and [the HTTP API](http-api.md#attachment-reads-additive-0450-3589). This
+ships in a minor.
+
 ## Reading a chat deletion's outcome (additive, #3455)
 
 `GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))
