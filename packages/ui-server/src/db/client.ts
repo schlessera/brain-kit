@@ -1,3 +1,4 @@
+import { migrateSafetyHistory, recoverSafetyCollections } from "../governance/safety-store.js";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
@@ -38,6 +39,8 @@ export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Dat
   // unqualified here; each start then moves whatever they created into it.
   attachJournalDatabase(db, dbPath);
   runMigrations(db, options.log);
+  migrateSafetyHistory(db);
+  recoverSafetyCollections(db);
   const moved = moveJournalTables(db);
   if (moved) options.log?.emit({ severityText: "INFO", body: "moved journal tables into the journal database", attributes: { tables: moved } });
   return db;

@@ -1,5 +1,57 @@
 # Live conversation: two engines, one host boundary
 
+## Shared brain guidance and exact progress — 2026-11-05 (#3623)
+
+Both engines receive the same brain-purpose/capture brief as the default typed
+chat append, with native delegation syntax kept separate. A bounded data-only
+reader projects selected root interaction/capture guidance, configured backend
+append sections, module names and identity/current-focus leads after disclosed
+Start. Instructions and knowledge remain classified; no repository code is
+executed and unknown/withheld context calls for clarification or host retrieval.
+The [source mapping and limits](../live-conversation-guidance.md) specify what
+is reused, adapted and left with the host. This does not depend on personas.
+
+A task request is insufficient evidence of acceptance. Minimal provider-facing
+queued status follows the exact task's initial durable admission; running
+follows host turn admission starting, before governance admission and backend
+entry may finish. These facts are necessary new model
+context, appended under the existing native identity rather than injected UI
+receipts or a fake completed result. Continuing Gemini responses and GPT
+commentary/thinking appends retain the binding for the real result. Prompt
+guidance asks for a brief spoken acknowledgement and continued conversation;
+transport alone cannot guarantee sound or judgment. Reviewed-only fallback,
+ordinary permissions, screen grants, append-only history, epoch activation and
+no-replay fences remain in force. The
+[additive contract](../integration-contract/package-api.md#live-brain-orientation-and-task-status-additive-3623)
+does not qualify the separate #3131/#961 real-provider/device behavior.
+
+## Proactive discovery and observed index map — 2026-11-05 (#3630)
+
+The missing-context guidance above is refined: routine requested retrieval and
+repository discovery go to the host without asking the caller to supply paths
+or confirm the lookup again. Configurable taxonomy and per-directory
+`_index.md` purpose/registry navigation guide ordinary host exploration. Real
+semantic/recognition ambiguity, missing capture consent and required effects
+or permissions retain their clarification and screen-control boundaries.
+Each exact accepted task gets one brief acknowledgement naming its pending
+work; running does not renew it or establish backend/tool entry.
+
+Startup additionally supplies an **OBSERVED partial content map** from existing
+root/top-level index leads, as data rather than effective runtime taxonomy.
+TypeScript config presence cannot suppress the map, and nothing evaluates
+config/imports/skills or automatically starts host work. Enumeration and reads
+must share the existing policy-held root descriptor: listing a mutable root
+path under another root's policy could disclose replacement directory names
+even when later source reads are anchored. Platforms without anchored
+enumeration withhold this supplemental map. Policy, authorization and root
+identity changes preserve the existing withholding boundary. Bounded source
+selection and whole-row omissions retain the 3,200-byte orientation and total
+startup ceilings; whole selected guidance keeps priority. Limits and source
+mapping remain in [the guidance reference](../live-conversation-guidance.md).
+This is source/serialization proof, not model obedience or listening proof.
+
+## Selected architecture — 2026-10-04
+
 2026-10-04. The maintainer's [October 3 ruling on #317](https://github.com/schlessera/brain-kit/issues/317#issuecomment-5973820627)
 selects **Gemini Live and OpenAI GPT-Live behind one live-conversation
 interface**. Both are intended implementations within a year, satisfying
@@ -30,7 +82,7 @@ tool admission and execution, permissions, cancellation, terminal state and
 resynchronization. Engine task requests are advisory until mapped to committed
 user input. No native search, code-execution or alternate permission loop is
 enabled. Both adapters can delegate through the existing `AgentBackend`
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:756-799`);
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:778-821`);
 the host serializes work in a session and uses capability-checked follow-ups.
 
 The [voice-permission decision](voice-permission.md) binds this interface.
@@ -40,7 +92,7 @@ posture. A speech provider cannot reinterpret a visual grant, widen an
 allowlist, or settle an approval because it generated an answer.
 
 The host resolves pending exchanges when a turn ends
-(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:711-745`). The
+(`drainPendingForTurn`, `packages/ui-server/src/ws/turns.ts:1030-1053`). The
 conversation integration must also reconcile client cards and audible claims;
 that server method is not proof of a client receipt. Completion requires host
 terminal state plus local playback drained or discarded. Provider generation
@@ -185,6 +237,34 @@ and exact delegation_id on bounded thinking/commentary appends. Acceptance and
 playback remain distinct; neither a socket send nor an append acknowledgement
 proves audible output. Source configuration and keyless fixtures do not qualify
 a live account, microphone, interruption, or device.
+
+Contextual recognition remains readable discussion, including after Leave; it
+is not an unsent manual task draft. Only genuine reviewed-mode candidates
+produce the unsent-fragment notice or move into composer review. Recent context
+and retained review have independent finite bounds. Moving recognition is not
+submission or resolution of work requested without an input association, so
+that separate notice remains truthful.
+Unknown-work notices stay with their originating chat or stable draft origin,
+including retained-device versions, ordinary accepted composer sends,
+retained-dialogue canonicalization and admitted-session adoption; reviewing text does
+not resolve them or transfer them to another chat. Their volatile origin
+metadata retains at most 128 entries and is cleared at principal/auth
+boundaries. The public count projects the selected chat only, without adding
+provider input, task admission or durable work state.
+A known task's late session identity can bind its notice after Leave without
+selecting a chat or authorizing work. Reviewed requests follow notice ownership
+into retained aliases before acceptance; their first native binding remains
+final even if history is unavailable or returns a canonical owner. A separate
+bounded cache keeps the last 128 already-known contextual task identities
+across Leave and later entries, without retaining their recognition/submitted
+payloads. Only exact conversation/epoch/task/native/request identities can
+acquire a late turn and session; unknown inactive receipts cannot introduce
+an identity. Principal/auth boundaries and disposal clear this cache.
+Ordinary sends transfer the exact accepted draft's origin before consumption
+or rotation, regardless of current selection. Correlated owner-history reads
+can return a canonical owner, while native-history reads retain their exact
+requested session. Stale unsolicited pages cannot change selection or notice
+ownership.
 
 Source verification on October 28 used the installed OpenAI Live v1
 `DelegationCreatedEvent`, `ThinkingAppendEvent`, `CommentaryAppendEvent` and

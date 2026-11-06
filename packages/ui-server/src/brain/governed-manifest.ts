@@ -16,6 +16,7 @@
  * descriptors opened with `O_NOFOLLOW`, and an ancestor that stopped being a
  * real directory is itself what gets quarantined.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database } from "bun:sqlite";
 import {
   closeSync, constants, cpSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync,
@@ -149,7 +150,7 @@ export function appearedSince(brainPath: string, start: TurnManifest): { appeare
   for (const name of now.env) if (!start.env.includes(name)) appeared.add(name);
   // A quarantined ancestor takes everything below it along.
   const sorted = [...appeared].sort((a, b) => a.length - b.length);
-  return { appeared: sorted.filter((path, i) => !sorted.slice(0, i).some(parent => path.startsWith(`${parent}/`))), changed };
+  return { appeared: sorted.filter((path, i) => !sorted.slice(0, i).some(parent => isWithin(parent, path, { includeRoot: false }))), changed };
 }
 
 /**

@@ -154,6 +154,19 @@ function scriptedBackend(): AgentBackend {
         bridge.emit({ type: "result", sessionId, outcome: how === "fail" ? "error" : "success", durationMs: 0, numTurns: 1, isError: how === "fail" });
         return;
       }
+      if (kind === "Actorapprove") {
+        const toolUseId = `actor-${sequence}`;
+        bridge.emit({ type: "tool_use_start", sessionId, toolUseId, toolName: "Apify Actor run" });
+        bridge.emit({ type: "tool_use_complete", sessionId, toolUseId, toolName: "Apify Actor run", input: {} });
+        const decision = await bridge.requestPermission({ toolUseId, toolName: "Apify Actor run", kind: "actor",
+          input: { actor: { id: "SeaCharts01", name: "odysseus/sea-charts" }, build: { number: "1.4.2" },
+            eligibility: { executable: true, reasons: [] }, account_id: "IthacaHousehold01", max_charge_usd: 0.05,
+            input: { novelField: "Record the harbour notices" } }, description: "Approve this Actor." });
+        answers.set(prompt, decision);
+        bridge.emit({ type: "tool_result", sessionId, toolUseId, output: "Actor decision recorded.", isError: decision.behavior !== "allow" });
+        finish(`Actor answered: ${title}.`, "success");
+        return;
+      }
       if (kind === "Approve" || kind === "Subapprove" || kind === "Remember") {
         const toolUseId = `wax-${sequence}`;
         if (kind === "Subapprove") {
@@ -599,6 +612,27 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
     }
   }, 120_000);
   for (const run of runs) {
+    test(`${run.name}: Actor approvals offer once, always and deny with the full input`, async () => {
+      for (const choice of ["Allow once", "Always allow", "Deny"] as const) {
+        const a = await device(run);
+        const prompt = `Actorapprove: Sea charts ${choice} (${run.name})`;
+        try {
+          await send(run, a.page, prompt);
+          const card = a.page.locator("[data-approval-card]");
+          try { await card.waitFor(); } catch (error) {
+            console.error("ACTOR_BROWSER_PENDING", JSON.stringify({ started: started.filter(s => s.command === prompt), frames: a.approvals.map(f => f.frame), body: await a.page.locator("body").innerText() }));
+            throw error;
+          }
+          for (const label of ["Allow once", "Always allow", "Deny"]) expect(await card.getByRole("button", { name: label === "Always allow" ? /^Always allow\b/ : label, exact: true }).count()).toBe(1);
+          await press(run, card.getByRole("button", { name: "Full input · 1 field", exact: true }));
+          expect(await card.locator("[data-apify-full-input]").textContent()).toContain("Record the harbour notices");
+          await press(run, card.getByRole("button", { name: choice === "Always allow" ? /^Always allow\b/ : choice, exact: true }));
+          await a.page.getByText("Actor answered:", { exact: false }).first().waitFor();
+          expect(answers.get(prompt), "ACTOR_BROWSER_DECISION").toMatchObject(choice === "Deny" ? { behavior: "deny" } : { behavior: "allow" });
+          expect((answers.get(prompt) as { always?: boolean }).always, "ACTOR_BROWSER_ALWAYS_SCOPE").toBe(choice === "Always allow" ? true : undefined);
+        } finally { await a.context.close(); await clearHostDrafts(); }
+      }
+    }, 120_000);
     test(`${run.name}: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen`, async () => {
       const tag = `(${run.name})`;
       const a = await device(run, { clock: true });

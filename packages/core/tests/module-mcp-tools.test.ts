@@ -13,7 +13,7 @@ import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-har
 // external compute tools (#3107), then the fixed Apify operations (#3162).
 const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive",
   "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
-  "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort"];
+  "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort", "brain_apify_availability", "brain_apify_approvals", "brain_apify_revoke"];
 const roots: string[] = [];
 const clients: Client[] = [];
 afterAll(async () => {

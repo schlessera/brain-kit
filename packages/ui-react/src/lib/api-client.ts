@@ -663,6 +663,7 @@ export function createBrainApi(
       });
     },
     /** Confirm the token's changed account (#3159). */
+    apifyActorRevoke: (actor_id: string) => fetchJson<{ revoked: boolean }>("/apify/actors/revoke", { method: "POST", body: JSON.stringify({ actor_id }) }),
     apifyConfirmAccount: (accountId: string) => fetchJson<unknown>("/apify/account", { method: "POST", body: JSON.stringify({ account_id: accountId }) }),
     /** Propose one Apify setting through the existing policy-change review; writes nothing. */
     apifyPolicyPropose: (change: ApifyPolicyChange, baseHash: string | null) =>

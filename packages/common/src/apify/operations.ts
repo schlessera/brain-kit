@@ -75,6 +75,9 @@ export async function callApifyOperation(services: ApifyServices, context: Apify
 
 function dispatch(services: ApifyServices, context: ApifyCallContext, operation: ApifyOperation, input: Record<string, unknown>): Promise<unknown> {
   switch (operation) {
+    case "availability": return services.consent.availability(context, input.actor_id as string | undefined);
+    case "approvals": return services.consent.approvals(context);
+    case "revoke": return services.consent.revoke(context, input.actor_id as string).then(() => ({ revoked: true }));
     case "discover": return services.consent.discover(context, input as { query: string; limit?: number });
     case "inspect": return services.consent.inspect(context, input as { candidate: string });
     case "prepare": return services.consent.prepare(context, input as { candidate: string; input: unknown; max_charge_usd: number });
@@ -83,4 +86,9 @@ function dispatch(services: ApifyServices, context: ApifyCallContext, operation:
     case "results": return services.runs.results(context, input as { run: string; cursor?: string; limit?: number });
     case "abort": return services.runs.abort(context, input as { run: string });
   }
+}
+
+/** Module-facing availability: no paid run or one-use approval is consumed. */
+export function checkApifyAvailability(services: ApifyServices, context: ApifyCallContext, actor_id?: string) {
+  return services.consent.availability(context, actor_id);
 }

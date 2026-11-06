@@ -4,6 +4,8 @@ import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSy
 import { join } from "node:path";
 import { z } from "zod";
 import { parseFrontmatter } from "./frontmatter-parse.js";
+import { TrustedSourcesSchema, type TrustRule } from "./taint-trust.js";
+export * from "./taint-trust.js";
 import { PROTECTED_TIER_B } from "./protected-paths.js";
 
 export const GOVERNANCE_POLICY_PATH = "context/policies/governance.md";
@@ -106,7 +108,7 @@ export const GovernancePolicySchema = z.strictObject({
   commands: z.strictObject({ deny: commands.optional(), confirm: commands.optional() }).optional(),
   egress: z.strictObject({ mode: z.enum(["record", "allowlist"]).optional(), allow: strings.optional(), deny: strings.optional(), max_bytes_per_turn: count.optional() }).optional(),
   outward: z.strictObject({ allow: outwardRules.optional(), hosts: strings.optional() }).optional(),
-  taint: z.strictObject({ egress: z.strictObject({ allow: strings }).optional() }).optional(),
+  taint: z.strictObject({ egress: z.strictObject({ allow: strings }).optional(), trusted_sources: TrustedSourcesSchema.optional() }).optional(),
   providers: z.array(z.strictObject({ paths: z.array(relativePath).optional(), types: strings.optional(), allow: strings })
     .refine(rule => rule.paths !== undefined || rule.types !== undefined, "A provider rule needs paths or types")
     .transform(rule => ({ ...rule, paths: rule.paths ?? [] }))).optional(),
@@ -142,7 +144,7 @@ export const BUILTIN_GOVERNANCE_POLICY = {
   commands: { deny: [] as Array<{ pattern: string; reason?: string }>, confirm: [] as Array<{ pattern: string; reason?: string }> },
   egress: { mode: "record" as "record" | "allowlist", allow: [] as string[], deny: [] as string[] },
   outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[] },
-  taint: { egress: { allow: [] as string[] } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
+  taint: { egress: { allow: [] as string[] }, trusted_sources: [] as TrustRule[] }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
   apify: { enabled: false as boolean, discovery: "ask" as "deny" | "ask" | "allow", actors: "ask" as "deny" | "ask" | "allow",
     actor_grants: [] as Array<z.output<typeof apifyActorGrant>>, limits: null as ApifyLimits | null },
 };
@@ -155,7 +157,7 @@ export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
     budgets: { turn: { ...defaults.budgets.turn, ...policy.budgets?.turn }, session: { ...defaults.budgets.session, ...policy.budgets?.session }, day: { ...defaults.budgets.day, ...policy.budgets?.day } },
     scope: { ...defaults.scope, ...policy.scope }, commands: { ...defaults.commands, ...policy.commands },
     egress: { ...defaults.egress, ...policy.egress }, outward: { ...defaults.outward, ...policy.outward },
-    taint: { egress: { ...defaults.taint.egress, ...policy.taint?.egress } },
+    taint: { egress: { ...defaults.taint.egress, ...policy.taint?.egress }, trusted_sources: TrustedSourcesSchema.parse(policy.taint?.trusted_sources ?? defaults.taint.trusted_sources) },
     // Callers pass parsed output, whose grant instants are already ISO strings.
     apify: { ...defaults.apify, ...(policy.apify as Partial<typeof defaults.apify> | undefined) },
   };

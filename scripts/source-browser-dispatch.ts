@@ -7,9 +7,11 @@ import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 // These two consumers import/re-export runStateForFrame only. They never
 // acquire the mutable chat handler map. Any consumer edit requires re-audit.
 const helperConsumers:Record<string,string>={
+  // Re-audited for #3604: safety frames route to their separate host-evidence
+  // driver before demux; this consumer still imports only runStateForFrame.
   // Re-audited when #1362 moved inbound routing out of connection.ts: only
   // runStateForFrame is imported; it never acquires or mutates chatFrameHandlers.
-  "packages/ui-react/src/ws-client/inbound.ts":"18d84fd93fc0f5ced9114e5bd5f5270632d70105d10f254be999fa3677bcf163",
+  "packages/ui-react/src/ws-client/inbound.ts":"b66c9fc53d5fdf3418f290331d2cdbf4d8a24d4f7767fbcf152a5ccd79041a8d",
   "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 const declarations=[
@@ -42,7 +44,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "a9c15494163cf55b9b69e2f76945ac3a51028eb7d85179cc8c1a48f8e3db35ef"
+        "source": "1274d2b9466c5d6e27de3bdaef3ab9287dc2dc76b98af2a2c79d699731b622b0"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

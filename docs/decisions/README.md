@@ -11,6 +11,7 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
+| [apify-actor-approval.md](apify-actor-approval.md) | Actor-scoped approve once/always/deny, credential-extraction scanning, shared Apify/turn spending and module availability; supersedes qualified-build admission. |
 | [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
 | [ci-utility.md](ci-utility.md) | Complete affected hosted proof, cheap local feedback and concurrent ready-PR scheduling without removing tests or blocking unrelated merges. |
 | [isolated-ci-build.md](isolated-ci-build.md) | Dormant fixed CI build operation, explicit activation deferral and conservative ordinary-build fallback. |
@@ -43,6 +44,7 @@ somebody already learn the hard way?*
 | [managed-worktrees.md](managed-worktrees.md) | Why managed reference worktrees snapshot authorized source, reach a worker only through a covered generation of the same principal, renew only on explicit activity, survive expiry while their worker lives and record cleanup facts without deleting anything. |
 | [reference-worktrees.md](reference-worktrees.md) | Why read-only shared source and centrally managed governed worktrees use separate authority/freshness clocks, an actual-allocation Btrfs budget and preservation-aware cleanup. |
 | [governed-writable-workers.md](governed-writable-workers.md) | Why interactive and voice turns write the brain directly again inside the worker: the four guardrail classes, in-brain policy read-only to agents, protected paths with self-bound ancestors, the per-turn journal with revert, budgets, scope caps, egress, the three write areas and roadblock tracking. Supersedes parts of policy-write-boundary.md. |
+| [session-safety-reviews.md](session-safety-reviews.md) | The prospective G6 supersession: finalized individual owner verdicts, complete detector coverage, separate future source/recipient trust, bounded evidence, live revision checks and protected publication. |
 | [action-notifications.md](action-notifications.md) | Why Action notices use fixed cross-thread batches, client-local quiet/digest schedules, new waiting episodes and durable per-destination submission/coverage history. |
 | [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
 | [agent-observability.md](agent-observability.md) | Runs, spans, the Activity surface, the failure inbox and the digest. |

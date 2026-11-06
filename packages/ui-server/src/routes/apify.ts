@@ -23,6 +23,8 @@ import {
 
 interface ApifyRoutesDeps {
   authority: ApifyAuthority;
+  actorApprovals?: (principalId: string) => Promise<Array<{ actor_id: string; actor: string; approved_at: number }>>;
+  revokeActor?: (principalId: string, actor_id: string) => Promise<void>;
   /** The live human-owner check every owner route applies to the resolved principal. */
   authorized(principalId: string): boolean;
   /** The brain whose governance policy holds the `apify` block (#3163). */
@@ -68,7 +70,17 @@ export function createApifyRoutes(deps: ApifyRoutesDeps): Hono<AppEnv> {
     const account = status.pending_account?.id ?? status.account?.id ?? null;
     const spend = deps.spend ? readApifySpend(deps.spend, account, session !== undefined ? { session_id: session, turn_id: turn! } : undefined)
       : { ledger: "absent" as const, observed_at: new Date().toISOString(), coverage: null, day: null, brain_day: null, unresolved: [] };
-    return c.json(apifySettingsRead(status, policy, spend));
+    return c.json({ ...apifySettingsRead(status, policy, spend), actor_approvals: await deps.actorApprovals?.(c.get("principal")!.id) ?? [] });
+  });
+  routes.post("/apify/actors/revoke", requireJson(), async c => {
+    const raw = await readJsonBody(c).catch(() => null);
+    if (raw instanceof Response) return raw;
+    const body = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "actor_id")
+      || typeof body.actor_id !== "string" || !/^[A-Za-z0-9]{1,64}$/u.test(body.actor_id)) return c.json({ error: "Expected one immutable Actor id." }, 400);
+    if (!deps.revokeActor) return c.json({ error: "Actor approval storage is unavailable." }, 503);
+    await deps.revokeActor(c.get("principal")!.id, body.actor_id);
+    return c.json({ revoked: true });
   });
   routes.post("/apify/account", requireJson(), async c => {
     const result = await readJsonBody(c).catch(() => null);

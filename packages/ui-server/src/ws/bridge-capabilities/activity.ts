@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { join, relative } from "node:path";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { ActivityQuery, BackendActivityEvent, BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { ProviderRecordsRefusedError } from "../../brain/provider-mask-refusal.js";
@@ -110,7 +111,7 @@ export function guardMaskedRecords(ctx: BridgeContext, bridge: BackendBridge): v
   const inboxAdd = bridge.inboxAdd;
   if (maskGuard && inboxAdd) bridge.inboxAdd = async input => {
     const tool = toolName("inbox_add");
-    maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => folder.startsWith(`${SHARE_STAGING_DIR}/`))]);
+    maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => isWithin(SHARE_STAGING_DIR, folder, { includeRoot: false }))]);
     if (host.brainPath) {
       let resolved: string | undefined;
       try { resolved = relative(realpathSync(host.brainPath), realpathSync(join(host.brainPath, SHARE_STAGING_DIR))); } catch { /* not staged yet */ }

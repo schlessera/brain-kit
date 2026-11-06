@@ -60,7 +60,7 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
       wrapHeader diff="" risk={riskHints(toolCall, renderer.semantics).join(" · ")}
       shortcuts={printKeys ? { allow: "a", deny: "d" } : undefined}
       onAllow={onApproval ? () => decide(true) : undefined} onDeny={onApproval ? () => decide(false) : undefined}
-      onAlwaysAllow={onApproval && offersAlwaysAllow(toolCall) && apifyApprovalTarget(toolCall) === null ? () => decide(true, true) : undefined}>
+      onAlwaysAllow={onApproval && offersAlwaysAllow(toolCall) ? () => decide(true, true) : undefined}>
       {Input ? <Input tool={toolCall} /> : null}
       {effectOf(toolCall) ? <p className="text-[11px] text-muted-foreground">{effectOf(toolCall)}</p> : null}
     </ApprovalCard>

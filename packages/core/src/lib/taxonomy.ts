@@ -10,6 +10,7 @@
  * titles, exclusions, classification hints) are answered here and nowhere else.
  */
 
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { posix } from "path";
 
 import type { SearchLanguage } from "./search-language.js";
@@ -247,9 +248,9 @@ export class Taxonomy {
   }
 
   private matchesDirectoryRules(path: string): boolean {
-    if (this.exclude.dirs.some((dir) => path.startsWith(`${dir}/`) || path === dir)) return true;
+    if (this.exclude.dirs.some((dir) => isWithin(dir, path))) return true;
     return this.exclude.segments.some(
-      (seg) => path.includes(`/${seg}/`) || path.startsWith(`${seg}/`)
+      (seg) => path.includes(`/${seg}/`) || isWithin(seg, path, { includeRoot: false })
     );
   }
 

@@ -107,7 +107,7 @@ ended in a state other than `succeeded` with its cleanup confirmed; `130` or
 
 ## Apify operations (additive, 0.45.0, #3162)
 
-`brain apify` runs the seven fixed Apify operations the core MCP server's
+`brain apify` runs the ten fixed Apify operations the core MCP server's
 `brain_apify_*` tools and both chat backends also call
 ([index](../integration-contract.md#apify-operations-through-the-cli-mcp-and-both-chat-backends-additive-0450-3162),
 [the contract](../decisions/apify-capability.md#selected-stable-machine-operations)).
@@ -123,12 +123,15 @@ brain configuration or executes repository code.
 | `brain apify status <run>` | `{ run }` |
 | `brain apify results <run> [--cursor C] [--limit N]` | `{ run, cursor?, limit? }`: `limit` 1–100, default 25 |
 | `brain apify abort <run>` | `{ run }` |
+| `brain apify availability [actor-id]` | `{ actor_id? }`: immutable Actor id, 1–64 alphanumeric characters |
+| `brain apify approvals` | `{}` |
+| `brain apify revoke <actor-id>` | `{ actor_id }`: immutable Actor id |
 
 References are 1–64 characters and opaque. Every operation prints one
 envelope and a newline, and exits `0` when `ok` is true and `1` when it is not:
 
 ```ts
-type ApifyOperation = "discover" | "inspect" | "prepare" | "run" | "status" | "results" | "abort";
+type ApifyOperation = "discover" | "inspect" | "prepare" | "run" | "status" | "results" | "abort" | "availability" | "approvals" | "revoke";
 type ApifyEnvelope =
   | { ok: true; operation: ApifyOperation; data: unknown }
   | { ok: false; operation: ApifyOperation; error: { code: ApifyErrorCode; reason: string | null; message: string } };
@@ -141,8 +144,11 @@ type ApifyErrorCode =
 
 `data` per operation:
 
+- `availability`: `{ state: "unavailable" | "approval_required" | "ready", reason: string | null }`. Advisory only: checks provider, posture, limits, budgets and the optional Actor approval; starts no run and consumes no approval. Provider-only readiness does not imply approval of an unspecified Actor.
+- `approvals`: `[{ actor_id, actor, approved_at, candidate }]`, scoped to this brain, principal and bound account. `approved_at` is Unix milliseconds. Additive in #3624, `candidate` is an opaque current-session reference accepted by `inspect`, so an approved Actor can be inspected and prepared without `discover`. It is `null` while the provider is unavailable; when more than 200 approvals exist, only the most recent 200 receive references. Older approvals remain listed with `candidate: null`. Listing starts no Actor and grants no execution permission; inspection retains discovery policy, routing and request checks, and execution rechecks the live approval and budgets. Like discovered references, later operations may evict the oldest beyond the session's 200-reference bound.
+- `revoke`: `{ revoked: true }`, idempotently removes that Actor's remembered approval.
 - `discover`: `{ candidates: [{ candidate, actor, title, description, developer, pricing_model, deprecated }], untrusted: true }`.
-- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
+- `inspect`: `{ candidate, actor_id, actor, title, description, build_id, build_number, build_tag, memory_mbytes?, schema_sha256, pricing_sha256, permission_level, pricing, input_fields, secret_fields, required_fields, profile_id, eligibility: { executable, reasons }, readme, untrusted: true }`.
 - `prepare`: `{ proposal, review, admission: "grant" | "ask", expires_at }`; `review` is what an approval shows.
 - `run` and `status`: `{ run, state, results: { available, partial, expires_at }, abort, remote_outcome_unknown, warnings }`.
 - `results`: `{ run, items, next_cursor, truncated, partial, warnings, untrusted: true }`.
@@ -164,7 +170,7 @@ default `default`) names the conversation the references belong to, and its
 UTC day is the turn that turn-scoped limits count. Candidates and proposals
 live in the ledger, so a later invocation of the same session can use them;
 another session cannot. Nothing is ever asked on stdin: a run is admitted only
-by an exact standing grant in the policy, else it refuses as
+by a remembered Actor approval for the `local` principal, else it refuses as
 `approval_required`. `brain apify account [confirm <account-id>]` prints the
 bound account's status and lets the operator confirm a changed account; it
 never prints a token. A usage error exits `1` with a message on stderr and
@@ -461,6 +467,11 @@ the file enables it. Since #3160 (additive) `apify` also carries
 `expires_at` normalized to an ISO 8601 UTC instant. Since #3161 (additive)
 `apify` also carries `limits`, `null` unless the file sets the complete
 [limits object](../supported-inputs.md#governance-policy).
+Since #3607 (additive), `effective.taint` also includes `trusted_sources: []`
+by default, or the complete validated canonical trust entries from the
+[supported input](../supported-inputs.md#prospective-trust-policy-data-additive-3607),
+with explicit incoming/recipient defaults. This reports data, not a runtime
+trust exemption or new review capability; sticky taint enforcement is unchanged.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes
@@ -1328,3 +1339,27 @@ No production autonomous dispatch is enabled by these additive surfaces.
 validates one standalone or fenced v1 spec. The complete input grammar, finding
 paths/codes, result envelope, exit behavior and JSON Schema are specified in
 [Diagram spec v1 and check](diagrams.md).
+
+### Actor approval revision (#3580)
+
+Actor runs use Actor-specific once/always/deny approval. Always is scoped to
+brain, principal, bound account and immutable Actor id, across sessions,
+builds and inputs. Legacy exact-build policy grants are retained as data and
+are not widened into these approvals. `actors: deny` still refuses all runs;
+`ask` and `allow` both require the Actor's first approval. JSON object input
+and dataset output are not restricted by qualification profiles or schema
+field allowlists; credential-extraction scanning applies. Pagination and
+request/retention budgets remain transport and spending controls. Legacy
+`max_result_items` and `max_result_bytes` policy values remain parseable but
+do not truncate Actor content.
+
+Catalog metadata requests also retain a platform/transfer estimate in the
+ledger when no Actor is started; these estimates count in turn/session/day
+budgets across processes and remain visibly estimated.
+
+The shared ledger counts observed run cost plus estimated independent
+platform requests, data transfer and storage. Reservations count alongside
+inference in overall budgets. Caps are admission controls over those observed
+and estimated costs, not a guaranteed final invoice. Terminal reports remain
+reserved until a later observation at least ten seconds after first completion;
+missing reports remain unknown. See the [current decision](../decisions/apify-actor-approval.md).

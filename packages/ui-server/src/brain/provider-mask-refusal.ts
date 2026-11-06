@@ -4,6 +4,7 @@
  * bridge tool either: those tools run on the server, outside the worker's
  * mounts, against the real brain.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { providerFolderRoots } from "./governance-policy.js";
 
@@ -129,9 +130,9 @@ export function createProviderMaskGuard(options: {
     // A denied folder nested inside the masked root masks it whole (#2695).
     if (options.recipient !== undefined) for (const [index, rule] of providers.entries()) {
       if (!denies(rule)) continue;
-      const pattern = rule.paths.find(path => providerFolderRoots({ providers: [{ paths: [path], allow: [] }] }).some(folder => folder.startsWith(`${root}/`)));
+      const pattern = rule.paths.find(path => providerFolderRoots({ providers: [{ paths: [path], allow: [] }] }).some(folder => isWithin(root, folder, { includeRoot: false })));
       if (pattern) return { index, pattern };
-      const type = (rule.types ?? []).find(name => options.typeFolders?.[name]?.some(folder => folder.startsWith(`${root}/`)));
+      const type = (rule.types ?? []).find(name => options.typeFolders?.[name]?.some(folder => isWithin(root, folder, { includeRoot: false })));
       if (type) return { index, pattern: `type ${type}` };
     }
     return { index: 0, pattern: `${root}/**` };

@@ -5,7 +5,7 @@
  *
  * - An unknown charge, an unread ledger or an unconfirmed abort is never
  *   shown as `$0.00`.
- * - A reservation is an upper bound ("up to"), not a charge.
+ * - A reservation is a spending estimate held for pending work, not a settled charge.
  * - Local cancellation never reads as a confirmed remote stop.
  * - Enablement, catalog search and Actor consent are separate facts.
  */
@@ -92,9 +92,9 @@ export function grantNote(grant: ApifyGrantRead, off: boolean): string {
   return off ? `until ${shortDate(grant.expires_at)} · inactive while Apify is off` : `until ${shortDate(grant.expires_at)}`;
 }
 
-/** One run's value and note. Unknown and unsettled amounts are upper bounds, never zero. */
+/** One run's value and note. Unknown and unsettled amounts retain estimated liability. */
 export function runLine(run: ApifyUnresolvedRunRead): { value: string; note: string; warn: boolean } {
-  const bound = `up to ${usd(run.liability_usd)}`;
+  const bound = `${usd(run.liability_usd)} held estimate`;
   if (run.remote_outcome_unknown) return { value: bound, warn: true, note: `Start not confirmed since ${shortTime(run.started_at)} · the reservation is kept until Apify reports.` };
   if (run.abort === "unresolved") return { value: bound, warn: true, note: `Abort sent · not confirmed (${shortTime(run.updated_at)}). It may still be charged.` };
   if (run.abort === "requested" || run.state === "aborting") return { value: bound, warn: true, note: `Abort sent ${shortTime(run.updated_at)} · not confirmed.` };
@@ -113,15 +113,15 @@ export function spendSummary(spend: ApifySpendRead): { text: string; known: bool
   return { known: true, text: scopeSummary(scope) };
 }
 export function scopeSummary(scope: ApifySpendScopeRead): string {
-  const parts = [`${usd(scope.charged_usd)} settled`];
-  if (scope.reserved_usd > 0) parts.push(`up to ${usd(scope.reserved_usd)} reserved`);
-  if (scope.residual_usd > 0) parts.push(`${usd(scope.residual_usd)} still owed for storage and requests`);
+  const parts = [`${usd(scope.charged_usd)} reported`];
+  if (scope.reserved_usd > 0) parts.push(`${usd(scope.reserved_usd)} reserved estimate`);
+  if (scope.residual_usd > 0) parts.push(`${usd(scope.residual_usd)} estimated platform overhead held`);
   if (scope.unknown_runs) parts.push(`${scope.unknown_runs} ${scope.unknown_runs === 1 ? "start" : "starts"} unknown`);
   if (scope.open_runs) parts.push(`${scope.open_runs} ${scope.open_runs === 1 ? "run" : "runs"} open`);
   return parts.join(" · ");
 }
 
-export const COVERAGE_NOTE = "Free credits may cover some of this; it is shown at full price.";
+export const COVERAGE_NOTE = "Actor charges and estimated platform operations, transfer and storage share the Apify budget. Pending and delayed costs may change the total. Free credits offset payment, not metered usage.";
 
 /**
  * The Apify share of a turn receipt (#3307). `apifyUsd` is already inside
@@ -157,7 +157,7 @@ export function refusalCopy(error: { code: string; reason?: string | null; messa
       if (reason === "edited") return { title: "Changed · review again", text: "The approval came back with a different request than the one reviewed. Nothing was sent. Your agent can prepare it again.", setting: null };
       if (reason === "policy_changed" || reason === "grant_changed") return { title: "Changed · review again", text: "The policy changed after this was prepared. Nothing started. Your agent can prepare it again under the current policy.", setting: null };
       return { title: "Changed · review again", text: "The Actor's build, input schema, price, permissions or account changed after this was prepared, so this approval no longer matches what would run. Nothing started. Your agent can prepare it again.", setting: null };
-    case "actor_unsupported": return { title: "Can't run here", text: "This Actor build isn't qualified for bounded execution here: Apify doesn't report a price and limits this brain can bound. Paid runs need a known upper limit. It can still be inspected.", setting: null };
+    case "actor_unsupported": return { title: "Can't run here", text: "The Actor build could not be resolved for this request. Inspect it again; no run was started.", setting: null };
     case "budget_exceeded": return { title: "Over a spending limit", text: `Not run: it could cost more than ${budgetName(reason)} allows. Nothing started.`, setting: "limits" };
     case "accounting_unavailable": return { title: "Spend couldn't be checked", text: reason === "session_unbound" ? "This conversation isn't named yet, so a run couldn't be counted. Nothing started; try again in a moment." : "Apify accounting is unavailable, so no paid work was admitted. Nothing started.", setting: "today" };
     case "remote_outcome_unknown": return { title: "Start not confirmed", text: "Apify didn't confirm whether the run started. Its reservation is kept until Apify reports; it is never started again automatically.", setting: "today" };

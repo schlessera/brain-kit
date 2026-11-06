@@ -76,7 +76,7 @@ test("a Pi worker discovers, reviews, runs and reads results only through the ho
   expect(turn.envelopes.map(envelope => envelope.ok), "APIFY_PI_SEQUENCE_SUCCEEDS").toEqual([true, true, true, true, true]);
   // No tool-level card: the host asked per exact use, discovery and inspection included, and the run once.
   expect(turn.cards.map(card => `${card.kind}:${card.toolName}`), "APIFY_PI_PER_USE_REVIEW")
-    .toEqual(["command:Apify catalog search", "command:Apify Actor inspection", "command:Apify Actor run"]);
+    .toEqual(["command:Apify catalog search", "command:Apify Actor inspection", "actor:Apify Actor run"]);
   expect(turn.envelopes[4].data.items, "APIFY_PI_BOUNDED_RESULTS").toHaveLength(2);
   expect(fake.starts(), "APIFY_PI_ONE_START").toBe(1);
   expect(JSON.stringify(turn.frames), "APIFY_PI_SENTINEL_NEVER_IN_FRAMES").not.toContain(APIFY_SENTINEL);

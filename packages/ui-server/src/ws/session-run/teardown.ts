@@ -23,6 +23,7 @@ export async function teardownTurn(run: TurnRun, outcome: TurnOutcome): Promise<
   held.turnEgress?.stop();
   // The session's next turn reads these hosts back as contacted (G6).
   await held.turnEgress?.settled();
+  await host.activity?.governanceWrites?.safetyEnd(turn.turnId).catch(error=>host.log.emit({severityText:"ERROR",body:`safety collection finalization failed: ${String(error)}`}));
   host.dialogue.retireTurn(turn.turnId);
   if (held.referenceTurn) host.referenceTools?.end(turn.turnId);
   const budgetFailure = run.stops.budget;

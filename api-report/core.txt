@@ -222,11 +222,13 @@ export "./internal/apify" (./src/internal-apify.ts)
   APIFY_LOCAL_PRINCIPAL
   APIFY_ROBOTS_ADDRESS_POLICY
   APIFY_STANDALONE_AUTHORITY_SETTING
+  type ApifyAvailability
   type ApifySitePermissionOptions
   type StandaloneApify
   type StandaloneApifyOptions
   apifyBrainId
   apifyRobotsUserAgent
+  checkApifyAvailability
   createApifySitePermission
   createStandaloneApify
 

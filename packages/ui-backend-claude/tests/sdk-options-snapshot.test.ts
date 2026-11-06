@@ -11,6 +11,14 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * (418b037ae, after #3103 added the compute tools) when that landed, and the
  * split tree still matches it byte for byte. #3154 re-recorded it with this helper for one reviewed
  * change: `read_attachment` joins the stable roster of every mode, and nothing else moves.
+ * #3580 re-records the fixed Apify roster with availability/approvals/revoke
+ * and the reviewed Actor-approval guidance.
+ * #3623 prepends the reviewed common brain-interaction brief in the four
+ * interactive modes; all other options and autonomous modes stay byte-identical.
+ * #3600 adds the safety result hook to PostToolUse and PostToolUseFailure in
+ * those four modes; provider tools, prompts and autonomous modes stay unchanged.
+ * #3624 re-records only the tool-description digest for approved Actor reuse
+ * and the user-selected shortlist; tool names, allowlists and prompts stay fixed.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

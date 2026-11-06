@@ -48,7 +48,7 @@ const COMPUTE_TOOLS = [
   "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
 ];
 /** The fixed Apify operations (#3162), shared with `brain apify` and both chat backends. */
-const APIFY_TOOLS = ["brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort"];
+const APIFY_TOOLS = ["brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort", "brain_apify_availability", "brain_apify_approvals", "brain_apify_revoke"];
 const ALL_TOOLS = [...READ_TOOLS, "brain_add", "brain_update", "brain_archive", ...COMPUTE_TOOLS, ...APIFY_TOOLS];
 
 beforeAll(async () => {
@@ -70,7 +70,7 @@ afterAll(async () => {
   cleanup(root);
 });
 
-test("lists all 21 brain_* tools", async () => {
+test("lists all 24 brain_* tools", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   expect(names).toEqual([...ALL_TOOLS].sort());
@@ -166,12 +166,12 @@ test("read tools carry the readOnly annotation", async () => {
 });
 
 describe("Apify tools (#3162)", () => {
-  test("only run and abort are marked as changing anything, and every one reaches outside the brain", async () => {
+  test("only run, abort and approval revocation are marked as changing anything, and every one reaches outside the brain", async () => {
     const { tools } = await client.listTools();
     for (const name of APIFY_TOOLS) {
       const tool = tools.find((t) => t.name === name)!;
       expect(tool.annotations?.openWorldHint, name).toBe(true);
-      expect(tool.annotations?.readOnlyHint, name).toBe(!["brain_apify_run", "brain_apify_abort"].includes(name));
+      expect(tool.annotations?.readOnlyHint, name).toBe(!["brain_apify_run", "brain_apify_abort", "brain_apify_revoke"].includes(name));
     }
   });
 

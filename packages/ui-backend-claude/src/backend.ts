@@ -19,6 +19,7 @@ import { createHistory } from "./history.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import { resolveClaudeProfiles } from "./options.js";
 import { createSessionRetirement, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { projectConversationGuidance } from "@schlessera/brain-ui-sdk/internal";
 import { isSessionId } from "./worker-state.js";
 import { getProfile, listProfiles, listUnavailableProfiles } from "./profiles.js";
 import { selectedInferenceUpstream, turnEnv } from "./sdk-options.js";
@@ -134,6 +135,7 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
 
   return {
     id: BACKEND_ID,
+    conversationGuidance: projectConversationGuidance(options.systemPromptAppend ?? "", "configured systemPromptAppend"),
     capabilities,
     stateRoomAllowanceBytes: resolveWorkerStateLimits(options.workerState ?? {}).allowanceBytes,
     listProfiles(): ProviderInfo[] {

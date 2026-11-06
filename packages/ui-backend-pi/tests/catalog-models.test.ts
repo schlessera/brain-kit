@@ -77,11 +77,13 @@ describe("pi builtin catalog", () => {
           allowedTools: new Set<string>(),
           confirmPatterns: [],
           loadExtensions: false,
+          managedToolSafety: true,
         });
         // This catalog unit test constructs the worker-local SDK directly.
         // Ordinary-turn containment and tool transport are proven separately
         // by pi-worker-runtime's real namespace/inference harness.
         const runtime = createSessionRuntime({ backend, sessionDir: WORKER_SCRATCH, resources,
+          toolSafety: {permission: async()=>{throw new Error("Construction-only fixture cannot execute tools");},result:async()=>{throw new Error("Construction-only fixture cannot deliver results");},stop(){}},
           sessionId: randomUUID(), observeManager: () => {}, modelRuntimeOptions: {} });
         // Construct only: no prompt, credential login, provider request or billing.
         const { session } = await runtime.newSession("configured-sol", { caps });

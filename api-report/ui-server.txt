@@ -655,6 +655,7 @@ signatures (every public export and the types it is made of)
                     opaque_bytes: "opaque_bytes";
                 }>;
                 bytes: z.ZodNumber;
+                connectionId: z.ZodOptional<z.ZodString>;
                 durationMs: z.ZodNumber;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
@@ -1033,12 +1034,60 @@ signatures (every public export and the types it is made of)
         readonly taint: {
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
+                occurrence: z.ZodOptional<z.ZodObject<{
+                    admission: z.ZodOptional<z.ZodObject<{
+                        policyHash: z.ZodNullable<z.ZodString>;
+                        trustRevision: z.ZodLiteral<"0">;
+                        trusted: z.ZodLiteral<false>;
+                    }, z.core.$strict>>;
+                    detector: z.ZodEnum<{
+                        attachment_input: "attachment_input";
+                        compute_input: "compute_input";
+                        explicit_untrusted_input: "explicit_untrusted_input";
+                        external_mcp_input: "external_mcp_input";
+                        proxy_input: "proxy_input";
+                        tool_file_input: "tool_file_input";
+                        tool_search_output: "tool_search_output";
+                        tool_web_input: "tool_web_input";
+                        unproxied_shell_input: "unproxied_shell_input";
+                    }>;
+                    epochId: z.ZodString;
+                    exposure: z.ZodEnum<{
+                        finalized: "finalized";
+                        interrupted_unknown: "interrupted_unknown";
+                        open: "open";
+                    }>;
+                    exposureId: z.ZodString;
+                    id: z.ZodString;
+                    operationId: z.ZodNullable<z.ZodString>;
+                    provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                        kind: z.ZodLiteral<"web_origin">;
+                        origin: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                            scheme: z.ZodEnum<{
+                                http: "http";
+                                https: "https";
+                            }>;
+                        }, z.core.$strict>;
+                        verifiedBy: z.ZodLiteral<"host_transport">;
+                    }, z.core.$strict>, z.ZodObject<{
+                        authority: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                        }, z.core.$strict>;
+                        kind: z.ZodLiteral<"tunnel_authority">;
+                        verifiedBy: z.ZodLiteral<"host_proxy">;
+                    }, z.core.$strict>]>;
+                    signalId: z.ZodString;
+                }, z.core.$strict>>;
                 source: z.ZodEnum<{
                     apify_result: "apify_result";
                     chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
                     unclassified_command: "unclassified_command";
@@ -1048,6 +1097,16 @@ signatures (every public export and the types it is made of)
                     workspace_read: "workspace_read";
                 }>;
                 tool: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly taint_exposure: {
+            payload: z.ZodObject<{
+                occurrenceId: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                }>;
             }, z.core.$strict>;
             version: number;
         };
@@ -1222,6 +1281,36 @@ signatures (every public export and the types it is made of)
             egress: z.ZodOptional<z.ZodObject<{
                 allow: z.ZodArray<z.ZodString>;
             }, z.core.$strict>>;
+            trusted_sources: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                incomingContent: z.ZodDefault<z.ZodBoolean>;
+                label: z.ZodString;
+                recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+                selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"web_origin">;
+                    port: z.ZodNumber;
+                    scheme: z.ZodEnum<{
+                        http: "http";
+                        https: "https";
+                    }>;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    port: z.ZodNumber;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_repository">;
+                    owner: z.ZodString;
+                    repository: z.ZodString;
+                    repositoryId: z.ZodString;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_owner">;
+                    owner: z.ZodString;
+                    ownerId: z.ZodString;
+                }, z.core.$strict>], "kind">;
+            }, z.core.$strict>>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
   GovernedTurnHold (packages/ui-server/src/brain/governed-turn.ts)
@@ -1918,7 +2007,7 @@ signatures (every public export and the types it is made of)
         retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
         attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string): void;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string, creatorTurnId?: string): void;
         persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
         recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
             thinkingLevel?: ThinkingLevel;
@@ -2541,6 +2630,33 @@ signatures (every public export and the types it is made of)
             egress: {
                 allow: string[];
             };
+            trusted_sources: {
+                id: string;
+                incomingContent: boolean;
+                label: string;
+                recipientWhileRestricted: boolean;
+                selector: {
+                    host: "github.com";
+                    kind: "github_owner";
+                    owner: string;
+                    ownerId: string;
+                } | {
+                    host: "github.com";
+                    kind: "github_repository";
+                    owner: string;
+                    repository: string;
+                    repositoryId: string;
+                } | {
+                    host: string;
+                    kind: "tunnel_authority";
+                    port: number;
+                } | {
+                    host: string;
+                    kind: "web_origin";
+                    port: number;
+                    scheme: "http" | "https";
+                };
+            }[];
         };
     };
   resolveServerConfig (packages/ui-server/src/config/env.ts)

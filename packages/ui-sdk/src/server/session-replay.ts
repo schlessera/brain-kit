@@ -1,4 +1,5 @@
 /** Host-owned display metadata. These files are never runtime transcript input. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -26,7 +27,7 @@ export function sessionReplay(root: string, brainPath: string, sessionId: string
   let ancestor = dir;
   while (!existsSync(ancestor)) ancestor = dirname(ancestor);
   const actual = resolve(realpathSync(ancestor), dir.slice(ancestor.length).replace(/^\//, ""));
-  const outside = actual !== brain && !actual.startsWith(brain + "/") && !brain.startsWith(actual + "/");
+  const outside = !isWithin(brain, actual) && !isWithin(actual, brain);
   const validate = () => {
     if (!outside) throw new Error("Session replay storage must be outside the authoritative brain");
     if (existsSync(dir)) directory(dir);

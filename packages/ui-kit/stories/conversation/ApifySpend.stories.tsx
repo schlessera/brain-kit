@@ -65,18 +65,18 @@ export const StoppedUnconfirmed320 = meta.story({
     await painted(args.width, globals.theme);
     const body = within(document.body);
     const notice = await waitFor(() => { const found = document.querySelector<HTMLElement>("[data-apify-turn-notice]"); if (!found) throw new Error("notice"); return found; });
-    await expect(notice.textContent, "APIFY_STOP_NOT_CONFIRMED").toContain("Apify hasn't confirmed the run stopped. Up to $1.15 may be charged.");
+    await expect(notice.textContent, "APIFY_STOP_NOT_CONFIRMED").toContain("Apify hasn't confirmed the run stopped. $1.15 is held as an estimate; final charges may differ.");
     await expect(reads).toContain("?session=s-ithaca&turn=t-harbor");
     // Inference and Apify stay two figures in the header, never one exact sum.
-    const header = body.getByRole("button", { name: /\$0\.8900 \+ Apify up to \$1\.15/ });
+    const header = body.getByRole("button", { name: /\$0\.8900 \+ Apify estimate \$1\.15/ });
     await userEvent.click(header);
     await userEvent.click(body.getByRole("button", { name: "Turn facts" }));
     const cost = await waitFor(() => { const found = document.querySelector<HTMLElement>("[data-apify-turn-cost=\"known\"]"); if (!found) throw new Error("cost"); return found; });
-    await expect(cost.textContent).toContain("Admitted Apify liability this turn: up to $1.15");
+    await expect(cost.textContent).toContain("Estimated Apify liability this turn: $1.15");
     await expect(cost.textContent).toContain("Model inference: $0.89 observed lower bound");
     await expect(cost.textContent).toContain("Abort sent · not confirmed");
     const activity = document.querySelector<HTMLElement>("[data-apify-activity=\"unresolved\"]")!;
-    await expect(activity.textContent).toContain("up to $1.15");
+    await expect(activity.textContent).toContain("$1.15 held estimate");
     await expect(document.body.textContent).not.toContain("$0.00");
     await bounds(notice, "stop notice"); await targets(notice, "stop notice"); await accessible(document.querySelector("main")!);
     await userEvent.click(within(notice).getByRole("button", { name: "Check again" }));

@@ -3,6 +3,8 @@
  * WebSockets. Keyless; repo preload refuses non-loopback network.
  */
 import { afterEach, expect, test } from "bun:test";
+import { BRAIN_UI_SYSTEM_PROMPT_APPEND } from "@schlessera/brain-ui-sdk/server";
+import { projectConversationGuidance } from "@schlessera/brain-ui-sdk/internal";
 import { projectLiveHistory } from "../src/ws/live-history";
 import type { LiveConversationProvider, LiveConversationOpenOptions, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
 import { createGeminiConversationProvider } from "../src/voice/gemini-conversation";
@@ -142,6 +144,101 @@ for (const engine of ["gemini", "gpt"] as const) {
 }
 
 for (const engine of ["gemini","gpt"] as const) {
+  test(`${engine}: selected instructions and classified brain knowledge reach startup once with immutable prefixes`, async () => {
+    const { provider, sockets } = loopback(engine);
+    const selected = projectConversationGuidance("# Response surface\nRender a mermaid diagram.\n# Personal Rules\nUse brief plain language with Odysseus.\n# Capture policy\nAsk before keeping a newly mentioned preference.\n# Turn lifecycle\nFan out with Agent and collect subprocesses.", "configured systemPromptAppend");
+    const orientation = { guidance: selected, knowledge: [
+      { source: "observed voyages/_index.md", topic: "content_map" as const, text: "OBSERVED partial content map: voyages/_index.md — routes and raft decisions; not runtime taxonomy." },
+      { source: "me/identity.md", topic: "identity" as const, text: "Odysseus is returning to Ithaca." },
+      { source: "context/current-focus.md", topic: "current_focus" as const, text: "2026-07-12: repair the mast." },
+    ], unavailable: ["module procedures stay with host"] };
+    const session = await open(provider, "ithaca-guidance", 1, { contextualTasks: true, orientation });
+    session.appendAudio({ utteranceId: "u1", sequence: 0, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
+    await until(() => sockets[0]!.some(m => isInput(engine, m)));
+    const startup = JSON.stringify(sockets[0]!.filter(m => !isInput(engine, m) && !m.realtimeInput));
+    const seed = historyTexts(engine, sockets[0]!);
+    expect(seed).toHaveLength(1);
+    expect(seed[0], "SELECTED_USER_GUIDANCE_REACHES_STARTUP").toContain("Use brief plain language with Odysseus.");
+    expect(seed[0]).toContain('"guidance"'); expect(seed[0]).toContain('"knowledge"');
+    expect(seed[0]).toContain("repair the mast"); expect(seed[0]).toContain("returning to Ithaca");
+    expect(seed[0], "OBSERVED_MAP_REACHES_NATIVE_STARTUP").toContain("voyages/_index.md");
+    expect(seed[0]).toContain('"topic":"content_map"');
+    expect(seed[0]).not.toContain("mermaid"); expect(seed[0]).not.toContain("subprocesses");
+    const instructions = engine === "gemini" ? sockets[0]![0].setup.systemInstruction.parts[0].text : sockets[0]![0].session.instructions;
+    const shared = "useful new facts, decisions and preferences";
+    expect(BRAIN_UI_SYSTEM_PROMPT_APPEND).toContain(shared); expect(instructions).toContain(shared);
+    expect(instructions).toContain("follow-ups answerable from reliable current results stay conversational");
+    expect(instructions).toContain("external research"); expect(instructions).toContain("substantial reasoning");
+    orientation.guidance[0]!.text = "Changed after Start.";
+    orientation.knowledge[0]!.text = "OBSERVED partial map changed after Start: watch/_index.md.";
+    orientation.knowledge[1]!.text = "Changed identity after Start.";
+    session.appendAudio({ utteranceId: "u1", sequence: 1, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
+    await until(() => sockets[0]!.filter(m => isInput(engine, m)).length === 2);
+    expect(JSON.stringify(sockets[0]!.filter(m => !isInput(engine, m) && !m.realtimeInput)), "STARTUP_PREFIX_STAYS_BYTE_IDENTICAL").toBe(startup);
+    await session.close();
+    const next = await open(provider, "ithaca-guidance", 2, { contextualTasks: true, orientation });
+    next.appendAudio({ utteranceId: "u1", sequence: 0, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
+    await until(() => sockets[1]!.some(m => isInput(engine, m)));
+    expect(historyTexts(engine, sockets[1]!).join("\n")).toContain("Changed identity after Start.");
+    expect(historyTexts(engine, sockets[1]!).join("\n")).toContain("partial map changed after Start");
+    expect(sockets[1]!.some(m => m.toolResponse || m.delegation_id)).toBe(false);
+    await next.close();
+  });
+  test(`${engine}: reviewed fallback retains purpose and missing-context honesty without automatic delegation`, async () => {
+    const { provider, sockets } = loopback(engine);
+    const session = await open(provider, "ithaca-reviewed", 1, { orientation: { guidance: [], knowledge: [], unavailable: ["identity unavailable", "capture policy unavailable"] } });
+    session.appendAudio({ utteranceId: "u1", sequence: 0, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
+    await until(() => sockets[0]!.some(m => isInput(engine, m)));
+    const instructions = engine === "gemini" ? sockets[0]![0].setup.systemInstruction.parts[0].text : sockets[0]![0].session.instructions;
+    expect(instructions).toContain("file-first knowledge base");
+    expect(instructions).toContain("separate reviewed host submission is required");
+    expect(instructions).not.toContain("Generate <|SpawnThinking|> when");
+    expect(instructions).not.toContain("Use host_task (NON_BLOCKING)");
+    expect(instructions).toContain("if that policy is missing, ask before capturing");
+    expect(historyTexts(engine, sockets[0]!)[0]).toContain("identity unavailable");
+    await session.close();
+  });
+  test(`${engine}: orientation shares serialized startup budget with history and resync, omitting whole policies`, async () => {
+    const { provider, sockets } = loopback(engine);
+    const orientation = { guidance: [
+      { source: "CLAUDE.md", topic: "capture_policy" as const, text: "Do not capture preferences without asking." },
+      { source: "AGENTS.md", topic: "preferences" as const, text: "Never change this policy: "+"🦉".repeat(500) },
+    ], knowledge: Array.from({ length: 4 }, (_, i) => ({ source: `me/identity-${i}.md`, topic: "identity" as const, text: "Odysseus sails home. "+"Ω".repeat(390) })), unavailable: ["full skills omitted"] };
+    const work = Array.from({ length: 64 }, (_, i) => ({ conversationId: "ithaca-guidance", epoch: 1, requestId: `r${i}`, utteranceId: "u", turnId: `t${i}`, recognized: "Research the oars.".repeat(30), submitted: "research", state: "completed" as const, delivery: "unknown" as const }));
+    const session = await open(provider, "ithaca-guidance", 2, { contextualTasks: true, orientation, history, resync: { work, results: work.map(w => ({ conversationId: w.conversationId, epoch: 1, requestId: w.requestId, turnId: w.turnId, facts: "bronze owl ".repeat(300) })) } });
+    session.appendAudio({ utteranceId: "u1", sequence: 0, rate: rate(engine), pcm: new Uint8Array([0, 0]) });
+    await until(() => sockets[0]!.some(m => isInput(engine, m)));
+    const texts = historyTexts(engine, sockets[0]!);
+    expect(Buffer.byteLength(texts[0]!, "utf8"), "ORIENTATION_HAS_EXACT_SERIALIZED_BYTE_CEILING").toBeLessThanOrEqual(3200);
+    expect(texts[0]).toContain('"omitted":true'); expect(texts[0]).not.toContain("Never change this policy");
+    expect(texts[0]).toContain("Do not capture preferences without asking.");
+    expect(texts.reduce((n, text) => n + Buffer.byteLength(text, "utf8"), 0), "ORIENTATION_HISTORY_RESYNC_SHARE_ONE_BYTE_CEILING").toBeLessThanOrEqual(engine === "gpt" ? 7500 : 24000);
+    expect(texts.join("\n")).toContain("Research the oars.");
+    await session.close();
+  });
+  test(`${engine}: fresh contextual session receives brain purpose and explicit acceptance guidance`, async () => {
+    const { provider, sockets } = loopback(engine);
+    const session = await open(provider, "ithaca-guidance", 1, { contextualTasks: true });
+    const first = sockets[0]![0];
+    const instructions = engine === "gemini" ? first.setup.systemInstruction.parts[0].text : first.session.instructions;
+    expect(instructions, "LIVE_BRAIN_PURPOSE_REACHES_PROVIDER").toContain("file-first knowledge base");
+    expect(instructions, "LIVE_ACCEPTANCE_IS_EXPLICIT").toContain("brief spoken acknowledgement");
+    expect(instructions, "LIVE_DISCOVERY_IS_PROACTIVE").toContain("ordinary lookups and repository discovery");
+    expect(instructions).toContain("without asking the user for filenames, where things live, or confirmation to retrieve");
+    expect(instructions).toContain("configured taxonomy"); expect(instructions).toContain("search/list tools");
+    expect(instructions).toContain("per-directory _index.md purpose/registry navigation");
+    expect(instructions).toContain("Clarify real ambiguity in meaning or recognition, missing capture consent");
+    expect(instructions).toContain("one brief spoken acknowledgement per accepted task");
+    expect(instructions).toContain("only after its exact acceptance");
+    expect(instructions).toContain("Do not repeat that acknowledgement on running updates");
+    expect(instructions).toContain("backend/tools may not have started");
+    expect(instructions).not.toContain("we can keep talking");
+    expect(instructions).toContain("useful new facts, decisions and preferences");
+    expect(instructions).toContain("not a saved brain note");
+    expect(instructions).not.toContain("# Response surface");
+    expect(instructions).not.toContain("# Turn lifecycle");
+    await session.close();
+  });
   const max = engine === "gpt" ? 7_500 : 24_000, factMax=engine === "gpt" ? 5_000 : 16_000;
   const scope={conversationId:"ithaca-second",epoch:2};
   const work=(n:number)=>Array.from({length:n},(_,i)=>({conversationId:scope.conversationId,epoch:1,utteranceId:`u${i}`,requestId:`q${i}`,turnId:`t${i}`,recognized:"Research the suitors. "+"x".repeat(470),submitted:"x",state:"completed" as const,delivery:"discarded" as const}));
