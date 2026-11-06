@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:180-199`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:181-200`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -344,7 +344,7 @@ checks both nonempty priced and mixed-knownness fixtures
 - `an upload retried after its bytes were swept stores them again under a usable id` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`an upload retried after its bytes were swept stores them again under a usable id`, `packages/ui-server/tests/drafts-store.test.ts:87-95`)
 - `acceptance consumes only a matching, current, same-session revision` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`acceptance consumes only a matching, current, same-session revision`, `packages/ui-server/tests/drafts-store.test.ts:97-109`)
 - `a revoked sender's acceptance consumes nothing` ([source](../packages/ui-server/tests/drafts-store.test.ts)), (`a revoked sender's acceptance consumes nothing`, `packages/ui-server/tests/drafts-store.test.ts:111-117`)
-- `a client viewing a session gets that session's recorded reads, live and on request, and nothing else` ([source](../packages/ui-server/tests/attachment-reads-delivery.test.ts)), (`a client viewing a session gets that session's recorded reads, live and on request, and nothing else`, `packages/ui-server/tests/attachment-reads-delivery.test.ts:80-153`)
+- `a client viewing a session gets that session's recorded reads, live and on request, and nothing else` ([source](../packages/ui-server/tests/attachment-reads-delivery.test.ts)), (`a client viewing a session gets that session's recorded reads, live and on request, and nothing else`, `packages/ui-server/tests/attachment-reads-delivery.test.ts:86-159`)
 
 **J — Confirmed share intake.**
 

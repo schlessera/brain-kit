@@ -73,7 +73,13 @@ async function harness() {
     return { principal, call, connect };
   };
 
-  const until = async (condition: () => boolean) => { for (let i = 0; i < 400 && !condition(); i++) await Bun.sleep(5); expect(condition()).toBe(true); };
+  // A wall-clock deadline, not an iteration count: a turn spawns the PDF
+  // extractor, which a loaded host can slow well past a couple of seconds.
+  const until = async (condition: () => boolean) => {
+    const deadline = Date.now() + 20_000;
+    while (!condition() && Date.now() < deadline) await Bun.sleep(10);
+    expect(condition()).toBe(true);
+  };
   return { t, starts, login, until, readAlso: (id: string | undefined) => { readAlso = id; } };
 }
 
