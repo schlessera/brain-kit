@@ -11,5 +11,6 @@ Pin collection membership through paging and subscription, resync on adoption,
 preserve aggregates across duplicate deliveries and include supported Apify evidence.
 Invalidate unqualified reads when local pending input or recording loss changes
 without a committed evidence revision.
+Publish the named safety-store type used by generated React declarations.
 Review and Settings mutation capabilities remain unavailable; this slice does
 not activate the separately ruled pre-1.0 G6 admission semantic break.

@@ -4861,6 +4861,9 @@ additive minor SDK change, without a model-obedience or acoustic guarantee.
 
 ## Session safety read DTOs (additive, #3604)
 
+The generated React store declarations retain the named `SafetyState` type
+used by the existing store factory and service types.
+
 `@schlessera/brain-ui-sdk/protocol` adds `SafetySessionKey`, `SafetyTarget`,
 `SafetyIdentity`, `SafetyHistoryProjection`, `SafetyRecord`, `SafetyPage`,
 `SafetyUpdate`, `SafetyUnavailable`, `SafetyCapabilities`, the three client

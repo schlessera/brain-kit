@@ -2,7 +2,7 @@
 import { createStore } from "zustand/vanilla";
 import type { SafetyIdentity, SafetyPage, SafetyUpdate, SafetyRecord, SafetyHistoryProjection } from "@schlessera/brain-ui-sdk/protocol";
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
-interface SafetyState {
+export interface SafetyState {
   supported:boolean; status:"unavailable"|"loading"|"partial"|"ready"; reason:string|null;
   identity:SafetyIdentity|null; projection:SafetyHistoryProjection|null; records:Record<string,SafetyRecord>; revision:string;
   snapshotId:string|null; requestId:string|null; normal:boolean; nextCursor:string|null;
