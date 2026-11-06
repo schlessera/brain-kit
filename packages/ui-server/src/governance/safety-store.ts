@@ -51,11 +51,12 @@ function live(db:Database,c:Collection,reserved=false):void {
 }
 function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
   const all=meta(db);
+  const {scope,args}=safetyScope(db,c.turn_id,c.session_id);
   const used=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes
-    FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE (? IS NOT NULL AND c.session_id=?) OR c.id=?`,c.session_id,c.session_id,c.id);
+    FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
   const pending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p`);
   const localPending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes
-    FROM safety_pending p JOIN safety_collections x ON x.id=p.collection_id WHERE (? IS NOT NULL AND x.session_id=?) OR x.id=?`,c.session_id,c.session_id,c.id);
+    FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args);
   if(all.used_rows+all.scope_rows+pending.rows+rows>SAFETY_LIMITS.brainRows||all.used_bytes+all.scope_bytes+pending.bytes+bytes>SAFETY_LIMITS.brainBytes
     ||used.rows+localPending.rows+rows>SAFETY_LIMITS.sessionRows||used.bytes+localPending.bytes+bytes>SAFETY_LIMITS.sessionBytes)
     throw new SafetyUnavailable("Safety ledger capacity exhausted");
@@ -148,13 +149,14 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
  const owner=d?.id??retained?.id??s.history_owner_id,gen=d?actualGeneration(d.generation):retained?actualGeneration(retained.generation):s.generation;
  if(retained&&actualGeneration(retained.generation)!==c.generation)throw new SafetyUnavailable("Safety history generation changed");
  assertLive(db,[["session",sessionId],["dialogue_owner",owner]]);
- const epochs=one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id=? OR id=?",sessionId,c.id);
+ const {scope,args}=safetyScope(db,turnId,sessionId);
+ const epochs=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_collections c WHERE ${scope}`,...args);
  if(epochs.n>128)throw new SafetyUnavailable("Safety binding coverage capacity exhausted");
  const totals=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
-  JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id=? OR c.id=?`,sessionId,c.id);
+  JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
  const pending=one<{rows:number;bytes:number;count:number;serializedBytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes,
   COUNT(*) count,COALESCE(SUM(p.bytes),0) serializedBytes FROM safety_pending p
-  JOIN safety_collections c ON c.id=p.collection_id WHERE c.session_id=? OR c.id=?`,sessionId,c.id);
+  JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args);
  if(totals.rows+pending.rows>SAFETY_LIMITS.sessionRows||totals.bytes+pending.bytes>SAFETY_LIMITS.sessionBytes)throw new SafetyUnavailable("Safety binding capacity exhausted");
  if(pending.count>SAFETY_LIMITS.sessionPending||pending.serializedBytes>SAFETY_LIMITS.sessionPendingBytes)throw new SafetyUnavailable("Safety binding pending capacity exhausted");
  const previous=one<{session_id:string;history_owner_id:string;generation:string}|null>(db,"SELECT * FROM safety_bindings WHERE turn_id=?",turnId);
@@ -233,14 +235,39 @@ export function safetyProjection(db:Database,turnId:string|null,sessionId:string
  if(db.inTransaction)return readSafetyProjection(db,turnId,sessionId);
  return Database.prototype.transaction.call(db,()=>readSafetyProjection(db,turnId,sessionId)).deferred() as SafetyProjection;
 }
-function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null):SafetyProjection {
+function safetyScope(db:Database,turnId:string|null,sessionId:string|null) {
  const s=sessionId?one<Session|null>(db,"SELECT * FROM safety_sessions WHERE session_id=?",sessionId):null;
  const target=turnId?collection(db,turnId):null;
- const owner=s?.history_owner_id??target?.history_owner_id??null,generation=s?.generation??target?.generation??"1";
- assertLive(db,[["session",sessionId],["dialogue_owner",owner]]);
+ const retainedOwner=s?.history_owner_id??target?.history_owner_id??null,generation=s?.generation??target?.generation??"1";
+ const owner=retainedOwner?one<{owner_id:string}|null>(db,"SELECT owner_id FROM dialogue_aliases WHERE id=?",retainedOwner)?.owner_id??retainedOwner:null;
+ assertLive(db,[["session",sessionId],["dialogue_owner",retainedOwner],["dialogue_owner",owner]]);
  const scope=`((? IS NOT NULL AND c.session_id=?) OR c.turn_id=? OR
    (? IS NOT NULL AND c.generation=? AND (c.history_owner_id=? OR c.history_owner_id IN (SELECT id FROM dialogue_aliases WHERE owner_id=?))))`;
  const args=[sessionId,sessionId,turnId,owner,generation,owner,owner];
+ return {s,scope,args};
+}
+/** Pending input uses the aggregate's durable canonical membership, even before
+ * its own reservation commits. Include an unbound turn with no collection yet. */
+export function safetyScopeTurns(db:Database,turnId:string|null,sessionId:string|null):Set<string> {
+ const {scope,args}=safetyScope(db,turnId,sessionId);
+ const turns=new Set(db.query<{turn_id:string},(string|null)[]>(`SELECT c.turn_id FROM safety_collections c WHERE ${scope}`).all(...args).map(c=>c.turn_id));
+ if(turnId!==null)turns.add(turnId);
+ return turns;
+}
+/** Last immutable append in the same canonical scope as the aggregate. */
+export function safetyEvidenceSequence(db:Database,turnId:string|null,sessionId:string|null):string {
+ const {scope,args}=safetyScope(db,turnId,sessionId);
+ return one<{sequence:string}|null>(db,`SELECT sequence FROM (
+   SELECT r.sequence FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}
+   UNION ALL SELECT d.sequence FROM safety_decisions d JOIN safety_records r ON r.id=d.occurrence_id
+     JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}
+   UNION ALL SELECT b.sequence FROM safety_bindings b JOIN safety_collections c ON c.id=b.binding_id WHERE ${scope}
+   UNION ALL SELECT c.start_revision FROM safety_collections c WHERE ${scope}
+   UNION ALL SELECT c.end_revision FROM safety_collections c WHERE ${scope} AND c.end_revision IS NOT NULL
+ ) ORDER BY length(sequence) DESC,sequence DESC LIMIT 1`,...args,...args,...args,...args,...args)?.sequence??"0";
+}
+function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|null):SafetyProjection {
+ const {s,scope,args}=safetyScope(db,turnId,sessionId);
  const cs=db.query(`SELECT c.* FROM safety_collections c WHERE ${scope} ORDER BY c.rowid`).all(...args) as Collection[];
  const epochs=cs.slice(0,128).map(c=>{
    const acknowledged=JSON.parse(c.acknowledged) as string[];
@@ -293,8 +320,9 @@ export function reserveSafetyWrite(db:Database,turnId:string,requestId:string,by
  if(terminalOccurrenceId&&!db.query("SELECT 1 FROM safety_records WHERE id=? AND collection_id=? AND kind='occurrence'").get(terminalOccurrenceId,c.id))throw new SafetyUnavailable("Safety terminal reservation identity mismatch");
  const prior=one<{bytes:number}|null>(db,"SELECT bytes FROM safety_pending WHERE id=?",requestId);if(prior){if(prior.bytes!==bytes)throw new SafetyUnavailable("Conflicting safety reservation");return;}
  const global=one<{n:number;bytes:number}>(db,"SELECT COUNT(*) n,COALESCE(SUM(bytes),0) bytes FROM safety_pending");
- const local=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE(SUM(p.bytes),0) bytes FROM safety_pending p JOIN safety_collections x ON x.id=p.collection_id
-  WHERE (? IS NOT NULL AND x.session_id=?) OR x.id=?`,c.session_id,c.session_id,c.id);
+ const {scope,args}=safetyScope(db,turnId,c.session_id);
+ const local=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE(SUM(p.bytes),0) bytes FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id
+  WHERE ${scope}`,...args);
  if(global.n>=SAFETY_LIMITS.brainPending||global.bytes+bytes>SAFETY_LIMITS.brainPendingBytes||local.n>=SAFETY_LIMITS.sessionPending||local.bytes+bytes>SAFETY_LIMITS.sessionPendingBytes)
   throw new SafetyUnavailable("Safety pending capacity exhausted");
  const rows=terminalOccurrenceId?0:4,reserved=terminalOccurrenceId?0:bytes+VERDICT_BYTES+2*TERMINAL_BYTES;

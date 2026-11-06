@@ -4894,6 +4894,15 @@ binding before taking the first card snapshot. This wait is bounded and
 cancellable; health and authority are checked again afterward. A healthy
 first card therefore survives its own binding, while later changes still
 withdraw stale authority.
+Admission evidence revisions are monotonic within the host's canonical safety
+scope, independently of the brain-wide history/review cursor. Unrelated sessions
+do not withdraw a pending approval. Own immutable lifecycle appends, canonical
+history adoption, locally pending input and shared recorder loss still invalidate
+it, including changes that leave the unresolved aggregate or global cursor
+unchanged. Projection, membership and latest scoped sequence are read from one
+SQLite snapshot; revision exhaustion refuses admission. Pending-input reads and
+capacity checks include retained provisional aliases before their SQL reservation
+commits. HTTP/WS history cursors and review request revisions remain brain-wide.
 First-party backend gates additionally revalidate in their final dispatch
 continuations after locks, index barriers and occurrence writes. Every Claude
 pre-tool hook fences its own final asynchronous wait, including parallel

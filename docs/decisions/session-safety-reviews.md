@@ -114,6 +114,13 @@ irreversible dispatch, after every async wait. Pending input restricts
 immediately; pending verdict never loosens before commit. Preserve original
 journal/egress facts and historical approvals.
 
+Admission's evidence revision follows the canonical session scope. Brain-wide
+history/review revision changes from unrelated sessions retain pending authority.
+Read the scoped aggregate, immutable append sequence and membership together;
+history adoption and local pending/loss changes advance admission even when the
+global cursor does not. Pending-input overlays and capacity grouping use the
+same retained aliases. The history/review cursor keeps its existing meaning.
+
 Only effective taint and the trust slice update live. Ordinary governance
 budgets, profiles and commands keep turn-bound semantics. Trust removal fences
 new active-turn dispatch before its enforcing receipt; ongoing input must split
