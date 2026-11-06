@@ -432,6 +432,74 @@ describe("submitting offline", () => {
   });
 });
 
+describe("cancellation continuation authority", () => {
+  for (const deletion of ["success", "failure"] as const) {
+    for (const principalChange of [false, true]) {
+      test(`${deletion}: cancellation deletion across ${principalChange ? "a different" : "the same"} principal connection`, async () => {
+        const storage = createMemoryAnswerStorage();
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        let entered!: () => void;
+        const deleting = new Promise<void>(resolve => { entered = resolve; });
+        const remove = storage.remove;
+        let first = true;
+        storage.remove = async id => {
+          if (first) {
+            first = false;
+            entered();
+            await gate;
+            if (deletion === "failure") throw new Error("device deletion refused");
+          }
+          await remove(id);
+        };
+        const h = await harness({ storage });
+        let completed: Promise<void> | undefined;
+        try {
+          expect(await h.submit()).toBe("admitted");
+          const id = h.queue.held()[0]!.submissionId;
+          completed = h.queue.cancel("req-1");
+          await deleting;
+          expect(h.queue.held()).toHaveLength(1);
+          expect(storage.records.size).toBe(1);
+          if (principalChange) h.net.principal = "principal-penelope";
+          h.connect();
+          const connectedDelivery = h.delivery();
+          expect(connectedDelivery?.state).toBe(principalChange ? "signedOut" : "queued");
+          expect(h.queue.held()).toHaveLength(principalChange ? 0 : 1);
+          expect(h.sent).toEqual([]);
+          h.clock.t += 100;
+          release();
+          await completed;
+          if (principalChange) {
+            // Preserve the exact newer outcome, including its settlement time.
+            // The failed-delete fallback must not settle the forgotten entry again.
+            expect(h.delivery()).toBe(connectedDelivery);
+            expect(h.delivery()?.state).toBe("signedOut");
+            expect(h.queue.held()).toEqual([]);
+            expect(storage.records.size).toBe(0);
+            expect(h.sent).toEqual([]);
+            h.receipt({ requestId: "req-1", submissionId: id, state: "accepted" });
+            expect(h.delivery()).toBe(connectedDelivery);
+          } else {
+            expect(h.delivery()?.state).toBe(deletion === "success" ? "cancelled" : "queued");
+            expect(h.queue.held()).toHaveLength(deletion === "success" ? 0 : 1);
+            expect(storage.records.size).toBe(deletion === "success" ? 0 : 1);
+            expect(h.statuses()).toEqual([{
+              type: "ask_answer_status", requestId: "req-1", submissionId: id, sessionId: "s1",
+            }]);
+            expect(h.answers()).toEqual([]);
+          }
+        } finally {
+          release();
+          await completed;
+          h.queue.dispose();
+          h.root.dispose();
+        }
+      });
+    }
+  }
+});
+
 describe("Lifetime B: reload", () => {
   for (const kind of KINDS) {
     test(`${kind}: a reloaded page restores the full answer and settles it once`, async () => {
