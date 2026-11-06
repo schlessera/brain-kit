@@ -9,5 +9,7 @@ scoped snapshot cursors and conservative client recovery. Preserve immutable
 occurrence/verdict IDs, explicit coverage and provider conversation bytes.
 Pin collection membership through paging and subscription, resync on adoption,
 preserve aggregates across duplicate deliveries and include supported Apify evidence.
+Invalidate unqualified reads when local pending input or recording loss changes
+without a committed evidence revision.
 Review and Settings mutation capabilities remain unavailable; this slice does
 not activate the separately ruled pre-1.0 G6 admission semantic break.

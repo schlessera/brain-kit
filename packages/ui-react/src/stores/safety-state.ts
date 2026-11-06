@@ -16,7 +16,7 @@ export function createSafetyStore(){
     begin(requestId){set({...empty,supported:get().supported,status:"loading",reason:null,requestId});},
     page(requestId,page){
       const s=get();if(!s.supported||s.requestId!==requestId)return false;
-      if(s.status==="ready"&&s.snapshotId===page.snapshotId&&same(s.identity,page.identity)&&BigInt(page.highWater)<=BigInt(s.revision))return true;
+      if((s.status==="ready"||s.reason==="gap")&&s.snapshotId===page.snapshotId&&same(s.identity,page.identity)&&BigInt(page.highWater)<=BigInt(s.revision))return true;
       if(s.snapshotId&&(s.snapshotId!==page.snapshotId||s.revision!==page.highWater||!same(s.identity,page.identity)))return false;
       if(page.cursor!==s.nextCursor||page.snapshotComplete!==(page.nextCursor===null))return false;
       if(page.projection.evidenceRevision!==page.highWater)return false;
@@ -26,7 +26,22 @@ export function createSafetyStore(){
     },
     update(update){
       const s=get();if(!s.supported||!same(s.identity,update.identity))return false;
-      if(BigInt(update.toRevision)<=BigInt(s.revision))return true; // duplicate/older frames cannot lower the aggregate
+      if(BigInt(update.toRevision)<BigInt(s.revision))return true;
+      if(update.toRevision===s.revision){
+        // A host-local outage or pending input need not advance the durable
+        // ledger. Keep the more restrictive view until a fresh snapshot.
+        if(s.projection&&update.fromRevision===s.revision&&update.projection.evidenceRevision===s.revision&&update.records.length===0&&
+          update.projection.restriction==="restricted"&&!same(update.projection,s.projection)){
+          const next=update.projection,old=s.projection;
+          const projection={...old,restriction:"restricted" as const,unresolvedCount:Math.max(old.unresolvedCount,next.unresolvedCount),
+            earliestUnresolvedId:next.unresolvedCount>old.unresolvedCount?next.earliestUnresolvedId:old.earliestUnresolvedId,
+            pendingCount:Math.max(old.pendingCount,next.pendingCount),reasons:[...new Set([...old.reasons,...next.reasons])],
+            coverage:{...old.coverage,state:old.coverage.state==="complete"?next.coverage.state:old.coverage.state}};
+          if(same(projection,old))return true;
+          set({projection,normal:false,status:"partial",reason:"gap"});return false;
+        }
+        return true; // equal/older duplicates cannot loosen the aggregate
+      }
       if(s.status!=="ready")return false;
       if(update.fromRevision!==s.revision||update.projection.evidenceRevision!==update.toRevision){set({normal:false,status:"partial",reason:"gap"});return false;}
       const records:Record<string,SafetyRecord>=Object.assign(Object.create(null),s.records);for(const r of update.records){if(BigInt(r.sequence)<=BigInt(update.fromRevision)||BigInt(r.sequence)>BigInt(update.toRevision))return false;

@@ -2916,6 +2916,13 @@ or silently skip them in a delta. New post-watermark collections remain eligible
 for ordinary contiguous delivery. Duplicate pages after completion and updates
 from a previous subscription during pagination leave the aggregate intact;
 the final-page subscription replays from the pinned watermark.
+Local pending input and recording-loss latches can change without a committed
+revision, including when the failure notice itself rolls back. A subscription
+whose projection changes at an unchanged revision emits `gap` and requires a
+fresh snapshot. Final delivery also rejects a view that omits newly pending
+input or known local recording loss. A same-revision restrictive update is not
+an ordinary duplicate: clients retain the more restrictive aggregate and
+resynchronize; a same-revision normal frame cannot loosen that state.
 
 Records are tagged `occurrence`, `exposure` or `safe_decision`, with immutable
 host record ID, original sequence/time, turn, binding and occurrence ID.

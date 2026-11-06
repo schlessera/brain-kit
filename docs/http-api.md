@@ -1839,7 +1839,10 @@ sequence. Its lifetime is five minutes; restart invalidates it. Every page
 retains the first page's aggregate and high-water despite later verdicts or
 input. Adoption that changes pre-watermark collection membership invalidates
 the snapshot with `gap`, including at final delivery after an awaited read;
-the client obtains a fresh snapshot. Detail pruning invalidates earlier cursors; a fresh snapshot returns
+the client obtains a fresh snapshot. Newly pending input or a local recording
+loss also fences final delivery of an older unqualified view, even when the
+durable failure notice rolls back without advancing the evidence revision.
+Fresh reads expose the restrictive local overlay. Detail pruning invalidates earlier cursors; a fresh snapshot returns
 explicit bounded stubs retaining occurrence IDs. The final page means that
 snapshot has been assembled, separately from detector completeness. Read
 [revisioned delivery](integration-contract/wire.md#session-safety-history-additive-3604)

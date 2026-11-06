@@ -16,6 +16,7 @@ interface Snapshot { id:string; principalId:string; target:SafetyTarget; identit
 interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
+const fingerprint = (value:unknown) => new Bun.CryptoHasher("sha256").update(JSON.stringify(value)).digest("hex");
 const bytes = (value:unknown) => Buffer.byteLength(JSON.stringify(value));
 const wireId = (value:string) => {
   if(!/^[A-Za-z0-9_-]{1,128}$/.test(value))throw new SafetyReadUnavailable();
@@ -23,7 +24,7 @@ const wireId = (value:string) => {
 };
 
 export class SafetyHistory {
-  private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; membership:string; valid:()=>boolean;
+  private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; membership:string; projectionHash:string; valid:()=>boolean;
     send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean }>();
   private readonly snapshots = new Map<string, Snapshot>();
   private readonly cursors = new Map<string, {snapshotId:string; after:string}>();
@@ -84,13 +85,20 @@ export class SafetyHistory {
     const {sql,args}=this.scope(identity);
     return (this.db.query(`SELECT COUNT(*) n FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${sql} AND r.detail_pruned=1`).get(...args) as {n:number}).n;
   }
+  private localState(identity:SafetyIdentity):{pending:number;failed:boolean} {
+    const local=safetyQueue(this.db),{sql,args}=this.scope(identity);
+    const rows=this.db.query(`SELECT c.turn_id FROM safety_collections c WHERE ${sql} LIMIT 129`).all(...args) as {turn_id:string}[];
+    if(rows.length>128)throw new SafetyReadUnavailable("capacity");
+    const turns=new Set(rows.map(r=>r.turn_id));
+    const pending=[...local.pending].filter(r=>r.turnId!==null&&turns.has(r.turnId)||"sessionId" in identity&&r.sessionId===identity.sessionId).length;
+    return {pending,failed:local.failed};
+  }
   private projection(identity:SafetyIdentity):SafetyPage["projection"] {
     const p=safetyProjection(this.db,"turnId" in identity?identity.turnId:null,"sessionId" in identity?identity.sessionId:null);
-    const local=safetyQueue(this.db);
-    const pending=[...local.pending].filter(r=>"sessionId" in identity?r.sessionId===identity.sessionId:r.turnId===identity.turnId).length;
-    if(pending||local.failed){p.restriction="restricted";p.pendingCount=Math.max(p.pendingCount,pending);
+    const {pending,failed}=this.localState(identity);
+    if(pending||failed){p.restriction="restricted";p.pendingCount=Math.max(p.pendingCount,pending);
       if(pending&&!p.reasons.includes("recording_pending"))p.reasons.push("recording_pending");
-      if(local.failed){p.coverage.state="incomplete";if(!p.reasons.includes("recording_failed"))p.reasons.push("recording_failed");}}
+      if(failed){p.coverage.state="incomplete";if(!p.reasons.includes("recording_failed"))p.reasons.push("recording_failed");}}
     return p as SafetyPage["projection"];
   }
   private records(identity:SafetyIdentity,after:string,through:string,limit:number):SafetyRecord[] {
@@ -175,7 +183,7 @@ export class SafetyHistory {
     const anchor=this.anchor(principal,identity,after,snapshotId);
     const result=await this.readDelta(principal,identity,after,anchor.membership);
     this.anchor(principal,identity,after,snapshotId);
-    this.delivery(principal,identity,snapshotId);
+    this.delivery(principal,identity,snapshotId,result.update.projection);
     if(this.membership(identity,result.update.toRevision)!==result.membership)throw new SafetyReadUnavailable("gap");
     return result.update;
   }
@@ -199,7 +207,7 @@ export class SafetyHistory {
   subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
     const anchor=this.anchor(principal,identity,revision,snapshotId);
-    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,valid,send,busy:false});this.poll();
+    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(anchor.projection),valid,send,busy:false});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {
@@ -216,11 +224,14 @@ export class SafetyHistory {
     for(const [key,s] of this.subscriptions)if(matches(s.identity)){this.subscriptions.delete(key);if(s.valid()&&this.valid(s.principal))s.send({version:1,reason:"unavailable"});}
   }
   /** Synchronous final delivery fence, after the caller's awaited read. */
-  delivery(principal:Principal,identity:SafetyIdentity,snapshotId?:string):void {
+  delivery(principal:Principal,identity:SafetyIdentity,snapshotId?:string,projection?:SafetyPage["projection"]):void {
     const target:SafetyTarget="sessionId" in identity?{sessionId:identity.sessionId}:identity;
     if(!same(identity,this.authorize(principal,target)))throw new SafetyReadUnavailable("generation_changed");
     if(snapshotId){const s=this.snapshots.get(snapshotId);if(!s||s.principalId!==principal.id||this.clock()>=s.expiresAt||s.pruned!==this.pruned(identity))throw new SafetyReadUnavailable("expired");
+      projection??=s.projection;
       if(this.membership(identity,s.highWater)!==s.membership)throw new SafetyReadUnavailable("gap");}
+    const local=this.localState(identity);
+    if(projection&&(local.failed&&!projection.reasons.includes("recording_failed")||local.pending>projection.pendingCount))throw new SafetyReadUnavailable("gap");
   }
   /** Shares the host's existing authorization sweep; no per-read timer. */
   poll():void {
@@ -230,10 +241,16 @@ export class SafetyHistory {
       if(s.busy)continue;s.busy=true;
       void this.readDelta(s.principal,s.identity,s.revision,s.membership).then(({update,membership})=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
-        try{this.delivery(s.principal,s.identity);
+        try{this.delivery(s.principal,s.identity,undefined,update.projection);
           if(this.membership(s.identity,update.toRevision)!==membership)throw new SafetyReadUnavailable("gap");
         }catch(error){this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});return;}
-        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;}
+        // Local pending/loss latches can change even when their durable write
+        // rolled back. Equal durable revisions do not prove equal read state.
+        const projectionHash=fingerprint(update.projection);
+        if(update.toRevision===s.revision&&projectionHash!==s.projectionHash){
+          this.subscriptions.delete(key);s.send({version:1,reason:"gap"});return;
+        }
+        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;s.projectionHash=projectionHash;}
       },error=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});
