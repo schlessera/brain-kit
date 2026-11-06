@@ -55,7 +55,7 @@ tries the shared track parser on every file
 MIME-to-extension table lists PDF
 (`EXTENSION_BY_TYPE`, `packages/ui-server/src/share/staging.ts:91-114`), which
 only names the stored file and reads nothing. Staged shares are pruned after
-seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2606`).
+seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2614`).
 
 **Chat admission.** `chat_message` validates inline images, then resolves every
 `files` reference as a staged track
@@ -73,21 +73,21 @@ Images travel as inline base64 frames: Claude gets content blocks
 `ImageContent` (`toImages`, `packages/ui-backend-pi/src/turn-runner.ts:345`).
 No image original is kept as a file. Frames are limited to four images and
 8,000,000 decoded bytes per message
-(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:752`;
-`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:768`).
+(`MAX_IMAGES_PER_MESSAGE`, `packages/ui-sdk/src/protocol.ts:756`;
+`MAX_TOTAL_IMAGE_BYTES`, `packages/ui-sdk/src/protocol.ts:772`).
 
 **Drafts.** Draft text and images are stored in the operational SQLite store,
 with image bytes as BLOBs. An upload that no save names is swept after one hour
 (`PENDING_ATTACHMENT_TTL_MS`, `packages/ui-server/src/drafts/store.ts:74`). A
 save checks the per-draft limit (`maxDraftBytes`, 8,388,608) and the host limit
 (`maxTotalBytes`, 268,435,456)
-(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:505-510`). On
+(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:509-514`). On
 acceptance the host consumes only the named revision
 (`accept(input)`, `packages/ui-server/src/drafts/store.ts:666-699`). Track
 files are not draft content: D52 keeps them in the tab only.
 
 **Opening a file.** The raw file route refuses anything over 10,485,760 bytes
-(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2541`). Originals may
+(`FILE_SIZE_CAP_BYTES`, `packages/ui-sdk/src/protocol.ts:2549`). Originals may
 be up to 25,000,000 bytes, so opening a large original needs its own route
 ([§6.5](#65-reading-an-original-back)).
 

@@ -1,3 +1,5 @@
+import { SafetyHistory } from "./governance/safety-history.js";
+import { createSessionSafetyRoutes } from "./routes/session-safety.js";
 import { occurrence } from "./governance/occurrence.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
@@ -751,7 +753,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Settle, time out and clean up open runs now and periodically; a no-op until a ledger exists.
   const stopApifyReconciler = apifyHost.startReconciler();
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
+  const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
   const host = new WsHost({
+    safetyHistory,
     turnReverts: reverts,
     workerLock,
     computeTools: computeHost,
@@ -1158,6 +1162,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Only where server_hello advertises it: elsewhere the route is absent,
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
+  app.route("/api", createSessionSafetyRoutes(safetyHistory,principal=>host.isPrincipalValid(principal)));
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));

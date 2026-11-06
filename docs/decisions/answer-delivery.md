@@ -165,7 +165,7 @@ saved.
 
 **The principal** is identified by `server_hello.principalKey`, a one-way
 digest of the principal id (`answerQueueKey`,
-`packages/ui-server/src/ws/connection.ts:27-29`). The page cannot read its
+`packages/ui-server/src/ws/connection.ts:28-30`). The page cannot read its
 principal from an httpOnly cookie, and it needs nothing more than "same or
 different". A different key on reconnect signs every held answer out,
 unsent. So does logging out, or revoking this device's own principal.
@@ -320,7 +320,7 @@ in both themes, using the keyboard.
 The late stored-principal race has one native `ask_user` representative.
 All four ChatPage adapters enter `submitAnswer`; the first host frame calls
 `answers.connected()` without selecting an answer kind (`answersReady = true`,
-`packages/ui-react/src/ws-client/account.ts:74-75`). The shared restore path must
+`packages/ui-react/src/ws-client/account.ts:76-77`). The shared restore path must
 preserve that newer principal. Repeating this browser race for list, rank and
 form adds no separate startup path. Their online and offline/reload native
 cases remain: input adapters, `answerFrame` serialization and host dispatch

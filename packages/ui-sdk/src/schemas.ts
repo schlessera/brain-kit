@@ -1,3 +1,5 @@
+export { safetySessionKeySchema, safetyPageSchema, safetyUpdateSchema, safetyCapabilitiesSchema } from "./safety.js";
+import { clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema, serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema, safetyCapabilitiesSchema } from "./safety.js";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
 import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneMediaMatches, HygieneMediaPlan, HygieneMediaProbe, HygieneMediaReceipt, HygieneMediaRefusal, HygieneReviewCommand, HygieneReviewMediaUndoCommand, HygieneReviewRequest, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
@@ -930,6 +932,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientHandoffPrepareCancelSchema,
   clientHandoffStatusSchema,
   clientInboxResolveSchema, clientInboxSnoozeSchema, clientInboxSubscribeSchema, clientInboxUnsubscribeSchema,
+  clientSafetyReadSchema, clientSafetySubscribeSchema, clientSafetyUnsubscribeSchema,
   clientDialogueReadSchema,
   clientConversationStartSchema,
   clientConversationAudioSchema,
@@ -1185,6 +1188,7 @@ export const attachmentLimitsSchema = z.looseObject({
 }) satisfies z.ZodType<import("./protocol.js").AttachmentLimits>;
 
 export const serverHelloSchema = z.looseObject({
+  safetyCapabilities: safetyCapabilitiesSchema.optional().catch(undefined),
   type: z.literal("server_hello"),
   conversationProfile: z.lazy(() => conversationProfileSchema).optional().catch(undefined),
   protocolRev: z.number(),
@@ -2023,6 +2027,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   inboxSnapshotSchema, inboxDeltaSchema,
   serverToolResolutionSchema,
   serverSessionQueueSchema,
+  serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema,
   serverDialogueHistorySchema,
   serverConversationOpenedSchema,
   serverConversationClosedSchema,
