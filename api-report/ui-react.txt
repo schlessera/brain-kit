@@ -1124,7 +1124,8 @@ signatures (every public export and the types it is made of)
         }>;
         hygieneCommand: (operation: HygieneReviewCommand["operation"]) => Promise<HygieneReviewRead>;
         hygieneDetails: (itemId: string) => Promise<HygieneWorktreeDetailsRead>;
-        hygienePreview: (request: HygienePreviewRequest) => Promise<InboxActionItem>;
+        hygieneMediaUndo: (journalId: string) => Promise<HygieneReviewRead>;
+        hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => Promise<HygienePreviewResponse>;
         hygieneReview: () => Promise<HygieneReviewRead>;
         login: (password: string) => Promise<{
             ok: true;
@@ -1617,7 +1618,8 @@ signatures (every public export and the types it is made of)
         }>;
         hygieneCommand: (operation: import("@schlessera/brain-ui-sdk").HygieneReviewCommand["operation"]) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         hygieneDetails: (itemId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneWorktreeDetailsRead>;
-        hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest) => Promise<import("@schlessera/brain-ui-sdk").InboxActionItem>;
+        hygieneMediaUndo: (journalId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").HygienePreviewResponse>;
         hygieneReview: () => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         login: (password: string) => Promise<{
             ok: true;

@@ -60,6 +60,26 @@ describe("hygiene next priority and eligibility", () => {
     expect(next(r, candidates.filter((c) => c !== future)).counts.fixed).toBe(1);
   });
 
+  test("media findings never preempt a more severe eligible finding, and informational media is still presented (#2782)", () => {
+    const r = root();
+    const media = (path: string, severity: "info" | "warning"): HygieneCandidate => ({ category: "media", path, evidence: path,
+      message: "Media awaits a decision before it is committed", source: { source: "hygiene", name: severity === "info" ? "media" : "large", severity } });
+    const error: HygieneCandidate = { ...candidate("title", "error"), category: "required-field",
+      source: { source: "validation", name: "required-missing", severity: "error" } };
+    const map = media("inbox/ithaca-map.png", "info"), storm = media("inbox/storm-off-scheria.mp4", "warning");
+    // Media first in enumeration, so only ranking can put it later.
+    const all = [map, storm, candidate("Eumaeus hut"), error];
+    const walked: string[] = [];
+    for (let i = 0; i < all.length; i++) {
+      const selected = next(r, all).finding!;
+      walked.push(`${selected.category}:${selected.severity}`);
+      dispose(r, all, all.find((c) => id(c) === selected.id)!);
+    }
+    expect(walked[0], "a validation error comes before any media").toBe("required-field:error");
+    expect(walked.slice(1, 3).sort(), "a LARGE warning ranks with other warnings, never above the error").toEqual(["broken-link:warning", "media:warning"]);
+    expect(walked[3], "informational media is reviewed last, but reviewed").toBe("media:info");
+  });
+
   test("equal rank chooses age before identity and counts newer peers", () => {
     const r = root();
     const candidates = [candidate("Eumaeus hut"), candidate("Circe palace")].sort((a, b) => id(a) < id(b) ? -1 : 1);

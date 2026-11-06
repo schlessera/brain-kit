@@ -9,7 +9,7 @@ import { invocationChild } from "../scripts/test-invocation-child";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
-type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; reads: string[]; state: ReturnType<GitReservationStore["read"]>["state"];
+type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; requested: boolean; reads: string[]; state: ReturnType<GitReservationStore["read"]>["state"];
   redMain: ReturnType<GitReservationStore["read"]>["redMain"]; events: any[] };
 type Scenario = { dir?: string; child?: ReturnType<typeof invocationChild>; work?: Promise<ScenarioResult>; settled: boolean; beforeRead?: () => Promise<void> };
 const scenarios = new Set<Scenario>();
@@ -158,7 +158,12 @@ fi`); chmodSync(shim, 0o755);
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
       else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:[]};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
-      else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:[run(92,"contract")]};
+      else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:s.mode.endsWith("contract-absent")?[]
+        // A creation or push-and-edit burst: the newest run was cancelled while pending, an older one passed (#3573).
+        :s.mode.endsWith("contract-cancelled")?[run(92,"contract"),{...run(93,"contract"),conclusion:"cancelled"}]
+        :s.mode.endsWith("contract-failed")?[{...run(92,"contract"),conclusion:"failure"}]
+        :s.mode.endsWith("contract-pending")||s.mode.endsWith("contract-stuck")?[s.mode.endsWith("contract-stuck")||s.now===${NOW}?{...run(92,"contract"),status:"in_progress",conclusion:null}:run(92,"contract")]
+        :[run(92,"contract")]};
       else if(path.includes("/attempts/1/jobs"))value={total_count:jobs.length,jobs};
       else if(path.endsWith("actions/jobs/1/logs"))value=checkout+'"cadence": "confirmation"';
       else if(path.endsWith("actions/jobs/2/logs")) {
@@ -199,7 +204,8 @@ fi`); chmodSync(shim, 0o755);
     await owner.beforeRead?.();
     const eventDir = join(root, "tmp/ci-timings");
     const events = existsSync(eventDir) ? readdirSync(eventDir).filter(name => name.startsWith("event-")).map(name => JSON.parse(readFileSync(join(eventDir, name), "utf8"))) : [];
-    return { code, out, err, dispatched: existsSync(sentinel), reads: JSON.parse(readFileSync(apiState, "utf8")).reads ?? [], state: store.read().state, redMain: store.read().redMain, events };
+    const api = JSON.parse(readFileSync(apiState, "utf8"));
+    return { code, out, err, dispatched: existsSync(sentinel), requested: api.requested, reads: api.reads ?? [], state: store.read().state, redMain: store.read().redMain, events };
   } finally {
     await child.stop("SIGTERM");
     await Promise.allSettled([output]);
@@ -316,6 +322,43 @@ test("confirmation executable renews automatically, releases cancellation and ca
       expect(result.err).toContain("expired");
     }
   }
+});
+
+test("confirm refuses a cancelled, failed or missing newest contract run before taking a reservation or requesting CI (#3573)", async () => {
+  for (const [mode, message] of [
+    ["confirm-contract-cancelled", "Newest contract run 93 for head"],
+    ["confirm-contract-failed", "Newest contract run 92 for head"],
+    ["confirm-contract-absent", "No contract run exists for head"],
+    ["confirm-contract-stuck", "is in_progress after 600s"],
+  ] as const) {
+    const result = await scenario(mode);
+    expect(result.code, result.err).toBe(1);
+    expect(result.err).toContain(message);
+    expect(result.err).toContain("No reservation was taken and no candidate CI was requested.");
+    expect(result.requested, `NO_CANDIDATE_CI_SPENT:${mode}`).toBe(false);
+    expect(result.dispatched).toBe(false);
+    expect(result.state.last, `NO_RESERVATION_TAKEN:${mode}`).toBeNull();
+  }
+  // The older passing run 92 does not stand in for the cancelled newer one.
+  expect((await scenario("confirm-contract-cancelled")).err).toContain("concluded cancelled; an older run cannot stand in for it");
+});
+
+test("confirm waits for a pending contract run, then requests candidate CI once it passes (#3573)", async () => {
+  const result = await scenario("confirm-contract-pending");
+  expect(result.err).toContain("Newest contract run 92 for head");
+  expect(result.err).toContain("is in_progress; waiting before taking the reservation");
+  expect(result.code, result.err).toBe(2);
+  expect(result.requested).toBe(true);
+  expect(result.dispatched).toBe(true);
+  // The reservation was taken only after the wait, never held across it.
+  expect(result.state.last).toMatchObject({ action: "release", previous: { acquired: NOW + 60_000 } });
+});
+
+test("merge never accepts an older passing contract run over a newer cancelled one (#3573)", async () => {
+  const result = await scenario("merge-contract-cancelled");
+  expect(result.code, result.err).toBe(1);
+  expect(result.dispatched).toBe(false);
+  expect(result.err).toContain("Complete current-candidate CI and contract proof required");
 });
 
 test("scenario teardown stops the executable and its helper, drains output and joins the final Git read", async () => {

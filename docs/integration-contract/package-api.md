@@ -2067,6 +2067,22 @@ Repair (non-media) previews are not part of the scan gate and return
 authority failure still `403`; the routes and their error strings are
 unchanged.
 
+**Review card** (additive in 0.45.0, #2782; design rev 4 §8, rev 5 §8.1,
+rev 6 §5). `@schlessera/brain-ui-react`'s `createBrainApi` changes two
+helpers additively: `hygienePreview(request, signal?)` resolves to
+`HygienePreviewResponse` (an `InboxActionItem` with the fields above), and the
+new `hygieneMediaUndo(journalId)` posts `undo-media` and resolves to the
+review read with `mediaUndo`. An embedder that supplies its own `BrainApi`
+implements the new helper. The media card sends a fresh `requestId` with
+each preview and renders, or lets the commit apply, only the latest one
+whose plan the replicated Action also stores. When a preview answers
+`409` and a newer Action version replicates within one second (an earlier
+choice's preview stored it meanwhile), the card re-sends that preview once
+against it; any other `409` or `403` is stated and never retried. In the inbox
+store, `deferred` (Leave pending) and `kept` outcomes settle a decision as
+success, like `snoozed` and `fixed`. Leave pending is sent as a `later`
+decision, because its lifecycle transition is an untimed `snoozed`.
+
 <a id="module-hygiene-context-breaking-699"></a>
 
 ## Module hygiene context (breaking, #699)

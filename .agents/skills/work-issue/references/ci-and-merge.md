@@ -266,7 +266,11 @@ owner/repo#N,...` before requesting full confirmation. The explicit comma-separa
 list accepts at most 100 references, must include every closing issue, and
 checks every listed issue against the PR release milestone. It acquires the remote
 exact PR/head/base reservation, renews every minute, waits for actual complete
-candidate proof, and uses the shared merge path. `inspect` shows ownership;
+candidate proof, and uses the shared merge path. It first waits for the
+newest exact-head contract run and refuses, before taking a lease or spending
+candidate CI, when that run is missing, cancelled or failed. A body edit or a
+label change starts a fresh one. Edit the body before pushing so that one push
+does not start two racing contract runs (#3573). `inspect` shows ownership;
 busy callers have bounded retries, never a FIFO queue. Separate `acquire`
 requires minute `renew` and explicit `merge --lease`; `release` abandons it.
 The lease lasts five minutes with an absolute sixty-minute cap including
