@@ -4877,6 +4877,14 @@ First-party backend gates additionally revalidate in their final dispatch
 continuations after locks, index barriers and occurrence writes. Every Claude
 pre-tool hook fences its own final asynchronous wait, including parallel
 rewrites and native file observations.
+Host publication also checks qualified recording after its own lock/hold waits.
+Application, image-mask, inbox and compute effects share that final host health
+predicate; policy publication checks health independently of its own journal
+observation, and share completion retains it through its final submission.
+Recorder health remains separate from principal lifetime and does not rotate
+the authority epoch or reload ordinary policy. Completed per-use approvals
+retain their existing scope; pending input or recording loss cannot authorize
+a new irreversible publication.
 Absent input retains the existing taint callback fallback and grants no new
 capability. The live trust input is revision/notification only; matching and
 publication have separate implementations. See the [effective admission

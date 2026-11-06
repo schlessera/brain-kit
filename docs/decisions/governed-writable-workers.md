@@ -176,7 +176,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge-capabilities/application.ts:24-37`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge-capabilities/application.ts:25-38`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
