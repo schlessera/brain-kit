@@ -1,5 +1,6 @@
 /** Offline C5 fixture: real routes/coordinator/SQLite/stream, deterministic CLI boundary.
  * C6 owns the separate full browser → CLI → Markdown proof. */
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -171,11 +172,153 @@ function finding(n = remaining) {
           ],
   };
 }
+// Media review (#2782): Odysseus's files, planned by a deterministic stand-in
+// for `brain hygiene media … --dry-run` and applied by stand-in journal effects.
+type MediaFile = {
+  id: string; path: string; source: "content" | "scratch"; classes: string[]; bytes: number;
+  links: { state: string; conversations: number }; refs: number; refsComplete?: boolean;
+  probe?: { width: number | null; height: number | null; durationMs: number | null } | null;
+  invalidation?: { disposition: string; dispositionOn: string | null; changed: string[] } | null;
+  serve?: "ok" | "404";
+};
+const MEDIA_DEFAULT: MediaFile[] = [
+  { id: "media-harbour-dawn", path: ".brain/scratch/2026-07-11/harbour-dawn.jpg", source: "scratch", classes: ["MEDIA"], bytes: 3_250_586,
+    links: { state: "complete", conversations: 2 }, refs: 0, probe: { width: 4032, height: 3024, durationMs: null } },
+  { id: "media-ithaca-map", path: "inbox/ithaca-map.png", source: "content", classes: ["MEDIA"], bytes: 2_516_582,
+    links: { state: "complete", conversations: 0 }, refs: 2, probe: { width: 2048, height: 1536, durationMs: null } },
+];
+let mediaFiles: MediaFile[] = MEDIA_DEFAULT;
+const mediaDone = new Set<string>();
+let mediaKept = 0;
+/** Refusals the stand-in plan returns, by `--to`/`--pattern` value or by action. */
+let planRefusals: Record<string, Array<Record<string, unknown>>> = {};
+let holdPlans = false;
+const planHolds: Array<() => void> = [];
+let applyMode = "";
+let undoMode = "";
+const mediaJournal = new Map<string, { action: string; plan: Record<string, unknown> }>();
+const files: string[] = [];
+const sha = (seed: string) => createHash("sha256").update(seed).digest("hex");
+const PNG = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+function mediaNext(deferred: Set<string>) {
+  return mediaFiles.find((m) => !mediaDone.has(m.id) && !deferred.has(m.id));
+}
+function mediaFinding(m: MediaFile) {
+  const warning = m.classes.includes("LARGE");
+  return {
+    id: m.id, fingerprint, category: "media", path: m.path, title: "Decide what happens to this media file",
+    severity: warning ? "warning" : "info", urgency: null, field: null, line: null, excerpt: null,
+    sources: m.classes.map((k) => ({ source: "hygiene", name: `${m.source === "scratch" ? "scratch-" : ""}${k.toLowerCase()}`, severity: k === "LARGE" ? "warning" : "info" })),
+    priorityReason: { severity: warning ? "warning" : "info", urgency: "unknown", ageDays: 1, newerWithSameRank: 0, tieBreak: "identity" },
+    invalidation: m.invalidation ?? null,
+    handlers: [{ name: "manual", kind: "manual", input: { type: "none" }, effect: "Decide in review", explanation: "Decide in review" }],
+    media: { source: m.source, classes: m.classes, bytes: m.bytes, sha256: sha(m.path), links: m.links },
+  };
+}
+async function mediaPlan(args: string[], signal?: AbortSignal) {
+  const action = args[1]!, id = args[2]!;
+  const m = mediaFiles.find((f) => f.id === id);
+  if (!m) return { status: "refused", reason: "not-detected" };
+  const flag = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1]! : undefined);
+  const to = flag("--to"), pattern = flag("--pattern");
+  // A fault, not a refusal: the route answers 409 `preview_refused` (rev 5 §11).
+  if (to === "places/throw.png") throw new Error("fixture plan failure");
+  if (holdPlans)
+    await new Promise<void>((resolve, reject) => {
+      planHolds.push(resolve);
+      signal?.addEventListener("abort", () => reject(new Error("aborted")));
+    });
+  const linked = m.links.conversations > 0 ? "linked" : m.source === "scratch" && m.links.state !== "complete" ? "unknown" : "unlinked";
+  let refusals = planRefusals[pattern ?? to ?? action] ?? [];
+  if (action === "persist" && m.source === "scratch") refusals = [{ code: "not-final-location" }];
+  if (action === "move" && linked === "linked") refusals = [{ code: "pinned-scratch" }];
+  const tracks = action !== "delete";
+  const entry = pattern ?? to ?? m.path;
+  const base = m.path.slice(m.path.lastIndexOf("/") + 1);
+  return {
+    status: "preview", id, action, fingerprint,
+    premiseDigest: sha(`${action}:${to ?? ""}:${pattern ?? ""}:${fingerprint}`),
+    destination: to ?? null,
+    files: refusals.length ? [] : [{ path: m.path, role: "source", before: sha(m.path), after: action === "delete" || action === "move" ? null : sha(m.path), bytes: m.bytes },
+      ...(to ? [{ path: to, role: "destination", before: null, after: sha(m.path), bytes: m.bytes }] : []),
+      ...(tracks ? [{ path: "brain.config.ts", role: "config", before: sha("config"), after: sha(`config+${entry}`), bytes: 512 }] : [])],
+    captureBytes: action === "delete" || action === "move" ? m.bytes : 0,
+    links: { state: linked, conversations: m.links.conversations },
+    references: { complete: m.refsComplete ?? true, count: m.refs },
+    rewrites: action === "move" && to && m.refs ? [
+      { note: "journeys/return-to-ithaca.md", line: 14, kind: "wiki-embed", before: `![[${base}]]`, after: `![[${to}]]` },
+      { note: "places/ithaca.md", line: 3, kind: "wiki-embed", before: `![[${base}]]`, after: `![[${to}]]` },
+    ].slice(0, m.refs) : [],
+    blockers: [],
+    configDiff: tracks ? { path: "brain.config.ts", track: { before: [], after: [entry] }, ignore: { before: [], after: [] } } : null,
+    scope: tracks ? (pattern ? "pattern" : "exact") : null,
+    pattern: tracks ? entry : null,
+    ignoreAdjust: null,
+    matches: pattern ? { track: { pattern, anyFolder: !pattern.includes("/"), count: 3, bytes: 4_404_019, changed: 3, ignoredStill: 0, sensitive: 0,
+      largest: [{ path: m.path, bytes: m.bytes, before: "ARTIFACT", after: "TRACK" }, { path: "places/map.png", bytes: 1_153_434, before: "ARTIFACT", after: "TRACK" }, { path: "trips/map.png", bytes: 838_861, before: "ARTIFACT", after: "TRACK" }],
+      digest: sha(`matches:${pattern}`) }, ignore: null } : null,
+    approvalDigest: pattern ? sha(`approval:${pattern}`) : null,
+    copy: action === "keep-copy" ? { bytes: m.bytes, sha256: sha(m.path), diskFreeAdvisory: null } : null,
+    media: m.probe ?? null,
+    resultClass: tracks ? "TRACK" : null,
+    refusals,
+  };
+}
+const media = {
+  async apply(request: { id: string; findingId: string; plan: { action: string; destination: string | null; files: Array<{ path: string; role: string }> } }) {
+    calls.push(["media-apply", request.plan.action, request.plan.destination ?? ""]);
+    const { action } = request.plan, source = mediaFiles.find((f) => f.id === request.findingId)!;
+    mediaJournal.set(request.id, { action, plan: request.plan });
+    const none = { available: false };
+    if (applyMode === "stale") return { journalId: request.id, action, outcome: "stale", reason: "stale", files: [], undo: none };
+    if (applyMode === "capacity") return { journalId: request.id, action, outcome: "refused", reason: "capture-capacity", refusals: [{ code: "capture-capacity" }], files: [], undo: none };
+    if (applyMode === "partial")
+      return { journalId: request.id, action, outcome: "partial", reason: "interrupted", files: [{ path: "places/ithaca.md", state: "conflict" }, { path: source.path, state: "restored" }], undo: none };
+    if (applyMode === "compensated")
+      return { journalId: request.id, action, outcome: "compensated", reason: "copy stopped at 1.9 of 3.1 MB (server restarted)",
+        files: [{ path: request.plan.destination ?? source.path, state: "removed" }, { path: "brain.config.ts", state: "unchanged" }], undo: none };
+    mediaDone.add(request.findingId);
+    if (action === "keep-copy") mediaKept++;
+    return { journalId: request.id, action, outcome: action === "keep-copy" ? "kept" : "applied",
+      files: request.plan.files.map((f) => ({ path: f.path, state: f.role === "source" && (action === "move" || action === "delete") ? "removed" : f.role === "source" ? "unchanged" : "created" })),
+      ...(action === "keep-copy" ? { copySha256: sha(source.path) } : {}), undo: none };
+  },
+  async undo(request: { id: string; sourceId: string }) {
+    calls.push(["media-undo", request.sourceId]);
+    const source = mediaJournal.get(request.sourceId)!;
+    if (undoMode === "evicted")
+      return { journalId: request.sourceId, action: source.action, outcome: "refused", reason: "rollback-evicted", files: [], undo: { available: false, reason: "rollback-evicted" } };
+    return { journalId: request.id, action: source.action, outcome: "undone", files: [], undo: { available: false, reason: "already-undone" } };
+  },
+  receipt(id: string) {
+    const source = mediaJournal.get(id);
+    return source ? { journalId: id, action: source.action, outcome: source.action === "keep-copy" ? "kept" : "applied", files: [], undo: { available: false, reason: undoMode || "rollback-evicted" } } : null;
+  },
+  async recover() {},
+};
+function deferredOf(args: string[]) {
+  const at = args.indexOf("--defer");
+  return new Set(at >= 0 ? args[at + 1]!.split(",").map((d) => d.split("=")[0]!) : []);
+}
 const brain = {
-  hygiene: async (args: string[]) => {
+  hygiene: async (args: string[], opts?: { signal?: AbortSignal }) => {
     calls.push(args);
     const op = args[0],
       id = args.at(-1);
+    if (op === "media") return mediaPlan(args, opts?.signal);
+    if (op === "next" && category === "media") {
+      if (holdNext) await new Promise<void>((resolve) => { releaseNext = resolve; });
+      const deferred = deferredOf(args);
+      const at = args.indexOf("--finding");
+      const m = at >= 0 ? mediaFiles.find((f) => f.id === args[at + 1]) : mediaNext(deferred);
+      const open = mediaFiles.filter((f) => !mediaDone.has(f.id));
+      return {
+        finding: m && !mediaDone.has(m.id) ? mediaFinding(m) : null,
+        counts: { eligibleRemaining: open.filter((f) => !deferred.has(f.id)).length, fixed: mediaDone.size - mediaKept, dismissed: 0, snoozed: 0,
+          nextSnoozeDueAt: null, informationalNotShown: 0, kept: mediaKept },
+        media: { awaitingReview: open.length, setAside: 0, kept: mediaKept, links: { state: "complete", observed: 1, limit: 5000, tooLarge: false, symlinks: 0 } },
+      };
+    }
     if (op === "next") {
       if (holdNext) await new Promise<void>((resolve) => { releaseNext = resolve; });
       return mode === "blocked"
@@ -305,7 +448,9 @@ const worktrees = {
     return { status: "details", details: recorded() };
   },
 };
-const review = createHygieneReview(db, { brain, now, worktrees: worktrees as never });
+const review = createHygieneReview(db, { brain, now, worktrees: worktrees as never, media: media as never });
+// A second owner device, whose running preview makes this one's `preview-busy` (rev 4 §3.3).
+const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope tablet", ttlSeconds: 86400 });
 const store = createInboxStore(db, { now }),
   stream = createInboxStream(store, db, undefined, review.resolver);
 const auth = {
@@ -325,6 +470,16 @@ app.use("*", async (c, next) => {
   await next();
 });
 app.route("/api", createHygieneReviewRoutes(review));
+// The authenticated raw files route's stand-in: every request is logged, nothing is cached.
+app.get("/api/files/content", (c) => {
+  const path = c.req.query("path") ?? "";
+  files.push(path);
+  const m = mediaFiles.find((f) => f.path === path);
+  if (!m || m.serve === "404") return c.json({ error: "not_found" }, 404);
+  const ext = path.slice(path.lastIndexOf(".") + 1);
+  const type = ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "mp4" ? "video/mp4" : "application/octet-stream";
+  return new Response(ext === "mp4" ? new Uint8Array(64) : PNG, { headers: { "content-type": type, "cache-control": "no-store" } });
+});
 app.post("/fixture", async (c) => {
   const p = await c.req.json();
   if (p.holdNext !== undefined) holdNext = p.holdNext;
@@ -365,8 +520,20 @@ app.post("/fixture", async (c) => {
     if (item?.status === "pending") store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "dismissed" }]);
     clock += 10000;
   }
+  if (p.mediaFiles) { mediaFiles = p.mediaFiles === "default" ? MEDIA_DEFAULT : p.mediaFiles; mediaDone.clear(); mediaKept = 0; }
+  if (p.planRefusals) planRefusals = p.planRefusals;
+  if (p.holdPlans !== undefined) holdPlans = p.holdPlans;
+  if (p.releasePlans) { holdPlans = false; for (const release of planHolds.splice(0)) release(); }
+  if (p.applyMode !== undefined) applyMode = p.applyMode;
+  if (p.undoMode !== undefined) undoMode = p.undoMode;
+  if (p.foreignPreview) {
+    const current = review.read().action!;
+    holdPlans = true;
+    void review.preview(penelope.id, { itemId: current.id, optionId: "media-delete", expectedVersion: current.version, input: null }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 50));
+  }
   if (p.start) await review.command(principal.id, "start");
-  return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext });
+  return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext, files });
 });
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -396,6 +563,7 @@ const server = Bun.serve({
 });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
 process.on("SIGTERM", () => {
+  for (const release of planHolds.splice(0)) release();
   hold?.();
   releaseNext?.();
   holdDetails?.();
