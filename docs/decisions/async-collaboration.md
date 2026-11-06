@@ -203,8 +203,8 @@ code atomically creates the Action and blocks its Queue item, then denies the
 permission and unwinds the turn. Already completed side effects are not undone
 by an abort. Attempt staging and cleanup therefore need idempotent recovery,
 with filesystem compensation outside SQLite transactions. Ordinary permission
-parking still exists (`requestPermission: (req) => {`,
-`packages/ui-server/src/ws/bridge-capabilities/permissions.ts:18-154`); it is not a durable Action store.
+parking still exists (`const requestPermission`,
+`packages/ui-server/src/ws/bridge-capabilities/permissions.ts:19-188`); it is not a durable Action store.
 
 Resolution validates the stored effect again, checks current authority, records
 one resolution and applies the guarded state transition in one transaction.

@@ -67,6 +67,8 @@ export interface BridgeContext {
   readonly workerProfile: WorkerProfileBinding | undefined;
   /** Read when the bridge is built, like the identity above. */
   readonly queryActivity: NonNullable<WsHost["activity"]>["query"] | undefined;
+  /** This bridge's announced session identity must commit before its first approval snapshot. */
+  readonly sessionBinding: { pending?: Promise<void>; failed: boolean };
   /** The turn's own authority: its identity, authorization and principal are current. */
   principalIsAuthorized(): boolean;
   /** Final host effects require qualified input recording independently of principal authority. */
@@ -143,7 +145,7 @@ export function createBridgeContext(host: WsHost, turn: RunningTurn, options: Ma
       payload: { ...refusal, policyHash: providerMasks.policy.hash } }) }) : undefined;
   return {
     host, turn, backendId, turnId, requestId: turn.requestId, principalId, authorization, signal, work,
-    recorder, mainModel, workerProfile, queryActivity: host.activity?.query,
+    recorder, mainModel, workerProfile, queryActivity: host.activity?.query, sessionBinding: { failed: false },
     principalIsAuthorized, recordingAvailable, scopePaused, isAuthorized, holdOf, hold, assertAuthority, afterHolds,
     current: () => !signal.aborted && principalIsAuthorized(),
     toolName: (name: string) => backendId === "claude" ? `mcp__brain-ui__${name}` : name,

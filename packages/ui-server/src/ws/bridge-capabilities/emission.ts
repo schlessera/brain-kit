@@ -144,6 +144,22 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     catalog.persistSessionStub(msg.sessionId, promptText, turn.providerId, backendId, creator,creator?turnId:undefined);
     // Governance events recorded before the row existed join it now (#1651).
     catalog.bindGovernanceEvents?.(turnId, msg.sessionId);
+    // A backend can ask immediately after this synchronous announcement.
+    // Its approval must snapshot the committed identity, not the provisional
+    // identity that this announcement is still reconciling on the writer.
+    const pending = catalog.settled?.();
+    if (pending) {
+      ctx.sessionBinding.failed = false;
+      ctx.sessionBinding.pending = pending;
+      void pending.then(() => {
+        if (ctx.sessionBinding.pending === pending) delete ctx.sessionBinding.pending;
+      }, () => {
+        if (ctx.sessionBinding.pending === pending) {
+          delete ctx.sessionBinding.pending;
+          ctx.sessionBinding.failed = true;
+        }
+      });
+    }
     // Submitted after the catalog row; every share read/effect joins this queue.
     void host.inboxTools?.shares?.bind(turnId, msg.sessionId).catch(error => {
       turn.abortController.abort(error); emitTurnError(host, turn, error);

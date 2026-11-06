@@ -4873,6 +4873,11 @@ approval waits. The host's `requestPermission` boundary also owns its initial
 snapshot and final revalidation for direct application, policy, compute and
 actor callers; caller metadata cannot opt out. Claimed answers remain under
 coordinator ownership through grant storage and may expire during that wait.
+On initial session naming, the host waits for its catalog/governance identity
+binding before taking the first card snapshot. This wait is bounded and
+cancellable; health and authority are checked again afterward. A healthy
+first card therefore survives its own binding, while later changes still
+withdraw stale authority.
 First-party backend gates additionally revalidate in their final dispatch
 continuations after locks, index barriers and occurrence writes. Every Claude
 pre-tool hook fences its own final asynchronous wait, including parallel
