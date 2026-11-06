@@ -41,7 +41,7 @@ capable clients, then asks the native store and each host store to remove their
 copies; restart reconciliation resumes any unconfirmed store under the original
 operation. `GET /api/chat-deletions/:operationId` (#3455) reads that operation's
 current receipt for its owner and admits, retries and cleans nothing; every miss
-is one content-free `not_admitted`. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:93-101`)
+is one content-free `not_admitted`. Host stores (`cleanChatStore`, `packages/ui-server/src/ws/chat-store-cleanup.ts:96-104`)
 confirm removal only by reading back that nothing selected remains: dialogue
 records, task receipt text and result facts, session title/label and the text,
 digest and classification projections, and positively bound drafts with their

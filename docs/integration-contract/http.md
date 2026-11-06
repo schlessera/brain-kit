@@ -374,9 +374,56 @@ proven new session with acknowledged mandatory collectors and zero unresolved
 records can be normal. This deliberately changes the former no-row-means-clean
 G6 default under the [dated ruling](../decisions/session-safety-reviews.md).
 Existing provider history remains byte-identical. No review/clearing route,
-verdict writer, trust enforcement or safety capability is enabled; the reviewed
+trust enforcement or safety capability is enabled; the reviewed
 public safety-history DTOs remain prospective. Older clients continue under host
 restrictions without new mutation controls.
+
+**Individual verdict persistence (breaking before 1.0, #3601).** The host-only
+writer now prepares one selected finalized occurrence and atomically commits
+its immutable `safe` decision, revision and terminal request receipt on the FULL
+SQLite write worker. This implements the dated
+[G6 ruling](../decisions/session-safety-reviews.md); live admission revalidation
+and owner-authenticated HTTP/wire operations are separate implementation slices.
+No endpoint or capability is added by this persistence layer. Host identity
+arguments do not establish human authorization.
+
+The authoritative projection reduces all retained compact identities and
+committed decisions, independently of any history page. Resolving A leaves B
+and later same-source C unresolved. Only complete detector coverage, zero
+unresolved/pending occurrences and no recording/capacity latch permit normal.
+Open/interrupted exposures refuse review; original occurrences, transitions,
+decisions and historical policy facts remain immutable. Pruning removes display
+detail only; selected IDs, verdict references, counts and revision survive.
+
+Internal preparation accepts a strict version-1 single-occurrence body bound to
+the exact SessionKey and expected evidence revision. Ranges, source-wide clears,
+session-wide clears and caller authority fields refuse. Trust publication is not
+part of this operation. A host-minted request binds canonical body digest,
+principal, channel and generation, and expires after 900000 ms.
+Time is sampled inside the acquired write transaction, after writer-queue and
+SQLite lock waits. Issuance starts the full handle lifetime; decision and replay
+expiry use execution time, and receipt retention starts at terminal storage.
+New committed evidence stales a prepared review; pending input restricts immediately, and a
+pending verdict never decrements the aggregate. Failed verdict COMMIT rolls back
+decision, revision and receipt together without reporting success.
+Recording-loss refusals remain `recording_failed`, distinct from input that is
+still `recording_pending`, including loss retained only by the app connection.
+
+Same-body retries retain their exact original receipt, including its historical
+projection, for 86400000 ms after terminal commit; admission always reads the
+current projection separately. Changed-body reuse returns `request_conflict`;
+already-resolved, nonfinal, stale, expired and unavailable requests have explicit
+refused outcomes. Refusals carry no normal projection. Receipts are reserved
+before handle issuance: 32 outstanding per principal, maximum 256 per brain,
+10000 retained receipts and 16777216 reserved bytes. The implementation reserves
+262144 bytes per receipt, so the effective brain ceiling is 64 retained handles.
+Capacity refuses new preparation without evicting live receipts or consuming the
+verdict space prepaid by retained occurrences. Unknown/pruned handles can never
+become fresh requests. Restart preserves prepared and terminal receipts; open
+collection epochs still degrade under the existing restart rule. Retirement
+precedes successful replay and returns `retired` for the owning identity even
+after private request/decision detail is removed. Permanent lifecycle fences
+remain; no request TTL recreates a retired session. Provider history is unchanged.
 
 The ledger enforces the design's 8192-byte occurrence, 100000-row/67108864-byte
 session and 1000000-row/536870912-byte brain ceilings, counting reserved verdict

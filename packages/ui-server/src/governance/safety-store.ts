@@ -1,4 +1,4 @@
-/** Serialized host-only collection ledger. No verdict writer or network API. */
+/** Serialized host-only collection ledger and committed verdict projection. */
 import { Database } from "bun:sqlite";
 import { safetyQueue } from "./safety-queue.js";
 import { assertLive,ChatRetiredError } from "../ws/chat-lifecycle.js";
@@ -28,7 +28,7 @@ export class SafetyUnavailable extends Error { constructor(message: string) { su
 const one = <T>(db: Database, sql: string, ...args: (string | number | null)[]) => db.query(sql).get(...args) as T;
 const collection = (db: Database, turn: string) => one<Collection | null>(db,"SELECT * FROM safety_collections WHERE turn_id=?",turn);
 const meta = (db: Database) => one<{revision:string;failed:number;used_rows:number;used_bytes:number;scope_rows:number;scope_bytes:number}>(db,"SELECT * FROM safety_meta WHERE singleton=1");
-function advance(db: Database): string {
+export function advance(db: Database): string {
   const old=BigInt(meta(db).revision);
   if(old>=MAX_REVISION) throw new SafetyUnavailable("Safety revision exhausted");
   const next=String(old+1n); db.query("UPDATE safety_meta SET revision=? WHERE singleton=1").run(next); return next;
@@ -319,13 +319,18 @@ export function migrateSafetyHistory(db:Database):void {
  }
 }
 /** Bounded compact rows are for host tests/next slices, never authorization. */
-export function safetyRecords(db:Database,sessionId:string,limit:number=100):{id:string;sequence:string;kind:string;state:string|null;detailPruned:boolean;payload:unknown}[] {
+export function safetyRecords(db:Database,sessionId:string,limit:number=100):{id:string;sequence:string;kind:string;state:string|null;detailPruned:boolean;occurrenceId:string;payload:unknown}[] {
  assertLive(db,[["session",sessionId]]);
  if(!Number.isInteger(limit)||limit<1||limit>100)throw new SafetyUnavailable("Safety detail limit must be 1-100");
- const rows=db.query(`SELECT r.* FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id=?
-  ORDER BY length(r.sequence),r.sequence LIMIT ?`).all(sessionId,limit) as RecordRow[];
+ const rows=db.query(`SELECT * FROM (SELECT r.id,r.sequence,r.kind,r.state,r.detail_pruned,r.payload,r.occurrence_id FROM safety_records r
+  JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id=?
+  UNION ALL SELECT d.id,d.sequence,'safe_decision',NULL,0,json_object('occurrenceId',d.occurrence_id,
+    'session',json_object('sessionId',d.session_id,'historyOwnerId',d.history_owner_id,'historyGeneration',d.generation),
+    'principalId',d.principal_id,'requestId',d.request_id,'decidedAt',d.decided_at,'verdict',d.verdict,'channel',d.channel),d.occurrence_id
+  FROM safety_decisions d WHERE d.session_id=?)
+  ORDER BY length(sequence),sequence LIMIT ?`).all(sessionId,sessionId,limit) as RecordRow[];
  const result:ReturnType<typeof safetyRecords>=[];let bytes=0;
- for(const r of rows){const item={id:r.id,sequence:r.sequence,kind:r.kind,state:r.state,detailPruned:!!r.detail_pruned,payload:JSON.parse(r.payload)};
+ for(const r of rows){const item={id:r.id,sequence:r.sequence,kind:r.kind,state:r.state,detailPruned:!!r.detail_pruned,occurrenceId:r.occurrence_id,payload:JSON.parse(r.payload)};
   const size=Buffer.byteLength(JSON.stringify(item));if(bytes+size>262144)break;bytes+=size;result.push(item);}
  return result;
 }

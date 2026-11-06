@@ -16,7 +16,9 @@ pins DTOs, explicit numeric bounds, matching, ownership and proof obligations.
 
 [G6](governed-writable-workers.md#untrusted-input-g6) now records every trigger
 and restricts unknown/incomplete histories through the durable collection
-foundation (#3600). No product verdict writer or review capability is enabled. This ruling supersedes only
+foundation (#3600). The host-only verdict store (#3601) commits individual
+decisions and durable receipts; owner-authorized transport and review capability
+remain unavailable until their separate enforcement slices are qualified. This ruling supersedes only
 unconditional stickiness: a fully observed chat may return to normal **only
 after every unresolved trigger has its own committed safe verdict**, complete
 versioned detector coverage is established and no recording/capacity failure
