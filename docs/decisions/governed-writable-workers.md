@@ -1194,7 +1194,7 @@ replacement and the deadline publish nothing and record no policy-updated
 event; a no-publication attempt records none either. Real observation and
 storage failures keep their existing handling, and a publication that
 committed before its report failed stays `unknown` and is never retried
-(`const held`, `packages/ui-server/src/brain/policy-proposal.ts:167-256`).
+(`const held`, `packages/ui-server/src/brain/policy-proposal.ts:150-239`).
 
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
@@ -1210,7 +1210,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:219-253`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:202-236`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
