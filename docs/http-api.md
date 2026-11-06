@@ -1828,7 +1828,7 @@ between separate owner logins, delegated credentials or ambient identities.
 The existing native-history and dialogue APIs keep their visibility rules.
 Unknown/unowned legacy safety collections return explicit unavailable; known
 legacy collection gaps never imply normal. Revoked/expired callers receive
-401, malformed queries 400, expired/generation-changed cursors 409, capacity
+401, malformed queries 400, expired/generation-changed or membership-gap cursors 409, capacity
 503, and absent/retired/unavailable evidence 404. Safety refusals carry
 `{version:1,reason}` without records; pre-handler auth keeps its existing error
 envelope. An older host's absent route means unavailable, never normal.
@@ -1837,7 +1837,9 @@ Each cursor is an unguessable server-side position bound to this host process,
 principal, exact target, canonical generation, snapshot, high-water and last
 sequence. Its lifetime is five minutes; restart invalidates it. Every page
 retains the first page's aggregate and high-water despite later verdicts or
-input. Detail pruning invalidates earlier cursors; a fresh snapshot returns
+input. Adoption that changes pre-watermark collection membership invalidates
+the snapshot with `gap`, including at final delivery after an awaited read;
+the client obtains a fresh snapshot. Detail pruning invalidates earlier cursors; a fresh snapshot returns
 explicit bounded stubs retaining occurrence IDs. The final page means that
 snapshot has been assembled, separately from detector completeness. Read
 [revisioned delivery](integration-contract/wire.md#session-safety-history-additive-3604)

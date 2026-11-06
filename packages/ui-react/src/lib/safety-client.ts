@@ -2,11 +2,11 @@ import type { ClientMessage, ServerMessage, SafetyTarget } from "@schlessera/bra
 import type { BrainUiServices } from "../root.js";
 /** One selected read subscription per socket. All reconnects start a fresh snapshot. */
 export function createSafetyClient(root:BrainUiServices,send:(message:ClientMessage)=>boolean){
-  let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false;
+  let target:SafetyTarget|null=null,requestId:string|null=null,disposed=false,awaitingPage=false;
   const store=root.stores.safety;
   function read(next:SafetyTarget):void{
     if(disposed||!store.getState().supported)return;
-    target=next;requestId=crypto.randomUUID();store.getState().begin(requestId);
+    target=next;requestId=crypto.randomUUID();awaitingPage=true;store.getState().begin(requestId);
     send({type:"safety_unsubscribe",version:1});
     send({type:"safety_read",version:1,requestId,target});
   }
@@ -20,13 +20,19 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       }
       if(msg.type==="chat_retired"){store.getState().retire(msg.sessionId,msg.historyOwnerIds);if(target&&"sessionId" in target&&target.sessionId===msg.sessionId){requestId=null;target=null;store.getState().unavailable("retired");}return false;}
       if(msg.type==="safety_history"){
-        if(msg.requestId!==requestId||!target)return true;
+        if(msg.requestId!==requestId||!target||!awaitingPage)return true;
         if(msg.page.cursor!==store.getState().nextCursor)return true;
-        if(!store.getState().page(msg.requestId,msg.page)){store.getState().unavailable("gap");return true;}
+        if(!store.getState().page(msg.requestId,msg.page)){read(target);return true;}
         if(msg.page.nextCursor)send({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor});
-        else send({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater});return true;
+        else{awaitingPage=false;send({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
       }
-      if(msg.type==="safety_update"){if(!store.getState().update(msg.update)&&target)read(target);return true;}
+      if(msg.type==="safety_update"){
+        // A previous subscription may still have frames in flight. The new
+        // snapshot's final subscription replays everything after its watermark.
+        if(awaitingPage)return true;
+        if(JSON.stringify(store.getState().identity)!==JSON.stringify(msg.update.identity))return true;
+        if(!store.getState().update(msg.update)&&target)read(target);return true;
+      }
       if(msg.type==="safety_unavailable"){
         if(msg.requestId&&msg.requestId!==requestId)return true;
         // Expiry/gap needs an explicit fresh snapshot; never replay a mutation.

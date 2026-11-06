@@ -16,6 +16,7 @@ export function createSafetyStore(){
     begin(requestId){set({...empty,supported:get().supported,status:"loading",reason:null,requestId});},
     page(requestId,page){
       const s=get();if(!s.supported||s.requestId!==requestId)return false;
+      if(s.status==="ready"&&s.snapshotId===page.snapshotId&&same(s.identity,page.identity)&&BigInt(page.highWater)<=BigInt(s.revision))return true;
       if(s.snapshotId&&(s.snapshotId!==page.snapshotId||s.revision!==page.highWater||!same(s.identity,page.identity)))return false;
       if(page.cursor!==s.nextCursor||page.snapshotComplete!==(page.nextCursor===null))return false;
       if(page.projection.evidenceRevision!==page.highWater)return false;
@@ -24,8 +25,9 @@ export function createSafetyStore(){
         status:page.snapshotComplete?"ready":"partial",normal:page.snapshotComplete&&page.projection.restriction==="normal",reason:null});return true;
     },
     update(update){
-      const s=get();if(!s.supported||s.status!=="ready"||!same(s.identity,update.identity))return false;
+      const s=get();if(!s.supported||!same(s.identity,update.identity))return false;
       if(BigInt(update.toRevision)<=BigInt(s.revision))return true; // duplicate/older frames cannot lower the aggregate
+      if(s.status!=="ready")return false;
       if(update.fromRevision!==s.revision||update.projection.evidenceRevision!==update.toRevision){set({normal:false,status:"partial",reason:"gap"});return false;}
       const records:Record<string,SafetyRecord>=Object.assign(Object.create(null),s.records);for(const r of update.records){if(BigInt(r.sequence)<=BigInt(update.fromRevision)||BigInt(r.sequence)>BigInt(update.toRevision))return false;
         const old=records[r.id];if(old&&!same(old,r))return false;records[r.id]=r;}

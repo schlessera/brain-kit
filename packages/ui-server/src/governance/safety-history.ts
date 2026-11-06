@@ -12,7 +12,7 @@ export class SafetyReadUnavailable extends Error {
   constructor(readonly reason: Reason = "unavailable") { super(reason); }
 }
 interface Snapshot { id:string; principalId:string; target:SafetyTarget; identity:SafetyIdentity; highWater:string;
-  projection:SafetyPage["projection"]; expiresAt:number; pruned:number; bytes:number }
+  projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number }
 interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
@@ -23,7 +23,7 @@ const wireId = (value:string) => {
 };
 
 export class SafetyHistory {
-  private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; valid:()=>boolean;
+  private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; membership:string; valid:()=>boolean;
     send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean }>();
   private readonly snapshots = new Map<string, Snapshot>();
   private readonly cursors = new Map<string, {snapshotId:string; after:string}>();
@@ -63,6 +63,22 @@ export class SafetyHistory {
     return "sessionId" in identity ? {sql:`(c.session_id=? OR (c.generation=? AND (c.history_owner_id=? OR c.history_owner_id IN (SELECT id FROM dialogue_aliases WHERE owner_id=?))))`,
       args:[identity.sessionId,identity.historyGeneration,identity.historyOwnerId,identity.historyOwnerId]}
       : {sql:"c.turn_id=? AND c.id=?",args:[identity.turnId,identity.bindingId]};
+  }
+  /** Adoption can expose old rows without changing the canonical SessionKey.
+   * New collections above the watermark do not change the pinned membership. */
+  private membership(identity:SafetyIdentity,through:string):string {
+    const {sql,args}=this.scope(identity);
+    const rows=this.db.query(`SELECT c.id FROM safety_collections c WHERE ${sql}
+      AND (length(c.start_revision)<length(?) OR (length(c.start_revision)=length(?) AND c.start_revision<=?))
+      ORDER BY c.id LIMIT 129`).all(...args,through,through,through) as {id:string}[];
+    if(rows.length>128)throw new SafetyReadUnavailable("capacity");
+    return new Bun.CryptoHasher("sha256").update(JSON.stringify(rows)).digest("hex");
+  }
+  private anchor(principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string):Snapshot {
+    const s=this.snapshots.get(snapshotId);
+    if(!s||this.clock()>=s.expiresAt)throw new SafetyReadUnavailable("expired");
+    if(s.principalId!==principal.id||!same(s.identity,identity)||s.highWater!==revision)throw new SafetyReadUnavailable("gap");
+    return s;
   }
   private pruned(identity:SafetyIdentity):number {
     const {sql,args}=this.scope(identity);
@@ -127,12 +143,13 @@ export class SafetyHistory {
         if(!s||s.principalId!==principal.id||!same(s.target,target))throw new SafetyReadUnavailable("expired");
         snapshot=s;after=position!.after;
         if(!same(identity,s.identity))throw new SafetyReadUnavailable("generation_changed");
+        if(this.membership(identity,s.highWater)!==s.membership)throw new SafetyReadUnavailable("gap");
         if(this.pruned(identity)!==s.pruned)throw new SafetyReadUnavailable("expired");
       }else{
         if(this.snapshots.size>=256||[...this.snapshots.values()].filter(s=>s.principalId===principal.id).length>=32)throw new SafetyReadUnavailable("capacity");
         const projection=this.projection(identity),size=bytes(projection)+2048;
         if(this.retainedBytes+size>4194304)throw new SafetyReadUnavailable("capacity");
-        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size};
+        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size};
         this.snapshots.set(snapshot.id,snapshot);this.retainedBytes+=size;
       }
       const fetched=this.records(identity,after,snapshot.highWater,limit+1),records:SafetyRecord[]=[];
@@ -154,25 +171,35 @@ export class SafetyHistory {
     }).deferred() as SafetyPage;
     }finally{release();}
   }
-  async delta(principal:Principal,identity:SafetyIdentity,after:string):Promise<SafetyUpdate> {
+  async delta(principal:Principal,identity:SafetyIdentity,after:string,snapshotId:string):Promise<SafetyUpdate> {
+    const anchor=this.anchor(principal,identity,after,snapshotId);
+    const result=await this.readDelta(principal,identity,after,anchor.membership);
+    this.anchor(principal,identity,after,snapshotId);
+    this.delivery(principal,identity,snapshotId);
+    if(this.membership(identity,result.update.toRevision)!==result.membership)throw new SafetyReadUnavailable("gap");
+    return result.update;
+  }
+  private async readDelta(principal:Principal,identity:SafetyIdentity,after:string,membership:string):Promise<{update:SafetyUpdate;membership:string}> {
     const target:SafetyTarget="sessionId" in identity?{sessionId:identity.sessionId}:identity;
     this.authorize(principal,target);const release=this.reserveRead(principal);
     try{await this.settled();
     return Database.prototype.transaction.call(this.db,()=>{
       if(!same(this.authorize(principal,target),identity))throw new SafetyReadUnavailable("generation_changed");
+      if(this.membership(identity,after)!==membership)throw new SafetyReadUnavailable("gap");
       const projection=this.projection(identity);
       if(BigInt(after)>BigInt(projection.evidenceRevision))throw new SafetyReadUnavailable("gap");
       const records=this.records(identity,after,projection.evidenceRevision,101);
       const update:SafetyUpdate={version:1,identity,fromRevision:after,toRevision:projection.evidenceRevision,projection,records};
       if(records.length>100||bytes(update)>262000)throw new SafetyReadUnavailable("capacity");
       this.authorize(principal,target);this.clock();
-      return safetyUpdateSchema.parse(update);
-    }).deferred() as SafetyUpdate;
+      return {update:safetyUpdateSchema.parse(update),membership:this.membership(identity,projection.evidenceRevision)};
+    }).deferred() as {update:SafetyUpdate;membership:string};
     }finally{release();}
   }
-  subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
+  subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
-    this.subscriptions.set(key,{principal,identity,revision,valid,send,busy:false});this.poll();
+    const anchor=this.anchor(principal,identity,revision,snapshotId);
+    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,valid,send,busy:false});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {
@@ -192,7 +219,8 @@ export class SafetyHistory {
   delivery(principal:Principal,identity:SafetyIdentity,snapshotId?:string):void {
     const target:SafetyTarget="sessionId" in identity?{sessionId:identity.sessionId}:identity;
     if(!same(identity,this.authorize(principal,target)))throw new SafetyReadUnavailable("generation_changed");
-    if(snapshotId){const s=this.snapshots.get(snapshotId);if(!s||s.principalId!==principal.id||this.clock()>=s.expiresAt||s.pruned!==this.pruned(identity))throw new SafetyReadUnavailable("expired");}
+    if(snapshotId){const s=this.snapshots.get(snapshotId);if(!s||s.principalId!==principal.id||this.clock()>=s.expiresAt||s.pruned!==this.pruned(identity))throw new SafetyReadUnavailable("expired");
+      if(this.membership(identity,s.highWater)!==s.membership)throw new SafetyReadUnavailable("gap");}
   }
   /** Shares the host's existing authorization sweep; no per-read timer. */
   poll():void {
@@ -200,10 +228,12 @@ export class SafetyHistory {
     for(const [key,s] of this.subscriptions){
       if(!s.valid()||!this.valid(s.principal)){this.subscriptions.delete(key);continue;}
       if(s.busy)continue;s.busy=true;
-      void this.delta(s.principal,s.identity,s.revision).then(update=>{
+      void this.readDelta(s.principal,s.identity,s.revision,s.membership).then(({update,membership})=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
-        try{this.delivery(s.principal,s.identity);}catch{this.subscriptions.delete(key);s.send({version:1,reason:"unavailable"});return;}
-        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;}
+        try{this.delivery(s.principal,s.identity);
+          if(this.membership(s.identity,update.toRevision)!==membership)throw new SafetyReadUnavailable("gap");
+        }catch(error){this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});return;}
+        if(update.toRevision!==s.revision){s.send(update);s.revision=update.toRevision;s.membership=membership;}
       },error=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         this.subscriptions.delete(key);s.send({version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});

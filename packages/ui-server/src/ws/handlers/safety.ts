@@ -16,7 +16,7 @@ export const handleSafetySubscribe:ClientMessageHandler<"safety_subscribe">=({ho
   if(!live())return;
   try{
     if(!host.safetyHistory)throw new SafetyReadUnavailable();
-    host.safetyHistory.subscribe((ws.raw??ws) as object,connection.principal,msg.identity,msg.afterRevision,live,value=>{
+    host.safetyHistory.subscribe((ws.raw??ws) as object,connection.principal,msg.identity,msg.afterRevision,msg.snapshotId,live,value=>{
       if(!live())return;
       host.sendMessage(ws,"fromRevision" in value?{type:"safety_update",update:value}:{type:"safety_unavailable",version:1,reason:value.reason,requestId:msg.requestId});
     });

@@ -2881,10 +2881,14 @@ After declaring the same capability in `client_hello`, clients may send:
   is `{sessionId}` or the exact provisional `{turnId,bindingId}`. Reads cannot
   discover/create a session by guessing aliases. The host replies
   `safety_history: {type,requestId,page:SafetyPage}`.
-- `safety_subscribe`: `{type,version:1,requestId,identity,afterRevision}`.
+- `safety_subscribe`: `{type,version:1,requestId,identity,afterRevision,snapshotId}`.
   One selected history subscription per connection replaces its predecessor.
   `identity` is the canonical `{sessionId,historyOwnerId,historyGeneration}`
-  or provisional `{turnId,bindingId}`. `safety_unsubscribe: {type,version:1}`
+  or provisional `{turnId,bindingId}`. The snapshot must have been issued to
+  this exact principal and identity at `afterRevision` and remain unexpired
+  when the subscription is accepted. Its opaque ID pins the exact collection
+  membership even if adoption has not yet advanced the brain-wide revision.
+  `safety_unsubscribe: {type,version:1}`
   removes it; disconnect/auth loss also removes it.
 - `safety_update`: `{type,update:{version:1,identity,fromRevision,toRevision,
   projection,records}}`. Both revisions are canonical unsigned decimal strings
@@ -2906,11 +2910,19 @@ review receipts and missing fields cannot label a session normal. After a gap,
 first-turn adoption, reconnect or restart, obtain a new snapshot. Canonical
 occurrence/decision IDs survive adoption and replay; client caches are cleared
 on retirement and auth loss and late request IDs cannot repopulate them.
+Adoption that adds pre-watermark collections invalidates paging and live
+continuity with `gap`; it cannot insert old records beneath a pinned aggregate
+or silently skip them in a delta. New post-watermark collections remain eligible
+for ordinary contiguous delivery. Duplicate pages after completion and updates
+from a previous subscription during pagination leave the aggregate intact;
+the final-page subscription replays from the pinned watermark.
 
 Records are tagged `occurrence`, `exposure` or `safe_decision`, with immutable
 host record ID, original sequence/time, turn, binding and occurrence ID.
 Occurrences retain their exact host operation/signal/exposure IDs where
 available, source, detector, exposure state and allowlisted transport provenance.
+The source inventory includes every durable taint source, including
+`apify_result` from supported host discovery, inspection and Actor results.
 Opaque connections have null operation/provenance, never inferred Git/tool
 attribution. Pruned details explicitly use null unavailable correlation fields;
 independent occurrence IDs and aggregate counts survive. Text is display data,

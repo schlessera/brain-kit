@@ -36,7 +36,7 @@ test("real WS replay and contiguous updates survive duplicate/reordered delivery
     client.send({type:"safety_read",version:1,requestId:"replay",target:{sessionId:"ithaca"}});
     const frame=await client.until(m=>m.type==="safety_history");if(frame.type!=="safety_history")throw new Error("Missing page");expect(frame.page.records).toEqual(initial.records);
     expect(parseServerMessage(JSON.stringify(frame)).ok).toBe(true);
-    client.send({type:"safety_subscribe",version:1,requestId:"subscription",identity:frame.page.identity,afterRevision:frame.page.highWater});
+    client.send({type:"safety_subscribe",version:1,requestId:"subscription",identity:frame.page.identity,afterRevision:frame.page.highWater,snapshotId:frame.page.snapshotId});
     const updates:import("@schlessera/brain-ui-sdk/protocol").SafetyUpdate[]=[];
     const through=async(count:number)=>{for(;;){const frame=await client.until(m=>m.type==="safety_update");if(frame.type!=="safety_update")throw new Error("Missing update");updates.push(frame.update);if(frame.update.projection.unresolvedCount===count&&frame.update.projection.pendingCount===0)return frame.update;}};
     await f.add("B");f.history.poll();const one=await through(2);
@@ -116,7 +116,7 @@ test("revision and frame bounds force resync; changed generations cannot reuse s
     // Seed the immutable reader bound in one transaction; other cases run
     // the production off-loop writer for recording/verdict durability.
     f.db.transaction(()=>{for(let i=0;i<101;i++)recordGovernanceEvent(f.db,{kind:"taint",turnId:"voyage",sessionId:"ithaca",at:0,actor:"interactive",model:null,profile:"governed",payload:{source:"web_fetch",tool:"WebFetch",detail:"Bounded fixture",occurrence:occurrence(f.bindingId,"tool_web_input",`signal_${i}`,"finalized")}});}).immediate();
-    await expect(f.history.delta(f.principal,before.identity,before.highWater)).rejects.toThrow("capacity");
+    await expect(f.history.delta(f.principal,before.identity,before.highWater,before.snapshotId)).rejects.toThrow("capacity");
     const first=await page(await f.get("?limit=1"));
     f.db.query("INSERT INTO dialogue_owners(id,principal_id,session_id,generation,coverage,created_at) VALUES(?,?,?,2,'complete',0)").run((first.identity as {historyOwnerId:string}).historyOwnerId,f.principal.id,"ithaca");
     expect((await f.get(`?cursor=${first.nextCursor}`)).status).toBe(409);
@@ -187,7 +187,7 @@ test("shipped SDK client negotiates the read capability over an authenticated re
 test("retirement invalidates a live safety-only subscription without requiring chat deletion UI capability",async()=>{
   const f=await safetyHistoryFixture();try{
     await f.add("A");const initial=await page(await f.get()),client=await f.connect();
-    client.send({type:"safety_subscribe",version:1,requestId:"retirement",identity:initial.identity,afterRevision:initial.highWater});
+    client.send({type:"safety_subscribe",version:1,requestId:"retirement",identity:initial.identity,afterRevision:initial.highWater,snapshotId:initial.snapshotId});
     client.send({type:"ping",probeId:"subscribed"});await client.until(m=>m.type==="pong");
     const retired=retireChat(f.db,{operationId:"live-retire",principalId:f.principal.id,target:{sessionId:"ithaca"},expected:{backendId:"claude",generation:1},removableBackends:["claude"],at:Date.now()});
     expect(retired.status).toBe("retired");if(retired.status!=="retired")throw new Error("Retirement refused");
@@ -209,12 +209,12 @@ test("authenticated history query validation refuses oversized, duplicated or au
 test("replaced or concurrent delta reads retain bounded ownership until their asynchronous wait settles",async()=>{
   const f=await safetyHistoryFixture();try{
     const initial=await page(await f.get()),held=f.hold();
-    const requests=Array.from({length:33},()=>f.history.delta(f.principal,initial.identity,initial.highWater).then(value=>({ok:true as const,value}),error=>({ok:false as const,error})));
+    const requests=Array.from({length:33},()=>f.history.delta(f.principal,initial.identity,initial.highWater,initial.snapshotId).then(value=>({ok:true as const,value}),error=>({ok:false as const,error})));
     await held.arrived;
     const refused=await Promise.race([requests.at(-1)!,Promise.resolve({ok:true as const,value:null})]);held.release();
     expect(refused.ok,"DELTA_WAIT_CAPACITY_FENCE").toBe(false);
     if(!refused.ok)expect(refused.error.message).toBe("capacity");
     const results=await Promise.all(requests);expect(results.filter(r=>r.ok)).toHaveLength(32);
-    expect((await f.history.delta(f.principal,initial.identity,initial.highWater)).projection.unresolvedCount).toBe(0);
+    expect((await f.history.delta(f.principal,initial.identity,initial.highWater,initial.snapshotId)).projection.unresolvedCount).toBe(0);
   }finally{await f.close();}
 });

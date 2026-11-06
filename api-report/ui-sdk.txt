@@ -13237,6 +13237,7 @@ signatures (every public export and the types it is made of)
             turnId: z.ZodString;
         }, z.core.$strict>]>;
         requestId: z.ZodString;
+        snapshotId: z.ZodString;
         type: z.ZodLiteral<"safety_subscribe">;
         version: z.ZodLiteral<1>;
     }, z.core.$strict>, z.ZodObject<{
@@ -13391,6 +13392,7 @@ signatures (every public export and the types it is made of)
             turnId: z.ZodString;
         }, z.core.$strict>]>;
         requestId: z.ZodString;
+        snapshotId: z.ZodString;
         type: z.ZodLiteral<"safety_subscribe">;
         version: z.ZodLiteral<1>;
     }, z.core.$strict>;
@@ -18015,6 +18017,7 @@ signatures (every public export and the types it is made of)
             sequence: z.ZodString;
             signalId: z.ZodNullable<z.ZodString>;
             source: z.ZodEnum<{
+                apify_result: "apify_result";
                 chat_attachment: "chat_attachment";
                 compute_output: "compute_output";
                 egress_connection: "egress_connection";
@@ -18155,6 +18158,7 @@ signatures (every public export and the types it is made of)
         sequence: z.ZodString;
         signalId: z.ZodNullable<z.ZodString>;
         source: z.ZodEnum<{
+            apify_result: "apify_result";
             chat_attachment: "chat_attachment";
             compute_output: "compute_output";
             egress_connection: "egress_connection";
@@ -18325,6 +18329,7 @@ signatures (every public export and the types it is made of)
             sequence: z.ZodString;
             signalId: z.ZodNullable<z.ZodString>;
             source: z.ZodEnum<{
+                apify_result: "apify_result";
                 chat_attachment: "chat_attachment";
                 compute_output: "compute_output";
                 egress_connection: "egress_connection";
@@ -22790,6 +22795,7 @@ signatures (every public export and the types it is made of)
                 sequence: z.ZodString;
                 signalId: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
+                    apify_result: "apify_result";
                     chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
@@ -22942,6 +22948,7 @@ signatures (every public export and the types it is made of)
                 sequence: z.ZodString;
                 signalId: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
+                    apify_result: "apify_result";
                     chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
@@ -23502,6 +23509,7 @@ signatures (every public export and the types it is made of)
                 sequence: z.ZodString;
                 signalId: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
+                    apify_result: "apify_result";
                     chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
@@ -23670,6 +23678,7 @@ signatures (every public export and the types it is made of)
                 sequence: z.ZodString;
                 signalId: z.ZodNullable<z.ZodString>;
                 source: z.ZodEnum<{
+                    apify_result: "apify_result";
                     chat_attachment: "chat_attachment";
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";

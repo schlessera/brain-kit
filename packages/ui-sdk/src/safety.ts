@@ -15,7 +15,7 @@ export const safetyProjectionSchema = z.strictObject({ session: safetySessionKey
     epochs: z.array(z.strictObject({ id, backendId: id, startSequence: revision, endSequence: revision.nullable(),
       mandatory: z.array(id).max(32), acknowledged: z.array(id).max(32), status: z.enum(["complete", "incomplete", "unknown"]), reason: text(512).nullable() })).max(128),
     exclusions: z.array(id).max(4) }) });
-const source = z.enum(["web_fetch", "web_search", "staged_share", "chat_attachment", "workspace_read", "mcp_document", "user_marked", "fetching_command", "unclassified_command", "compute_output", "egress_connection", "legacy_unknown"]);
+const source = z.enum(["web_fetch", "web_search", "staged_share", "chat_attachment", "workspace_read", "mcp_document", "user_marked", "fetching_command", "unclassified_command", "compute_output", "apify_result", "egress_connection", "legacy_unknown"]);
 const exposure = z.enum(["open", "finalized", "interrupted_unknown"]);
 const provenance = z.union([z.null(), z.strictObject({ kind: z.literal("web_origin"), origin: z.strictObject({scheme:z.enum(["http","https"]),host:text(253),port:z.number().int().min(1).max(65535)}), verifiedBy:z.literal("host_transport") }),
   z.strictObject({kind:z.literal("tunnel_authority"),authority:z.strictObject({host:text(253),port:z.number().int().min(1).max(65535)}),verifiedBy:z.literal("host_proxy")})]);
@@ -47,7 +47,7 @@ export type SafetyUnavailable = z.infer<typeof safetyUnavailableSchema>;
 export type SafetyCapabilities = z.infer<typeof safetyCapabilitiesSchema>;
 
 export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional()});
-export const clientSafetySubscribeSchema = z.strictObject({type:z.literal("safety_subscribe"),requestId:id,version:z.literal(1),identity:safetyIdentitySchema,afterRevision:revision});
+export const clientSafetySubscribeSchema = z.strictObject({type:z.literal("safety_subscribe"),requestId:id,version:z.literal(1),identity:safetyIdentitySchema,afterRevision:revision,snapshotId:id});
 export const clientSafetyUnsubscribeSchema = z.strictObject({type:z.literal("safety_unsubscribe"),version:z.literal(1)});
 export const serverSafetyHistorySchema = z.strictObject({type:z.literal("safety_history"),requestId:id,page:safetyPageSchema});
 export const serverSafetyUpdateSchema = z.strictObject({type:z.literal("safety_update"),update:safetyUpdateSchema});

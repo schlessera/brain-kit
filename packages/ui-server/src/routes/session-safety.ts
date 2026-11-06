@@ -20,7 +20,7 @@ export function createSessionSafetyRoutes(history:SafetyHistory,valid:(principal
     }catch(error){
       if(!valid(principal))return c.json({version:1,reason:"unauthorized"},401);
       const reason=error instanceof SafetyReadUnavailable?error.reason:"unavailable";
-      return c.json({version:1,reason},reason==="unauthorized"?401:reason==="capacity"?503:reason==="expired"||reason==="generation_changed"?409:404);
+      return c.json({version:1,reason},reason==="unauthorized"?401:reason==="capacity"?503:reason==="expired"||reason==="generation_changed"||reason==="gap"?409:404);
     }
   });
 }
