@@ -245,6 +245,14 @@ originals, on a host that advertises `composerFiles`:
   reader, never block it. The hold uses the composer's existing tab-local
   hold. The durable held snapshot, recovery bubbles and queue-full notice of
   design brief rev 5 wait for the snapshot list (#3588).
+- **Tracks follow the host.** On a host with `composerFiles` a picked track
+  is a generic original: the host detects it, the draft binds it and a reload
+  restores it, so it is not a tab-only staged track and the #1150 leave guard
+  no longer applies once its binding is acknowledged. D52's tab-only path
+  remains for a host without `composerFiles`. The mounted-app suites that
+  prove it (#1112, #1150, #1018) remove that capability from the real host's
+  hello so they keep proving it. The drop-and-reconnect suite (#1013) runs
+  the generic path against the real host.
 - **Sent rows claim no read.** A sent message lists its originals by name,
   kind and size. The read records are not delivered to clients yet (#3589),
   so a row shows neither *read* nor *not read yet*.
