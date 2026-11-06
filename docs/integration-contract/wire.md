@@ -2871,7 +2871,8 @@ is version 1: `read:true`, `review:false`, `originRules:false`,
 `repositoryRules:false`, `recipientRules:false`,
 `readOnlyReason:"review_unavailable"`, detector version 1 and effective page,
 frame and cursor limits. Older clients ignore these optional fields; clients
-without both read declarations report unavailable. No verdict endpoint,
+without both read declarations report unavailable and send no read/unsubscribe
+frames to an unsupported host. No verdict endpoint,
 mutation authority or fully qualified detector is implied by read support.
 
 After declaring the same capability in `client_hello`, clients may send:

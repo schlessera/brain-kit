@@ -10,7 +10,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     send({type:"safety_unsubscribe",version:1});
     send({type:"safety_read",version:1,requestId,target});
   }
-  function selected():void{const id=root.stores.chat.getState().activeSessionId;if(id)read({sessionId:id});else{target=null;requestId=null;store.getState().unavailable("unavailable");send({type:"safety_unsubscribe",version:1});}}
+  function selected():void{const id=root.stores.chat.getState().activeSessionId;if(id)read({sessionId:id});else{target=null;requestId=null;store.getState().unavailable("unavailable");if(store.getState().supported)send({type:"safety_unsubscribe",version:1});}}
   const detach=root.stores.chat.subscribe((state,previous)=>{if(state.activeSessionId!==previous.activeSessionId)selected();});
   return {
     frame(msg:ServerMessage):boolean{
