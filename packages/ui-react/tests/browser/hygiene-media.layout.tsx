@@ -317,7 +317,10 @@ test("dark 320: a preview that throws is a 409 the card states, and nothing was 
   await scene({ mediaFiles: ITHACA_ONLY, planRefusals: {} });
   await radio("Move to a final location").click();
   await destination("places/throw.png");
-  await expect.poll(() => alertText()).toBe("Couldn't prepare a preview. Nothing was changed.");
+  // A 409 with no newer Action states its failure only after the card's one-second wait for a
+  // newer version (`newerThan`, packages/ui-react/src/components/activity/hygiene-media.tsx:341-348),
+  // so the default one-second poll races that window. Allow the wait plus the request.
+  await expect.poll(() => alertText(), { timeout: 5000 }).toBe("Couldn't prepare a preview. Nothing was changed.");
   expect(page.getByRole("button", { name: "Try again", exact: true }).query()).not.toBeNull();
 });
 
