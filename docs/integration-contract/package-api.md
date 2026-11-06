@@ -4898,3 +4898,21 @@ ticket and cannot approve, widen or replay a call. In-process bash uses the
 same revalidation at that point. The internal `commitToolAdmission` bridge
 callback transports that check; it carries no provider-facing data or new
 public tool. Lock and native observation RPCs also recheck current host safety.
+
+## Session safety read DTOs (additive, #3604)
+
+The generated React store declarations retain the named `SafetyState` type
+used by the existing store factory and service types.
+
+`@schlessera/brain-ui-sdk/protocol` adds `SafetySessionKey`, `SafetyTarget`,
+`SafetyIdentity`, `SafetyHistoryProjection`, `SafetyRecord`, `SafetyPage`,
+`SafetyUpdate`, `SafetyUnavailable`, `SafetyCapabilities`, the three client
+read/subscribe/unsubscribe frame types and three server read/update/unavailable
+frame types. `SESSION_SAFETY_CAPABILITY` names `sessionSafetyHistory`;
+`SAFETY_READ_CAPABILITIES` describes only the qualified read transport, with all
+mutation flags false. `ServerHello.safetyCapabilities` is optional. Runtime
+`safeParse` schemas are exported from `/schemas`: `safetySessionKeySchema`,
+`safetyPageSchema`, `safetyUpdateSchema` and `safetyCapabilitiesSchema`. Normal
+client/server frame parsers validate the additive frames. They are concrete
+wire DTOs, not a new extension seam. Bounds and recovery semantics are in
+[the wire contract](wire.md#session-safety-history-additive-3604).

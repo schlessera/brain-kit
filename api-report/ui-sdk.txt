@@ -135,6 +135,9 @@ export "." (./src/index.ts)
   type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
+  type ClientSafetyRead
+  type ClientSafetySubscribe
+  type ClientSafetyUnsubscribe
   type ClientScopeDecision
   type ClientSessionResume
   type ClientToolApproval
@@ -285,10 +288,12 @@ export "." (./src/index.ts)
   type RenderRequest
   type ResolutionEffect
   type RuntimeNotice
+  SAFETY_READ_CAPABILITIES
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
   SESSION_RECOVERY_FAILED
+  SESSION_SAFETY_CAPABILITY
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -304,6 +309,15 @@ export "." (./src/index.ts)
   SPAN_TOOL_NAME_PREFIX
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
+  type SafetyCapabilities
+  type SafetyHistoryProjection
+  type SafetyIdentity
+  type SafetyPage
+  type SafetyRecord
+  type SafetySessionKey
+  type SafetyTarget
+  type SafetyUnavailable
+  type SafetyUpdate
   type ScopeCapReceipt
   type ScopeDimension
   type ServerActivityDelta
@@ -334,6 +348,9 @@ export "." (./src/index.ts)
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
+  type ServerSafetyHistory
+  type ServerSafetyUnavailable
+  type ServerSafetyUpdate
   type ServerScopeDecisionReceipt
   type ServerSessionHistory
   type ServerSessionInfo
@@ -669,6 +686,9 @@ export "./client" (./src/client/index.ts)
   type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
+  type ClientSafetyRead
+  type ClientSafetySubscribe
+  type ClientSafetyUnsubscribe
   type ClientScopeDecision
   type ClientSessionResume
   type ClientToolApproval
@@ -898,10 +918,12 @@ export "./client" (./src/client/index.ts)
   type ResolutionEffect
   type ResolveActionInput
   type RuntimeNotice
+  SAFETY_READ_CAPABILITIES
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
   SESSION_RECOVERY_FAILED
+  SESSION_SAFETY_CAPABILITY
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -923,6 +945,15 @@ export "./client" (./src/client/index.ts)
   STALE_SOCKET_CLOSE_CODE
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
+  type SafetyCapabilities
+  type SafetyHistoryProjection
+  type SafetyIdentity
+  type SafetyPage
+  type SafetyRecord
+  type SafetySessionKey
+  type SafetyTarget
+  type SafetyUnavailable
+  type SafetyUpdate
   type ScopeCapReceipt
   type ScopeDimension
   type ServerActivityDelta
@@ -954,6 +985,9 @@ export "./client" (./src/client/index.ts)
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
+  type ServerSafetyHistory
+  type ServerSafetyUnavailable
+  type ServerSafetyUpdate
   type ServerScopeDecisionReceipt
   type ServerSessionHistory
   type ServerSessionInfo
@@ -1517,6 +1551,9 @@ export "./protocol" (./src/protocol.ts)
   type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
+  type ClientSafetyRead
+  type ClientSafetySubscribe
+  type ClientSafetyUnsubscribe
   type ClientScopeDecision
   type ClientSessionResume
   type ClientToolApproval
@@ -1659,10 +1696,12 @@ export "./protocol" (./src/protocol.ts)
   type RenderRequest
   type ResolutionEffect
   type RuntimeNotice
+  SAFETY_READ_CAPABILITIES
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
   SESSION_RECOVERY_FAILED
+  SESSION_SAFETY_CAPABILITY
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -1678,6 +1717,15 @@ export "./protocol" (./src/protocol.ts)
   SPAN_TOOL_NAME_PREFIX
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
+  type SafetyCapabilities
+  type SafetyHistoryProjection
+  type SafetyIdentity
+  type SafetyPage
+  type SafetyRecord
+  type SafetySessionKey
+  type SafetyTarget
+  type SafetyUnavailable
+  type SafetyUpdate
   type ScopeCapReceipt
   type ScopeDimension
   type ServerActivityDelta
@@ -1708,6 +1756,9 @@ export "./protocol" (./src/protocol.ts)
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
+  type ServerSafetyHistory
+  type ServerSafetyUnavailable
+  type ServerSafetyUpdate
   type ServerScopeDecisionReceipt
   type ServerSessionHistory
   type ServerSessionInfo
@@ -1956,6 +2007,10 @@ export "./schemas" (./src/schemas.ts)
   queueAddResultSchema
   queuedFollowUpViewSchema
   resolutionEffectSchema
+  safetyCapabilitiesSchema
+  safetyPageSchema
+  safetySessionKeySchema
+  safetyUpdateSchema
   serverActivityDeltaSchema
   serverActivitySnapshotSchema
   serverAskAnswerReceiptSchema
@@ -2259,6 +2314,9 @@ export "./server" (./src/server/index.ts)
   type ClientPing
   type ClientRetryStatus
   type ClientRetryTurn
+  type ClientSafetyRead
+  type ClientSafetySubscribe
+  type ClientSafetyUnsubscribe
   type ClientScopeDecision
   type ClientSessionResume
   type ClientToolApproval
@@ -2524,10 +2582,12 @@ export "./server" (./src/server/index.ts)
   type ReverseGeocodeConfig
   type ReverseGeocodeResult
   type RuntimeNotice
+  SAFETY_READ_CAPABILITIES
   SESSION_DRAFT_LIMITS
   SESSION_NOT_FOUND
   SESSION_RECOVERY_CAPABILITY
   SESSION_RECOVERY_FAILED
+  SESSION_SAFETY_CAPABILITY
   SHARE_MAX_CONCURRENT_INTAKE
   SHARE_MAX_FILES
   SHARE_MAX_FILE_BYTES
@@ -2548,6 +2608,15 @@ export "./server" (./src/server/index.ts)
   SPAN_TOOL_NAME_PREFIX
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
+  type SafetyCapabilities
+  type SafetyHistoryProjection
+  type SafetyIdentity
+  type SafetyPage
+  type SafetyRecord
+  type SafetySessionKey
+  type SafetyTarget
+  type SafetyUnavailable
+  type SafetyUpdate
   type SavedAudioTranscription
   type ScopeCapReceipt
   type ScopeDimension
@@ -2579,6 +2648,9 @@ export "./server" (./src/server/index.ts)
   type ServerPong
   type ServerResultMessage
   type ServerRetryReceipt
+  type ServerSafetyHistory
+  type ServerSafetyUnavailable
+  type ServerSafetyUpdate
   type ServerScopeDecisionReceipt
   type ServerSessionHistory
   type ServerSessionInfo
@@ -6684,7 +6756,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientMessage (packages/ui-sdk/src/protocol.ts)
-    export type ClientMessage = ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
   ClientPing (packages/ui-sdk/src/protocol.ts)
     export interface ClientPing {
         type: "ping";
@@ -6703,6 +6775,12 @@ signatures (every public export and the types it is made of)
         failedTurnId: string;
         requestId: string;
     }
+  ClientSafetyRead (packages/ui-sdk/src/safety.ts)
+    export type ClientSafetyRead = z.infer<typeof clientSafetyReadSchema>;
+  ClientSafetySubscribe (packages/ui-sdk/src/safety.ts)
+    export type ClientSafetySubscribe = z.infer<typeof clientSafetySubscribeSchema>;
+  ClientSafetyUnsubscribe (packages/ui-sdk/src/safety.ts)
+    export type ClientSafetyUnsubscribe = z.infer<typeof clientSafetyUnsubscribeSchema>;
   ClientScopeDecision (packages/ui-sdk/src/protocol.ts)
     export interface ClientScopeDecision {
         type: "scope_decision";
@@ -9151,6 +9229,23 @@ signatures (every public export and the types it is made of)
         cause: "aborted" | "unspecified";
         message: string;
     }
+  SAFETY_READ_CAPABILITIES (packages/ui-sdk/src/safety.ts)
+    const SAFETY_READ_CAPABILITIES: {
+        detectorVersion: 1;
+        limits: {
+            cursorBytes: 512;
+            cursorLifetimeMs: 300000;
+            frameBytes: 262144;
+            pageRecords: 100;
+        };
+        originRules: false;
+        read: true;
+        readOnlyReason: "review_unavailable";
+        recipientRules: false;
+        repositoryRules: false;
+        review: false;
+        version: 1;
+    };
   SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
     const SESSION_DRAFT_LIMITS: Readonly<SessionDraftLimits>;
   SESSION_NOT_FOUND (packages/ui-sdk/src/protocol.ts)
@@ -9159,6 +9254,8 @@ signatures (every public export and the types it is made of)
     const SESSION_RECOVERY_CAPABILITY: "sessionRecovery";
   SESSION_RECOVERY_FAILED (packages/ui-sdk/src/protocol.ts)
     const SESSION_RECOVERY_FAILED: "SESSION_RECOVERY_FAILED";
+  SESSION_SAFETY_CAPABILITY (packages/ui-sdk/src/safety.ts)
+    const SESSION_SAFETY_CAPABILITY: "sessionSafetyHistory";
   SHARE_ERROR_PARAM (packages/ui-sdk/src/client/share-target-handler.ts)
     const SHARE_ERROR_PARAM: "share_error";
   SHARE_MAX_CONCURRENT_INTAKE (packages/ui-sdk/src/protocol.ts)
@@ -10585,6 +10682,24 @@ signatures (every public export and the types it is made of)
     const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>>;
   SUBSCRIPTION_RELOGIN_PROCEDURE (packages/ui-sdk/src/protocol.ts)
     const SUBSCRIPTION_RELOGIN_PROCEDURE: string;
+  SafetyCapabilities (packages/ui-sdk/src/safety.ts)
+    export type SafetyCapabilities = z.infer<typeof safetyCapabilitiesSchema>;
+  SafetyHistoryProjection (packages/ui-sdk/src/safety.ts)
+    export type SafetyHistoryProjection = z.infer<typeof safetyProjectionSchema>;
+  SafetyIdentity (packages/ui-sdk/src/safety.ts)
+    export type SafetyIdentity = z.infer<typeof safetyIdentitySchema>;
+  SafetyPage (packages/ui-sdk/src/safety.ts)
+    export type SafetyPage = z.infer<typeof safetyPageSchema>;
+  SafetyRecord (packages/ui-sdk/src/safety.ts)
+    export type SafetyRecord = z.infer<typeof safetyRecordSchema>;
+  SafetySessionKey (packages/ui-sdk/src/safety.ts)
+    export type SafetySessionKey = z.infer<typeof safetySessionKeySchema>;
+  SafetyTarget (packages/ui-sdk/src/safety.ts)
+    export type SafetyTarget = z.infer<typeof safetyTargetSchema>;
+  SafetyUnavailable (packages/ui-sdk/src/safety.ts)
+    export type SafetyUnavailable = z.infer<typeof safetyUnavailableSchema>;
+  SafetyUpdate (packages/ui-sdk/src/safety.ts)
+    export type SafetyUpdate = z.infer<typeof safetyUpdateSchema>;
   SavedAudioTranscription (packages/ui-sdk/src/server/speech.ts)
     export interface SavedAudioTranscription {
         text: string;
@@ -10763,6 +10878,7 @@ signatures (every public export and the types it is made of)
     }
   ServerHello (packages/ui-sdk/src/protocol.ts)
     export interface ServerHello {
+        safetyCapabilities?: SafetyCapabilities;
         conversationProfile?: ConversationProfile;
         type: "server_hello";
         protocolRev: number;
@@ -10793,7 +10909,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired;
+    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -10839,6 +10955,12 @@ signatures (every public export and the types it is made of)
         source?: MessageSource;
         thinkingLevel?: ThinkingLevel;
     }
+  ServerSafetyHistory (packages/ui-sdk/src/safety.ts)
+    export type ServerSafetyHistory = z.infer<typeof serverSafetyHistorySchema>;
+  ServerSafetyUnavailable (packages/ui-sdk/src/safety.ts)
+    export type ServerSafetyUnavailable = z.infer<typeof serverSafetyUnavailableSchema>;
+  ServerSafetyUpdate (packages/ui-sdk/src/safety.ts)
+    export type ServerSafetyUpdate = z.infer<typeof serverSafetyUpdateSchema>;
   ServerScopeDecisionReceipt (packages/ui-sdk/src/protocol.ts)
     export interface ServerScopeDecisionReceipt {
         type: "scope_decision_receipt";
@@ -13099,6 +13221,35 @@ signatures (every public export and the types it is made of)
             queue: "queue";
         }>;
     }, z.core.$strict>, z.ZodObject<{
+        cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        limit: z.ZodOptional<z.ZodNumber>;
+        requestId: z.ZodString;
+        target: z.ZodUnion<readonly [z.ZodObject<{
+            sessionId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>]>;
+        type: z.ZodLiteral<"safety_read">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>, z.ZodObject<{
+        afterRevision: z.ZodString;
+        identity: z.ZodUnion<readonly [z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>]>;
+        requestId: z.ZodString;
+        snapshotId: z.ZodString;
+        type: z.ZodLiteral<"safety_subscribe">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>, z.ZodObject<{
+        type: z.ZodLiteral<"safety_unsubscribe">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>, z.ZodObject<{
         before: z.ZodOptional<z.ZodNumber>;
         cursor: z.ZodOptional<z.ZodString>;
         generation: z.ZodOptional<z.ZodNumber>;
@@ -13221,6 +13372,41 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodString;
         type: z.ZodLiteral<"retry_turn">;
     }, z.core.$loose>;
+  clientSafetyReadSchema (packages/ui-sdk/src/safety.ts)
+    const clientSafetyReadSchema: z.ZodObject<{
+        cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        limit: z.ZodOptional<z.ZodNumber>;
+        requestId: z.ZodString;
+        target: z.ZodUnion<readonly [z.ZodObject<{
+            sessionId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>]>;
+        type: z.ZodLiteral<"safety_read">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  clientSafetySubscribeSchema (packages/ui-sdk/src/safety.ts)
+    const clientSafetySubscribeSchema: z.ZodObject<{
+        afterRevision: z.ZodString;
+        identity: z.ZodUnion<readonly [z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>]>;
+        requestId: z.ZodString;
+        snapshotId: z.ZodString;
+        type: z.ZodLiteral<"safety_subscribe">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  clientSafetyUnsubscribeSchema (packages/ui-sdk/src/safety.ts)
+    const clientSafetyUnsubscribeSchema: z.ZodObject<{
+        type: z.ZodLiteral<"safety_unsubscribe">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
   clientSessionResumeSchema (packages/ui-sdk/src/schemas.ts)
     const clientSessionResumeSchema: z.ZodObject<{
         sessionId: z.ZodString;
@@ -17714,6 +17900,496 @@ signatures (every public export and the types it is made of)
     export function runBackendModuleContract(harness: BackendModuleContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
   runSpeechProviderContract (packages/ui-sdk/src/testing/speech-contract.ts)
     export function runSpeechProviderContract(harness: SpeechProviderContractHarness, { describe, test, expect }: ContractTestPrimitives): void;
+  safetyCapabilitiesSchema (packages/ui-sdk/src/safety.ts)
+    const safetyCapabilitiesSchema: z.ZodObject<{
+        detectorVersion: z.ZodLiteral<1>;
+        limits: z.ZodObject<{
+            cursorBytes: z.ZodLiteral<512>;
+            cursorLifetimeMs: z.ZodLiteral<300000>;
+            frameBytes: z.ZodLiteral<262144>;
+            pageRecords: z.ZodLiteral<100>;
+        }, z.core.$strict>;
+        originRules: z.ZodLiteral<false>;
+        read: z.ZodLiteral<true>;
+        readOnlyReason: z.ZodLiteral<"review_unavailable">;
+        recipientRules: z.ZodLiteral<false>;
+        repositoryRules: z.ZodLiteral<false>;
+        review: z.ZodLiteral<false>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyIdentitySchema (packages/ui-sdk/src/safety.ts)
+    const safetyIdentitySchema: z.ZodUnion<readonly [z.ZodObject<{
+        historyGeneration: z.ZodString;
+        historyOwnerId: z.ZodString;
+        sessionId: z.ZodString;
+    }, z.core.$strict>, z.ZodObject<{
+        bindingId: z.ZodString;
+        turnId: z.ZodString;
+    }, z.core.$strict>]>;
+  safetyPageSchema (packages/ui-sdk/src/safety.ts)
+    const safetyPageSchema: z.ZodObject<{
+        cursor: z.ZodNullable<z.ZodString>;
+        detailPruned: z.ZodBoolean;
+        highWater: z.ZodString;
+        identity: z.ZodUnion<readonly [z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>]>;
+        nextCursor: z.ZodNullable<z.ZodString>;
+        projection: z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>;
+        records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            bindingId: z.ZodString;
+            detailPruned: z.ZodBoolean;
+            detector: z.ZodNullable<z.ZodString>;
+            epochId: z.ZodString;
+            exposure: z.ZodEnum<{
+                finalized: "finalized";
+                interrupted_unknown: "interrupted_unknown";
+                open: "open";
+            }>;
+            exposureId: z.ZodNullable<z.ZodString>;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"occurrence">;
+            observedAt: z.ZodNumber;
+            occurrenceId: z.ZodString;
+            operationId: z.ZodNullable<z.ZodString>;
+            provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                kind: z.ZodLiteral<"web_origin">;
+                origin: z.ZodObject<{
+                    host: z.ZodString;
+                    port: z.ZodNumber;
+                    scheme: z.ZodEnum<{
+                        http: "http";
+                        https: "https";
+                    }>;
+                }, z.core.$strict>;
+                verifiedBy: z.ZodLiteral<"host_transport">;
+            }, z.core.$strict>, z.ZodObject<{
+                authority: z.ZodObject<{
+                    host: z.ZodString;
+                    port: z.ZodNumber;
+                }, z.core.$strict>;
+                kind: z.ZodLiteral<"tunnel_authority">;
+                verifiedBy: z.ZodLiteral<"host_proxy">;
+            }, z.core.$strict>]>;
+            sequence: z.ZodString;
+            signalId: z.ZodNullable<z.ZodString>;
+            source: z.ZodEnum<{
+                apify_result: "apify_result";
+                chat_attachment: "chat_attachment";
+                compute_output: "compute_output";
+                egress_connection: "egress_connection";
+                fetching_command: "fetching_command";
+                legacy_unknown: "legacy_unknown";
+                mcp_document: "mcp_document";
+                staged_share: "staged_share";
+                unclassified_command: "unclassified_command";
+                user_marked: "user_marked";
+                web_fetch: "web_fetch";
+                web_search: "web_search";
+                workspace_read: "workspace_read";
+            }>;
+            summary: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            detailPruned: z.ZodBoolean;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"exposure">;
+            observedAt: z.ZodNumber;
+            occurrenceId: z.ZodString;
+            sequence: z.ZodString;
+            state: z.ZodEnum<{
+                finalized: "finalized";
+                interrupted_unknown: "interrupted_unknown";
+                open: "open";
+            }>;
+            turnId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            channel: z.ZodEnum<{
+                owner_history: "owner_history";
+                owner_settings: "owner_settings";
+            }>;
+            detailPruned: z.ZodBoolean;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"safe_decision">;
+            observedAt: z.ZodNumber;
+            occurrenceId: z.ZodString;
+            principalId: z.ZodString;
+            requestId: z.ZodString;
+            sequence: z.ZodString;
+            session: z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>;
+            turnId: z.ZodString;
+            verdict: z.ZodLiteral<"safe">;
+        }, z.core.$strict>], "kind">>;
+        snapshotComplete: z.ZodBoolean;
+        snapshotId: z.ZodString;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyProjectionSchema (packages/ui-sdk/src/safety.ts)
+    const safetyProjectionSchema: z.ZodObject<{
+        coverage: z.ZodObject<{
+            detectorVersion: z.ZodLiteral<1>;
+            epochs: z.ZodArray<z.ZodObject<{
+                acknowledged: z.ZodArray<z.ZodString>;
+                backendId: z.ZodString;
+                endSequence: z.ZodNullable<z.ZodString>;
+                id: z.ZodString;
+                mandatory: z.ZodArray<z.ZodString>;
+                reason: z.ZodNullable<z.ZodString>;
+                startSequence: z.ZodString;
+                status: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>>;
+            exclusions: z.ZodArray<z.ZodString>;
+            state: z.ZodEnum<{
+                complete: "complete";
+                incomplete: "incomplete";
+                unknown: "unknown";
+            }>;
+        }, z.core.$strict>;
+        earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+        evidenceRevision: z.ZodString;
+        pendingCount: z.ZodNumber;
+        reasons: z.ZodArray<z.ZodEnum<{
+            capacity: "capacity";
+            coverage_unknown: "coverage_unknown";
+            recording_failed: "recording_failed";
+            recording_pending: "recording_pending";
+            unresolved: "unresolved";
+        }>>;
+        restriction: z.ZodEnum<{
+            normal: "normal";
+            restricted: "restricted";
+        }>;
+        session: z.ZodNullable<z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>>;
+        unresolvedCount: z.ZodNumber;
+    }, z.core.$strict>;
+  safetyRecordSchema (packages/ui-sdk/src/safety.ts)
+    const safetyRecordSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        bindingId: z.ZodString;
+        detailPruned: z.ZodBoolean;
+        detector: z.ZodNullable<z.ZodString>;
+        epochId: z.ZodString;
+        exposure: z.ZodEnum<{
+            finalized: "finalized";
+            interrupted_unknown: "interrupted_unknown";
+            open: "open";
+        }>;
+        exposureId: z.ZodNullable<z.ZodString>;
+        id: z.ZodString;
+        kind: z.ZodLiteral<"occurrence">;
+        observedAt: z.ZodNumber;
+        occurrenceId: z.ZodString;
+        operationId: z.ZodNullable<z.ZodString>;
+        provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+            kind: z.ZodLiteral<"web_origin">;
+            origin: z.ZodObject<{
+                host: z.ZodString;
+                port: z.ZodNumber;
+                scheme: z.ZodEnum<{
+                    http: "http";
+                    https: "https";
+                }>;
+            }, z.core.$strict>;
+            verifiedBy: z.ZodLiteral<"host_transport">;
+        }, z.core.$strict>, z.ZodObject<{
+            authority: z.ZodObject<{
+                host: z.ZodString;
+                port: z.ZodNumber;
+            }, z.core.$strict>;
+            kind: z.ZodLiteral<"tunnel_authority">;
+            verifiedBy: z.ZodLiteral<"host_proxy">;
+        }, z.core.$strict>]>;
+        sequence: z.ZodString;
+        signalId: z.ZodNullable<z.ZodString>;
+        source: z.ZodEnum<{
+            apify_result: "apify_result";
+            chat_attachment: "chat_attachment";
+            compute_output: "compute_output";
+            egress_connection: "egress_connection";
+            fetching_command: "fetching_command";
+            legacy_unknown: "legacy_unknown";
+            mcp_document: "mcp_document";
+            staged_share: "staged_share";
+            unclassified_command: "unclassified_command";
+            user_marked: "user_marked";
+            web_fetch: "web_fetch";
+            web_search: "web_search";
+            workspace_read: "workspace_read";
+        }>;
+        summary: z.ZodString;
+        turnId: z.ZodString;
+    }, z.core.$strict>, z.ZodObject<{
+        bindingId: z.ZodString;
+        detailPruned: z.ZodBoolean;
+        id: z.ZodString;
+        kind: z.ZodLiteral<"exposure">;
+        observedAt: z.ZodNumber;
+        occurrenceId: z.ZodString;
+        sequence: z.ZodString;
+        state: z.ZodEnum<{
+            finalized: "finalized";
+            interrupted_unknown: "interrupted_unknown";
+            open: "open";
+        }>;
+        turnId: z.ZodString;
+    }, z.core.$strict>, z.ZodObject<{
+        bindingId: z.ZodString;
+        channel: z.ZodEnum<{
+            owner_history: "owner_history";
+            owner_settings: "owner_settings";
+        }>;
+        detailPruned: z.ZodBoolean;
+        id: z.ZodString;
+        kind: z.ZodLiteral<"safe_decision">;
+        observedAt: z.ZodNumber;
+        occurrenceId: z.ZodString;
+        principalId: z.ZodString;
+        requestId: z.ZodString;
+        sequence: z.ZodString;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        turnId: z.ZodString;
+        verdict: z.ZodLiteral<"safe">;
+    }, z.core.$strict>], "kind">;
+  safetySessionKeySchema (packages/ui-sdk/src/safety.ts)
+    const safetySessionKeySchema: z.ZodObject<{
+        historyGeneration: z.ZodString;
+        historyOwnerId: z.ZodString;
+        sessionId: z.ZodString;
+    }, z.core.$strict>;
+  safetyTargetSchema (packages/ui-sdk/src/safety.ts)
+    const safetyTargetSchema: z.ZodUnion<readonly [z.ZodObject<{
+        sessionId: z.ZodString;
+    }, z.core.$strict>, z.ZodObject<{
+        bindingId: z.ZodString;
+        turnId: z.ZodString;
+    }, z.core.$strict>]>;
+  safetyUnavailableSchema (packages/ui-sdk/src/safety.ts)
+    const safetyUnavailableSchema: z.ZodObject<{
+        reason: z.ZodEnum<{
+            capacity: "capacity";
+            expired: "expired";
+            gap: "gap";
+            generation_changed: "generation_changed";
+            unauthorized: "unauthorized";
+            unavailable: "unavailable";
+        }>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyUpdateSchema (packages/ui-sdk/src/safety.ts)
+    const safetyUpdateSchema: z.ZodObject<{
+        fromRevision: z.ZodString;
+        identity: z.ZodUnion<readonly [z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>]>;
+        projection: z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>;
+        records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            bindingId: z.ZodString;
+            detailPruned: z.ZodBoolean;
+            detector: z.ZodNullable<z.ZodString>;
+            epochId: z.ZodString;
+            exposure: z.ZodEnum<{
+                finalized: "finalized";
+                interrupted_unknown: "interrupted_unknown";
+                open: "open";
+            }>;
+            exposureId: z.ZodNullable<z.ZodString>;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"occurrence">;
+            observedAt: z.ZodNumber;
+            occurrenceId: z.ZodString;
+            operationId: z.ZodNullable<z.ZodString>;
+            provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                kind: z.ZodLiteral<"web_origin">;
+                origin: z.ZodObject<{
+                    host: z.ZodString;
+                    port: z.ZodNumber;
+                    scheme: z.ZodEnum<{
+                        http: "http";
+                        https: "https";
+                    }>;
+                }, z.core.$strict>;
+                verifiedBy: z.ZodLiteral<"host_transport">;
+            }, z.core.$strict>, z.ZodObject<{
+                authority: z.ZodObject<{
+                    host: z.ZodString;
+                    port: z.ZodNumber;
+                }, z.core.$strict>;
+                kind: z.ZodLiteral<"tunnel_authority">;
+                verifiedBy: z.ZodLiteral<"host_proxy">;
+            }, z.core.$strict>]>;
+            sequence: z.ZodString;
+            signalId: z.ZodNullable<z.ZodString>;
+            source: z.ZodEnum<{
+                apify_result: "apify_result";
+                chat_attachment: "chat_attachment";
+                compute_output: "compute_output";
+                egress_connection: "egress_connection";
+                fetching_command: "fetching_command";
+                legacy_unknown: "legacy_unknown";
+                mcp_document: "mcp_document";
+                staged_share: "staged_share";
+                unclassified_command: "unclassified_command";
+                user_marked: "user_marked";
+                web_fetch: "web_fetch";
+                web_search: "web_search";
+                workspace_read: "workspace_read";
+            }>;
+            summary: z.ZodString;
+            turnId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            detailPruned: z.ZodBoolean;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"exposure">;
+            observedAt: z.ZodNumber;
+            occurrenceId: z.ZodString;
+            sequence: z.ZodString;
+            state: z.ZodEnum<{
+                finalized: "finalized";
+                interrupted_unknown: "interrupted_unknown";
+                open: "open";
+            }>;
+            turnId: z.ZodString;
+        }, z.core.$strict>, z.ZodObject<{
+            bindingId: z.ZodString;
+            channel: z.ZodEnum<{
+                owner_history: "owner_history";
+                owner_settings: "owner_settings";
+            }>;
+            detailPruned: z.ZodBoolean;
+            id: z.ZodString;
+            kind: z.ZodLiteral<"safe_decision">;
+            observedAt: z.ZodNumber;
+            occurrenceId: z.ZodString;
+            principalId: z.ZodString;
+            requestId: z.ZodString;
+            sequence: z.ZodString;
+            session: z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>;
+            turnId: z.ZodString;
+            verdict: z.ZodLiteral<"safe">;
+        }, z.core.$strict>], "kind">>;
+        toRevision: z.ZodString;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
   serverActivityDeltaSchema (packages/ui-sdk/src/schemas.ts)
     const serverActivityDeltaSchema: z.ZodObject<{
         event: z.ZodOptional<z.ZodObject<{
@@ -18651,6 +19327,22 @@ signatures (every public export and the types it is made of)
         }, z.core.$strip>>>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
+        safetyCapabilities: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            detectorVersion: z.ZodLiteral<1>;
+            limits: z.ZodObject<{
+                cursorBytes: z.ZodLiteral<512>;
+                cursorLifetimeMs: z.ZodLiteral<300000>;
+                frameBytes: z.ZodLiteral<262144>;
+                pageRecords: z.ZodLiteral<100>;
+            }, z.core.$strict>;
+            originRules: z.ZodLiteral<false>;
+            read: z.ZodLiteral<true>;
+            readOnlyReason: z.ZodLiteral<"review_unavailable">;
+            recipientRules: z.ZodLiteral<false>;
+            repositoryRules: z.ZodLiteral<false>;
+            review: z.ZodLiteral<false>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>>>;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             maxDraftBytes: z.ZodNumber;
             maxDraftFileBytes: z.ZodOptional<z.ZodNumber>;
@@ -19331,6 +20023,22 @@ signatures (every public export and the types it is made of)
         }, z.core.$strip>>>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
+        safetyCapabilities: z.ZodCatch<z.ZodOptional<z.ZodObject<{
+            detectorVersion: z.ZodLiteral<1>;
+            limits: z.ZodObject<{
+                cursorBytes: z.ZodLiteral<512>;
+                cursorLifetimeMs: z.ZodLiteral<300000>;
+                frameBytes: z.ZodLiteral<262144>;
+                pageRecords: z.ZodLiteral<100>;
+            }, z.core.$strict>;
+            originRules: z.ZodLiteral<false>;
+            read: z.ZodLiteral<true>;
+            readOnlyReason: z.ZodLiteral<"review_unavailable">;
+            recipientRules: z.ZodLiteral<false>;
+            repositoryRules: z.ZodLiteral<false>;
+            review: z.ZodLiteral<false>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>>>;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
             maxDraftBytes: z.ZodNumber;
             maxDraftFileBytes: z.ZodOptional<z.ZodNumber>;
@@ -21997,6 +22705,323 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         type: z.ZodLiteral<"session_queue">;
     }, z.core.$loose>, z.ZodObject<{
+        page: z.ZodObject<{
+            cursor: z.ZodNullable<z.ZodString>;
+            detailPruned: z.ZodBoolean;
+            highWater: z.ZodString;
+            identity: z.ZodUnion<readonly [z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>]>;
+            nextCursor: z.ZodNullable<z.ZodString>;
+            projection: z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>;
+            records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                detector: z.ZodNullable<z.ZodString>;
+                epochId: z.ZodString;
+                exposure: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                exposureId: z.ZodNullable<z.ZodString>;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"occurrence">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                operationId: z.ZodNullable<z.ZodString>;
+                provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                    kind: z.ZodLiteral<"web_origin">;
+                    origin: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                        scheme: z.ZodEnum<{
+                            http: "http";
+                            https: "https";
+                        }>;
+                    }, z.core.$strict>;
+                    verifiedBy: z.ZodLiteral<"host_transport">;
+                }, z.core.$strict>, z.ZodObject<{
+                    authority: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                    }, z.core.$strict>;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    verifiedBy: z.ZodLiteral<"host_proxy">;
+                }, z.core.$strict>]>;
+                sequence: z.ZodString;
+                signalId: z.ZodNullable<z.ZodString>;
+                source: z.ZodEnum<{
+                    apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
+                    compute_output: "compute_output";
+                    egress_connection: "egress_connection";
+                    fetching_command: "fetching_command";
+                    legacy_unknown: "legacy_unknown";
+                    mcp_document: "mcp_document";
+                    staged_share: "staged_share";
+                    unclassified_command: "unclassified_command";
+                    user_marked: "user_marked";
+                    web_fetch: "web_fetch";
+                    web_search: "web_search";
+                    workspace_read: "workspace_read";
+                }>;
+                summary: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"exposure">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                sequence: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                channel: z.ZodEnum<{
+                    owner_history: "owner_history";
+                    owner_settings: "owner_settings";
+                }>;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"safe_decision">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                principalId: z.ZodString;
+                requestId: z.ZodString;
+                sequence: z.ZodString;
+                session: z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>;
+                turnId: z.ZodString;
+                verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>], "kind">>;
+            snapshotComplete: z.ZodBoolean;
+            snapshotId: z.ZodString;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        requestId: z.ZodString;
+        type: z.ZodLiteral<"safety_history">;
+    }, z.core.$strict>, z.ZodObject<{
+        type: z.ZodLiteral<"safety_update">;
+        update: z.ZodObject<{
+            fromRevision: z.ZodString;
+            identity: z.ZodUnion<readonly [z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>]>;
+            projection: z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>;
+            records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                detector: z.ZodNullable<z.ZodString>;
+                epochId: z.ZodString;
+                exposure: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                exposureId: z.ZodNullable<z.ZodString>;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"occurrence">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                operationId: z.ZodNullable<z.ZodString>;
+                provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                    kind: z.ZodLiteral<"web_origin">;
+                    origin: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                        scheme: z.ZodEnum<{
+                            http: "http";
+                            https: "https";
+                        }>;
+                    }, z.core.$strict>;
+                    verifiedBy: z.ZodLiteral<"host_transport">;
+                }, z.core.$strict>, z.ZodObject<{
+                    authority: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                    }, z.core.$strict>;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    verifiedBy: z.ZodLiteral<"host_proxy">;
+                }, z.core.$strict>]>;
+                sequence: z.ZodString;
+                signalId: z.ZodNullable<z.ZodString>;
+                source: z.ZodEnum<{
+                    apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
+                    compute_output: "compute_output";
+                    egress_connection: "egress_connection";
+                    fetching_command: "fetching_command";
+                    legacy_unknown: "legacy_unknown";
+                    mcp_document: "mcp_document";
+                    staged_share: "staged_share";
+                    unclassified_command: "unclassified_command";
+                    user_marked: "user_marked";
+                    web_fetch: "web_fetch";
+                    web_search: "web_search";
+                    workspace_read: "workspace_read";
+                }>;
+                summary: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"exposure">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                sequence: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                channel: z.ZodEnum<{
+                    owner_history: "owner_history";
+                    owner_settings: "owner_settings";
+                }>;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"safe_decision">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                principalId: z.ZodString;
+                requestId: z.ZodString;
+                sequence: z.ZodString;
+                session: z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>;
+                turnId: z.ZodString;
+                verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>], "kind">>;
+            toRevision: z.ZodString;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+    }, z.core.$strict>, z.ZodObject<{
+        reason: z.ZodEnum<{
+            capacity: "capacity";
+            expired: "expired";
+            gap: "gap";
+            generation_changed: "generation_changed";
+            unauthorized: "unauthorized";
+            unavailable: "unavailable";
+        }>;
+        requestId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"safety_unavailable">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>, z.ZodObject<{
         before: z.ZodOptional<z.ZodNumber>;
         coverage: z.ZodEnum<{
             complete: "complete";
@@ -22392,6 +23417,329 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"retry_receipt">;
     }, z.core.$loose>;
+  serverSafetyHistorySchema (packages/ui-sdk/src/safety.ts)
+    const serverSafetyHistorySchema: z.ZodObject<{
+        page: z.ZodObject<{
+            cursor: z.ZodNullable<z.ZodString>;
+            detailPruned: z.ZodBoolean;
+            highWater: z.ZodString;
+            identity: z.ZodUnion<readonly [z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>]>;
+            nextCursor: z.ZodNullable<z.ZodString>;
+            projection: z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>;
+            records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                detector: z.ZodNullable<z.ZodString>;
+                epochId: z.ZodString;
+                exposure: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                exposureId: z.ZodNullable<z.ZodString>;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"occurrence">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                operationId: z.ZodNullable<z.ZodString>;
+                provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                    kind: z.ZodLiteral<"web_origin">;
+                    origin: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                        scheme: z.ZodEnum<{
+                            http: "http";
+                            https: "https";
+                        }>;
+                    }, z.core.$strict>;
+                    verifiedBy: z.ZodLiteral<"host_transport">;
+                }, z.core.$strict>, z.ZodObject<{
+                    authority: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                    }, z.core.$strict>;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    verifiedBy: z.ZodLiteral<"host_proxy">;
+                }, z.core.$strict>]>;
+                sequence: z.ZodString;
+                signalId: z.ZodNullable<z.ZodString>;
+                source: z.ZodEnum<{
+                    apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
+                    compute_output: "compute_output";
+                    egress_connection: "egress_connection";
+                    fetching_command: "fetching_command";
+                    legacy_unknown: "legacy_unknown";
+                    mcp_document: "mcp_document";
+                    staged_share: "staged_share";
+                    unclassified_command: "unclassified_command";
+                    user_marked: "user_marked";
+                    web_fetch: "web_fetch";
+                    web_search: "web_search";
+                    workspace_read: "workspace_read";
+                }>;
+                summary: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"exposure">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                sequence: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                channel: z.ZodEnum<{
+                    owner_history: "owner_history";
+                    owner_settings: "owner_settings";
+                }>;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"safe_decision">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                principalId: z.ZodString;
+                requestId: z.ZodString;
+                sequence: z.ZodString;
+                session: z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>;
+                turnId: z.ZodString;
+                verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>], "kind">>;
+            snapshotComplete: z.ZodBoolean;
+            snapshotId: z.ZodString;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        requestId: z.ZodString;
+        type: z.ZodLiteral<"safety_history">;
+    }, z.core.$strict>;
+  serverSafetyUnavailableSchema (packages/ui-sdk/src/safety.ts)
+    const serverSafetyUnavailableSchema: z.ZodObject<{
+        reason: z.ZodEnum<{
+            capacity: "capacity";
+            expired: "expired";
+            gap: "gap";
+            generation_changed: "generation_changed";
+            unauthorized: "unauthorized";
+            unavailable: "unavailable";
+        }>;
+        requestId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"safety_unavailable">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  serverSafetyUpdateSchema (packages/ui-sdk/src/safety.ts)
+    const serverSafetyUpdateSchema: z.ZodObject<{
+        type: z.ZodLiteral<"safety_update">;
+        update: z.ZodObject<{
+            fromRevision: z.ZodString;
+            identity: z.ZodUnion<readonly [z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>]>;
+            projection: z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>;
+            records: z.ZodArray<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                detector: z.ZodNullable<z.ZodString>;
+                epochId: z.ZodString;
+                exposure: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                exposureId: z.ZodNullable<z.ZodString>;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"occurrence">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                operationId: z.ZodNullable<z.ZodString>;
+                provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                    kind: z.ZodLiteral<"web_origin">;
+                    origin: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                        scheme: z.ZodEnum<{
+                            http: "http";
+                            https: "https";
+                        }>;
+                    }, z.core.$strict>;
+                    verifiedBy: z.ZodLiteral<"host_transport">;
+                }, z.core.$strict>, z.ZodObject<{
+                    authority: z.ZodObject<{
+                        host: z.ZodString;
+                        port: z.ZodNumber;
+                    }, z.core.$strict>;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    verifiedBy: z.ZodLiteral<"host_proxy">;
+                }, z.core.$strict>]>;
+                sequence: z.ZodString;
+                signalId: z.ZodNullable<z.ZodString>;
+                source: z.ZodEnum<{
+                    apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
+                    compute_output: "compute_output";
+                    egress_connection: "egress_connection";
+                    fetching_command: "fetching_command";
+                    legacy_unknown: "legacy_unknown";
+                    mcp_document: "mcp_document";
+                    staged_share: "staged_share";
+                    unclassified_command: "unclassified_command";
+                    user_marked: "user_marked";
+                    web_fetch: "web_fetch";
+                    web_search: "web_search";
+                    workspace_read: "workspace_read";
+                }>;
+                summary: z.ZodString;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"exposure">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                sequence: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                    open: "open";
+                }>;
+                turnId: z.ZodString;
+            }, z.core.$strict>, z.ZodObject<{
+                bindingId: z.ZodString;
+                channel: z.ZodEnum<{
+                    owner_history: "owner_history";
+                    owner_settings: "owner_settings";
+                }>;
+                detailPruned: z.ZodBoolean;
+                id: z.ZodString;
+                kind: z.ZodLiteral<"safe_decision">;
+                observedAt: z.ZodNumber;
+                occurrenceId: z.ZodString;
+                principalId: z.ZodString;
+                requestId: z.ZodString;
+                sequence: z.ZodString;
+                session: z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>;
+                turnId: z.ZodString;
+                verdict: z.ZodLiteral<"safe">;
+            }, z.core.$strict>], "kind">>;
+            toRevision: z.ZodString;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
   serverSessionHistorySchema (packages/ui-sdk/src/schemas.ts)
     const serverSessionHistorySchema: z.ZodObject<{
         append: z.ZodOptional<z.ZodBoolean>;

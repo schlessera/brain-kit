@@ -72,6 +72,8 @@ export {
 export interface WsHostOptions {
   /** @internal Live trust publication input; no matching or publication authority. */
   safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
+  /** @internal Concrete read-only host evidence reader. */
+  safetyHistory?: import("../governance/safety-history.js").SafetyHistory;
   /** @internal Concrete user history service mounted by this host, not agent authority. */
   turnReverts?: import("../brain/turn-revert.js").TurnReverts;
   /** @internal The brain/git lock the host shares, when the app built a service that needs it first. */
@@ -355,10 +357,13 @@ export class WsHost {
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
   /** Only outstanding reads are retained; no transcript or per-session cache. */
   readonly dialogue: DialogueJournal;
+  /** @internal Concrete read-only host evidence reader. */
+  readonly safetyHistory?: import("../governance/safety-history.js").SafetyHistory;
   private readonly historyReads = new Set<{ sessionId: string; changed: boolean; resultTurnId?: string }>();
 
   constructor(options: WsHostOptions) {
     this.safetyTrust = options.safetyTrust;
+    this.safetyHistory = options.safetyHistory;
     this.turnReverts = options.turnReverts;
     this.workerLock = options.workerLock ?? createKeyedLock();
     this.journal = options.journal;
@@ -468,7 +473,7 @@ export class WsHost {
       description: "WebSocket connections refused before admission",
     });
     this.authorizationExpiryTimer = setInterval(
-      () => this.expireAuthorizationContexts(),
+      () => { this.expireAuthorizationContexts(); this.safetyHistory?.poll(); },
       AUTHORIZATION_EXPIRY_SWEEP_MS
     );
     this.authorizationExpiryTimer.unref?.();
@@ -679,6 +684,7 @@ export class WsHost {
    * @internal Host wiring.
    */
   chatRetired(principalId: string, retirement: { identities: RetiredChatIdentities; generation: number }): void {
+    this.safetyHistory?.retire(retirement.identities.sessions,retirement.identities.dialogueOwners);
     this.conversations?.retire(retirement.identities);
     const sessionId = retirement.identities.sessions[0];
     this.clients.broadcast({ type: "chat_retired", ...(sessionId ? { sessionId } : {}), historyOwnerIds: [...retirement.identities.dialogueOwners],
@@ -803,6 +809,7 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   revokePrincipals(principalIds: readonly string[], code: number, reason: string): void | Promise<void> {
+    this.safetyHistory?.revoke(principalIds);
     const revoked = new Set(principalIds);
     if (revoked.size === 0) return;
     const affectedRunning = this.coordinator.revokePrincipals(revoked);
@@ -851,6 +858,7 @@ export class WsHost {
     this.beginClosing();
     this.coordinator.cancelAll("Server shutting down");
     clearInterval(this.authorizationExpiryTimer);
+    this.safetyHistory?.close();
     this.scope?.close();
     this.inbox?.close();
     this.conversations?.closeAll();

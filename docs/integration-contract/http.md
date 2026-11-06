@@ -1021,3 +1021,14 @@ The payload contains no client/static entry specifier and authorizes no imports.
 The build registers trusted client packs. Missing packs retain source with a
 “Renderer not bundled.” note. Explicit development mode warns once per root and
 known differing version pair; unknown versions do not imply a mismatch.
+
+## Session safety history read (additive, #3604)
+
+`GET /api/sessions/:id/safety` adds the bounded authenticated `SafetyPage`
+read defined by [the HTTP specification](../http-api.md#session-safety-sidecars)
+and [wire sidecars](wire.md#session-safety-history-additive-3604). Queries never
+execute a review or policy change. Principal, generation, retirement and cursor
+expiry are rechecked at delivery after settlement. `snapshotComplete` and
+detector completeness are separate; neither omitted details nor a review receipt
+replace the aggregate. Route absence and refused reads are explicitly
+unavailable. Existing history visibility and mutation authority remain intact.

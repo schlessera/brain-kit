@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 172 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark and chat-deletion routes mounted by `createApp`: 173 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -156,6 +156,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
+| GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Exact authenticated history owner; immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
 | GET | `/api/schedules` | S | List stored scheduled tasks, cancelled ones included | CLI and independent schedule clients; preserve keys, receipts, operator approval and the no-execution boundary. |
@@ -205,7 +206,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 172 declared endpoints are mounted regardless of backend, renderer or
+All 173 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1810,3 +1811,40 @@ unknown is terminal for automatic retry. Three attempts per episode/subscription
 are the maximum, with one/five-minute delays only after known non-delivery.
 Restored episodes never regain notification authority. See
 [Storage history](storage-history.md) for sampling, recovery and physical costs.
+
+### Session safety sidecars
+
+`GET /api/sessions/:id/safety?limit=50&cursor=...` is an authenticated,
+read-only view of host evidence. `limit` is an integer 1–100; cursor is absent
+on the first page and opaque on subsequent pages. The query is at most 8192
+bytes. A successful `SafetyPage` has `version: 1`, canonical `identity`,
+`snapshotId`, input `cursor` (null initially), decimal-string `highWater`,
+`projection`, up to 100 immutable records, `nextCursor`, `snapshotComplete`
+and `detailPruned`. Responses are `Cache-Control: no-store` and at most 262144
+UTF-8 bytes. No request invokes a verdict, policy writer, backend turn or
+provider transcript write.
+
+The exact live principal must own the retained history. There is no equivalence
+between separate owner logins, delegated credentials or ambient identities.
+The existing native-history and dialogue APIs keep their visibility rules.
+Unknown/unowned legacy safety collections return explicit unavailable; known
+legacy collection gaps never imply normal. Revoked/expired callers receive
+401, malformed queries 400, expired/generation-changed or membership-gap cursors 409, capacity
+503, and absent/retired/unavailable evidence 404. Safety refusals carry
+`{version:1,reason}` without records; pre-handler auth keeps its existing error
+envelope. An older host's absent route means unavailable, never normal.
+
+Each cursor is an unguessable server-side position bound to this host process,
+principal, exact target, canonical generation, snapshot, high-water and last
+sequence. Its lifetime is five minutes; restart invalidates it. Every page
+retains the first page's aggregate and high-water despite later verdicts or
+input. Adoption that changes pre-watermark collection membership invalidates
+the snapshot with `gap`, including at final delivery after an awaited read;
+the client obtains a fresh snapshot. Newly pending input or a local recording
+loss also fences final delivery of an older unqualified view, even when the
+durable failure notice rolls back without advancing the evidence revision.
+Fresh reads expose the restrictive local overlay. Detail pruning invalidates earlier cursors; a fresh snapshot returns
+explicit bounded stubs retaining occurrence IDs. The final page means that
+snapshot has been assembled, separately from detector completeness. Read
+[revisioned delivery](integration-contract/wire.md#session-safety-history-additive-3604)
+for reconnect, subscription and client rules.

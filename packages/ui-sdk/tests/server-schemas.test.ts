@@ -16,12 +16,20 @@ import {
   serverMessageSchema,
 } from "../src/schemas.js";
 import { CONVERSATION_LIMITS, type ServerMessage } from "../src/protocol.js";
+import type { SafetyHistoryProjection } from "../src/safety.js";
 
 import { actionItem, thread } from "./inbox-fixtures.js";
 
 function parse(frame: unknown) {
   return parseServerMessage(JSON.stringify(frame));
 }
+
+const safetyIdentity = { sessionId: "s1", historyOwnerId: "ithaca", historyGeneration: "1" };
+const safetyProjection: SafetyHistoryProjection = {
+  session: safetyIdentity, evidenceRevision: "0", unresolvedCount: 0, earliestUnresolvedId: null,
+  pendingCount: 0, restriction: "restricted", reasons: ["coverage_unknown"],
+  coverage: { detectorVersion: 1, state: "unknown", epochs: [], exclusions: [] },
+};
 
 /** One valid example of every member of the union. */
 const SAMPLES: ServerMessage[] = [
@@ -128,6 +136,15 @@ const SAMPLES: ServerMessage[] = [
   { type: "handoff_receipt", handoffId: "h-ithaca-01", state: "created", sessionId: "s2" },
   { type: "tool_resolution", toolUseId: "t1", outcome: "expired", sessionId: "s1", turnId: "turn-1", reason: "Turn timed out" },
   { type: "chat_retired", sessionId: "s1", historyOwnerIds: ["ithaca"], generation: 2 },
+  { type: "safety_history", requestId: "history-ithaca", page: {
+    version: 1, identity: safetyIdentity, snapshotId: "snapshot-ithaca", cursor: null, highWater: "0",
+    projection: safetyProjection, records: [], nextCursor: null, snapshotComplete: true, detailPruned: false,
+  } },
+  { type: "safety_update", update: {
+    version: 1, identity: safetyIdentity, fromRevision: "0", toRevision: "1",
+    projection: { ...safetyProjection, evidenceRevision: "1" }, records: [],
+  } },
+  { type: "safety_unavailable", requestId: "history-ithaca", version: 1, reason: "gap" },
   {
     type: "session_queue",
     sessionId: "s1",

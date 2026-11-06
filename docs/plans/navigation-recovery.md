@@ -383,21 +383,21 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Single background drawer row: [`const backgroundSessionId =`](https://github.com/schlessera/brain-kit/blob/ea8506b0eb511a3e16dba685d250d34e5340afa4/packages/ui-react/src/components/chat/session-drawer.tsx#L59-L60), before #950 replaced it with the Working group.
 
-- Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:130-195`).
+- Host reconnect: (`const runningTurns = [...coordinator.running].filter((t) => t.sessionId);`, `packages/ui-server/src/ws/connection.ts:137-202`).
 
 - Host resume: (`case "session_resume": {`, `packages/ui-server/src/ws/dispatch.ts:649-720`).
 
 - Catalog activity: (`persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId, creatorTurnId) {`, `packages/ui-server/src/ws/session-catalog.ts:494-501`).
 
-- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1676-1692`).
+- Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1684-1700`).
 
 - Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:163-164`).
 
-- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:3249-3272`).
+- Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:3257-3280`).
 
 - Activity resolution: (`.get("/activity/runs", (c) => {`, `packages/ui-server/src/routes/activity.ts:145-283`).
 
-- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:1015`).
+- API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:1019`).
 
 - Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:1106-1151`).
 
