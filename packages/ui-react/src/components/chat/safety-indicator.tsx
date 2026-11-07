@@ -89,8 +89,8 @@ function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
     <IconButton ref={trigger} name={`${name}; ${reason}`} icon={unresolved?unknown?"unverified":"policy":"secure"} expanded={open} controls={id} haspopup="dialog"
       style={{minWidth:44,minHeight:44}} onClick={()=>setOpen(v=>!v)}/>
     {entries.length>1&&<span className="pointer-events-none absolute right-0 top-0 font-mono text-[10px]" aria-hidden="true">{unresolved||entries.length}</span>}
-    {!open&&<span role="tooltip" className="pointer-events-none absolute bottom-full left-0 z-30 w-max max-w-56 rounded border border-border bg-surface p-2 text-xs text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">{reason}</span>}
-    {open&&createPortal(<div ref={panel} id={id} role="dialog" aria-label="Safety trigger details" data-safety-details className="fixed z-50 min-w-0 overflow-auto rounded-lg border border-border bg-surface p-3 text-sm text-foreground shadow-lg"
+    {!open&&<span role="tooltip" className="pointer-events-none absolute bottom-full left-0 z-popover w-max max-w-56 rounded border border-border bg-surface p-2 text-xs text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">{reason}</span>}
+    {open&&createPortal(<div ref={panel} id={id} role="dialog" aria-label="Safety trigger details" data-safety-details className="fixed z-popover min-w-0 overflow-auto rounded-lg border border-border bg-surface p-3 text-sm text-foreground shadow-lg"
       style={{...position,width:"min(384px, calc(100vw - 24px))",maxHeight:"min(65vh, 520px)",overflowWrap:"anywhere"}}>
       <div className="flex items-center justify-between gap-2"><strong>{name}</strong><IconButton icon="dismiss" name="Close safety details" style={{minWidth:44,minHeight:44}} onClick={close}/></div>
       <p className="mb-3 text-xs">A human verdict accepts this retained input. It does not verify malware safety or remove content from the model context.</p>

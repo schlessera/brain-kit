@@ -50,8 +50,11 @@ for(const width of [320,1280])for(const theme of ['light','dark'])test(`${width}
  const indicator=buttonForTool();expect(indicator,'COLLAPSED_RUN_RETAINS_BOTH_TRIGGERS').toBeTruthy();
  const box=indicator.getBoundingClientRect();expect(box.width).toBeGreaterThanOrEqual(44);expect(box.height).toBeGreaterThanOrEqual(44);
  indicator.focus();await expect.poll(()=>getComputedStyle(indicator.parentElement!.querySelector('[role=tooltip]')!).opacity).toBe('1');
+ const tooltipLayer=getComputedStyle(indicator.parentElement!.querySelector('[role=tooltip]')!).zIndex;
  await commands.rankTap({x:box.x+box.width/2,y:box.y+box.height/2});
  const panel=page.getByRole('dialog',{name:'Safety trigger details'});await expect.element(panel).toBeVisible();
+ const popoverLayer=getComputedStyle(document.documentElement).getPropertyValue('--bk-z-popover').trim();expect(popoverLayer).not.toBe('');
+ expect({tooltip:tooltipLayer,details:getComputedStyle(document.querySelector('[data-safety-details]')!).zIndex},'SAFETY_SURFACES_USE_NAMED_POPOVER_LAYER').toEqual({tooltip:popoverLayer,details:popoverLayer});
  expect(indicator.getAttribute('aria-expanded')).toBe('true');expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Source provenance unavailable');
  await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
  expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Only this trigger');
