@@ -6,7 +6,7 @@ export const handleSafetyRead:ClientMessageHandler<"safety_read">=async({host,ws
   if(!connection.capabilities?.sessionSafetyHistory||!live())return;
   try{
     if(!host.safetyHistory)throw new SafetyReadUnavailable();
-    const page=await host.safetyHistory.read(connection.principal,msg.target,msg.cursor??null,msg.limit);
+    const page=await host.safetyHistory.read(connection.principal,msg.target,msg.cursor??null,msg.limit,msg.includeEntries===true);
     host.safetyHistory.delivery(connection.principal,page.identity,page.snapshotId);
     if(live())host.sendMessage(ws,{type:"safety_history",requestId:msg.requestId,page});
   }catch(error){if(live())host.sendMessage(ws,{type:"safety_unavailable",requestId:msg.requestId,version:1,reason:error instanceof SafetyReadUnavailable?error.reason:"unavailable"});}

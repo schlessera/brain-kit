@@ -4972,3 +4972,34 @@ model tool or publication seam. Historical receipt projections and fresh
 its read-only reason additionally accepts `owner_required` or null; optional
 literal review lifetime/body bounds describe a supporting host. Absent or
 unsupported capability remains unavailable and grants no mutation authority.
+
+## Chat safety review controls (additive, #3605)
+
+`createBrainApi` adds `safetyPrepare(body, signal)` and
+`safetyCommit(requestId, body, signal)` for the existing two-phase owner HTTP
+review. Both parse the bounded SDK response, including refusal receipts.
+There is no retry queue or persisted mutation authority. A lost commit response
+remains unknown until a new read; reconnect and reload never send a verdict.
+
+The React transcript renders host-owned sidecars independently of chat message
+objects. An explicit turn/tool correlation places a 44px safety indicator on
+that entry and on its collapsed run. Uncorrelated input has a named turn event.
+Persistent details expose source, observation time, provenance, finalization and
+individual human verdicts. The narrow review is **Only this trigger**; a safe
+shield means **Marked safe by you**, never objective verification or removal of
+provider context. Standing-rule choices remain absent. Receipt projections
+never replace newer live evidence; only complete, zero-unresolved, healthy
+coverage can display **Normal policy restored**. Auth loss, selection changes
+and retirement discard pending authority. Any retained detail during a same-chat
+refresh is read-only until the new snapshot completes.
+
+
+Transport loss retains already read evidence as **last read**, with review
+capability, pending request authority and normal-policy claims removed. The
+notice and entry indicators keep their geometry while the same owner obtains
+a fresh snapshot. This display cache is partitioned by the host's opaque
+principal key, active session and auth epoch; a missing principal key creates
+a new partition at every hello. It grants no authority. New principals, auth
+loss, explicit unavailable/retired reads and deletion purge retained details.
+Late updates from a disconnected socket cannot loosen the retained facts, and
+recovery never resumes a prepared decision.

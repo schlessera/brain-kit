@@ -67,7 +67,21 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     // Pin keyboard modality and focus; earlier test input must not change a baseline's ring.
     if (name === "interruption") { s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!.focus(); await userEvent.keyboard("{ArrowRight}"); }
     await s.capture(name);
-    if (name === "interruption" && width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`interruption-${theme}-${scale}`);
+    if (name === "interruption" && width === 320) {
+      // The element crop rounds its fractional top edge outward. Keep a pixel
+      // of unrelated transcript paint out of this controls-only baseline; the
+      // full mounted-page capture above retains the actual surrounding content.
+      const transcript = s.host.querySelector<HTMLElement>('[data-reading-column]');
+      const visibility = transcript?.style.getPropertyValue("visibility") ?? "";
+      const priority = transcript?.style.getPropertyPriority("visibility") ?? "";
+      try {
+        transcript?.style.setProperty("visibility", "hidden");
+        await expect(page.elementLocator(s.strip())).toMatchScreenshot(`interruption-${theme}-${scale}`);
+      } finally {
+        if (visibility) transcript?.style.setProperty("visibility", visibility, priority);
+        else transcript?.style.removeProperty("visibility");
+      }
+    }
     const status = s.strip().children[1] as HTMLElement;
     expect(status.scrollHeight, `${name}: status must not paint over the next row`).toBeLessThanOrEqual(status.clientHeight + 1);
     expect(s.strip().scrollWidth, `${name}: no horizontal overflow`).toBeLessThanOrEqual(s.strip().clientWidth);

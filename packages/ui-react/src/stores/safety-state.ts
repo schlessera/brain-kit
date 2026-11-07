@@ -1,18 +1,23 @@
 /** Host evidence is kept beside chat state, never in its message objects. */
 import { createStore } from "zustand/vanilla";
-import type { SafetyIdentity, SafetyPage, SafetyUpdate, SafetyRecord, SafetyHistoryProjection } from "@schlessera/brain-ui-sdk/protocol";
+import type { SafetyCapabilities, SafetyIdentity, SafetyPage, SafetyUpdate, SafetyRecord, SafetyHistoryProjection } from "@schlessera/brain-ui-sdk/protocol";
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 export interface SafetyState {
   supported:boolean; status:"unavailable"|"loading"|"partial"|"ready"; reason:string|null;
   identity:SafetyIdentity|null; projection:SafetyHistoryProjection|null; records:Record<string,SafetyRecord>; revision:string;
   snapshotId:string|null; requestId:string|null; normal:boolean; nextCursor:string|null;
-  reset(supported?:boolean):void; begin(requestId:string):void; page(requestId:string,page:SafetyPage):boolean;
+  capabilities:SafetyCapabilities|null; historyScopeKey:string|null; entryCorrelation:boolean; refreshTick:number; refresh():void; disconnected():void;
+  reset(supported?:boolean,capabilities?:SafetyCapabilities|null,entryCorrelation?:boolean,historyScopeKey?:string|null):void; begin(requestId:string):void; page(requestId:string,page:SafetyPage):boolean;
   update(update:SafetyUpdate):boolean; unavailable(reason:string):void; retire(sessionId?:string,ownerIds?:string[]):void;
 }
 const empty={status:"unavailable" as const,reason:"unavailable",identity:null,projection:null,records:{},revision:"0",snapshotId:null,requestId:null,normal:false,nextCursor:null};
 export function createSafetyStore(){
-  return createStore<SafetyState>()((set,get)=>({supported:false,...empty,
-    reset(supported=false){set({...empty,supported});},
+  return createStore<SafetyState>()((set,get)=>({supported:false,...empty,capabilities:null,historyScopeKey:null,entryCorrelation:false,refreshTick:0,
+    refresh(){set({refreshTick:get().refreshTick+1});},
+    reset(supported=false,capabilities=null,entryCorrelation=false,historyScopeKey=null){set({...empty,supported,capabilities,entryCorrelation,historyScopeKey});},
+    // Retain historical facts while transport is down, without authority or a
+    // claim of current normal policy. Auth loss/disposal still use reset.
+    disconnected(){set({status:"unavailable",reason:"disconnected",normal:false,capabilities:null,requestId:null,snapshotId:null,nextCursor:null});},
     begin(requestId){set({...empty,supported:get().supported,status:"loading",reason:null,requestId});},
     page(requestId,page){
       const s=get();if(!s.supported||s.requestId!==requestId)return false;
@@ -49,7 +54,7 @@ export function createSafetyStore(){
       if(Object.keys(records).length>100000){set({normal:false,status:"partial",reason:"capacity"});return false;}
       set({records,projection:update.projection,revision:update.toRevision,normal:update.projection.restriction==="normal"});return true;
     },
-    unavailable(reason){set({...empty,supported:get().supported,reason});},
+    unavailable(reason){set({...empty,supported:get().supported,reason,...(reason==="unauthorized"?{capabilities:null}:{})});},
     retire(sessionId,ownerIds){const i=get().identity;if(i&&"sessionId" in i&&(i.sessionId===sessionId||ownerIds?.includes(i.historyOwnerId)))set({...empty,supported:get().supported,reason:"retired"});},
   }));
 }

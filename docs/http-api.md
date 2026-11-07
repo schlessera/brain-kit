@@ -1911,6 +1911,14 @@ and `detailPruned`. Responses are `Cache-Control: no-store` and at most 262144
 UTF-8 bytes. No request invokes a verdict, policy writer, backend turn or
 provider transcript write.
 
+Optional `entries=1` includes the host-owned `entry:{kind:"tool",toolUseId}`
+only where recorded. The same choice is required on every cursor page; its
+subscription inherits it. No other `entries` value is accepted. The default
+response retains the original strict version-1 record shape. Correlation
+requires both the exact host turn and tool identity; opaque network input and
+unknown legacy attribution remain separate named turn events. Minimal entry
+identity survives detail pruning; retirement removes it with the evidence.
+
 The exact live principal must own the retained history. There is no equivalence
 between separate owner logins, delegated credentials or ambient identities.
 The existing native-history and dialogue APIs keep their visibility rules.

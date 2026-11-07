@@ -66,7 +66,7 @@ for (const width of [320, 1280]) {
     socket.deliver({ type: "status", sessionId: SESSION, turnId: TURN, status: "idle" });
     await frame();
     const column = host.querySelector<HTMLElement>("[data-reading-column]")!;
-    const bubbles = [...column.children];
+    const bubbles = [...column.querySelectorAll(":scope > [data-arrival-key]")];
     const answer = bubbles.at(-1)!;
     // A link into turn temp is not a file in the brain: the reader cannot open it.
     await expect.poll(() => answer.textContent).toContain("voyage report");
@@ -94,7 +94,7 @@ for (const width of [320, 1280]) {
     // The same words, the same bubbles, nothing added: no marker, no remount.
     for (const words of ["voyage report", "is ready; Penelope has", "her copy"]) expect(answer.textContent).toContain(words);
     expect(answer.isConnected && removed === 0, "no message was removed even briefly").toBe(true);
-    expect([...column.children]).toEqual(bubbles);
+    expect([...column.querySelectorAll(":scope > [data-arrival-key]")]).toEqual(bubbles);
     expect(host.textContent).not.toMatch(/expired|promot|copied|moved/i);
     // No reload: nothing was asked of the host.
     expect(net.frames.slice(sentBefore).map((f) => JSON.parse(String(f.data)).type)).toEqual([]);
