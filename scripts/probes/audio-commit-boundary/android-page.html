@@ -1,0 +1,38 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Odysseus audio boundary probe</title>
+<h1>Odysseus audio boundary probe</h1>
+<p>Fictional fixture: 2026-07-12. Use a deterministic emulator source only. No speech or provider service.</p>
+<p>This page uses the existing IndexedDB / MediaRecorder probe. Start requires microphone permission.</p>
+<label>Recording id <input id="recording" value="odysseus-2026-07-12"></label>
+<button id="capabilities">Capabilities</button>
+<button id="start">Start capture</button>
+<button id="track">Simulate track end</button>
+<button id="read">Read committed audio</button>
+<button id="report">Export snapshot</button>
+<pre id="output" aria-live="polite">Ready</pre>
+<script type="module">
+import './page.js';
+const output = document.querySelector('#output');
+async function report(kind, value) {
+  output.textContent = JSON.stringify({kind, value}, null, 2);
+  const response = await fetch('/receipt', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({kind, value})});
+  if (!response.ok) throw Error('Receipt failed');
+}
+function action(id, fn) {
+  document.getElementById(id).onclick = async () => {
+    try { await report(id, await fn()); }
+    catch (error) { output.textContent = `${error.name}: ${error.message}`; }
+  };
+}
+action('capabilities', () => probe.capabilities());
+action('start', () => probe.start({id:document.querySelector('#recording').value, timesliceMs:1000}));
+action('track', () => probe.interruptTrack());
+action('read', () => probe.read(document.querySelector('#recording').value));
+action('report', () => probe.snapshot());
+// Receipt arrival is telemetry, not evidence of a frozen page. Compare event
+// timestamps and delivered/committed counts across a verified lock interval.
+setInterval(() => {
+  if (probe.snapshot().startWall) report('heartbeat', probe.snapshot()).catch(() => {});
+}, 1000);
+</script>

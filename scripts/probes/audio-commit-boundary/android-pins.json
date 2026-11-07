@@ -1,0 +1,29 @@
+{
+  "checkedOn": "2026-11-04",
+  "agentDevice": "0.21.31",
+  "deviceHub": "0.19.0-canary-20261023-1357114",
+  "node": "24.21.0",
+  "commandLineTools": "19.0",
+  "emulator": "37.2.13",
+  "systemImage": "system-images;android-35;google_apis;x86_64",
+  "systemImageRevision": "9",
+  "archives": [
+    {
+      "url": "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip",
+      "sha1": "5fdcc763663eefb86a5b8879697aa6088b041e70"
+    },
+    {
+      "url": "https://dl.google.com/android/repository/emulator-linux_x64-16740729.zip",
+      "sha1": "f41f9e31eb5ca64926603c03265c50bbc0ff4172"
+    },
+    {
+      "url": "https://dl.google.com/android/repository/sys-img/google_apis/x86_64-35_r09.zip",
+      "sha1": "0103e6dab21290c4b9d16550a3ce99476f884eef"
+    },
+    {
+      "url": "https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip",
+      "sha1": "477254aa5f903c15cf51001717bdf347fb6b53e0"
+    }
+  ],
+  "platformTools": "37.0.1"
+}
