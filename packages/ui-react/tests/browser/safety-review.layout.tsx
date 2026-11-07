@@ -34,9 +34,9 @@ async function view(){
  current.stores.connection.getState().setWsStatus('connected');
  socket=new WebSocket(f.url.replace('http:','ws:')+'/ws');const ws=socket;
  current.connection.send=(m:ClientMessage)=>{sent.push(m);if(ws.readyState!==WebSocket.OPEN)return false;ws.send(JSON.stringify(m));return true;};
- safetyClient=createSafetyClient(current,m=>{sent.push(m);if(ws.readyState!==WebSocket.OPEN)return false;ws.send(JSON.stringify(m));return true;});
+ const client=safetyClient=createSafetyClient(current,m=>{sent.push(m);if(socket?.readyState!==WebSocket.OPEN)return false;socket.send(JSON.stringify(m));return true;});
  ws.onopen=()=>ws.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));
- ws.onmessage=e=>{frames.push(JSON.parse(String(e.data)));const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);safetyClient!.frame(parsed.message);};
+ ws.onmessage=e=>{frames.push(JSON.parse(String(e.data)));const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);client.frame(parsed.message);};
  host=document.createElement('div');host.style.maxWidth='100%';document.body.append(host);renderer=createRoot(host);
  flushSync(()=>renderer!.render(<BrainUiProvider root={current}><button type="button">Outside safety details</button><SessionSafety/><MessageBubble message={message} journalVisible={false} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
  try{await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');}catch(error){throw new Error(`${String(error)} Frames:${JSON.stringify(frames)} Sent:${JSON.stringify(sent)} Safety:${JSON.stringify(current.stores.safety.getState())} Session:${current.stores.chat.getState().activeSessionId}`);}
@@ -106,4 +106,24 @@ test('read-only clients keep evidence without grant controls and retirement purg
  await patch({action:'retire'});await expect.poll(()=>ui!.stores.safety.getState().reason,{timeout:5000}).toBe('retired');
  expect(document.querySelector('[data-safety-details]'),'RETIRED_HISTORY_PURGES_OPEN_DETAILS').toBeNull();
  expect(host!.querySelectorAll('[data-safety-indicator]').length).toBe(0);expect(Object.keys(ui!.stores.safety.getState().records)).toEqual([]);
+});
+
+test('same-owner disconnect and replay keep read-only evidence geometry without resuming a decision',async()=>{
+ await scene(320,'dark');const indicator=buttonForTool(),notice=host!.querySelector<HTMLElement>('[data-session-safety]')!;
+ await userEvent.click(indicator);await userEvent.click(page.getByRole('button',{name:'Mark as safe',exact:true}).first());
+ const before=notice.getBoundingClientRect(),buttons=host!.querySelectorAll('[data-safety-indicator]').length;
+ const client=safetyClient!,current=ui!;socket!.close();flushSync(()=>client.disconnected());
+ expect(host!.querySelectorAll('[data-safety-indicator]').length,'DISCONNECT_RETAINS_READ_ONLY_INDICATORS').toBe(buttons);
+ expect(notice.getBoundingClientRect().height,'DISCONNECT_RETAINS_NOTICE_HEIGHT').toBe(before.height);
+ expect(current.stores.safety.getState().normal,'DISCONNECTED_EVIDENCE_CANNOT_RESTORE_NORMAL').toBe(false);
+ expect(document.querySelector('[data-safety-details]')!.textContent).toContain('Current evidence is unavailable');
+ expect(document.querySelector('[data-safety-details]')!.textContent).not.toContain('Mark this trigger as safe');
+ socket=new WebSocket(fixture!.url.replace('http:','ws:')+'/ws');const next=socket;
+ next.onopen=()=>next.send(JSON.stringify({type:'client_hello',protocolRev:5,capabilities:{sessionSafetyHistory:true,chatDeletion:true}}));
+ next.onmessage=e=>{const parsed=parseServerMessage(String(e.data));if(!parsed.ok)throw new Error(parsed.error);client.frame(parsed.message);};
+ await expect.poll(()=>current.stores.safety.getState().status,{timeout:5000}).toBe('ready');
+ expect(notice.getBoundingClientRect().height,'REPLAY_RETAINS_NOTICE_HEIGHT').toBe(before.height);
+ expect(indicator.isConnected,'REPLAY_RETAINS_ORIGINAL_INDICATOR_NODE').toBe(true);
+ expect(document.querySelector('[data-safety-details]')!.textContent,'RECONNECT_DISCARDS_UNSUBMITTED_SCOPE_CHOICE').not.toContain('Mark this trigger as safe');
+ expect((await patch()).commits,'RECONNECT_DOES_NOT_SEND_A_DECISION').toBe(0);
 });

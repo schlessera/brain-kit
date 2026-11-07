@@ -4992,3 +4992,14 @@ never replace newer live evidence; only complete, zero-unresolved, healthy
 coverage can display **Normal policy restored**. Auth loss, selection changes
 and retirement discard pending authority. Any retained detail during a same-chat
 refresh is read-only until the new snapshot completes.
+
+
+Transport loss retains already read evidence as **last read**, with review
+capability, pending request authority and normal-policy claims removed. The
+notice and entry indicators keep their geometry while the same owner obtains
+a fresh snapshot. This display cache is partitioned by the host's opaque
+principal key, active session and auth epoch; a missing principal key creates
+a new partition at every hello. It grants no authority. New principals, auth
+loss, explicit unavailable/retired reads and deletion purge retained details.
+Late updates from a disconnected socket cannot loosen the retained facts, and
+recovery never resumes a prepared decision.

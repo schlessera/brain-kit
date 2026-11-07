@@ -22,7 +22,7 @@ export function ToolSafetyIndicator({turnId,toolIds}:{turnId?:string;toolIds:rea
 export function SessionSafety() {
   const root=useBrainUiRoot(),state=useStore(root.stores.safety),messages=useChatStore(s=>activeChat(s).messages);
   const sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
-  const retained=useRef<{scope:string;groups:Array<[string,SafetyEvidence[]]>}>({scope:"",groups:[]});
+  const retained=useRef<{scope:string;groups:Array<[string,SafetyEvidence[]]>;projection:typeof state.projection}>({scope:"",groups:[],projection:null});
   const [shown,setShown]=useState(25);
   const groups=useMemo(()=>{
     const visible=new Set<string>();
@@ -35,20 +35,21 @@ export function SessionSafety() {
     }
     return [...result];
   },[messages,state.records]);
-  const scope=`${sessionId}\0${root.authLock.epoch()}`;
-  if(retained.current.scope!==scope||auth!=="active"||!state.supported||state.reason==="retired"||state.reason==="unauthorized")retained.current={scope,groups:[]};
-  if(groups.length||state.status==="ready")retained.current={scope,groups};
-  const shownGroups=auth==="active"?retained.current.groups:[];
-  const p=state.projection;
-  const normal=state.status==="ready"&&state.normal&&p?.coverage.state==="complete"&&p.unresolvedCount===0&&p.pendingCount===0&&p.restriction==="normal";
-  const unknown=state.status!=="ready"||p?.coverage.state!=="complete";
-  const text=normal?"Normal policy restored":p?`Still restricted · ${p.unresolvedCount} unresolved trigger${p.unresolvedCount===1?"":"s"}`:"Safety evidence unavailable";
+  const scope=`${sessionId}\0${root.authLock.epoch()}\0${state.historyScopeKey}`;
+  const allowed=auth==="active"&&state.supported&&(state.status!=="unavailable"||state.reason==="disconnected");
+  if(retained.current.scope!==scope||!allowed)retained.current={scope,groups:[],projection:null};
+  if(allowed){if(groups.length||state.status==="ready")retained.current.groups=groups;if(state.projection)retained.current.projection=state.projection;}
+  const shownGroups=allowed?retained.current.groups:[];
+  const p=allowed?(state.projection??retained.current.projection):null;
+  const normal=allowed&&state.status==="ready"&&state.normal&&p?.coverage.state==="complete"&&p.unresolvedCount===0&&p.pendingCount===0&&p.restriction==="normal";
+  const unknown=p?.coverage.state!=="complete";
+  const text=normal?"Normal policy restored":p?`${state.status==="ready"?"Still restricted":"Evidence unavailable · last read"} · ${p.unresolvedCount} unresolved trigger${p.unresolvedCount===1?"":"s"}`:"Safety evidence unavailable";
   return <aside data-session-safety className="mb-3 min-w-0 space-y-1 text-xs text-muted-foreground" aria-label="Chat safety evidence">
-    <p className="flex items-center gap-2"><Icon icon={normal?"secure":unknown?"unverified":"policy"} size={16}/><span role="status">{text}</span></p>
-    {unknown&&<p>{state.status==="loading"||state.status==="partial"?"Loading complete evidence; restrictions remain in effect.":"Coverage is incomplete or unavailable. Reviewing known triggers cannot establish complete history."}</p>}
+    <p className="flex min-h-8 items-center gap-2 leading-4"><Icon icon={normal?"secure":state.status!=="ready"||unknown?"unverified":"policy"} size={16}/><span role="status">{text}</span></p>
+    {unknown&&<p>Coverage is incomplete or unavailable. Reviewing known triggers cannot establish complete history.</p>}
     {!!p?.pendingCount&&<p>Input is being recorded; new actions remain restricted.</p>}
     {p?.reasons.includes("recording_failed")&&<p>Recording is unavailable. Restrictions remain in effect.</p>}
-    {p&&<details><summary className="min-h-11 cursor-pointer py-3">What this evidence covers</summary><p>Coverage describes the host's supported detectors. It does not verify content safety. Proxied shell local reads and opaque transport may have no tool attribution.</p></details>}
+    <details><summary className="min-h-11 cursor-pointer py-3">What this evidence covers</summary><p>Coverage describes the host's supported detectors. It does not verify content safety. Proxied shell local reads and opaque transport may have no tool attribution.</p></details>
     {shownGroups.slice(0,shown).map(([turn,entries])=><div key={turn} data-safety-turn-event={turn} className="flex min-w-0 items-center gap-2">
       <SafetyIndicator entries={entries}/><span>Turn event · {entries.some(e=>e.occurrence.source==="egress_connection")?"Network input; tool attribution unavailable":"Input safety evidence"}</span>
     </div>)}
@@ -59,13 +60,15 @@ export function SessionSafety() {
 function SafetyIndicator({entries:currentEntries}:{entries:SafetyEvidence[]}) {
   const root=useBrainUiRoot(),sessionId=useChatStore(s=>s.activeSessionId),auth=useStore(root.authLock.state,s=>s.phase);
   const supported=useStore(root.stores.safety,s=>s.supported),readReason=useStore(root.stores.safety,s=>s.reason);
+  const readStatus=useStore(root.stores.safety,s=>s.status),historyScopeKey=useStore(root.stores.safety,s=>s.historyScopeKey);
   const [open,setOpen]=useState(false),[limit,setLimit]=useState(20),[position,setPosition]=useState({left:12,top:12});
   const trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null),id=useId();
-  const scope=`${sessionId}\0${root.authLock.epoch()}`,held=useRef<{scope:string;entries:SafetyEvidence[]}>({scope,entries:[]});
-  if(held.current.scope!==scope||auth!=="active"||!supported||readReason==="retired"||readReason==="unauthorized")held.current={scope,entries:[]};
-  if(currentEntries.length&&auth==="active")held.current={scope,entries:currentEntries};
-  const entries=currentEntries.length?currentEntries:open?held.current.entries:[];
-  useEffect(()=>{if(!supported||readReason==="retired"||readReason==="unauthorized")setOpen(false);},[supported,readReason]);
+  const scope=`${sessionId}\0${root.authLock.epoch()}\0${historyScopeKey}`,held=useRef<{scope:string;entries:SafetyEvidence[]}>({scope,entries:[]});
+  const allowed=auth==="active"&&supported&&(readStatus!=="unavailable"||readReason==="disconnected");
+  if(held.current.scope!==scope||!allowed)held.current={scope,entries:[]};
+  if(currentEntries.length&&allowed)held.current={scope,entries:currentEntries};
+  const entries=allowed?(currentEntries.length?currentEntries:open||readStatus!=="ready"?held.current.entries:[]):[];
+  useEffect(()=>{if(!allowed)setOpen(false);},[allowed]);
   useEffect(()=>{setOpen(false);},[scope,auth]);
   const unresolved=entries.filter(e=>!e.decision).length,unknown=entries.some(e=>e.occurrence.detailPruned||e.occurrence.source==="legacy_unknown");
   const name=unresolved?`Safety restrictions: ${unresolved} unresolved trigger${unresolved===1?"":"s"}`:`Marked safe by you${entries.length>1?`: ${entries.length} triggers`:""}: show details`;
@@ -102,6 +105,7 @@ function SafetyTrigger({entry}:{entry:SafetyEvidence}) {
   const [review,setReview]=useState(false),[progress,setProgress]=useState<SafetyReviewProgress|null>(null);
   const reviewer=useRef<ReturnType<typeof createSafetyReviewer>|null>(null);
   useEffect(()=>{const r=createSafetyReviewer(root,setProgress);reviewer.current=r;return ()=>{r.dispose();reviewer.current=null;};},[root]);
+  useEffect(()=>{if(state.status!=="ready"||!state.capabilities?.review||auth!=="active")setReview(false);},[state.status,state.capabilities?.review,auth]);
   const r=entry.occurrence,session=state.identity&&"sessionId" in state.identity?state.identity:null;
   const readable=state.status==="ready"&&!!session,owner=state.capabilities?.review===true&&auth==="active";
   const canReview=readable&&owner&&entry.exposure==="finalized"&&!entry.decision&&!state.projection?.pendingCount&&!state.projection?.reasons.includes("recording_failed");

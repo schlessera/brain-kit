@@ -17,7 +17,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     frame(msg:ServerMessage):boolean{
       if(disposed)return false;
       if(msg.type==="server_hello"){
-        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,msg.safetyCapabilities??null,msg.capabilities?.sessionSafetyEntryCorrelation===true);selected();return false;
+        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,msg.safetyCapabilities??null,msg.capabilities?.sessionSafetyEntryCorrelation===true,msg.principalKey?`host:${msg.principalKey}`:`unbound:${crypto.randomUUID()}`);selected();return false;
       }
       if(msg.type==="chat_retired"){store.getState().retire(msg.sessionId,msg.historyOwnerIds);if(target&&"sessionId" in target&&target.sessionId===msg.sessionId){requestId=null;target=null;store.getState().unavailable("retired");}return false;}
       if(msg.type==="safety_history"){
@@ -43,7 +43,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       return false;
     },
     refresh():void{selected();},
-    disconnected():void{requestId=null;store.getState().reset();},
+    disconnected():void{requestId=null;awaitingPage=true;store.getState().disconnected();},
     dispose():void{disposed=true;requestId=null;detach();detachRefresh();store.getState().reset();},
   };
 }

@@ -284,9 +284,9 @@ function ToolCallEntryView({
   const Input = renderer.Input;
   const Output = renderer.Output;
 
-  if (toolCall.policyChange) return <div><ToolSafetyIndicator turnId={turnId} toolIds={[toolCall.id]}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
+  if (toolCall.policyChange) return <div data-tool-call={toolCall.id}><ToolSafetyIndicator turnId={turnId} toolIds={[toolCall.id]}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
   return (
-    <div className="relative">
+    <div className="relative" data-tool-call={toolCall.id}>
       {/* Timeline dot: a bare mark with no content, so it takes the MARK
           weight — a fill sits at 1.3-1.8:1 on paper at any diameter. */}
       <div

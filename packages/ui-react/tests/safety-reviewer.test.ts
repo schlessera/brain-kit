@@ -93,3 +93,13 @@ test('read-only capability and changed chat selection never send a verdict',asyn
   expect(f.host.db.query('SELECT COUNT(*) n FROM safety_decisions').get()).toEqual({n:0});
  }finally{await f.close();}
 });
+
+test('disconnect after preparation discards authority and a fresh read never resumes the review',async()=>{
+ const f=await fixture(),hold=gate();let prepared:Response;try{
+  f.setTransport(async(url,init)=>{const response=await fetch(url,init);prepared=Response.json(await response.json(),{status:response.status});hold.entered();return hold.promise;});
+  const pending=f.reviewer.markSafe(f.a.id);await hold.arrived;f.safety.getState().disconnected();hold.release(prepared!);await pending;
+  expect(f.requests,'DISCONNECT_CANNOT_RESUME_PREPARED_REVIEW').toHaveLength(1);
+  const page=await f.host.history.read(f.host.principal,{sessionId:'ithaca'});f.safety.getState().reset(true,f.host.reviews!.capabilities(f.host.principal));f.safety.getState().begin('reconnected');f.safety.getState().page('reconnected',page);
+  expect(f.requests,'FRESH_READ_NEVER_REPLAYS_A_DECISION').toHaveLength(1);expect(f.host.db.query('SELECT COUNT(*) n FROM safety_decisions').get()).toEqual({n:0});
+ }finally{await f.close();}
+});

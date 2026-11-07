@@ -32,3 +32,19 @@ test('entry correlation is requested only after the independent host capability'
   }finally{client.dispose();}
  }
 });
+
+test('disconnect retains only read-only facts; stale frames and a different owner cannot regain authority',async()=>{
+ const {safetyHistoryFixture}=await import('../../ui-server/tests/helpers/safety-history-fixture');
+ const f=await safetyHistoryFixture(true,true),chat=createStore<{activeSessionId:string|null}>(()=>({activeSessionId:'ithaca'})),safety=createSafetyStore(),sent:ClientMessage[]=[];
+ const root={stores:{chat,safety}} as unknown as BrainUiServices,client=createSafetyClient(root,m=>{sent.push(m);return true;});
+ try{
+  const a=await f.add('A'),hello={type:'server_hello' as const,protocolRev:5,principalKey:'odysseus_owner',capabilities:{sessionSafetyHistory:true},safetyCapabilities:f.reviews!.capabilities(f.principal)};
+  client.frame(hello);const read=sent.find(m=>m.type==='safety_read');if(read?.type!=='safety_read')throw new Error('Missing read');
+  const page=await f.history.read(f.principal,{sessionId:'ithaca'});client.frame({type:'safety_history',requestId:read.requestId,page});
+  client.disconnected();expect(safety.getState().records[a.id],'DISCONNECT_RETAINS_IMMUTABLE_FACT').toBeDefined();expect(safety.getState().capabilities,'DISCONNECT_DISCARDS_REVIEW_AUTHORITY').toBeNull();expect(safety.getState().normal).toBe(false);
+  client.frame({type:'safety_update',update:{version:1,identity:page.identity,fromRevision:page.highWater,toRevision:String(BigInt(page.highWater)+1n),projection:{...page.projection,evidenceRevision:String(BigInt(page.highWater)+1n),restriction:'normal',unresolvedCount:0},records:[]}});
+  expect(safety.getState().projection?.unresolvedCount,'LATE_SOCKET_UPDATE_CANNOT_LOOSEN_DISCONNECTED_FACTS').toBe(1);
+  client.frame({...hello,principalKey:'penelope_owner'});expect(safety.getState().records,'NEW_OWNER_PURGES_OLD_HISTORY_CACHE').toEqual({});expect(safety.getState().historyScopeKey).toBe('host:penelope_owner');
+  const keys=[safety.getState().historyScopeKey];client.frame({...hello,principalKey:undefined});keys.push(safety.getState().historyScopeKey);client.frame({...hello,principalKey:undefined});expect(safety.getState().historyScopeKey,'MISSING_OWNER_KEY_NEVER_REUSES_A_DISPLAY_PARTITION').not.toBe(keys.at(-1));
+ }finally{client.dispose();await f.close();}
+});
