@@ -16,6 +16,12 @@ import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
 const SECRET = "http-contract-fixture-secret-0123456789";
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Check = { path?: string; init?: RequestInit; status?: number; body?: object; verify?: (response: Response, t: HttpContractApp) => Promise<void> };
+const safetyReviewBody = { version: 1, session: { sessionId: "fixture-session", historyOwnerId: "missing-history", historyGeneration: "1" }, occurrenceId: "missing-occurrence", expectedEvidenceRevision: "0", verdict: "safe" };
+const unavailableSafetyReview: NonNullable<Check["verify"]> = async (response, t) => {
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(t.app.db.query("SELECT COUNT(*) n FROM safety_review_requests").get()).toEqual({ n: 0 });
+  expect(t.app.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 0 });
+};
 
 // Each supported operation reaches its real handler with a live owner cookie.
 // More detailed existing behavior checks are linked by the coverage matrix;
@@ -111,6 +117,10 @@ const checks: Record<string, Check> = {
   "GET /api/journal/configuration-coverage": { path: "/api/journal/configuration-coverage", status: 200, body: { state: "unknown" } },
   // Imported history: the session exists, and the host proves nothing about it.
   "GET /api/sessions/:id/safety": {path:"/api/sessions/fixture-session/safety",status:404,body:{version:1,reason:"unavailable"},verify:async r=>{expect(r.headers.get("cache-control")).toBe("no-store");}},
+  "POST /api/sessions/:id/safety/reviews/prepare": { path: "/api/sessions/fixture-session/safety/reviews/prepare", init: json("POST", safetyReviewBody), status: 404,
+    body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
+  "POST /api/sessions/:id/safety/reviews/:requestId/commit": { path: "/api/sessions/fixture-session/safety/reviews/missing-request/commit", init: json("POST", safetyReviewBody), status: 404,
+    body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
   "GET /api/sessions/:id/attachment-reads": { path: "/api/sessions/fixture-session/attachment-reads", body: { sessionId: "fixture-session", reads: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },

@@ -319,6 +319,9 @@ export "." (./src/index.ts)
   type SafetyIdentity
   type SafetyPage
   type SafetyRecord
+  type SafetyReviewBody
+  type SafetyReviewReceipt
+  type SafetyReviewResponse
   type SafetySessionKey
   type SafetyTarget
   type SafetyUnavailable
@@ -962,6 +965,9 @@ export "./client" (./src/client/index.ts)
   type SafetyIdentity
   type SafetyPage
   type SafetyRecord
+  type SafetyReviewBody
+  type SafetyReviewReceipt
+  type SafetyReviewResponse
   type SafetySessionKey
   type SafetyTarget
   type SafetyUnavailable
@@ -1741,6 +1747,9 @@ export "./protocol" (./src/protocol.ts)
   type SafetyIdentity
   type SafetyPage
   type SafetyRecord
+  type SafetyReviewBody
+  type SafetyReviewReceipt
+  type SafetyReviewResponse
   type SafetySessionKey
   type SafetyTarget
   type SafetyUnavailable
@@ -2030,6 +2039,10 @@ export "./schemas" (./src/schemas.ts)
   resolutionEffectSchema
   safetyCapabilitiesSchema
   safetyPageSchema
+  safetyProjectionSchema
+  safetyReviewBodySchema
+  safetyReviewReceiptSchema
+  safetyReviewResponseSchema
   safetySessionKeySchema
   safetyUpdateSchema
   serverActivityDeltaSchema
@@ -2641,6 +2654,9 @@ export "./server" (./src/server/index.ts)
   type SafetyIdentity
   type SafetyPage
   type SafetyRecord
+  type SafetyReviewBody
+  type SafetyReviewReceipt
+  type SafetyReviewResponse
   type SafetySessionKey
   type SafetyTarget
   type SafetyUnavailable
@@ -9300,13 +9316,16 @@ signatures (every public export and the types it is made of)
             cursorLifetimeMs: 300000;
             frameBytes: 262144;
             pageRecords: 100;
+            receiptLifetimeMs?: 86400000 | undefined;
+            reviewBodyBytes?: 16384 | undefined;
+            reviewLifetimeMs?: 900000 | undefined;
         };
         originRules: false;
         read: true;
-        readOnlyReason: "review_unavailable";
+        readOnlyReason: "owner_required" | "review_unavailable" | null;
         recipientRules: false;
         repositoryRules: false;
-        review: false;
+        review: boolean;
         version: 1;
     };
   SESSION_DRAFT_LIMITS (packages/ui-sdk/src/protocol.ts)
@@ -10755,6 +10774,12 @@ signatures (every public export and the types it is made of)
     export type SafetyPage = z.infer<typeof safetyPageSchema>;
   SafetyRecord (packages/ui-sdk/src/safety.ts)
     export type SafetyRecord = z.infer<typeof safetyRecordSchema>;
+  SafetyReviewBody (packages/ui-sdk/src/safety.ts)
+    export type SafetyReviewBody = z.infer<typeof safetyReviewBodySchema>;
+  SafetyReviewReceipt (packages/ui-sdk/src/safety.ts)
+    export type SafetyReviewReceipt = z.infer<typeof safetyReviewReceiptSchema>;
+  SafetyReviewResponse (packages/ui-sdk/src/safety.ts)
+    export type SafetyReviewResponse = z.infer<typeof safetyReviewResponseSchema>;
   SafetySessionKey (packages/ui-sdk/src/safety.ts)
     export type SafetySessionKey = z.infer<typeof safetySessionKeySchema>;
   SafetyTarget (packages/ui-sdk/src/safety.ts)
@@ -17995,13 +18020,19 @@ signatures (every public export and the types it is made of)
             cursorLifetimeMs: z.ZodLiteral<300000>;
             frameBytes: z.ZodLiteral<262144>;
             pageRecords: z.ZodLiteral<100>;
+            receiptLifetimeMs: z.ZodOptional<z.ZodLiteral<86400000>>;
+            reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
+            reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
         }, z.core.$strict>;
         originRules: z.ZodLiteral<false>;
         read: z.ZodLiteral<true>;
-        readOnlyReason: z.ZodLiteral<"review_unavailable">;
+        readOnlyReason: z.ZodNullable<z.ZodEnum<{
+            owner_required: "owner_required";
+            review_unavailable: "review_unavailable";
+        }>>;
         recipientRules: z.ZodLiteral<false>;
         repositoryRules: z.ZodLiteral<false>;
-        review: z.ZodLiteral<false>;
+        review: z.ZodBoolean;
         version: z.ZodLiteral<1>;
     }, z.core.$strict>;
   safetyIdentitySchema (packages/ui-sdk/src/safety.ts)
@@ -18303,6 +18334,327 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodString;
         verdict: z.ZodLiteral<"safe">;
     }, z.core.$strict>], "kind">;
+  safetyReviewBodySchema (packages/ui-sdk/src/safety.ts)
+    const safetyReviewBodySchema: z.ZodObject<{
+        expectedEvidenceRevision: z.ZodString;
+        occurrenceId: z.ZodString;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        verdict: z.ZodLiteral<"safe">;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyReviewReceiptSchema (packages/ui-sdk/src/safety.ts)
+    const safetyReviewReceiptSchema: z.ZodObject<{
+        occurrenceId: z.ZodString;
+        operationId: z.ZodNullable<z.ZodString>;
+        projection: z.ZodNullable<z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>>;
+        reason: z.ZodNullable<z.ZodString>;
+        requestId: z.ZodNullable<z.ZodString>;
+        session: z.ZodObject<{
+            historyGeneration: z.ZodString;
+            historyOwnerId: z.ZodString;
+            sessionId: z.ZodString;
+        }, z.core.$strict>;
+        stage: z.ZodEnum<{
+            prepared: "prepared";
+            refused: "refused";
+            verdict_committed: "verdict_committed";
+        }>;
+        verdict: z.ZodEnum<{
+            committed: "committed";
+            unresolved: "unresolved";
+        }>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>;
+  safetyReviewResponseSchema (packages/ui-sdk/src/safety.ts)
+    const safetyReviewResponseSchema: z.ZodUnion<readonly [z.ZodObject<{
+        currentProjection: z.ZodNullable<z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>>;
+        receipt: z.ZodObject<{
+            occurrenceId: z.ZodString;
+            operationId: z.ZodNullable<z.ZodString>;
+            projection: z.ZodNullable<z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodNullable<z.ZodString>;
+            session: z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>;
+            stage: z.ZodEnum<{
+                prepared: "prepared";
+                refused: "refused";
+                verdict_committed: "verdict_committed";
+            }>;
+            verdict: z.ZodEnum<{
+                committed: "committed";
+                unresolved: "unresolved";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>, z.ZodObject<{
+        code: z.ZodEnum<{
+            capacity: "capacity";
+            not_finalized: "not_finalized";
+            recording_failed: "recording_failed";
+            request_conflict: "request_conflict";
+            request_expired: "request_expired";
+            resync_required: "resync_required";
+            retired: "retired";
+            stale_revision: "stale_revision";
+            unauthorized: "unauthorized";
+            unavailable: "unavailable";
+        }>;
+        currentProjection: z.ZodNullable<z.ZodObject<{
+            coverage: z.ZodObject<{
+                detectorVersion: z.ZodLiteral<1>;
+                epochs: z.ZodArray<z.ZodObject<{
+                    acknowledged: z.ZodArray<z.ZodString>;
+                    backendId: z.ZodString;
+                    endSequence: z.ZodNullable<z.ZodString>;
+                    id: z.ZodString;
+                    mandatory: z.ZodArray<z.ZodString>;
+                    reason: z.ZodNullable<z.ZodString>;
+                    startSequence: z.ZodString;
+                    status: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>>;
+                exclusions: z.ZodArray<z.ZodString>;
+                state: z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>;
+            }, z.core.$strict>;
+            earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+            evidenceRevision: z.ZodString;
+            pendingCount: z.ZodNumber;
+            reasons: z.ZodArray<z.ZodEnum<{
+                capacity: "capacity";
+                coverage_unknown: "coverage_unknown";
+                recording_failed: "recording_failed";
+                recording_pending: "recording_pending";
+                unresolved: "unresolved";
+            }>>;
+            restriction: z.ZodEnum<{
+                normal: "normal";
+                restricted: "restricted";
+            }>;
+            session: z.ZodNullable<z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>>;
+            unresolvedCount: z.ZodNumber;
+        }, z.core.$strict>>;
+        reason: z.ZodString;
+        receipt: z.ZodObject<{
+            occurrenceId: z.ZodString;
+            operationId: z.ZodNullable<z.ZodString>;
+            projection: z.ZodNullable<z.ZodObject<{
+                coverage: z.ZodObject<{
+                    detectorVersion: z.ZodLiteral<1>;
+                    epochs: z.ZodArray<z.ZodObject<{
+                        acknowledged: z.ZodArray<z.ZodString>;
+                        backendId: z.ZodString;
+                        endSequence: z.ZodNullable<z.ZodString>;
+                        id: z.ZodString;
+                        mandatory: z.ZodArray<z.ZodString>;
+                        reason: z.ZodNullable<z.ZodString>;
+                        startSequence: z.ZodString;
+                        status: z.ZodEnum<{
+                            complete: "complete";
+                            incomplete: "incomplete";
+                            unknown: "unknown";
+                        }>;
+                    }, z.core.$strict>>;
+                    exclusions: z.ZodArray<z.ZodString>;
+                    state: z.ZodEnum<{
+                        complete: "complete";
+                        incomplete: "incomplete";
+                        unknown: "unknown";
+                    }>;
+                }, z.core.$strict>;
+                earliestUnresolvedId: z.ZodNullable<z.ZodString>;
+                evidenceRevision: z.ZodString;
+                pendingCount: z.ZodNumber;
+                reasons: z.ZodArray<z.ZodEnum<{
+                    capacity: "capacity";
+                    coverage_unknown: "coverage_unknown";
+                    recording_failed: "recording_failed";
+                    recording_pending: "recording_pending";
+                    unresolved: "unresolved";
+                }>>;
+                restriction: z.ZodEnum<{
+                    normal: "normal";
+                    restricted: "restricted";
+                }>;
+                session: z.ZodNullable<z.ZodObject<{
+                    historyGeneration: z.ZodString;
+                    historyOwnerId: z.ZodString;
+                    sessionId: z.ZodString;
+                }, z.core.$strict>>;
+                unresolvedCount: z.ZodNumber;
+            }, z.core.$strict>>;
+            reason: z.ZodNullable<z.ZodString>;
+            requestId: z.ZodNullable<z.ZodString>;
+            session: z.ZodObject<{
+                historyGeneration: z.ZodString;
+                historyOwnerId: z.ZodString;
+                sessionId: z.ZodString;
+            }, z.core.$strict>;
+            stage: z.ZodEnum<{
+                prepared: "prepared";
+                refused: "refused";
+                verdict_committed: "verdict_committed";
+            }>;
+            verdict: z.ZodEnum<{
+                committed: "committed";
+                unresolved: "unresolved";
+            }>;
+            version: z.ZodLiteral<1>;
+        }, z.core.$strict>;
+        retryable: z.ZodLiteral<false>;
+        version: z.ZodLiteral<1>;
+    }, z.core.$strict>]>;
   safetySessionKeySchema (packages/ui-sdk/src/safety.ts)
     const safetySessionKeySchema: z.ZodObject<{
         historyGeneration: z.ZodString;
@@ -19448,13 +19800,19 @@ signatures (every public export and the types it is made of)
                 cursorLifetimeMs: z.ZodLiteral<300000>;
                 frameBytes: z.ZodLiteral<262144>;
                 pageRecords: z.ZodLiteral<100>;
+                receiptLifetimeMs: z.ZodOptional<z.ZodLiteral<86400000>>;
+                reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
+                reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
             }, z.core.$strict>;
             originRules: z.ZodLiteral<false>;
             read: z.ZodLiteral<true>;
-            readOnlyReason: z.ZodLiteral<"review_unavailable">;
+            readOnlyReason: z.ZodNullable<z.ZodEnum<{
+                owner_required: "owner_required";
+                review_unavailable: "review_unavailable";
+            }>>;
             recipientRules: z.ZodLiteral<false>;
             repositoryRules: z.ZodLiteral<false>;
-            review: z.ZodLiteral<false>;
+            review: z.ZodBoolean;
             version: z.ZodLiteral<1>;
         }, z.core.$strict>>>;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{
@@ -20170,13 +20528,19 @@ signatures (every public export and the types it is made of)
                 cursorLifetimeMs: z.ZodLiteral<300000>;
                 frameBytes: z.ZodLiteral<262144>;
                 pageRecords: z.ZodLiteral<100>;
+                receiptLifetimeMs: z.ZodOptional<z.ZodLiteral<86400000>>;
+                reviewBodyBytes: z.ZodOptional<z.ZodLiteral<16384>>;
+                reviewLifetimeMs: z.ZodOptional<z.ZodLiteral<900000>>;
             }, z.core.$strict>;
             originRules: z.ZodLiteral<false>;
             read: z.ZodLiteral<true>;
-            readOnlyReason: z.ZodLiteral<"review_unavailable">;
+            readOnlyReason: z.ZodNullable<z.ZodEnum<{
+                owner_required: "owner_required";
+                review_unavailable: "review_unavailable";
+            }>>;
             recipientRules: z.ZodLiteral<false>;
             repositoryRules: z.ZodLiteral<false>;
-            review: z.ZodLiteral<false>;
+            review: z.ZodBoolean;
             version: z.ZodLiteral<1>;
         }, z.core.$strict>>>;
         sessionDraftLimits: z.ZodCatch<z.ZodOptional<z.ZodObject<{

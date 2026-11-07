@@ -1,4 +1,4 @@
-/** Host-owned, read-only history sidecars. Never provider conversation data. */
+/** Host-owned safety sidecars. Never provider conversation data. */
 import { z } from "zod";
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -31,8 +31,9 @@ export const safetyPageSchema = z.strictObject({ version:z.literal(1), identity:
 export const safetyUpdateSchema = z.strictObject({ version:z.literal(1), identity:safetyIdentitySchema, fromRevision:revision, toRevision:revision,
   projection:safetyProjectionSchema, records:z.array(safetyRecordSchema).max(100) });
 export const safetyUnavailableSchema = z.strictObject({ version:z.literal(1), reason:z.enum(["unavailable","unauthorized","expired","capacity","generation_changed","gap"]) });
-export const safetyCapabilitiesSchema = z.strictObject({ version:z.literal(1), read:z.literal(true), review:z.literal(false), originRules:z.literal(false), repositoryRules:z.literal(false), recipientRules:z.literal(false),
-  readOnlyReason:z.literal("review_unavailable"), detectorVersion:z.literal(1), limits:z.strictObject({ pageRecords:z.literal(100), frameBytes:z.literal(262144), cursorBytes:z.literal(512), cursorLifetimeMs:z.literal(300000) }) });
+export const safetyCapabilitiesSchema = z.strictObject({ version:z.literal(1), read:z.literal(true), review:z.boolean(), originRules:z.literal(false), repositoryRules:z.literal(false), recipientRules:z.literal(false),
+  readOnlyReason:z.enum(["review_unavailable","owner_required"]).nullable(), detectorVersion:z.literal(1), limits:z.strictObject({ pageRecords:z.literal(100), frameBytes:z.literal(262144), cursorBytes:z.literal(512), cursorLifetimeMs:z.literal(300000),
+    reviewBodyBytes:z.literal(16384).optional(), reviewLifetimeMs:z.literal(900000).optional(), receiptLifetimeMs:z.literal(86400000).optional() }) });
 export const SESSION_SAFETY_CAPABILITY = "sessionSafetyHistory";
 export const SAFETY_READ_CAPABILITIES = safetyCapabilitiesSchema.parse({version:1,read:true,review:false,originRules:false,repositoryRules:false,recipientRules:false,readOnlyReason:"review_unavailable",detectorVersion:1,
   limits:{pageRecords:100,frameBytes:262144,cursorBytes:512,cursorLifetimeMs:300000}});
@@ -45,6 +46,22 @@ export type SafetyPage = z.infer<typeof safetyPageSchema>;
 export type SafetyUpdate = z.infer<typeof safetyUpdateSchema>;
 export type SafetyUnavailable = z.infer<typeof safetyUnavailableSchema>;
 export type SafetyCapabilities = z.infer<typeof safetyCapabilitiesSchema>;
+
+/** Individual review only. No principal, channel, range or standing rule input. */
+export const safetyReviewBodySchema = z.strictObject({ version:z.literal(1), session:safetySessionKeySchema, occurrenceId:id,
+  expectedEvidenceRevision:revision, verdict:z.literal("safe") });
+export const safetyReviewReceiptSchema = z.strictObject({ version:z.literal(1), requestId:id.nullable(), operationId:id.nullable(), session:safetySessionKeySchema,
+  occurrenceId:id, stage:z.enum(["prepared","verdict_committed","refused"]), verdict:z.enum(["unresolved","committed"]),
+  projection:safetyProjectionSchema.nullable(), reason:text(512).nullable() });
+/** receipt is immutable on replay; currentProjection is a separate live read. */
+const reviewResultSchema = z.strictObject({ version:z.literal(1), receipt:safetyReviewReceiptSchema, currentProjection:safetyProjectionSchema.nullable() });
+export const safetyReviewResponseSchema = z.union([reviewResultSchema,reviewResultSchema.extend({
+  code:z.enum(["unauthorized","unavailable","stale_revision","not_finalized","request_conflict","request_expired","retired","capacity","recording_failed","resync_required"]),
+  reason:text(512),retryable:z.literal(false),
+})]);
+export type SafetyReviewBody = z.infer<typeof safetyReviewBodySchema>;
+export type SafetyReviewReceipt = z.infer<typeof safetyReviewReceiptSchema>;
+export type SafetyReviewResponse = z.infer<typeof safetyReviewResponseSchema>;
 
 export const clientSafetyReadSchema = z.strictObject({type:z.literal("safety_read"),requestId:id,version:z.literal(1),target:safetyTargetSchema,cursor:z.string().max(512).nullable().optional(),limit:z.number().int().min(1).max(100).optional()});
 export const clientSafetySubscribeSchema = z.strictObject({type:z.literal("safety_subscribe"),requestId:id,version:z.literal(1),identity:safetyIdentitySchema,afterRevision:revision,snapshotId:id});

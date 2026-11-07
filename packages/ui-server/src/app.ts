@@ -1,5 +1,7 @@
 import { SafetyHistory } from "./governance/safety-history.js";
 import { createSessionSafetyRoutes } from "./routes/session-safety.js";
+import { createOwnerSafetyReviewRoutes } from "./routes/owner-safety-review.js";
+import { OwnerSafetyReviews } from "./governance/owner-safety-reviews.js";
 import { occurrence } from "./governance/occurrence.js";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { STORAGE_SETTLEMENT_MS } from "./db/settlement.js";
@@ -24,7 +26,7 @@ import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
 import { createTurnBudgets } from "./brain/turn-budgets.js";
 import { maintenanceProviderMeter } from "./brain/provider-meter.js";
 import { createTrackRoutes } from "./routes/tracks.js";
-import { createAccountPartitionKeys } from "./middleware/account-partition.js";
+import { createAccountPartitionKeys, deriveAccountPartitionKey } from "./middleware/account-partition.js";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { Database } from "bun:sqlite";
@@ -755,8 +757,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const stopApifyReconciler = apifyHost.startReconciler();
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
   const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
+  const accountSeed = await accountWrites(db).partitionSeed();
+  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
+  const ownerSafetyReviews = new OwnerSafetyReviews(db, activity.governanceWrites, authMode,
+    deriveAccountPartitionKey(accountSeed,realpathSync(config.brainPath),"owner"));
   const host = new WsHost({
     safetyHistory,
+    ownerSafetyReviews,
     turnReverts: reverts,
     workerLock,
     computeTools: computeHost,
@@ -1020,7 +1027,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.use("/api/*", authGuard(authMode, auth, db));
   // The account partition key rides on the probe every client already makes
   // before it mounts anything (#1014): an agent principal gets none.
-  const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, await accountWrites(db).partitionSeed());
   app.get("/api/vpn-check", (c) => {
     const accountKey = accountKeys(c.get("principal"));
     return c.json(accountKey ? { vpn: true, accountKey } : { vpn: true });
@@ -1164,6 +1170,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // which a client reads as a host too old to answer (#964).
   if (supportsSessionRecovery(host)) app.route("/api", createSessionRecoveryRoutes(host));
   app.route("/api", createSessionSafetyRoutes(safetyHistory,principal=>host.isPrincipalValid(principal)));
+  app.route("/api", createOwnerSafetyReviewRoutes(ownerSafetyReviews,auth.trustProxy));
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));

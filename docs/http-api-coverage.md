@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:181-200`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:191-210`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -125,6 +125,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | `mounted supported handler: GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side` | J |
 | `GET /api/journal/configuration-coverage` | `mounted supported handler: GET /api/journal/configuration-coverage` | J |
 | `GET /api/sessions/:id/safety` | `mounted supported handler: GET /api/sessions/:id/safety` | S |
+| `POST /api/sessions/:id/safety/reviews/prepare` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/prepare` | SR |
+| `POST /api/sessions/:id/safety/reviews/:requestId/commit` | `mounted supported handler: POST /api/sessions/:id/safety/reviews/:requestId/commit` | SR |
 | `GET /api/sessions/:id/attachment-reads` | `mounted supported handler: GET /api/sessions/:id/attachment-reads` | X |
 | `GET /api/sessions/:id/recovery` | `mounted supported handler: GET /api/sessions/:id/recovery` | S |
 | `POST /api/queue` | `mounted supported handler: POST /api/queue` | Q |
@@ -150,6 +152,18 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /ws` | Real upgrade and server_hello | W |
 
 ## Named behavior checks
+
+**SR — Individual safety review.**
+
+The mounted checks use a signed password-owner cookie and matching Origin to
+reach both review handlers on the real application. An unavailable history
+returns its specific refusal with no prepared request or decision. The
+[owner safety review suite](../packages/ui-server/tests/owner-safety-review.test.ts)
+additionally exercises successful individual A/B/C verdicts, immutable replay,
+live HTTP/WS authority, FULL-writer races, expiry, retirement, capacity and
+cross-root handle binding through authenticated loopback transports. Each
+mutation operation retains a fresh application/database under the lifetime
+audit; review fixtures never share request reservations or verdict state.
 
 J uses the real host admission, tool-completion and terminal observations,
 checks authenticated session/turn isolation and reads exact retained CRLF bytes

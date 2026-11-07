@@ -1,5 +1,5 @@
 export { SESSION_SAFETY_CAPABILITY, SAFETY_READ_CAPABILITIES } from "./safety.js";
-export type { SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
+export type { SafetyReviewBody, SafetyReviewReceipt, SafetyReviewResponse, SafetySessionKey, SafetyTarget, SafetyIdentity, SafetyHistoryProjection, SafetyRecord, SafetyPage, SafetyUpdate, SafetyUnavailable, SafetyCapabilities, ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable } from "./safety.js";
 import type { ClientSafetyRead, ClientSafetySubscribe, ClientSafetyUnsubscribe, ServerSafetyHistory, ServerSafetyUpdate, ServerSafetyUnavailable, SafetyCapabilities } from "./safety.js";
 // ============================================================
 // brain-kit chat-UI wire protocol

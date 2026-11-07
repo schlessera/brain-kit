@@ -17,8 +17,11 @@ pins DTOs, explicit numeric bounds, matching, ownership and proof obligations.
 [G6](governed-writable-workers.md#untrusted-input-g6) now records every trigger
 and restricts unknown/incomplete histories through the durable collection
 foundation (#3600). The host-only verdict store (#3601) commits individual
-decisions and durable receipts; owner-authorized mutation transport and review capability
-remain unavailable until their separate enforcement slices are qualified. This ruling supersedes only
+decisions and durable receipts. The owner review transport (#3603) uses that
+store through a strict two-phase HTTP boundary, with live password-mode human
+authority checked on the acquired transaction and final delivery. Its
+capability remains separate from read support and all standing-rule flags.
+This ruling supersedes only
 unconditional stickiness: a fully observed chat may return to normal **only
 after every unresolved trigger has its own committed safe verdict**, complete
 versioned detector coverage is established and no recording/capacity failure

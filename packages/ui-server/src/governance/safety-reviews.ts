@@ -1,18 +1,22 @@
-/** Host-only verdict persistence. The owner-authenticated transport is a later
- * layer: nothing here mounts a route, infers a human, or advertises review. */
+/** Host-only verdict persistence. The browser service stamps live authority;
+ * this module mounts no route and never infers a human from a caller body. */
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import { safetyReviewBodySchema as bodySchema } from "@schlessera/brain-ui-sdk/schemas";
+import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 import { assertLive, ChatRetiredError } from "../ws/chat-lifecycle.js";
-import { advance as advanceSafetyRevision, safetyProjection, SafetyUnavailable, type SafetyProjection } from "./safety-store.js";
+import { advance as advanceSafetyRevision, safetyProjection, safetyScopeTurns, SafetyUnavailable, type SafetyProjection } from "./safety-store.js";
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
-const revision = z.string().regex(/^(0|[1-9][0-9]{0,19})$/).refine(v => BigInt(v) <= 18446744073709551615n);
-const session = z.object({ sessionId: id, historyOwnerId: id, historyGeneration: revision }).strict();
-const bodySchema = z.object({ version: z.literal(1), session, occurrenceId: id,
-  expectedEvidenceRevision: revision, verdict: z.literal("safe") }).strict();
 export type SafetyReviewBody = z.infer<typeof bodySchema>;
 /** Stamped by the host after authority checks, never read from a browser body. */
-export interface SafetyReviewer { principalId: string; channel: "owner_history" | "owner_settings" }
+export type SafetyReviewAuthority = Pick<Principal, "id" | "kind" | "authMethod" | "credentialId" | "createdAt" | "expiresAt"> & { brainKey: string };
+export interface SafetyReviewer {
+  principalId: string; channel: "owner_history" | "owner_settings";
+  /** Only the password-mode browser service supplies this host-owned epoch.
+   * Legacy host-only storage callers do not establish human authority. */
+  authority?: SafetyReviewAuthority;
+}
 export interface SafetyReviewReceipt {
   version: 1; requestId: string | null; operationId: string | null;
   session: SafetyReviewBody["session"]; occurrenceId: string;
@@ -34,10 +38,18 @@ function clock(now: () => number): number {
 function reviewer(actor: SafetyReviewer): void {
   if (!id.safeParse(actor.principalId).success || !["owner_history", "owner_settings"].includes(actor.channel)) throw new SafetyUnavailable("Invalid host reviewer");
 }
-function fingerprint(body: SafetyReviewBody): string {
+function fingerprint(body: SafetyReviewBody, actor: SafetyReviewer): string {
   // Schema parsing pins object/key order; semantically identical JSON retries
   // do not depend on the caller's property insertion order.
-  return new Bun.CryptoHasher("sha256").update(JSON.stringify(body)).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(JSON.stringify(actor.authority ? { body, authority: actor.authority } : body)).digest("hex");
+}
+function authorized(db: Database, actor: SafetyReviewer, at: number): boolean {
+  if (!actor.authority) return true;
+  const current = resolvePrincipal(db, actor.principalId), epoch = actor.authority;
+  return /^[A-Za-z0-9_-]{22}$/.test(epoch.brainKey) && !!current && current.id === epoch.id && current.kind === "owner" && epoch.kind === "owner"
+    && ["password", "passkey"].includes(current.authMethod) && current.authMethod === epoch.authMethod
+    && current.createdAt === epoch.createdAt && current.expiresAt === epoch.expiresAt
+    && current.credentialId === epoch.credentialId && isUsablePrincipal(current, at);
 }
 function receipt(body: SafetyReviewBody, requestId: string | null, operationId: string | null, reason: string | null,
   projection: SafetyProjection | null, committed = false): SafetyReviewReceipt {
@@ -46,23 +58,27 @@ function receipt(body: SafetyReviewBody, requestId: string | null, operationId: 
     verdict: committed ? "committed" : "unresolved", projection, reason };
 }
 /** Unknown/foreign identity never creates a session or reveals its projection. */
-function target(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): "retired" | "unavailable" | null {
+export function safetyReviewTarget(db: Database, body: SafetyReviewBody, principalId: string): "retired" | "unavailable" | null {
   const s = db.query(`SELECT principal_id FROM safety_sessions WHERE session_id=? AND history_owner_id=? AND generation=?`)
     .get(body.session.sessionId, body.session.historyOwnerId, body.session.historyGeneration) as { principal_id: string | null } | null;
-  if (!s || s.principal_id !== actor.principalId) return "unavailable";
-  try { assertLive(db, [["session", body.session.sessionId], ["dialogue_owner", body.session.historyOwnerId]]); }
+  if (!s || s.principal_id !== principalId) return "unavailable";
+  const canonical = (db.query("SELECT owner_id FROM dialogue_aliases WHERE id=?").get(body.session.historyOwnerId) as {owner_id:string}|null)?.owner_id ?? body.session.historyOwnerId;
+  try { assertLive(db, [["session", body.session.sessionId], ["dialogue_owner", body.session.historyOwnerId], ["dialogue_owner",canonical]]); }
   catch (error) { if (error instanceof ChatRetiredError) return "retired"; throw error; }
-  const owner = db.query("SELECT generation,principal_id FROM dialogue_owners WHERE id=?").get(body.session.historyOwnerId) as { generation: number; principal_id: string } | null;
-  if (owner && (String(owner.generation) !== body.session.historyGeneration || owner.principal_id !== actor.principalId)) return "unavailable";
+  const owner = db.query("SELECT generation,principal_id FROM dialogue_owners WHERE id=?").get(canonical) as { generation: number; principal_id: string } | null;
+  if (owner && (String(owner.generation) !== body.session.historyGeneration || owner.principal_id !== principalId)) return "unavailable";
   return null;
 }
-function eligible(db: Database, body: SafetyReviewBody): string | null {
-  const r = db.query(`SELECT r.state,COALESCE((SELECT x.state FROM safety_records x
+function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): string | null {
+  const r = db.query(`SELECT c.turn_id,c.principal_id,c.generation,r.state,COALESCE((SELECT x.state FROM safety_records x
     WHERE x.occurrence_id=r.id AND x.kind='exposure' ORDER BY length(x.sequence) DESC,x.sequence DESC LIMIT 1),r.state) final_state
     FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
-    WHERE r.id=? AND r.kind='occurrence' AND c.session_id=? AND c.history_owner_id=? AND c.generation=?`)
-    .get(body.occurrenceId, body.session.sessionId, body.session.historyOwnerId, body.session.historyGeneration) as { final_state: string } | null;
-  if (!r) return "unavailable";
+    WHERE r.id=? AND r.kind='occurrence'`)
+    .get(body.occurrenceId) as { turn_id: string; principal_id: string | null; generation: string; final_state: string } | null;
+  // The aggregate also includes adopted provisional collections. Use its
+  // canonical membership; a direct session_id filter strands those events.
+  if (!r || r.principal_id !== actor.principalId || r.generation !== body.session.historyGeneration || !safetyScopeTurns(db, null, body.session.sessionId).has(r.turn_id)
+    || db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(r.turn_id)) return "unavailable";
   if (db.query("SELECT 1 FROM safety_decisions WHERE occurrence_id=?").get(body.occurrenceId)) return "already_resolved";
   return r.final_state === "finalized" ? null : "not_finalized";
 }
@@ -78,7 +94,8 @@ export function prepareSafetyReview(db: Database, value: SafetyReviewBody, actor
     // The writer queue and BEGIN IMMEDIATE may both wait. Time belongs to
     // this acquired transaction, never to submission on the app connection.
     const observedAt = clock(now);
-    const reason = target(db, body, actor);
+    if (!authorized(db, actor, observedAt)) return receipt(body, null, null, "unauthorized", null);
+    const reason = safetyReviewTarget(db, body, actor.principalId);
     if (reason) return receipt(body, null, null, reason, null);
     prune(db, observedAt);
     const totals = db.query(`SELECT COUNT(*) n,COALESCE(SUM(reserved_bytes),0) bytes,
@@ -89,14 +106,15 @@ export function prepareSafetyReview(db: Database, value: SafetyReviewBody, actor
       return receipt(body, null, null, "capacity", null);
     const requestId = crypto.randomUUID(), operationId = crypto.randomUUID();
     const projection = safetyProjection(db, null, body.session.sessionId);
-    const problem = eligible(db, body) ?? (projection.evidenceRevision !== body.expectedEvidenceRevision ? "stale_revision" : null);
+    const problem = eligible(db, body, actor) ?? (projection.evidenceRevision !== body.expectedEvidenceRevision ? "stale_revision" : null);
     const at = clock(now);
+    if (!authorized(db, actor, at)) return receipt(body, null, null, "unauthorized", null);
     const result = receipt(body, requestId, operationId, problem, problem ? null : projection);
     const json = JSON.stringify(result);
     if (Buffer.byteLength(json) > RECEIPT_BYTES) throw new SafetyUnavailable("Safety review receipt capacity");
     db.query("INSERT INTO safety_review_requests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(requestId, operationId,
       body.session.sessionId, body.session.historyOwnerId, body.session.historyGeneration, body.occurrenceId,
-      actor.principalId, actor.channel, fingerprint(body), at, at + REQUEST_MS, problem ? at : null, json, RECEIPT_BYTES);
+      actor.principalId, actor.channel, fingerprint(body, actor), at, at + REQUEST_MS, problem ? at : null, json, RECEIPT_BYTES);
     return result;
   }).immediate();
 }
@@ -104,20 +122,21 @@ export function commitSafetyReview(db: Database, requestId: string, value: Safet
   locallyPending: boolean, locallyFailed: boolean = false, now: () => number = Date.now): SafetyReviewReceipt {
   const body = bodySchema.parse(value); id.parse(requestId); reviewer(actor);
   return db.transaction(() => {
+    if (actor.authority && !authorized(db, actor, clock(now))) return receipt(body, requestId, null, "unauthorized", null);
     // Retirement and exact host ownership precede even successful receipt replay.
-    const invalid = target(db, body, actor);
+    const invalid = safetyReviewTarget(db, body, actor.principalId);
     if (invalid) return receipt(body, requestId, null, invalid, null);
     const row = db.query("SELECT * FROM safety_review_requests WHERE id=?").get(requestId) as RequestRow | null;
     if (!row || row.principal_id !== actor.principalId || row.channel !== actor.channel)
       return receipt(body, requestId, null, "unavailable", null);
-    if (row.body_hash !== fingerprint(body)) return receipt(body, requestId, row.operation_id, "request_conflict", null);
+    if (row.body_hash !== fingerprint(body, actor)) return receipt(body, requestId, row.operation_id, "request_conflict", null);
     if (row.terminal_at !== null) {
       if (clock(now) >= row.terminal_at + RECEIPT_MS) return receipt(body, requestId, row.operation_id, "request_expired", null);
       return JSON.parse(row.receipt) as SafetyReviewReceipt;
     }
     let projection = safetyProjection(db, null, body.session.sessionId);
-    const eligibility = eligible(db, body), at = clock(now);
-    const reason = at < row.issued_at || at >= row.expires_at ? "request_expired" : eligibility
+    const eligibility = eligible(db, body, actor), at = clock(now);
+    const reason = !authorized(db, actor, at) ? "unauthorized" : at < row.issued_at || at >= row.expires_at ? "request_expired" : eligibility
       ?? (locallyFailed || projection.reasons.some(r => r === "recording_failed" || r === "capacity") ? "recording_failed" : null)
       ?? (locallyPending || projection.pendingCount ? "recording_pending" : null)
       ?? (projection.evidenceRevision !== body.expectedEvidenceRevision ? "stale_revision" : null);
