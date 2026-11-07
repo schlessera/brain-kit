@@ -1026,8 +1026,10 @@ known differing version pair; unknown versions do not imply a mismatch.
 
 Owner review is separately available through the two-phase
 [individual review API](../http-api.md#individual-safety-review)
-(#3603). Its exact request, immutable historical receipt, fresh aggregate,
-password-mode human authority, strict Origin/JSON checks, refusal envelopes and
+(#3603). Both supported method/path entries belong to the classified HTTP
+inventory, with matching mounted-handler and lifetime coverage. Its exact
+request, immutable historical receipt, fresh aggregate, password-mode human
+authority, strict Origin/JSON checks, refusal envelopes and
 lifetime/capacity bounds are authoritative there. Reviewing A never resolves
 later B/C, unknown coverage or failed recording. Prepared authority is checked
 on the acquired FULL transaction and final response boundary, including replay.
