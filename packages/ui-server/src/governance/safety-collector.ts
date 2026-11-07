@@ -12,6 +12,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
  const hash=(value:string)=>new Bun.CryptoHasher("sha256").update(value).digest("hex");
+ const observed=(toolUseId:string,detector:Parameters<typeof occurrence>[1],operationId:string)=>{
+  const item=occurrence(options.bindingId,detector,operationId,"open");
+  if(/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId))item.entry={kind:"tool",toolUseId};
+  item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
+  return item;
+ };
  const assertLive=()=>{if(options.signal.aborted)throw new Error("Safety input collection cancelled");};
  const fail=async(error:unknown)=>{
   const failures=[error];
@@ -43,7 +49,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     op.inputHashes.add(inputHash);operations.set(toolUseId,op);
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
      if(op.signals.some(prior=>prior.detector===signal.detector&&prior.key===signal.key))continue;
-     const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
+     const item=observed(toolUseId,signal.detector,op.id);
      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});
      op.occurrences.push(item.id);op.signals.push(signal);
     }
@@ -59,12 +65,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     if(op.done){if(op.outputHash!==outputHash)throw new Error("Conflicting safety result delivery");return;}
     // Each separately delivered external result segment has its own exposure.
     for(const _segment of (segments??[]).slice(1))for(const signal of op.signals.filter(signal=>["compute_input","external_mcp_input","attachment_input","tool_web_input"].includes(signal.detector))){
-      const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
+      const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
     // Record output independently, before the backend releases any of its bytes.
     for(const signal of outputTaintSignals(tool,output,options.brainPath,marked)){
-      const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
+      const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
     const state=finalized&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";

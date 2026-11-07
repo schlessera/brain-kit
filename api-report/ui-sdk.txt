@@ -13322,6 +13322,7 @@ signatures (every public export and the types it is made of)
         }>;
     }, z.core.$strict>, z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -13475,6 +13476,7 @@ signatures (every public export and the types it is made of)
   clientSafetyReadSchema (packages/ui-sdk/src/safety.ts)
     const clientSafetyReadSchema: z.ZodObject<{
         cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        includeEntries: z.ZodOptional<z.ZodLiteral<true>>;
         limit: z.ZodOptional<z.ZodNumber>;
         requestId: z.ZodString;
         target: z.ZodUnion<readonly [z.ZodObject<{
@@ -18107,6 +18109,10 @@ signatures (every public export and the types it is made of)
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
+            entry: z.ZodOptional<z.ZodObject<{
+                kind: z.ZodLiteral<"tool">;
+                toolUseId: z.ZodString;
+            }, z.core.$strict>>;
             epochId: z.ZodString;
             exposure: z.ZodEnum<{
                 finalized: "finalized";
@@ -18248,6 +18254,10 @@ signatures (every public export and the types it is made of)
         bindingId: z.ZodString;
         detailPruned: z.ZodBoolean;
         detector: z.ZodNullable<z.ZodString>;
+        entry: z.ZodOptional<z.ZodObject<{
+            kind: z.ZodLiteral<"tool">;
+            toolUseId: z.ZodString;
+        }, z.core.$strict>>;
         epochId: z.ZodString;
         exposure: z.ZodEnum<{
             finalized: "finalized";
@@ -18740,6 +18750,10 @@ signatures (every public export and the types it is made of)
             bindingId: z.ZodString;
             detailPruned: z.ZodBoolean;
             detector: z.ZodNullable<z.ZodString>;
+            entry: z.ZodOptional<z.ZodObject<{
+                kind: z.ZodLiteral<"tool">;
+                toolUseId: z.ZodString;
+            }, z.core.$strict>>;
             epochId: z.ZodString;
             exposure: z.ZodEnum<{
                 finalized: "finalized";
@@ -23272,6 +23286,10 @@ signatures (every public export and the types it is made of)
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
+                entry: z.ZodOptional<z.ZodObject<{
+                    kind: z.ZodLiteral<"tool">;
+                    toolUseId: z.ZodString;
+                }, z.core.$strict>>;
                 epochId: z.ZodString;
                 exposure: z.ZodEnum<{
                     finalized: "finalized";
@@ -23425,6 +23443,10 @@ signatures (every public export and the types it is made of)
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
+                entry: z.ZodOptional<z.ZodObject<{
+                    kind: z.ZodLiteral<"tool">;
+                    toolUseId: z.ZodString;
+                }, z.core.$strict>>;
                 epochId: z.ZodString;
                 exposure: z.ZodEnum<{
                     finalized: "finalized";
@@ -23986,6 +24008,10 @@ signatures (every public export and the types it is made of)
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
+                entry: z.ZodOptional<z.ZodObject<{
+                    kind: z.ZodLiteral<"tool">;
+                    toolUseId: z.ZodString;
+                }, z.core.$strict>>;
                 epochId: z.ZodString;
                 exposure: z.ZodEnum<{
                     finalized: "finalized";
@@ -24155,6 +24181,10 @@ signatures (every public export and the types it is made of)
                 bindingId: z.ZodString;
                 detailPruned: z.ZodBoolean;
                 detector: z.ZodNullable<z.ZodString>;
+                entry: z.ZodOptional<z.ZodObject<{
+                    kind: z.ZodLiteral<"tool">;
+                    toolUseId: z.ZodString;
+                }, z.core.$strict>>;
                 epochId: z.ZodString;
                 exposure: z.ZodEnum<{
                     finalized: "finalized";
