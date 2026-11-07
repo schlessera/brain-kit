@@ -4959,3 +4959,16 @@ mutation flags false. `ServerHello.safetyCapabilities` is optional. Runtime
 client/server frame parsers validate the additive frames. They are concrete
 wire DTOs, not a new extension seam. Bounds and recovery semantics are in
 [the wire contract](wire.md#session-safety-history-additive-3604).
+
+## Individual owner safety review DTOs (additive, #3603)
+
+`@schlessera/brain-ui-sdk/protocol` adds `SafetyReviewBody`,
+`SafetyReviewReceipt` and `SafetyReviewResponse`. `/schemas` adds
+`safetyProjectionSchema`, `safetyReviewBodySchema`, `safetyReviewReceiptSchema`
+and `safetyReviewResponseSchema`. These strict, bounded DTOs describe the
+[two-phase HTTP API](../http-api.md#individual-safety-review); they expose no
+model tool or publication seam. Historical receipt projections and fresh
+`currentProjection` are distinct. `SafetyCapabilities.review` is boolean and
+its read-only reason additionally accepts `owner_required` or null; optional
+literal review lifetime/body bounds describe a supporting host. Absent or
+unsupported capability remains unavailable and grants no mutation authority.

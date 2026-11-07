@@ -2905,10 +2905,18 @@ not renew the acknowledgement or establish backend/tool entry.
 
 The optional boolean `sessionSafetyHistory` in `server_hello.capabilities`
 advertises read-only host sidecars. The optional sibling `safetyCapabilities`
-is version 1: `read:true`, `review:false`, `originRules:false`,
+is version 1: `read:true`, `review:boolean`, `originRules:false`,
 `repositoryRules:false`, `recipientRules:false`,
-`readOnlyReason:"review_unavailable"`, detector version 1 and effective page,
-frame and cursor limits. Older clients ignore these optional fields; clients
+`readOnlyReason:"review_unavailable"|"owner_required"|null`, detector version 1
+and effective page, frame and cursor limits. Hosts exposing #3603's individual
+HTTP review set `review:true` and a null reason only for the live password-mode
+human owner; other callers receive false with `owner_required`. Hosts without
+that service retain `SAFETY_READ_CAPABILITIES` and `review_unavailable`.
+Review hosts optionally add literal `reviewBodyBytes:16384`,
+`reviewLifetimeMs:900000` and `receiptLifetimeMs:86400000` limits. Capability
+advertisement grants no authority: every HTTP operation rechecks it, and no WS
+review/mutation frame is accepted. Standing-rule flags remain false.
+Older clients ignore these optional fields; clients
 without both read declarations report unavailable and send no read/unsubscribe
 frames to an unsupported host. No verdict endpoint,
 mutation authority or fully qualified detector is implied by read support.

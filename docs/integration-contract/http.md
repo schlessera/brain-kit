@@ -1024,6 +1024,18 @@ known differing version pair; unknown versions do not imply a mismatch.
 
 ## Session safety history read (additive, #3604)
 
+Owner review is separately available through the two-phase
+[individual review API](../http-api.md#individual-safety-review)
+(#3603). Its exact request, immutable historical receipt, fresh aggregate,
+password-mode human authority, strict Origin/JSON checks, refusal envelopes and
+lifetime/capacity bounds are authoritative there. Reviewing A never resolves
+later B/C, unknown coverage or failed recording. Prepared authority is checked
+on the acquired FULL transaction and final response boundary, including replay.
+Migration 084 retains finalized-only SQLite enforcement while accepting the
+aggregate's durable canonical/adopted membership; no old decision is rewritten.
+This additive transport implements the already approved individual-verdict
+semantics and ships with a minor changeset under the pre-1.0 ruling.
+
 `GET /api/sessions/:id/safety` adds the bounded authenticated `SafetyPage`
 read defined by [the HTTP specification](../http-api.md#session-safety-sidecars)
 and [wire sidecars](wire.md#session-safety-history-additive-3604). Queries never

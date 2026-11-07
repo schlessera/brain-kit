@@ -74,6 +74,8 @@ export interface WsHostOptions {
   safetyTrust?: import("../governance/effective-safety.js").LiveTrustRevision;
   /** @internal Concrete read-only host evidence reader. */
   safetyHistory?: import("../governance/safety-history.js").SafetyHistory;
+  /** @internal Live password-mode owner review capability; no model tool. */
+  ownerSafetyReviews?: import("../governance/owner-safety-reviews.js").OwnerSafetyReviews;
   /** @internal Concrete user history service mounted by this host, not agent authority. */
   turnReverts?: import("../brain/turn-revert.js").TurnReverts;
   /** @internal The brain/git lock the host shares, when the app built a service that needs it first. */
@@ -359,11 +361,14 @@ export class WsHost {
   readonly dialogue: DialogueJournal;
   /** @internal Concrete read-only host evidence reader. */
   readonly safetyHistory?: import("../governance/safety-history.js").SafetyHistory;
+  /** @internal Browser-only individual verdict service. */
+  readonly ownerSafetyReviews?: import("../governance/owner-safety-reviews.js").OwnerSafetyReviews;
   private readonly historyReads = new Set<{ sessionId: string; changed: boolean; resultTurnId?: string }>();
 
   constructor(options: WsHostOptions) {
     this.safetyTrust = options.safetyTrust;
     this.safetyHistory = options.safetyHistory;
+    this.ownerSafetyReviews = options.ownerSafetyReviews;
     this.turnReverts = options.turnReverts;
     this.workerLock = options.workerLock ?? createKeyedLock();
     this.journal = options.journal;

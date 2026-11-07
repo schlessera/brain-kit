@@ -1933,3 +1933,73 @@ explicit bounded stubs retaining occurrence IDs. The final page means that
 snapshot has been assembled, separately from detector completeness. Read
 [revisioned delivery](integration-contract/wire.md#session-safety-history-additive-3604)
 for reconnect, subscription and client rules.
+
+### Individual safety review
+
+`POST /api/sessions/:id/safety/reviews/prepare` prepares exactly one finalized
+occurrence. `POST /api/sessions/:id/safety/reviews/:requestId/commit` commits or
+reads back that host-issued handle. Both accept only this strict JSON body:
+
+```json
+{
+  "version": 1,
+  "session": {
+    "sessionId": "ithaca",
+    "historyOwnerId": "voyage",
+    "historyGeneration": "1"
+  },
+  "occurrenceId": "harbour-notice",
+  "expectedEvidenceRevision": "12",
+  "verdict": "safe"
+}
+```
+
+The path and body session must agree. IDs are 1–128 ASCII letters, digits,
+underscore or hyphen; revisions are canonical unsigned 64-bit decimal strings.
+Bodies are at most 16384 UTF-8 bytes. Query parameters, additional fields,
+caller principals/channels, ranges, arrays and standing rules are refused.
+An arbitrary caller-generated request ID never prepares a mutation.
+
+Only a live password-mode owner authenticated by password or passkey may
+mutate. A signed delegated cookie remains insufficient. Proxy, tailscale and
+local/no-auth identities remain read-only. These browser operations require
+`application/json` and a present exact matching HTTP(S) `Origin`; fetch metadata
+does not override a missing or foreign Origin. The host stamps the reviewer
+and channel and binds the prepared body to the served database, principal,
+authentication epoch, exact session generation and occurrence. The brain key
+uses the existing host-seeded canonical-root partition identity, so two roots
+sharing a UI database cannot commit or replay one another's prepared handles.
+Live authority
+is checked inside the acquired FULL writer transaction after queue/lock waits,
+including for receipt replay, and again at response delivery. Retirement and
+revocation take precedence over retry readback.
+
+Success is `200` with `{version:1,receipt,currentProjection}`. `receipt` is the
+immutable `SafetyReviewReceipt`: `version`, nullable `requestId`/`operationId`,
+exact `session`/`occurrenceId`, `stage: prepared|verdict_committed|refused`,
+`verdict: unresolved|committed`, nullable historical `projection` and nullable
+`reason`. Refused receipts carry no historical normal projection.
+`currentProjection` is a separate fresh aggregate, including local pending
+input and recorder failure. For example, retrying A's committed receipt after
+B and C arrive returns A's original fact alongside two unresolved occurrences;
+it never rewrites that fact or clears B/C. The expected evidence revision is
+the global history/review revision, separate from scoped admission revisions.
+
+Nonfinalized, already-resolved, stale, conflicting or expired handles return
+`409`; unknown/foreign/retired targets return non-disclosing `404`; authority
+refusals return `403`, capacity or recording-failure receipts `503`. Refusals
+include bounded `{code,reason,retryable:false}` beside the receipt response;
+before a receipt exists only that error envelope is returned. Oversized bodies
+return `413`, malformed bodies `400`, and non-JSON media types `415`. The
+existing auth middleware retains its unauthenticated/expired-cookie `401`
+envelope. Every route response is `Cache-Control: no-store`.
+
+Handles expire after 900000 ms; terminal receipts retain their original result
+for 86400000 ms after completion. Existing per-principal/brain request and
+prepaid verdict bounds apply. The transport additionally allows at most 32
+in-flight service requests per principal and 256 per brain. Canonical history
+membership includes durably adopted provisional collections, with the same
+principal, generation, finalized-exposure and permanent retirement fences in
+the writer and SQLite trigger. Resolving a known event cannot repair unknown
+detector coverage, recording loss or another unresolved event. No model/voice
+tool, WS mutation frame, Settings rule or provider transcript edit is added.
