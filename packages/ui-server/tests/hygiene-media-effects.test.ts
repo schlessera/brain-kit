@@ -314,6 +314,31 @@ test("undo-media from review undoes a resolved Delete, records the Undo on the c
   expect(again?.status).toBe("pending");
 });
 
+test("undo-media while another card is pending, or after the pass ended, counts the restored file as awaiting review again (#2783)", async () => {
+  const f = await setup();
+  const card = await reviewWithTwo(f);
+  expect(f.review.read().review.media, "MEDIA_REVIEW_COUNT_BEFORE").toEqual({ awaitingReview: 2, setAside: 0, kept: 0 });
+  await resolveWith(f, card.id, "media-delete");
+  const second = f.review.read().action!;
+  expect(f.review.read().review.media).toEqual({ awaitingReview: 1, setAside: 0, kept: 0 });
+  const journalId = createInboxStoreRead(f.db, card.id)!.hygiene!.outcome!.media!.journalId;
+  // The other card stays the pending one, and the count the review shows is the CLI's again.
+  const undone = await f.review.undoMedia(f.reviewer.id, journalId);
+  expect(undone.mediaUndo.outcome).toBe("undone");
+  expect(undone.action?.id, "MEDIA_REVIEW_UNDO_KEEPS_CARD").toBe(second.id);
+  expect(undone.review.media, "MEDIA_REVIEW_UNDO_RECOUNTED").toEqual({ awaitingReview: 2, setAside: 0, kept: 0 });
+  expect((await f.brain.hygiene!(["next"]) as { media: { awaitingReview: number } }).media.awaitingReview, "MEDIA_REVIEW_UNDO_CLI_COUNT").toBe(2);
+  // After the pass: deleting the last one ends it, and its Undo is counted although nothing selects.
+  await resolveWith(f, second.id, "media-delete");
+  const third = f.review.read().action!;
+  await resolveWith(f, third.id, "media-delete");
+  expect(f.review.read().review.status).toBe("complete");
+  expect(f.review.read().review.media).toEqual({ awaitingReview: 0, setAside: 0, kept: 0 });
+  const last = await f.review.undoMedia(f.reviewer.id, createInboxStoreRead(f.db, third.id)!.hygiene!.outcome!.media!.journalId);
+  expect(last.review.status, "MEDIA_REVIEW_UNDO_PASS_STAYS_COMPLETE").toBe("complete");
+  expect(last.review.media, "MEDIA_REVIEW_UNDO_RECOUNTED_COMPLETE").toEqual({ awaitingReview: 1, setAside: 0, kept: 0 });
+});
+
 test("undo-media refuses before any write when a file changed since, and the card shows why", async () => {
   const f = await setup();
   const card = await reviewWithTwo(f);
