@@ -2513,7 +2513,7 @@ relative to the handle (`function requireWorkerBrainMount`,
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
-`packages/ui-sdk/src/server/worker-identity-program.ts:189-209`).
+`packages/ui-sdk/src/server/worker-identity-program.ts:206-226`).
 
 The view grants observation of exactly what the gated worker sees at its own
 brain path, and nothing the server cannot already read: the live brain, the
