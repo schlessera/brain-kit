@@ -40,10 +40,29 @@ A supplied value takes precedence over automatic Deepgram key detection. If
 `config.voice.provider` is set (including by `VOICE_PROVIDER`), it must equal
 the supplied id. Ids are nonempty, trimmed and lowercase. Without a value,
 `deepgram`/`webspeech` keep their existing selection rules; absent credentials
-never select browser speech. A mismatch or provider failure returns 500
-`{ error }` from the existing protected `POST /api/voice/session`, without
-trying another service. Validation occurs on that request, before calling an
-invalid provider or publishing an invalid session.
+never select browser speech. A mismatch, an invalid legacy value, session
+validation and provider failures return 500 `{ error }` from the protected
+`POST /api/voice/session`, without trying another service.
+
+To offer several services, pass `createApp({ speechProviders: [first, second],
+defaultSpeechProviderId: first.id })`. The list adds to configured built-ins;
+duplicate ids (including built-in collisions), supplying both registration options,
+and an unregistered `defaultSpeechProviderId` fail construction. Browser speech remains opt-in.
+The legacy single value replaces built-ins. A saved dictation choice overrides
+the host default; a removed saved choice blocks dictation until explicitly changed.
+Registration snapshots metadata, capabilities and bound methods; changing a supplied
+object afterward does not alter the registered set or running operations.
+
+Optional `label` and `destination` describe the service to users. Keep credentials
+out of both. Declare `smartTranscription: true` only if `createSession` honors
+`mode: "smart" | "verbatim"`; the server passes mode only for that capability.
+The saved switch starts true. Existing implementations need no new fields.
+Use `voiceProviders()` for discovery (no mint), then send the disclosed id in
+`voiceSession(signal, { providerId, smart })`. Saved recordings send
+`Speech-Provider` with the confirmed id; a retry must retain the receipt's provider.
+See the [HTTP specification](../http-api.md#selectable-dictation-providers) for
+settings revisions, exact selection errors and the no-fallback rule. Gemini's
+built-in factory is implemented separately in #3708; no placeholder is registered.
 
 The four streaming capabilities are boolean. Optional `savedAudio` is derived from a callable `transcribeRecording`; a contradictory explicit declaration is rejected. `streaming` describes streaming recognition,
 `interimResults` controls partial display, `keyterms` controls domain-term

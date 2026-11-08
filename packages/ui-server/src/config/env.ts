@@ -703,12 +703,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "DEEPGRAM_API_KEY",
     description: "Deepgram API key for streaming ASR (short-lived tokens are minted from it).",
     default: null,
-    required: "VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech)",
+    required: "When registering built-in Deepgram dictation",
   },
   {
     name: "VOICE_PROVIDER",
     description:
-      'Speech provider: "deepgram", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present.',
+      'Host default dictation provider: "deepgram", "webspeech" (explicit opt-in; Chromium streams audio to Google), or a registered by-value id. createApp({ defaultSpeechProviderId }) takes precedence. A legacy speechProvider replaces built-ins and must match this name. Unset prefers that value, otherwise registered deepgram. A saved dictation choice overrides the host default; an unavailable saved choice never falls back.',
     default: "(auto-detect)",
     required: false,
   },

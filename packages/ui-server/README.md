@@ -415,7 +415,7 @@ under the [service terms](../geo/README.md#configuration).
 | `COASTLINE_CACHE_DIR` | Directory holding fetched map geometry. Cached forever; coastlines do not move. | $BRAIN_PATH/.brain-ui/geo |
 | `COOKIE_SECRET` | Secret signing the session cookie. | **required** — AUTH_MODE=password |
 | `DB_PATH` | SQLite file for the UI's own database (sessions, passkeys, settings). The turn journal keeps its own database beside it, DB_PATH.journal.db, with the same permissions. Must resolve outside the brain; an in-brain operational-state layout refuses boot with migration guidance. The server factory defaults to ./brain-ui.db; brain-ui-cron defaults to the container path /data/db/brain-ui.db. | ./brain-ui.db (server); /data/db/brain-ui.db (brain-ui-cron) |
-| `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech) |
+| `DEEPGRAM_API_KEY` | Deepgram API key for streaming ASR (short-lived tokens are minted from it). | **required** — When registering built-in Deepgram dictation |
 | `GITHUB_TOKEN` | Generic GitHub token fallback. Used for skill installs when BRAIN_UI_SKILLS_GITHUB_TOKEN is unset; the host sync mirror transport falls back to it when BRAIN_UI_SYNC_GITHUB_TOKEN is unset. These GitHub tokens never reach brain maintenance workers. | — |
 | `HOME` | Fallback anchor for the BRAIN_PATH default and the pi config dir (~/.pi). | /root |
 | `HOST` | Bind host; consulted by the auth validation to decide whether AUTH_MODE=none is loopback-safe. | (empty) |
@@ -432,7 +432,7 @@ under the [service terms](../geo/README.md#configuration).
 | `TYPESAFE_API_KEY` | TypeSafe AI key for the classification pass that draws markdown the model typed as kit blocks (D42). Absent = pass disabled; the answer renders as markdown either way. | — |
 | `VOICE_CACHE_DIR` | Directory holding the keyterm cache JSON. | $BRAIN_PATH/.brain-ui |
 | `VOICE_KEYTERM_LIMIT` | Maximum custom-vocabulary terms built from the brain database. | 500 |
-| `VOICE_PROVIDER` | Speech provider: "deepgram", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present. | (auto-detect) |
+| `VOICE_PROVIDER` | Host default dictation provider: "deepgram", "webspeech" (explicit opt-in; Chromium streams audio to Google), or a registered by-value id. createApp({ defaultSpeechProviderId }) takes precedence. A legacy speechProvider replaces built-ins and must match this name. Unset prefers that value, otherwise registered deepgram. A saved dictation choice overrides the host default; an unavailable saved choice never falls back. | (auto-detect) |
 | `WEBAUTHN_ORIGINS` | Comma-separated extra origins allowed for WebAuthn ceremonies. | (empty) |
 | `WEBAUTHN_RP_ID` | Relying-party id override for proxies that rewrite Host. | (derived from the request origin) |
 | `WEBAUTHN_RP_NAME` | Relying-party display name shown by authenticators. | Brain UI |

@@ -12,6 +12,7 @@ import {
   isBillingMode,
   isThinkingLevel,
   type BillingMode,
+  type DictationSettings,
   type ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -188,4 +189,27 @@ export function getDetailRetentionDays(db: Database, log?: Logger): number {
 
 export function setDetailRetentionDays(db: Database, days: number): void {
   setSetting(db, DETAIL_RETENTION_KEY, days);
+}
+
+const DICTATION_KEY = "voice.dictation";
+/** Invalid rows are discarded as a whole; removed provider ids stay saved. */
+export function getDictationSettings(db: Database): DictationSettings {
+  const fallback = { defaultProvider: null, smart: true, revision: "0" };
+  const value = getSetting<unknown>(db, DICTATION_KEY, null);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const row = value as Record<string, unknown>;
+  if (!(row.defaultProvider === null || typeof row.defaultProvider === "string" && row.defaultProvider.length > 0 && row.defaultProvider === row.defaultProvider.trim().toLowerCase()) ||
+      typeof row.smart !== "boolean" || typeof row.revision !== "number" || !Number.isSafeInteger(row.revision) || row.revision < 0) return fallback;
+  return { defaultProvider: row.defaultProvider, smart: row.smart, revision: String(row.revision) };
+}
+
+/** The revision comparison and write run in the same writer transaction. */
+export function saveDictationSettings(db: Database, expected: string, value: { defaultProvider: string | null; smart: boolean }) {
+  return db.transaction(() => {
+    const current = getDictationSettings(db);
+    if (expected !== current.revision || Number(current.revision) >= Number.MAX_SAFE_INTEGER) return { saved: false, current };
+    const revision = Number(current.revision) + 1;
+    setSetting(db, DICTATION_KEY, { ...value, revision });
+    return { saved: true, current: { ...value, revision: String(revision) } };
+  }).immediate();
 }

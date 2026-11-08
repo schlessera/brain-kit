@@ -85,6 +85,18 @@ A brain usually hits the pain well before those limits.
   scratch file whole for every request. A file too large for the files route
   shows no preview at all. After a change, the receipt stays above the next
   file with *Undo…* while its rollback data is retained.
+- **What each choice leaves for the next sync.** *Persist here* adds an
+  exact `media.track` entry, so the next `brain sync` commits the file where it
+  is. *Move to a final location…* moves the file and rewrites the notes that
+  link to it, without adding a rule: the next sync commits it there when
+  `media.track` already covers that folder, and otherwise counts it again,
+  under its new path. *Keep a permanent copy…* copies a conversation-linked
+  scratch file to a tracked place, so the next sync commits the copy only.
+  *Delete…* removes the file, and *Leave pending* changes nothing. Undo puts
+  back every byte the change wrote; a sync that ran after it commits none of
+  them. Git never persists a file that `media.ignore` or `.gitignore`
+  ignores, or anything in the scratch area: the next sync leaves those files
+  out, and an original in scratch stays under ordinary scratch pruning.
 - **The template's `.gitignore`** has a commented media section to start from.
 
 ## Git LFS for large masters

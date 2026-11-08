@@ -12,9 +12,10 @@ Tool names and input schemas are stable:
 | Tool | Annotations | structuredContent |
 |------|-------------|-------------------|
 | `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet, supersededBy? }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0. `supersededBy`, the path of the document that `supersedes` this one, is present only when one does (additive in 0.38.0) |
-| `brain_context` | readOnly | `{ context, warnings }` |
+| `brain_context` | readOnly | `{ context, warnings }`, plus `coverage` when the call has a path scope (additive in 0.45.0; see [Scoped context](#scoped-context-additive-0450-3644)) |
 | `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
-| `brain_list` | readOnly | `{ documents, warnings }` |
+| `brain_list` | readOnly | `{ documents, warnings }`; with `path_prefix`, `overview` or `cursor`, one bounded page `{ documents, next_cursor, total, truncated?, warnings }` (see [paged inventory](#brain_list-paged-inventory-additive-0450-3643), additive in 0.45.0) |
+| `brain_read_many` (additive, 0.45.0) | readOnly | none — the first and only `content` block is the compact JSON envelope `{ items, truncated, max_total_chars, max_item_chars, warnings }`; see [Bounded multi-read](#bounded-multi-read-additive-0450-3642) |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
 | `brain_compute_*` | see [External compute tools](#external-compute-tools-additive-0450-3107) | the `brain compute` envelope |
@@ -35,7 +36,7 @@ characters collapse to single spaces and it is capped at 80 characters, so a
 config value cannot add lines of its own. They point to `brain_search`,
 `brain_context`, `brain_read` and `brain_graph` for reading, and `brain_add`
 and `brain_update` for writing, and say that `brain.db` is never edited
-(`serverInstructions`, `packages/core/src/mcp-server.ts:79-93`). Since 0.45.0
+(`serverInstructions`, `packages/core/src/mcp-server.ts:95-109`). Since 0.45.0
 they add one sentence: the `brain_apify_*` tools reach Apify's paid remote
 extractors under the governance policy, are not web search, and discovering or
 inspecting an Actor never runs it. Tool descriptions are descriptive in the
@@ -52,16 +53,188 @@ applies one:
 | Tool | Inputs |
 |------|--------|
 | `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`\|`jev`; omitted → the configured provider when `reranker.enabled` is true and available, otherwise local heuristic. An explicit `jev` cannot enable judgment while off; it warns and falls back. 0.39.0 added `jev` and dropped the schema default of `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
-| `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
+| `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`), `include?`, `exclude?` (each at most 64 paths of 1 to 512 characters; additive in 0.45.0, see [Scoped context](#scoped-context-additive-0450-3644)) |
 | `brain_read` | `path`, `section?` (a heading's visible text, compared under Unicode canonical caseless matching (full case folding); the body is parsed as GFM, and only top-level ATX and setext headings count, never one inside code, HTML, a table, a list or a blockquote; the section runs to the next heading of the same or higher level; of two equal headings the first is returned; an unknown one is an error naming the document's headings), `max_tokens?` (positive safe integer; the threshold for the outline, not an output cap; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
-| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100) |
+| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100), `path_prefix?`, `overview?` (boolean), `cursor?` (the three additive in 0.45.0, #3643) |
 | `brain_graph` | `path`, `depth?` (default `1`), `direction?` (`outgoing`\|`incoming`\|`both`, default `both`) |
+| `brain_read_many` | `requests` (1–20 of `{ path, section?, offset?, column?, expected_sha256? }`; no other key), `max_total_chars?` (integer `2000`–`40000`; `24000` when omitted), `max_item_chars?` (integer `512`–`40000` and at most `max_total_chars`; `8000`, or `max_total_chars` if smaller, when omitted). Additive in 0.45.0; see [Bounded multi-read](#bounded-multi-read-additive-0450-3642) |
 | `brain_add` | `content`, `type?`, `title?`, `tags?` (comma-separated) |
 | `brain_update` | `path`, `summary?`, `status?` (`active`\|`archived`\|`draft`), `relevance?` (`primary`\|`secondary`\|`historical`), `tags?` (comma-separated, replaces), `deadline?`, `next_review?` (ISO 8601; `""` removes), `append_content?`. Setting `status: "archived"` applies `brain_archive`'s relevance rule to the effective relevance (the `relevance` passed in the same call, else the document's): a `primary` or missing one becomes `historical` and `"relevance"` is listed in `changes`; an explicit `secondary` or `historical` stays (additive in 0.38.0) |
 | `brain_archive` | `path`, `dry_run?` (default `false`) |
 
 Read tools append an index-staleness warning when markdown files are newer
-than their `indexed_at`.
+than their `indexed_at`; `brain_read_many` carries it, once, in its envelope's
+`warnings` instead of a second content block.
+
+<a id="brain_list-paged-inventory-additive-0450-3643"></a>
+
+### `brain_list` paged inventory (additive, 0.45.0, #3643)
+
+Passing any of `path_prefix`, `overview` or `cursor`, even `overview: false`,
+selects one bounded page of the shared paged inventory instead of the legacy
+listing: `{ documents, next_cursor, total, truncated?, warnings }`, newest
+`updated` first then by `path`, at most 30,000 UTF-8 bytes of compact JSON,
+whole rows only. Every row keeps the six listing fields; `overview: true` adds
+`summary`, `updated`, `deadline`, `indexed_at` and `indexed_body_bytes`, and a
+row shortened to fit names the fields in `clipped`. `updated` is the
+frontmatter date as indexed, not the file's mtime or project activity;
+`indexed_body_bytes` is the UTF-8 size of the indexed body without its
+frontmatter, never the whole file's size. `path_prefix` matches whole path
+segments. `next_cursor` is `null` at the end; a malformed cursor, a cursor
+from a listing with other filters or prefix, and a malformed prefix are tool
+errors (`isError: true`, no `structuredContent`) naming the input. The page
+carries the server's usual warnings, a stale-cursor warning when the index
+changed since the cursor was issued, and, with `overview`, a warning for
+listed sources changed after indexing or missing. Pi's `brain_list` takes the
+same three inputs and returns the same page as compact JSON text, and pi's
+`brain_search` takes `overview` to show each result's status, `updated`,
+`deadline` and summary (whitespace collapsed, at most 300 code points)
+within its 30,000-byte output, keeping whole results and ending with
+`… <n> more result(s) omitted to fit the output budget` when they do not all
+fit; without it pi's search output is unchanged. The fields, order, cursor,
+bound and warnings are specified once in
+[the paged inventory](../content-index-queries.md#paged-inventory-and-the-overview-projection).
+A call with none of the three inputs returns the legacy `{ documents,
+warnings }` byte for byte.
+
+<a id="scoped-context-additive-0450-3644"></a>
+
+### Scoped context (additive, 0.45.0, #3644)
+
+`brain_context` takes two optional path lists, `include` and `exclude`; `brain
+context` takes them as repeatable `--include` and `--exclude` flags and pi's
+`brain_context` as `include` and `exclude` parameters. All three call one
+assembler (`assembleContext`, `packages/core/src/lib/context-assembler.ts:346-567`),
+which validates the scope (`parseContextScope`,
+`packages/core/src/lib/context-scope.ts:105-133`) before anything is read.
+
+- **Entries.** A repository-relative path. One ending in `/` is a folder
+  prefix and covers everything under it at any depth; any other entry names
+  exactly one file (`projects` is a file called `projects`, not the folder).
+  There are no globs. An absolute path, a `.`, `..` or empty segment, `\`,
+  `:` or a control character is refused: a tool error on MCP, a usage error
+  (exit `1`, nothing on stdout, no query run) on the CLI, a thrown tool error
+  on pi. Each list holds at most 64 entries of 1 to 512 characters.
+- **Precedence.** An exclusion wins over an inclusion everywhere. With no
+  include list, every path not excluded is in scope; with one, only the paths
+  it covers. Include entries match case-sensitively; exclude entries match
+  under Unicode compatibility case folding, so a differently cased spelling of
+  an excluded path is still excluded. A file is also checked under its real
+  path: an in-repository symlink to an excluded file is excluded, and one that
+  leaves the root is unavailable.
+- **Every lane.** The scope applies before a source file is opened, to the
+  identity and current-focus documents, to the search pool (drawn from the
+  scope's indexed paths, so nothing outside it takes a place or fills spare
+  budget), to each hit's section expansion and to the `### Related`
+  neighbours; an out-of-scope `_index.md` is passed over for the next one up.
+  An include list that does not cover the identity or current-focus document
+  leaves it out. The scope only narrows: it never makes readable what the
+  index, policy or provider masks leave out.
+- **Coverage.** A scoped call returns `coverage`: `{ exhaustive: false,
+  include, exclude, excerpts: [{ path, lane, form }], omitted: [{ path, reason
+  }], omittedMore, budgetExhausted }`. `lane` is `identity`, `focus`, `search`
+  or `related`; `form` is `whole`, `cut`, `section`, `snippet` or `summary`.
+  `reason` is `budget` (an in-scope candidate with no room), `unavailable`
+  (named or canonical but not indexed, missing, unreadable or outside the
+  root), `not_ranked` (an exactly included path the query did not select) or
+  `excluded` (an exactly included path an exclusion also covers). At most 64
+  omissions are listed; `omittedMore` counts the rest. A briefing is ranked
+  and budgeted, never an inventory: a path in scope that is in neither list
+  was simply not selected. MCP adds `coverage` to `structuredContent` and a
+  `### Coverage` note as the last content block; the CLI prints the note after
+  the context, and pi appends it to the tool text and puts `coverage` in the
+  result's `details`. The note is outside the token budget; it names the
+  partial excerpts (`snippet` or `cut`), whose files hold more than the
+  briefing shows, and the omissions, at most 20 of each.
+- **Unscoped calls are unchanged.** Without an entry in either list, output,
+  `structuredContent` and defaults are what they were: MCP and the CLI include
+  identity and current focus by default; pi never does, scoped or not, since
+  its session already loads them.
+
+<a id="bounded-multi-read-additive-0450-3642"></a>
+
+### Bounded multi-read (additive, 0.45.0, #3642)
+
+`brain_read_many` reads up to 20 documents or sections under one size budget.
+MCP serves it as `brain_read_many`, pi registers a tool of the same name with
+the same input, and `brain read-many --json` prints the same envelope. All
+three run one core operation (`readMany`,
+`packages/core/src/lib/ops/read-many.ts:426-480`); the decision behind it is
+[bounded-multi-read.md](../decisions/bounded-multi-read.md). `brain_read` is
+unchanged: its output, its whole-file default and its uncapped `max_tokens`
+threshold are what they were, and so is the hosted `brain_read_base`.
+
+- **Unit.** Every size is UTF-16 code units of compact JSON,
+  `JSON.stringify(x).length`, field names, quoting, metadata and escaping
+  included. The whole envelope is at most `max_total_chars` and each item at
+  most `max_item_chars`. UTF-8 bytes can be up to three times that.
+  `est_tokens` is `ceil(chars / 4)`, an estimate, never a provider count.
+- **Refused whole.** A call that fails the schema, sets `column` without
+  `offset`, sets `max_item_chars` above `max_total_chars`, or whose caps
+  cannot hold a `budget_exhausted` stub for every request (or a stub within
+  `max_item_chars`) reads nothing: a tool error on MCP and pi, a usage error
+  (exit `1`, nothing on stdout) on the CLI. Nothing is clamped.
+- **Envelope.** `{ items, truncated, max_total_chars, max_item_chars, warnings }`.
+  `items[i].index === i`, in request order, which is the caller's priority.
+  Before each item the call reserves room for a stub for every later request,
+  so a later request is answered, at worst, as `budget_exhausted`, never
+  dropped. `truncated` is true when an item is an `outline`, an `error`, or a
+  `partial` with a `next`. `warnings` holds the call's tool warnings once: on
+  MCP the read tools' config, module-load and stale-index warnings; the CLI
+  and pi have none.
+- **Items.** Each has `index`, `path` (as given), `section` when asked, and a
+  `kind`:
+  - `full`: `sha256`, `content`. `content` is byte for byte what `brain_read`
+    returns for the same `path` and `section`.
+  - `outline`: the scope does not fit and has headings to choose between (a
+    section needs a subheading). `sha256`, `bytes`, `chars`, `est_tokens` (of
+    the scope), `frontmatter` (whole document only, when it fits whole;
+    otherwise `frontmatter_chars`), `headings: [{ level, text, est_tokens }]`
+    in document order while they fit, `omitted_headings` when some did not,
+    and `next: { offset: 1 }`. An outline that could hold no heading is not
+    returned; the scope is paged instead.
+  - `partial`: the scope has nothing to choose between, or `offset` was given.
+    `sha256`, `bytes`, `chars`, `est_tokens`, `offset`, `column` (when not
+    `0`), `lines` (of the scope), `returned_lines` (lines touched, one cut
+    short included), `text` and, unless the page reaches the end, `next: {
+    offset, column? }`. A page takes whole lines while they fit, then the
+    fitting prefix of the next line, cut on a code point. Requesting `next`
+    each time and joining every page's `text` reproduces the scope exactly.
+  - `duplicate`: `of`, the index of an earlier request that resolves to the
+    same file (through spelling and in-root links) with the same section
+    (compared as `section` matches headings), `offset`, `column` and
+    `expected_sha256`. That item stands for both, whatever its kind.
+  - `error`: `code`, `message` (fixed text, never a host path), and `sha256`
+    and `headings` where noted.
+- **Error codes.** `refused` (the path is absolute, has a `..`, colon or
+  backslash segment, or leaves the root through a link: `brain_read`'s rule),
+  `not_found`, `not_a_file`, `too_large` (over 4 MiB, checked again after the
+  read), `work_limit` (the call has read 16 MiB of distinct files),
+  `read_failed`, `section_not_found` (with `sha256` and as many of the
+  document's heading texts as fit in `headings`), `source_changed` (the file's
+  SHA-256 is not `expected_sha256`; carries the current `sha256`),
+  `bad_offset` (past the last line, past the end of the offset line, or a
+  `column` that splits a surrogate pair; carries `sha256`) and
+  `budget_exhausted`. One item's error never fails the call. Consumers
+  tolerate unknown codes.
+- **Versions.** Each distinct file is read once per call, so every item of
+  it names the same `sha256`: the SHA-256 of its bytes, the hash
+  `brain_read_base` calls `expectedBaseHash`. It is a retrieval version, not a
+  hosted write receipt: pi's `brain_read_many` records no write base.
+- **Authority.** Each request is resolved as one `brain_read` resolves it, by
+  the same resolver on each surface, and read through the filesystem the
+  caller runs in, so provider masks and data trees apply as they do to
+  `brain_read`. MCP marks it `readOnlyHint: true`; both backends auto-allow it
+  as they do `brain_read`, it is in the Claude voice posture, takes no lock,
+  waits at the index barrier like `brain_read`, and the turn journal observes
+  it as `unproven`. Schedules do not accept it.
+- **Cancellation.** The signal is checked before every request and before
+  and after every file read. A cancelled call rejects with no partial result:
+  MCP passes the request's abort signal, pi the tool's and the turn's.
+- **CLI.** `brain read-many <path>... [--max-total-chars N] [--max-item-chars
+  N]`, or `--input <file.json>` / `--stdin` with the MCP input object. `--json`
+  prints the envelope as compact JSON, so the printed text is the text the
+  caps count; human mode prints one labelled block per item.
 
 <a id="external-compute-tools-additive-0450-3107"></a>
 
@@ -213,7 +386,7 @@ index-dependent read or at the end of the turn, whichever comes first. A brain
 whose index holds no Markdown yet, or cannot be trusted for a targeted update,
 gets a complete build instead. Index-dependent reads are every tool of the
 brain's own MCP server (`mcp__brain__*`), pi's `brain_search`, `brain_context`,
-`brain_read`, `brain_list` and `brain_graph`, either backend's shell, and capture
+`brain_read`, `brain_list`, `brain_graph` and `brain_read_many`, either backend's shell, and capture
 planning for `add`; each waits for every application committed before it, in
 any turn, before it runs. File reads and host application tools do not wait.
 When the update fails, the waiting read is refused with a message that names the
