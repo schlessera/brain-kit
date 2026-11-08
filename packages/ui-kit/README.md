@@ -381,9 +381,11 @@ state onto them and owns every timer, permission and connection.
   `fail` (red, only End and failures). `VOICE_SKINS` names the
   `--bk-voice-*` tokens behind it.
 - `meter` shows the `level` prop (0–1) as bars, a `sweep` (thinking/working), a
-  `flat` line (muted) or a paused `hatch` (reconnecting). The words and the
-  state label sit on the field's opaque ground, so the meter never lowers text
-  contrast.
+  `flat` line (muted) or a paused `hatch` (reconnecting). The meter fills the
+  whole card. Text has no background of its own. In the compact field with a
+  label, the label sits at the top and the words at the bottom, over a fade into
+  the field's ground. In the tall field, a top fade holds the label row. A soft
+  halo in the field's ground surrounds every glyph.
 - `MicButton` draws `idle`, `pressed`, `holding` (the ring from `progress`) and
   `complete`, plus the "Keep holding to talk live" hint. It hands every pointer
   and key event to the caller, which owns the hold threshold. `onTalkLive` adds
