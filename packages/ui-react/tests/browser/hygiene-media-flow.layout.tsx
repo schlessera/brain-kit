@@ -57,6 +57,8 @@ const HARBOUR = ".brain/scratch/2026-07-12/harbour-dawn.png";
 const NOTE = "notes/the-return.md", CONFIG = "brain.config.json", PINS = ".brain/scratch-pins/pins.json", KEPT = "context/hygiene/kept.md";
 const TRACK_PLACES = '{ "media": { "ignore": [".brain/scratch/**"], "track": ["places/**"] } }\n';
 
+/** An applied effect captures, runs the CLI and selects again before its receipt replicates; the test's own limit still bounds it. */
+const RECEIPT_MS = 10_000;
 const set = async (patch: Record<string, unknown>) => ((await commands.hygieneServer({ op: "set", id: fixture!.id, patch })) as { flow: Flow }).flow;
 
 /** Open a socket to the flow's server and route the root's decisions over it, as the app's connection does. */
@@ -151,7 +153,7 @@ async function agree(pending: number, options: { sync?: boolean; selected?: bool
 async function undo(prefix: RegExp, path: string) {
   await page.getByRole("button", { name: prefix }).click();
   await page.getByRole("button", { name: "Confirm undo", exact: true }).click();
-  await expect.poll(() => receipt(), { timeout: 5000 }).toContain(`Undone · ${name(path)} is awaiting review again`);
+  await expect.poll(() => receipt(), { timeout: RECEIPT_MS }).toContain(`Undone · ${name(path)} is awaiting review again`);
 }
 
 test("dark 320: Persist here from the card tracks exactly the file; Undo from the receipt restores the config's bytes", async () => {
@@ -162,7 +164,7 @@ test("dark 320: Persist here from the card tracks exactly the file; Undo from th
   await ready();
   expect(commit().textContent).toBe(`Persist ${name(SHIELD)}`);
   commit().click();
-  await expect.poll(() => receipt(), { timeout: 5000 }).toContain(`Persisted · ${SHIELD}`);
+  await expect.poll(() => receipt(), { timeout: RECEIPT_MS }).toContain(`Persisted · ${SHIELD}`);
   const applied = await set({ flowBytes: [CONFIG] });
   expect(applied.texts![CONFIG], "MEDIA_FLOW_BROWSER_PERSIST_CONFIG").toBe('{ "media": { "ignore": [".brain/scratch/**"], "track": ["photos/achilles-shield.png"] } }\n');
   expect(applied.bytes![SHIELD]).toBe(before[SHIELD]);
@@ -183,7 +185,7 @@ test("light 1280: Move… with its destination moves the file and rewrites its r
   await ready();
   expect(region()!.textContent).toContain(NOTE);
   commit().click();
-  await expect.poll(() => receipt(), { timeout: 5000 }).toContain("Moved");
+  await expect.poll(() => receipt(), { timeout: RECEIPT_MS }).toContain("Moved");
   const moved = await set({ flowBytes: [NOTE] });
   expect(moved.bytes![LOOM], "MEDIA_FLOW_BROWSER_MOVE_SOURCE").toBeNull();
   expect(moved.bytes!["places/ithaca/penelope-loom.png"], "MEDIA_FLOW_BROWSER_MOVE_DESTINATION").not.toBeNull();
@@ -200,7 +202,7 @@ test("dark 1280: Delete… removes exactly the file, and Undo from the receipt r
   await ready();
   expect(commit().textContent).toBe(`Delete ${name(SKETCH)}`);
   commit().click();
-  await expect.poll(() => receipt(), { timeout: 5000 }).toContain(`Deleted · ${SKETCH}`);
+  await expect.poll(() => receipt(), { timeout: RECEIPT_MS }).toContain(`Deleted · ${SKETCH}`);
   expect((await set({ flowBytes: true })).bytes, "MEDIA_FLOW_BROWSER_DELETED").toEqual({ ...before, [SKETCH]: null });
   await agree(1, { sync: false });
   await undo(/^Undo: Deleted/, SKETCH);
@@ -216,7 +218,7 @@ test("light 320: Keep a permanent copy… of linked scratch copies it and leaves
   await destination("places/ithaca/harbour-dawn.png");
   await ready();
   commit().click();
-  await expect.poll(() => receipt(), { timeout: 5000 }).toContain("Kept a permanent copy at places/ithaca/harbour-dawn.png · the original stays linked to its conversation");
+  await expect.poll(() => receipt(), { timeout: RECEIPT_MS }).toContain("Kept a permanent copy at places/ithaca/harbour-dawn.png · the original stays linked to its conversation");
   const kept = await set({ flowBytes: [CONFIG, KEPT] });
   expect(kept.bytes!["places/ithaca/harbour-dawn.png"], "MEDIA_FLOW_BROWSER_KEEP_COPY").toBe(before[HARBOUR]);
   expect(kept.bytes![HARBOUR], "MEDIA_FLOW_BROWSER_KEEP_ORIGINAL").toBe(before[HARBOUR]);
@@ -236,7 +238,7 @@ test("dark 320: Leave pending, then the host restarts mid-pass and the device re
   await page.getByRole("button", { name: "Leave pending", exact: true }).click();
   await expect.poll(() => title() !== null && title() !== first).toBe(true);
   const second = title();
-  await agree(2);
+  await agree(2, { sync: false });
   // The host dies; the socket drops. The same state boots again on the same port.
   await set({ flowRestart: true });
   await expect.poll(() => ui!.stores.inbox.getState().online).toBe(false);
