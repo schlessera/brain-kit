@@ -12,7 +12,7 @@ Tool names and input schemas are stable:
 | Tool | Annotations | structuredContent |
 |------|-------------|-------------------|
 | `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet, supersededBy? }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0. `supersededBy`, the path of the document that `supersedes` this one, is present only when one does (additive in 0.38.0) |
-| `brain_context` | readOnly | `{ context, warnings }` |
+| `brain_context` | readOnly | `{ context, warnings }`, plus `coverage` when the call has a path scope (additive in 0.45.0; see [Scoped context](#scoped-context-additive-0450-3644)) |
 | `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
 | `brain_list` | readOnly | `{ documents, warnings }` |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
@@ -52,7 +52,7 @@ applies one:
 | Tool | Inputs |
 |------|--------|
 | `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`\|`jev`; omitted → the configured provider when `reranker.enabled` is true and available, otherwise local heuristic. An explicit `jev` cannot enable judgment while off; it warns and falls back. 0.39.0 added `jev` and dropped the schema default of `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
-| `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
+| `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`), `include?`, `exclude?` (each at most 64 paths of 1 to 512 characters; additive in 0.45.0, see [Scoped context](#scoped-context-additive-0450-3644)) |
 | `brain_read` | `path`, `section?` (a heading's visible text, compared under Unicode canonical caseless matching (full case folding); the body is parsed as GFM, and only top-level ATX and setext headings count, never one inside code, HTML, a table, a list or a blockquote; the section runs to the next heading of the same or higher level; of two equal headings the first is returned; an unknown one is an error naming the document's headings), `max_tokens?` (positive safe integer; the threshold for the outline, not an output cap; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
 | `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100) |
 | `brain_graph` | `path`, `depth?` (default `1`), `direction?` (`outgoing`\|`incoming`\|`both`, default `both`) |
@@ -62,6 +62,60 @@ applies one:
 
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
+
+<a id="scoped-context-additive-0450-3644"></a>
+
+### Scoped context (additive, 0.45.0, #3644)
+
+`brain_context` takes two optional path lists, `include` and `exclude`; `brain
+context` takes them as repeatable `--include` and `--exclude` flags and pi's
+`brain_context` as `include` and `exclude` parameters. All three call one
+assembler (`assembleContext`, `packages/core/src/lib/context-assembler.ts:346-567`),
+which validates the scope (`parseContextScope`,
+`packages/core/src/lib/context-scope.ts:105-133`) before anything is read.
+
+- **Entries.** A repository-relative path. One ending in `/` is a folder
+  prefix and covers everything under it at any depth; any other entry names
+  exactly one file (`projects` is a file called `projects`, not the folder).
+  There are no globs. An absolute path, a `.`, `..` or empty segment, `\`,
+  `:` or a control character is refused: a tool error on MCP, a usage error
+  (exit `1`, nothing on stdout, no query run) on the CLI, a thrown tool error
+  on pi. Each list holds at most 64 entries of 1 to 512 characters.
+- **Precedence.** An exclusion wins over an inclusion everywhere. With no
+  include list, every path not excluded is in scope; with one, only the paths
+  it covers. Include entries match case-sensitively; exclude entries match
+  under Unicode compatibility case folding, so a differently cased spelling of
+  an excluded path is still excluded. A file is also checked under its real
+  path: an in-repository symlink to an excluded file is excluded, and one that
+  leaves the root is unavailable.
+- **Every lane.** The scope applies before a source file is opened, to the
+  identity and current-focus documents, to the search pool (drawn from the
+  scope's indexed paths, so nothing outside it takes a place or fills spare
+  budget), to each hit's section expansion and to the `### Related`
+  neighbours; an out-of-scope `_index.md` is passed over for the next one up.
+  An include list that does not cover the identity or current-focus document
+  leaves it out. The scope only narrows: it never makes readable what the
+  index, policy or provider masks leave out.
+- **Coverage.** A scoped call returns `coverage`: `{ exhaustive: false,
+  include, exclude, excerpts: [{ path, lane, form }], omitted: [{ path, reason
+  }], omittedMore, budgetExhausted }`. `lane` is `identity`, `focus`, `search`
+  or `related`; `form` is `whole`, `cut`, `section`, `snippet` or `summary`.
+  `reason` is `budget` (an in-scope candidate with no room), `unavailable`
+  (named or canonical but not indexed, missing, unreadable or outside the
+  root), `not_ranked` (an exactly included path the query did not select) or
+  `excluded` (an exactly included path an exclusion also covers). At most 64
+  omissions are listed; `omittedMore` counts the rest. A briefing is ranked
+  and budgeted, never an inventory: a path in scope that is in neither list
+  was simply not selected. MCP adds `coverage` to `structuredContent` and a
+  `### Coverage` note as the last content block; the CLI prints the note after
+  the context, and pi appends it to the tool text and puts `coverage` in the
+  result's `details`. The note is outside the token budget; it names the
+  partial excerpts (`snippet` or `cut`), whose files hold more than the
+  briefing shows, and the omissions, at most 20 of each.
+- **Unscoped calls are unchanged.** Without an entry in either list, output,
+  `structuredContent` and defaults are what they were: MCP and the CLI include
+  identity and current focus by default; pi never does, scoped or not, since
+  its session already loads them.
 
 <a id="external-compute-tools-additive-0450-3107"></a>
 

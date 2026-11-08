@@ -31,8 +31,11 @@ import { registerModuleTools } from "./lib/module-mcp-tools.js";
 import { APIFY_DESCRIPTIONS, APIFY_INPUT_SCHEMAS, APIFY_OPERATIONS, APIFY_TOOL_NAMES } from "@schlessera/brain-common/internal/apify-operations";
 import { createStandaloneApify, type StandaloneApify } from "./lib/apify/standalone.js";
 import { indexStaleness } from "./lib/ops/staleness.js";
+import { coverageNote } from "./lib/context-assembler.js";
 import {
   contextBriefing,
+  contextCoverageSchema,
+  contextScopeListSchema,
   DEFAULT_LIST_LIMIT,
   listDocuments,
   listLimitSchema,
@@ -285,10 +288,19 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
         max_tokens: z.number().default(4000).describe("Token budget for the assembled context"),
         include_identity: z.boolean().default(true).describe("Include identity section"),
         include_current_focus: z.boolean().default(true).describe("Include current focus section"),
+        include: contextScopeListSchema
+          .optional()
+          .describe(
+            'Only draw on these repository-relative paths: an exact file path, or a folder ending in "/" for everything under it. Applies to identity, current focus, search hits and related documents alike'
+          ),
+        exclude: contextScopeListSchema
+          .optional()
+          .describe('Never draw on these paths (exact, or a folder ending in "/"); an exclusion wins over include'),
       },
       outputSchema: {
         context: z.string(),
         warnings: z.array(z.string()),
+        coverage: contextCoverageSchema.optional(),
       },
       annotations: { readOnlyHint: true },
     },
@@ -300,9 +312,18 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
           maxTokens: params.max_tokens,
           includeIdentity: params.include_identity,
           includeCurrentFocus: params.include_current_focus,
+          include: params.include,
+          exclude: params.exclude,
         });
         // A degraded lane or a reranker that did not run is part of the answer.
         const warnings = t.toolWarnings(...briefing.warnings, t.stale());
+        // A scoped briefing says what it covers, as a last block and in structuredContent.
+        if (briefing.coverage) {
+          return {
+            content: [...textContent(briefing.context, warnings), { type: "text" as const, text: coverageNote(briefing.coverage) }],
+            structuredContent: { context: briefing.context, warnings, coverage: briefing.coverage },
+          };
+        }
         return {
           content: textContent(briefing.context, warnings),
           structuredContent: { context: briefing.context, warnings },
