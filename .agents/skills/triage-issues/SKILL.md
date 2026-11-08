@@ -97,6 +97,7 @@ not a reason to leave a hollow issue with no `needs:` labels.
 | Scope, policy, architecture, contract or product choice requiring a ruling | Add `needs: decision`; give the exact question, options, consequences and recommendation separately from approval. Preserve the unresolved choice. |
 | Reported failure lacks sufficient reproduction evidence | Try an available bounded repro; retain/add `needs: repro` if evidence remains missing, naming attempts and what would complete it. |
 | Driving workflow is absent or deliberately awaited | Add `needs: use-case`; document a concrete scenario only if supported by a user request, observation or established requirement, with its source. A synthetic fixture alone does not establish demand. |
+| Remaining step waits on a published release or artifact | Add `needs: release`; name the required version and the publication evidence that completes it. |
 | Required next action needs a human, access/login or reserved verification | Add `needs: human`; put the exact action and sanitized completion evidence in the body. A browser check is not automatically human-only. A planned end-stage human check does not block independent coding now. |
 
 A scoped spike whose deliverable is a design or decision does not require

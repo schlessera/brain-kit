@@ -14,6 +14,9 @@ test("web, external MCP and untrusted-area reads are taint sources on both backe
     ["mcp__mail__read_message", { id: "7" }, "mcp_document"], ["mcp__brain-uix__get", {}, "mcp_document"],
     ["Read", { file_path: `${brain}/.brain-ui/inbox/share-1/notice.md` }, "staged_share"],
     ["read_file", { path: ".brain-ui/inbox/share-1/notice.md" }, "staged_share"],
+    ["Read", { file_path: `${brain}/.brain-ui/attachments/00000000-0000-4000-8000-000000000001/ithaca-permit.pdf` }, "chat_attachment"],
+    ["read_file", { path: ".brain-ui/attachments/00000000-0000-4000-8000-000000000001/crew-list.txt" }, "chat_attachment"],
+    ["Grep", { pattern: "Ithaca", path: "/srv/elsewhere/.brain-ui/attachments" }, "chat_attachment"],
     ["Read", { file_path: `${brain}/workspaces/voyage/README.md` }, "workspace_read"],
     ["Read", { file_path: "/tmp/brain-worker-areas/workspaces/voyage/README.md" }, "workspace_read"],
     ["Grep", { pattern: "Ithaca", path: "workspaces" }, "workspace_read"], ["grep", { pattern: "Ithaca", path: "./workspaces/voyage" }, "workspace_read"],
@@ -53,7 +56,7 @@ test("a search from an ancestor directory taints only when its output names an u
   expect(outputTaintSource("Read", "workspaces/voyage/b.md", brain), "G6_OUTPUT_ONLY_FOR_SEARCH").toBeNull();
 });
 
-test("the real recorder keeps the first web source and excludes a denied fetch", () => {
+test("the real recorder keeps independent sources and excludes a denied fetch", () => {
   const db = createUiDb(":memory:");
   const sessionId = "odysseus-web-session";
   db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?, 'Voyage', 1, 1)").run(sessionId);
@@ -72,7 +75,8 @@ test("the real recorder keeps the first web source and excludes a denied fetch",
     expect(events(), "G6_DENIED_FETCH_CLEAN").toHaveLength(0);
     call("search", "Grep", { pattern: "Ithaca" }, `${brain}/workspaces/voyage/a.md`);
     call("fetch", "WebFetch", { url: "https://ithaca.invalid" }, "A fictional harbour notice.");
-    expect(events().map(event => event.payload), "G6_RECORDER_FIRST_TOOL_SOURCE").toEqual([{ source: "workspace_read", tool: "Grep", detail: null }]);
+    expect(events().map(event => [event.payload.source, event.payload.tool, event.payload.detail]), "G6_RECORDER_EVERY_TOOL_SOURCE")
+      .toEqual([["workspace_read", "Grep", null], ["web_fetch", "WebFetch", null]]);
     recorder.finish("success");
   } finally { db.close(); }
 });
@@ -92,5 +96,17 @@ test("a taint that cannot be persisted stops the turn instead of leaving outward
     recorder.observeFrame({ type: "tool_result", sessionId, toolUseId: "fetch", output: "A fictional harbour notice.", isError: false });
     expect(aborted.map(error => error.message), "G6_TAINT_FAILURE_STOPS_TURN").toEqual(["Untrusted input could not be recorded; the turn was stopped."]);
     recorder.finish("error");
+  } finally { db.close(); }
+});
+
+test("a collected external compute job's output is a taint source on both backends (#3108)", () => {
+  expect(inputTaintSource("mcp__brain-ui__brain_compute_collect", { job: "cj_ithaca" }, brain), "COMPUTE_OUTPUT_TAINTS_CLAUDE").toBe("compute_output");
+  expect(inputTaintSource("brain_compute_collect", { job: "cj_ithaca" }, brain), "COMPUTE_OUTPUT_TAINTS_PI").toBe("compute_output");
+  // Status, plan and the other compute tools return host records, not remote output.
+  for (const tool of ["brain_compute_status", "mcp__brain-ui__brain_compute_run", "brain_compute_health"]) expect(inputTaintSource(tool, { job: "cj_ithaca" }, brain)).toBeNull();
+  const db = createUiDb(":memory:");
+  try {
+    recordGovernanceEvent(db, { kind: "taint", payload: { source: "compute_output", tool: "brain_compute_collect", detail: null }, sessionId: "sess-ithaca", turnId: "t-1", actor: "interactive", model: null, profile: null });
+    expect(queryGovernanceEvents(db, { turnId: "t-1", kinds: ["taint"], limit: 5 }).map(event => event.payload), "COMPUTE_OUTPUT_TAINT_RECORDED").toEqual([{ source: "compute_output", tool: "brain_compute_collect", detail: null }]);
   } finally { db.close(); }
 });

@@ -1,5 +1,13 @@
 # Apify: explicit activation, discovery consent and bounded remote execution
 
+> **2026-11-04 — Superseded admission and approval requirements.** The
+> [Actor-approval ruling](apify-actor-approval.md) replaces mandatory qualified
+> builds, exact-build standing grants, remote crawling proofs and all-cost
+> guarantees with user approval of each Actor, credential-extraction scanning,
+> shared Apify spending controls and module-facing availability. The original
+> requirements below are preserved as historical evidence. Runtime behavior
+> changes through implementation tracked in #3580.
+
 The maintainer requested this capability on 2026-10-29. The request establishes
 that Apify is an opt-in paid provider, authentication is necessary for paid
 requests, policy controls limits, and discovering a tool does not authorize it.
@@ -24,12 +32,12 @@ The existing provider catalog only configures Pi's upstream search extension
 (`WEB_SEARCH_PROVIDERS`, `packages/ui-sdk/src/server/web-search.ts:52-153`).
 It is not an Apify adapter. Existing policy has turn/session/day budgets,
 egress, outward rules and recipient restrictions, but no discovery or Actor grant
-fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-48`).
+fields (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`).
 Name-based permission admission cannot distinguish different Actors supplied to
 one execution tool (`decideToolPermission`,
-`packages/ui-sdk/src/server/permission-gate.ts:62-92`). Provider accounting is
+`packages/ui-sdk/src/server/permission-gate.ts:63-93`). Provider accounting is
 already attributed and settled on the host (`observeProvider`,
-`packages/ui-server/src/brain/turn-budgets.ts:195-209`).
+`packages/ui-server/src/brain/turn-budgets.ts:223-237`).
 
 The official [Apify MCP source](https://github.com/apify/apify-mcp-server/tree/2ba58ba29ecf050874cd2186effa375c5cf6ec60)
 was inspected at commit `2ba58ba29ecf050874cd2186effa375c5cf6ec60`.
@@ -136,6 +144,10 @@ has been revoked.
 
 ## Selected policy and consent contract
 
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
+
 Add a strict optional `apify` governance block; it is absent/disabled by default.
 Names below are selected future configuration, not existing parser input.
 Unknown fields refuse validation. Policy is data-only and remains unwritable by
@@ -238,6 +250,10 @@ connector IDs or arbitrary REST/MCP method forwarding are accepted.
 
 ## Selected execution eligibility and monetary enforcement
 
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
+
 Use an initial **qualified batch Actor profile** for each executable
 build. Public discovery remains broad, but a discovered Actor without a profile
 can be inspected and proposed for review, not run. A profile is concrete trusted
@@ -302,6 +318,10 @@ liability; a successful local tool response does not zero it.
 
 ## Remote data routing and site permission
 
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
+
 BrainKit can control what it sends to Apify. It cannot observe or firewall every
 network request issued by a third-party remote Actor. A start URL, Actor input
 schema, limited-permission badge, successful proxy request or user approval is
@@ -327,6 +347,10 @@ by copying an opaque string; explicit ownership transfer must be qualified.
 
 ## Selected scope and alternatives
 
+> **2026-11-04 — Superseded where this passage requires qualified builds,
+> build/input-scoped standing grants, restricted Actor inputs/outputs, remote
+> crawl proofs or guaranteed total cost.** Use the [Actor-approval ruling](apify-actor-approval.md).
+
 **Selected A: bounded initial execution.** The combined transport,
 token-first host ownership, concrete qualified profiles and the external-spend
 rule above implement the maintainer's bounded paid-execution choice. Discovery can ask or be allowed by policy; new Actors
@@ -350,6 +374,93 @@ The maintainer selected A in response to the explicit scope question on
 enablement, live account qualification or a paid experiment. The MCP/REST cap
 coverage and remote-target constraints remain qualification requirements for
 individual executable profiles; the ruling does not waive them.
+
+## Front doors and memberships (#3162)
+
+These choices apply the selected contract to the CLI, the core MCP server and
+both chat backends; none widens it.
+
+- **One implementation.** The authority, consent, ledger, profile and run
+  modules and the one dispatcher live in
+  `@schlessera/brain-common/internal/apify`, so `brain apify`, the
+  `brain_apify_*` MCP tools and the hosted bridge validate the same strict
+  schemas and call the same functions. The contract names core as their
+  owner; they sit in the shared common package because the UI server reaches
+  core only as an optional peer and must load without it. Core keeps the
+  standalone glue (`@schlessera/brain/internal/apify`). The host supplies only what it alone
+  knows: the authenticated turn, its approval surface, provider-folder
+  routing, inference spend and session taint.
+- **Voice and autonomous memberships do not expand.** Consent never prompts
+  those turns, but an exact standing grant would still admit a run from them.
+  Neither roster gains the tools: voice and no-grant-surface turns refuse them
+  at call time, restricted autonomous rosters do not list them, and the host
+  refuses any non-interactive turn before reading or sending anything. An
+  unattended or spoken turn starting paid remote work would be the expansion
+  the requirements above forbid; a grant remains a policy fact for interactive
+  and operator use.
+- **Standalone use is explicit.** A standalone process needs its own
+  `APIFY_TOKEN` and the shared ledger named by `BRAIN_APIFY_LEDGER` (the
+  server's default is beside its UI database). Its principal is `local`, its
+  session a name the operator chooses, and its turn that session's UTC day.
+  Candidates and proposals live in the ledger so one invocation can use what
+  an earlier one found; a proposal still admits once, under the ledger's write
+  lock. Nothing is asked on a terminal: only an exact grant admits a run.
+  Neither variable reaches a worker, so a shell call inside a chat turn
+  refuses.
+- **Two additive codes.** `provider_unavailable` (the API could not be reached
+  or verified, so nothing was admitted) keeps that case distinct from an
+  incompatible answer; `invalid_input` is the operation's own refusal before
+  anything is sent.
+- **One robots.txt checker, owned by core.** A robots-authorized profile's
+  targets are checked before the start request by core's checker
+  (`createApifySitePermission`, `packages/core/src/lib/apify/site-permission.ts:60-70`),
+  built on the scrape package's `RobotsCache`, its identifying User-Agent and
+  its `public-only` address policy, under the
+  [scraping politeness](scraping-politeness.md) rules: a real `Disallow`
+  refuses, a missing or unreachable robots.txt means no rules. Decided by the
+  maintainer on 2026-11-02 in
+  [#3330](https://github.com/schlessera/brain-kit/issues/3330): core gains a
+  hard dependency on scrape, so a standalone process and the hosted server
+  share the checker the way the jobs and travel modules share the polite
+  client. ui-server gets no scrape edge; it loads the checker through its
+  optional core peer on the first such run (`coreSitePermission`,
+  `packages/ui-server/src/apify/site-permission.ts:34-42`), and a host without
+  core refuses every robots-authorized run as `site_permission_unproven`.
+
+## Owner presentation (#3163)
+
+The maintainer's 2026-11-02 rulings on
+[#3163](https://github.com/schlessera/brain-kit/issues/3163) select where these
+facts appear and how a person changes them. None widens the contract above.
+
+- **One section (R1 A).** Settings › Accounts › External services › Apify,
+  inline on desktop and a drill-in on phones, in authority order: provider and
+  account, Catalog search, Running Actors, Approved Actors, effective Limits,
+  Today. Enablement, catalog search and exact Actor consent are shown side by
+  side so they read as independent; no marketplace destination, and no token
+  field or display. Off hides the two modes and Limits, never grants or
+  unresolved liabilities; a missing token or service keeps the modes editable.
+- **Edits go through the existing policy review (R2 A).** Each control names
+  one change; the host builds the complete proposed `governance.md`, changing
+  only its `apify` lines, and hands it to the existing policy proposals, the
+  only policy writer. The owner's approval of that exact review is the one
+  confirmation, also for revoking a grant, and the write happens in a user
+  journal window. The control keeps the host's value until the host reports
+  the write; a refused review leaves it, and a lost answer stays unconfirmed
+  and is reconciled by reading the same request, never by sending it again.
+  Grants are added in the policy file only; approving a run never creates one.
+  Agents reach none of these routes.
+- **Spend in three places (R3 A).** Today and unresolved runs appear in the
+  section, in Activity and in a turn's cost details, never in the System pane.
+  Inference and Apify stay separate figures. A reservation is shown as an
+  upper bound, an unread ledger or an unknown start as unknown, never $0, and
+  a local Stop leaves a notice until the host settles the remote run.
+- **Delivered data (R4).** The ledger lists unsettled runs one by one, so each
+  gets its own line; settled history appears as totals. The run approval shows
+  the review #3160 delivers: Actor, build and profile, what is sent and where,
+  the account, the cap and price events, and anything not covered. Profile
+  work bounds are not in that review, so the card links to Limits instead of
+  repeating them.
 
 ## Implementation ownership and proof
 

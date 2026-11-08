@@ -1,4 +1,6 @@
 import { Glob } from "bun";
+import { frontmatterBlock } from "@schlessera/brain-common/internal/frontmatter-block";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { parseFrontmatter, type ParsedFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import {
   existsSync,
@@ -96,13 +98,9 @@ function normalizeScopePrefix(value: string, label: string): string {
   return normalized;
 }
 
-function matchesPrefix(path: string, prefix: string): boolean {
-  return path === prefix || path.startsWith(`${prefix}/`);
-}
-
 function selectPath(path: string, includes: string[], excludes: string[]): boolean {
-  const included = includes.length === 0 || includes.some((prefix) => matchesPrefix(path, prefix));
-  return included && !excludes.some((prefix) => matchesPrefix(path, prefix));
+  const included = includes.length === 0 || includes.some((prefix) => isWithin(prefix, path));
+  return included && !excludes.some((prefix) => isWithin(prefix, path));
 }
 
 const EXPORT_MARKER = ".brain-okf-export";
@@ -488,8 +486,9 @@ export async function exportOkfBundle(options: OkfExportOptions): Promise<OkfExp
   return report;
 }
 
+/** Whether the file has frontmatter, by the fences `parseFrontmatter` reads its data from (#2507). */
 function hasFrontmatter(raw: string): boolean {
-  return raw.charCodeAt(0) !== 0xfeff && /^---[ \t]*\r?\n/.test(raw);
+  return frontmatterBlock(raw) !== null;
 }
 
 function markdownLinks(content: string): string[] {

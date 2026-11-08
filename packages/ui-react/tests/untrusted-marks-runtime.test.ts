@@ -144,9 +144,13 @@ async function noHorizontalScroll(page: Page, label: string) {
 }
 async function targetsAtLeast44(page: Page, selector: string, label: string) {
   // Layout height: an opening dialog's scale animation shrinks client rects.
+  // A reaching Button (#3252) keeps its kit paint and reaches 44px past it
+  // under a coarse pointer; it is held to not drawing a 44px box instead, and
+  // its edges are probed in the pointer lanes (`hit-reach.*.pointer.tsx`).
   const small = await page.evaluate((sel) => [...document.querySelectorAll<HTMLElement>(sel)].filter(element => element.getClientRects().length > 0)
-    .map(element => ({ name: element.getAttribute("aria-label") ?? element.textContent?.trim(), height: element.offsetHeight }))
-    .filter(entry => entry.height < 44), selector);
+    .map(element => ({ name: element.getAttribute("aria-label") ?? element.textContent?.trim(), height: element.offsetHeight,
+      reaches: element.classList.contains("bk-hit") && element.style.minHeight !== "44px" }))
+    .filter(entry => entry.height < 44 && !entry.reaches).map(({ name, height }) => ({ name, height })), selector);
   expect(JSON.stringify({ label, small })).toBe(JSON.stringify({ label, small: [] }));
 }
 
@@ -335,11 +339,15 @@ describe.skipIf(!executablePath)("untrusted marks in the real Files panel", () =
       await page.unroute("**/api/files/untrusted");
       const before = sent.length;
       await dialog(page).getByRole("button", { name: "Try again" }).click();
+      // The announcer still holds this sentence from the dropped reply above, so
+      // it cannot show the retry settled. The closed dialog and the cue can: until
+      // then the mark is in flight and would land after the clear below (#3457).
+      await page.waitForFunction(() => !document.querySelector("dialog[open]") && !!document.querySelector("[data-untrusted-cue]"));
       await page.waitForFunction(() => document.querySelector("[data-untrusted-announcer]")?.textContent === "penelope-loom.md marked untrusted");
       expect(sent.slice(before), "RETRY_REPEATS_MARK").toEqual(["PUT "]);
 
       // Switching files closes the dialog and sends nothing.
-      await api("owner", "DELETE", LOOM);
+      expect(await api("owner", "DELETE", LOOM).then(response => response.json()), "RETRIED_MARK_SETTLED_BEFORE_CLEAR").toEqual({ status: "cleared" });
       await openFile(page, MESSAGE);
       await openFile(page, LOOM);
       await page.getByRole("button", { name: "Mark untrusted", exact: true }).click();

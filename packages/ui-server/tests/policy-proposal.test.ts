@@ -41,6 +41,26 @@ test("approval publishes exact bytes under the shared brain lock and the next ad
   expect(admitted.policy.profiles.interactive).toBe("governed");
   expect(result.sections).toEqual(["profiles.interactive"]); expect(result.bodyChanged).toBe(true);
 });
+test("the review splits frontmatter where the policy parser ends it (#2507)", async () => {
+  // Unclosed: the parser reads every line as YAML, so the rules are frontmatter, not body.
+  const unclosed = "---\nschema_version: 1\nprofiles:\n  interactive: strict\n";
+  const f = fixture(), pending = f.service.propose(f.turn, "unclosed", { ...input, content: unclosed }); await f.service.settled();
+  const review = f.service.read("odysseus", "policy-turn", "unclosed")!;
+  expect(review.frontmatterDiff).toContain("+   interactive: strict"); expect(review.bodyDiff).not.toContain("interactive");
+  await f.answer(false); await pending;
+  // `---x` closes the block for the parser: the line after it is body, not frontmatter.
+  const dashed = "---\nschema_version: 1\nprofiles:\n  interactive: governed\n---x\nlater: 1\n---\nOdysseus reviews the policy.\n";
+  const g = fixture(), second = g.service.propose(g.turn, "dashed", { ...input, content: dashed }); await g.service.settled();
+  const split = g.service.read("odysseus", "policy-turn", "dashed")!;
+  expect(split.frontmatterDiff).not.toContain("later"); expect(split.frontmatterDiff.endsWith("+ ---")).toBe(true); expect(split.bodyDiff).toContain("+ later: 1");
+  await g.answer(false); await second;
+  // Whitespace after the closing dashes: the whole closing line stays frontmatter.
+  const spaced = proposed.replace("strict\n---\n", "strict\n---  \n");
+  const h = fixture(), third = h.service.propose(h.turn, "spaced", { ...input, content: spaced }); await h.service.settled();
+  const line = h.service.read("odysseus", "policy-turn", "spaced")!;
+  expect(line.frontmatterDiff).toContain("+ ---  \n+ "); expect(line.bodyDiff).toBe("- Odysseus reviews the policy.\n- \n+ Odysseus approves the policy.\n+ ");
+  await h.answer(false); await third;
+});
 test("decline preserves bytes and retains the same request receipt", async () => {
   const f = fixture(), pending = f.service.propose(f.turn, "policy-1", input); await f.answer(false);
   expect((await pending).state).toBe("declined"); expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toHaveLength(0);

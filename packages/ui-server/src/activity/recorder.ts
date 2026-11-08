@@ -17,8 +17,8 @@ import { changedPrefix, validFirstRequest, validPrefix } from "./cache-diagnosti
  * startTurn resolved, when everything that could refine the outcome has
  * drained. Frame-derived outcome is the fallback, never a competing writer.
  *
- * Nothing here may fail the observed turn: every public method catches and
- * drops its own errors.
+ * Activity failures are observational. Safety recording failures stop the
+ * producer and retain a restrictive host failure instead of dropping input.
  */
 import type {
   BackendActivityEvent,
@@ -40,10 +40,11 @@ import type { Database } from "bun:sqlite";
 import type { GovernanceEventInput, GovernanceProfile } from "../governance/events.js";
 import type { TracedCall, UsageSample } from "../governance/roadblocks.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
+import { occurrence } from "../governance/occurrence.js";
 import { recordFirstTaint } from "../governance/session-taint.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
-import { inputTaintSource, outputTaintSource, type IngestionSource, type MarkedLookup } from "./ingestion-taint.js";
+import { inputTaintSignals, outputTaintSignals, type IngestionSignal, type MarkedLookup } from "./ingestion-taint.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
@@ -84,6 +85,13 @@ export interface TurnRecorder {
   settled(): Promise<void>;
   setMainModel(model: string): void;
   setWorkerProfile(profile: GovernanceProfile): void;
+  /**
+   * The turn's worker reaches the network only through the turn egress proxy,
+   * whose admitted connections record their own taint (G6, #3429). Its shell
+   * calls then no longer pass through the command classifier.
+   */
+  setEgressProxied(): void;
+  setSafetyHooked(): void;
   /** The run id (one run per turn). */
   readonly runId: string;
   observeFrame(msg: ServerMessage): void;
@@ -109,7 +117,7 @@ export interface TurnRecorder {
   onApprovalDecision(
     toolUseId: string,
     decision: "allow" | "always_allow" | "deny",
-    requestKind: "tool" | "command" | "policy",
+    requestKind: "tool" | "command" | "policy" | "actor",
     principalId?: string,
     channel?: ApprovalChannel
   ): void;
@@ -183,13 +191,17 @@ export function createTurnRecorder(
   const calls = new Map<string, TracedCall>();
   // Classify the complete original input, independently of the bounded
   // roadblock trace. Record only after a result, when content was ingested.
-  const ingestions = new Map<string, { source: IngestionSource | null; tool: string }>();
+  let safetyHooked = false;
+  const collectionEpoch = crypto.randomUUID();
+  const ingestions = new Map<string, { signals: IngestionSignal[]; tool: string; operationId: string }>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
   let cancelledAt: number | null = null;
   let cancelledCallIds: string[] = [];
   let roadblocksRecorded = false;
   let providerUnavailableRecorded = 0;
+  /** Set once the turn's egress proxy is up; its connection taint replaces the shell classifier (#3429). */
+  let shellProxied = false;
   const traceCall = (toolUseId: string, toolName?: string): TracedCall | undefined => {
     let call = calls.get(toolUseId);
     if (!call && toolName && calls.size < MAX_TRACED_CALLS) {
@@ -289,6 +301,8 @@ export function createTurnRecorder(
     settled: () => writes.settled(),
     setMainModel(model) { if (!finished) mainModel = model; },
     setWorkerProfile(profile) { turn.profile = profile; },
+    setEgressProxied() { shellProxied = true; },
+    setSafetyHooked() { safetyHooked = true; },
     runId,
 
     observeFrame(msg) {
@@ -333,7 +347,17 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_complete": {
-            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { source: inputTaintSource(msg.toolName, msg.input, deps.brainPath, marked), tool: msg.toolName });
+            // Exact repeated frames cannot mint another operation after its result.
+            if (calls.get(msg.toolUseId)?.output !== null && calls.get(msg.toolUseId)?.output !== undefined) break;
+            if (ingestions.has(msg.toolUseId)) break;
+            if (!safetyHooked && turn.origin !== "autonomous" && (ingestions.size >= 256 || calls.size >= MAX_TRACED_CALLS && !calls.has(msg.toolUseId))) {
+              deps.abort?.(new Error("Safety tool collection capacity exceeded; the turn was stopped."));
+              break;
+            }
+            if (!safetyHooked && turn.origin !== "autonomous") {
+              try { ingestions.set(msg.toolUseId, { signals: inputTaintSignals(msg.toolName, msg.input, deps.brainPath, marked, shellProxied), tool: msg.toolName, operationId: crypto.randomUUID() }); }
+              catch { deps.abort?.(new Error("Safety input detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
+            }
             const traced = traceCall(msg.toolUseId, msg.toolName);
             if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta
@@ -356,17 +380,24 @@ export function createTurnRecorder(
             const traced = calls.get(msg.toolUseId);
             const ingestion = ingestions.get(msg.toolUseId);
             ingestions.delete(msg.toolUseId);
-            const source = ingestion && (ingestion.source ?? outputTaintSource(ingestion.tool, msg.output, deps.brainPath, marked));
-            if (ingestion && source && !traced?.denied && firstTaint && deps.governance) {
+            let signals:IngestionSignal[]=[];
+            if(!safetyHooked&&ingestion){
+              try { signals=[...ingestion.signals,...outputTaintSignals(ingestion.tool,msg.output,deps.brainPath,marked)]; }
+              catch { deps.abort?.(new Error("Safety result detection failed; the turn was stopped."));if(governanceWrites)writes.after(()=>governanceWrites.safetyFail(runId)); }
+            }
+            if (!safetyHooked && ingestion && signals.length && !traced?.denied && firstTaint && deps.governance) {
               const untracked = (error: unknown) => {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
                 deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));
               };
               try {
-                const committed = firstTaint({ kind: "taint", payload: { source, tool: ingestion.tool, detail: null },
-                  sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
-                  model: mainModel, profile: turn.profile ?? null }).then(() => {}, untracked);
-                writes.after(() => committed);
+                for (const signal of signals) {
+                  const observed = occurrence(collectionEpoch, signal.detector, ingestion.operationId);
+                  const committed = firstTaint({ kind: "taint", payload: { source: signal.source, tool: ingestion.tool, detail: null, occurrence: observed },
+                    sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
+                    model: mainModel, profile: turn.profile ?? null }).then(() => {}, untracked);
+                  writes.after(() => committed);
+                }
               } catch (error) { untracked(error); }
             }
             // A `brain` command in the worker that needed a withheld provider key (#1666).

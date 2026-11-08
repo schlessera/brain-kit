@@ -16,6 +16,12 @@ import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
 const SECRET = "http-contract-fixture-secret-0123456789";
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 type Check = { path?: string; init?: RequestInit; status?: number; body?: object; verify?: (response: Response, t: HttpContractApp) => Promise<void> };
+const safetyReviewBody = { version: 1, session: { sessionId: "fixture-session", historyOwnerId: "missing-history", historyGeneration: "1" }, occurrenceId: "missing-occurrence", expectedEvidenceRevision: "0", verdict: "safe" };
+const unavailableSafetyReview: NonNullable<Check["verify"]> = async (response, t) => {
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(t.app.db.query("SELECT COUNT(*) n FROM safety_review_requests").get()).toEqual({ n: 0 });
+  expect(t.app.db.query("SELECT COUNT(*) n FROM safety_decisions").get()).toEqual({ n: 0 });
+};
 
 // Each supported operation reaches its real handler with a live owner cookie.
 // More detailed existing behavior checks are linked by the coverage matrix;
@@ -91,6 +97,8 @@ const checks: Record<string, Check> = {
   "PUT /api/drafts/:draftId": { path: "/api/drafts/draft-ithaca", init: { method: "PUT", headers: { "content-type": "application/json", "if-match": "0", "idempotency-key": "fixture-save" }, body: JSON.stringify({ sessionId: null, text: "Odysseus reaches the harbor.", attachmentIds: [] }) }, body: { revision: 1 }, verify: async (_, t) => { expect(t.app.db.query("SELECT text FROM session_drafts WHERE draft_id = 'draft-ithaca'").get()).toEqual({ text: "Odysseus reaches the harbor." }); } },
   "POST /api/drafts/:draftId/attachments": { path: "/api/drafts/draft-ithaca/attachments", init: { method: "POST", headers: { "content-type": "image/png", "idempotency-key": "fixture-upload" }, body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]) }, verify: async (r, t) => { const { attachmentId } = await r.json(); expect(t.app.db.query("SELECT size_bytes FROM session_draft_attachments WHERE attachment_id = ?").get(attachmentId)).toEqual({ size_bytes: 9 }); } },
   "DELETE /api/drafts/:draftId": { path: "/api/drafts/draft-missing", init: { method: "DELETE", headers: { "if-match": "1" } }, status: 404, body: { error: "DRAFT_NOT_FOUND" } },
+  "POST /api/drafts/:draftId/files": { path: "/api/drafts/draft-ithaca/files", init: { method: "POST", headers: { "content-type": "text/plain", "idempotency-key": "fixture-file", "x-file-name": encodeURIComponent("harbour-notice.txt"), "content-length": "28" }, body: "Odysseus reaches the harbor." }, status: 201, body: { kind: "text", bytes: 28 }, verify: async (r, t) => { const { fileId, path } = await r.json(); expect(t.app.db.query("SELECT bytes, state FROM attachment_files WHERE file_id = ?").get(fileId)).toEqual({ bytes: 28, state: "stored" }); expect(readFileSync(join(t.brainPath, path), "utf8")).toBe("Odysseus reaches the harbor."); expect(r.headers.get("cache-control")).toBe("no-store"); } },
+  "GET /api/attachments/:fileId": { path: "/api/attachments/00000000-0000-4000-8000-000000000000", status: 404, body: { error: "ATTACHMENT_NOT_FOUND" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "POST /api/drafts/:draftId/bind": { path: "/api/drafts/draft-missing/bind", init: json("POST", { sessionId: "fixture-session", requestId: "fixture-request" }), status: 409, body: { error: "DRAFT_NOT_ACCEPTED" } },
   "GET /api/sessions/:id": { path: "/api/sessions/fixture-session", body: { id: "fixture-session", messages: [{ role: "assistant", content: "Odysseus reaches the harbor." }] } },
   "GET /api/sessions/:sessionId/turns/:turnId/revert/plan": { path: "/api/sessions/fixture-session/turns/unknown/revert/plan", status: 409, body: { error: "No retained eligible history is available." } },
@@ -99,12 +107,21 @@ const checks: Record<string, Check> = {
   "POST /api/chat-deletions": { init: json("POST", { operationId: "fixture-deletion", target: { sessionId: "fixture-session" }, expected: { backendId: "fixture", generation: 1 } }),
     status: 404, body: { error: "CHAT_DELETION_REFUSED", reason: "unavailable" }, verify: async (r, t) => { expect(r.headers.get("cache-control")).toBe("no-store");
       expect(t.app.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 }); } },
+  "GET /api/chat-deletions/:operationId": { path: "/api/chat-deletions/fixture-deletion", status: 404, body: { error: "CHAT_DELETION_NOT_ADMITTED", reason: "not_admitted" },
+    verify: async (r, t) => { expect(r.headers.get("cache-control")).toBe("no-store");
+      expect(t.app.db.query("SELECT COUNT(*) AS n FROM chat_lifecycles").get()).toEqual({ n: 0 }); } },
   "POST /api/sessions/:sessionId/turns/:turnId/revert": { path: "/api/sessions/fixture-session/turns/unknown/revert", status: 409, init: json("POST", { id: "odysseus_unknown" }), body: { error: "This turn is not available for a user history operation." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal": { path: "/api/sessions/fixture-session/turns/unknown/journal", status: 404, body: { error: "No retained journal is available for this turn." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/preview": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/preview", status: 404, body: { error: "Journal detail expired or unavailable." } },
   "GET /api/sessions/:sessionId/turns/:turnId/journal/:sequence/:side": { path: "/api/sessions/fixture-session/turns/unknown/journal/1/before", status: 404, body: { error: "Journal detail expired or unavailable." } },
   "GET /api/journal/configuration-coverage": { path: "/api/journal/configuration-coverage", status: 200, body: { state: "unknown" } },
   // Imported history: the session exists, and the host proves nothing about it.
+  "GET /api/sessions/:id/safety": {path:"/api/sessions/fixture-session/safety",status:404,body:{version:1,reason:"unavailable"},verify:async r=>{expect(r.headers.get("cache-control")).toBe("no-store");}},
+  "POST /api/sessions/:id/safety/reviews/prepare": { path: "/api/sessions/fixture-session/safety/reviews/prepare", init: json("POST", safetyReviewBody), status: 404,
+    body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
+  "POST /api/sessions/:id/safety/reviews/:requestId/commit": { path: "/api/sessions/fixture-session/safety/reviews/missing-request/commit", init: json("POST", safetyReviewBody), status: 404,
+    body: { code: "unavailable", reason: "unavailable", retryable: false }, verify: unavailableSafetyReview },
+  "GET /api/sessions/:id/attachment-reads": { path: "/api/sessions/fixture-session/attachment-reads", body: { sessionId: "fixture-session", reads: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/sessions/:id/recovery": { path: "/api/sessions/fixture-session/recovery", body: { sessionId: "fixture-session", revision: 0, latest: { requestId: null, turnId: null, state: "unknown", outcome: null }, pending: [] }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "GET /api/push/public-key": { verify: async (r) => { const b = await r.json(); expect(b.publicKey.length).toBeGreaterThan(0); expect(Object.keys(b)).toEqual(["publicKey"]); } },
   "GET /api/push/subscriptions": { body: { subscriptions: [] } },
@@ -276,6 +293,15 @@ test("a dirty failed mount discards its resources before the next independent ca
     // the failed and rebuilt shared environments have completely shut down.
     const fresh = await prepare("GET /api/auth/principals", t => { timers.own(t); });
     try {
+      // The journal's startup maintenance pass commits an observation and hands
+      // its previous checkpoint to a background release (#2872), whose native
+      // request can still hold a socket while the six below connect (#3550).
+      // Join the pass and that release before counting this case's sockets.
+      const journal = fresh.t.app.wsHost.journal;
+      expect(journal).toBeDefined();
+      await journal!.ready;
+      await journal!.maintain();
+      await journal!.releasesSettled();
       const native = createNativeBrainManagerClient(fresh.t.app.config.nativeBrain!);
       await Promise.all(Array.from({ length: 6 }, () => native.ready()));
       const freshKey = httpMountAgentKey(fresh.t);

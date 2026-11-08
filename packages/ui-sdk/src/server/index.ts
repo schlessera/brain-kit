@@ -94,6 +94,9 @@ export { defineSpeechProvider, SpeechTranscriptionError } from "./speech.js";
 
 export type {
   ConversationResync,
+  ConversationGuidance,
+  ConversationOrientation,
+  ConversationTaskRef,
   ConversationHistoryEnvelope,
   HistoricalItem,
   HistoricalResultRef,
@@ -145,6 +148,9 @@ export {
 // is tagged `@experimental` until 1.0; see
 // docs/decisions/backend-authoring-toolkit.md for the inventory.
 export {
+  handleApifyTool,
+  formatAttachmentRead,
+  handleReadAttachment,
   handleAskUser,
   handleAskUserForm,
   handleAskUserList,
@@ -153,6 +159,7 @@ export {
   handleQueryActivity,
   handleInboxTool,
   handleReferenceTool,
+  handleComputeTool,
   handleRequestImageMask,
   handleShowBlock,
   handleTurnTemp,

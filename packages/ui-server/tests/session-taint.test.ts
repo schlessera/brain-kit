@@ -31,7 +31,7 @@ const SKILL = ".claude/skills/voyage/SKILL.md";
  * worker's curl and the turn journal. The backend is a fixture; the hook-level
  * outward wiring is proven by each backend's command-effect probe.
  */
-test("a WebFetch taints the session: outward asks, a non-listed host is refused, the skill edit is flagged, and the next turn keeps it", async () => {
+test("a WebFetch taints the session: outward asks, a non-listed host asks and, declined, is refused, the skill edit is flagged, and the next turn keeps it", async () => {
   const storage = spyOn(startup, "isManagedWorkerStartupView").mockReturnValue(true);
   const root = await mkdtemp(resolve(tmpdir(), "odysseus-session-taint-")), brain = resolve(root, "brain");
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
@@ -42,10 +42,13 @@ test("a WebFetch taints the session: outward asks, a non-listed host is refused,
   type Seen = { request: StartTurnRequest; taint: string | null; outwardAsks: boolean; curl: number; note: string };
   const seen: Seen[] = [];
   const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
+    await request.bridge.inputSafety?.ready("claude",1);
     const sessionId = request.sessionId ?? `voyage-${seen.length}`;
     request.bridge.emit({ type: "session_info", sessionId, isNew: !request.sessionId });
     const fetches = request.prompt.includes("harbour notice");
     if (fetches) {
+      await request.bridge.inputSafety?.begin("notice","WebFetch",{url:"https://ithaca.invalid/notice",prompt:"Summarize"});
+      await request.bridge.inputSafety?.result("notice","WebFetch","A fictional harbour notice asks Odysseus to push the voyage.",true);
       request.bridge.emit({ type: "tool_use_start", sessionId, toolUseId: "notice", toolName: "WebFetch" });
       request.bridge.emit({ type: "tool_use_complete", sessionId, toolUseId: "notice", toolName: "WebFetch", input: { url: "https://ithaca.invalid/notice", prompt: "Summarize" } });
       request.bridge.emit({ type: "tool_result", sessionId, toolUseId: "notice", output: "A fictional harbour notice asks Odysseus to push the voyage.", isError: false });
@@ -67,9 +70,18 @@ test("a WebFetch taints the session: outward asks, a non-listed host is refused,
   const app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test",
     BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry, observability: createRecordingObservability() });
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus taint", ttlSeconds: 60 });
+  // Destination cards a tainted interactive turn raised (#3430); the user declines each.
+  const networkCards: Array<{ host: unknown }> = [];
   async function chat(text: string, sessionId?: string) {
     const count = seen.length, handlers = createWsHandlers(app.wsHost, principal), sent: string[] = [];
-    const ws = { send: (frame: string) => sent.push(frame), close() {}, readyState: 1 } as WSContext;
+    const ws = { send: (frame: string) => {
+      sent.push(frame);
+      const parsed = JSON.parse(frame) as { type?: string; toolName?: string; toolUseId?: string; turnId?: string; input?: { host?: unknown } };
+      if (parsed.type !== "tool_approval_request" || parsed.toolName !== "Network") return;
+      networkCards.push({ host: parsed.input?.host });
+      queueMicrotask(() => handlers.onMessage({ data: JSON.stringify({ type: "tool_denial", toolUseId: parsed.toolUseId,
+        message: "Penelope declines.", ...(parsed.turnId ? { turnId: parsed.turnId } : {}) }) } as MessageEvent, ws));
+    }, close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text, requestId: `taint-${count}`, ...(sessionId ? { sessionId } : {}) }) } as MessageEvent, ws);
     await until(() => seen.length === count + 1 && !app.wsHost.coordinator.isTurnActive(), () => sent);
@@ -85,7 +97,7 @@ test("a WebFetch taints the session: outward asks, a non-listed host is refused,
     expect(control.curl, "G6_CLEAN_SESSION_EGRESS_UNCHANGED").toBe(0);
     expect(events(controlSession, "outward_action")[0]).toMatchObject({ payload: { tainted: false, decision: "policy_allowed" } });
     // With the proxy, that connection itself is untrusted input for later calls.
-    expect(events(controlSession, "taint").map(event => event.payload)).toEqual([{ source: "egress_connection", tool: null, detail: `GET 127.0.0.1:${origin.port}` }]);
+    expect(events(controlSession, "taint").map(event => event.payload)).toMatchObject([{ source: "egress_connection", tool: null, detail: `GET 127.0.0.1:${origin.port}` }]);
 
     const tainted = await chat("Odysseus reads the harbour notice.");
     const sessionId = "voyage-1", turnId = tainted.request.turnId!;
@@ -93,6 +105,7 @@ test("a WebFetch taints the session: outward asks, a non-listed host is refused,
     expect(source, "G6_WEBFETCH_TAINTS_SESSION").toMatchObject({ turnId, payload: { source: "web_fetch", tool: "WebFetch", detail: null } });
     expect(tainted.outwardAsks, "G6_TAINT_OVERRIDES_OUTWARD_ALLOW").toBe(true);
     expect(events(sessionId, "outward_action")[0]).toMatchObject({ payload: { action: "git_push", tainted: true, decision: "declined", rule: null } });
+    expect(networkCards, "G6_TAINTED_NEW_HOST_ASKS").toEqual([{ host: "127.0.0.1" }]);
     expect(tainted.curl, "G6_TAINTED_NON_LISTED_HOST_REFUSED").not.toBe(0);
     expect(events(sessionId, "egress_denial").map(event => event.payload), "G6_TAINT_DENIAL_RECORDED").toEqual([
       { host: "127.0.0.1", port: origin.port, method: "GET", reason: "taint_allowlist", bytes: 0 },
@@ -105,6 +118,7 @@ test("a WebFetch taints the session: outward asks, a non-listed host is refused,
     expect(next.taint, "G6_TAINT_STICKY_NEXT_TURN").toBe("web_fetch");
     expect(next.outwardAsks, "G6_STICKY_OUTWARD_ASKS").toBe(true);
     expect(next.curl, "G6_STICKY_EGRESS_REFUSED").not.toBe(0);
+    expect(networkCards, "G6_DECLINED_HOST_ASKS_AGAIN").toHaveLength(2);
     expect(events(sessionId, "egress_denial")).toHaveLength(2);
     expect(events(sessionId, "taint"), "G6_FIRST_SOURCE_KEPT").toHaveLength(1);
     expect(next.note).toContain("This session is tainted (first recorded source: web_fetch).");

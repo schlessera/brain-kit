@@ -1,4 +1,5 @@
 import type { ClientEnvironment } from "../protocol.js";
+import { BRAIN_INTERACTION_GUIDANCE } from "./interaction-guidance.js";
 import {
   ASK_USER_CONTRACT,
   ASK_USER_LIST_CONTRACT,
@@ -16,10 +17,10 @@ import {
 import type { WebSearchBrief } from "./web-search.js";
 
 /**
- * The chat UI's own capability brief, appended to the agent's system prompt.
+ * Shared brain interaction guidance plus the chat UI's capability brief.
  *
- * Everything here is a fact about the SURFACE the answer lands on, which the
- * model cannot discover from the brain repo: it can read CLAUDE.md and the
+ * Interaction guidance is also used by live conversation. The remaining
+ * sections describe the SURFACE the answer lands on: it can read CLAUDE.md and the
  * files, but nothing tells it that a mermaid fence becomes a zoomable diagram
  * or that the reader is holding a phone. Repo-specific conventions stay in the
  * brain repo's own CLAUDE.md — this file must remain true for any brain-kit
@@ -28,7 +29,11 @@ import type { WebSearchBrief } from "./web-search.js";
  * Keep it tight. It rides every turn, and a long brief crowds out the user's
  * actual instructions.
  */
-export const BRAIN_UI_SYSTEM_PROMPT_APPEND = `# Response surface
+export const BRAIN_UI_SYSTEM_PROMPT_APPEND = `# Brain interaction
+
+${BRAIN_INTERACTION_GUIDANCE}
+
+# Response surface
 
 Your replies render as GitHub-flavored markdown in a chat UI, not in a
 terminal. What that buys you:
@@ -158,6 +163,16 @@ function turnLifecycleSection(turnBudgetMs?: number, execution?: ExecutionBrief)
   usually mean a cancelled turn or a busy write lock — especially in context
   from an earlier turn that hit the budget. Retry once before concluding the
   user said no.`);
+  // A blocked connection was read as a broken host or account (#3431).
+  lines.push(`- **A blocked connection says why.** A 403 from the network, \`proxy refused
+  the connection\` or a provider error starting \`Blocked:\` is the brain's own
+  network policy, not the remote service or the user's account: a deny or
+  allow list, this turn's byte limit, an unapproved outward action, or this
+  session having read untrusted content, after which it reaches only hosts on
+  its allow-list or ones it already reached. Tell the user the cause the
+  response names; do not retry. A blocked untrusted session stays that way,
+  but the user can add the host to \`taint.egress.allow\` or continue in a new
+  session.`);
   lines.push(`- **Sessions run in parallel against one repo.** Writes to the same file
   serialize, and git staging/history commands serialize repo-wide. A "lock
   busy — retry" denial means exactly that: the identical call is fine a
@@ -202,6 +217,13 @@ export interface SurfaceTools {
   /** Names of the shared reference source and managed worktree tools (#2432), or false when absent. */
   referenceSource?: string | false;
   referenceWorktree?: string | false;
+  /** Names of the external compute tools (#3108), or false when absent. */
+  computeHealth?: string | false;
+  computePlan?: string | false;
+  computeRun?: string | false;
+  computeStatus?: string | false;
+  computeCancel?: string | false;
+  computeCollect?: string | false;
 }
 
 /**
@@ -222,6 +244,8 @@ const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   [SHOW_BLOCK_CONTRACT.name]: "block",
   [TURN_TEMP_CONTRACT.name]: "turnTemp",
   reference_source: "referenceSource", reference_worktree: "referenceWorktree",
+  brain_compute_health: "computeHealth", brain_compute_plan: "computePlan", brain_compute_run: "computeRun",
+  brain_compute_status: "computeStatus", brain_compute_cancel: "computeCancel", brain_compute_collect: "computeCollect",
 };
 
 /**

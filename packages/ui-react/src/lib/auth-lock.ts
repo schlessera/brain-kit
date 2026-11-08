@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BrainUiServices } from "../root.js";
 import { disposeTracks } from "./draft-tracks.js";
+import { disposeFiles } from "./draft-files.js";
 import { registerUpdateHold } from "./update-holds.js";
 
 /** The ordered warm-auth transition (#1018, #578 §1). No account content is kept here. */
@@ -26,6 +27,7 @@ export function createAuthLock(root: BrainUiServices, lifecycle: { drop(): void;
     root.stores.connection.getState().setVpnStatus("unauthorized");
     root.stores.drafts.getState().release();
     disposeTracks(root);
+    disposeFiles(root);
     root.stores.file.getState().reset();
     root.stores.graph.getState().reset();
     root.stores.graph.clearSceneCache();

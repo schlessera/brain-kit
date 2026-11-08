@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
-import { scanSource, scanTree } from "../scripts/check-frontmatter-parse";
+import { FENCE_ALLOWED, scanSource, scanTree } from "../scripts/check-frontmatter-parse";
 
 const ROOT = resolve(import.meta.dir, "..");
 const OTHER = "packages/core/src/lib/indexer/parse.ts";
@@ -112,6 +112,77 @@ describe("rule 2: inside a designated file, only literal-options calls", () => {
   test("a named import or a require is refused even in a designated file", () => {
     expect(rules(SERIALIZER, 'import { stringify } from "gray-matter";')).toEqual([2]);
     expect(rules(SERIALIZER, 'const gm = require("gray-matter");')).toEqual([2]);
+  });
+});
+
+describe("rule 3: fences are found by frontmatterBlock (#2507)", () => {
+  const CORE = "packages/core/src/lib/x.ts";
+
+  test("a hand-written fence detector in package source is refused", () => {
+    for (const code of [
+      "const OPEN = /^---\\n/;",
+      "const OPEN = /^---[ \\t]*\\r?\\n/;",
+      "const FM = /^(?:\\uFEFF)?---[ \\t]*\\r?\\n/;",
+      "const FM = /^\\uFEFF?---/;",
+      'const FM = new RegExp("^---\\\\r?\\\\n");',
+      'if (raw.startsWith("---")) skip();',
+      "if (raw.startsWith(`---\\n`)) skip();",
+      'const close = raw.indexOf("\\n---", 3);',
+      'const close = raw.lastIndexOf("\\n---", end);',
+      'const close = raw.indexOf("\\r\\n---");',
+    ]) {
+      for (const file of [CORE, "packages/ui-react/src/lib/a.tsx", "packages/ui-server/src/a.js"]) {
+        expect({ code, file, rules: rules(file, code) }).toEqual({ code, file, rules: [3] });
+      }
+    }
+  });
+
+  test("lines, emitted fences, other dashes and non-source files are not detectors", () => {
+    for (const code of [
+      "s.replace(/^---+$/gm, '');", // a horizontal rule, line by line
+      "const fence = `---\\n${yaml}\\n---\\n`;", // emitting a fence
+      'if (line === "---") end();',
+      'const cell = "---";',
+      'if (raw.startsWith("--")) x();',
+      'if (raw.startsWith(prefix)) x();',
+      "const re = /a^---/;",
+      '// raw.startsWith("---")',
+    ]) {
+      expect({ code, rules: rules(CORE, code) }).toEqual({ code, rules: [] });
+    }
+    for (const file of ["packages/core/tests/a.test.ts", "scripts/a.ts", "tests/a.test.ts"]) {
+      expect(rules(file, "const OPEN = /^---\\n/;")).toEqual([]);
+    }
+  });
+
+  test("only the shared rule and the listed writers may spell a fence", () => {
+    const planted = "const OPEN = /^---\\n/;";
+    expect(rules("packages/common/src/frontmatter-block.ts", planted)).toEqual([]);
+    expect(rules(SERIALIZER, planted)).toEqual([]);
+    for (const file of ["packages/common/src/other.ts", "packages/core/src/lib/frontmatter-block.ts", "packages/common/src/lib/frontmatter-block.ts"]) {
+      expect({ file, rules: rules(file, planted) }).toEqual({ file, rules: [3] });
+    }
+    for (const entry of FENCE_ALLOWED) expect(entry.reason.length).toBeGreaterThan(20);
+    // The policy review splitter left the list once it moved onto frontmatterBlock (#2507).
+    const splitter = "const match = /^(?:\\uFEFF)?---[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n(?:---|\\.\\.\\.)[ \\t]*(?:\\r?\\n|$)/.exec(text);";
+    expect(rules("packages/ui-server/src/brain/policy-proposal.ts", splitter)).toEqual([3]);
+  });
+
+  test("the tree passes, and the CLI fails on a planted detector", () => {
+    expect(scanTree(ROOT).filter((f) => f.rule === 3)).toEqual([]);
+    const root = mkdtempSync(join(tmpdir(), "frontmatter-gate-"));
+    try {
+      mkdirSync(join(root, "packages/core/src/lib"), { recursive: true });
+      writeFileSync(join(root, "packages/core/src/lib/planted.ts"), 'export const x = 1;\nconst OPEN = /^---\\n/;\n');
+      const child = Bun.spawnSync({
+        cmd: [process.execPath, resolve(import.meta.dir, "../scripts/check-frontmatter-parse.ts"), root],
+        stdout: "pipe", stderr: "pipe",
+      });
+      expect(child.exitCode).toBe(1);
+      expect(child.stderr.toString()).toContain("packages/core/src/lib/planted.ts:2:14: [rule 3]");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

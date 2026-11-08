@@ -11,8 +11,10 @@ import { cleanup, render } from "@testing-library/react";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 
 import { MessageBubble } from "../../src/components/chat/message-bubble.js";
-import { flushChatDeltas, handleServerMessage } from "../../src/hooks/use-websocket.js";
+import { defaultRoot } from "../../src/default-root.js";
 import { useChatStore } from "../../src/stores/chat-store.js";
+
+const { flushChatDeltas, handleServerMessage } = defaultRoot.connection;
 
 afterEach(cleanup);
 afterAll(unregisterMessageSourceDom);

@@ -165,6 +165,7 @@ evidence, the exact next action and completion evidence needed to resume**:
 | Evidence of the reported failure | `needs: repro`; record attempts, conditions and the evidence still needed. |
 | Access, credential/login, authorized paid scope or reserved human verification | `needs: human`; finish independent work first, then put the exact human action and sanitized completion evidence in the body. |
 | Driving workflow/use case | `needs: use-case`; name the scenario that must be demonstrated. |
+| A published release or artifact | `needs: release`; name the required version and the publication evidence. |
 | Another issue/approved upstream task | `blocked`; add a canonical `Blocked by #N` line, with public cross-repo references where appropriate. |
 
 Remove `agent-ready` when readiness is false. A fully scoped task blocked
@@ -281,7 +282,9 @@ nonpassing final gate. Before `confirm`, run `bun scripts/collisions.ts --json -
 and record its collisions (or none) with the PR head in the PR. For ordinary candidates, acquire the exact-candidate integration reservation
 with `bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` before
 requesting expensive confirmation; it handles the draft-to-ready transition,
-minute renewal and shared proof-checked merge. Hold competing confirmation and
+minute renewal and shared proof-checked merge. The PR body must carry the
+`check:pr` receipt; skipped or timed-out local checks need exact-head hosted
+coverage. A declared red-main fix may use `--fixes-main-run <run-id>`. Hold competing confirmation and
 main merges while another lease is live. See the CI reference for explicit
 acquire/renew/release/revoke, expiry, hard cap and unsupported native candidates.
 After the last push, convert to draft and mark ready under that reservation to
@@ -318,7 +321,7 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   under the GitHub skill. This applies to every merge, including docs/test/CI
   work and `Refs` slices; choose the confirmed upcoming release for unreleased
   work and preserve the initial release of unchanged shipped behavior. Then
-  use `bun scripts/integrate.ts merge <pr> --lease <id> --issues owner/repo#N,...`
+  use `bun scripts/integrate.ts merge <pr> --lease <id> --token <token> --issues owner/repo#N,...`
   for the shared reservation-checked ordinary squash, or follow the stack
   merge/evidence procedure for native stacked PRs. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in

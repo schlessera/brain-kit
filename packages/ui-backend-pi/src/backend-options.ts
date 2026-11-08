@@ -118,12 +118,11 @@ export interface CreatePiBackendOptions {
   sessionDir?: string;
   /**
    * Load pi extensions (installed pi packages and repo-local extensions).
-   * Default TRUE since the tool_call permission gate covers extension tools:
-   * a tool the gate's allowlist does not know raises an approval card before
-   * it runs, so installing e.g. `pi-mcp-adapter` (MCP servers from the repo's
-   * `.mcp.json`) or `pi-web-access` (web search/fetch) extends the surface
-   * with the same approval posture the Claude backend gives MCP tools.
-   * Set false to pin the surface to the curated tools alone.
+   * Default TRUE preserves discovery, but managed workers refuse any loaded
+   * extension or extension loading error: the pinned SDK's extension message
+   * injection and final dispatch paths are not qualified for safety collection.
+   * This includes web, MCP and subagent extensions. Set false to use only the
+   * host's curated tools. Skills and context files still load.
    */
   loadExtensions?: boolean;
   /**
@@ -187,6 +186,12 @@ export interface SessionCaps {
   turnTemp?: boolean;
   /** Shared reference source and managed worktrees (#2432). */
   reference?: boolean;
+  /** External compute on the host (#3108); never in an autonomous turn. */
+  compute?: boolean;
+  /** The fixed Apify operations (#3162); interactive sessions only. */
+  apify?: boolean;
+  /** On-demand reads of the conversation's composer originals (#3154); interactive sessions only. */
+  attachments?: boolean;
 }
 
 /** What one session's system prompt and toolset are conditioned on. */
@@ -230,11 +235,14 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     inbox: Boolean(bridge.inboxList),
     mask: Boolean(bridge.requestMask),
     reference: Boolean(bridge.referenceAccess),
+    compute: Boolean(bridge.compute),
+    apify: Boolean(bridge.apify),
+    attachments: Boolean(bridge.readAttachment),
   };
 }
 
 /** Deployment-owned tools exist even when this turn has no matching handler. */
 export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
   policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true,
+  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true,
 });

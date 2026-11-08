@@ -154,6 +154,19 @@ function scriptedBackend(): AgentBackend {
         bridge.emit({ type: "result", sessionId, outcome: how === "fail" ? "error" : "success", durationMs: 0, numTurns: 1, isError: how === "fail" });
         return;
       }
+      if (kind === "Actorapprove") {
+        const toolUseId = `actor-${sequence}`;
+        bridge.emit({ type: "tool_use_start", sessionId, toolUseId, toolName: "Apify Actor run" });
+        bridge.emit({ type: "tool_use_complete", sessionId, toolUseId, toolName: "Apify Actor run", input: {} });
+        const decision = await bridge.requestPermission({ toolUseId, toolName: "Apify Actor run", kind: "actor",
+          input: { actor: { id: "SeaCharts01", name: "odysseus/sea-charts" }, build: { number: "1.4.2" },
+            eligibility: { executable: true, reasons: [] }, account_id: "IthacaHousehold01", max_charge_usd: 0.05,
+            input: { novelField: "Record the harbour notices" } }, description: "Approve this Actor." });
+        answers.set(prompt, decision);
+        bridge.emit({ type: "tool_result", sessionId, toolUseId, output: "Actor decision recorded.", isError: decision.behavior !== "allow" });
+        finish(`Actor answered: ${title}.`, "success");
+        return;
+      }
       if (kind === "Approve" || kind === "Subapprove" || kind === "Remember") {
         const toolUseId = `wax-${sequence}`;
         if (kind === "Subapprove") {
@@ -358,9 +371,36 @@ type ApprovalInput = { type: string; target: string | null; at: number; node: nu
 type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
 type ProfileRead = { path: string; status?: number; body?: string; failure?: string };
 type Device = { profileReads: ProfileRead[]; context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
-async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
+/**
+ * Without composer files: the real host's hello reaches the page without
+ * `capabilities.composerFiles` and `attachmentLimits`, as an older host's
+ * would (design §9, "new client, old host"). The client then keeps D52's
+ * tab-only staged-track path, which the cases that prove it (#1112, #1150)
+ * need; on a host with composer files a track is a draft-bound original
+ * instead (#3155).
+ */
+async function withoutComposerFiles(context: BrowserContext) {
+  await context.routeWebSocket(`${origin.replace("http", "ws")}/**`, (socket) => {
+    const host = socket.connectToServer();
+    host.onMessage((message) => {
+      if (typeof message === "string" && message.includes('"server_hello"')) {
+        const frame = JSON.parse(message) as Record<string, unknown> & { type: string; capabilities?: Record<string, boolean> };
+        if (frame.type === "server_hello") {
+          const { attachmentLimits: _limits, ...rest } = frame;
+          const { composerFiles: _files, ...capabilities } = frame.capabilities ?? {};
+          socket.send(JSON.stringify({ ...rest, capabilities }));
+          return;
+        }
+      }
+      socket.send(message);
+    });
+  });
+}
+
+async function device(run: Run, opts: { clock?: boolean; update?: boolean; legacyHost?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  if (opts.legacyHost) await withoutComposerFiles(context);
   // The whole app applies the root's stored theme to the document, so the
   // run's theme is stored under the fixture root's prefix before it loads.
   await context.addInitScript((theme) => {
@@ -526,6 +566,13 @@ async function openFromSessions(run: Run, page: Page, sessionId: string) {
  * The reader scrolls the transcript up: Chromium's own scroll gesture, by
  * touch under a coarse pointer and by mouse wheel otherwise, through the
  * input pipeline rather than a scrollTop write.
+ *
+ * Each swipe's finger comes to rest before it lifts, so the gesture leaves
+ * no fling behind. The events carry their own times, so the rest does not
+ * depend on how fast they are dispatched. A fling still moving the
+ * transcript would decide the next press instead: a tap that lands on a
+ * fling only stops it, and Chromium swallows that tap as a phone does, so
+ * "Scroll to latest" would never be pressed (#3377).
  */
 async function scrollUp(run: Run, page: Page) {
   // The transcript's scroller, as it is drawn: the gesture starts at its middle.
@@ -539,16 +586,24 @@ async function scrollUp(run: Run, page: Page) {
       await cdp.send("Input.synthesizeScrollGesture", { x: Math.round(box.x), y: Math.round(box.y), yDistance: 4000, speed: 6000, gestureSourceType: "mouse" });
       return;
     }
-    // A finger dragging the transcript down, a few times.
-    for (let swipe = 0; swipe < 3; swipe++) {
+    // A finger dragging the transcript down, a few times: a move every
+    // 16ms, then held still for 200ms before it lifts. The times end no
+    // later than now, so the next real tap is never older than this swipe.
+    const swipes = 3, steps = 12, moveMs = 16, restMs = 200;
+    let at = Date.now() - swipes * ((steps + 1) * moveMs + restMs);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", touchPoints: Array<{ x: number; y: number }>, afterMs: number) => {
+      at += afterMs;
+      return cdp.send("Input.dispatchTouchEvent", { type, touchPoints, timestamp: at / 1000 });
+    };
+    for (let swipe = 0; swipe < swipes; swipe++) {
       const x = Math.round(box.x);
       let y = Math.round(box.y - 120);
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-      for (let step = 0; step < 12; step++) {
+      await touch("touchStart", [{ x, y }], moveMs);
+      for (let step = 0; step < steps; step++) {
         y += 20;
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
+        await touch("touchMove", [{ x, y }], moveMs);
       }
-      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await touch("touchEnd", [], restMs);
     }
   } finally { await cdp.detach(); }
 }
@@ -584,6 +639,27 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
     }
   }, 120_000);
   for (const run of runs) {
+    test(`${run.name}: Actor approvals offer once, always and deny with the full input`, async () => {
+      for (const choice of ["Allow once", "Always allow", "Deny"] as const) {
+        const a = await device(run);
+        const prompt = `Actorapprove: Sea charts ${choice} (${run.name})`;
+        try {
+          await send(run, a.page, prompt);
+          const card = a.page.locator("[data-approval-card]");
+          try { await card.waitFor(); } catch (error) {
+            console.error("ACTOR_BROWSER_PENDING", JSON.stringify({ started: started.filter(s => s.command === prompt), frames: a.approvals.map(f => f.frame), body: await a.page.locator("body").innerText() }));
+            throw error;
+          }
+          for (const label of ["Allow once", "Always allow", "Deny"]) expect(await card.getByRole("button", { name: label === "Always allow" ? /^Always allow\b/ : label, exact: true }).count()).toBe(1);
+          await press(run, card.getByRole("button", { name: "Full input · 1 field", exact: true }));
+          expect(await card.locator("[data-apify-full-input]").textContent()).toContain("Record the harbour notices");
+          await press(run, card.getByRole("button", { name: choice === "Always allow" ? /^Always allow\b/ : choice, exact: true }));
+          await a.page.getByText("Actor answered:", { exact: false }).first().waitFor();
+          expect(answers.get(prompt), "ACTOR_BROWSER_DECISION").toMatchObject(choice === "Deny" ? { behavior: "deny" } : { behavior: "allow" });
+          expect((answers.get(prompt) as { always?: boolean }).always, "ACTOR_BROWSER_ALWAYS_SCOPE").toBe(choice === "Always allow" ? true : undefined);
+        } finally { await a.context.close(); await clearHostDrafts(); }
+      }
+    }, 120_000);
     test(`${run.name}: A and B stream side by side; trackers follow success, failure and a queued follow-up, and clear only once seen`, async () => {
       const tag = `(${run.name})`;
       const a = await device(run, { clock: true });
@@ -1253,9 +1329,9 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       }
     }, 240_000);
 
-    test(`${run.name}: a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)`, async () => {
+    test(`${run.name}: on a host without composer files, a new chat holding only a staged track stays reachable through New chat and sends nothing; removing its track ends the entry (#1112)`, async () => {
       const tag = `(${run.name})`;
-      const a = await device(run);
+      const a = await device(run, { legacyHost: true });
       const plan = `Plan: Route to Pylos ${tag}`;
       const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
       const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
@@ -1340,7 +1416,7 @@ const leaveRuns: Run[] = [
   { name: "1280 desktop, light, fine pointer", theme: "light", options: { viewport: { width: 1280, height: 800 } } },
 ];
 
-describe.skipIf(!executablePath)("a staged track guards the tab it lives in", () => {
+describe.skipIf(!executablePath)("on a host without composer files, a staged track guards the tab it lives in", () => {
   const name = "ithaca-to-pylos-coastal-route-day-3.geojson";
   const route = Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Ithaca to Pylos" }, geometry: { type: "LineString", coordinates: [[20.71, 38.37], [20.95, 38.1], [21.3, 37.6], [21.69, 37.03]] } }] }));
   const remove = (page: Page) => page.getByRole("button", { name: `Remove ${name}`, exact: true });
@@ -1395,7 +1471,7 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
   for (const run of leaveRuns) for (const ending of ["removed", "sent"] as const) {
     test(`${run.name}: a reload asks while A holds a staged track out of view, and not once it is ${ending}`, async () => {
       const tag = `(${run.name}, leave, ${ending})`;
-      const a = await device(run, { update: true });
+      const a = await device(run, { update: true, legacyHost: true });
       try {
         // Nothing staged: nothing asked.
         await press(run, composer(a.page));
@@ -1418,7 +1494,7 @@ describe.skipIf(!executablePath)("a staged track guards the tab it lives in", ()
 
     test(`${run.name}: a waiting update holds while A holds a staged track, then reloads once without asking when it is ${ending}`, async () => {
       const tag = `(${run.name}, update, ${ending})`;
-      const a = await device(run, { update: true });
+      const a = await device(run, { update: true, legacyHost: true });
       try {
         const id = await stageInA(run, a, tag);
         const before = await loads(a.page);

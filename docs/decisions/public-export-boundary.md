@@ -281,6 +281,14 @@ Moved to an internal entry by #1053:
 - `@schlessera/brain-ui-sdk/internal`: `ImageMaskHandlerOptions`, `LocationHandlerOptions`, `canonicalModelId`, `describeRetry`, `execWrapperSpawnOptions`, `handleAskUser`, `handleAskUserForm`, `handleAskUserList`, `handleAskUserRank`, `handleGetCurrentLocation`, `handleQueryActivity`, `handleRequestImageMask`, `handleShowBlock`, `resolveThinkingLevel`, `wrapCommand` (from `/server`, and the three helpers from `.`, `/client` and `/protocol` too).
 - `@schlessera/brain-ui-sdk/internal/client`: `ShareTargetError`, `canonicalModelId`, `createToolRendererRegistry`, `describeRetry`, `handleShareTargetRequest`, `isShareTargetRequest`, `pruneStoredShares`, `resolveThinkingLevel`.
 
+Later dropped from an internal entry because no other package imported them
+or reached them through an emitted declaration (#2534): 64 names from
+`@schlessera/brain-ui-sdk/internal`, among them `ARCHIVING_UPDATE_REASON`, and
+`ShareTargetError` and `isShareTargetRequest` from
+`@schlessera/brain-ui-sdk/internal/client`. The declarations stay in their
+source modules. A removed internal name was never supported, so the third
+migration path applies.
+
 First-party additions for the video module (#1205):
 `@schlessera/brain/internal` shares `getContext`, `resolveCompletionProvider`,
 `geminiCompletions` and `GEMINI_FLASH_MODEL`. They do not expand the supported
@@ -290,15 +298,17 @@ its watch implementation and CLI remain implementation details.
 An internal-only package (#1396): `@schlessera/brain-common` has no root
 entry. Its entries, `./internal/env`, `./internal/frontmatter` and
 `./internal/worker-areas`, `./internal/protected-paths`,
-`./internal/governance-policy` and `./internal/claude-subscription`, follow
-the internal-entry rule above.
+`./internal/governance-policy`, `./internal/claude-subscription` and
+`./internal/safe-path`, follow the internal-entry rule above.
 The policy helper (#1744) serves both core and the server without requiring
 the server’s optional core peer; it adds no supported extension interface. The first
 two replace byte-identical copies of `env-core.ts` and `frontmatter-parse.ts`
 that the packages carried; the third (#1693) holds the worker write-area rules
 that the ui-sdk's sandbox note and core's CLI refusal both state. The
 subscription billing guard (#2493) replaces the copies core's CLI runner and
-the chat backend carried. A name a
+the chat backend carried. Symlink-safe containment (#2506) replaces the
+resolvers core, the ui-sdk and ui-server carried and their hand-written
+containment predicates. A name a
 public entry re-exports from it, such as core's `DynamicEnvReadSpec` and
 `readEnvVar`, stays part of that package's supported surface and is recorded
 in that package's report.

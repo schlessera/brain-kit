@@ -169,7 +169,7 @@ Local import-graph feedback uses eight workers on the measured 32-CPU,
 47-GiB host. The default is
 `max(1, min(floor(cores / 4), floor(RAM * 0.7 / 2 GiB)))`, with
 `--import-graph-workers=N` as the override (`localUnitWorkerCount`,
-`scripts/unit-workers.ts:15-17`). Changed-mode workers use one fresh prepared
+`scripts/unit-workers.ts:16-18`). Changed-mode workers use one fresh prepared
 build and private overlay views; `unit-workers --private-tree` retains the
 ordinary private-build comparison. Hosted explicit-file partitions retain
 `balanceTests`, their private builds and N=2.
@@ -612,7 +612,18 @@ synthetic merge `2771c2f5119e5b8aaf3234ae24452f6dfde86e70`, the same source
 as the cancelled job. Neither recovery nor these limits explains the original
 slowdown, whose cause the maintainer accepted as unknown for this repair.
 
-The compiler retains `tsc --noEmit` and the 4096 MiB `NODE_OPTIONS` setting;
+> **2026-11-03 — heap budget raised to 6144 MiB (maintainer ruling, #3103).**
+> The full-tree compiler outgrew 4096 MiB: main's verify typechecks reported
+> about 4.21 GB of compiler memory under that cap
+> (CI runs 41686585255, 41673315689, 41671155878), and the external compute
+> epic's exact-main candidate aborted on heap exhaustion with no diagnostic
+> (CI run 41690873045). Locally, `tsc --noEmit --extendedDiagnostics` reported
+> 4,890,699 KiB on main `971155274` and 4,926,845 KiB with the epic merged.
+> The runner reported about 14.8 GB available, so 6144 MiB restores headroom
+> without approaching capacity. Only the number changes; the command, the
+> diagnostics and the receipts below are unchanged.
+
+The compiler retains `tsc --noEmit` and the 6144 MiB `NODE_OPTIONS` setting;
 only verify appends `--extendedDiagnostics`, forwarded through Bun's existing
 package script. Compiler totals and memory describe that invocation, not
 process RSS or runner capacity. Bun's advertised Node compatibility version
@@ -1012,6 +1023,19 @@ Only a reviewed re-audit moves the audited revision
   merges needs renewed review, or stays unqualified and keeps fresh proof.
   Automatic pin refreshes and per-file ownership are not part of this
   procedure.
+- **Audited readers.** The same rule covers the audited command readers
+  (`const readers`, `scripts/locked-browser-assets.ts:6-9`;
+  `const auditedReaders`, `scripts/generated-build-inputs.ts:37-41`)
+  ([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer
+  ruling 2026-11-04). A legitimate change to a reader makes its asset binding
+  unknown, so proof runs fresh; it never fails a test, and the changing PR does
+  not refresh the reader's pin. The reader's self-test holds the repository's
+  actual reader to whichever side of its pin its bytes are on: matching bytes
+  must yield the installed receipt and drifted bytes must yield no receipt
+  (`test("the repo reader`, `tests/locked-browser-assets.test.ts:26-33`). Its
+  positive control reads the reader from the frozen owner. The post-merge
+  re-audit moves that owner and refreshes the reader's pins in both maps
+  together.
 
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
@@ -1061,7 +1085,7 @@ Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
 asset. Its explicit resource identity records package name/version, relative
 asset name, SHA-256 and mode in addition to the matching manifest/lockfile and
 frozen-install conditions. Missing, symbolic, escaped or changed reader inputs
-remain fresh. This is exact-file validation, not a scan of `node_modules` or a
+remain fresh; a changed reader stays fresh until its post-merge re-audit. This is exact-file validation, not a scan of `node_modules` or a
 claim that arbitrary installed files belong to a domain.
 
 Two exact source-owned literal payloads—the rectangle SVG fixture and the
@@ -1296,8 +1320,32 @@ lasts five minutes, renews every minute and expires absolutely sixty minutes
 after acquisition, including runner queue, proof and merge time. Renewal never
 resets that cap. A changed head/base, terminal failure/cancellation, abandonment
 or delivery releases ownership; a stopped process loses it after its last
-five-minute term. An expired or superseded identity cannot renew itself or
+five-minute term. A transient renewal failure does not
+([#3302](https://github.com/schlessera/brain-kit/issues/3302)). Transient means a push or ls-remote
+transport error, an HTTP 5xx, or an unavailable clock or candidate read. Each
+failed attempt is logged and retried on the next minute's tick. `confirm` gives
+up only when the candidate changed, when the reservation no longer holds its
+lease, or when no renewal has succeeded for four minutes, one renewal interval
+before the lease could expire. The deadline is measured locally from before the
+last successful renewal's clock read, so it never outlasts the lease. A failed
+read while polling for candidate proof is retried the same way, for at most
+four minutes. A failed standalone `renew <id>` exits nonzero and leaves the
+lease in place for the next renewal or for expiry. Only an explicit `release`,
+or `confirm`/`merge` finishing or cleaning up, releases a lease. An expired or superseded identity cannot renew itself or
 release a successor.
+
+Only the holding process can renew, release or merge under a live lease
+([#3303](https://github.com/schlessera/brain-kit/issues/3303)). The lease id is
+public in the ref and every agent may share one GitHub actor, so neither
+identifies the holder. Acquisition generates a random holder token and
+publishes only its SHA-256 digest as the lease's `holder`; `renew`, `release`
+and `merge --lease` must present the token. Without it, another process waits
+for expiry or a maintainer uses `revoke`. A lease without `holder` was
+acquired by code from before the token, which ignores the field and carries
+it forward on renewal; it keeps the id-and-actor rule for its remaining term,
+at most the sixty-minute cap. Old code can still renew or release any lease
+by id and actor, so the protection is complete once every caller's checkout
+includes it.
 
 The shared command is `bun scripts/integrate.ts`. Its authoritative state is
 `reservation.json` in `refs/heads/brain-integration-reservation` on origin.
@@ -1313,12 +1361,21 @@ three attempts with bounded backoff. There is no persistent or FIFO queue.
 
 Use `confirm <pr> --issues owner/repo#N,...` before requesting costly ordinary
 candidate proof. The command acquires, requests draft-to-ready confirmation,
-renews while waiting, and calls its shared merge path after success. Nonowners
+renews while waiting, and calls its shared merge path after success. Before
+it acquires, it reads the newest contract run for the exact head
+([#3573](https://github.com/schlessera/brain-kit/issues/3573)). The merge path
+accepts contract proof only from that run, and the ready transition does not
+start one. So a missing, cancelled or failed newest run refuses confirmation
+before any candidate CI is requested, naming the remedy: a fresh contract run,
+started by a body edit or a label change. An older passing run never stands in
+for a newer one, because the gate reads the current title and labels. A
+pending run is waited for, without a reservation, for at most ten minutes. Nonowners
 may code and run fast feedback but must hold competing confirmation and merges.
-For a separately managed proof window, `acquire <pr>` returns the explicit
-lease ID; its owner must run `renew <id>` every minute and later
-`merge <pr> --lease <id> --issues owner/repo#N,...`. `release <id>` abandons
-it. `inspect` is read-only. A maintainer may `revoke '<reason>'`, recording
+`confirm` keeps the holder token in memory only. For a separately managed
+proof window, `acquire <pr>` prints the explicit lease ID and, once, its holder
+token; its owner must run `renew <id> --token <token>` every minute and later
+`merge <pr> --lease <id> --token <token> --issues owner/repo#N,...`.
+`release <id> --token <token>` abandons it. `inspect` is read-only. A maintainer may `revoke '<reason>'`, recording
 actor, server time, reason and former candidate; a replacement needs its own
 reservation and passing confirmation. Revocation is never a proof waiver.
 
@@ -1336,7 +1393,13 @@ claimed as completion. Failures exit 1, with best-effort owned cleanup.
 
 This is mandatory cooperative procedure, not an atomic GitHub branch lock.
 Direct API/UI merges under existing permissions can bypass it or race the
-final read; actual squash checks still own reconciliation. No protection,
+final read; actual squash checks still own reconciliation. The
+[#2940 investigation](https://github.com/schlessera/brain-kit/issues/2940#issuecomment-6574325914)
+found 157 merges from 2026-10-22 to 2026-10-26 that bypassed it, and every
+merge since 2026-10-26T23:44Z under an exact-head lease. So that a bypass is
+visible rather than inferred, `scripts/ci-timings.ts` reports each merged PR's
+merge path (`recorded`, `expedited`, `unrecorded` or `unknown`) from the
+reservation history and the expedited-fix events. No protection,
 permission, provider or native merge-queue change is introduced. Native stack
 candidates remain unsupported by this command pending separately qualified
 prefix integration; do not flatten them into an ordinary receipt or bypass
@@ -1424,7 +1487,13 @@ Each implementation task is tracked separately:
   or removed from an existing test file. A new test or test file that sets its
   own timeout changes no existing budget and is not flagged;
 - lane and stability window: [#3269](https://github.com/schlessera/brain-kit/issues/3269);
-- automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270);
+- automatic epochs: [#3270](https://github.com/schlessera/brain-kit/issues/3270).
+  `scripts/ci-epochs.ts` classifies each first-parent squash of main against
+  its parent with the path set recorded there, and `scripts/ci-timings.ts`
+  reports every delivery's epoch, per-epoch first-main green and the current
+  epoch's days and green rate. A squash that cannot be classified opens an
+  epoch with an `unknown` boundary
+  ([fields](../process/ci-throughput.md#proof-policy-epochs));
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
 
 ### Red-main record and coordinator
@@ -1478,7 +1547,7 @@ main run that printed the same open record as included. The first step of a
 non-draft PR run refuses with `main red at <sha>, incident #<n>` when its merge
 ref contains the bad commit and the PR is not a declared fix. Draft runs keep
 their cheap gates. One ancestry rule decides every refusal and cancellation
-(`gateDecision`, `scripts/red-main.ts:209-216`): proof is doomed only when the
+(`gateDecision`, `scripts/red-main.ts:223-230`): proof is doomed only when the
 tree it tests contains the bad commit and its PR is not a declared fix
 ([#3321](https://github.com/schlessera/brain-kit/issues/3321)). The coordinator
 cancels a queued or running PR proof run only when its PR's base or head, as
@@ -1488,7 +1557,7 @@ GitHub did not record, or whose ancestry cannot be determined, is left alone.
 So proof for a PR against an integration or release branch forked before the
 bad commit keeps running. `integrate.ts` applies the same rule to the
 candidate's base and head before confirming or merging, and refuses when
-ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:62-66`). A non-fix squash
+ancestry is unknown (`refuseWhileRed`, `scripts/integrate.ts:87-91`). A non-fix squash
 that lands while red is reported once on its PR and on the incident, and
 recorded as an `incident` event through `scripts/ci-timings.ts record` in the
 coordinator's `red-main-events` artifact.
@@ -1499,7 +1568,84 @@ runs, dispatch probes, read logs and artifacts), `issues: write` (incident and
 flake issues) and `pull-requests: write` (landed-while-red reports). It runs
 trusted default-branch tooling and parses candidate logs and artifacts as data.
 `red-main-probe.yml` has `contents: read` only. The incident workflow in the
-skills is #2944, and the expedited fix merge is #2940.
+skills is #2944, and the expedited fix merge is #2940
+([below](#expedited-red-main-fixes)). The probe's `fix` purpose serves only
+that merge; the coordinator ignores fix probes.
+
+### Expedited red-main fixes
+
+[#2940](https://github.com/schlessera/brain-kit/issues/2940) implements answer 7
+of the proof-system lane ruling. `bun scripts/integrate.ts confirm <pr>
+--fixes-main-run <run-id> --issues owner/repo#N,...` requires an open red-main
+record whose opening run is `<run-id>`, declares the PR a fix and acquires the
+ordinary exact-candidate reservation. It then dispatches `red-main-probe.yml`
+with purpose `fix` and the record's failing test files twice: at the exact
+base, where they must fail, and at the exact head, where they must pass. Each
+probe prints one `BRAIN_RED_MAIN_PROBE` line with its SHA, the files it ran and
+its exit code; the merge reads that line, not only the run conclusion, so a
+probe that failed during setup is not red evidence. The command also requests a
+fresh ready run of `ci.yml` at the exact head and waits only for its metadata
+gate and `verify` job: the affected fast invariants. It does not wait for the
+rest of that run. When all three are in, it squashes under the reservation with
+the same live-candidate, lease, milestone, parent and ancestry checks as an
+ordinary merge; the expected tree is the exact base merged with the exact head.
+`merge <pr> --lease <id> --fixes-main-run <run-id>` does the same with evidence
+that already exists.
+
+It refuses a run that is not the open record's, any category-level failure
+(no test file to show red and green: use ordinary confirmation as a declared
+fix), evidence for other SHAs or other files, a base that did not fail, a head
+that did not pass, a draft-cadence run and failed fast invariants. A failing
+test file may be absent at the head only when the fix deletes it relative to
+the base, which is how a targeted revert removes the failing test its reverted
+commit added; a revert is otherwise held to the same evidence as a forward fix.
+The local check receipt is not required in this mode: the ruling defines the
+expedited proof, and the next main run is the backstop.
+
+After the squash it appends an `expedited` entry to the open record (fix PR,
+head, base, squash, both probe runs, the fast-invariant run, the numeric actor
+ID and server time) and records an `expedited-fix` event through
+`scripts/ci-timings.ts record` under `tmp/ci-timings`. The record stays open:
+the next main run includes the red set, and only its green result clears the
+record. A new failure there opens a new incident. No controller merges a fix
+by itself.
+
+### Local check receipts
+
+`check:pr` writes `tmp/check-pr-receipt.json` (`--receipt <path>` overrides
+it) and prints it at the end as a block for the PR body; the PR template holds
+its markers. The receipt names the head, the base ref and mode, and every
+selected check with the hosted categories that prove it and one outcome:
+`passed`, `failed`, `skipped`, `timed-out` or `preempted`. It is rewritten
+after every change, and a started check reads `timed-out` until it settles, so
+a run killed from outside still leaves an honest receipt.
+
+- `--check-timeout=<seconds>` gives each check a budget. A check that exceeds
+  it is killed with its process group and recorded `timed-out`; the run goes
+  on. A signal to `check:pr` records the running check `timed-out` and the
+  rest `skipped`.
+- `--skip <check name>` records a deliberate skip instead of an unrecorded one.
+- `preempted` is a check that exited with status 75, host admission's
+  cancellation ([#2943](https://github.com/schlessera/brain-kit/issues/2943)).
+  It is neither checked nor failed: `check:pr` exits 75 so it is rerun.
+- A failure still stops the run and exits 1; later checks read `skipped`.
+  Timed-out and skipped checks alone exit 0 with a warning, because the merge
+  path enforces them.
+
+`integrate.ts merge` maps each skipped, timed-out or preempted check to its
+hosted categories and refuses the candidate when none of them ran successfully
+in the exact-head selected proof, naming every such check and the categories it
+needs. A category retained by validated proof reuse counts as run. The metadata
+gate always runs, so lint, leakage and changeset checks are always covered; an
+unknown check maps to no category and can never be covered.
+
+A PR body with no receipt, or only the template's empty markers, is refused.
+`confirm` checks this before it acquires the reservation or requests proof, so
+an in-flight PR learns it at once, with the command that fixes it, and never
+after a full hosted run. Running `check:pr` and pasting its block is the whole
+remedy. The receipt's head is recorded but need not equal the candidate's:
+skips are a property of the local run, and coverage is judged against the
+exact-head proof.
 
 #### Incident workflow and recovery
 

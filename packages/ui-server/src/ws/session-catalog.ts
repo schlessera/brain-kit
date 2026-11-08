@@ -129,7 +129,14 @@ export interface SessionCatalog {
     sessionId: string,
     promptText: string,
     providerId: string | null,
-    backendId: string
+    backendId: string,
+    /**
+     * The authenticated principal whose typed request created the session
+     * (#3337). Recorded as its content-free owner binding only when this call
+     * creates the session's row; omitted for resumes and host work.
+     */
+    ownerPrincipalId?: string,
+    creatorTurnId?: string
   ): void;
   /** Persist session accounting on the terminal `result` frame. */
   persistSession(
@@ -144,7 +151,7 @@ export interface SessionCatalog {
    * so a catalog written before it still type-checks; without it every
    * replayed message reads as typed.
    */
-  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[] }): void;
+  recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[]; attachmentFiles?: import("../attachments/context.js").MessageAttachment[] }): void;
   recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
   /** Replayed history with each user message's recorded source joined on. */
   attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
@@ -274,8 +281,9 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
   const pendingRow = (sessionId: string) => (rowEffects.get(sessionId) ?? []).some(effect => "upsert" in effect);
   const storedBackendId = (sessionId: string) => pendingValue(sessionId, "backendId") ?? committedRow(sessionId)?.backendId ?? null;
   const hasRow = (sessionId: string) => pendingRow(sessionId) || db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
-  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number) => {
-    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId };
+  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number, ownerPrincipalId?: string, creatorTurnId?: string) => {
+    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId,
+      ...(ownerPrincipalId ? { ownerPrincipalId, creatorTurnId } : {}) };
     return track(rowEffects, sessionId, { upsert: { providerId, backendId } }, submit<void>("upsertSession", row));
   };
   /** Highest revision issued per session; it never goes down, so a failed acceptance's revision is never reused. */
@@ -483,8 +491,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
 
     getStoredBackendId: storedBackendId,
 
-    persistSessionStub(sessionId, promptText, providerId, backendId) {
-      upsert(sessionId, promptText, providerId, backendId, 0, 0).catch(err => reportWriteFailure(sessionId, err));
+    persistSessionStub(sessionId, promptText, providerId, backendId, ownerPrincipalId, creatorTurnId) {
+      upsert(sessionId, promptText, providerId, backendId, 0, 0, ownerPrincipalId, creatorTurnId).catch(err => reportWriteFailure(sessionId, err));
     },
 
     persistSession(msg, promptText, providerId, backendId) {
@@ -594,7 +602,11 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
 
     bindGovernanceEvents(turnId, sessionId) {
-      try { governance().bind(turnId, sessionId).catch((err: unknown) => reportWriteFailure(sessionId, err)); }
+      try {
+        const bound = governance().bind(turnId, sessionId);
+        settle(bound);
+        void bound.catch((err: unknown) => reportWriteFailure(sessionId, err));
+      }
       catch (err) { reportWriteFailure(sessionId, err); }
     },
 

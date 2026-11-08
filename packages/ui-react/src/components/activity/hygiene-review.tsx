@@ -29,6 +29,7 @@ import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { isEditableTarget, singleKey } from "../../lib/single-key.js";
 import { formatWhen } from "./inbox-model.js";
 import { HygienePrivateDetails } from "./hygiene-private-details.js";
+import { MediaFinding, MediaReceipt, mediaCountLine } from "./hygiene-media.js";
 
 // A display projection only; the server owns selection, handlers and validation.
 const findingDisplay = z.object({
@@ -79,6 +80,7 @@ export function useHygieneReview() {
   const [resumeFocus, setResumeFocus] = useState(0);
   const resumeAwaited = useRef(false);
   const [reRetiredReceipt, setReRetiredReceipt] = useState<string | null>(null);
+  const [mediaReceiptId, setMediaReceiptId] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     const token = ++request.current;
     try {
@@ -102,6 +104,7 @@ export function useHygieneReview() {
     setRead(IDLE);
     setLoading(false);
     setReRetiredReceipt(null);
+    setMediaReceiptId(null);
     resumeAwaited.current = false;
     return () => {
       request.current++;
@@ -148,9 +151,9 @@ export function useHygieneReview() {
     if (!old || old.queue !== "actions" || old.version <= sent.version) return;
     const status = old.hygiene?.outcome?.status;
     const confirmed =
-      (old.status === "resolved" && (status === "fixed" || status === "not_detected")) ||
+      (old.status === "resolved" && (status === "fixed" || status === "not_detected" || status === "kept")) ||
       (old.status === "dismissed" && status === "dismissed") ||
-      (old.status === "snoozed" && status === "snoozed");
+      (old.status === "snoozed" && (status === "snoozed" || status === "deferred"));
     if (!confirmed) {
       if (status && ["stale", "refused", "check_failed", "still_detected", "undone"].includes(status))
         awaited.current = null;
@@ -159,6 +162,8 @@ export function useHygieneReview() {
     // Wait for the server's next pointer or complete receipt, never select here.
     if (read.review.pendingActionId === id || (read.review.status === "active" && !read.action)) return;
     awaited.current = null;
+    // The receipt of this device's own applied media effect stays above the next finding (rev 4 K3).
+    setMediaReceiptId(old.hygiene?.outcome?.media && old.status === "resolved" ? id : null);
     setFocus((n) => n + 1);
   }, [items, read]);
   const streamed = read.review.pendingActionId ? items[read.review.pendingActionId] : undefined;
@@ -196,6 +201,8 @@ export function useHygieneReview() {
     refresh,
     focus,
     resumeFocus,
+    mediaReceiptId,
+    setRead,
     setAsideAgain: read.review.status === "paused" && !!reRetiredReceipt &&
       read.review.pauseReason?.retirementReceiptId === reRetiredReceipt,
     onSent: (id: string) => {
@@ -287,6 +294,9 @@ export function HygieneReviewStrip({
         </div>
       ) : null}
       {foreign ? <Callout tone="neutral" text="Resolved on another device" /> : null}
+      {c.mediaReceiptId && items[c.mediaReceiptId]?.queue === "actions" ? (
+        <MediaReceipt key={c.mediaReceiptId} item={items[c.mediaReceiptId] as InboxActionItem} controller={c} />
+      ) : null}
       {c.error ? (
         <Callout tone="red" text={c.error}>
           <TextButton label="Try again" onClick={() => void c.refresh()} />
@@ -311,7 +321,7 @@ export function HygieneReviewStrip({
               </span>
               <TextButton ref={resumeButton} label={c.loading ? "Resuming…" : "Resume"}
                 ariaLabel="Resume hygiene review: bring back the set-aside finding"
-                disabled={c.loading} style={{ minHeight: 44 }} onClick={() => {
+                disabled={c.loading} onClick={() => {
                   restoreResumeFocus.current = document.activeElement === resumeButton.current;
                   void c.command("resume");
                 }} />
@@ -327,6 +337,8 @@ export function HygieneReviewStrip({
             {r.status === "paused"
               ? "Hygiene review paused"
               : `● Hygiene review · ${r.position} of ${r.counts?.eligibleRemaining ?? "?"} open`}
+            {/* The count `brain sync` reports, announced once when it changes (rev 6 §2, §5). */}
+            {mediaCountLine(r.media) ? <span role="status" data-hygiene-media-count="" className="block text-muted-foreground">{mediaCountLine(r.media)}</span> : null}
           </span>
           <TextButton
             label={r.status === "paused" ? "Resume" : "Pause"}
@@ -362,6 +374,9 @@ export function HygieneReviewStrip({
             dismissedErrors={dismissedErrors}
             onShowSnoozed={() => setLaterOpen(true)}
           />
+          {mediaCountLine(r.media) ? (
+            <p role="status" data-hygiene-media-count="" className="mt-2 text-xs text-muted-foreground">{mediaCountLine(r.media)}</p>
+          ) : null}
         </div>
       ) : null}
       {laterOpen ? (
@@ -396,17 +411,13 @@ const REASONS: Array<[InboxDismissReason, string]> = [
   ["need_more_info", "Need more info"],
   ["no_longer_relevant", "No longer relevant"],
 ];
-export function HygieneFinding({
-  item,
-  controller: c,
-  compact = false,
-  onOpen,
-}: {
-  item: InboxActionItem;
-  controller: HygieneController;
-  compact?: boolean;
-  onOpen?: () => void;
-}) {
+type FindingProps = { item: InboxActionItem; controller: HygieneController; compact?: boolean; onOpen?: () => void };
+/** One review card: a media finding's own decisions (#2782), or a repair, check and disposition. */
+export function HygieneFinding(props: FindingProps) {
+  const category = (props.item.hygiene?.finding as { category?: unknown } | undefined)?.category;
+  return category === "media" && !props.compact ? <MediaFinding item={props.item} controller={props.controller} /> : <RepairFinding {...props} />;
+}
+function RepairFinding({ item, controller: c, compact = false, onOpen }: FindingProps) {
   const root = useBrainUiRoot();
   const replicated = useInboxStore((s) => s.items[item.id]);
   // REST may display a finding before its Action reaches the decision store.
@@ -797,14 +808,14 @@ export function HygieneFinding({
           tone="neutral"
           text="Dismiss this finding? It won't come back unless the problem changes. Validation still reports it."
         />
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
           {REASONS.map(([r, label]) => (
             <Button
               key={r}
               tone={reason === r ? "suggest" : "quiet"}
               size="sm"
               block={false}
-              style={{ minHeight: 44 }}
+              reach
               label={label}
               onClick={() => setReason(reason === r ? undefined : r)}
             />

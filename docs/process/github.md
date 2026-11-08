@@ -125,6 +125,12 @@ Three labels carry weight beyond their description:
   `needs: repro`. Neither a browser check nor a keyed measurement alone implies
   `needs: human`: an authorized agent with the required access can run those.
 
+- **`needs: release`** means the remaining step waits on a published release
+  or artifact: for example, a fix that is on main but must ship before it can
+  be verified on an installed host. Name the required version and the
+  publication evidence that completes it. Publishing itself is a human step,
+  so pair it with `needs: human` only when nobody has scheduled the release.
+
 Finish independent agent work before handing an issue over for a human action.
 If that action is a prerequisite, apply `needs: human` immediately. When it is
 completed, record the result, remove the label, and either restore `agent-ready`
@@ -314,7 +320,9 @@ shared exact-candidate reservation command, `bun scripts/integrate.ts`.
 `confirm <pr> --issues owner/repo#N,...` acquires, renews and verifies the
 ordinary candidate before a matching-head squash. `inspect` shows the current
 owner, PR/head/base, expiry and hard cap. Separate acquisition requires explicit
-minute renewal and an explicit lease ID for `merge`; release on abandonment.
+minute renewal and an explicit lease ID and holder token for `merge`; release
+on abandonment. Only the process holding the token printed by `acquire` can
+renew, release or merge under a live lease.
 A busy result is bounded, not a queue. Maintainer revocation requires a reason
 and records actor, time and former candidate. No override waives proof or
 milestones. Read [the decision and command lifecycle](../decisions/ci-utility.md#exact-candidate-integration-reservation)

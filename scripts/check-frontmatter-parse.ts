@@ -27,6 +27,16 @@
 //      refused too. A `cache-probe` file is the exception: it is the test that
 //      proves the helper ignores the cache, and must seed and read it.
 //
+//   3. Where a frontmatter block starts and ends is answered by
+//      `frontmatterBlock` (`@schlessera/brain-common/internal/frontmatter-block`,
+//      #2507), the rule `parseFrontmatter` reads by. Package source may not
+//      detect a fence by hand: no regex anchored at the start of the text
+//      that opens with `---` (a BOM group before it included), no
+//      `startsWith("---…")` and no `indexOf`/`lastIndexOf("\n---…")`. Writers
+//      that emit or post-process a fence they produced are in FENCE_ALLOWED,
+//      each with its reason. A multiline (`m`) regex matches lines, not the
+//      start of a document, and is not a fence detector.
+//
 // Detection is AST-based (the TypeScript compiler API), so comments and string
 // literals mentioning gray-matter do not trip it.
 
@@ -61,6 +71,24 @@ export const ALLOWED: ReadonlyArray<{ pattern: RegExp; role: Role; reason: strin
   },
 ];
 
+/**
+ * Package source that may spell a `---` fence by hand, and why. Everything
+ * else asks `frontmatterBlock`.
+ */
+export const FENCE_ALLOWED: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+  {
+    pattern: /^packages\/common\/src\/frontmatter-block\.ts$/,
+    reason: "the shared fence rule itself",
+  },
+  {
+    pattern: /^packages\/core\/src\/lib\/frontmatter\.ts$/,
+    reason: "stringifyDocument post-processes the LF-only block gray-matter's stringify just emitted",
+  },
+];
+
+/** Package source, where rule 3 applies. */
+const FENCE_SCOPE = /^packages\/[^/]+\/src\//;
+
 const SCANNED = [
   "packages/*/src/**/*.{ts,tsx,js,mjs,cjs}",
   "packages/*/tests/**/*.{ts,tsx,js,mjs,cjs}",
@@ -74,7 +102,7 @@ export interface Finding {
   file: string;
   line: number;
   column: number;
-  rule: 1 | 2;
+  rule: 1 | 2 | 3;
   message: string;
 }
 
@@ -109,7 +137,7 @@ export function scanSource(file: string, text: string): Finding[] {
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : /\.[mc]?js$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
   const allowed = ALLOWED.find((entry) => entry.pattern.test(file));
   const findings: Finding[] = [];
-  const record = (node: ts.Node, rule: 1 | 2, message: string) => {
+  const record = (node: ts.Node, rule: 1 | 2 | 3, message: string) => {
     const { line, character } = source.getLineAndCharacterOfPosition(node.getStart(source));
     findings.push({ file, line: line + 1, column: character + 1, rule, message });
   };
@@ -137,6 +165,7 @@ export function scanSource(file: string, text: string): Finding[] {
     ts.forEachChild(node, visitLoads);
   };
   visitLoads(source);
+  if (FENCE_SCOPE.test(file) && !FENCE_ALLOWED.some((entry) => entry.pattern.test(file))) scanFences(source, record);
   if (!allowed || ["cache-probe", "engine-probe"].includes(allowed.role) || bindings.size === 0) return findings;
 
   // Rule 2: every reference to the binding is a literal-options call or a type.
@@ -182,6 +211,42 @@ export function scanSource(file: string, text: string): Finding[] {
   return findings;
 }
 
+/** A regex source that anchors `---` at the start of the text, optionally after a BOM. */
+const FENCE_SOURCE = /^\^(?:\(\?:)?(?:\\uFEFF|\\ufeff|\uFEFF)?(?:\)\??|\?)?-{3}/;
+
+/** Rule 3: a frontmatter fence detected by hand instead of through `frontmatterBlock`. */
+function scanFences(source: ts.SourceFile, record: (node: ts.Node, rule: 3, message: string) => void): void {
+  const literal = (node: ts.Expression | undefined) =>
+    node && ts.isStringLiteralLike(unwrap(node)) ? (unwrap(node) as ts.StringLiteralLike).text : undefined;
+  const refuse = (node: ts.Node, what: string) =>
+    record(node, 3, `${what} detects a frontmatter fence by hand — use frontmatterBlock from ` +
+      "@schlessera/brain-common/internal/frontmatter-block, which reads the fences as parseFrontmatter does (#2507)");
+  const visit = (node: ts.Node) => {
+    if (ts.isRegularExpressionLiteral(node)) {
+      const slash = node.text.lastIndexOf("/");
+      const body = node.text.slice(1, slash), flags = node.text.slice(slash + 1);
+      if (!flags.includes("m") && FENCE_SOURCE.test(body)) refuse(node, "a regex anchored at a leading ---");
+    } else if ((ts.isNewExpression(node) || ts.isCallExpression(node)) && ts.isIdentifier(node.expression) &&
+      node.expression.text === "RegExp") {
+      const body = literal(node.arguments?.[0]);
+      const flags = literal(node.arguments?.[1]) ?? "";
+      if (body !== undefined && !flags.includes("m") && FENCE_SOURCE.test(body)) refuse(node, "a RegExp anchored at a leading ---");
+    } else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression.name.text;
+      const arg = literal(node.arguments[0]);
+      if (arg === undefined) {
+        // not a literal search string
+      } else if (method === "startsWith" && arg.startsWith("---")) {
+        refuse(node, `startsWith(${JSON.stringify(arg)})`);
+      } else if ((method === "indexOf" || method === "lastIndexOf") && /^\r?\n---/.test(arg)) {
+        refuse(node, `${method}(${JSON.stringify(arg)})`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+}
+
 export function scanTree(root: string): Finding[] {
   const files = new Set<string>();
   for (const pattern of SCANNED) {
@@ -200,16 +265,17 @@ if (import.meta.main) {
   const root = resolve(process.argv[2] ?? process.cwd());
   const findings = scanTree(root);
   if (findings.length === 0) {
-    console.log("All frontmatter parsing goes through parseFrontmatter; gray-matter is loaded only by its designated files.");
+    console.log("All frontmatter parsing goes through parseFrontmatter; gray-matter is loaded only by its designated files; no package source finds a fence by hand.");
     process.exit(0);
   }
-  console.error("Frontmatter parsing that can reach gray-matter's global cache:");
+  console.error("Frontmatter parsing that can reach gray-matter's global cache, or a fence found by hand:");
   for (const f of findings) {
     console.error(`  ${relative(root, resolve(root, f.file))}:${f.line}:${f.column}: [rule ${f.rule}] ${f.message}`);
   }
   console.error(
     `\n${findings.length} finding(s). Parse with parseFrontmatter ` +
-      "(@schlessera/brain-common/internal/frontmatter); see docs/decisions/frontmatter-parsing.md."
+      "(@schlessera/brain-common/internal/frontmatter) and find fences with frontmatterBlock " +
+      "(@schlessera/brain-common/internal/frontmatter-block); see docs/decisions/frontmatter-parsing.md."
   );
   process.exit(1);
 }

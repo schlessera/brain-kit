@@ -5,6 +5,8 @@ import type { Candidate } from "./integration-reservation";
 import type { API } from "./proof-reuse";
 import { PROOF_JOBS, proofProblems } from "./ci-proof";
 import { shardNumbers } from "./proof-shards";
+import { coveredCategories } from "./check-receipt";
+import type { Category } from "./red-main";
 
 export function checkoutFromJob(log: string): string {
   const lines = log.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
@@ -25,6 +27,30 @@ export async function latestIntegrationRun(api: API, workflow: string, candidate
 
 const metadataObject = (value: unknown): boolean =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+
+export type ContractReadiness = { state: "passed" | "pending" | "refused"; message: string };
+
+/**
+ * Whether the newest exact-head contract run can serve as the merge path's contract proof (#3573).
+ * `confirm` reads it before taking a reservation, so a missing, cancelled or failed newest run is
+ * refused before any candidate CI run is spent. An older passing run never stands in for it: the
+ * gate reads the PR's title and labels, and a newer event may have changed them.
+ */
+export function contractReadiness(run: any, head: string): ContractReadiness {
+  const fresh = "Start a fresh contract run (edit the PR body, or remove and re-add a label), wait for it to pass, then confirm again";
+  const untouched = "No reservation was taken and no candidate CI was requested.";
+  if (!metadataObject(run)) return { state: "refused", message: `No contract run exists for head ${head}. ${fresh}. ${untouched}` };
+  const id = Number.isSafeInteger(run.id) ? run.id : "invalid";
+  if (run.status !== "completed") {
+    const pending = ["queued", "in_progress", "waiting", "requested", "pending"].includes(run.status);
+    return pending ? { state: "pending", message: `Newest contract run ${id} for head ${head} is ${run.status}` }
+      : { state: "refused", message: `Newest contract run ${id} for head ${head} has an unrecognized status. ${fresh}. ${untouched}` };
+  }
+  if (run.conclusion === "success") return { state: "passed", message: `Newest contract run ${id} for head ${head} passed` };
+  const conclusion = ["failure", "cancelled", "neutral", "timed_out", "action_required", "stale", "startup_failure", "skipped"].includes(run.conclusion) ? run.conclusion : "unrecognized";
+  const remedy = conclusion === "failure" ? "Fix what it reports, or if the finding is stale, start a fresh contract run; then confirm again" : fresh;
+  return { state: "refused", message: `Newest contract run ${id} for head ${head} concluded ${conclusion}; an older run cannot stand in for it. ${remedy}. ${untouched}` };
+}
 
 /** Only bounded, recognized API metadata enters refusals; never stringify arbitrary values. */
 function inventoryDiagnostic(inventory: any, run: any, head: string): string {
@@ -67,7 +93,7 @@ function inventoryDiagnostic(inventory: any, run: any, head: string): string {
 }
 
 export async function verifyIntegrationProof(root: string, repository: string, candidate: Candidate, api: API,
-  fetchCheckout: (sha: string) => void): Promise<{ run: number; checkout: Checkout }> {
+  fetchCheckout: (sha: string) => void): Promise<{ run: number; checkout: Checkout; covered: Set<Category> }> {
   const run = await latestIntegrationRun(api, "ci.yml", candidate);
   const contract = await latestIntegrationRun(api, "contract.yml", candidate);
   if (run?.status !== "completed" || run.conclusion !== "success" || contract?.status !== "completed" || contract.conclusion !== "success") throw new Error("Complete current-candidate CI and contract proof required");
@@ -110,5 +136,5 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   await validateCandidate(root, { action: receipt.event, pull_request: { number: candidate.pr, draft: false,
     head: { sha: candidate.head }, base: { ref: "main", sha: candidate.base } } },
   { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: receipt.checkout.sha, GITHUB_REPOSITORY: repository }, api, receipt.checkout);
-  return { run: run.id, checkout: receipt.checkout };
+  return { run: run.id, checkout: receipt.checkout, covered: coveredCategories(selected) };
 }

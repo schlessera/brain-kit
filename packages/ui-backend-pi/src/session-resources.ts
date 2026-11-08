@@ -38,7 +38,8 @@ export function createSessionResources(options: {
   pinnedSettings?: Record<string, unknown>;
   /** Per-turn workers consume prepared packages; installation belongs to setup. */
   requireInstalledPackages?: boolean;
-  permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
+  /** Managed workers gate tools through the outer Agent hooks and host RPC. */
+  managedToolSafety?: boolean;
   shellCwd?: string;
   directWrites?: boolean;
   nativeFileObservation?: import("./tools.js").BrainToolDeps["nativeFileObservation"];
@@ -70,6 +71,9 @@ export function createSessionResources(options: {
         mask: caps.mask,
         turnTemp: caps.turnTemp,
         reference: caps.reference,
+        compute: caps.compute,
+        apify: caps.apify,
+        attachments: caps.attachments,
       },
     });
     return { tools, turnContext };
@@ -93,8 +97,8 @@ export function createSessionResources(options: {
     const agentDir = getAgentDir();
     if (env.autonomous?.containment === "restricted") {
       return restrictedResources(brainPath, agentDir, env.autonomous, options.sandboxNote,
-        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
-          allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }));
+        createPermissionGate({ turn: toolkit.turnContext,
+          allowedTools: new Set(env.autonomous.allowedTools), confirmPatterns }), options.managedToolSafety);
     }
     const settingsManager = options.settingsSnapshot !== undefined
       ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),
@@ -116,7 +120,7 @@ export function createSessionResources(options: {
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true,
+        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true,
       } }, subagentTool, webSearch, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
@@ -124,8 +128,8 @@ export function createSessionResources(options: {
       agentDir,
       settingsManager,
       noExtensions: !loadExtensions,
-      extensionFactories: [
-        options.permissionFactory?.(toolkit.turnContext) ?? createPermissionGate({ turn: toolkit.turnContext,
+      extensionFactories: options.managedToolSafety ? [] : [
+        createPermissionGate({ turn: toolkit.turnContext,
           allowedTools: env.autonomous ? new Set(env.autonomous.allowedTools) : allowedTools, confirmPatterns }),
       ],
       agentsFilesOverride: withCwdContextFiles,
@@ -202,6 +206,9 @@ function buildAppend(
         turnTemp: env.caps.turnTemp === true && "turn_temp",
         referenceSource: env.caps.reference === true && "reference_source",
         referenceWorktree: env.caps.reference === true && "reference_worktree",
+        computeHealth: env.caps.compute === true && "brain_compute_health", computePlan: env.caps.compute === true && "brain_compute_plan",
+        computeRun: env.caps.compute === true && "brain_compute_run", computeStatus: env.caps.compute === true && "brain_compute_status",
+        computeCancel: env.caps.compute === true && "brain_compute_cancel", computeCollect: env.caps.compute === true && "brain_compute_collect",
         // Always registered: it needs nothing from the bridge.
         block: "show_block",
       },

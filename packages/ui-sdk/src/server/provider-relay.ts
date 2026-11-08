@@ -36,7 +36,7 @@ import {
   PROVIDER_RELAY_FAMILY_HEADER, PROVIDER_RELAY_KEY_HEADER, PROVIDER_RELAY_ORIGIN_HEADER, type ProviderRelayFamily,
 } from "@schlessera/brain-common/internal/provider-relay";
 import { workerIdentityHelper } from "./worker-identity.js";
-import { WORKER_EGRESS_DIR, type startEgressProxy } from "./egress-proxy.js";
+import { WORKER_EGRESS_DIR, type EgressRefusal, type startEgressProxy } from "./egress-proxy.js";
 import { hostProviderCredential } from "../config/env.js";
 
 /** The relay's socket name inside the turn's egress directory. */
@@ -345,10 +345,14 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
   try {
     server = Bun.serve({
       unix: socketPath,
-      async fetch(request, owner) {
-        // Image generation can take minutes before the first response byte;
-        // the request body has its own deadline below.
-        owner.timeout(request, 0);
+      // Image generation can take minutes, and a started response may pause
+      // for longer than Bun's 10s default; the request body has its own
+      // deadline below. Bun 1.4 does not honour a per-request
+      // `timeout(request, 0)` once the response streams, so disable it here.
+      // bun-types declares idleTimeout only for hostname servers; the runtime
+      // honours it on a Unix socket too (#3441 regression tests prove it).
+      ...({ idleTimeout: 0 } as object),
+      async fetch(request) {
         if (active >= MAX_PROVIDER_CONCURRENT_REQUESTS) {
           try { options.refused?.({ family: null, path: new URL(request.url).pathname, status: 503, reason: "relay_busy" }); } catch { /* Diagnostics only. */ }
           return Response.json({ type: "error", error: { type: "brain_provider_refused", message: "Provider relay busy" } }, { status: 503 });
@@ -375,10 +379,15 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     const url = new URL(request.url);
     const path = url.pathname;
     const familyName = request.headers.get(PROVIDER_RELAY_FAMILY_HEADER);
-    const refuse = (status: number, reason: ProviderRelayRefusal["reason"], message: string): Response => {
+    /**
+     * `error.reason` names the cause (#3431): the turn proxy's for an egress
+     * refusal, so the worker's tool can say why; the relay's own otherwise.
+     */
+    const refuse = (status: number, reason: ProviderRelayRefusal["reason"], message: string, egress?: EgressRefusal): Response => {
       done();
       try { options.refused?.({ family: familyName && familyName in ROUTES ? familyName : null, path, status, reason }); } catch { /* Diagnostics never answer for the relay. */ }
-      return Response.json({ type: "error", error: { type: reason === "budget_exceeded" ? "budget_exceeded" : "brain_provider_refused", message } }, { status });
+      return Response.json({ type: "error", error: { type: reason === "budget_exceeded" ? "budget_exceeded" : "brain_provider_refused",
+        message: egress?.message ?? message, reason: egress?.cause ?? reason } }, { status });
     };
     if (!["POST", "GET", "DELETE"].includes(request.method)) return refuse(405, "method_not_allowed", "Only provider requests are relayed");
     if (!familyName || !Object.hasOwn(ROUTES, familyName)) return refuse(403, "unknown_family", "Not a relayed provider");
@@ -419,12 +428,12 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     if (operation && !await operation.admit()) {
       const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
       operation.finish(cancelled ? "cancelled" : "denied", "provider_admission_refused");
-      return refuse(cancelled ? 499 : 403, cancelled ? "cancelled" : "egress_refused", "Provider network admission refused");
+      return refuse(cancelled ? 499 : 403, cancelled ? "cancelled" : "egress_refused", "Provider network admission refused", cancelled ? undefined : operation.refusal());
     }
     const denied = (reason: string, status = 403): Response => {
       operation?.finish("denied", reason);
       return refuse(status, reason === "provider_request_too_large" ? "request_too_large" : "egress_refused",
-        reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused");
+        reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused", operation?.refusal());
     };
     if (Number(request.headers.get("content-length") ?? "0") > MAX_PROVIDER_REQUEST_BYTES) return denied("provider_request_too_large", 413);
     // Charge each received chunk before retaining or forwarding it, against
@@ -494,6 +503,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation?.finish("denied", "budget_exceeded");
       return refuse(403, "budget_exceeded", now.message);
     }
+    if (operation && !operation.commit()) return denied("provider_admission_refused");
     const attemptId = crypto.randomUUID();
     let reported = false;
     const observe = (outcome: ProviderRelayReceipt["outcome"], status: number, usage: ProviderUsage | null): void => {
@@ -536,7 +546,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       operation.finish("denied", "max_bytes_per_turn");
       await response.body?.cancel().catch(() => {});
       report("cancelled", response.status, null);
-      return refuse(403, "egress_refused", "Provider egress limit exceeded");
+      return refuse(403, "egress_refused", "Provider egress limit exceeded", operation?.refusal());
     }
     if (files) {
       // A Files answer is small JSON, read whole: whatever it registers is in
@@ -556,7 +566,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
         if (failure === "egress") {
           operation?.finish("denied", "max_bytes_per_turn");
           report("cancelled", response.status, null);
-          return refuse(403, "egress_refused", "Provider egress limit exceeded");
+          return refuse(403, "egress_refused", "Provider egress limit exceeded", operation?.refusal());
         }
         operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
         report(signal.aborted ? "cancelled" : "failed", response.status, null);
@@ -665,6 +675,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       catch { /* The host's own accounting reports its failure. */ }
     };
     observe("dispatched", 0);
+    if (operation && !operation.commit()) return;
     try {
       const response = await fetch(target, { method: "DELETE", headers, redirect: "manual", signal });
       await response.body?.cancel().catch(() => {});

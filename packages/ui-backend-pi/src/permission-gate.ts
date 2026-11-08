@@ -35,16 +35,18 @@
 
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import {
+  APIFY_TOOL_NAMES,
   checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
   isCompletedAutonomousToolCall,
 } from "@schlessera/brain-ui-sdk/server";
 
-import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
+import { compileWorkerCommandPolicy, denyWorkerCommand, requestPolicyPermission, prepareOutwardPlan, commitOutwardPlan, safetyAdmissionRefusal, observeOutwardPlan, OUTWARD_VOICE_REFUSAL } from "@schlessera/brain-ui-sdk/internal";
 import type { PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import type { TurnContext } from "./turn-context.js";
 import { PI_BRAIN_UPDATE_TOOL_NAME } from "./tools.js";
+import { rememberPiAdmission } from "./tool-admission.js";
 
 export interface PermissionGateOptions {
   /** The session's turn holder — the gate reads the CURRENT turn's bridge. */
@@ -59,7 +61,8 @@ export interface PermissionGateOptions {
 export function piToolAvailabilityRefusal(turn: TurnContext, name: string): string | undefined {
   if (turn.autonomous) return undefined;
   const visual = ["ask_user_list", "ask_user_rank", "ask_user_form", "request_image_mask"];
-  const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share"];
+  // Apify stays inside interactive typed turns (#3162): voice and no-grant turns keep their memberships.
+  const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share", ...Object.values(APIFY_TOOL_NAMES)];
   if ([...visual, ...interactive].includes(name) && (turn.noGrantSurface || turn.posture === "voice"))
     return `Tool "${name}" requires an interactive typed grant surface.`;
   const handlers: Record<string, string> = {
@@ -68,6 +71,10 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     propose_policy_change: "proposePolicyChange", inbox_list: "inboxList", inbox_get: "inboxGet",
     inbox_add: "inboxAdd", resolve_action: "resolveAction", complete_share: "completeShare", brain_read_base: "readBrainBase",
     reference_source: "referenceAccess", reference_worktree: "referenceAccess",
+    brain_compute_health: "compute", brain_compute_plan: "compute", brain_compute_run: "compute",
+    brain_compute_status: "compute", brain_compute_cancel: "compute", brain_compute_collect: "compute",
+    ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
+    read_attachment: "readAttachment",
   };
   const handler = handlers[name];
   if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")
@@ -106,7 +113,11 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         if (unavailable) return { block: true, reason: unavailable };
         // The server route rechecks the exact operation, live principal,
         // membership and approval. Avoid a second runtime approval card.
-        if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) return undefined;
+        if (turn.bridge?.applyBrain && ["brain_add", "brain_update", "brain_archive", "write_file", "edit_file", "apply_staged_changes"].includes(event.toolName)) {
+          await turn.bridge.inputSafety?.begin(event.toolCallId,event.toolName,event.input??{});
+          const unavailable = safetyAdmissionRefusal(turn.bridge.admissionSafety);
+          return unavailable ? { block: true, reason: unavailable } : undefined;
+        }
         const decision = await decidePiToolPermission(options, event.toolName, (event.input ?? {}) as Record<string, unknown>, event.toolCallId);
         if (decision.behavior === "deny") return { block: true, reason: decision.message || `Permission denied for ${event.toolName}.` };
         if (decision.updatedInput && event.input && typeof event.input === "object") {
@@ -135,12 +146,14 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
   if (unavailable) return { behavior: "deny", message: unavailable };
   const policy = compileWorkerCommandPolicy(turn.autonomous ? undefined : turn.commandPolicy);
   const outward = (value: unknown) => prepareOutwardPlan({ toolName, shellToolName: "bash", input: value,
-    allow: turn.commandPolicy?.outwardAllow, taint: turn.commandPolicy?.taint, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });
+    allow: turn.commandPolicy?.outwardAllow, taint: turn.commandPolicy?.taint, safety: turn.bridge?.admissionSafety, autonomous: Boolean(turn.autonomous), voice: turn.posture === "voice", configurationRoot: turn.configurationRoot, maintenance: turn.maintenance });
   const observe = (value: unknown, decision: Parameters<typeof observeOutwardPlan>[1]["decision"]) => observeOutwardPlan(outward(value), { bridge: turn.bridge, toolName, input: value, toolUseId, decision });
   const denied = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input, toolUseId });
   if (denied) { observeOutwardPlan(prepareOutwardPlan({ toolName, shellToolName: "bash", input, taint: turn.commandPolicy?.taint, autonomous: Boolean(turn.autonomous) }), { bridge: turn.bridge, toolName, input, toolUseId, decision: "refused" }); return { behavior: "deny", message: denied }; }
   if (turn.signal?.aborted) return { behavior: "deny", message: "Turn cancelled before tool admission." };
   const outwardPlan = outward(input);
+  const snapshot = turn.bridge?.admissionSafety?.read();
+  let outwardApproved = false;
   const confirmPatterns = [...options.confirmPatterns, ...policy.confirm, ...(outwardPlan.pattern ? [outwardPlan.pattern] : [])];
   if (outwardPlan.voiceRefusal) { observe(input, "refused"); return { behavior: "deny", message: OUTWARD_VOICE_REFUSAL }; }
   let effective = input;
@@ -160,6 +173,7 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
     const decision = await requestPolicyPermission(policy, { bridge: turn.bridge, request, shellToolName: "bash",
       permission: { noGrantSurface: turn.noGrantSurface }, signal: turn.signal });
     if (decision.behavior === "deny") { observe(original, decision); return decision; }
+    if (approval.kind === "command" && outwardPlan.needsApproval) outwardApproved = true;
     if (decision.updatedInput !== undefined) {
       const refusal = denyWorkerCommand(policy, { bridge: turn.bridge, toolName, shellToolName: "bash", input: decision.updatedInput, toolUseId }) ||
         checkEditedApproval({ toolName, shellToolName: "bash", updateToolName: PI_BRAIN_UPDATE_TOOL_NAME,
@@ -179,6 +193,12 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
       return refused;
     }
   }
-  observe(effective, { behavior: "allow" });
+  try{await turn.bridge?.inputSafety?.begin(toolUseId,toolName,effective);}
+  catch(error){return {behavior:"deny",message:error instanceof Error?error.message:"Safety collection unavailable"};}
+  const finalPlan = outward(effective);
+  const stale = commitOutwardPlan(finalPlan, { bridge: turn.bridge, before: snapshot, approved: outwardApproved, signal: turn.signal });
+  observeOutwardPlan(finalPlan, { bridge: turn.bridge, toolName, input: effective, toolUseId, decision: stale ? "refused" : { behavior: "allow" } });
+  if (stale) return { behavior: "deny", message: stale };
+  rememberPiAdmission(turn, toolName, toolUseId, effective, snapshot, outwardApproved);
   return effective === input ? { behavior: "allow" } : { behavior: "allow", updatedInput: effective };
 }

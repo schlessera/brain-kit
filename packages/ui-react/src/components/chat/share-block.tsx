@@ -51,7 +51,7 @@ export function ShareBlock({ body, format = "image", title }: ShareBlockProps) {
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <Button tone="primary" size="sm" block={false} style={{ minHeight: 44 }}
+          <Button tone="primary" size="sm" block={false} reach
             label={primary.label} onClick={() => void primary.run()} />
           <ShareMenu options={secondary} title="Other formats" />
         </div>

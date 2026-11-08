@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-29`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1052-1071`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1108-1126`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:46-49`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:47-50`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -94,6 +94,33 @@ most 1,000 rows, explicitly marks truncation, and leaves the complete retained
 governance event query available. No permission/card or protocol revision is
 added.
 
+### Hosted external compute (additive, 0.45.0, #3108)
+
+A hosted external compute job is its own Activity root run, run id
+`compute:<job id>`, with the new span origin `compute`: kind `tool`, name
+`compute_job`, `jobName` the instance id, the conversation's `sessionId` and
+`principalId`, and attributes linking it to the turn
+(`brain.compute.turn`) and tool call (`brain.compute.tool_use`), with the
+lease, estimate and source hash. It records each state it is seen in as a
+`compute_state` event and ends `success`, `error`, `cancelled` or `timeout`
+with the cleanup fact in `brain.compute.cleanup`; `usage.costUsd` is set only
+for a complete provider cost. A job whose outcome is `uncertain` stays open
+with `brain.compute.stuck: true`. `ActivitySpanOrigin` and the span schema
+accept `compute`. A host sends a compute run, in snapshots and deltas, only to
+a connection whose `client_hello` declared `capabilities.activityCompute`
+(`ACTIVITY_COMPUTE_CAPABILITY`), which the shipped client does; an older
+client never receives one. HTTP Activity reads follow the same rule: `GET
+/api/activity/runs` lists compute runs, live and historical, only when the
+request declares `?activityCompute=1`, and `GET /api/activity/runs/:runId`
+for a `compute:` run without it answers `404` as an unknown run. The shipped
+client declares it on both.
+
+The outward `action` vocabulary gains `compute_run` (a run's approval
+decision, its target the instance id), in governance events and in the
+journal's `outwardActions` rows (`JournalOutwardAction.action`). The `taint`
+source vocabulary gains `compute_output`, recorded when a collect returns a
+remote machine's output. Older observers may ignore both.
+
 ### Completed inference usage and budgets (additive, #1669)
 
 `usage` carries `{ type, turnId, sessionId?, usage: TurnUsage, observedAt,
@@ -104,8 +131,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3890-3896`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1898-1900`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:4236-4242`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1983-1985`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -128,6 +155,23 @@ without reported usage adds to `unknownRuns` and never blocks by itself. The
 top-level `listPriceCostUsd` and `tokens` stay the agent's own completed
 inference. Nothing is reserved: requests already in flight when a scope
 becomes blocked complete and are counted, so a scope can end above its stop.
+
+**Apify liability (0.45.0, #3307).** On a host that wires its Apify ledger
+into the turn budgets, every scope also counts the Apify liability that ledger
+holds once, in USD: the turn's runs, the conversation's, and this brain's UTC
+day, where an unsettled run stays on every later day until it settles. It is
+known spend, so it adds to `costUsd` (which is then never null) and is
+reported again, already included, in the optional `apifyUsd`; it never adds
+tokens. Such a receipt's `coverage` is `"Built-in inference, relayed brain CLI
+providers and Apify runs this host admitted; other provider and tool spend is
+not metered"`. When that ledger cannot be read, inference keeps its own
+behaviour, `apifyUsd` is absent and `coverage` is `"Built-in inference and
+relayed brain CLI providers; Apify accounting is unavailable, so Apify spend
+is not counted; other provider and tool spend is not metered"`; the missing
+spend is unknown, not zero. A host without an Apify ledger keeps the earlier
+value and never sends `apifyUsd`. A client that validated the earlier
+literals must accept both new values. `listPriceCostUsd` and `tokens` stay
+the agent's own completed inference.
 
 `budget_exceeded` and `budget_unavailable` are additive host failure classes.
 The former names a turn/session/day `budgetScope`; a day stop carries
@@ -526,6 +570,29 @@ backend invocation to the first frame, or the observed failure boundary
 when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
 values do not redefine backend-run `startedAt` or `durationMs`.
 
+Optional `subPhases` (additive, #3355) attributes the governed and journal
+phases to their steps, in start order. Each entry is `{ phase, name, startedAt,
+endedAt, elapsedMs }`, where `phase` is `governed` or `journal`. A step that has
+not finished has a null `endedAt`; its `elapsedMs` follows the phase rule above,
+measuring to `failureObservedAt` or terminal time once the record is terminal,
+and null before. Every step lies inside its phase's paired milestones, and the
+`observe_*` steps lie inside `observe`. Steps are carried by the record's next
+milestone or terminal write, never written on their own. `name` is open
+vocabulary, so a consumer tolerates names it does not know. A step that does
+not apply to a turn is absent. The current names are:
+
+- `governed`: `inference_origin` (the backend's relay origin, looked up before
+  admission), `gate_acquire`, `startup_checkpoint`, `boundary_prepare`,
+  `type_translation`, `exposure_settle`, `folder_retention`, `sandbox_resolve`,
+  `startup_checkpoint_refresh`, `sandbox_resolve_refresh`,
+  `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
+  `record_policy`, `startup_view_cleanup`, `exposure_records`, `manifest_begin`.
+- `journal`: `hold_wait`, `initialize`, `refused_admissions`, `observe` (with
+  `observe_checkpoint`, `observe_delta`, `observe_metadata`, `observe_capture`,
+  `observe_record`, `observe_commit`), `expiry`, `turn_insert`, `policy`.
+
+Records written before this field have no `subPhases`; nothing is backfilled.
+
 The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
 in nullable `reason`. Admission refusal, cancellation/revocation and failures
@@ -604,6 +671,22 @@ A run whose worker hit a host resource limit (additive, #1660) carries one
 since the last report, or null when it does not count). `fatal: true` means
 the limit ended the worker; the root then also carries `brain.failure_class`
 `worker_resource_limit`.
+<a id="module-discovery-outcome-additive-0450-3381"></a>
+A module discovery at crontab emission (additive in 0.45.0, #3381) is a `cron`
+root span with `jobName` `modules`, opened and ended at once by
+`brain-ui-cron crontab` once its bounded retries settle. `outcome` `error`
+means module cron was skipped and the crontab carries core jobs only; its
+reason is `module cron skipped: <cause>`, where the cause is the last
+attempt's: the `brain module list` exit code and stderr tail, unreadable
+output, a host not reconciled, or a missing native configuration. `success`
+means discovery yielded the module list. The root carries
+`brain.module_discovery.attempts` (a number) and
+`brain.module_discovery.skipped` (a boolean). The same outcome is the
+`modules` job's latest `cron_runs` row, which `GET /api/status` lists under
+`cronJobs`. It is written only to a UI database outside the brain that already
+exists or sits behind a qualified native host, so a host that never qualified
+and has no database reports on stderr alone. No module job can carry the
+name: theirs are always `<module>-<entry>`.
 A scheduled `brain sync` run (a `cron` root span with `jobName` `sync`,
 written by the in-process scheduler or the container cron wrapper; additive in
 0.40.0, #290) carries `brain.sync.agent`: `not-invoked`, `invoked`, or
@@ -893,6 +976,10 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   third-party classes still appear as `unknown` in the default outgoing review;
   the wire field remains free-form. This additive SDK export ships in a minor
   release under the contract versioning rules.
+  `input_safety_unavailable` identifies refusal because the runtime's input
+  collector is unqualified or unavailable, including externally configured Pi
+  extensions. It is a registered host safety failure, not a provider error or
+  proof that every input was durably retained.
 - **`authAction`** is set only on a Claude subscription's auth failure:
   `relogin`, `check_account` or `check_config`, as
   `subscriptionAuthAction(errorClass)` maps it, with
@@ -942,6 +1029,44 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   drops an unreadable `failure` or `retry` and keeps the frame, because the
   frame is a turn's terminal. An unreadable `attempts` or `resetsAt` is dropped
   independently while keeping the rest of the failure and its frame.
+
+<a id="turn-stops-additive-in-0450"></a>
+
+### Turn timeouts and runtime stop notices (additive in 0.45.0, #3356)
+
+```
+result.outcomeDetail?: "host_timeout"                 // on outcome: "cancelled"
+status.detail?: "Turn timed out"                      // on the same turn's status: "cancelled"
+SessionHistoryMessage.runtimeNotice?: RuntimeNotice   // on an assistant message
+RuntimeNotice = { cause: "aborted" | "unspecified", message }
+HOST_TIMEOUT_OUTCOME_DETAIL = "host_timeout"          // exported from @schlessera/brain-ui-sdk/protocol
+```
+
+- **`host_timeout`** says the host's hard elapsed-time turn limit ended the
+  turn. It is set from the timeout itself, never inferred from an aborted
+  signal: a cancel someone asked for, a revoked principal, a budget or a
+  journal stop never carries it. The turn is still `outcome: "cancelled"` and
+  `isError: false`; a timeout is never reported as a success, and the field
+  does not change what `"timeout"` means under `outcome: "error"`. The limit
+  counts the time a question waits for the user and is neither paused nor
+  restarted by one. Pending questions are drained at the deadline, and a later
+  answer gets `ask_answer_receipt` `closed`/`ended`.
+- **`runtimeNotice`** is what the agent runtime itself wrote into the
+  transcript when a turn stopped, as opposed to anything the model said. The
+  Claude backend recognises it by the runtime's `<synthetic>` model and its
+  own constant texts: `No response requested.` (`unspecified`) and
+  `API Error: Request was aborted.` (`aborted`). The same words from the model
+  or the user stay their text. The notice's text is not repeated in
+  `content`, which holds the partial answer before it. A message that carries
+  a `failure` does not also carry a notice, and the same notice observed
+  twice on one message is one notice. Neither cause says who stopped the
+  turn or whether earlier tool calls took effect. A replay's turn-position
+  digests hash the notice where its text used to be, so failure and turn
+  records written before this change still join.
+- **Tolerance.** A client that does not read these keeps showing a
+  cancelled turn, and a notice-only assistant message as an empty one. A
+  client that validates with `@schlessera/brain-ui-sdk/schemas` drops an
+  unreadable `runtimeNotice` and keeps the message.
 
 <a id="manual-retry-receipts-additive-in-0400"></a>
 
@@ -1769,6 +1894,109 @@ nothing. For a new conversation with a `requestId`, the host also records
 that this draft's request started that session, which is the only proof
 `POST /api/drafts/:draftId/bind` accepts. Draft text and images never enter
 logs, push payloads or the transcript store.
+
+<a id="composer-file-attachments-additive-0450-3153"></a>
+
+### Composer file attachments (additive, 0.45.0, #3153)
+
+A host that stores composer originals sends
+`server_hello.capabilities.composerFiles: true` and, beside it,
+`server_hello.attachmentLimits: AttachmentLimits` (`maxFiles` 10,
+`maxFileBytes` 25000000, `maxTotalBytes` 50000000, `poolBytes` the configured
+attachment pool, default 1073741824). It is advertised only together with
+`sessionDrafts`. Without the flag a client offers no generic file and keeps
+D52's tab-only track path.
+
+- **`chat_message.attachmentRefs?: ChatAttachmentReference[]`**, each
+  `{ kind: "attachment"; fileId }`, at most 10. The message must carry the
+  `draftRef` of the draft the files were uploaded to. The host resolves every
+  id against its own records: the file must be `stored`, minted for that draft,
+  bound by its saved revision or outgoing snapshot, and its bytes on disk must
+  still match the recorded size and SHA-256 through no link. Anything else is
+  an `error` with code `ATTACHMENT_REJECTED` before a backend runs. The client
+  never supplies a path, kind, size or digest. The references are a separate
+  field rather than a new `files` variant so `ChatFileAttachment` keeps its
+  type.
+- **`ChatImageAttachment.fileId?`** links an inline frame to the original it
+  was prepared from. That original must be among the message's
+  `attachmentRefs`, and the message envelope charges it once. One envelope
+  covers a message: `files`, `attachmentRefs` and frames without a `fileId`
+  together hold at most 10 items and 50,000,000 original bytes.
+- **What the provider receives.** After the user text, and after the existing
+  `<brain-track-files>` block, the host appends one quoted
+  `<brain-attachments>` block. It lists `id`, `name`, `path`
+  (`.brain-ui/attachments/<fileId>/<name>`), `kind`, `bytes` and `sha256` for
+  each original, and `inline` for images. It says the contents have not been
+  read. Contents are never injected. A validated track is also listed in the
+  track block, at its attachment path. The block is recorded with the
+  message's source and is part of the turn's prompt, so it never changes
+  afterwards; Retry requires the same files, still matching, and a message
+  reference in that session.
+- **Acceptance.** When the host accepts the message (its `session_info`, or
+  its `status: queued`), the same transaction that settles the draft first
+  gives each named original a reference owned by the session, then clears the
+  outgoing snapshot whose `requestId` matches, then consumes the revision under
+  the existing rules. The originals stay for later turns.
+- **Replay.** `SessionHistoryMessage.attachmentFiles?: AttachmentFile[]`
+  carries the originals a user message sent, as recorded. The replayed
+  `content` is the user's own text: the host removes its blocks only when they
+  reproduce byte for byte. `files` keeps only legacy staged tracks.
+- **Session drafts additions.** `SessionDraftLimits` gains
+  `maxDraftFiles` (10), `maxDraftFileBytes` (25000000) and
+  `maxDraftFilesBytes` (50000000). `maxDraftBytes` keeps its value and now
+  bounds text and legacy inline images only. `maxTotalBytes` keeps its value
+  and also counts the originals live drafts and outgoing snapshots reference.
+  `DraftSaveRequest` gains `fileIds?` and `outgoing?`, `Draft` gains `files?`
+  and `outgoing?`, and `DraftSummary` gains `fileCount?`. The routes are in
+  the [HTTP API](../http-api.md#composer-file-attachments-additive-0450-3153).
+- **Outgoing snapshot list (additive, #3588).** `Draft.snapshots?` and
+  `DraftSaveRequest.snapshots?` carry up to 10 `DraftSnapshot`s per chat,
+  each `{ snapshotId, requestId, text, fileIds, state: "held" | "returned" |
+  "dispatched", createdAt }`. The save that creates one counts the chat's
+  live snapshots across its drafts, tabs and devices and is refused with 409
+  `DRAFT_OUTGOING_FULL` at `SessionDraftLimits.maxOutgoingSnapshots` (10)
+  before any send; state changes edit a snapshot in place and are never
+  refused for capacity. Acceptance releases only the snapshot of its
+  `requestId`. `Draft.outgoing` keeps its shape and shows the newest held or
+  unconfirmed snapshot; the single-slot write still works. `DELETE` of a draft
+  holding a held or unconfirmed snapshot is 409 `DRAFT_OUTGOING_PENDING`. The
+  rules are in the [HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588).
+
+The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
+`ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,
+`ATTACHMENT_MAX_TOTAL_BYTES`, `ATTACHMENT_POOL_DEFAULT_BYTES`,
+`ATTACHMENT_UNBOUND_TTL_MS`, `ATTACHMENT_GRACE_MS`, the
+`ChatAttachmentReference`, `AttachmentKind`, `AttachmentReader`,
+`AttachmentFile`, `AttachmentLimits`, `DraftOutgoing`, `DraftSnapshot`,
+`DraftSnapshotState`, `DraftSnapshotWrite`, `AttachmentErrorCode`
+and `AttachmentErrorResponse` types, and `attachmentFileSchema` and
+`attachmentLimitsSchema`. The governance `taint` event's `source` gains
+`chat_attachment`: reading under `.brain-ui/attachments/` taints the session
+as reading a staged share does.
+<a id="attachment-reads-additive-0450-3589"></a>
+
+### Attachment reads (additive, 0.45.0, #3589)
+
+A host with composer files sends `server_hello.capabilities.attachmentReads:
+true` (`ATTACHMENT_READS_CAPABILITY`). It then answers
+[`GET /api/sessions/:id/attachment-reads`](../http-api.md#attachment-reads-additive-0450-3589)
+and sends `attachment_read` frames to the connections that declared the same
+flag in `client_hello`. A connection without the flag never receives one, and a
+client on a host without the capability shows no read state for a sent file.
+
+- **`attachment_read`** `{ type: "attachment_read", sessionId, read:
+  AttachmentReadEntry }` follows each `read_attachment` call that reached an
+  original during a turn of `sessionId`, once the read is recorded. `read` is
+  `{ fileId, turnId, outcome, scope, at }`: outcome and scope only, never text.
+  A refused call sends nothing, and nothing is sent for a retired chat.
+- **Not conversation content.** The frame is not part of the transcript, the
+  host dialogue or a history replay, and it never reaches a provider: the
+  provider-facing history is unchanged.
+
+The SDK publishes `ATTACHMENT_READS_CAPABILITY`, `AttachmentReadEntry`,
+`SessionAttachmentReadsResponse` and `ServerAttachmentRead`, and the
+`serverAttachmentReadSchema` and `sessionAttachmentReadsResponseSchema`
+schemas; `serverMessageSchema` accepts the new frame.
 
 <a id="explicit-chat-deletion-additive-3230"></a>
 
@@ -2623,3 +2851,150 @@ are shown only from an actual post-Start opened receipt, not pre-Start estimates
 Legacy undisclosed starts now refuse intentionally under the
 [parent direction](https://github.com/schlessera/brain-kit/issues/3178#issuecomment-6536350935);
 this is a breaking pre-1.0 privacy admission correction shipped in a minor.
+
+### Actor-specific approval (additive, #3580)
+
+`tool_approval_request.kind` additionally accepts `actor`. For this kind,
+`rememberable` offers the existing `Always allow` choice even when generic
+tool permission storage is unavailable. A `tool_approval` with `always: true`
+returns that choice to the host-owned Actor consent service. It never creates
+a generic tool grant and a generic remembered tool permission never answers an
+Actor request. Once and deny retain their existing wire shapes. The host stores
+Actor approval by brain, principal, account and immutable Actor id, and the
+owner can revoke it in Apify settings.
+
+### Live orientation disclosure and progress (additive, #3623)
+
+Both first-party profiles now disclose transfer at Start of selected
+brain/user guidance, domain names and bounded identity/current-focus context,
+including in a fresh chat with no history. The existing exact
+`conversation_start.disclosed` echo check rejects an older profile before
+repository reads, recovery/takeover or provider open. There is no new grant
+resource, wire frame or protocol revision. Enter/Cancel remain local and new
+content is never transferred silently before Start. The
+[package contract](package-api.md#live-brain-orientation-and-task-status-additive-3623)
+defines the optional frozen orientation and provider status methods.
+
+Existing `conversation_work` states remain unchanged. For contextual tasks
+the first-party adapters additionally receive minimal exact-task queued and
+running feedback after persistence and host turn admission starts,
+respectively. Running does not establish backend/tool invocation; governance
+admission may still be pending. This does
+not convert a request proposal into acceptance or a status into completion;
+provider/native and host identities remain bound, and refused work executes
+no turn. Refused Gemini responses are scheduled `WHEN_IDLE` to allow an
+explanation. A send/append is not a spoken acknowledgement or playback
+receipt. Screen-only approvals, stale-result suppression and no replay remain
+unchanged. [The guidance reference](../live-conversation-guidance.md) separates
+transport proof from real-model judgment and listening qualification.
+
+### Observed content map disclosure (additive, #3630)
+
+Both first-party Start profiles additionally name a bounded **observed partial
+content map** from existing directory indexes. The exact disclosed-profile
+check still precedes enumeration, reads, epoch replacement and provider open;
+an earlier profile cannot silently admit this transfer. The optional SDK
+[`content_map` knowledge topic](package-api.md#observed-live-content-map-additive-0450-3630)
+adds no wire field, frame, revision, authority or automatic work. Existing
+capture consent, task identities, ordinary screen approvals, append-only
+history and no replay remain. Exact accepted-task progress asks for one brief
+task-specific acknowledgement; running still means host admission, and does
+not renew the acknowledgement or establish backend/tool entry.
+
+## Session safety history (additive, #3604)
+
+The optional boolean `sessionSafetyHistory` in `server_hello.capabilities`
+advertises read-only host sidecars. The optional sibling `safetyCapabilities`
+is version 1: `read:true`, `review:boolean`, `originRules:false`,
+`repositoryRules:false`, `recipientRules:false`,
+`readOnlyReason:"review_unavailable"|"owner_required"|null`, detector version 1
+and effective page, frame and cursor limits. Hosts exposing #3603's individual
+HTTP review set `review:true` and a null reason only for the live password-mode
+human owner; other callers receive false with `owner_required`. Hosts without
+that service retain `SAFETY_READ_CAPABILITIES` and `review_unavailable`.
+Review hosts optionally add literal `reviewBodyBytes:16384`,
+`reviewLifetimeMs:900000` and `receiptLifetimeMs:86400000` limits. Capability
+advertisement grants no authority: every HTTP operation rechecks it, and no WS
+review/mutation frame is accepted. Standing-rule flags remain false.
+Older clients ignore these optional fields; clients
+without both read declarations report unavailable and send no read/unsubscribe
+frames to an unsupported host. No verdict endpoint,
+mutation authority or fully qualified detector is implied by read support.
+
+After declaring the same capability in `client_hello`, clients may send:
+
+- `safety_read`: `{type,version:1,requestId,target,cursor?,limit?}`. The target
+  is `{sessionId}` or the exact provisional `{turnId,bindingId}`. Reads cannot
+  discover/create a session by guessing aliases. The host replies
+  `safety_history: {type,requestId,page:SafetyPage}`.
+- `safety_subscribe`: `{type,version:1,requestId,identity,afterRevision,snapshotId}`.
+  One selected history subscription per connection replaces its predecessor.
+  `identity` is the canonical `{sessionId,historyOwnerId,historyGeneration}`
+  or provisional `{turnId,bindingId}`. The snapshot must have been issued to
+  this exact principal and identity at `afterRevision` and remain unexpired
+  when the subscription is accepted. Its opaque ID pins the exact collection
+  membership even if adoption has not yet advanced the brain-wide revision.
+  `safety_unsubscribe: {type,version:1}`
+  removes it; disconnect/auth loss also removes it.
+- `safety_update`: `{type,update:{version:1,identity,fromRevision,toRevision,
+  projection,records}}`. Both revisions are canonical unsigned decimal strings
+  bounded by uint64. Each update contains all selected-history records in its
+  `(fromRevision,toRevision]` interval and the authoritative aggregate at its
+  end, including changes with no detail rows. Revision numbers are brain-wide;
+  unrelated history revisions need not have a selected-history record.
+- `safety_unavailable`: `{type,version:1,requestId?,reason}` where reason is
+  `unavailable|unauthorized|expired|capacity|generation_changed|gap`. Gaps,
+  expired snapshots, generation changes and oversized deltas require a fresh
+  snapshot. No partial delta claims continuity.
+
+Pages echo their input `cursor` to prove ordering. The aggregate is independent
+of paginated detail and stored with the snapshot. `snapshotComplete` is true
+only when `nextCursor` is null. A client assembles one snapshot in cursor order
+and accepts updates only when `fromRevision` equals its current revision;
+older/duplicate updates cannot decrement its aggregate. Partial pages, historic
+review receipts and missing fields cannot label a session normal. After a gap,
+first-turn adoption, reconnect or restart, obtain a new snapshot. Canonical
+occurrence/decision IDs survive adoption and replay; client caches are cleared
+on retirement and auth loss and late request IDs cannot repopulate them.
+Adoption that adds pre-watermark collections invalidates paging and live
+continuity with `gap`; it cannot insert old records beneath a pinned aggregate
+or silently skip them in a delta. New post-watermark collections remain eligible
+for ordinary contiguous delivery. Duplicate pages after completion and updates
+from a previous subscription during pagination leave the aggregate intact;
+the final-page subscription replays from the pinned watermark.
+Local pending input and recording-loss latches can change without a committed
+revision, including when the failure notice itself rolls back. A subscription
+whose projection changes at an unchanged revision emits `gap` and requires a
+fresh snapshot. Final delivery also rejects a view that omits newly pending
+input or known local recording loss. A same-revision restrictive update is not
+an ordinary duplicate: clients retain the more restrictive aggregate and
+resynchronize; a same-revision normal frame cannot loosen that state.
+
+Records are tagged `occurrence`, `exposure` or `safe_decision`, with immutable
+host record ID, original sequence/time, turn, binding and occurrence ID.
+Occurrences retain their exact host operation/signal/exposure IDs where
+available, source, detector, exposure state and allowlisted transport provenance.
+The source inventory includes every durable taint source, including
+`apify_result` from supported host discovery, inspection and Actor results.
+Opaque connections have null operation/provenance, never inferred Git/tool
+attribution. Pruned details explicitly use null unavailable correlation fields;
+independent occurrence IDs and aggregate counts survive. Text is display data,
+never HTML, instructions or provider conversation content. Commands, file/page
+bodies, URL credentials/query strings and arbitrary model text are omitted.
+
+Each page/update is bounded to 100 records and 262144 bytes. Oversized replay
+requires resync from the durable ledger; there is no unbounded delta cache.
+Snapshots use at most 256 entries, 32 per principal and 4194304 aggregate bytes;
+the shared cursor table caps at 4096 positions, each at most 512 bytes and valid
+for 300000 ms. At most 256 reads (32 per principal) wait at once, and 256
+subscriptions exist per host. Replaced subscriptions keep their in-flight reads
+inside those same read limits until settlement. Capacity refusal preserves all durable evidence.
+The existing one-second authorization sweep drives bounded live read delivery.
+Every asynchronous settlement and final delivery rechecks live principal,
+canonical generation, retirement and snapshot expiry. Permanent minimized
+retirement fences remain owned by the existing chat lifecycle.
+
+These sidecars never change provider messages, tools or system prefixes. The
+host-only verdict store remains separate; this slice changes no effective-taint
+admission semantics or Settings policy. The semantic G6 break remains governed
+by the prior maintainer ruling in the session-safety ADR.

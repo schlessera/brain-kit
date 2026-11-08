@@ -32,7 +32,7 @@ type RuntimeObserved = Extract<BackendActivityEvent, { kind: "runtime_observed" 
 type AuthFailure = Extract<BackendActivityEvent, { kind: "auth_failure" }>;
 
 /** An auth failure as the status reports it: the runtime's text, with any credential redacted. */
-export type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
+type RecordedAuthFailure = Omit<AuthFailure, "kind"> & {
   runId: string;
   at: string;
   /**

@@ -248,6 +248,9 @@ for (const kind of ["activity", "actions"] as const) test(`${kind} acceptance ov
     expect(app.close()).toBe(closing);
     // A handshake proves shutdown reached the actual Activity close. Keep
     // transport held through another event-loop turn, including on old code.
+    // Negative window: a premature writer close would follow write-worker round
+    // trips with real IO, and correct code never closes it here, so no event
+    // marks the point by which it would have happened; 20 ms covers those trips.
     await draining;
     await new Promise(resolve => setTimeout(resolve, 20));
     const closedBeforeAcceptance = observed.closes;
@@ -420,6 +423,9 @@ for (const kind of ["storage", "activity", "actions"] as const) for (const statu
     expect((originalError as Error).message).toContain("Odysseus durable outcome refused");
     // Let both the sampler and runtime catches observe settlement before the
     // late Activity drain. The original worker failure must remain owned.
+    // Those catches run across write-worker replies with real IO and report
+    // nothing when they have retained the failure, so a window is the only
+    // way to let them run before the release.
     await new Promise(resolve => setTimeout(resolve, 20));
     release();
     expect(await outcome, `${kind.toUpperCase()}_SETTLED_COMMIT_FAILURE_RETAINED_BY_APP_CLOSE`).toBe(originalError);
@@ -500,6 +506,9 @@ test("same-kind different-input deliveries both persist outcomes before app writ
     await draining;
     releaseFirst();
     expect(await deliveries[0], "FIRST_DELIVERY_HAS_OWN_RESULT").toBe(1);
+    // Negative window: a close that wrongly skipped the second delivery would
+    // finish after write-worker round trips with real IO, and correct code never
+    // finishes here, so no event marks the point by which it would have.
     await new Promise(resolve => setTimeout(resolve, 20));
     expect(closed, "APP_CLOSE_JOINS_SECOND_SAME_KIND_DELIVERY").toBe(false);
     expect(observed.closes, "WRITER_OPEN_UNTIL_ALL_SAME_KIND_OUTCOMES").toBe(0);
@@ -592,6 +601,8 @@ test("app close bounds held lease SQLite while its main writer is idle", async (
   const restorers: { mockRestore(): void }[] = [];
   try {
     app = await createApp(f);
+    // The journal's startup observation holds its own root (#3355); let it settle first.
+    await app.wsHost.journal!.idle();
     const id = "11111111-1111-4111-8111-111111111790";
     await manager!.client.checkpoint(id);
     const channel = lease.writer.channel(dialogueControls, {});
@@ -652,13 +663,16 @@ test("app close does not apply a SQLite deadline to a native release RPC", async
   const rpcEntered = new Promise<void>(resolve => { entered = resolve; });
   const assembly = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async (raw, options) => {
     const release = raw.release;
-    raw.release = async (...args) => { entered(); await heldRpc; return release(...args); };
+    // Only this test's checkpoint; the journal releases its own observed root too.
+    raw.release = async (...args) => { if (args[0] === "11111111-1111-4111-8111-111111111790") { entered(); await heldRpc; } return release(...args); };
     return manager = await createManager(raw, options);
   });
   let app: Awaited<ReturnType<typeof createApp>> | undefined, clock: ReturnType<typeof storageDeadlineClock> | undefined;
   let closing: Promise<void> | undefined;
   try {
     app = await createApp(f);
+    // The journal's startup observation holds its own root (#3355); let it settle first.
+    await app.wsHost.journal!.idle();
     const id = "11111111-1111-4111-8111-111111111790";
     await manager!.client.checkpoint(id);
     clock = storageDeadlineClock();

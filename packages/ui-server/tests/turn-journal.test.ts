@@ -1,4 +1,5 @@
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { connectedSafetySession } from "./helpers/connected-safety.js";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
@@ -456,7 +457,7 @@ test("actual journal classifies steering and local transitive configuration sepa
 test("steering retains only taint recorded before observation, including sticky session evidence and overlap", async () => {
   const f = fixture();
   try {
-    f.db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+    connectedSafetySession(f.db, "ithaca", "untainted");
     writeFileSync(join(f.brain, "AGENTS.md"), "Original instructions\n");
     await f.begin("untainted"); writeFileSync(join(f.brain, "AGENTS.md"), "First instructions\n"); await f.journal.finish("untainted");
     const source = recordGovernanceEvent(f.db, { kind: "taint", sessionId: "ithaca", turnId: "prior-turn", actor: "interactive", model: null, profile: "governed", payload: { source: "web_fetch", tool: "WebFetch", detail: "Odysseus reads a harbour notice." } });

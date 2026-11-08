@@ -1,9 +1,11 @@
 /** Focused local preflight; repeatable full proof is authoritative in hosted CI. */
 import { dirname, resolve } from "node:path";
-import { accessSync, constants, readFileSync, statSync } from "node:fs";
+import { accessSync, constants, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan";
-import { runCommands, type Command } from "./ci-runner";
+import { runCommands, type Command, type Settled } from "./ci-runner";
 import { checkPackages } from "./check-packages";
+import { checkCategories, PREEMPTED_EXIT, RECEIPT_KIND, receiptBlock, UNPROVEN, type CheckReceipt, type Outcome, type ReceiptCheck } from "./check-receipt";
+import { ensureHostAdmission } from "./host-admission.mjs";
 
 export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, importGraph = false, importGraphWorkers?: number): Command[] {
   const bun = process.execPath;
@@ -21,7 +23,7 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
     return checks;
   }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
-    env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
+    env: { NODE_OPTIONS: "--max-old-space-size=6144" } });
   if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test", ...(plan.unitTests ?? []).map(path => `./${path}`)],
     env: { BRAIN_REQUIRE_CHROME: "1" } });
   else if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
@@ -118,11 +120,98 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
   return chrome;
 }
 
+/** One preflight step: commands run together, or an in-process task. */
+export type PreflightStep = Command[] | { name: string; task: () => Promise<void> };
+const stepNames = (step: PreflightStep) => Array.isArray(step) ? step.map(command => command.name) : [step.name];
+
+export function newReceipt(steps: PreflightStep[], head: string, base: string, mode: CheckReceipt["mode"], now = new Date()): CheckReceipt {
+  return { version: 1, kind: RECEIPT_KIND, head, base, mode, startedAt: now.toISOString(), finishedAt: null,
+    checks: steps.flatMap(stepNames).map(name => ({ name, categories: checkCategories(name), outcome: "skipped" as const, reason: "not started" })) };
+}
+
+/** A check that was started but never settled reads as timed out if check:pr itself is killed. */
+const RUNNING = "started; check:pr ended before it finished";
+
+export function settledOutcome(result: Settled, timeoutMs: number | undefined): Pick<ReceiptCheck, "outcome" | "reason"> {
+  if (result.timedOut) return { outcome: "timed-out", reason: `exceeded the ${timeoutMs} ms check budget` };
+  if (result.stopped) return { outcome: "skipped", reason: "stopped by the runner before it finished" };
+  if (result.exitCode === PREEMPTED_EXIT && !result.signal) return { outcome: "preempted", reason: "cancelled by host admission; rerun it" };
+  if (result.exitCode === 0 && !result.signal) return { outcome: "passed" };
+  return { outcome: "failed", reason: `exit ${result.signal ?? result.exitCode}` };
+}
+
+/**
+ * Runs the steps in order and records every check's outcome in the receipt,
+ * saving it after each change. A failure skips the remaining steps; a timed-out,
+ * preempted or explicitly skipped check is recorded and the run continues.
+ */
+export async function runPreflight(steps: PreflightStep[], receipt: CheckReceipt, options: { root: string; skip?: ReadonlySet<string>;
+  timeoutMs?: number; save: (receipt: CheckReceipt) => void; run?: typeof runCommands }): Promise<CheckReceipt> {
+  const run = options.run ?? runCommands, skip = options.skip ?? new Set<string>();
+  const set = (name: string, change: Partial<ReceiptCheck> & { outcome: Outcome }) => {
+    const check = receipt.checks.find(entry => entry.name === name);
+    if (!check) throw new Error(`Receipt has no check named ${name}`);
+    delete check.reason; delete check.elapsedMs; Object.assign(check, change); options.save(receipt);
+  };
+  let stop: string | undefined;
+  try {
+    for (const step of steps) {
+      if (stop) { for (const name of stepNames(step)) set(name, { outcome: "skipped", reason: stop }); continue; }
+      if (!Array.isArray(step)) {
+        if (skip.has(step.name)) { set(step.name, { outcome: "skipped", reason: "skipped with --skip" }); continue; }
+        set(step.name, { outcome: "timed-out", reason: RUNNING });
+        const started = performance.now();
+        try { await step.task(); set(step.name, { outcome: "passed", elapsedMs: performance.now() - started }); }
+        catch (error) { set(step.name, { outcome: "failed", reason: String(error).slice(0, 300), elapsedMs: performance.now() - started }); stop = `not run after ${step.name} failed`; throw error; }
+        continue;
+      }
+      for (const command of step.filter(command => skip.has(command.name))) set(command.name, { outcome: "skipped", reason: "skipped with --skip" });
+      const commands = step.filter(command => !skip.has(command.name)).map(command => ({ ...command,
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        started: () => set(command.name, { outcome: "timed-out", reason: RUNNING }),
+        settled: (result: Settled) => set(command.name, { ...settledOutcome(result, options.timeoutMs), elapsedMs: result.elapsedMs }) }));
+      if (!commands.length) continue;
+      try { await run(commands, options.root); }
+      catch (error) {
+        if (String(error).includes("Checks interrupted")) {
+          for (const command of commands) {
+            const check = receipt.checks.find(entry => entry.name === command.name)!;
+            if (check.outcome === "skipped" && check.reason === "stopped by the runner before it finished" || check.reason === RUNNING) set(command.name, { outcome: "timed-out", reason: "check:pr was interrupted by a signal while it ran" });
+          }
+          stop = "not run: check:pr was interrupted";
+          throw error;
+        }
+        const failed = commands.filter(command => receipt.checks.find(entry => entry.name === command.name)!.outcome === "failed");
+        if (failed.length || commands.some(command => receipt.checks.find(entry => entry.name === command.name)!.reason === "not started")) {
+          stop = `not run after ${failed.map(command => command.name).join(", ") || "an earlier check"} failed`;
+          throw error;
+        }
+      }
+    }
+  } finally {
+    if (stop) for (const check of receipt.checks) if (check.reason === "not started") Object.assign(check, { reason: stop });
+    receipt.finishedAt = new Date().toISOString(); options.save(receipt);
+  }
+  return receipt;
+}
+
+export function writeReceipt(path: string, receipt: CheckReceipt): void {
+  mkdirSync(dirname(path), { recursive: true });
+  // Replace atomically so a killed run never leaves a truncated receipt.
+  writeFileSync(`${path}.tmp`, JSON.stringify(receipt, null, 2) + "\n"); renameSync(`${path}.tmp`, path);
+}
+
+export const RECEIPT_PATH = "tmp/check-pr-receipt.json";
+
 if (import.meta.main) {
   try {
     const args = process.argv.slice(2); let base = "origin/main"; let all = false; let full = false; let print = false; let importGraph = false; let importGraphWorkers: number | undefined;
+    let receiptPath = RECEIPT_PATH, timeoutMs: number | undefined; const skip = new Set<string>();
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "--base" && args[i + 1]) base = args[++i]!;
+      else if (args[i] === "--receipt" && args[i + 1]) receiptPath = args[++i]!;
+      else if (args[i] === "--skip" && args[i + 1]) skip.add(args[++i]!);
+      else if (/^--check-timeout=[1-9]\d*$/.test(args[i]!)) timeoutMs = Number(args[i]!.slice("--check-timeout=".length)) * 1000;
       else if (args[i] === "--all") { all = true; full = true; }
       else if (args[i] === "--full") full = true;
       else if (args[i] === "--import-graph") importGraph = true;
@@ -131,7 +220,7 @@ if (import.meta.main) {
         importGraphWorkers = Number(args[i]!.slice("--import-graph-workers=".length));
         if (!Number.isSafeInteger(importGraphWorkers)) throw new Error("Import-graph workers must be a positive integer");
       }
-      else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N]");
+      else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N] [--check-timeout=<seconds>] [--skip <check name>]... [--receipt <path>]");
     }
     const root = resolve(import.meta.dir, "..");
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
@@ -150,23 +239,57 @@ if (import.meta.main) {
     console.log(JSON.stringify({ ...plan, commands: plannedCommands.map(command => command.name), commandDetails: plannedCommands,
       importGraphFeedback, packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);
-    requireLocalSandbox();
-    const chrome = full ? requireRuntimeTools(plan) : undefined;
     // Setup/metadata are ordered. Full Bun tests and strict types are the only
     // independent memory-bounded pair; browser jobs stay sequential to retain
     // the measured scheduling/isolation behavior and diagnostic artifacts.
-    const env: Record<string, string> = chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {};
-    const withEnv = (command: Command) => ({ ...command, env: { ...env, ...command.env } });
     const parallel = commands.filter(command => command.name === "strict typecheck" || command.name === "complete unit and integration suite");
-    for (const command of commands.slice(0, 3)) await runCommands([withEnv(command)], root);
-    await runCommands([contributionChangeset], root);
-    if (full && plan.local.captures) await runCommands([{ name: "pinned capture fonts and original notices",
-      argv: [process.execPath, "run", "capture:fonts"] }], root);
-    if (chrome) await runCommands([{ name: "first real Chrome launch and render",
-      argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome], env }], root);
-    await runCommands(parallel.map(withEnv), root);
-    for (const command of commands.slice(3).filter(command => !parallel.includes(command))) await runCommands([withEnv(command)], root);
-    if (full && plan.pack) await checkPackages(root);
-    console.log("Local preflight passed. Record focused receipts; selected hosted proof must pass before merge.");
+    const chromeStep: Command = { name: "first real Chrome launch and render", argv: [] };
+    const steps: PreflightStep[] = [...commands.slice(0, 3).map(command => [command]), [contributionChangeset],
+      ...(full && plan.local.captures ? [[{ name: "pinned capture fonts and original notices", argv: [process.execPath, "run", "capture:fonts"] }]] : []),
+      ...(full && plan.local.fullTests ? [[chromeStep]] : []),
+      ...(parallel.length ? [parallel] : []),
+      ...commands.slice(3).filter(command => !parallel.includes(command)).map(command => [command]),
+      ...(full && plan.pack ? [{ name: "packed consumer checks", task: () => checkPackages(root) }] : [])];
+    for (const name of skip) if (!steps.flatMap(stepNames).includes(name)) throw new Error(`--skip names no selected check: ${name}`);
+    const head = new TextDecoder().decode(Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: root, stdout: "pipe" }).stdout).trim();
+    const receipt = newReceipt(steps, head, base, all ? "all" : full ? "full" : "focused");
+    const save = (value: CheckReceipt) => writeReceipt(resolve(root, receiptPath), value);
+    save(receipt);
+    try {
+      requireLocalSandbox();
+      const chrome = full ? requireRuntimeTools(plan) : undefined;
+      if (chrome) {
+        chromeStep.argv.push(process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome);
+        for (const step of steps) if (Array.isArray(step)) for (const command of step) command.env = { PUPPETEER_EXECUTABLE_PATH: chrome, ...command.env };
+      }
+    } catch (error) {
+      for (const check of receipt.checks) check.reason = `not run: preflight setup refused (${String(error).slice(0, 200)})`;
+      receipt.finishedAt = new Date().toISOString(); save(receipt);
+      throw error;
+    }
+    if (full) {
+      // Full local suites are for debugging only and run through host admission
+      // (#2939, #2943), after the cheap prerequisite refusals above.
+      const admitted = await ensureHostAdmission(all ? "check:pr --all" : "check:pr --full");
+      if (admitted !== undefined) {
+        for (const check of receipt.checks) check.reason = "not run: host admission did not admit this run";
+        receipt.finishedAt = new Date().toISOString(); save(receipt);
+        process.exit(admitted);
+      }
+    }
+    const report = () => {
+      console.log(`check:pr receipt written to ${receiptPath}. Paste this block into the PR body, replacing any earlier one:\n${receiptBlock(receipt)}`);
+    };
+    try { await runPreflight(steps, receipt, { root, skip, timeoutMs, save }); }
+    finally { report(); }
+    const unproven = receipt.checks.filter(check => UNPROVEN.includes(check.outcome));
+    if (unproven.some(check => check.outcome === "preempted")) {
+      console.error(`Local preflight preempted: ${unproven.filter(check => check.outcome === "preempted").map(check => check.name).join(", ")}. Rerun check:pr; a preempted check is neither checked nor failed.`);
+      process.exit(PREEMPTED_EXIT);
+    }
+    if (unproven.length) {
+      console.warn(`Local preflight incomplete: ${unproven.map(check => `${check.name} (${check.outcome}; hosted ${check.categories.join(" or ") || "none"})`).join("; ")}. ` +
+        "The receipt records them; integrate.ts refuses the merge unless exact-head hosted proof runs those categories successfully.");
+    } else console.log("Local preflight passed. Record focused receipts; selected hosted proof must pass before merge.");
   } catch (error) { console.error(error); process.exit(1); }
 }

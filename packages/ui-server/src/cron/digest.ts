@@ -6,13 +6,13 @@ interface TextSink {
   write(text: string): unknown;
 }
 
-export interface DigestOptions {
+interface DigestOptions {
   dbPath: string;
   stdout?: TextSink;
   stderr?: TextSink;
 }
 
-export interface DigestDependencies {
+interface DigestDependencies {
   createDb?: typeof createUiDb;
   generateDigest?: typeof generateActivityDigest;
 }

@@ -3,6 +3,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
 } from "./backend.js";
+import { sameSafetyAdmission, safetySnapshotRefusal, STALE_SAFETY_ADMISSION } from "./admission-safety.js";
 import {
   ARCHIVING_UPDATE_REASON,
   archivesDocument,
@@ -252,7 +253,7 @@ function noGrantSurfaceMessage(request: PermissionRequest): string {
  * @experimental
  */
 export function requestToolPermission(
-  bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission"> | null | undefined,
+  bridge: Pick<BackendBridge, "requestPermission" | "activity" | "checkpointPermission" | "admissionSafety"> | null | undefined,
   request: PermissionRequest,
   options: RequestToolPermissionOptions = {}
 ): Promise<PermissionDecision> {
@@ -288,7 +289,24 @@ export function requestToolPermission(
       message: `No active turn to approve ${request.toolName}.`,
     });
   }
-  return bridge.requestPermission(request).then((decision) => snapshotEdit(request, decision));
+  let guarded = request;
+  try {
+    if (bridge.admissionSafety) {
+      const snapshot = bridge.admissionSafety.read();
+      if (safetySnapshotRefusal(snapshot)) return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION });
+      guarded = { ...request, admissionSnapshot: snapshot };
+    }
+  } catch { return Promise.resolve({ behavior: "deny", message: STALE_SAFETY_ADMISSION }); }
+  return bridge.requestPermission(guarded).then((decision) => {
+    try {
+      if (bridge.admissionSafety && guarded.admissionSnapshot) {
+        const current = bridge.admissionSafety.read();
+        if (safetySnapshotRefusal(current) || !sameSafetyAdmission(guarded.admissionSnapshot, current))
+          return { behavior: "deny", message: STALE_SAFETY_ADMISSION };
+      }
+    } catch { return { behavior: "deny", message: STALE_SAFETY_ADMISSION }; }
+    return snapshotEdit(request, decision);
+  });
 }
 
 /**

@@ -92,6 +92,15 @@ Warnings distinguish unconfirmed cleanup from a process observed to exit.
 A timed-out Claude probe rejects startup; an unreadable brain version warns
 and continues by default; a known incompatible brain version rejects startup.
 
+## Live conversation guidance
+
+Live conversation startup also receives a bounded projection of brain purpose,
+selected interaction/capture rules and identity/current-focus context after
+explicit disclosed Start. Background task acceptance/running feedback stays
+separate from completion and permission. See the
+[guidance source mapping](../../docs/live-conversation-guidance.md) for what is
+inherited, omitted and fetched through the ordinary host.
+
 ## Installing core for the graph and voice vocabulary
 
 The knowledge graph and the index-derived voice vocabulary read the brain
@@ -214,8 +223,12 @@ covered-until marker would block normal activity-detail retention.
 list --json` from `BRAIN_PATH` (default `/data/brain`), re-validates every
 module cron field before placing it in a system crontab line, and keeps the
 legacy `scripts/jobs/scrape-all.ts` fallback when that file exists and no
-enabled module exposes the `jobs` command. Its deployment parameters default
-to the historical shell values:
+enabled module exposes the `jobs` command. A discovery that yields nothing is
+retried twice, after 5 and then 15 seconds, and each failed attempt names its
+cause on stderr. When every attempt fails, the crontab carries core jobs only
+and the skip is recorded as a failed `modules` job in `cron_runs` and
+Activity, so `/api/status` shows it; a later successful start records a
+success. Its deployment parameters default to the historical shell values:
 
 | Flag | Default |
 | --- | --- |
@@ -330,7 +343,9 @@ under the [service terms](../geo/README.md#configuration).
 | `AGENT_BACKEND` | Primary agent backend: "claude" (default) or "pi". | claude |
 | `ALLOWED_ORIGINS` | Comma-separated cross-origin allowlist for a split client/API topology; empty means same-origin only. | (empty) |
 | `ANTHROPIC_API_KEY` | Never used by a Claude profile without its own credential: those run on the subscription, with this cleared before Claude Code starts. The Claude backend uses it for model discovery only when no CLAUDE_CODE_OAUTH_TOKEN is set. | — |
+| `APIFY_TOKEN` | Apify API token, read only by the host. It authenticates nothing until the governance policy sets apify.enabled: true; the host then binds the account the fixed Apify API reports. Never passed to any subprocess, worker, prompt, log or response. | — |
 | `AUTH_MODE` | Authentication mode: password \| tailscale \| proxy \| none. Unset auto-detects (password when a hash is set, else tailscale). | (auto-detect) |
+| `BRAIN_APIFY_LEDGER` | Absolute path of the shared Apify ledger (#3161, #3162): reservations, run handles and request counts, private to the host user and outside every brain. A standalone `brain apify` or `brain mcp` process that sets the same path shares the account's day limit and concurrency bound with the server. Never passed to a worker. | DB_PATH.apify-ledger.sqlite (server); unset, which refuses Apify as accounting_unavailable (standalone CLI and MCP) |
 | `BRAIN_GEO_CONFIG_JSON` | Canonical geo configuration as JSON. Overrides legacy Overpass service settings; BRAIN_UI_COASTLINE=false still prevents requests. Relative response-cache paths resolve from BRAIN_PATH. Invalid JSON/configuration refuses startup. | — |
 | `BRAIN_PATH` | Path to the brain repo the server operates on. | $HOME/brain |
 | `BRAIN_UI_ALLOW_LOOPBACK_ORIGIN` | Set "1" to accept loopback Origins for WebAuthn regardless of Host (dev-only, for the vite proxy). | 0 |
@@ -338,6 +353,7 @@ under the [service terms](../geo/README.md#configuration).
 | `BRAIN_UI_ASK_USER_FORM_MAX_DEPTH` | Conditional form maximum depth (roots count as one). Invalid values fail startup. | 3 |
 | `BRAIN_UI_ASK_USER_FORM_MAX_NODES` | Conditional form maximum node count. Invalid values fail startup. | 12 |
 | `BRAIN_UI_ASK_USER_FORM_MAX_OPTIONS` | Conditional form maximum options per choice or scale node. Invalid values fail startup. | 8 |
+| `BRAIN_UI_ATTACHMENT_POOL_BYTES` | Host attachment pool in bytes: every composer original kept for drafts, sent messages, pending uploads and the seven-day grace period, plus in-flight reservations and legacy draft images. Positive integer; a value that is not one falls back to the default. At capacity new uploads are refused and nothing is purged early. | 1073741824 (1 GiB) |
 | `BRAIN_UI_AUTONOMOUS_EMERGENCY_SPEND_USD` | Bounded daily emergency spend reserve for explicitly eligible server-selected work. Invalid values fail startup. | 0 |
 | `BRAIN_UI_AUTONOMOUS_EMERGENCY_TURNS` | Bounded daily emergency autonomous operation reserve. Invalid values fail startup. | 0 |
 | `BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY` | Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup. | 5 |
@@ -351,6 +367,8 @@ under the [service terms](../geo/README.md#configuration).
 | `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` | The date CLAUDE_CODE_OAUTH_TOKEN was minted (ISO 8601, e.g. 2026-09-23), set next to the token in the same redeploy. The server counts the token's one-year lifetime from it and warns 30 days before expiry. An unparseable date refuses boot. Server-only. | no expiry warning (one WARN at boot says so) |
 | `BRAIN_UI_CLI_PROVIDER_ORIGINS` | Extra recipients for the brain CLI's relayed provider keys: KEY=origin[,origin], separated by semicolons. Each origin is an exact https origin (http only for a loopback host). By default the relay sends GEMINI_API_KEY, ANTHROPIC_API_KEY and OPENAI_API_KEY only to their own first-party origins; a custom endpoint or a custom key variable is refused unless listed here. A malformed value stops the server. | (unset; first-party origins only) |
 | `BRAIN_UI_COASTLINE` | "0"/"off"/"false" stops the server fetching map geometry. Maps then draw their graticule, pins and scale bar with no coastline, which is still an accurate locator. | enabled |
+| `BRAIN_UI_COMPUTE_KEYS` | External compute credentials the host may use for hosted jobs (#3108), by built-in provider: semicolon-separated `provider=NAME[,NAME...]` entries, such as `boat=BOAT_CI_KEY,BOAT_HEAVY_KEY`. A listed provider's own default variable is bound too; list it alone (`boat`) to bind only that. A brain.config instance whose apiKeyEnv is not bound here is refused as provider_unavailable. Values are read on the host only and never reach a worker; a bound name that BRAIN_UI_SUBPROCESS_ENV_EXTRA or a profile would forward disables hosted compute. Unset: hosted compute has no credential, not even a provider's default variable. | (empty) |
+| `BRAIN_UI_COMPUTE_STATE_DIR` | Where hosted external compute keeps job records, leases, reservations and artifacts (#3108). Host operational state, masked from workers. Slots and budgets are shared per directory: point BRAIN_COMPUTE_STATE_DIR of a shell `brain compute` at the same directory to share one pool with it. | <DB_PATH>.compute |
 | `BRAIN_UI_CONFIRM_BASH` | JSON array of regex sources, or {"pattern", "effect"} objects whose effect (what the command does, in words) is shown on the card; a Bash command matching any of them raises a confirmation card before it runs. Unset uses the shipped defaults (brain archive, rm -r, git push --force, git reset --hard, git clean -f, git checkout -- ). An empty array [] disables the confirmation. A nonempty list with no compilable regex fails backend initialization; repair it or explicitly use []. Mixed lists report invalid entries and keep valid ones. Not a security boundary — an agent with Bash can reach the same effect another way; it stops a destructive command you did not intend, not one that is trying to get past you. | the shipped pattern set |
 | `BRAIN_UI_CRON_HYGIENE` | Whether the generated crontab schedules the weekly `hygiene` job (Mondays 06:00), which runs `brain hygiene reconcile` through the cron wrapper: it refreshes the content-hygiene log's backlog and last-run date and edits no content. Set to a false token (0, false, off, no) to leave the job out. | on |
 | `BRAIN_UI_CRON_PROPAGATION` | Opt into the daily 05:45 credentialed hygiene-propagation prepass. It runs brain hygiene propagation through the exclusive maintenance boundary; core also requires hygiene.propagation.enabled. Interactive hygiene remains credential-free. | off |

@@ -27,6 +27,8 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
     await mkdir(dirname(resolve(root, file)), { recursive: true });
     await copyFile(resolve(import.meta.dir, "..", file), resolve(root, file));
   }
+  // The host side of the wrapper admits itself through the host ledger (#2943).
+  await copyFile(resolve(import.meta.dir, "../scripts/host-admission.mjs"), resolve(root, "scripts/host-admission.mjs"));
   for (const domain of diagramSourceDomains) {
     const manifest = JSON.parse(await readFile(resolve(root, `packages/${domain}/package.json`), "utf8"));
     const alias = resolve(root, "node_modules", manifest.name);await mkdir(dirname(alias), {recursive:true});await symlink(resolve(root, "packages", domain), alias);

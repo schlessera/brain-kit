@@ -117,5 +117,10 @@ export type {
 export * from "./inbox.js";
 
 export * from "./reference.js";
+export * from "./compute.js";
+
+export * from "./apify.js";
+
+export * from "./attachment.js";
 
 export * from "./policy.js";

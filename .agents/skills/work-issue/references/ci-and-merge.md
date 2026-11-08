@@ -266,15 +266,39 @@ owner/repo#N,...` before requesting full confirmation. The explicit comma-separa
 list accepts at most 100 references, must include every closing issue, and
 checks every listed issue against the PR release milestone. It acquires the remote
 exact PR/head/base reservation, renews every minute, waits for actual complete
-candidate proof, and uses the shared merge path. `inspect` shows ownership;
+candidate proof, and uses the shared merge path. It first waits for the
+newest exact-head contract run and refuses, before taking a lease or spending
+candidate CI, when that run is missing, cancelled or failed. A body edit or a
+label change starts a fresh one. Edit the body before pushing so that one push
+does not start two racing contract runs (#3573). `inspect` shows ownership;
 busy callers have bounded retries, never a FIFO queue. Separate `acquire`
 requires minute `renew` and explicit `merge --lease`; `release` abandons it.
 The lease lasts five minutes with an absolute sixty-minute cap including
-queue, proof and merge. Do not reacquire to extend an old proof window; a new
+queue, proof and merge. `acquire` prints a holder token once; `renew`,
+`release` and `merge --lease` need it (`--token`), so only the holding process
+can end or extend a live lease. A transient renewal failure is retried next
+tick, and a failed `renew <id>` keeps the lease; retry it within the minute.
+Do not reacquire to extend an old proof window; a new
 candidate/lease needs new confirmation. Maintainer `revoke '<reason>'` records
 actor/time/reason and immediately removes the old authority without waiving
 proof. Native candidates need separately qualified prefix integration; this
 ordinary command rejects them. See the [binding decision](../../../../docs/decisions/ci-utility.md#exact-candidate-integration-reservation).
+
+The merge path also reads the `check:pr` receipt from the PR body. It refuses
+a PR with no receipt (`confirm` says so before acquiring), and one whose
+skipped, timed-out or preempted checks map to hosted categories the exact-head
+proof did not run, naming each. Rerun the check locally and paste the new
+receipt, or get the category selected; never edit a receipt by hand
+([local check receipts](../../../../docs/decisions/ci-utility.md#local-check-receipts)).
+
+While main is red, a declared fix for the open record, forward fix or
+targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
+--fixes-main-run <run-id> --issues owner/repo#N,...`. It dispatches fix probes
+that must show the record's failing test files red on the exact base and green
+on the exact head, waits for the exact-head fast invariants and squashes under
+the reservation. It refuses category-level failures; use ordinary confirmation
+for those. Never merge a red-main fix any other way
+([expedited red-main fixes](../../../../docs/decisions/ci-utility.md#expedited-red-main-fixes)).
 
 While main is red, `confirm` and `merge` refuse every PR that is not a
 declared fix, and hosted proof containing the bad commit is refused or
@@ -315,7 +339,7 @@ passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
 
 ```sh
-rtk proxy bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> \
+rtk proxy bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> --token <holder-token> \
   --issues schlessera/brain-kit#<advanced-issue>
 rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
   --json state,mergeCommit,mergedAt,headRefOid,url

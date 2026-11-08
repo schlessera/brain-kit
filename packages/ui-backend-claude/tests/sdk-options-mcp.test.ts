@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import * as worker from "@schlessera/brain-ui-sdk/internal";
-import { BRAIN_APPLICATION_TOOLS, BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, BRAIN_APPLICATION_TOOLS, BRIDGE_TOOL_POSTURE, READ_ATTACHMENT_TOOL_NAME } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeSdkTurn } from "../src/sdk-options.js";
 
@@ -76,7 +76,7 @@ describe("the SDK options a turn is built with", () => {
       // The full roster, because a handler that silently failed to register
       // would leave a tool deferred by absence rather than by policy.
       expect(tools.map((tool) => tool.name).sort()).toEqual(
-        [...BRIDGE_TOOL_POSTURE.names, "propose_policy_change", "brain_read_base", ...Object.values(BRAIN_APPLICATION_TOOLS)].sort()
+        [...BRIDGE_TOOL_POSTURE.names, "propose_policy_change", "brain_read_base", ...Object.values(BRAIN_APPLICATION_TOOLS), ...Object.values(APIFY_TOOL_NAMES), READ_ATTACHMENT_TOOL_NAME].sort()
       );
       for (const tool of tools) {
         expect(tool._meta?.["anthropic/alwaysLoad"]).toBe(true);

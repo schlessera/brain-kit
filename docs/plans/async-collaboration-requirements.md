@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:362-456`), so autonomous work is confined to
+   resolve (`const requestPermission`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:19-188`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:907`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1019`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -239,7 +239,7 @@ Stated before the requirements because five of them derive from it.
 - R21. The generated crontab gains the five-minute poke line (the deployment's
   entrypoint, owned by brain-hosting-template).
 - R22. Claiming is `BEGIN IMMEDIATE`. WAL and `busy_timeout = 5000` are already set for
-  two-process writes (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:27-44`), so no posture change is
+  two-process writes (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:28-45`), so no posture change is
   needed — but the invariant is explicit: **an immediate transaction covers the claim or the
   settlement, never a model call or filesystem work.** A writer holding the lock past five
   seconds still yields `SQLITE_BUSY`. Test a cron heartbeat racing an inbox claim.
@@ -248,25 +248,25 @@ Stated before the requirements because five of them derive from it.
 - R24. **Headless execution needs a new request shape.** `StartTurnRequest` is
   additive: `StartTurnRequest.autonomous` carries explicit persistence, origin, tool policy
   and prompt configuration alongside the required permission postures
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:519-609`); ordinary Claude turns create an SDK session, emit
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:553-643`); ordinary Claude turns create an SDK session, emit
   `session_info`, and persists history by default. The installed SDK supports
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
   recorder accepts autonomous origin and keeps runtime identity separate from an interactive session
-  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:126-204`).
+  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:134-212`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1336-1348`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1346-1358`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
   threshold (~20s of the 30s lock budget). Below it nothing yields; above it the
   holder checkpoints/unwinds/releases. Test both edges and independent paths.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:406-464`) — while blocked on it the model cannot write anything, so
+  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:92-187`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
-  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:396-402`). Aborting does **not** undo completed tool side
+  path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/session-run/admission.ts:55-57`). Aborting does **not** undo completed tool side
   effects, so every attempt gets an isolated staging directory with idempotent cleanup. This
   does not reopen the abort-and-redo decision; it corrects revision 1's claim that the
   decision needed no new machinery.
@@ -279,7 +279,7 @@ Stated before the requirements because five of them derive from it.
   `DEFAULT_ALLOWED_TOOLS` auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`, and
   `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`), and auto-allowed tools bypass
   `canUseTool` entirely — the backend says so where it explains why the write lock had to
-  move into a `PreToolUse` hook (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
+  move into a `PreToolUse` hook (`export function enforcementHookFor`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`). Existing mandatory tool/no-grant posture closes measured permission bypasses,
   but it does not express the full filesystem/network envelope. Building it requires: the SDK's tool **availability** control
   (`tools`, not merely `allowedTools`), a scrubbed environment carrying only inference
   credentials and minimum runtime variables (the current environment is filtered but retains operator/profile extras — (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:201-209`)),
@@ -289,7 +289,7 @@ Stated before the requirements because five of them derive from it.
   AGENTS.md ("Testing expectations") records for the renderer.
 - R29. **Autonomous runs do not inherit ambient project configuration.** Claude loads project
   settings/instructions and also appends explicit bridge tools
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:110-499`). If containment fails once, `.claude/settings*`, `.mcp.json`,
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`). If containment fails once, `.claude/settings*`, `.mcp.json`,
   repo instructions, or a skill become durable escalation targets for later
   higher-privilege runs. Autonomous mode uses an explicit tool roster, `strictMcpConfig`, and
   a read-only trusted instruction snapshot.
@@ -336,14 +336,14 @@ Stated before the requirements because five of them derive from it.
   item makes no model call **and creates no Activity run** · T1 batch classification · T2 full
   agent run · T3 the user.
 - R39. **T1 batches are bounded by tokens and bytes, not count.** One share's text may carry ~200 KB
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2469`), so "up to 20 items" is ~4 MB before overhead.
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2589`), so "up to 20 items" is ~4 MB before overhead.
   Per-item truncation, a batch token budget, and independent structured outputs per item.
 - R40. **Every model-bearing operation is billed, recorded, classified, and counted**: T1
   batches, T2 runs, retries, redo re-derivation, state compaction, premise revalidation,
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:756`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:787`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at
@@ -359,7 +359,7 @@ Stated before the requirements because five of them derive from it.
   bounded reserve; when the reserve is spent, everything stops and one `fyi` is filed.
 - R44. **Cache stability requires an autonomous prompt mode.** The current prefix is assembled
   per turn from client environment, turn budget, and bridge tool availability
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:110-499`), and the SDK preset adds dynamic cwd/memory/git sections
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:122-511`), and the SDK preset adds dynamic cwd/memory/git sections
   unless `excludeDynamicSections: true`. Required: a fixed tool roster, dynamic sections
   excluded, deterministic trusted-instruction render (policy digest is v2), and an explicit static/dynamic boundary with every
   per-item value after it. Whether the provider honors cache reads across independent SDK
@@ -386,7 +386,7 @@ Stated before the requirements because five of them derive from it.
 - R50. **Escalation notices need an aggregate row.** `notification_intents` constrains `kind`
   to `failure|completion|stuck`, requires an activity `run_id`, coalesces only by dropping a
   later same-tag intent without updating a count
-  (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:94-130`), and the sender emits one push per
+  (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:102-154`), and the sender emits one push per
   pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:218-286`). Reuse subscriptions, retry budget, and delivery
   status; add an Actions-aware aggregate carrying group key, count, priority, quiet-hours
   eligibility, and an Actions deep link. The

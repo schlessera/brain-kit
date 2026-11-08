@@ -322,8 +322,10 @@ for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
       expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-file-title"))).toBe(true);
       expect(await page.getByRole("status").count()).toBe(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      const retry = await page.getByRole("button", { name: "Try again", exact: true }).boundingBox();
-      expect(retry!.height, "RETRY_44PX_TARGET").toBeGreaterThanOrEqual(44);
+      // #3252: Try again keeps its md paint and reaches 44px past it under a
+      // coarse pointer (probed in `hit-reach.app.pointer.tsx`); this Chromium
+      // is a fine pointer, so its own edges are checked below at its paint.
+      expect(await page.getByRole("button", { name: "Try again", exact: true }).evaluate(element => element.classList.contains("bk-hit") && (element as HTMLElement).style.minHeight !== "44px"), "RETRY_REACHES_NOT_INFLATED").toBe(true);
       expect(await page.getByRole("button", { name: "Try again", exact: true }).evaluate(element => {
         const r = element.getBoundingClientRect();
         return [[r.left + 1, r.top + r.height / 2], [r.right - 1, r.top + r.height / 2], [r.left + r.width / 2, r.top + 1], [r.left + r.width / 2, r.bottom - 1]]
@@ -407,12 +409,12 @@ for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
       await link.focus();
       await page.keyboard.press("Enter");
       await page.getByRole("status").filter({ hasText: "Loading file" }).waitFor();
-      // Measure once, after the loading ghosts are attached and two frames have
-      // let their computed styles settle (#3315). The check itself stays strict,
-      // and a failure names what it saw.
-      await page.locator(".bk-ghost").first().waitFor({ state: "attached" });
-      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-      const ghostAnimations = await page.locator(".bk-ghost").evaluateAll(nodes => nodes.map(el => getComputedStyle(el).animationName));
+      // Measure only the file's own named loading frame, which the held route
+      // above keeps mounted. A page-wide `.bk-ghost` also caught the tree's
+      // "Loading files" frame, which unmounts whenever its listing lands;
+      // `evaluateAll` resolves and then evaluates in separate tasks, so a
+      // detached ghost read as `""` (#3315, #3340). A failure names what it saw.
+      const ghostAnimations = await page.getByRole("group", { name: "Loading file", exact: true }).locator(".bk-ghost").evaluateAll(nodes => nodes.map(el => getComputedStyle(el).animationName));
       expect(ghostAnimations.length > 0 && ghostAnimations.every(name => name === "none"), `REDUCED_MOTION_STATIC_LOADING ${JSON.stringify(ghostAnimations)}`).toBe(true);
       release!();
       await page.getByRole("heading", { name: "Couldn't open this file.", exact: true }).waitFor();

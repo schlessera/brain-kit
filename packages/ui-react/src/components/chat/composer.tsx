@@ -32,6 +32,9 @@ import { useChatCommands } from "./use-chat-commands.js";
 import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
 import { trackPending, trackReady } from "../../lib/track-uploads.js";
 import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
+import { filesFor } from "../../lib/draft-files.js";
+import { queuedBlocking, queuedPending } from "../../lib/attachment-queue.js";
+import { bindableFiles, draftFiles as draftFilesOf, type DraftFile } from "../../stores/draft-state.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { DraftSaveLine } from "./draft-save-line.js";
@@ -72,6 +75,7 @@ type DraftEffort = { key: string | null; level?: ThinkingLevel; requested?: Thin
 type PendingSend = { requestId: string; key: string | null; effort: DraftEffort };
 
 const NO_ATTACHMENTS: PendingAttachment[] = [];
+const NO_FILES: DraftFile[] = [];
 
 /**
  * What the chat page may ask of the composer without reaching into its DOM:
@@ -95,6 +99,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const draft = useRootStore("drafts", (s) => s.drafts[draftId]);
   const input = draft?.text ?? "";
   const attachments = draft?.attachments ?? NO_ATTACHMENTS;
+  const draftFiles = draft?.files ?? NO_FILES;
+  // The draft's content is the revision the host acknowledged, file bindings included.
+  const draftClean = !!draft && draft.host !== null && draft.host.edit === draft.edit && draft.conflict === null;
+  const draftFailure = draft?.failure ?? null;
   /** Write the view's draft. A function reads the draft as it is now, not as rendered. */
   const setInput = (value: string | ((current: string) => string)) => {
     const store = root.stores.drafts.getState();
@@ -165,6 +173,40 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     return () => { trackEntry.listeners.delete(updateTrackView); };
   }, [trackEntry]);
   const tracks = trackUploads.files;
+  // Composer originals (#3155): offered only when the host keeps them.
+  const fileLimits = useRootStore("drafts", (s) => s.fileLimits);
+  const filesOn = fileLimits !== null;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [, updateFileView] = useReducer((n: number) => n + 1, 0);
+  const fileEntry = filesFor(root, trackKey(sessionId, trackOwner), sessionId);
+  const fileQueue = fileEntry.queue;
+  useEffect(() => {
+    fileEntry.listeners.add(updateFileView);
+    return () => { fileEntry.listeners.delete(updateFileView); };
+  }, [fileEntry]);
+  const queuedFiles = fileQueue.files;
+  // Terminal transitions only, once each (§8.4): progress is never announced.
+  const [fileAnnouncement, setFileAnnouncement] = useState("");
+  const lastFileStates = useRef(new Map<string, string>());
+  const lastStoredIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const before = lastFileStates.current;
+    for (const item of queuedFiles) {
+      if (before.get(item.id) === item.state) continue;
+      if (item.state === "failed" || item.state === "refused") setFileAnnouncement(`${item.name}: ${item.status ?? "upload failed"}.`);
+    }
+    lastFileStates.current = new Map(queuedFiles.map((item) => [item.id, item.state] as const));
+  }, [queuedFiles]);
+  useEffect(() => { lastStoredIds.current = null; setFileAnnouncement(""); }, [draftId]);
+  useEffect(() => {
+    const ids = new Set(draftFiles.map((f) => f.file.fileId));
+    // The first look at a draft (a switch, a restore) announces nothing.
+    const before = lastStoredIds.current;
+    lastStoredIds.current = ids;
+    if (!before) return;
+    const added = draftFiles.filter((f) => !before.has(f.file.fileId) && f.lineage === draftId);
+    if (added.length) setFileAnnouncement(`${added.map((f) => f.file.incomingName || f.file.name).join(", ")} uploaded.`);
+  }, [draftFiles, draftId]);
   // A send pressed while tracks upload is held for the draft it was pressed
   // in, by id: another draft opened meanwhile is never sent for it (#951).
   const [heldFor, setHeldFor] = useState<string | null>(null);
@@ -181,12 +223,16 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const handoffEntry = useHandoffEntry(sessionId, hasSettledTurn);
   const wsStatus = useConnectionStore((s) => s.wsStatus);
   useEffect(() => {
-    const changed = () => trackUploads.setOnline(wsStatus === "connected" && navigator.onLine !== false);
+    const changed = () => {
+      const online = wsStatus === "connected" && navigator.onLine !== false;
+      trackUploads.setOnline(online);
+      fileQueue.setOnline(online);
+    };
     changed();
     window.addEventListener("online", changed);
     window.addEventListener("offline", changed);
     return () => { window.removeEventListener("online", changed); window.removeEventListener("offline", changed); };
-  }, [wsStatus, trackUploads]);
+  }, [wsStatus, trackUploads, fileQueue]);
   const profilesSupported = useConnectionStore(s => s.sessionProfiles);
   const profileEpoch = useConnectionStore(s => s.profileEpoch);
   const sessionProfile = useSessionProfile(sessionId, draftId, wsStatus === "connected", isStreaming, profilesSupported, profileEpoch);
@@ -381,8 +427,17 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     const owner = sessionId;
     const incoming = Array.from(files);
     const list = incoming.filter(file => file.type.startsWith("image/"));
-    const trackErrors = trackUploads.add(incoming.filter(file => !file.type.startsWith("image/")), attachmentsOf(target).length + list.length,
-      attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
+    const others = incoming.filter(file => !file.type.startsWith("image/"));
+    const heldFiles = root.stores.drafts.getState().drafts[target]?.files ?? NO_FILES;
+    // With composer files every other file is uploaded unfiltered and the host
+    // decides what it is (#3155); an older host keeps the tab-only track queue.
+    const trackErrors = filesOn
+      ? fileQueue.add(others, target, {
+        count: attachmentsOf(target).length + list.length + heldFiles.length,
+        bytes: attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0) + heldFiles.reduce((sum, f) => sum + f.file.bytes, 0),
+      }, fileLimits)
+      : trackUploads.add(others, attachmentsOf(target).length + list.length,
+        attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
     const authEpoch = root.authLock.epoch();
@@ -410,10 +465,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         ...current,
         ...fresh,
       ]);
-      let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
+      const otherFiles = root.stores.drafts.getState().drafts[target]?.files ?? NO_FILES;
+      const otherCount = trackUploads.files.length + fileQueue.files.length + otherFiles.length;
+      let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0)
+        + fileQueue.files.reduce((sum, item) => sum + item.file.size, 0) + otherFiles.reduce((sum, f) => sum + f.file.bytes, 0);
+      const maxFiles = fileLimits?.maxFiles ?? SHARE_MAX_FILES;
       const accepted = imageAccepted.filter((image, index) => {
         combinedBytes += image.bytes;
-        return index + trackUploads.files.length < SHARE_MAX_FILES && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
+        return index + otherCount < maxFiles && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
       });
       // Revoke URLs of freshly-decoded images that didn't make the cut.
       for (const f of fresh) {
@@ -445,7 +504,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   function handleSubmit() {
     const text = draftText();
     const currentTracks = trackUploads.files;
-    const hasAttachments = attachments.length > 0 || currentTracks.length > 0;
+    const currentQueued = fileQueue.files;
+    const currentDraft = root.stores.drafts.getState().drafts[draftId];
+    const currentFiles = currentDraft ? bindableFiles(currentDraft) : [];
+    const hasAttachments = attachments.length > 0 || currentTracks.length > 0 || currentQueued.length > 0 || draftFilesOf(currentDraft).length > 0;
     if ((!text && !hasAttachments) || wsStatus !== "connected" || waiting || sessionProfile.saving || sessionProfile.awaitingDraftFacts) return;
     if (restorationOf(root.stores.chat.getState())) return;
 
@@ -455,6 +517,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       return;
     }
     if (currentTracks.some(trackPending)) { setHeldSend(true); return; }
+    const fileHold = composerFilesHold();
+    if (fileHold.blocked) { setHeldSend(false); setEffortNotice(fileHold.blocked); return; }
+    if (fileHold.pending) { setHeldSend(true); return; }
     const readyFiles = currentTracks.filter(trackReady).map(track => track.meta!);
 
     // A send while a question is pending is the ANSWER to it, not a new
@@ -506,7 +571,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         source,
         messageAttachments.length > 0 ? messageAttachments : undefined,
         requestId ? { requestId, thinkingLevel: selectedEffort } : undefined,
-        readyFiles.length ? readyFiles : undefined
+        readyFiles.length ? readyFiles : undefined,
+        currentFiles.length ? currentFiles.map((f) => f.file) : undefined
       );
     }
     // A send while the session is already streaming is a follow-up — the server
@@ -534,6 +600,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           ? undefined
           : selectedProviderId,
       ...(readyFiles.length ? { files: readyFiles.map(file => ({ kind: "file" as const, path: file.path })) } : {}),
+      // The originals the saved revision binds; the host resolves each against
+      // that revision (`draftRef`), so they are sent only with one (#3153).
+      ...(currentFiles.length ? { attachmentRefs: currentFiles.map((f) => ({ kind: "attachment" as const, fileId: f.file.fileId })) } : {}),
       attachments: attachments.length > 0
         ? attachments.map((a) => a.attachment)
         : undefined,
@@ -553,6 +622,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       const draftRef = drafts.beginSend({
         requestId, draftId, sessionId, text, attachments: [...attachments],
         ...(readyFiles.length ? { files: readyFiles } : {}),
+        ...(currentFiles.length ? { attachmentFiles: currentFiles } : {}),
         // Staged tracks stay in the field until the host accepts the message.
         ...(currentTracks.length ? { tracks: { key: trackKey(sessionId, trackOwner), ids: currentTracks.map((t) => t.id) } } : {}),
         message: snapshot,
@@ -587,6 +657,26 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     setAttachErrors([]);
   }
 
+  /**
+   * Whether composer files let this draft send now (#3155). Required uploads
+   * and the save that binds their originals hold it; a file the host refused,
+   * a failed upload or one carried from another draft id blocks it until
+   * retried or removed. Unread PDF or text contents never hold it.
+   */
+  function composerFilesHold(): { blocked?: string; pending?: boolean } {
+    const d = root.stores.drafts.getState().drafts[draftIdRef.current];
+    const queued = fileQueue.files;
+    if (queued.some(queuedBlocking)) return { blocked: "Your draft is kept. Retry or remove the file that wasn't stored before sending." };
+    if (d && draftFilesOf(d).some((f) => f.lineage !== d.draftId)) return { blocked: "Your draft is kept. Remove the files marked not attached, or choose them again, before sending." };
+    if (queued.some(queuedPending)) return { pending: true };
+    if (!d || draftFilesOf(d).length === 0) return {};
+    if (d.failure && d.failure.kind !== "unsaved") return { blocked: "Your draft is kept. Its files couldn't be saved with it; remove one and try again." };
+    if (d.conflict) return { blocked: "Your draft is kept. Choose which version to keep before sending its files." };
+    // Sent only from an acknowledged revision: the message names it.
+    if (!(d.host !== null && d.host.edit === d.edit)) return { pending: true };
+    return {};
+  }
+
   const submitHeldDraft = useRef(handleSubmit);
   useEffect(() => { submitHeldDraft.current = handleSubmit; });
 
@@ -594,15 +684,26 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // once, only after every remaining file has a validated ready result.
   useEffect(() => {
     if (!heldSend) return;
+    const fileHold = composerFilesHold();
     if (tracks.some(track => track.state === "failed")) {
       setHeldSend(false);
       setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
-    } else if (!tracks.some(trackPending) && wsStatus === "connected") {
+    } else if (fileHold.blocked) {
+      setHeldSend(false);
+      setEffortNotice(fileHold.blocked);
+    } else if (!tracks.some(trackPending) && !fileHold.pending && wsStatus === "connected") {
       setHeldSend(false);
       submitHeldDraft.current();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [heldSend, tracks, wsStatus]);
+  }, [heldSend, tracks, queuedFiles, draftClean, draftFailure, draftFiles, wsStatus]);
+
+  /** What a held send waits for, in the hint row. */
+  function heldHint(): string {
+    const files = tracks.filter(trackPending).length + queuedFiles.filter(queuedPending).length;
+    if (files > 0) return `sends when ${files} file${files === 1 ? " finishes" : "s finish"}`;
+    return "sends when the draft with its files is saved";
+  }
 
   function stopDictation() {
     // Read synchronously: another stop may arrive before React paints the
@@ -701,7 +802,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }
 
   const hasDraft = Boolean(
-    input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0
+    input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0 || queuedFiles.length > 0 || draftFiles.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
   const canSend = hasDraft && wsStatus === "connected" && !waiting && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts;
@@ -769,6 +870,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         <input ref={libraryInputRef} type="file" accept="image/*" multiple hidden onChange={onFilePick} />
         <input ref={trackInputRef} type="file" accept=".gpx,application/gpx+xml,.kml,application/vnd.google-earth.kml+xml,.geojson,application/geo+json,.json,application/json" multiple hidden onChange={onFilePick} />
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFilePick} />
+        {/* Files: no accept filter. The host decides what each file is (#3155). */}
+        {filesOn && <input ref={fileInputRef} type="file" multiple hidden onChange={onFilePick} data-files-input="" />}
 
         <ComposerView
           onConversation={conversation.available && micMode !== "local" && voiceMode !== "dictate" ? () => { setAttachMenuOpen(false); root.connection.conversation.enter(); } : undefined}
@@ -811,7 +914,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? `sends when ${tracks.filter(trackPending).length} file${tracks.filter(trackPending).length === 1 ? " finishes" : "s finish"}` : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
               : wsStatus === "connected" && sessionProfile.awaitingDraftFacts ? "waiting for this chat profile · reopen the model picker to retry"
@@ -833,6 +936,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             if (trackUploads.files.length === 0 && !current?.text && !current?.attachments.length) focusField();
           }}
           onRetryTrack={id => trackUploads.retry(id)}
+          files={filesOn ? { queued: queuedFiles, stored: draftFiles.map((f) => ({ file: f.file, detached: f.lineage !== draftId })) } : undefined}
+          onRemoveQueuedFile={(id) => fileQueue.remove(id)}
+          onRetryQueuedFile={(id) => fileQueue.retry(id)}
+          onRemoveStoredFile={(fileId) => {
+            const current = root.stores.drafts.getState().drafts[draftId];
+            if (current) root.stores.drafts.getState().edit(draftId, sessionId, { files: draftFilesOf(current).filter((f) => f.file.fileId !== fileId) });
+          }}
+          fileAnnouncement={fileAnnouncement}
           attachErrors={attachErrors}
           chatProfile={sessionProfile.chat}
           provider={
@@ -882,6 +993,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             libraryInputRef.current?.click();
           }}
           onPickTracks={() => { setAttachMenuOpen(false); trackInputRef.current?.click(); }}
+          onPickFiles={filesOn ? () => { setAttachMenuOpen(false); fileInputRef.current?.click(); } : undefined}
           onPickCamera={() => {
             setAttachMenuOpen(false);
             cameraInputRef.current?.click();

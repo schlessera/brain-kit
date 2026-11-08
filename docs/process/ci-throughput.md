@@ -16,7 +16,7 @@ archive without rediscovering every workflow run:
 bun scripts/ci-timings.ts enrich --resources --reservations \
   --since 2026-07-05T00:00:00Z --until 2026-07-12T00:00:00Z \
   --out tmp/ci-timings
-bun scripts/ci-timings.ts report --out tmp/ci-timings
+bun scripts/ci-timings.ts report --out tmp/ci-timings [--history origin/main]
 ```
 
 `--resources` also reads the latest green final-head aggregate's candidate
@@ -67,13 +67,43 @@ execution. It is not complete lifetime cost without complete lifetime coverage.
 | CI concurrency | Time-weighted executed-job overlap, peak and means while active/across the interval. Adjacent end-exclusive intervals do not invent overlap. |
 | PR verification concurrency | Distinct PRs with verification intervals, merging overlapping attempts of one PR. Includes queueing; not active agent count. |
 | Reservation occupancy | Authorized lease intervals, including inferred expiry. Time without observed candidate jobs includes queue/admission/verification and missing observations; not proven waste. |
+| Merge path | Per merged PR: `recorded` when the reservation history holds an `integrate.ts` lease for the merged head, `expedited` when an `expedited-fix` event names the PR, `unrecorded` when neither (a merge that bypassed `integrate.ts`), `unknown` when no reservation history was collected (`--reservations`). |
 
 Means, medians, p90 and sample counts accompany durations. First-main failing
 job categories and supplied failure classifications help distinguish pipeline
 failures. Workflow failures include intentional feedback refusals and stale
 candidates as well as actual defects. Mixed policy epochs, sizes, dependency
 graphs and runners confound comparisons; the report includes changed-line
-cohorts but does not establish causality.
+cohorts and proof-policy epochs but does not establish causality.
+
+## Proof-policy epochs
+
+Each merged proof-system change opens a new proof-policy epoch
+([ruling, answer 4](../decisions/ci-utility.md#proof-system-lane)). The report
+reads the first-parent history of `--history <ref>` (default `origin/main`)
+from the local checkout and classifies each squash against its first parent
+with `scripts/proof-system.ts`, using the path set recorded at that parent.
+History from before `scripts/proof-system-paths.json` existed uses the current
+file. Every squash classified as a proof-system change starts an epoch,
+identified by its SHA and commit time; the squash belongs to the epoch it
+opens. A squash whose classification cannot be computed (a missing parent in a
+shallow clone, a root commit, an unreadable diff) starts an epoch with an
+`unknown` boundary, so a comparison never silently spans a policy change. The
+hourly collector checks out full history for this reason.
+
+| Field | Definition and boundary |
+| --- | --- |
+| `prs[].epoch` | The SHA of the nearest boundary at or before the delivery's squash in first-parent order. `unbounded` when no boundary lies within the lookback (2000 commits beyond the window's oldest commit); `null` when the squash is not in the history read, or no history was available. |
+| `epochs.status` | `derived`, or `unavailable` with `error` when the ref cannot be read. Then every epoch is unknown and every delivery is listed in `unassigned`. `epochs` is `null` when no history source was supplied. |
+| `epochs.boundaries[]` | `sha`, commit time `at`, and `kind`: `proof-system`, or `unknown` with the classification `error`. |
+| `epochs.epochs[]` | Per epoch: its start boundary (`null` for `unbounded`), `end` (the next boundary's time, or the window end), `durationSeconds`, `merges` and `deliveries` in the cohort, and `firstMainGreen` among known first-main outcomes. |
+| `epochs.current` | The epoch holding the newest squash before the window end: `days` since its boundary and `firstMainGreen`, the two numeric inputs of the #2934 Phase B gate, plus `incidentAttribution`. |
+| `epochs.current.incidentAttribution` | Failed first-main attempts in the epoch and how many carry a `failure-classified` record. `unknown` when none do, `partial` when some do, `recorded` when all do. No record is unknown, not unattributed; incidents outside first-main runs are not observed. |
+
+The report states these inputs; it does not decide whether the gate is met.
+An `unknown` boundary on the current epoch means its days are counted from a
+squash that may not have changed policy, so they are not evidence of a stable
+epoch.
 
 ## Record coordination and incidents
 
@@ -94,6 +124,8 @@ ID/time permit attributed historical observations. IDs cannot be overwritten
 with different content. Pairs are `work-started`/`work-finished` and
 `wait-started`/`wait-finished`; waits require `reason` set to `reservation`,
 `ci`, `review`, `conflict` or `other`. Each pair shares worker/task/reason.
+Host admission records each wait for a heavy local slot as a pair with reason
+`other` and task `admission-<slot>` ([host admission](testing.md#host-admission-for-heavy-local-commands)).
 Unmatched records remain unknown; overlapping tasks on one worker do not create
 two workers. Complete task intervals measure task lifetime, not CPU busy time
 or token cost. No records means unknown worker concurrency. This endpoint does
@@ -103,7 +135,10 @@ preserve every worker's archive, including unsuccessful/unmerged work.
 `failure-classified` requires run, attempt, classification (`product`, `test`,
 `infrastructure`, `stale-candidate`, `intentional-feedback`) and public repository
 evidence. `incident`/`revert` require affected `pr` and evidence; `relatedPR` can
-name a repair/revert. These are supplied annotations, not independently verified
+name a repair/revert. `expedited-fix` requires the fix `pr`, the failing main
+`run` and evidence (the head fix probe run); `integrate.ts --fixes-main-run`
+records it after an expedited squash
+([#2940](../decisions/ci-utility.md#expedited-red-main-fixes)). These are supplied annotations, not independently verified
 diagnoses. No incident surveillance means unknown overall incident rate.
 Arbitrary fields such as prompts, names, hosts and prose are refused. Keep event
 files with normalized snapshots under ignored `tmp/`, not in the public tree.

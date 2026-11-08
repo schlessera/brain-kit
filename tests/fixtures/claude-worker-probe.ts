@@ -127,12 +127,10 @@ host = new WsHost({ ...nativeHost, brainPath, registry: createStaticBackendRegis
 host.clients.add({ send(text: string) {
   const frame = JSON.parse(text); frames.push(frame);
   if (frame.type === "mask_request") {
-    const pending = host.coordinator.pendingMask.get(frame.requestId)!;
-    host.coordinator.pendingMask.delete(frame.requestId); pending.resolve(png);
+    host.coordinator.claimMask(frame.requestId)!.resolve(png);
   }
   if (frame.type === "tool_approval_request") {
-    const pending = host.coordinator.pendingApprovals.get(frame.toolUseId)!;
-    host.coordinator.pendingApprovals.delete(frame.toolUseId); pending.resolve({ behavior: "allow" });
+    host.coordinator.claimApproval(frame.toolUseId)!.resolve({ behavior: "allow" });
   }
 } }, "odysseus");
 try {

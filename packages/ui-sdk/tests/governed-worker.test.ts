@@ -139,6 +139,21 @@ test("a missing protection root reports a strict fallback instead of throwing", 
 });
 
 
+test("chat attachment originals are mounted read-only for governed workers without becoming a protected path", () => {
+  const brain = fixture();
+  mkdirSync(join(brain, ".brain-ui/attachments/00000000-0000-4000-8000-000000000001"), { recursive: true });
+  writeFileSync(join(brain, ".brain-ui/attachments/00000000-0000-4000-8000-000000000001/ithaca-permit.pdf"), "%PDF-1.4 Odysseus\n");
+  const { protection, reason } = resolveWorkerProtection(brain);
+  expect(reason).toBeUndefined();
+  expect(protection.paths.find((path) => path.rel === ".brain-ui/attachments"))
+    .toEqual({ rel: ".brain-ui/attachments", mode: "read_only", reason: "chat attachment originals, kept by the host" });
+  // A governance policy never names it, so the manifest and quarantine do not either.
+  expect(protectedPaths()).not.toContain(".brain-ui/attachments");
+  // A brain with no attachments yet still gets the directory, read-only.
+  const empty = fixture();
+  expect(resolveWorkerProtection(empty).protection.paths.find((path) => path.rel === ".brain-ui/attachments")?.mode).toBe("read_only");
+});
+
 test("provider folder topology pins its root and ancestors while preserving live writes", () => {
   const brain = fixture();
   mkdirSync(join(brain, "group/private"), { recursive: true });

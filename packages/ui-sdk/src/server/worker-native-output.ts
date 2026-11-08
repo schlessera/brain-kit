@@ -1,4 +1,5 @@
 /** Changed-only publication from a root-inspected trusted OverlayFS stage. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
@@ -342,7 +343,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           add(child); await expand(child, depth + 1);
         }
       }
-      const isGitControl = (rel: string) => [...gitControls.keys()].some(root => rel === root || rel.startsWith(`${root}/`));
+      const isGitControl = (rel: string) => [...gitControls.keys()].some(root => isWithin(root, rel));
       function add(rel: string) { if (isGitControl(rel)) return; if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
       for await (const change of receipt.changes) {
         const rel = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(change.pathHex, "hex"));
@@ -354,7 +355,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       }
       await receipt.completed;
       if (receipt.checkpointId !== native.checkpoint.id || receipt.checkpointUuid !== native.checkpoint.uuid) throw Error("Native output inspection changed its lower identity");
-      const selected = (rel: string) => !options.areas || options.areas.some(area => rel === area || rel.startsWith(`${area}/`));
+      const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
       const before = new Map<string, Captured>(), after = new Map<string, Captured>();
       for (const rel of [...candidates].filter(selected).sort()) {
         const next = await inspectInput(true, rel); after.set(rel, next);
@@ -370,14 +371,14 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         for (const rel of changed) {
           const previous = before.get(rel)!.entry, next = after.get(rel)!.entry;
           if (previous && next && (previous.type === "directory") !== (next.type === "directory")) throw Error(`maintenance cannot replace a directory with a non-directory or vice versa: ${rel}`);
-          if (next?.type !== "directory" && retainedFolders.some(root => root === rel || root.startsWith(`${rel}/`)))
+          if (next?.type !== "directory" && retainedFolders.some(root => isWithin(rel, root)))
             throw Error(`maintenance output cannot remove or replace retained provider folder topology ${rel}`);
           const removesProtectedAncestor = previous?.type === "directory" && !next
-            && PROTECTED_TIER_A.some(p => p.startsWith(`${rel}/`));
-          if (removesProtectedAncestor || isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(p => rel === p || rel.startsWith(`${p}/`))) throw Error(`maintenance output cannot change protected input ${rel}`);
+            && PROTECTED_TIER_A.some(p => isWithin(rel, p, { includeRoot: false }));
+          if (removesProtectedAncestor || isEnvName(rel.split("/")[0]!) || PROTECTED_TIER_A.some(p => isWithin(p, rel))) throw Error(`maintenance output cannot change protected input ${rel}`);
           if (next?.type === "symlink") {
             const target = resolve(brain, join(rel, ".."), next.link!);
-            if ((target !== brain && !target.startsWith(`${brain}/`)) || rel.startsWith(".git/") || PROTECTED_TIER_A.some(p => p.startsWith(`${rel}/`))) throw Error(`maintenance output has an escaping link: ${rel}`);
+            if (!isWithin(brain, target) || rel.startsWith(".git/") || PROTECTED_TIER_A.some(p => isWithin(rel, p, { includeRoot: false }))) throw Error(`maintenance output has an escaping link: ${rel}`);
           }
           const live = await inspect(brain, rel, previous?.type === "directory" && !next); authoritative.set(rel, live);
           if (!equal(previous, live.entry, previous?.type === "directory" && !next)) throw Error(`stale maintenance output: ${rel}`);
@@ -615,7 +616,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           const query: EnvMaskQuery = step.value;
           // The held root permits metadata on the merged directory itself;
           // only its contents require the already-authorized fixed reader.
-          if (query.path === source && query.operation === "stat" || !(query.path === source || query.path.startsWith(`${source}/`))) {
+          if (query.path === source && query.operation === "stat" || !isWithin(source, query.path)) {
             step = plan.next(hostEnvMaskQuery(query)); continue;
           }
           const rel = query.path === source ? "" : query.path.slice(source.length + 1);

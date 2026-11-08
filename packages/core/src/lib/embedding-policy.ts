@@ -1,3 +1,4 @@
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database } from "bun:sqlite";
 import { lstatSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
@@ -31,7 +32,7 @@ export function providerExcludedDocuments(db: Database, root: string, rules: Eff
 export function unaliasedEmbeddingSource(root: string, path: string): boolean {
   try {
     const brain = realpathSync(root), source = resolve(brain, path);
-    if (!source.startsWith(brain + "/") || realpathSync(source) !== source) return false;
+    if (!isWithin(brain, source, { includeRoot: false }) || realpathSync(source) !== source) return false;
     const info = lstatSync(source);
     return info.isFile() && info.nlink === 1;
   } catch { return false; }

@@ -37,6 +37,10 @@ test("inventory counts hidden attachments and hard-link entries separately from 
   expect(file.allocatedBytes).toBe(statSync(join(root, ".hidden", "raft.PDF")).blocks * 512);
 });
 
+// A stalled Git stand-in publishes its PID with an atomic rename. writeFileSync
+// creates the file before writing it, so a reader polling for existence could
+// otherwise read an empty file and resolve PID 0 (#3401).
+const publishPid = (pidPath: string) => `const fs=require("node:fs");fs.writeFileSync(${JSON.stringify(pidPath + ".tmp")},String(process.pid));fs.renameSync(${JSON.stringify(pidPath + ".tmp")},${JSON.stringify(pidPath)});`;
 const collectorPath = resolve(import.meta.dir, "../src/lib/storage-inventory.ts");
 const { collectStorageInventory } = await import(collectorPath);
 function git(root: string, ...args: string[]) {
@@ -123,7 +127,7 @@ test("real EACCES and FIFO entries cannot become an empty successful subtree", a
 test("cancellation kills and reaps a real stalled Git child", async () => {
   const { chmodSync, existsSync } = await import("node:fs");
   const root = fixture(), bin = join(root, "bin"), pidPath = join(root, "git-pid"); mkdirSync(bin);
-  writeFileSync(join(bin, "git"), `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(pidPath)},String(process.pid));setInterval(()=>{},1000);\n`);
+  writeFileSync(join(bin, "git"), `#!${process.execPath}\n${publishPid(pidPath)}setInterval(()=>{},1000);\n`);
   chmodSync(join(bin, "git"), 0o755);
   const script = `const {collectStorageInventory}=await import(${JSON.stringify(collectorPath)});
 const controller=new AbortController(); const result=collectStorageInventory(${JSON.stringify(root)},{signal:controller.signal});
@@ -191,7 +195,7 @@ test("allocation agrees with independent du while filesystem capacity stays a se
 test("CLI cancellation returns partial evidence and leaves no stalled Git process", async () => {
   const { chmodSync, existsSync } = await import("node:fs");
   const root = fixture(), bin = join(root, "bin"), pidPath = join(root, "git-pid"); mkdirSync(bin);
-  writeFileSync(join(bin, "git"), `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(pidPath)},String(process.pid));setInterval(()=>{},1000);\n`); chmodSync(join(bin, "git"), 0o755);
+  writeFileSync(join(bin, "git"), `#!${process.execPath}\n${publishPid(pidPath)}setInterval(()=>{},1000);\n`); chmodSync(join(bin, "git"), 0o755);
   const child = Bun.spawn(["bwrap", "--unshare-user", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", process.execPath, cli, "storage", "inventory", "--json"], { env: { ...process.env, BRAIN_ROOT: root, PATH: `${bin}:${process.env.PATH}` }, stdout: "pipe", stderr: "pipe" });
   const output = new Response(child.stdout).text(), errors = new Response(child.stderr).text();
   try {

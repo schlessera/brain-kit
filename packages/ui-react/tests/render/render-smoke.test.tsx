@@ -29,6 +29,8 @@ import { PasskeyList } from "../../src/components/settings/passkey-list.js";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
 import type { SkillEntry } from "../../src/lib/api-client.js";
 import { ModelsTab } from "../../src/components/settings/models-tab.js";
+import { ApifyView } from "../../src/components/settings/apify-view.js";
+import type { ApifySettingsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { PiAccountsSection } from "../../src/components/settings/pi-accounts.js";
 import { SkillsTab } from "../../src/components/settings/skills-tab.js";
 import { SkillEditor, SkillsList } from "../../src/components/settings/skills-list.js";
@@ -5789,8 +5791,8 @@ describe("ComposerView", () => {
     fireEvent.keyDown(field, { key: "Escape" });
     expect(h.onEscape).toHaveBeenCalledTimes(1);
     // The paperclip is a menu trigger (D37): the menu carries the capture choices.
-    expect(view.getByRole("button", { name: "Attach — photo, camera, file" }).getAttribute("aria-haspopup")).toBe("menu");
-    fireEvent.click(view.getByRole("button", { name: "Attach — photo, camera, file" }));
+    expect(view.getByRole("button", { name: "Attach — photo, camera, files" }).getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(view.getByRole("button", { name: "Attach — photo, camera, files" }));
     expect(h.onAttachToggle).toHaveBeenCalledTimes(1);
     fireEvent.click(view.getByRole("button", { name: /^Photo library/ }));
     fireEvent.click(view.getByRole("button", { name: /^Camera/ }));
@@ -5817,6 +5819,29 @@ describe("ComposerView", () => {
     expect(streaming.queryByRole("button", { name: /Pinned model/ })).toBeNull();
     expect(streaming.getByText("Pinned model")).toBeTruthy();
     streaming.unmount();
+  });
+
+  test("the paperclip names live conversation whenever its menu offers it (#3045)", () => {
+    const h = handlers();
+    const live = "Attach — live conversation, photo, camera, files";
+    const view = render(<ComposerView {...base} value="" attachMenuOpen onConversation={mock(() => {})} onPickTracks={mock(() => {})} {...h} />);
+    const trigger = view.getByRole("button", { name: live });
+    // The tooltip paints the name itself, hidden from the accessibility tree so it is heard once.
+    expect(trigger.querySelector("[data-composer-tip]")?.textContent).toBe(live);
+    expect(trigger.querySelector("[data-composer-tip]")?.getAttribute("aria-hidden")).toBe("true");
+    expect(view.getByRole("button", { name: /^Live conversation/ })).toBeTruthy();
+    view.unmount();
+
+    const without = render(<ComposerView {...base} value="" attachMenuOpen {...h} />);
+    expect(without.getByRole("button", { name: "Attach — photo, camera, files" })).toBeTruthy();
+    expect(without.queryByRole("button", { name: /live conversation/i })).toBeNull();
+    without.unmount();
+
+    // Dictating: the trigger is inert, with no name and no tooltip.
+    const dictating = render(<ComposerView {...base} value="" state="dictating" onConversation={mock(() => {})} {...h} />);
+    expect(dictating.queryByRole("button", { name: /^Attach/ })).toBeNull();
+    expect(dictating.container.querySelector("[data-composer-tip]")).toBeNull();
+    dictating.unmount();
   });
 
   test("attachments, their errors and a lost connection", () => {
@@ -7286,4 +7311,28 @@ test("actual history with a restored approval never uses replay time as elapsed"
     expect(view.container.querySelector('[data-kit-streaming-answer]') !== null).toBe(true);
     expect(view.container.querySelector('[data-stream-elapsed]') !== null).toBe(false);
   } finally { act(() => root.dispose()); }
+});
+
+
+test("Apify settings show scoped Actor approvals, revoke the selected Actor and describe estimated overhead", () => {
+  const revoke = mock((_id: string) => {});
+  const read: ApifySettingsRead = {
+    state: "configured", reason: null, account: { id: "IthacaHousehold01", username: "penelope" }, pending_account: null,
+    checked_at: "2026-07-12T09:00:00Z",
+    actor_approvals: [{ actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: 0 }],
+    policy: { path: "context/policies/governance.md", hash: null, valid: true, enabled: true, discovery: "ask", actors: "ask",
+      grants: [], limits: null, budgets: { turn_usd: 4, session_usd: 20, day_usd: 40 } },
+    spend: { ledger: "read", observed_at: "2026-07-12T09:00:00Z", coverage: "Observed charges plus estimated platform requests, transfer and storage.",
+      day: { scope: "day", liability_usd: 0.04, charged_usd: 0.004, reserved_usd: 0.026, residual_usd: 0.01,
+        unknown_runs: 0, open_runs: 1, operator_resolved: 0, runs: 1, limit_usd: 4 }, brain_day: null, unresolved: [] },
+  };
+  const noop = () => {};
+  const view = render(<ApifyView read={read} edit={null} announcement="" stale={false} checking={false} headings={{}}
+    onRevokeActor={revoke} onTurn={noop} onMode={noop} onRevoke={noop} onCheck={noop} onConfirmAccount={noop}
+    onReview={noop} onOpenPolicy={noop} onOpenActivity={noop} onApprove={noop} onDecline={noop} onCheckProposal={noop} />);
+  expect(view.getByText("Approved Actors · 1")).toBeTruthy();
+  expect(view.container.textContent).toContain("estimated platform overhead held");
+  expect(view.container.textContent).toContain("across sessions for this account");
+  fireEvent.click(view.getByRole("button", { name: "Revoke odysseus/sea-charts" }));
+  expect(revoke).toHaveBeenCalledWith("SeaCharts01");
 });

@@ -4,6 +4,8 @@ import {
   type ClientMessage,
   type Draft,
   type DraftRef,
+  type AttachmentFile,
+  type AttachmentLimits,
   type SessionDraftLimits,
   type SharedFileMeta,
 } from "@schlessera/brain-ui-sdk/protocol";
@@ -28,7 +30,7 @@ import { attachmentFromDraft, mintDraftId } from "../lib/drafts.js";
  * is the acknowledged one.
  */
 
-export type DraftSaveFailure =
+type DraftSaveFailure =
   /** Dirty and unreachable, or a transient refusal: retried with backoff. */
   | { kind: "unsaved" }
   /** 413: `limit` bytes (or images), named by `bound`. */
@@ -36,13 +38,32 @@ export type DraftSaveFailure =
   /** 507: the host keeps `limit` drafts, or bytes, already. */
   | { kind: "full"; limit: number; bound: string };
 
+/**
+ * A composer original the host stored for a draft (#3155). `lineage` is the
+ * draft id it was uploaded to: the host binds a file only to that draft, so
+ * one carried to another id (a rotation, a kept copy) cannot be saved or
+ * sent there, and reads as needing to be chosen again.
+ */
+export interface DraftFile {
+  file: AttachmentFile;
+  lineage: string;
+}
+
+const NO_FILES: readonly DraftFile[] = [];
+/** A draft's originals; none when it was built without the field. */
+export const draftFiles = (d: Pick<ComposerDraft, "files"> | undefined): readonly DraftFile[] => d?.files ?? NO_FILES;
+/** The originals of a draft its own id can bind. */
+export const bindableFiles = (d: Pick<ComposerDraft, "draftId" | "files">): DraftFile[] => draftFiles(d).filter((f) => f.lineage === d.draftId);
+
 /** What the host acknowledged for a draft: its revision, and the local edit it holds. */
-export interface DraftHostCopy {
+interface DraftHostCopy {
   revision: number;
   /** The `edit` generation this revision holds; -1 when it holds another device's. */
   edit: number;
   sessionId: string | null;
   attachmentIds: string[];
+  /** The originals this revision binds (#3155); absent on a host without composer files. */
+  fileIds?: string[];
   /** The host's `updatedAt` for this revision. */
   updatedAt: number;
 }
@@ -52,6 +73,12 @@ export interface ComposerDraft {
   sessionId: string | null;
   text: string;
   attachments: PendingAttachment[];
+  /**
+   * Stored composer originals, in display order (#3155). Saved only when
+   * `host.fileIds` lists them. Optional: a draft built by older code or a
+   * kept device record has none; read it through `draftFiles`.
+   */
+  files?: DraftFile[];
   /** Local clock of the last change: the Sessions row's age and the compare sheet's time. */
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
@@ -80,7 +107,7 @@ export interface ComposerDraft {
   bind: { sessionId: string; requestId: string } | null;
 }
 
-export type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
+type DraftSendState = "pending" | "accepted" | "refused" | "unconfirmed";
 
 /** One send: an immutable snapshot of what left the composer (D52 §5). */
 export interface DraftSend {
@@ -94,6 +121,8 @@ export interface DraftSend {
   attachments: PendingAttachment[];
   /** Track files the message referenced, as the transcript draws them. */
   files?: SharedFileMeta[];
+  /** Composer originals the message named in `attachmentRefs` (#3155). */
+  attachmentFiles?: DraftFile[];
   /** The staged track entries it carried, removed only once the host accepts it. */
   tracks?: { key: string; ids: string[] };
   /** The saved revision the message names, when it was sent from one. */
@@ -121,12 +150,18 @@ export interface LocalDraft {
   sessionId: string | null;
   text: string;
   attachments: PendingAttachment[];
+  /** Stored originals, by reference (#3155): the bytes stay on the host. */
+  files?: DraftFile[];
   editedAt: number;
   /** A locally accepted transcript waits for a user edit/send before host sync. */
   deviceOnly?: boolean;
   /** @internal A device-local keep-both branch; its other version stays reachable. */
   deviceConflict?: { otherId: string; sessionId: string | null };
   host: { revision: number; sessionId: string | null; updatedAt: number; clean: boolean } | null;
+  /** A first save got no answer: the host may hold it, and a reconciliation is owed (#1214). */
+  uncertain?: boolean;
+  /** An accepted first message's session, still to be bound on the host (#1214). */
+  bind?: { sessionId: string; requestId: string } | null;
 }
 
 export interface DraftStoreState {
@@ -137,6 +172,8 @@ export interface DraftStoreState {
   /** `server_hello.capabilities.sessionDrafts`; null until a hello. */
   supported: boolean | null;
   limits: SessionDraftLimits;
+  /** `server_hello.attachmentLimits` when the host keeps composer originals (`composerFiles`); else null. */
+  fileLimits: AttachmentLimits | null;
   /** Host drafts to delete at a revision: a rotated-away id, or the losing side of a choice. */
   orphans: Array<{ draftId: string; revision: number }>;
 
@@ -159,7 +196,7 @@ export interface DraftStoreState {
   /** The draft a view shows: its session's, or `fresh`. Pure; mints nothing into state. */
   idFor(sessionId: string | null): string;
   /** Change a draft's content; a draft emptied with nothing on the host is forgotten. */
-  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[]; deviceOnly?: boolean }): void;
+  edit(draftId: string, sessionId: string | null, patch: { text?: string; attachments?: PendingAttachment[]; files?: DraftFile[]; deviceOnly?: boolean }): void;
   /** These previews belong to a transcript message now: never revoked here. */
   transfer(attachments: readonly PendingAttachment[]): void;
   /** New chat: the new-chat view gets a fresh identity; the old draft stays where it is. */
@@ -202,7 +239,7 @@ export interface DraftStoreState {
   openDeviceVersion(draftId: string, kept?: LocalDraft): void;
 
   // The draft client's reports.
-  setSupport(supported: boolean, limits?: SessionDraftLimits): void;
+  setSupport(supported: boolean, limits?: SessionDraftLimits, fileLimits?: AttachmentLimits | null): void;
   saving(draftId: string, since: number | null): void;
   saved(draftId: string, copy: DraftHostCopy, uploads: ReadonlyMap<PendingAttachment, string>): void;
   saveFailed(draftId: string, failure: DraftSaveFailure, uncertain?: boolean): void;
@@ -238,23 +275,23 @@ const SETTLED_SENDS_KEPT = 16;
  */
 export function holdsUnsaved(state: Pick<DraftStoreState, "drafts" | "sends">): boolean {
   for (const d of Object.values(state.drafts)) {
-    if ((d.text.length > 0 || d.attachments.length > 0) && !(d.host !== null && d.host.edit === d.edit)) return true;
+    if (hasContent(d) && !(d.host !== null && d.host.edit === d.edit)) return true;
     // Emptied, with the host still holding it: the delete has not landed.
     // Or a save is out: its answer is still owed.
-    if (d.conflict || d.savingSince !== null || d.uncertain || (d.host !== null && d.text.length === 0 && d.attachments.length === 0)) return true;
+    if (d.conflict || d.savingSince !== null || d.uncertain || (d.host !== null && !hasContent(d))) return true;
   }
   return Object.values(state.sends).some((s) => s.state === "pending" || s.state === "unconfirmed");
 }
 
-export const hasContent = (d: Pick<ComposerDraft, "text" | "attachments"> | undefined): boolean =>
-  Boolean(d && (d.text.length > 0 || d.attachments.length > 0));
+export const hasContent = (d: (Pick<ComposerDraft, "text" | "attachments"> & { files?: readonly DraftFile[] }) | undefined): boolean =>
+  Boolean(d && (d.text.length > 0 || d.attachments.length > 0 || (d.files?.length ?? 0) > 0));
 
 /** The draft's content is the revision the host acknowledged. */
-export const isClean = (d: ComposerDraft): boolean => d.host !== null && d.host.edit === d.edit;
+const isClean = (d: ComposerDraft): boolean => d.host !== null && d.host.edit === d.edit;
 
 function blank(draftId: string, sessionId: string | null, now: number): ComposerDraft {
   return {
-    draftId, sessionId, text: "", attachments: [], editedAt: now, edit: 0, host: null,
+    draftId, sessionId, text: "", attachments: [], files: [], editedAt: now, edit: 0, host: null,
     uploads: new Map(), failure: null, savingSince: null, conflict: null, uncertain: false, bind: null,
   };
 }
@@ -265,6 +302,7 @@ function fromHost(draft: Draft): ComposerDraft {
     ...blank(draft.draftId, draft.sessionId, draft.updatedAt),
     text: draft.text,
     attachments,
+    files: (draft.files ?? []).map((file) => ({ file, lineage: draft.draftId })),
     // The host stores these images for this id already.
     uploads: new Map(attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])),
     host: hostCopy(draft, 0),
@@ -272,7 +310,7 @@ function fromHost(draft: Draft): ComposerDraft {
 }
 
 function hostCopy(draft: Draft, edit: number): DraftHostCopy {
-  return { revision: draft.revision, edit, sessionId: draft.sessionId, attachmentIds: draft.attachments.map((a) => a.attachmentId), updatedAt: draft.updatedAt };
+  return { revision: draft.revision, edit, sessionId: draft.sessionId, attachmentIds: draft.attachments.map((a) => a.attachmentId), ...(draft.files ? { fileIds: draft.files.map((f) => f.fileId) } : {}), updatedAt: draft.updatedAt };
 }
 
 export function createDraftStore(options: { now?: () => number; revoke?: (url: string) => void } = {}) {
@@ -360,7 +398,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
 
     /** The content under a new id (attachments upload again), the old id left to delete. */
     function rotate(d: ComposerDraft, sessionId: string | null): string {
-      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict };
+      // Originals keep their lineage: the new id cannot bind them, so they read as needing to be chosen again.
+      const next: ComposerDraft = { ...blank(mintDraftId(), sessionId, now()), text: d.text, attachments: d.attachments, files: d.files, editedAt: d.editedAt, edit: 1, deviceOnly: d.deviceOnly, deviceConflict: d.deviceConflict };
       successors.set(d.draftId, next.draftId);
       origins.set(next.draftId, origins.get(d.draftId) ?? d.draftId);
       set((state) => {
@@ -403,7 +442,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       // cannot break the composer's.
       const returned = owned ? send.attachments : send.attachments.map((a) => ({ ...a, previewUrl: `data:${a.attachment.mediaType};base64,${a.attachment.data}` }));
       const attachments = [...returned, ...d.attachments.filter((a) => !send.attachments.includes(a))];
-      const back = { ...d, text, attachments, edit: d.edit + 1, editedAt: now() };
+      const sentFiles = send.attachmentFiles ?? [];
+      const files = [...sentFiles, ...draftFiles(d).filter((f) => !sentFiles.some((s) => s.file.fileId === f.file.fileId))];
+      const back = { ...d, text, attachments, files, edit: d.edit + 1, editedAt: now() };
       // One change: the content is back in the draft in the same state that
       // settles the send, so nothing observing the store ever sees neither.
       set((s) => ({ drafts: { ...s.drafts, [back.draftId]: back }, sends: settleSend(s.sends) }));
@@ -421,6 +462,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       sends: {},
       supported: null,
       limits: { ...SESSION_DRAFT_LIMITS },
+      fileLimits: null,
       orphans: [],
 
       idFor(sessionId) {
@@ -462,9 +504,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const current = get().drafts[draftId] ?? blank(draftId, sessionId, now());
         const text = patch.text ?? current.text;
         const attachments = patch.attachments ?? current.attachments;
-        if (text === current.text && attachments === current.attachments) return;
+        const files = patch.files ?? current.files;
+        if (text === current.text && attachments === current.attachments && files === current.files) return;
         if (patch.attachments) release(current.attachments, attachments);
-        put({ ...current, text, attachments, edit: current.edit + 1, editedAt: now(), deviceOnly: patch.deviceOnly === true, failure: current.failure?.kind === "unsaved" ? current.failure : null });
+        put({ ...current, text, attachments, files, edit: current.edit + 1, editedAt: now(), deviceOnly: patch.deviceOnly === true, failure: current.failure?.kind === "unsaved" ? current.failure : null });
         settle(draftId);
       },
 
@@ -497,8 +540,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         for (const k of kept) {
           const state = get();
           if (state.drafts[k.draftId] || successors.has(k.draftId) || retired.has(k.draftId)) continue;
-          // An emptied draft comes back only while its deletion is owed to the host.
-          if (k.text.length === 0 && k.attachments.length === 0 && !(k.host && !k.host.clean) && !k.deviceConflict) continue;
+          // An emptied draft comes back only while its deletion is owed to the
+          // host, or while a lost first save may have left a copy there (#1214).
+          if (!hasContent(k) && !(k.host && !k.host.clean) && !k.deviceConflict && !(k.uncertain && !k.host)) continue;
           // A session whose draft this page already holds keeps that one.
           if (k.sessionId !== null && Object.values(state.drafts).some((d) => d.sessionId === k.sessionId && (hasContent(d) || d.host))) continue;
           // An id handed to the session before this arrived goes to it, as in
@@ -512,9 +556,14 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
             ...blank(k.draftId, k.sessionId, k.editedAt), deviceOnly: k.deviceOnly === true, deviceConflict: k.deviceConflict,
             text: k.text,
             attachments: k.attachments,
+            files: k.files ?? [],
             edit,
             // Its images upload again before the next save: the ids they had are not kept.
-            host: k.host ? { revision: k.host.revision, edit: k.host.clean ? edit : edit - 1, sessionId: k.host.sessionId, attachmentIds: [], updatedAt: k.host.updatedAt } : null,
+            // Originals are references the host already holds, so a clean copy lists them.
+            host: k.host ? { revision: k.host.revision, edit: k.host.clean ? edit : edit - 1, sessionId: k.host.sessionId, attachmentIds: [], ...(k.files?.length ? { fileIds: k.files.map((f) => f.file.fileId) } : {}), updatedAt: k.host.updatedAt } : null,
+            // The draft client's uncertain-save and bind paths pick these up again (#1214).
+            uncertain: k.uncertain === true && k.host === null,
+            bind: k.bind ?? null,
           });
         }
       },
@@ -551,7 +600,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           // The caller keeps its prior expectation until those edits save.
           if (other && (!preserveOther || !drafts[other.draftId])) {
             const edit = 1;
-            drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...other, edit,
+            const { uncertain: _uncertain, bind: _bind, ...content } = other;
+            drafts[other.draftId] = { ...blank(other.draftId, other.sessionId, other.editedAt), ...content, files: content.files ?? [], edit,
               host: other.host ? { ...other.host, edit: other.host.clean ? edit : -1, attachmentIds: [] } : null };
           }
           return { drafts, fresh: s.fresh === sourceId || s.fresh === liveId ? branchId : s.fresh };
@@ -561,7 +611,9 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         const current = get().drafts[kept.draftId];
         if (current) release(current.attachments, []);
         const edit = 1;
-        const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...kept, edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
+        // Another tab's pending reconciliation stays that tab's to finish.
+        const { uncertain: _uncertain, bind: _bind, ...content } = kept;
+        const d = { ...blank(kept.draftId, kept.sessionId, kept.editedAt), ...content, files: content.files ?? [], edit, deviceEpoch: (current?.deviceEpoch ?? 0) + 1,
           host: kept.host ? { ...kept.host, edit: kept.host.clean ? edit : -1, attachmentIds: [] } : null };
         set(s => ({ drafts: { ...s.drafts, [kept.draftId]: d } }));
       },
@@ -591,8 +643,10 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         set((s) => ({ sends: pruneSends({ ...s.sends, [input.requestId]: send }) }));
         if (d) {
           const remaining = d.attachments.filter((a) => !input.attachments.includes(a));
+          const sentFiles = input.attachmentFiles ?? [];
+          const files = draftFiles(d).filter((f) => !sentFiles.some((s) => s.file.fileId === f.file.fileId));
           const text = d.text === consumedText ? "" : d.text;
-          put({ ...d, text, attachments: remaining, edit: d.edit + 1, editedAt: now(), deviceOnly: false });
+          put({ ...d, text, attachments: remaining, files, edit: d.edit + 1, editedAt: now(), deviceOnly: false });
         }
         return draftRef;
       },
@@ -707,8 +761,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         set((s) => ({ sends: { ...s.sends, [requestId]: next } }));
       },
 
-      setSupport(supported, limits) {
-        set({ supported, limits: limits ? { ...limits } : { ...SESSION_DRAFT_LIMITS } });
+      setSupport(supported, limits, fileLimits = null) {
+        set({ supported, limits: limits ? { ...limits } : { ...SESSION_DRAFT_LIMITS }, fileLimits: supported && fileLimits ? { ...fileLimits } : null });
       },
 
       saving(draftId, since) {
@@ -783,7 +837,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         if (d.host && isClean(d) && !held(draftId)) {
           // Deleted or sent on another device, with nothing new here.
           release(d.attachments, []);
-          if (d.deviceConflict) rotate({ ...d, text: "", attachments: [], host: null, uploads: new Map() }, d.sessionId);
+          if (d.deviceConflict) rotate({ ...d, text: "", attachments: [], files: [], host: null, uploads: new Map() }, d.sessionId);
           else drop(draftId);
           return;
         }
@@ -814,11 +868,17 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           return;
         }
         if (local.host && local.host.revision >= draft.revision) return;
+        // Emptied after a first save that got no answer: the draft client
+        // settles that copy itself (deleting it, or a conflict on a newer
+        // revision), so a host refresh never brings the cleared text back.
+        if (!local.host && local.uncertain && !hasContent(local)) return;
         if (local.conflict?.sameId && local.conflict.other.revision >= draft.revision) return;
         // The host holds exactly what is here (a save whose answer was lost):
         // that is an acknowledgement, not another device's version.
+        const hostFiles = draft.files ?? [];
         if (local.text === draft.text && local.attachments.length === draft.attachments.length
-          && local.attachments.every((a, i) => a.attachment.data === draft.attachments[i]!.bytes)) {
+          && local.attachments.every((a, i) => a.attachment.data === draft.attachments[i]!.bytes)
+          && draftFiles(local).length === hostFiles.length && draftFiles(local).every((f, i) => f.lineage === draft.draftId && f.file.fileId === hostFiles[i]!.fileId)) {
           // Bound on another device meanwhile: it is that session's draft here too.
           put({ ...local, sessionId: local.sessionId ?? draft.sessionId, host: hostCopy(draft, local.edit), uploads: new Map(local.attachments.map((a, i) => [a, draft.attachments[i]!.attachmentId])), failure: null, uncertain: false });
           return;
@@ -857,7 +917,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         }
         if (choice === "both") {
           // The other version becomes an unbound Draft entry of its own.
-          const copy: ComposerDraft = { ...blank(mintDraftId(), null, now()), text: other.text, attachments: other.attachments.map(attachmentFromDraft), editedAt: other.updatedAt, edit: 1 };
+          // Its originals stay the other draft's lineage: the copy shows them as needing to be chosen again.
+          const copy: ComposerDraft = { ...blank(mintDraftId(), null, now()), text: other.text, attachments: other.attachments.map(attachmentFromDraft), files: (other.files ?? []).map((file) => ({ file, lineage: other.draftId })), editedAt: other.updatedAt, edit: 1 };
           put(copy);
           if (!sameId) orphan(other.draftId, other.revision);
         } else if (!sameId) {

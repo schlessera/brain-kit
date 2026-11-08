@@ -79,7 +79,7 @@ export interface TrackerPillListProps {
 }
 
 /** What the kit read from an accepted address. */
-export interface TrackerItem {
+interface TrackerItem {
   ok: true;
   href: string;
   /** ASCII (`xn--`) host with any non-default port, as `classifyLink` gives it. */
@@ -89,11 +89,11 @@ export interface TrackerItem {
 }
 
 /** A list longer than this collapses. */
-export const TRACKER_COLLAPSE_AFTER = 6;
+const TRACKER_COLLAPSE_AFTER = 6;
 /** How many events a collapsed list shows. */
-export const TRACKER_COLLAPSED_VISIBLE = 5;
+const TRACKER_COLLAPSED_VISIBLE = 5;
 /** The longest qualifier drawn whole; the accessible name always has all of it. */
-export const TRACKER_QUALIFIER_MAX = 16;
+const TRACKER_QUALIFIER_MAX = 16;
 
 /** GitHub owners are alphanumerics and single hyphens; repositories add `.` and `_`. */
 const GITHUB_ITEM = /^\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100})\/(issues|pull)\/([1-9][0-9]{0,9})(?:[/?#]|$)/;
@@ -147,7 +147,7 @@ export function shortQualifier(qualifier: string): string {
 }
 
 /** The pill's accessible name, built only from what the kit derived plus the action. */
-export function trackerPillName(item: TrackerItem, event: Pick<TrackerEvent, "action" | "qualifier">): string {
+function trackerPillName(item: TrackerItem, event: Pick<TrackerEvent, "action" | "qualifier">): string {
   const what = event.qualifier?.trim() ? `${event.action}, ${event.qualifier.trim()}` : event.action;
   if (!item.github) return `Open ${item.host}, ${what}`;
   const kind = item.github.type === "pull" ? "pull request" : "issue";
@@ -155,14 +155,14 @@ export function trackerPillName(item: TrackerItem, event: Pick<TrackerEvent, "ac
 }
 
 /** One event, with what the kit read from its address. */
-export interface TrackerRow {
+interface TrackerRow {
   index: number;
   event: TrackerEvent;
   item: TrackerItem | LinkRefusal;
 }
 
 /** Consecutive events under one header. */
-export interface TrackerRun {
+interface TrackerRun {
   /** `null` for a run of withheld events before any accepted one. */
   header: { host: string; repo?: string } | null;
   key: string | null;

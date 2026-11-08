@@ -318,6 +318,85 @@ maintain evaluate before their existing recording step. See the
 [full trend contract](integration-contract/cli.md#recorded-corpus-trend-verdicts-additive-in-0400)
 and [decision](decisions/stats-trends.md).
 
+## External compute
+
+`brain compute` runs a bounded command on a configured
+[compute provider instance](configuration.md#compute) instead of this
+machine. Nothing runs remotely unless `--provider` names an instance; there is
+no default, and ordinary commands are never redirected. Without a `compute`
+key in `brain.config` every verb except `health` refuses with
+`compute_disabled`.
+
+```sh
+brain compute health
+brain compute plan --provider ithaca-host --source notes/raft.md --lease 600 -- bun test
+brain compute run --provider ithaca-host --source notes/raft.md --artifact out/report.txt:65536 -- bun test
+brain compute run --provider ithaca-host --detach -- bun run build
+brain compute status cj_...
+brain compute collect cj_...
+brain compute cancel cj_...
+```
+
+`plan` shows what a run would upload, the lease and the cost estimate
+without doing anything; an estimate of `null` means unknown, never free. Only
+the files named with `--source` leave the machine, checked against the
+governance policy's provider rules with the instance id as recipient.
+`--env NAME=VALUE` passes non-secret values only: credential-shaped names are
+refused, and values are recorded with the job and may be kept in the
+provider's own command history. Collected artifacts are stored with their
+sha256 in the compute state directory, outside the brain.
+
+`run` waits for the job by default and prints its final state, exit, cleanup
+fact and cost; Ctrl-C cancels the job, even while it is still starting, and
+reports whether the sandbox was released. A second Ctrl-C leaves at once
+(exit `130`, or `143` for a second SIGTERM) and names the job to cancel.
+`--detach` returns once the command has started. Exit `1` is a usage error or
+a refusal (nothing was allocated), exit `2` a job whose cleanup was not
+confirmed (run `brain compute reconcile`), and exit `3` a job that ended
+other than `succeeded`. Job ids belong to the operating-system user that
+started them from the CLI; jobs started through the MCP tools are separate.
+Human output shows control characters from the provider or the remote
+command (other than newline and tab) as `\xHH` escapes, so collected output
+cannot drive the terminal; `--json` keeps the bytes.
+Operators can run `brain compute reconcile` to settle jobs a dead process left
+behind, and `brain compute abandon JOB --confirm` to accept an unresolved
+`uncertain` outcome. The `/external-compute` skill guides an agent through the
+same steps. See the [JSON and exit-code contract](integration-contract/cli.md#external-compute-additive-0450-3107)
+and [writing a provider](extending/compute-providers.md).
+
+## Apify
+
+`brain apify` discovers, inspects and runs Apify Actors, the same ten
+operations the `brain_apify_*` MCP tools and the chat UI use. Apify is paid
+remote extraction, not web search, and it is off until
+`context/policies/governance.md` sets `apify.enabled: true`
+([policy fields](supported-inputs.md#governance-policy)).
+
+| Command | Does | Notes |
+|---|---|---|
+| `apify approvals` | List remembered Actors | reusable `candidate` references let this session inspect them without another catalog search |
+| `apify availability [actor-id]` / `revoke <actor-id>` | Check readiness or revoke an Actor approval | readiness consumes no approval; revocation applies to later runs |
+| `apify discover <words…>` | Search the Actor catalog | sends only the words; `--limit N` (1–10) |
+| `apify inspect <candidate>` | One Actor's exact build, input schema, price and whether it can run here | everything returned is untrusted remote text |
+| `apify prepare <candidate> --input <json> --max-charge-usd <usd>` | Prepare one run | starts and spends nothing |
+| `apify run <proposal>` | Run a proposal once | needs a remembered Actor approval: nothing is asked on the terminal |
+| `apify status <run>` / `results <run>` / `abort <run>` | Follow a run you started | `results` pages with `--cursor`, `--limit` (1–100) |
+| `apify account [confirm <account-id>]` | The bound account; confirm a changed one | never prints the token |
+
+The process needs `APIFY_TOKEN` and `BRAIN_APIFY_LEDGER`, the absolute path of
+the ledger the UI server uses, so both share the account's day limit. Without
+the ledger every operation refuses. `--session <name>` keeps your references
+apart from another session's (default `default`). Each operation prints one
+`{ ok, operation, data }` or `{ ok: false, operation, error }` envelope and
+exits `0` or `1` ([the contract](integration-contract/cli.md#apify-operations-additive-0450-3162)).
+
+An agent checks remembered Actors first and inspects likely matches to confirm
+fit. When none fits, it compares the best 3–5 suitable new Actors (or two if
+only two fit) and waits for your choice. The comparison explains identity,
+fit, available pricing and limitations. Picking one does not approve its
+execution; the normal Actor approval follows in chat. A suitable remembered
+approval can be reused across sessions, subject to current policy and budgets.
+
 ## Queue intake on a UI server
 
 `brain queue add --server https://example.org --key odysseus-route-1

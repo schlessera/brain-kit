@@ -22,10 +22,19 @@ of the [six-part #943 design](https://github.com/schlessera/brain-kit/issues/943
 (2026-10-04) with its four residual answers, R1–R4 (2026-10-05). Where
 those later rulings do not replace it, the supplied navigation and
 parallel-session designs still bind; §8 lists what carries over. The measured input is
-[`docs/plans/navigation-recovery.md`](../../plans/navigation-recovery.md)
+[`docs/plans/navigation-recovery.md`](https://github.com/schlessera/brain-kit/blob/5a0ce18fdcecf0a6c5b83487c865a3f73806d5d0/docs/plans/navigation-recovery.md)
 (#942). The row's adopted geometry is the
 [shared-row design](https://github.com/schlessera/brain-kit/issues/929#issuecomment-5998113323),
 which amends the #943 strip.
+
+> **2026-11-02 — The measured input left `docs/plans/` ([#2511](https://github.com/schlessera/brain-kit/issues/2511)).**
+> #942, #943, #964, #965, #910, #951 and #979 are closed, and the Sessions
+> destination, host-backed drafts and latest-turn recovery are in source
+> (`const destinations`, `packages/ui-react/src/components/layout/desktop-routes.ts`;
+> `packages/ui-server/src/drafts/`). The report held measurements and
+> follow-up ownership, not rulings; every ruling it fed is in this entry. Read
+> it unchanged at the pinned link above. Its probes stay in the tree at
+> `scripts/probes/navigation-recovery/`.
 
 **What this amends.** D37 §1's destinations and New chat placement; D22's
 ≥1280 list pane and the space between transcript and composer; and the
@@ -284,6 +293,15 @@ the summary's count drops, or the summary goes. A dropped follow-up
 popovers appear without a transition. D22's one ambient animation stays the
 filament.
 
+> **2026-11-03 — scoped amendment (#3281, maintainer ruling of 2026-11-02).**
+> The compact operation-status control,
+> [D58's `StatusIndicator`](components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281),
+> may breathe in its `active` state only. The amendment covers that component
+> and its two selected consumers: the draft's indicator (#3155) and
+> deletion recovery in the Sessions header (#3231). It uses the shared
+> `breathe` keyframe, so reduced motion makes it static. No other tracker, row
+> or pane gains motion, and the rule above holds for everything else.
+
 <a id="4-trackers-under-recovery-a"></a>
 
 ### 4. Trackers under Recovery A
@@ -341,7 +359,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1580-1610`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1684-1714`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**
@@ -417,6 +435,12 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   announcements until it is.
 > - `Mark as seen` with no latest turn identity to store deletes the record,
 >   since there is nothing to acknowledge against.
+> - *(2026-11-03, #3406.)* An answer still being written is not the linked
+>   turn, even when it carries the turn its live frames named. History links
+>   a turn only once it has ended, so a replay strips that turn from a
+>   running answer. Before #3406, reopening a running session could beat its
+>   replay and record proof from the stale frame turn, and the tracker
+>   cleared before the turn ended.
 
 > **2026-10-06 — R3's read-only card and the shell's time, implemented by
 > #1072.** The rules are `packages/ui-react/src/lib/restored-approvals.ts`,
@@ -640,6 +664,33 @@ question-answer rules are independent.
 > well. Browsers may skip the prompt on a page the user never interacted
 > with; Chromium under test automation asks regardless. The guard is
 > `guardLeaving` in `lib/draft-tracks.ts`.
+
+<a id="generic-attachment-originals-2026-11-02"></a>
+
+> **2026-11-02 — Generic attachment originals, maintainer amendment (#3150).**
+> Approved; the host side is implemented by #3153. For the new generic composer path, staged
+> files stop being tab-only. Every attachment, images included, is a
+> filesystem original owned by the exact acknowledged draft revision, then by
+> the conversation that accepted the send. A saved draft and its file bindings
+> survive reload, tab close and a normal host restart. `saved` still requires
+> the host to acknowledge that exact revision, file bindings included.
+> Unacknowledged or legacy data never reads as saved. Unresolved sends protect
+> their files. The per-draft envelope becomes 10 files, 25,000,000 bytes each
+> and 50,000,000 together, plus the separate 65,536-byte text allowance. The
+> 100-draft and 268,435,456-byte host limits stay, inside a configurable 1 GiB
+> attachment pool. The tab-only rules above (#1112, #1150) still govern the
+> legacy track path on a host without the new capability. Everything else in
+> this record is unchanged. The rulings are in
+> [chat-attachments.md](../chat-attachments.md), and the proposed schema and
+> lifecycle in [the design](../../plans/chat-attachments.md#6-admission-storage-and-ownership-3153).
+> #3153 built it this way: a save's `fileIds` bind originals to that exact
+> revision and its `outgoing` snapshot owns a held or unconfirmed send's
+> files, both in the host's operational database, so they survive a reload,
+> a closed tab and a restart. `Draft.files` lists only bound files that are
+> still stored, so nothing restores as saved that the host does not hold. An
+> accepted send gives the conversation its own reference before the revision
+> is consumed; newer revisions and other drafts are untouched. Nothing is
+> resent automatically. The composer that uses this is #3155's.
 
 > **2026-10-07 — Drafts kept on this device across a reload, implemented by
 > #1014.** Every draft in the root's store, with its images, and the work

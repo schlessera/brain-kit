@@ -1,4 +1,5 @@
 /** Frozen Git configuration: read by a worker, never by a host Git process. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { existsSync, lstatSync, statSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { maintenanceGitEntry, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
@@ -30,7 +31,7 @@ export async function privateGitSources(command: MaintenanceCommand, outputs: Aw
   };
   validate();
   const entry = Bun.resolveSync("./maintenance-git-source", import.meta.dir), maximum = storage.allowanceBytes;
-  const result = await runMaintenanceWorker({ ...command, startupView: view, output: undefined, git: undefined,
+  const result = await runMaintenanceWorker({ ...command, tempKind: "git", startupView: view, output: undefined, git: undefined,
     command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, binary ?? "", String(maximum), expectedRoot],
     readPaths: [...(command.readPaths ?? []), entry, ...(binary ? [binary] : [])], network: false, timeoutMs: 30000, ...(signal ? { signal } : {}) });
   validate();
@@ -59,7 +60,7 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   let config: [string, string][];
   if (privateInputs) config = privateInputs.config;
   else {
-    const result = await runMaintenanceWorker({ ...command, startupView: outputs.view,
+    const result = await runMaintenanceWorker({ ...command, tempKind: "git", startupView: outputs.view,
       command: [binary, "-c", `safe.directory=${command.brainPath}`, "config", "--null", "--list", "--includes"], network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
     if (result.exitCode !== 0 || result.killed) throw new Error(`cannot freeze Git configuration: ${result.stderr.slice(-400)}`);
     config = result.stdout.split("\0").filter(Boolean).map(record => { const separator = record.indexOf("\n");
@@ -73,7 +74,7 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const originalHooks = declaredHooks ? resolve(command.brainPath, declaredHooks) : join(command.brainPath, ".git/hooks");
   // Names inside the brain come only from its immutable private copy. Never
   // enumerate a host path supplied by repository configuration.
-  const inBrain = originalHooks === command.brainPath || originalHooks.startsWith(`${command.brainPath}/`);
+  const inBrain = isWithin(command.brainPath, originalHooks);
   const copiedHooks = inBrain ? outputs.view.root + originalHooks.slice(command.brainPath.length) : undefined;
   const names = new Set(hooks);
   if (privateInputs) for (const name of privateInputs.hookNames) names.add(name);
@@ -105,7 +106,7 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const directories = new Set(attributes.flatMap(({ path }) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"))));
   const freezer = Bun.resolveSync("./maintenance-git-attributes", import.meta.dir);
   await refreshInput();
-  const answer = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, git: spec,
+  const answer = await runMaintenanceWorker({ ...command, tempKind: "git", startupView: outputs.view, output: outputs.output, git: spec,
     command: [process.execPath, "--config=/dev/null", "--no-env-file", freezer, entry], stdin: JSON.stringify(attributes),
     readPaths: [...(command.readPaths ?? []), freezer], network: false,
     timeoutMs: 5000 * (1 + attributes.length + (attributes.length ? 1 + directories.size : 0)), ...(signal ? { signal } : {}) });

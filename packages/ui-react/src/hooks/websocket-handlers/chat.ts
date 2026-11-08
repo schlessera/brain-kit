@@ -1,4 +1,4 @@
-import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
+import { FIRST_PARTY_FAILURE_CLASSES, HOST_TIMEOUT_OUTCOME_DETAIL } from "@schlessera/brain-ui-sdk/protocol";
 import { ASK_USER_FORM_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { askUserFormSpec, askUserFormPayload } from "@schlessera/brain-ui-sdk/internal/client";
 import type { ChatMessage, ToolCall, AskUserExchange } from "../../stores/chat-store.js";
@@ -75,6 +75,7 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     timestamp: Date.now(),
     ...(askUserExchanges ? { askUserExchanges } : {}),
     ...(msg.files?.length ? { files: msg.files } : {}),
+    ...(msg.attachmentFiles?.length ? { attachmentFiles: msg.attachmentFiles } : {}),
     ...(msg.attachmentCount ? { attachmentCount: msg.attachmentCount } : {}),
     ...(msg.blocks && msg.blocks.length > 0 ? { blocks: msg.blocks } : {}),
     // Absent means typed: an older host never sends it, and a newer one
@@ -87,6 +88,9 @@ function convertHistoryMessage(msg: SessionHistoryMessage): ChatMessage {
     ...(msg.role === "assistant" && msg.journal ? { journal: msg.journal } : {}),
     // The failure that ended the turn (#575), drawn as it was live.
     ...(msg.role === "assistant" && msg.failure ? { failure: msg.failure, retryOfTurnId: msg.retryOfTurnId } : {}),
+    // The runtime's own note that the turn stopped (#3356): a status, never
+    // the agent's words, and never a fresh alert on replay.
+    ...(msg.role === "assistant" && msg.runtimeNotice && !msg.failure ? { runtimeNotice: { cause: msg.runtimeNotice.cause } } : {}),
   };
 }
 
@@ -381,7 +385,11 @@ export const chatFrameHandlers = {
   result: (msg, context) => {
     if (context.key !== null && msg.stateRoom
       && !["worker_state_busy", "session_too_large", "worker_state_exceeded"].includes(msg.failure?.errorClass ?? "")) context.state.setStateRoom(context.key, msg.stateRoom);
-    context.state.endTurnQuestions(context.key, context.frameTurnId);
+    // The host's hard turn limit ended it (#3356): the conversation says so,
+    // and its open questions say why they closed.
+    const timedOut = msg.outcome === "cancelled" && msg.outcomeDetail === HOST_TIMEOUT_OUTCOME_DETAIL;
+    context.state.endTurnQuestions(context.key, context.frameTurnId, timedOut ? "timeout" : undefined);
+    if (timedOut) context.state.setTurnNotice(context.key, { cause: "timeout" }, context.frameTurnId);
     context.state.finishAssistantMessage(context.key);
     // An absent outcome is the legacy wire, where `isError` alone decides.
     const failed = msg.outcome === "error" || (msg.outcome === undefined && msg.isError);
@@ -399,9 +407,9 @@ export const chatFrameHandlers = {
     if (failed) context.state.setRetryHandle(context.key, msg.retryOfTurnId);
     context.resyncIfNeeded(msg.sessionId);
   },
-  // Receipts are consumed by the connection before transcript demultiplexing.
-  retry_receipt: () => {},
-  ask_answer_receipt: () => {},
+  // Receipts are connection-wide: they never reach a session's demux.
+  retry_receipt: (msg, context) => context.retryReceipt(msg),
+  ask_answer_receipt: (msg, context) => context.answerReceipt(msg),
   // The SDK client answers its own probes; a pong never reaches a consumer.
   pong: () => {},
   message_blocks: (msg, context) => {

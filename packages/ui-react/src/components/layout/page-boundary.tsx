@@ -20,7 +20,7 @@ const PAGE_REVIEW_COPY: ReviewCopy = {
   footnote: "Left out by default: the error message, component names, file paths, hostnames, and anything from your notes or conversations. Redaction is best effort; read the text before you paste it anywhere.",
 };
 
-export interface PageBoundaryProps {
+interface PageBoundaryProps {
   children: ReactNode;
   /** Test hook: observe a reload without navigating. */
   reload?: () => void;
@@ -98,15 +98,13 @@ function FallbackLayout({ children, box }: { children: ReactNode; box: RefObject
 }
 
 function Actions({ children }: { children: ReactNode }) {
-  return <div className="mt-[18px] flex flex-col gap-2">{children}</div>;
+  return <div className="mt-[18px] flex flex-col gap-2 any-pointer-coarse:gap-y-4">{children}</div>;
 }
-
-const TALL = { minHeight: 44 } as const;
 
 function GoToChat({ view, primary }: { view: ActiveView; primary?: boolean }) {
   const press = useUIStore((s) => s.pressDestination);
   if (view === "chat") return null;
-  return <Button tone={primary ? "primary" : "ghost"} size="md" icon="chat" label="Go to Chat" center style={TALL} onClick={() => press("chat")} />;
+  return <Button tone={primary ? "primary" : "ghost"} size="md" icon="chat" label="Go to Chat" center reach onClick={() => press("chat")} />;
 }
 
 function decide(held: boolean): StaleChunkDecision {
@@ -156,7 +154,7 @@ function StaleChunkFallback({ view, reload }: { view: ActiveView; reload?: () =>
       <Actions>
         {decision === "offline" ? <GoToChat view={view} primary /> : (
           <>
-            <Button tone="primary" size="md" icon="install" center style={TALL}
+            <Button tone="primary" size="md" icon="install" center reach
               label={decision === "looped" ? "Reload" : "Reload now"}
               subtitle={decision === "held" ? "Unsent work will be lost" : undefined}
               ariaLabel={decision === "held" ? "Reload now, unsent work will be lost" : undefined}
@@ -209,16 +207,16 @@ function PageErrorFallback({ error, info, failures, reset, view, reload }: Error
       {!moveFocus ? <p role="alert" className="bk-sr-only">{title}</p> : null}
       <Actions>
         {repeated ? (
-          <Button tone="primary" size="md" icon="retry" label="Reload app" center style={TALL}
+          <Button tone="primary" size="md" icon="retry" label="Reload app" center reach
             subtitle={held ? "Unsent work will be lost" : undefined}
             ariaLabel={held ? "Reload app, unsent work will be lost" : undefined}
             onClick={() => doReload(reload)} />
         ) : (
-          <Button tone="primary" size="md" icon="retry" label="Try again" center style={TALL} onClick={reset} />
+          <Button tone="primary" size="md" icon="retry" label="Try again" center reach onClick={reset} />
         )}
         <GoToChat view={view} />
         <span data-fallback-action="copy" className="contents">
-          <Button tone="quiet" size="md" icon="copy" label="Copy details" center style={TALL} onClick={() => setReviewing(true)} />
+          <Button tone="quiet" size="md" icon="copy" label="Copy details" center reach onClick={() => setReviewing(true)} />
         </span>
       </Actions>
       {reviewing ? (

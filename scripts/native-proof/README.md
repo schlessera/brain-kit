@@ -34,7 +34,13 @@ same worker. For each call it records the model-side round trip (response sent
 to next request received), the tool time between the host's `tool_use_start`
 and `tool_result` frames, and every journal observation and worker hold in
 between. Both backends then run 10 one-write turns and record journal begin and
-finish. Medians, p95s, per-call rows and the host load before and after are in
+finish. It then times admission (#3355), reading each turn's lifecycle record
+with its `subPhases`: (a) the process's first governed turn, (b) the first turn
+after 300 notes changed while no turn ran, and (c) the first turn after 30 turns
+recorded on a journal clock 31 days behind. Scenarios (b) and (c) wait 65 s
+first, past the hosted app's idle observation interval. The five last harbour
+turns are the warm baseline. Medians, p95s, per-call rows, the admission
+phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 

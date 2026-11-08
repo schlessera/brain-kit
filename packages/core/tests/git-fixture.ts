@@ -71,3 +71,19 @@ export function expectBlobsIntact(root: string, blobs: { oid: string; content: s
 export function reflogs(root: string): string[] {
   return git(root, "reflog", "show", "--all", "--format=%gd %H %gs").split("\n").filter(Boolean).sort();
 }
+
+/**
+ * `env` with commit and tag signing disabled at command scope, for a fixture
+ * whose product commands commit too. The entries go after any inherited
+ * `GIT_CONFIG_COUNT` ones, so they outrank global, repository and earlier
+ * environment configuration without touching the host's settings.
+ */
+export function withoutSigning(env: Record<string, string>): Record<string, string> {
+  const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: String(count + 2),
+    [`GIT_CONFIG_KEY_${count}`]: "commit.gpgSign", [`GIT_CONFIG_VALUE_${count}`]: "false",
+    [`GIT_CONFIG_KEY_${count + 1}`]: "tag.gpgSign", [`GIT_CONFIG_VALUE_${count + 1}`]: "false",
+  };
+}

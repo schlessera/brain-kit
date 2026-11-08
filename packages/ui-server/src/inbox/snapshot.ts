@@ -1,8 +1,9 @@
 /** Complete operational backup. Content Markdown and brain.db are never opened. */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { constants, existsSync } from "node:fs";
-import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
+import { closeSync, constants, existsSync, fsyncSync } from "node:fs";
+import { link, lstat, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { brainApplicationInput } from "@schlessera/brain-ui-sdk/server";
@@ -18,6 +19,9 @@ import { createInboxStore } from "./store.js";
 import { failInboxWork, inboxIdentity } from "./actions.js";
 import { settleInboxBudgetRun } from "./budget.js";
 import { assertInboxRecoveryReady } from "./recovery-gate.js";
+import {
+  at as within, makeDirectory, openEntry, openStagingRoot, StagingTopologyError, verifyEntry, type StagingDirectory, type StagingRoot,
+} from "../share/staging-fs.js";
 
 const hash = (bytes: string | Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -341,11 +345,85 @@ export async function writeInboxSnapshot(db: Database, brainRoot: string, path: 
   const journals = [...new Set(sources.flatMap(source => [`${source}.journal.db`, journalDatabasePath(source)]))];
   const physicalJournals = await Promise.all(journals.map(path => realpath(path).catch(() => path)));
   if ([...sources, ...journals, ...physicalJournals].flatMap(source => [source, `${source}-wal`, `${source}-shm`, `${source}-journal`]).includes(target) ||
-      target === staging || target.startsWith(staging + sep))
+      isWithin(staging, target, { separator: sep }))
     throw new Error("inbox_snapshot_destination");
   const snapshot = await exportInboxSnapshot(db, brainRoot);
   await publish(target, Buffer.from(JSON.stringify(snapshot) + "\n"), true);
   return snapshot;
+}
+/** The staging helper's link refusal keeps the restore's existing refusal code. */
+async function refuseLinks<T>(action: () => T | Promise<T>): Promise<T> {
+  try { return await action(); }
+  catch (error) { if (error instanceof StagingTopologyError) throw new Error("inbox_staging_symlink"); throw error; }
+}
+/** No-clobber publication inside an open arrival directory, never through a link (#3476). */
+async function publishStaged(dir: StagingDirectory, name: string, bytes: Uint8Array): Promise<void> {
+  const temporary = within(dir, `.${name}.${randomUUID()}.partial`);
+  const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try {
+    await file.writeFile(bytes); await file.sync(); await file.close();
+    await link(temporary, within(dir, name));
+    fsyncSync(dir.fd);
+  } finally { await file.close(); await rm(temporary, { force: true }); }
+}
+/** The staged tree as `collect` reports it, read only through the open descriptors. */
+async function collectStaged(staging: StagingRoot, arrivals: Map<string, StagingDirectory>): Promise<Pick<InboxBackup, "directories" | "files">> {
+  const directories = (await readdir(within(staging.dir, "."))).sort(), files: InboxBackup["files"] = [];
+  for (const directory of directories) {
+    const dir = arrivals.get(directory);
+    if (!dir) throw new Error("inbox_restore_staging_changed");
+    for (const name of (await readdir(within(dir, "."))).sort()) files.push({ ...encode(await readRegular(within(dir, name))), path: `${directory}/${name}` });
+  }
+  return { directories, files };
+}
+/**
+ * Recreate the snapshot's staged arrivals. Every mutation goes through
+ * directory descriptors opened without following links from the brain's
+ * canonical root (`openStagingRoot`, `packages/ui-server/src/share/staging-fs.ts`),
+ * so a link swapped in for `.brain-ui/inbox` or an arrival at any point
+ * cannot redirect a write or a removal. The visible chain is re-verified
+ * before each change and at the end, so such a swap refuses the restore.
+ */
+async function restoreStaging(snapshot: InboxBackup, brainRoot: string): Promise<void> {
+  const staging = (await refuseLinks(() => openStagingRoot(brainRoot, true, 0o700)))!;
+  const arrivals = new Map<string, StagingDirectory>();
+  const partial = new RegExp(`^${ID}\\.partial$`);
+  const verify = () => refuseLinks(() => { staging.verify(); for (const [name, dir] of arrivals) verifyEntry(staging.dir, name, dir); });
+  try {
+    for (const directory of snapshot.directories) {
+      const dir = await refuseLinks(() => {
+        try { return makeDirectory(staging.dir, directory, 0o700); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; return openEntry(staging.dir, directory); }
+      });
+      arrivals.set(directory, dir);
+      // Only this pending restore could have produced these private temp files
+      // in an initially empty staging root. Reap a crash mid-publication before
+      // retrying its no-clobber write; preserve every other arriving file.
+      const prefixes = snapshot.files.filter(file => isWithin(directory, file.path, { includeRoot: false })).map(file => `.${basename(file.path)}.`);
+      for (const name of await readdir(within(dir, "."))) {
+        if (prefixes.some(prefix => name.startsWith(prefix) && partial.test(name.slice(prefix.length)))) {
+          if (!(await lstat(within(dir, name))).isFile()) throw new Error("inbox_restore_staging_changed");
+          await rm(within(dir, name));
+        }
+      }
+      await verify();
+    }
+    for (const file of snapshot.files) {
+      const [directory, name] = file.path.split("/") as [string, string], dir = arrivals.get(directory)!, bytes = decode(file);
+      await verify();
+      try { await publishStaged(dir, name, bytes); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || hash(await readRegular(within(dir, name))) !== file.sha256) throw error;
+      }
+    }
+    if (JSON.stringify(await collectStaged(staging, arrivals)) !== JSON.stringify({ directories: snapshot.directories, files: snapshot.files }))
+      throw new Error("inbox_restore_staging_changed");
+    await verify();
+    staging.sync();
+  } finally {
+    for (const dir of arrivals.values()) closeSync(dir.fd);
+    staging.close();
+  }
 }
 export async function restoreInboxSnapshot(input: unknown, dbPath: string, brainRoot: string, at = Date.now()): Promise<{ recovered: number; resumed: boolean }> {
   const checked = validateSnapshot(input), { snapshot } = checked;
@@ -381,35 +459,7 @@ export async function restoreInboxSnapshot(input: unknown, dbPath: string, brain
       db.close(); db = new Database(target, { readwrite: true });
     }
     db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000");
-    await mkdir(root, { recursive: true, mode: 0o700 });
-    for (const directory of snapshot.directories) {
-      const path = join(root, directory);
-      await mkdir(path, { mode: 0o700 }).catch(error => { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; });
-      if (!(await lstat(path)).isDirectory() || await realpath(path) !== path) throw new Error("inbox_staging_symlink");
-      // Only this pending restore could have produced these private temp files
-      // in an initially empty staging root. Reap a crash mid-publication before
-      // retrying its no-clobber write; preserve every other arriving file.
-      for (const file of snapshot.files.filter(file => file.path.startsWith(directory + "/"))) {
-        const prefix = `.${basename(file.path)}.`;
-        for (const name of await readdir(path)) {
-          if (name.startsWith(prefix) && new RegExp(`^${ID}\\.partial$`).test(name.slice(prefix.length))) {
-            if (!(await lstat(join(path, name))).isFile()) throw new Error("inbox_restore_staging_changed");
-            await rm(join(path, name));
-          }
-        }
-      }
-    }
-    for (const file of snapshot.files) {
-      const path = join(root, file.path), bytes = decode(file);
-      try { await publish(path, bytes, false); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST" || hash(await readRegular(path)) !== file.sha256) throw error;
-      }
-    }
-    if (JSON.stringify(await collect(root)) !== JSON.stringify({ directories: snapshot.directories, files: snapshot.files }))
-      throw new Error("inbox_restore_staging_changed");
-    if (await stagingRoot(brainRoot) !== root) throw new Error("inbox_staging_symlink");
-    await syncDirectory(root); await syncDirectory(dirname(root));
+    await restoreStaging(snapshot, brainRoot);
     const recovered = db.transaction(() => {
       const rows = db.query("SELECT run_id, id FROM inbox_budget_reservations WHERE status = 'active' ORDER BY id").all() as { run_id: string | null; id: string }[];
       for (const row of rows) {

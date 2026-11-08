@@ -17,6 +17,7 @@ import { createKeyedLock, type ServerMessage, type BrainApplicationResult } from
 
 const [scenario, root] = process.argv.slice(2) as [string, string];
 const cachedPackageState = scenario.startsWith("cached-package-");
+const extensionOnly = scenario.startsWith("forge-") || scenario === "external-extension";
 const defaultHomeState = scenario === "default-home-state" || cachedPackageState;
 const brainPath = join(root, "brain"), agentDir = defaultHomeState ? "/root/.pi/agent" : join(root, "agent"), sessionDir = join(root, "sessions");
 cpSync(resolve("packages/core/fixtures/corpus"), brainPath, { recursive: true });
@@ -102,7 +103,39 @@ export default async function(pi) {
     return {content:[{type:"text",text:"late"}],details:null};
   }});
 }`;
-writeFileSync(join(extensionDir, "proof.ts"), extensionSource);
+// Only unsupported-configuration controls load external Pi factories. All
+// ordinary behavior below is driven by the installed curated tool inventory.
+if (extensionOnly) writeFileSync(join(extensionDir, "proof.ts"), extensionSource);
+const inspectionPath = join(brainPath, "worker-inspection.ts");
+writeFileSync(inspectionPath, `import {writeFileSync,readFileSync,readdirSync,readlinkSync,statSync} from "node:fs";
+import {getAgentDir} from ${JSON.stringify(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi")))};
+import {AuthStorage} from ${JSON.stringify(join(dirname(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi"))), "core/auth-storage.js"))};
+const paths=${JSON.stringify(paths)},scratch="/tmp/brain-worker-scratch",attempted=[];
+for(const path of paths) {try {writeFileSync(path,"shell changed policy");attempted.push("wrote");} catch {attempted.push("denied");}}
+try {writeFileSync(${JSON.stringify(join(brainPath, "context/policies/new.md"))},"shell entry");} catch {}
+writeFileSync(scratch+"/shell-positive","Odysseus: curated bash ran in scratch.");
+writeFileSync(scratch+"/indirect.sh","echo indirect > "+JSON.stringify(paths[0]));
+// Inspect the actual Pi parent in this PID namespace, retaining the
+// bootstrap-descriptor assertion rather than confusing shell stdin with RPC.
+const workers=readdirSync("/proc").filter(name=>/^[0-9]+$/.test(name)).filter(pid=>{
+ try{const argv=readFileSync("/proc/"+pid+"/cmdline","utf8").split("\\0");return argv[0]===process.execPath&&argv.includes(${JSON.stringify(resolve("packages/ui-backend-pi/src/worker-entry.ts"))});}catch{return false;}
+});
+if(workers.length!==1)throw new Error("Expected exactly one actual Pi worker in the PID namespace");
+const workerPid=Number(workers[0]),descriptors=[];
+for(const name of readdirSync("/proc/"+workerPid+"/fd")) {try {const path="/proc/"+workerPid+"/fd/"+name;
+ descriptors.push({fd:Number(name),target:readlinkSync(path),pipe:statSync(path).isFIFO()});}catch{}}
+let state;
+if (${defaultHomeState}) {
+ let stateInitError,parentPrivateHidden=false,homeWriteDenied=false,copiedAuth=false;
+ try {await AuthStorage.create().modify("anthropic",()=>undefined);}catch(error){stateInitError=error.code??String(error);}
+ try {readFileSync("/root/parent-private");}catch{parentPrivateHidden=true;}
+ try {writeFileSync("/root/worker-home-write","forbidden");}catch{homeWriteDenied=true;}
+ const agentDir=getAgentDir();
+ try {copiedAuth=JSON.parse(readFileSync(agentDir+"/auth.json","utf8")).anthropic.key==="offline-parent-key";}catch{}
+ state={stateInitError,parentPrivateHidden,homeWriteDenied,copiedAuth,agentDir};
+}
+console.log(JSON.stringify({attempted,scratch:readFileSync(scratch+"/shell-positive","utf8"),descriptors,pid:process.pid,workerPid,state}));`);
+const inspect = {name:"bash",input:{command:`${process.execPath} '${inspectionPath}'`}};
 if (defaultHomeState) {
   process.env.HOME = "/root";
   delete process.env.PI_CODING_AGENT_DIR;
@@ -150,15 +183,17 @@ function descendants(pid: number): void {
 let toolCalls: Array<{ name: string; input: unknown }> = [];
 let followUp: Array<{ name: string; input: unknown }> = [];
 if (scenario === "attacks") {
-  toolCalls = [{ name: "probe_worker", input: {} }];
+  // Pi 0.99.2 can execute a tool batch in parallel. Finish inspection and
+  // scratch-script preparation before issuing the dependent shell attacks.
+  toolCalls = [inspect];
   for (const path of ["context/policies/rule.md", "notes/../context/policies/rule.md", "notes/policy-symlink.md", "notes/policy-hardlink.md"]) {
-    toolCalls.push({ name: "write_file", input: { path, content: "tool changed policy", expectedBaseHash: contentHash(policy) } },
+    followUp.push({ name: "write_file", input: { path, content: "tool changed policy", expectedBaseHash: contentHash(policy) } },
       { name: "edit_file", input: { path, old_string: "Athena", new_string: "Poseidon", expectedBaseHash: contentHash(policy) } });
   }
-  toolCalls.push({ name: "bash", input: { command: paths.map(path => `echo shell > '${path}'`).join("; ") +
+  followUp.push({ name: "bash", input: { command: paths.map(path => `echo shell > '${path}'`).join("; ") +
     "; bash /tmp/brain-worker-scratch/indirect.sh; bash -c 'bash /tmp/brain-worker-scratch/indirect.sh'; " +
     `${process.execPath} '${resolve("packages/core/src/cli/brain.ts")}' add 'Odysseus needs a stronger mast' --json` } });
-  toolCalls.push({ name: "write_file", input: { path: "notes/worker-positive.md", content: "---\ntype: note\ntitle: Worker positive\n---\nOdysseus sails to Ithaca.\n", expectedBaseHash: null } });
+  followUp.push({ name: "write_file", input: { path: "notes/worker-positive.md", content: "---\ntype: note\ntitle: Worker positive\n---\nOdysseus sails to Ithaca.\n", expectedBaseHash: null } });
 } else if (scenario === "read-base-page" || scenario.startsWith("forge-readbase-")) {
   writeFileSync(join(brainPath, "notes/voyage-log.md"), "---\ntype: note\n---\nDay 1: Odysseus leaves Troy.\nDay 2: Athena counsels patience.\n");
   writeFileSync(join(brainPath, "notes/hidden-route.md"), "---\ntype: note\n---\nCalypso keeps the hidden route.\n");
@@ -180,9 +215,9 @@ else if (scenario === "mask-policy") toolCalls = ["context/policies/rule.md", "n
 else if (scenario.startsWith("mask-")) toolCalls = [{ name: "request_image_mask", input: { imagePath: "notes/raft.png", instruction: "Mask the sail" } }];
 else if (scenario === "cancel-application") toolCalls = [{ name: "write_file", input: {
   path: "notes/worker-positive.md", content: "---\ntype: note\n---\nOdysseus committed the raft note.\n", expectedBaseHash: null } }];
-else if (scenario === "cancel") toolCalls = [{ name: "linger_worker", input: {} }];
+else if (scenario === "cancel") toolCalls = [{ name: "bash", input: {command: "sleep 60 & wait; echo late"} }];
 else if (cachedPackageState) toolCalls = [{ name: "probe_cached_extension", input: {} }];
-else toolCalls = [{ name: "probe_worker", input: {} }];
+else toolCalls = [inspect];
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   calls++;
   const body = await request.json() as { tools?: Array<{ name: string }> };
@@ -201,8 +236,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   return new Response(events.map(event => `event: ${(event as any).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 } });
 writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: server.url.origin, apiKey: "offline-fixture" } } }));
-const parentState = defaultHomeState ? ["auth.json", "models.json", "settings.json"].map(name => readFileSync(join(agentDir, name), "utf8")) : undefined;
-const backend = createPiBackend({ brainPath, sessionDir,
+const parentFiles = ["auth.json", "models.json", "settings.json", "npm/node_modules/odysseus-worker-extension/package.json",
+  "npm/node_modules/odysseus-worker-extension/index.js", "npm/node_modules/odysseus-worker-extension/worker-write"];
+const parentBytes = () => parentFiles.map(name => existsSync(join(agentDir, name)) ? readFileSync(join(agentDir, name), "utf8") : null);
+const parentState = parentBytes();
+const backend = createPiBackend({ brainPath, sessionDir, loadExtensions: extensionOnly || cachedPackageState,
   ...(scenario === "forge-bridge" ? { allowedTools: ["forge_worker"] } : {}),
   profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], confirmBashPatterns: [] });
 const db = createUiDb(":memory:");
@@ -215,7 +253,7 @@ const apply = createBrainApplication({ planner: nativeHost.applicationPlanner, r
   } });
 const bridge = { emit(frame: ServerMessage) {
   frames.push(frame);
-  if (scenario === "cancel" && frame.type === "tool_use_start" && frame.toolName === "linger_worker") {
+  if (scenario === "cancel" && frame.type === "tool_use_start" && frame.toolName === "bash") {
     setTimeout(() => { for (const pid of [...hostPids]) descendants(pid); controller.abort(); }, 200);
   }
   if (scenario === "forge-revoked" && frame.type === "tool_use_start") { authorized = false; controller.abort(); }
@@ -241,12 +279,12 @@ host.clients.add({ send(text) {
   if (scenario === "mask-stale") writeFileSync(join(brainPath, "notes/raft.png"), "concurrently changed image");
   pending.resolve(png);
 } }, "odysseus");
-const maskBridge = await makeBridge(host, maskTurn, "Odysseus worker proof", "pi", {
+const maskBridge = await makeBridge(host, maskTurn, { promptText: "Odysseus worker proof", backendId: "pi", recorder: {
   recordApplication(result: BrainApplicationResult) {
     applicationReceipts.push(result);
     if (scenario === "mask-cancel-commit" && result.ok) controller.abort();
   },
-} as TurnRecorder, undefined, undefined, undefined, backend.brainApplicationPolicy!({})!);
+} as TurnRecorder, applicationPolicy: backend.brainApplicationPolicy!({})! });
 const activeBridge = scenario.startsWith("mask-") ? { ...bridge, requestMask: maskBridge.requestMask,
   ...(scenario !== "mask-no-route" ? { applyImageMask: maskBridge.applyImageMask } : {}) } : bridge;
 if (scenario === "failed-host") workerHostBoundary.probe = () => ({ ok: false, requirement: "fixture missing namespaces" });
@@ -266,7 +304,7 @@ try {
       ...(stateSandbox ? { workerSandbox: stateSandbox } : {}) });
   }
   console.log(JSON.stringify({ frames, calls, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
-    parentStateUnchanged: parentState?.every((bytes, index) => bytes === readFileSync(join(agentDir, ["auth.json", "models.json", "settings.json"][index]!), "utf8")),
+    parentStateUnchanged: JSON.stringify(parentState) === JSON.stringify(parentBytes()),
     parentHomeWriteExists: defaultHomeState ? existsSync("/root/worker-home-write") : undefined,
     resumedHistory: sessions[0] ? await backend.getHistory(sessions[0].id) : [],
     policyBytes: readFileSync(policyPath, "utf8"), policyMembers: readdirSync(join(brainPath, "context/policies")),

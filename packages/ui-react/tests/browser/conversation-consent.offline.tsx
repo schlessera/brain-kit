@@ -23,7 +23,7 @@ async function scene(ctx: TestContext, width = 390, shell = false, theme: "light
     const viewport = { width: innerWidth, height: innerHeight };
     const outer = await commands.formViewport(width, 568);
     await page.viewport(width, 568);
-    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width, outer.height); });
+    ctx.onTestFinished(async () => { await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   }
   const network = installFaultNetwork({ routes: (url) => url.pathname.endsWith("/sessions") ? Response.json({ sessions: [] }) : undefined,
     onOpen(socket) { socket.deliver({ type: "server_hello", conversationProfile: {providerId:PROFILE.providerId,capabilities:PROFILE.capabilities,disclosure:PROFILE.disclosure}, protocolRev: 5, principalKey: "odysseus-principal", capabilities: { askReceipts: true, liveConversation: true, conversationPause: true, toolResolution: true, chatRequestAck: true } }); socket.deliver({ type: "session_info", sessionId: SESSION, isNew: false }); socket.deliver({ type: "session_history", sessionId: SESSION, messages: [] }); socket.deliver({ type: "status", sessionId: SESSION, status: "idle" }); } });
@@ -104,9 +104,13 @@ test("review: provider closure during pending opening settles without late captu
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed" });
   s.client.mute();
   s.opened(2);
-  await new Promise(resolve => setTimeout(resolve, 100));
-  expect(s.client.state.getState().micOn).toBe(false);
+  // Frames are handled as they are delivered, and a capture opens the
+  // microphone synchronously, so once epoch 2 is applied any capture its
+  // opening or readiness allowed has already called getUserMedia. Without a
+  // new capture session the microphone cannot turn on later.
+  await expect.poll(() => s.client.state.getState().profile?.epoch).toBe(2);
   expect(mic.opens()).toBe(1);
+  expect(s.client.state.getState().micOn).toBe(false);
 });
 
 test("review: hiding during replacement opening cannot delete the retained conversation", async ctx => {

@@ -56,7 +56,6 @@ function setup() {
   });
   cleanup = () => {
     for (const finish of finishers) finish();
-    host.coordinator.reset();
     host.close();
     db.close();
   };
@@ -263,9 +262,10 @@ describe("session_queue", () => {
     const s = setup();
     const entry = { followUpId: "fu-1", requestId: "req-winds", text: "Ask Aeolus", attachments: [], queuedAt: 1 } as never;
     const queued = { followUpId: "fu-2", requestId: "req-bag", text: "Keep the bag shut", attachments: [], queuedAt: 2 } as never;
-    s.host.coordinator.bySession.set(SESSION, { handingOver: entry, queue: [queued] } as never);
+    const slot = { sessionId: SESSION, handingOver: entry, queue: [queued] } as never;
+    s.host.coordinator.bindSession(SESSION, slot);
     expect(s.host.followUpQueueFrame(SESSION).followUps.map((f) => f.requestId)).toEqual(["req-winds", "req-bag"]);
     expect(s.host.coordinator.sessionsWithFollowUps()).toEqual([SESSION]);
-    s.host.coordinator.bySession.delete(SESSION);
+    s.host.coordinator.unregisterTurn(slot);
   });
 });

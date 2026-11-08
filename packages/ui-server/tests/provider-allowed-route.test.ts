@@ -1,8 +1,8 @@
 /**
  * A proven allowed recipient's turn sees its provider folders (#2695). Only
  * the exact origin of the turn's host inference relay names the recipient,
- * on managed storage; a denied, unknown or unproven recipient keeps the
- * masks. A conversation that showed folders to one recipient refuses a later
+ * which runs only on managed storage; a denied, unknown or unproven recipient
+ * keeps the masks, and a turn off managed storage is refused (#3314). A conversation that showed folders to one recipient refuses a later
  * turn, or a handoff's first turn, whose recipient may not see them. Real
  * bubblewrap workers from production admission; the private index is built
  * by the real CLI inside a masked worker.
@@ -14,6 +14,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, write
 import { join, resolve } from "node:path";
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view";
+// Captured before the fixture helper's hooks stand in for it.
+const realRefusal = startup.assertManagedTurnStartupView;
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns, type GovernedTurnRoute } from "../src/brain/governed-turn";
@@ -114,13 +116,15 @@ test("a turn whose proven recipient a provider rule allows sees the folder, its 
     } finally { await denied.end(); }
   }
 
-  // The relay that would prove the origin runs only on managed native storage.
+  // The relay that proves the origin runs only on managed native storage, so a
+  // turn whose view is not there is refused at admission and reads nothing (#3314).
   f.managed.mockReturnValue(false);
-  const unmanaged = await f.begin("unmanaged", { inferenceOrigin: ANTHROPIC });
+  const refusal = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(realRefusal);
   try {
-    expect(unmanaged.sandbox.inferenceRecipient, "UNMANAGED_STORAGE_PROVES_NO_RECIPIENT").toBeUndefined();
-    expect(reads(f.brain, unmanaged.sandbox, "me", "identity.md", SENTINEL), "UNMANAGED_STORAGE_CANNOT_READ").toBe(HIDDEN);
-  } finally { await unmanaged.end(); }
+    let refused: unknown;
+    try { await (await f.begin("unmanaged", { inferenceOrigin: ANTHROPIC })).end(); } catch (error) { refused = error; }
+    expect((refused as Error | undefined)?.message, "UNMANAGED_STORAGE_REFUSED_BEFORE_ANY_RECIPIENT").toBe(startup.UNMANAGED_TURN_STORAGE);
+  } finally { refusal.mockRestore(); f.managed.mockReturnValue(true); }
 });
 
 test("an operator-named gateway origin is the recipient it names", async () => {
@@ -175,9 +179,12 @@ test("a conversation that showed a folder to one recipient refuses a later turn,
     expect(error!.message, `LATER_TURN_NAMES_THE_FOLDER ${label}`).toContain("showed `me/` to anthropic, and");
     expect(error!.message).toContain(named);
   }
+  // A later turn whose view is not on managed native storage never reaches a recipient: admission refuses it (#3314).
   f.managed.mockReturnValue(false);
-  expect((await refusal("unmanaged", { inferenceOrigin: ANTHROPIC, sessionId: "voyage" }))?.name, "UNPROVEN_LATER_TURN_REFUSED").toBe("ProviderRecipientRefusedError");
-  f.managed.mockReturnValue(true);
+  const unmanaged = spyOn(startup, "assertManagedTurnStartupView").mockImplementation(realRefusal);
+  try {
+    expect((await refusal("unmanaged", { inferenceOrigin: ANTHROPIC, sessionId: "voyage" }))?.message, "UNMANAGED_LATER_TURN_REFUSED").toBe(startup.UNMANAGED_TURN_STORAGE);
+  } finally { unmanaged.mockRestore(); f.managed.mockReturnValue(true); }
 
   // A handoff's destination carries its source's exposure into its own history.
   await (await f.begin("handoff", { inferenceOrigin: ANTHROPIC, inherit: ["voyage"] })).end();

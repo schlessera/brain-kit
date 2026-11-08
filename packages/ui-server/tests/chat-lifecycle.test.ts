@@ -2,7 +2,7 @@
  * Chat identity retirement (#3228) on an actual file-backed SQLite write
  * worker. Synthetic Odysseus fixtures only: no provider, backend or network.
  */
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +19,28 @@ import * as controls from "./helpers/dialogue-test-writes.js";
 const MARKER = "Odysseus hid the oar under the olive root";
 const CONTROL = "Penelope kept the loom unfinished";
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+const restores: (() => void)[] = [];
+afterEach(() => {
+  for (const restore of restores.splice(0)) restore();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+/**
+ * Resolves once a write procedure has been posted to the real write worker,
+ * where it queues behind any hold: the step after it is ordered behind it.
+ */
+function posted(name: string): Promise<void> {
+  const descriptor = Object.getOwnPropertyDescriptor(Worker.prototype, "postMessage")!, send = Worker.prototype.postMessage;
+  let seen!: () => void;
+  const sent = new Promise<void>(resolve => { seen = resolve; });
+  const spy = spyOn(Worker.prototype, "postMessage").mockImplementation(function (this: Worker, ...args: [message: unknown, options?: StructuredSerializeOptions | Transferable[]]) {
+    const message = args[0] as { kind?: string; name?: string };
+    if (message.kind === "call" && message.name === name) seen();
+    return Reflect.apply(send, this, args);
+  });
+  restores.push(() => { spy.mockRestore(); Object.defineProperty(Worker.prototype, "postMessage", descriptor); });
+  return sent;
+}
 
 function voice(conversationId: string, sequence: number, text: string): Extract<DialogueEvidence, { kind: "voice" }> {
   return { kind: "voice", conversationId, epoch: 1, providerId: "gemini-live", event: {
@@ -118,8 +139,10 @@ test("revocation while admission waits on the writer refuses at commit", async (
   const f = await fixture();
   try {
     await f.host.hold();
+    const submitted = posted("retireChat");
     const pending = f.host.catalog.retireChat!(request(f.owner), idle);
-    await Bun.sleep(20);
+    // Admission passed the preflight and the retirement waits on the held writer.
+    await submitted;
     // Another connection, as a revocation request on another worker would be:
     // the held app writer cannot take its turn until the release.
     const other = new Database(f.path); other.exec("PRAGMA busy_timeout = 5000");
@@ -138,8 +161,9 @@ test("retirement fences every identity, refuses late writes and keeps unrelated 
     const cost = db.query("SELECT id,total_cost_usd,num_turns FROM sessions ORDER BY id").all();
     // Late callbacks already in flight when the retirement is submitted.
     await f.host.hold();
+    const submitted = posted("retireChat");
     const retired = catalog.retireChat!(request(f.owner), idle);
-    await Bun.sleep(20);
+    await submitted;
     const late = [
       catalog.dialogueAppend!({ ownerId: owner.id, principalId: f.owner, generation: owner.generation, identity: "voice:ithaca:1", evidence: voice("ithaca", 1, MARKER) }),
       catalog.saveConversationTask!(f.owner, { ...task("ithaca", 1, "voyage"), delivery: "unknown" }, "replaced facts"),
@@ -239,8 +263,9 @@ for (const order of ["adoption-first", "retirement-first"] as const) test(`racin
       bound = settle(catalog.dialogueBind!("ogygia", f.owner, "voyage"));
       retired = catalog.retireChat!(request(f.owner), idle);
     } else {
+      const submitted = posted("retireChat");
       retired = catalog.retireChat!(request(f.owner), idle);
-      await Bun.sleep(20);
+      await submitted;
       bound = settle(catalog.dialogueBind!("ogygia", f.owner, "voyage"));
     }
     f.host.release();

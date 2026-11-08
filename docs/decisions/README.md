@@ -11,6 +11,7 @@ somebody already learn the hard way?*
 
 | Record | What it decides |
 | --- | --- |
+| [apify-actor-approval.md](apify-actor-approval.md) | Actor-scoped approve once/always/deny, credential-extraction scanning, shared Apify/turn spending and module availability; supersedes qualified-build admission. |
 | [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
 | [ci-utility.md](ci-utility.md) | Complete affected hosted proof, cheap local feedback and concurrent ready-PR scheduling without removing tests or blocking unrelated merges. |
 | [isolated-ci-build.md](isolated-ci-build.md) | Dormant fixed CI build operation, explicit activation deferral and conservative ordinary-build fallback. |
@@ -43,17 +44,20 @@ somebody already learn the hard way?*
 | [managed-worktrees.md](managed-worktrees.md) | Why managed reference worktrees snapshot authorized source, reach a worker only through a covered generation of the same principal, renew only on explicit activity, survive expiry while their worker lives and record cleanup facts without deleting anything. |
 | [reference-worktrees.md](reference-worktrees.md) | Why read-only shared source and centrally managed governed worktrees use separate authority/freshness clocks, an actual-allocation Btrfs budget and preservation-aware cleanup. |
 | [governed-writable-workers.md](governed-writable-workers.md) | Why interactive and voice turns write the brain directly again inside the worker: the four guardrail classes, in-brain policy read-only to agents, protected paths with self-bound ancestors, the per-turn journal with revert, budgets, scope caps, egress, the three write areas and roadblock tracking. Supersedes parts of policy-write-boundary.md. |
+| [session-safety-reviews.md](session-safety-reviews.md) | The prospective G6 supersession: finalized individual owner verdicts, complete detector coverage, separate future source/recipient trust, bounded evidence, live revision checks and protected publication. |
 | [action-notifications.md](action-notifications.md) | Why Action notices use fixed cross-thread batches, client-local quiet/digest schedules, new waiting episodes and durable per-destination submission/coverage history. |
 | [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
 | [agent-observability.md](agent-observability.md) | Runs, spans, the Activity surface, the failure inbox and the digest. |
 | [sqlite-write-worker.md](sqlite-write-worker.md) | Why journal, Activity and native-lease commits run at `synchronous=FULL` on a per-database write worker thread, in submission order, while the event loop awaits them. |
 | [cost-tracking.md](cost-tracking.md) | List price versus effective cost, and why unknown cost is never rendered as zero. |
 | [apify-capability.md](apify-capability.md) | Explicit Apify activation and discovery consent, pinned upstream evidence, and the selected bounded execution contract. |
+| [external-compute.md](external-compute.md) | Why external compute is a public `ComputeProvider` seam with explicit provider instances, host-owned job lifecycle, finite leases, unknown-cost admission and Boat as a separate first package. |
 | [design-feedback.md](design-feedback.md) | The design defects building the kit found, the measurement behind each, and the ruling that settled it. Cited by section number from `packages/ui-kit` source. |
 | [geo-operations.md](geo-operations.md) | Why one independent concrete geo library owns shared operations, with strict travel compatibility and explicit recovered-track evidence. |
 | [map-geometry.md](map-geometry.md) | Why `MapView` draws committed OpenStreetMap geometry rather than fetching tiles, and how the `map` block draws places the model names on the same geometry. |
 | [voice-permission.md](voice-permission.md) | What a tool approval is in a spoken conversation: the voice tool posture, why voice may refuse but never grant, and what that shares with the restricted execution profile. |
-| [chat-history-deletion.md](chat-history-deletion.md) | Authenticated own-chat local deletion, permanent minimized replay fences, retained independent records and accepted backup limits; policy approved before runtime implementation. |
+| [chat-attachments.md](chat-attachments.md) | Generic composer attachments: one source-to-processing pipeline, filesystem originals owned by acknowledged drafts and conversations, the 10/25 MB/50 MB envelope inside a 1 GiB pool, one-hour and seven-day cleanup, and a shared local reader delivering PDF/text contents on demand; policy approved before implementation. |
+| [chat-history-deletion.md](chat-history-deletion.md) | Authenticated own-chat local deletion, permanent minimized replay fences, retained independent records and accepted backup limits; policy approved before runtime implementation. Typed chats record a content-free creation owner, distinct from the dialogue owner, with no legacy backfill (#3337). |
 | [live-conversation.md](live-conversation.md) | Why Gemini Live and OpenAI GPT-Live share one host-owned conversation interface; the October 29 continuous-capture and bounded audible-recovery direction supersedes routine Resume requirements without certifying runtime readiness. |
 | [dictation-speech.md](dictation-speech.md) | Why external dictation providers reach the real server by value, how explicit selection and matching client registration work, what conformance freezes at 1.0, and why saved audio uses explicit server-side transcription with permanent classified receipts. |
 | [public-export-boundary.md](public-export-boundary.md) | Why public exports were reduced before 1.0 instead of frozen, what ordinary and `/internal` entry points promise, how signature-reachable types are checked, and the migration for every removed or moved import. |
@@ -183,7 +187,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:289-330`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it
@@ -210,10 +214,18 @@ Before merging a change to a file, look for what cites it:
 git grep -n 'permission-hooks.ts:' -- docs packages
 ```
 
-`tests/decision-citations.test.ts` fails when a citation anywhere under `docs/` no
-longer starts on its anchor, names no anchor, or names a file it cannot find.
-`bun scripts/check-citations.ts` prints the same report on its own, including
-where each drifted anchor now is. What it does **not** check:
+**Citations are checked at release, not at merge** (maintainer ruling,
+2026-11-03). Any PR that moves lines in a cited file drifts other PRs'
+citations, so failing every merge on drift turned main red for documentation
+alone. `experiments/decision-citations.test.ts` fails when a citation anywhere
+under `docs/` no longer starts on its anchor, names no anchor, or names a file
+it cannot find. It runs in the experiment tier, which `bun run release`
+requires on the exact tree it publishes, so no release ships a drifted record.
+`tests/decision-citations.test.ts` still runs on every merge, but only for the
+checker's own rules and the one tree-wide rule that cannot drift: no citation
+into a private repository. `bun scripts/check-citations.ts` prints the full
+report on its own, including where each drifted anchor now is; run it before
+versioning and fix what it reports. What it does **not** check:
 
 - **The end of a range.** A range that grows or shrinks around its first line
   still passes.

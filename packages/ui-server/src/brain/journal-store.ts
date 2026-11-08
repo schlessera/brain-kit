@@ -10,6 +10,7 @@ import type { JournalObservationReference, JournalVersion } from "@schlessera/br
 
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
 import { recordGovernanceEvent } from "../governance/events.js";
+import { sessionTaint } from "../governance/session-taint.js";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { configurationSet, recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { createJournalObjects, JournalCapacityError, type JournalObjectReservation } from "./journal-objects.js";
@@ -131,8 +132,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
   const purgeState = () => (db.query("SELECT index_purge FROM turn_journal_allocation WHERE id=1").get() as { index_purge: number }).index_purge;
   const turnContext = (turnId: string) => {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow;
-    const taint = db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1")
-      .get(turnId, row.session_id, row.session_id) as { id: number } | null;
+    const taint = sessionTaint(db, turnId, row.session_id);
     return { row, taint };
   };
   return {
@@ -248,13 +248,14 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
           const approvedPolicy = record.userPolicy && item.path === "context/policies/governance.md";
           const classification = approvedPolicy ? "policy" : steering.has(item.path) ? "steering" : "content";
           const actor = approvedPolicy || metadata.kind === "revert" ? "user" : "agent";
-          const source = classification === "steering" && actor === "agent" && taint ? taint.id : null;
+          const restricted = classification === "steering" && actor === "agent" && taint !== null;
+          const source = restricted && taint!.eventId > 0 ? taint!.eventId : null;
           const overlappingTurnIds = record.overlaps.filter(id => id !== turnId);
-          db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
-            .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, classification, actor, JSON.stringify(overlappingTurnIds), source);
+          db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id,effective_taint) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+            .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, classification, actor, JSON.stringify(overlappingTurnIds), source, restricted ? 1 : 0);
           if (classification === "steering") recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId,
             actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at, dedupeKey: `${turnId}:${sequence}`,
-            payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds } });
+            payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds, ...(restricted ? { tainted: true } : {}) } });
           pin(turnId, item.before); pin(turnId, item.after);
           const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
           const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
@@ -304,12 +305,13 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
         const { row: metadata, taint: found } = turnContext(turnId);
         const actor = metadata.actor === "user" ? "user" : "agent";
         const taint = actor === "agent" ? found : null;
-        db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,'steering',?,'[]',?)")
-          .run(turnId, sequence, path, "claude_memory", before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, actor, taint?.id ?? null);
+        const source = taint && taint.eventId > 0 ? taint.eventId : null;
+        db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id,effective_taint) VALUES (?,?,?,?,?,?,'steering',?,'[]',?,?)")
+          .run(turnId, sequence, path, "claude_memory", before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, actor, source, taint ? 1 : 0);
         db.query("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)").run(turnId, path, target.directory, target.device, target.inode, target.note, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, "saved");
         pin(turnId, before); pin(turnId, after);
         recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId, actor: metadata.actor, model: metadata.model, profile: metadata.profile, at, dedupeKey: `${turnId}:${sequence}`,
-          payload: { path, sequence, beforeHash: before?.hash ?? null, afterHash: after?.hash ?? null, taintSourceEventId: taint?.id ?? null, overlappingTurnIds: [] } });
+          payload: { path, sequence, beforeHash: before?.hash ?? null, afterHash: after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds: [], ...(taint ? { tainted: true } : {}) } });
       });
     },
     /** False when the turn has no record to mark. */

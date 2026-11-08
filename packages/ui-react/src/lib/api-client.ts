@@ -1,9 +1,9 @@
-import type { AgentPolicyRead } from "@schlessera/brain-ui-sdk/protocol";
+import type { AgentPolicyRead, ApifyPolicyChange, ApifyPolicyProposalRead, ApifySettingsRead } from "@schlessera/brain-ui-sdk/protocol";
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
-import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygieneWorktreeDetailsRead, InboxActionItem, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygienePreviewResponse, HygieneWorktreeDetailsRead, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -351,7 +351,17 @@ export function createBrainApi(
     turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnRevertReceipt>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/revert/${encodeURIComponent(operationId)}`, { signal }),
     hygieneReview: () => fetchJson<HygieneReviewRead>("/hygiene/review"),
     hygieneCommand: (operation: HygieneReviewCommand["operation"]) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation }) }),
-    hygienePreview: (request: HygienePreviewRequest) => fetchJson<InboxActionItem>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request) }),
+    /**
+     * Undo a confirmed media effect from its resolved card (#2782): the
+     * response carries `mediaUndo`, the Undo's own receipt.
+     */
+    hygieneMediaUndo: (journalId: string) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation: "undo-media", journalId }) }),
+    /**
+     * A preview's 200 body: the pending Action plus `requestId`, named
+     * `refusals` and, for a media option, `media` (#2782). `signal` aborts only
+     * this device's wait; the server aborts its own superseded scan.
+     */
+    hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => fetchJson<HygienePreviewResponse>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request), ...(signal ? { signal } : {}) }),
     /** The owner-only recorded facts behind a private managed-worktree card (#2734); never cached. */
     hygieneDetails: (itemId: string) => fetchJson<HygieneWorktreeDetailsRead>(`/hygiene/review/details/${encodeURIComponent(itemId)}`, { cache: "no-store" }),
 
@@ -644,6 +654,34 @@ export function createBrainApi(
         method: "DELETE",
       }),
 
+    /**
+     * Apify provider state, policy and spend (#3159, #3163): live human owners
+     * only. `refresh` re-verifies the token and settles open runs now; a
+     * session and turn add that turn's ledger scope.
+     */
+    apify: (options: { refresh?: boolean; session?: string; turn?: string; signal?: AbortSignal } = {}) => {
+      const query = new URLSearchParams();
+      if (options.refresh) query.set("refresh", "1");
+      if (options.session && options.turn) { query.set("session", options.session); query.set("turn", options.turn); }
+      return fetchJson<ApifySettingsRead>(`/apify${query.size ? `?${query}` : ""}`, { cache: "no-store", ...(options.signal ? { signal: options.signal } : {}) }).then(read => {
+        // A server without the #3163 fields (or anything else) has no Apify section to show.
+        const value = read as Partial<ApifySettingsRead> | null;
+        if (!value || typeof value.state !== "string" || !value.policy || typeof value.policy !== "object" || !Array.isArray(value.policy.grants)
+          || !value.spend || typeof value.spend !== "object" || !Array.isArray(value.spend.unresolved))
+          throw new ApiRequestError("Apify settings are not available on this server.", 404);
+        return read;
+      });
+    },
+    /** Confirm the token's changed account (#3159). */
+    apifyActorRevoke: (actor_id: string) => fetchJson<{ revoked: boolean }>("/apify/actors/revoke", { method: "POST", body: JSON.stringify({ actor_id }) }),
+    apifyConfirmAccount: (accountId: string) => fetchJson<unknown>("/apify/account", { method: "POST", body: JSON.stringify({ account_id: accountId }) }),
+    /** Propose one Apify setting through the existing policy-change review; writes nothing. */
+    apifyPolicyPropose: (change: ApifyPolicyChange, baseHash: string | null) =>
+      fetchJson<ApifyPolicyProposalRead>("/apify/policy", { method: "POST", body: JSON.stringify({ change, base_hash: baseHash }) }),
+    /** The proposing owner's one answer to that exact review. A repeat only reads the recorded outcome. */
+    apifyPolicyDecide: async (turnId: string, requestId: string, approve: boolean) =>
+      POLICY_CHANGE_REVIEW_SCHEMA.parse(await fetchJson(`/apify/policy/${encodeURIComponent(turnId)}/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify({ approve }) })),
+
     /** Web-search provider config; `configured: false` when pi is not in play. */
     webSearchConfig: () => fetchJson<WebSearchConfig>("/web-search"),
 
@@ -765,6 +803,8 @@ export function createBrainApi(
       fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[]; lifecycles?: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle[] }>(
         "/activity/runs?" +
           [
+            // This client parses compute-origin runs (#3108), as its WebSocket hello declares.
+            "activityCompute=1",
             opts?.origin && `origin=${opts.origin}`,
             opts?.job && `job=${encodeURIComponent(opts.job)}`,
             opts?.session && `session=${encodeURIComponent(opts.session)}`,
@@ -783,8 +823,8 @@ export function createBrainApi(
      */
     activityRun: (runId: string, opts?: { includePayloads?: boolean }) =>
       fetchJson<ActivityRunDetail>(
-        `/activity/runs/${encodeURIComponent(runId)}` +
-          (opts?.includePayloads ? "?include=payloads" : "")
+        `/activity/runs/${encodeURIComponent(runId)}?activityCompute=1` +
+          (opts?.includePayloads ? "&include=payloads" : "")
       ),
 
     /** The runtime half of /stats; `days` is clamped to 1-90 server-side, default 30. */

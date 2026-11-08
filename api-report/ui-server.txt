@@ -160,7 +160,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityStream (packages/ui-server/src/activity/stream.ts)
     export interface ActivityStream {
-        handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string): void;
+        handleSubscribe(ws: WSContext, msg: ClientActivitySubscribe, principalId: string, compute?: boolean): void;
         handleUnsubscribe(ws: WSContext, msg: ClientActivityUnsubscribe): void;
         dropConnection(ws: WSContext): void;
         dropFor(principalId: string): void;
@@ -190,6 +190,8 @@ signatures (every public export and the types it is made of)
         turnTempBytes: number;
         turnTempBudgetBytes: number;
     }
+  ApifyLimits (packages/common/src/governance-policy.ts)
+    export type ApifyLimits = z.output<typeof apifyLimits>;
   AppRenderer (packages/ui-server/src/routes/render.ts)
     export interface AppRenderer {
         renderPng(options: {
@@ -275,7 +277,9 @@ signatures (every public export and the types it is made of)
     }
   BrainClient (packages/ui-server/src/brain/client.ts)
     export interface BrainClient {
-        hygiene?(args: readonly string[]): Promise<unknown>;
+        hygiene?(args: readonly string[], opts?: {
+            signal?: AbortSignal;
+        }): Promise<unknown>;
         cliCommand(): string[];
         modules?(opts?: {
             signal?: AbortSignal;
@@ -651,6 +655,7 @@ signatures (every public export and the types it is made of)
                     opaque_bytes: "opaque_bytes";
                 }>;
                 bytes: z.ZodNumber;
+                connectionId: z.ZodOptional<z.ZodString>;
                 durationMs: z.ZodNumber;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
@@ -663,6 +668,7 @@ signatures (every public export and the types it is made of)
                 }>;
                 path: z.ZodOptional<z.ZodString>;
                 port: z.ZodNumber;
+                provider: z.ZodOptional<z.ZodLiteral<true>>;
                 reason: z.ZodOptional<z.ZodString>;
             }, z.core.$strict>;
             version: number;
@@ -685,6 +691,7 @@ signatures (every public export and the types it is made of)
         readonly outward_action: {
             payload: z.ZodObject<{
                 action: z.ZodEnum<{
+                    compute_run: "compute_run";
                     gh_write: "gh_write";
                     git_push: "git_push";
                     http_write: "http_write";
@@ -958,6 +965,20 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>;
             version: number;
         };
+        readonly safety_admission_expired: {
+            payload: z.ZodObject<{
+                authorityEpoch: z.ZodString;
+                evidenceRevision: z.ZodString;
+                reason: z.ZodEnum<{
+                    grant_storage_failed: "grant_storage_failed";
+                    safety_changed: "safety_changed";
+                    turn_ended: "turn_ended";
+                }>;
+                toolUseId: z.ZodString;
+                trustRevision: z.ZodString;
+            }, z.core.$strict>;
+            version: number;
+        };
         readonly scope_cap: {
             payload: z.ZodObject<{
                 cap: z.ZodEnum<{
@@ -1010,6 +1031,7 @@ signatures (every public export and the types it is made of)
                 path: z.ZodString;
                 sequence: z.ZodNumber;
                 taintSourceEventId: z.ZodNullable<z.ZodNumber>;
+                tainted: z.ZodOptional<z.ZodLiteral<true>>;
             }, z.core.$strict>;
             version: number;
         };
@@ -1027,9 +1049,60 @@ signatures (every public export and the types it is made of)
         readonly taint: {
             payload: z.ZodObject<{
                 detail: z.ZodNullable<z.ZodString>;
+                occurrence: z.ZodOptional<z.ZodObject<{
+                    admission: z.ZodOptional<z.ZodObject<{
+                        policyHash: z.ZodNullable<z.ZodString>;
+                        trustRevision: z.ZodLiteral<"0">;
+                        trusted: z.ZodLiteral<false>;
+                    }, z.core.$strict>>;
+                    detector: z.ZodEnum<{
+                        attachment_input: "attachment_input";
+                        compute_input: "compute_input";
+                        explicit_untrusted_input: "explicit_untrusted_input";
+                        external_mcp_input: "external_mcp_input";
+                        proxy_input: "proxy_input";
+                        tool_file_input: "tool_file_input";
+                        tool_search_output: "tool_search_output";
+                        tool_web_input: "tool_web_input";
+                        unproxied_shell_input: "unproxied_shell_input";
+                    }>;
+                    epochId: z.ZodString;
+                    exposure: z.ZodEnum<{
+                        finalized: "finalized";
+                        interrupted_unknown: "interrupted_unknown";
+                        open: "open";
+                    }>;
+                    exposureId: z.ZodString;
+                    id: z.ZodString;
+                    operationId: z.ZodNullable<z.ZodString>;
+                    provenance: z.ZodUnion<readonly [z.ZodNull, z.ZodObject<{
+                        kind: z.ZodLiteral<"web_origin">;
+                        origin: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                            scheme: z.ZodEnum<{
+                                http: "http";
+                                https: "https";
+                            }>;
+                        }, z.core.$strict>;
+                        verifiedBy: z.ZodLiteral<"host_transport">;
+                    }, z.core.$strict>, z.ZodObject<{
+                        authority: z.ZodObject<{
+                            host: z.ZodString;
+                            port: z.ZodNumber;
+                        }, z.core.$strict>;
+                        kind: z.ZodLiteral<"tunnel_authority">;
+                        verifiedBy: z.ZodLiteral<"host_proxy">;
+                    }, z.core.$strict>]>;
+                    signalId: z.ZodString;
+                }, z.core.$strict>>;
                 source: z.ZodEnum<{
+                    apify_result: "apify_result";
+                    chat_attachment: "chat_attachment";
+                    compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
                     unclassified_command: "unclassified_command";
@@ -1039,6 +1112,16 @@ signatures (every public export and the types it is made of)
                     workspace_read: "workspace_read";
                 }>;
                 tool: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            version: number;
+        };
+        readonly taint_exposure: {
+            payload: z.ZodObject<{
+                occurrenceId: z.ZodString;
+                state: z.ZodEnum<{
+                    finalized: "finalized";
+                    interrupted_unknown: "interrupted_unknown";
+                }>;
             }, z.core.$strict>;
             version: number;
         };
@@ -1076,6 +1159,43 @@ signatures (every public export and the types it is made of)
     export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
   GovernancePolicySchema (packages/common/src/governance-policy.ts)
     const GovernancePolicySchema: z.ZodObject<{
+        apify: z.ZodOptional<z.ZodObject<{
+            actor_grants: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                account_id: z.ZodString;
+                actor_id: z.ZodString;
+                build_number: z.ZodString;
+                expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+                max_run_usd: z.ZodNumber;
+                origins: z.ZodArray<z.ZodString>;
+                pricing_sha256: z.ZodString;
+                profile_id: z.ZodString;
+                schema_sha256: z.ZodString;
+            }, z.core.$strict>>>;
+            actors: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
+            discovery: z.ZodOptional<z.ZodEnum<{
+                allow: "allow";
+                ask: "ask";
+                deny: "deny";
+            }>>;
+            enabled: z.ZodOptional<z.ZodBoolean>;
+            limits: z.ZodOptional<z.ZodObject<{
+                day_usd: z.ZodNumber;
+                max_concurrent_runs: z.ZodNumber;
+                max_requests_per_turn: z.ZodNumber;
+                max_result_bytes: z.ZodNumber;
+                max_result_items: z.ZodNumber;
+                max_retention_seconds: z.ZodNumber;
+                max_runs_per_turn: z.ZodNumber;
+                max_runtime_seconds: z.ZodNumber;
+                run_usd: z.ZodNumber;
+                session_usd: z.ZodNumber;
+                turn_usd: z.ZodNumber;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         budgets: z.ZodOptional<z.ZodObject<{
             day: z.ZodOptional<z.ZodObject<{
                 block_tokens: z.ZodOptional<z.ZodNumber>;
@@ -1176,6 +1296,36 @@ signatures (every public export and the types it is made of)
             egress: z.ZodOptional<z.ZodObject<{
                 allow: z.ZodArray<z.ZodString>;
             }, z.core.$strict>>;
+            trusted_sources: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                incomingContent: z.ZodDefault<z.ZodBoolean>;
+                label: z.ZodString;
+                recipientWhileRestricted: z.ZodDefault<z.ZodBoolean>;
+                selector: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"web_origin">;
+                    port: z.ZodNumber;
+                    scheme: z.ZodEnum<{
+                        http: "http";
+                        https: "https";
+                    }>;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodString;
+                    kind: z.ZodLiteral<"tunnel_authority">;
+                    port: z.ZodNumber;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_repository">;
+                    owner: z.ZodString;
+                    repository: z.ZodString;
+                    repositoryId: z.ZodString;
+                }, z.core.$strict>, z.ZodObject<{
+                    host: z.ZodLiteral<"github.com">;
+                    kind: z.ZodLiteral<"github_owner">;
+                    owner: z.ZodString;
+                    ownerId: z.ZodString;
+                }, z.core.$strict>], "kind">;
+            }, z.core.$strict>>>;
         }, z.core.$strict>>;
     }, z.core.$strict>;
   GovernedTurnHold (packages/ui-server/src/brain/governed-turn.ts)
@@ -1197,7 +1347,7 @@ signatures (every public export and the types it is made of)
     }
   GovernedTurns (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurns {
-        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute): Promise<GovernedTurnHold>;
+        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute, timing?: PhaseTimer): Promise<GovernedTurnHold>;
         bindSession(turnId: string, sessionId: string): Promise<void>;
         exposures(sessionIds: readonly string[]): Promise<ProviderExposure[]>;
         unprovenHistory(sessionId: string): Promise<boolean>;
@@ -1322,6 +1472,10 @@ signatures (every public export and the types it is made of)
     export interface MaintenanceTempDomain {
         statePath: string;
     }
+  MessageAttachment (packages/ui-server/src/attachments/context.ts)
+    export type MessageAttachment = AttachmentFile & {
+        inline?: boolean;
+    };
   MetricPoint (packages/ui-server/src/observability/types.ts)
     export interface MetricPoint {
         name: string;
@@ -1569,6 +1723,8 @@ signatures (every public export and the types it is made of)
     export interface OpenBrainDbOptions {
         minSchemaVersion?: number;
     }
+  PhaseTimer (packages/ui-server/src/activity/turn-lifecycle.ts)
+    export type PhaseTimer = (name: string) => () => void;
   Principal (packages/ui-server/src/db/principals.ts)
     export interface Principal {
         id: string;
@@ -1750,6 +1906,11 @@ signatures (every public export and the types it is made of)
     const SPAN_OUTCOMES: readonly ["success", "error", "timeout", "cancelled", "denied", "interrupted"];
   ServerConfig (packages/ui-server/src/config/env.ts)
     export interface ServerConfig {
+        compute?: {
+            keys: Readonly<Record<string, readonly string[]>>;
+            stateDir: string | null;
+            workerEnvExtra: readonly string[];
+        };
         storage?: {
             backupRoots: readonly string[];
             gitRoots: readonly string[];
@@ -1787,6 +1948,7 @@ signatures (every public export and the types it is made of)
         sourceCommit: string;
         allowedOrigins: string[];
         maxConcurrentSessions: number;
+        attachmentPoolBytes: number;
         turnTimeoutMs: number | null;
         logLevel: Severity;
         wsRate: {
@@ -1860,12 +2022,13 @@ signatures (every public export and the types it is made of)
         retryReceipt?(sessionId: string, requestId: string, principalId: string): ServerRetryReceipt;
         attachRetryRequest?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
         getStoredBackendId(sessionId: string): string | null;
-        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string): void;
+        persistSessionStub(sessionId: string, promptText: string, providerId: string | null, backendId: string, ownerPrincipalId?: string, creatorTurnId?: string): void;
         persistSession(msg: ServerResultMessage, promptText: string, providerId: string | null, backendId: string): void;
         recordMessageSource?(sessionId: string, text: string, source: MessageSource, effort?: {
             thinkingLevel?: ThinkingLevel;
             turnId: string;
             files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+            attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
         }): void;
         recordEffectiveThinkingLevel?(sessionId: string, turnId: string, level: ThinkingLevel): void;
         attachMessageSources?(sessionId: string, messages: SessionHistoryMessage[], strict?: boolean): SessionHistoryMessage[];
@@ -1897,7 +2060,7 @@ signatures (every public export and the types it is made of)
   SpanKind (packages/ui-server/src/activity/store.ts)
     export type SpanKind = "turn" | "tool" | "subagent" | "cron";
   SpanOrigin (packages/ui-server/src/activity/store.ts)
-    export type SpanOrigin = "session" | "cron" | "autonomous";
+    export type SpanOrigin = "session" | "cron" | "autonomous" | "compute";
   SpanOutcome (packages/ui-server/src/activity/store.ts)
     export type SpanOutcome = (typeof SPAN_OUTCOMES)[number];
   SpanRow (packages/ui-server/src/activity/store.ts)
@@ -2016,6 +2179,7 @@ signatures (every public export and the types it is made of)
         referencePool?: ReferenceWorktreeJournalPool;
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
+        idleObservationMs?: number;
     }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
@@ -2178,6 +2342,32 @@ signatures (every public export and the types it is made of)
         isPrincipalAuthorized?: (principalId: string) => boolean;
         conversationProvider?: LiveConversationProvider;
     }
+  apifyActorGrant (packages/common/src/governance-policy.ts)
+    const apifyActorGrant: z.ZodObject<{
+        account_id: z.ZodString;
+        actor_id: z.ZodString;
+        build_number: z.ZodString;
+        expires_at: z.ZodPipe<z.ZodUnion<readonly [z.ZodISODateTime, z.ZodDate]>, z.ZodTransform<string, Date | string>>;
+        max_run_usd: z.ZodNumber;
+        origins: z.ZodArray<z.ZodString>;
+        pricing_sha256: z.ZodString;
+        profile_id: z.ZodString;
+        schema_sha256: z.ZodString;
+    }, z.core.$strict>;
+  apifyLimits (packages/common/src/governance-policy.ts)
+    const apifyLimits: z.ZodObject<{
+        day_usd: z.ZodNumber;
+        max_concurrent_runs: z.ZodNumber;
+        max_requests_per_turn: z.ZodNumber;
+        max_result_bytes: z.ZodNumber;
+        max_result_items: z.ZodNumber;
+        max_retention_seconds: z.ZodNumber;
+        max_runs_per_turn: z.ZodNumber;
+        max_runtime_seconds: z.ZodNumber;
+        run_usd: z.ZodNumber;
+        session_usd: z.ZodNumber;
+        turn_usd: z.ZodNumber;
+    }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
     export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
   attribution (packages/ui-server/src/governance/events.ts)
@@ -2208,6 +2398,7 @@ signatures (every public export and the types it is made of)
   createChatDeletion (packages/ui-server/src/ws/chat-deletion.ts)
     export function createChatDeletion(deps: ChatDeletionDeps): {
         delete(input: Omit<RetireChatInput, "at" | "removableBackends">): Promise<ChatDeletionResult>;
+        read(operationId: string, principalId: string): Promise<ChatDeletionReceipt | null>;
         reconcile(): Promise<void>;
     };
   createConsoleLoggerProvider (packages/ui-server/src/observability/loggers.ts)
@@ -2310,7 +2501,7 @@ signatures (every public export and the types it is made of)
             policyHash: null | string;
             profile: "governed" | "strict";
             sessionId: null | string;
-        }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
+        }, stop: (error: Error) => void, signal?: AbortSignal, timing?: PhaseTimer): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): Promise<void>;
         claudeMemoryTarget(turnId: string, path: string): null | {
@@ -2328,6 +2519,7 @@ signatures (every public export and the types it is made of)
         hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
         isHeld(): boolean;
+        maintain: () => Promise<void>;
         observe(): Promise<void>;
         observeUserPolicy(turnId: string, approvedWrite: () => Promise<void> | void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
@@ -2373,12 +2565,21 @@ signatures (every public export and the types it is made of)
         worktrees(turnId: string): string[];
         writeOperation(statements: readonly JournalStatement[]): Promise<number[]>;
     };
+  maintain (packages/ui-server/src/brain/turn-journal.ts)
+    function maintain(): Promise<void>;
   normaliseLabel (packages/ui-server/src/labels/normalise.ts)
     export function normaliseLabel(raw: string): string | null;
   openBrainDb (packages/ui-server/src/db/brain-db.ts)
     export function openBrainDb(brainPath: string, options?: OpenBrainDbOptions): BrainDbHandle;
   resolveGovernancePolicy (packages/common/src/governance-policy.ts)
     export function resolveGovernancePolicy(policy: GovernancePolicyInput): {
+        apify: {
+            actor_grants: Array<z.output<typeof apifyActorGrant>>;
+            actors: "allow" | "ask" | "deny";
+            discovery: "allow" | "ask" | "deny";
+            enabled: boolean;
+            limits: ApifyLimits | null;
+        };
         budgets: {
             day: {
                 block_tokens: number;
@@ -2444,6 +2645,33 @@ signatures (every public export and the types it is made of)
             egress: {
                 allow: string[];
             };
+            trusted_sources: {
+                id: string;
+                incomingContent: boolean;
+                label: string;
+                recipientWhileRestricted: boolean;
+                selector: {
+                    host: "github.com";
+                    kind: "github_owner";
+                    owner: string;
+                    ownerId: string;
+                } | {
+                    host: "github.com";
+                    kind: "github_repository";
+                    owner: string;
+                    repository: string;
+                    repositoryId: string;
+                } | {
+                    host: string;
+                    kind: "tunnel_authority";
+                    port: number;
+                } | {
+                    host: string;
+                    kind: "web_origin";
+                    port: number;
+                    scheme: "http" | "https";
+                };
+            }[];
         };
     };
   resolveServerConfig (packages/ui-server/src/config/env.ts)

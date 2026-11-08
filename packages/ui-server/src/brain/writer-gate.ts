@@ -21,6 +21,7 @@
  * translated to live there too, so every process plans them, across restarts
  * (#2836).
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database } from "bun:sqlite";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -98,7 +99,7 @@ export interface WriterGate {
 }
 
 /** How often a waiting acquisition looks again. */
-export const GATE_POLL_MS = 200;
+const GATE_POLL_MS = 200;
 
 /**
  * How long provider folder admission waits for a peer whose plan predates the
@@ -107,7 +108,7 @@ export const GATE_POLL_MS = 200;
  * provider-policy turn, plan without them. The boot-time scratch prune is one;
  * on the native fixture it finishes within a second of the turn reaching it.
  */
-export const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
+const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
 
 const UNRETAINED_PEER = "An active peer did not retain the requested provider folders; finish that peer and retry admission";
 
@@ -241,7 +242,7 @@ export function gateProcedures(db: Database, brain: string): WriteProcedures {
         if (plan.unpinnedHost) throw new Error("An active peer is an unpinned host writer; finish that peer and retry admission");
         // A descendant root also pins each ancestor. An ancestor root
         // alone does not retain an arbitrary child inside its subtree.
-        if (requested.some(path => !plan.roots.some(root => root === path || root.startsWith(`${path}/`)))) unretained = true;
+        if (requested.some(path => !plan.roots.some(root => isWithin(path, root)))) unretained = true;
       }
       return unretained;
     }).immediate(),

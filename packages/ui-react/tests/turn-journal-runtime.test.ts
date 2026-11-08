@@ -72,7 +72,7 @@ beforeAll(() => hook.phase("setup", async () => {
   const temporary = resolve(root, "memory-worker"); await mkdir(temporary); memoryState.populate(temporary);
   await app.wsHost.journal!.begin(memoryId, metadata, error => { throw error; });
   await writeFile(resolve(temporary, project, "memory/voyage.md"), "Athena remembers the crossing.\r\n");
-  // The Claude backend awaits copy-out before its turn ends (`releaseTerminal`); so does this fixture.
+  // The Claude backend awaits copy-out before its turn ends (`TurnTerminal.release`); so does this fixture.
   await memoryState.persist(temporary, undefined, (change, save) => app.wsHost.journal!.persistClaudeMemory(memoryId, change, save)); memoryState.release();
   await app.wsHost.journal!.finish(memoryId);
   const memorySeed = JSON.stringify({ turnId: memoryId, summary: app.wsHost.journal!.summary(memoryId) });
@@ -98,7 +98,7 @@ async function scene(width = 1280, theme = "dark", replay = false, conflict = fa
 // Keep native widths, live/replay, zoom, keyboard focus, HTTP download bytes and
 // real Revert/Undo file effects here with deterministic theme selection.
 const journalRuntimeCells = [[320, "dark"], [1280, "light"]] as const;
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`journal configuration coverage keeps small changes first and preserves inspection ${theme} ${width}`, async () => {
+for (const [width, theme] of journalRuntimeCells) test(`journal configuration coverage keeps small changes first and preserves inspection ${theme} ${width}`, async () => {
   const { context, page, outside } = await scene(width, theme);
   let release: (() => void) | undefined, hold = false, fail = false, reads = 0;
   let started: (() => void) | undefined;
@@ -148,7 +148,10 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`jo
     expect((await note.boundingBox())!.y, "SMALL_CHANGE_BEFORE_COVERAGE_INVENTORY").toBeLessThan(800);
     const facts = page.getByRole("button", { name: "Turn facts", exact: true });
     const factsBox = (await facts.boundingBox())!;
-    expect(factsBox.width).toBeGreaterThanOrEqual(44); expect(factsBox.height).toBeGreaterThanOrEqual(44);
+    // #3252: an sm IconButton under this fine pointer keeps its 28px paint;
+    // D55 grows it to 44px under a coarse one, so no override inflates it.
+    expect(await facts.evaluate(el => el.matches('.bk-icon-btn[data-size="sm"]') && !(el as HTMLElement).style.height), "FACTS_SM_ICON_NOT_INFLATED").toBe(true);
+    expect(factsBox.height, "FACTS_KIT_PAINT").toBeLessThan(44);
     expect(await facts.getAttribute("aria-expanded")).toBe("false");
     expect(await page.getByText("Model: unknown.", { exact: true }).count()).toBe(0);
     await facts.click(); expect(await facts.getAttribute("aria-expanded")).toBe("true");
@@ -346,7 +349,7 @@ test("whole-turn review reads first; Escape has no effect, waiting receipt stays
     await page.keyboard.press("Escape"); await dialog.waitFor({state:"hidden"});
     await page.waitForFunction(()=>document.activeElement?.textContent === "Review whole-turn revert");
     expect(await readFile(resolve(root,"brain/notes/voyage.md"),"utf8"), "REVERT_ESCAPE_NEVER_EXECUTES").toBe("Athena charts the return.\r\n");
-    await trigger.click();const commit=page.getByRole("button",{name:"Revert 2 files",exact:true});expect((await commit.boundingBox())!.height).toBeGreaterThanOrEqual(44);await commit.click();
+    await trigger.click();const commit=page.getByRole("button",{name:"Revert 2 files",exact:true});expect(await commit.evaluate(el=>el.classList.contains("bk-hit")&&(el as HTMLElement).style.minHeight!=="44px"),"REVERT_COMMIT_REACHES_NOT_INFLATED").toBe(true);await commit.click();
     await page.getByText("Waiting for running turns.",{exact:true}).waitFor();
     expect(await page.locator("[data-turn-journal] [data-revert-receipt='waiting']").count(),"REVERT_RECEIPT_SAME_DISCLOSURE").toBe(1);
     expect(await page.getByRole("button",{name:/Cancel revert|Cancel operation/}).count()).toBe(0);

@@ -7,11 +7,15 @@ import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 // These two consumers import/re-export runStateForFrame only. They never
 // acquire the mutable chat handler map. Any consumer edit requires re-audit.
 const helperConsumers:Record<string,string>={
-  // Re-audited merged retained-history and stale-chat routing: only runStateForFrame
-  // is imported; neither path acquires or mutates chatFrameHandlers.
-  "packages/ui-react/src/connection.ts":"d1ab0f54089c75972f0597f4c2ca65bec2a0db418bad2ea438d05ccf558847ae",
-  "packages/ui-react/src/hooks/use-websocket.ts":"ab5208f9edeccee5d30fd3c9c81962d1cba3339222bd3f86b7ea143e0596ffcc"
+  // Re-audited for #3604: safety frames route to their separate host-evidence
+  // driver before demux; this consumer still imports only runStateForFrame.
+  // Re-audited when #1362 moved inbound routing out of connection.ts: only
+  // runStateForFrame is imported; it never acquires or mutates chatFrameHandlers.
+  "packages/ui-react/src/ws-client/inbound.ts":"b66c9fc53d5fdf3418f290331d2cdbf4d8a24d4f7767fbcf152a5ccd79041a8d",
+  "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
+// Re-audited for #3155: chat.ts only gained `attachmentFiles` in its history
+// message mapping; chatFrameHandlers and its dispatch are unchanged.
 const declarations=[
   {
     "owner": "packages/ui-react/src/hooks/websocket-handlers/index.ts",
@@ -22,7 +26,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d"
+        "source": "7293732dfe85e43815c013e86af467a6d57c33d0eb8232310938ed3a6d5e3048"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
@@ -39,10 +43,12 @@ const declarations=[
         "name": "providerFrameHandlers",
         "source": "0de9131781f27ba26a4469640e849170b9e063ed1d595a90361ac815128b617f"
       },
+      // Re-audited for #3589: the added attachment_read handler is a no-op
+      // that reads no runtime input, like chat_retired.
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "b20f60edcd8c3438d3ecc38952d7b5a7850adf4549c2eb6495a79b22596cad1e"
+        "source": "847362ebc5510a0dbede9bbbe50cedfdf03346685efe2286238f6be445ece2fe"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

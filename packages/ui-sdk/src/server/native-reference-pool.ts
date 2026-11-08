@@ -15,6 +15,7 @@
  *   allocate before work starts. Measured use replaces that reservation as it
  *   materializes; sealing converts the rest to measured allocation.
  */
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync,
   rmdirSync, statSync, symlinkSync, unlinkSync, writeFileSync, ftruncateSync, chownSync, chmodSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -58,7 +59,8 @@ export interface NativeReferencePoolConfig {
 export type QualifiedReferencePoolConfig = Required<Omit<NativeReferencePoolConfig, "headroomLedgerPath">> & { headroomLedgerPath?: string };
 
 const fixedPath = (path: unknown) => typeof path === "string" && isAbsolute(path) && !path.includes("\0") && !path.split("/").includes("..") && path.length > 1;
-const inside = (child: string, parent: string) => child === parent || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
+/** Child first: `inside(a, b)` reads as "a is inside b". */
+export const inside = (child: string, parent: string) => isWithin(parent, child, { trailingSeparator: "boundary" });
 const page = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0 && (value as number) % 4096 === 0;
 
 export function validateNativeReferencePoolConfig(pool: NativeReferencePoolConfig, store: { storePath: string; fsid: string; socketPath: string }): QualifiedReferencePoolConfig {
@@ -258,7 +260,7 @@ export function referencePoolMount(mountinfo: string, pool: string, device: stri
   if (mounted.length !== 1 || mounted[0]!.type !== "btrfs" || mounted[0]!.root !== "/" || !mounted[0]!.options.includes("rw") || mounted[0]!.source !== device)
     throw new NativeBrainManagerError("unsupported", "Provision one read-write top-level Btrfs mount of the configured reference pool device.");
   // Btrfs reports anonymous per-subvolume st_dev numbers in mountinfo; the mount source names the volume.
-  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views", "/access"].some(managed => row.root === managed || row.root.startsWith(managed + "/"))))
+  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views", "/access"].some(managed => isWithin(managed, row.root))))
     throw new NativeBrainManagerError("unsupported", "The reference pool volume is also mounted outside its managed roots; one capacity must not be presented twice.");
   if (rows.some(row => row.path !== pool && inside(row.path, pool)))
     throw new NativeBrainManagerError("unsupported", "The reference pool must not contain nested mounts.");

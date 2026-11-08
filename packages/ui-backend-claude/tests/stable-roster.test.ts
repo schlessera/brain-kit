@@ -8,11 +8,11 @@ import { createClaudeSdkTurn } from "../src/sdk-options.js";
 import { createPermissionWiring } from "../src/permission-hooks.js";
 
 const refused = ["request_image_mask", "ask_user_list", "ask_user_rank", "ask_user_form", "propose_policy_change", "inbox_add", "resolve_action", "complete_share"];
-const bridge = () => Object.fromEntries(["askUser", "askUserList", "askUserRank", "askUserForm", "requestMask", "proposePolicyChange", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "queryActivity", "getLocation", "applyBrain", "readBrainBase"].map(name => [name, async () => { throw new Error("PRIVILEGED_HANDLER_EXECUTED"); }]));
+const bridge = () => Object.fromEntries(["askUser", "askUserList", "askUserRank", "askUserForm", "requestMask", "proposePolicyChange", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "queryActivity", "getLocation", "applyBrain", "readBrainBase", "compute"].map(name => [name, async () => { throw new Error("PRIVILEGED_HANDLER_EXECUTED"); }]));
 
 test("Claude complete tool schemas and native exclusions stay identical voice-first, typed, missing-handler and strict", async () => {
   const brain = mkdtempSync(join(tmpdir(), "odysseus-roster-"));
-  const rosters: string[] = [], exclusions: string[] = [];
+  const rosters: string[] = [], exclusions: string[] = [], appends: string[] = [];
   try {
     for (const mode of ["voice", "typed", "missing", "strict", "no-grant", "unhosted", "partial"] as const) {
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {
@@ -34,13 +34,19 @@ test("Claude complete tool schemas and native exclusions stay identical voice-fi
         if (mode === "partial") expect(turn.options.allowedTools, "PARTIAL_INBOX_HANDLER_AUTO_ALLOWED").toContain("mcp__brain-ui__inbox_add");
         for (const legacy of ["brain_add", "brain_update", "brain_archive"])
           expect(turn.options.disallowedTools?.includes(`mcp__brain__${legacy}`), `LEGACY_DEPLOYMENT_MEMBERSHIP_${mode}_${legacy}`).toBe(mode !== "unhosted");
-        for (const name of [...refused, "brain_read_base", "brain_add", "show_block", "turn_temp"])
+        for (const name of [...refused, "brain_read_base", "brain_add", "show_block", "turn_temp", "brain_compute_run", "brain_compute_collect"])
           expect(tools.some(tool => tool.name === name), `FULL_ROSTER_${mode}_${name}`).toBe(true);
-        rosters.push(JSON.stringify(tools)); exclusions.push(JSON.stringify(turn.options.disallowedTools?.filter(name => ["Write", "Edit", "NotebookEdit"].includes(name))));
+        // The in-worker compute tools are disallowed in every session, whatever the host configured (#3108).
+        for (const name of ["health", "plan", "run", "status", "cancel", "collect"])
+          expect(turn.options.disallowedTools, `IN_WORKER_COMPUTE_DISALLOWED_${mode}_${name}`).toContain(`mcp__brain__brain_compute_${name}`);
+        rosters.push(JSON.stringify(tools)); exclusions.push(JSON.stringify(turn.options.disallowedTools?.filter(name => ["Write", "Edit", "NotebookEdit"].includes(name) || name.includes("compute"))));
+        appends.push(JSON.stringify(turn.options.systemPrompt));
       } finally { await client.close(); await turn.finishWorker(); }
     }
     for (const roster of rosters.slice(1)) expect(roster, "BYTE_IDENTICAL_TOOL_SCHEMAS").toBe(rosters[0]);
     for (const exclusion of exclusions.slice(1)) expect(exclusion, "BYTE_IDENTICAL_NATIVE_EXCLUSIONS").toBe(exclusions[0]);
+    // Compute present or not, typed or voice: the fixed brief is the same bytes (#3108).
+    for (const append of appends.slice(1)) expect(append, "BYTE_IDENTICAL_SYSTEM_APPEND").toBe(appends[0]);
   } finally { rmSync(brain, { recursive: true, force: true }); }
 });
 

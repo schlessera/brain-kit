@@ -109,10 +109,12 @@ export interface BackendCapabilities {
 }
 
 export type PermissionDecision =
-  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | { behavior: "allow"; updatedInput?: Record<string, unknown>; always?: boolean }
   | { behavior: "deny"; message: string };
 
 export interface PermissionRequest {
+  /** @internal Host snapshot for withdrawing stale cards; never client authority. */
+  admissionSnapshot?: import("./admission-safety.js").AdmissionSafetySnapshot;
   toolUseId: string;
   toolName: string;
   input: Record<string, unknown>;
@@ -123,7 +125,7 @@ export interface PermissionRequest {
    * set and may offer "always allow". "command" — a destructive-pattern
    * confirmation for an otherwise auto-allowed tool; never remembered.
    */
-  kind?: "tool" | "command" | "policy";
+  kind?: "tool" | "command" | "policy" | "actor";
   /**
    * This turn declared `enforceAllowedTools` and the tool is NOT on its
    * allowlist. The host must decide the request on its own merits: it may
@@ -171,6 +173,19 @@ export interface LocationFix {
  * @experimental Part of the `AgentBackend` seam.
  */
 export interface BackendBridge {
+  /** @internal Worker-to-host final admission after local rewrite/lock waits. Never an approval surface. */
+  commitToolAdmission?(toolUseId: string, toolName: string, input: Record<string, unknown>): Promise<void>;
+  /** @internal Live host state, never sent to a worker or model provider. */
+  admissionSafety?: import("./admission-safety.js").AdmissionSafety;
+  /** @internal Host-owned versioned input collection. Await before executing a
+   * tool and before returning its result to the provider. Never a grant. */
+  inputSafety?: {
+    ready(backendId: string, detectorVersion: number): Promise<void>;
+    /** @internal Persist collector loss before refusing unqualified input. */
+    unavailable?(): Promise<void>;
+    begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
+    result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
+  };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;
   /** Host-owned, turn-bound application. Absent means no authoritative route. */
@@ -243,7 +258,26 @@ export interface BackendBridge {
    * its parsed input. Refusals resolve as `{ ok: false }`.
    */
   referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
-
+  /**
+   * External compute (#3108). The host binds the caller (principal, session
+   * and turn), the turn's frozen policy, posture, approval surface and
+   * credentials; the call carries only the tool, its parsed input and the
+   * model's call id. Refusals resolve as `{ ok: false, error }`.
+   */
+  compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
+  /**
+   * One Apify operation (#3162). The host binds principal, session, turn,
+   * posture and approvals from the authenticated turn and holds the
+   * credential; the call carries the operation's parsed input only.
+   */
+  apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
+  /**
+   * Read one composer original the calling session was sent (#3154). The
+   * host binds session, principal and turn, re-checks the reference and the
+   * digest, and enforces every bound; the call carries the parsed input only.
+   * Every refusal resolves as a result with its outcome.
+   */
+  readAttachment?(input: import("../tool-contracts/attachment.js").ReadAttachmentInput): Promise<import("../tool-contracts/attachment.js").AttachmentReadResult>;
 }
 
 /** A read over the activity record, shaped for model consumption. */
@@ -354,7 +388,7 @@ export type BackendActivityEvent =
       /** The tool call the refusal belongs to. */
       toolUseId: string;
       /** The request that would have been raised, had anyone been able to answer it. */
-      requestKind: "tool" | "command" | "policy";
+      requestKind: "tool" | "command" | "policy" | "actor";
       /** Why, in the words the model was given. */
       reason: string;
     }
@@ -750,6 +784,8 @@ export interface FollowUpRequest {
 export interface AgentBackend {
   /** Stable identity, e.g. "pi" | "claude". Persisted per session (backend_id). */
   id: string;
+  /** Selected configured interaction/capture guidance for live startup; no execution or surface prompt. */
+  conversationGuidance?: readonly import("./conversation.js").ConversationGuidance[];
   capabilities: BackendCapabilities;
   /** Current intrinsic resumed-state allowance, for invalidating older observations. Not aggregate free capacity. */
   stateRoomAllowanceBytes?: number;

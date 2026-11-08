@@ -66,6 +66,8 @@ export interface QueuedFollowUp {
   text: string;
   attachments: ChatImageAttachment[];
   files?: import("@schlessera/brain-ui-sdk/protocol").SharedFileMeta[];
+  /** Composer originals this message sends, verified at dispatch (#3153). */
+  attachmentFiles?: import("../attachments/context.js").MessageAttachment[];
   /** Device snapshot taken when the message was sent, not when it runs. */
   client?: ClientEnvironment;
   /** How the user produced the message; absent means typed. */
@@ -112,12 +114,12 @@ export interface QueuedFollowUp {
  * clips the list itself: every pending follow-up is always reported, and
  * only a very long prompt is shortened.
  */
-export const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
+const FOLLOW_UP_VIEW_TEXT_BYTES = 8_000;
 
 const wireBytes = (text: string) => Buffer.byteLength(JSON.stringify(text), "utf8");
 
 /** Head of `text` within `bytes` serialized bytes, with an elision note when cut. */
-export function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
+function boundFollowUpText(text: string, bytes: number = FOLLOW_UP_VIEW_TEXT_BYTES): string {
   if (wireBytes(text) <= bytes) return text;
   const budget = Math.max(0, bytes - 64);
   // The longest head that fits: wire size grows with length, so bisect.
@@ -144,7 +146,7 @@ export function followUpView(entry: QueuedFollowUp): QueuedFollowUpView {
     text,
     ...(text !== entry.text ? { textTruncated: true } : {}),
     ...(entry.attachments.length ? { attachmentCount: entry.attachments.length } : {}),
-    ...(entry.files?.length ? { fileCount: entry.files.length } : {}),
+    ...((entry.files?.length ?? 0) + (entry.attachmentFiles?.length ?? 0) ? { fileCount: (entry.files?.length ?? 0) + (entry.attachmentFiles?.length ?? 0) } : {}),
     ...(entry.source ? { source: entry.source } : {}),
     queuedAt: entry.queuedAt ?? 0,
     ...(entry.label ? { label: entry.label } : {}),
@@ -174,7 +176,7 @@ export interface FollowUpQueueChange {
  * worth walking.
  */
 export function queuedFollowUpBytes(
-  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp">
+  entry: Pick<QueuedFollowUp, "text" | "attachments" | "files" | "refusedFollowUp"> & Partial<Pick<QueuedFollowUp, "attachmentFiles">>
 ): number {
   let bytes = Buffer.byteLength(entry.text, "utf-8");
   for (const attachment of entry.attachments) {
@@ -183,6 +185,7 @@ export function queuedFollowUpBytes(
   // A refused follow-up holds the exchanges its prompt took until it runs.
   const exchanges = entry.refusedFollowUp?.exchanges;
   if (exchanges?.length) bytes += Buffer.byteLength(JSON.stringify(exchanges), "utf8");
+  if (entry.attachmentFiles?.length) bytes += Buffer.byteLength(JSON.stringify(entry.attachmentFiles), "utf8");
   return bytes + (entry.files?.length ? Buffer.byteLength(JSON.stringify(entry.files), "utf8") : 0);
 }
 
@@ -204,6 +207,8 @@ export interface RunningTurn {
   requestId?: string;
   /** The draft revision the current turn's message was sent from; replaced on dequeue. */
   draftRef?: DraftRef;
+  /** Composer originals the current turn's message sent; their message references are written at acceptance (#3153). */
+  attachmentFileIds?: string[];
   /** Host-orchestrated work the CURRENT turn runs, if any; replaced on dequeue. */
   work?: HostWork;
   /**
@@ -247,6 +252,13 @@ export interface RunningTurn {
   handingOver?: QueuedFollowUp;
   cancelled: boolean;
   /**
+   * The turn the host's hard elapsed-time limit ended (#3356). Set by the
+   * timeout itself, never inferred from an aborted signal, so a cancel or a
+   * journal/egress abort is never reported as a timeout. Keyed by turn id
+   * because a queued follow-up reuses this slot.
+   */
+  timedOutTurnId?: string;
+  /**
    * Terminal disposition of the CURRENT turn's `result` frame, when one has
    * streamed. Backends RESOLVE startTurn for runtime failures (the failure
    * rides the result frame as outcome "error"), so completion accounting must
@@ -280,6 +292,10 @@ export interface PendingApproval {
    * locks; an approval must survive that and reappear, not silently die.
    */
   request: PermissionRequest;
+  /** Final synchronous revalidation, including after a grant-store wait. */
+  revalidate?: () => string | null;
+  /** Retain the terminal fact before resolving a safety-aware backend wait. */
+  expire?: (reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed") => void;
   resolve: (
     decision: PermissionDecision,
     response?: { principalId: string; always?: boolean; channel?: ApprovalChannel }
@@ -292,7 +308,7 @@ export interface PendingApproval {
  * happened (#957). `expired` is a terminal turn that resolved the request
  * itself; it never needed a `tool_result`.
  */
-export interface ToolResolutionRecord {
+interface ToolResolutionRecord {
   outcome: "granted" | "denied" | "expired";
   turnId: string;
   sessionId: string | null;
@@ -301,9 +317,9 @@ export interface ToolResolutionRecord {
 }
 
 /** Settled outcomes retained for late replies; the oldest is evicted first. */
-export const MAX_RESOLVED_APPROVALS = 512;
+const MAX_RESOLVED_APPROVALS = 512;
 
-export interface PendingAskUser {
+interface PendingAskUser {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingApproval.request. */
@@ -313,7 +329,7 @@ export interface PendingAskUser {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserList {
+interface PendingAskUserList {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -323,7 +339,7 @@ export interface PendingAskUserList {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserRank {
+interface PendingAskUserRank {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -333,7 +349,7 @@ export interface PendingAskUserRank {
   reject: (err: Error) => void;
 }
 
-export interface PendingAskUserForm {
+interface PendingAskUserForm {
   turn: RunningTurn;
   turnId: string;
   /** Kept for re-delivery on reconnect, like PendingAskUser.questions. */
@@ -346,12 +362,50 @@ export interface PendingAskUserForm {
 /** The four ask kinds, which share one request-id space. */
 export type AskKind = "ask_user" | "ask_user_list" | "ask_user_rank" | "ask_user_form";
 
+/** One pending ask of any kind. The kinds share one id space, so they share one map. */
+export type PendingAsk =
+  | { kind: "ask_user"; entry: PendingAskUser }
+  | { kind: "ask_user_list"; entry: PendingAskUserList }
+  | { kind: "ask_user_rank"; entry: PendingAskUserRank }
+  | { kind: "ask_user_form"; entry: PendingAskUserForm };
+
+/** The entry type a pending ask of kind `K` carries. */
+type PendingAskEntry<K extends AskKind> = Extract<PendingAsk, { kind: K }>["entry"];
+
+/** A session start reserved before asynchronous backend routing finishes. */
+export interface StartingSession {
+  queue: QueuedFollowUp[];
+  cancelled: boolean;
+  revision?: number;
+}
+
+/** A handoff creation in flight (#61); `sessionId` is set once its destination exists. */
+interface PendingHandoff {
+  sessionId?: string;
+}
+
+/** A running handoff preparation summary (#61). */
+interface HandoffPreparation {
+  abort: AbortController;
+  owner: unknown;
+}
+
+/** What a coordinator reports to, fixed when it is constructed. */
+interface TurnCoordinatorOptions {
+  /** Where collisions are reported; absent (a bare coordinator in a test) means silence. */
+  log?: Logger;
+  /** Told about every settled permission request, whichever path settled it. */
+  onApprovalSettled?: (toolUseId: string, record: ToolResolutionRecord) => void;
+  /** Told whenever a session's pending follow-ups change (#1002). */
+  onQueueChanged?: (sessionId: string, change: FollowUpQueueChange) => void;
+}
+
 /**
  * What became of an ask request that is no longer pending (#910). Kept so a
  * repeated or late answer, or a status query after a lost receipt, gets the
  * host's actual outcome instead of silence.
  */
-export interface AskOutcome {
+interface AskOutcome {
   requestId: string;
   sessionId: string | null;
   turnId: string;
@@ -371,81 +425,156 @@ export interface AskOutcome {
  * deal from growing this without limit; the oldest outcome goes first, and a
  * forgotten request answers `not_recognized`, which stops replay just the same.
  */
-export const ASK_OUTCOME_TTL_MS = 24 * 60 * 60 * 1000;
-export const ASK_OUTCOME_MAX = 1024;
+const ASK_OUTCOME_TTL_MS = 24 * 60 * 60 * 1000;
+const ASK_OUTCOME_MAX = 1024;
 
-export interface PendingLocation {
+interface PendingLocation {
   turn: RunningTurn;
   turnId: string;
   resolve: (result: LocationFix) => void;
   reject: (err: Error) => void;
 }
 
-export interface PendingMask {
+interface PendingMask {
   turn: RunningTurn;
   turnId: string;
   resolve: (png: Uint8Array) => void;
   reject: (err: Error) => void;
 }
 
+
+/** The ask kinds in the order every per-kind walk visits them. */
+const ASK_KINDS: readonly AskKind[] = ["ask_user", "ask_user_list", "ask_user_rank", "ask_user_form"];
+
 /**
  * Mutable turn state for one ws host: the running session slots and every
  * pending interactive round-trip. This used to be six module-level globals
  * inside a 976-line handler; as instance state it is testable and owned by an
  * explicit object with a defined lifecycle.
+ *
+ * Every collection is private (#2515). Other modules read it through
+ * read-only views and change it only through the intent methods below, so
+ * each invariant (remove before settling, record the outcome, keep the
+ * starting count and the session index in step) is written once, here.
  */
 export class TurnCoordinator {
-  /**
-   * Where collisions are reported. Assigned by the owning WsHost so the
-   * coordinator reports through the same consumer as everything else; absent
-   * (a bare coordinator in a test) means silence.
-   */
-  log?: Logger;
+  readonly #log?: Logger;
+  readonly #onApprovalSettled?: (toolUseId: string, record: ToolResolutionRecord) => void;
+  readonly #onQueueChanged?: (sessionId: string, change: FollowUpQueueChange) => void;
 
-  readonly running = new Set<RunningTurn>();
-  readonly bySession = new Map<string, RunningTurn>();
-  startingSessions = 0;
-  /** Reserve a known session before asynchronous backend routing. */
-  readonly startingBySession = new Map<string, { queue: QueuedFollowUp[]; cancelled: boolean; revision?: number }>();
+  readonly #running = new Set<RunningTurn>();
+  readonly #bySession = new Map<string, RunningTurn>();
+  #startingSessions = 0;
+  readonly #startingBySession = new Map<string, StartingSession>();
+  readonly #unorderedSessions = new Set<string>();
+  readonly #pendingApprovals = new Map<string, PendingApproval>();
+  /** A client owns the answer, but invalidation/teardown still own its lifetime. */
+  readonly #claimedApprovals = new Map<string, PendingApproval>();
+  readonly #expiringApprovals = new Set<string>();
+  readonly #resolvedApprovals = new Map<string, ToolResolutionRecord>();
+  readonly #asks = new Map<string, PendingAsk>();
+  readonly #pendingLocation = new Map<string, PendingLocation>();
+  readonly #pendingMask = new Map<string, PendingMask>();
+  readonly #handoffs = new Map<string, PendingHandoff>();
+  readonly #handoffPreparations = new Map<string, HandoffPreparation>();
+  readonly #askOutcomes = new Map<string, AskOutcome>();
+  /** The last drain of each turn's interactive requests, by the turn id it ended (#3553). */
+  readonly #drained = new WeakMap<RunningTurn, { turnId: string; reason: string }>();
+  readonly #authorizationRegistry = new Map<AuthorizationContext, number>();
+
+  constructor(options: TurnCoordinatorOptions = {}) {
+    this.#log = options.log;
+    this.#onApprovalSettled = options.onApprovalSettled;
+    this.#onQueueChanged = options.onQueueChanged;
+  }
+
+  /** Every running session slot. */
+  get running(): ReadonlySet<RunningTurn> {
+    return this.#running;
+  }
+
+  /** Running slots by the session id they have been bound to. */
+  get bySession(): ReadonlyMap<string, RunningTurn> {
+    return this.#bySession;
+  }
+
+  /** Session starts still resolving their backend, counted against the concurrency cap. */
+  get startingSessions(): number {
+    return this.#startingSessions;
+  }
+
+  /** Known sessions reserved before asynchronous backend routing. */
+  get startingBySession(): ReadonlyMap<string, StartingSession> {
+    return this.#startingBySession;
+  }
+
   /**
    * Sessions whose newest acceptance could not be recorded (#964). Their
    * recovery reads `unknown` until a later acceptance is recorded, so an
    * older persisted request can never stand in for newer work.
    */
-  readonly unorderedSessions = new Set<string>();
+  get unorderedSessions(): ReadonlySet<string> {
+    return this.#unorderedSessions;
+  }
 
-  readonly pendingApprovals = new Map<string, PendingApproval>();
+  /** Permission requests waiting for an answer, by toolUseId. */
+  get pendingApprovals(): ReadonlyMap<string, PendingApproval> {
+    return this.#pendingApprovals;
+  }
+
   /** Settled permission outcomes by toolUseId, bounded by MAX_RESOLVED_APPROVALS. */
-  readonly resolvedApprovals = new Map<string, ToolResolutionRecord>();
-  /**
-   * Told about every settled permission request, whichever path settled it.
-   * Assigned by the owning WsHost, which publishes `tool_resolution`.
-   */
-  onApprovalSettled?: (toolUseId: string, record: ToolResolutionRecord) => void;
-  /**
-   * Told whenever a session's pending follow-ups change (#1002). Assigned by
-   * the owning WsHost, which publishes `session_queue`.
-   */
-  onQueueChanged?: (sessionId: string, change: FollowUpQueueChange) => void;
-  readonly pendingAskUser = new Map<string, PendingAskUser>();
-  readonly pendingAskUserList = new Map<string, PendingAskUserList>();
-  readonly pendingAskUserRank = new Map<string, PendingAskUserRank>();
-  readonly pendingAskUserForm = new Map<string, PendingAskUserForm>();
-  readonly pendingLocation = new Map<string, PendingLocation>();
-  readonly pendingMask = new Map<string, PendingMask>();
+  get resolvedApprovals(): ReadonlyMap<string, ToolResolutionRecord> {
+    return this.#resolvedApprovals;
+  }
+
+  /** Pending `ask_user` requests, in the order they were opened. */
+  get pendingAskUser(): ReadonlyMap<string, PendingAskUser> {
+    return this.pendingAsks("ask_user");
+  }
+
+  /** Pending `ask_user_list` requests, in the order they were opened. */
+  get pendingAskUserList(): ReadonlyMap<string, PendingAskUserList> {
+    return this.pendingAsks("ask_user_list");
+  }
+
+  /** Pending `ask_user_rank` requests, in the order they were opened. */
+  get pendingAskUserRank(): ReadonlyMap<string, PendingAskUserRank> {
+    return this.pendingAsks("ask_user_rank");
+  }
+
+  /** Pending `ask_user_form` requests, in the order they were opened. */
+  get pendingAskUserForm(): ReadonlyMap<string, PendingAskUserForm> {
+    return this.pendingAsks("ask_user_form");
+  }
+
+  /** Location requests waiting for the client. */
+  get pendingLocation(): ReadonlyMap<string, PendingLocation> {
+    return this.#pendingLocation;
+  }
+
+  /** Mask requests waiting for the client. */
+  get pendingMask(): ReadonlyMap<string, PendingMask> {
+    return this.#pendingMask;
+  }
+
   /**
    * Handoff creations in flight, by client-minted key (#61). Present from
    * acceptance until the destination is recorded or the attempt ends, so a
    * repeated key answers `pending` instead of starting a second session.
    */
-  readonly handoffs = new Map<string, { sessionId?: string }>();
+  get handoffs(): ReadonlyMap<string, PendingHandoff> {
+    return this.#handoffs;
+  }
+
   /** Running handoff preparation summaries, by handoff key (#61). */
-  readonly handoffPreparations = new Map<string, { abort: AbortController; owner: unknown }>();
-  /** Settled and closed ask requests, by request id (see AskOutcome). */
-  readonly askOutcomes = new Map<string, AskOutcome>();
+  get handoffPreparations(): ReadonlyMap<string, HandoffPreparation> {
+    return this.#handoffPreparations;
+  }
 
   /** Every authorization context with at least one live owner or async lease. */
-  readonly authorizationRegistry = new Map<AuthorizationContext, number>();
+  get authorizationRegistry(): ReadonlyMap<AuthorizationContext, number> {
+    return this.#authorizationRegistry;
+  }
 
   /**
    * A session's follow-ups that the agent has not received yet, in send
@@ -454,19 +583,19 @@ export class TurnCoordinator {
    */
   pendingFollowUps(sessionId: string): QueuedFollowUp[] {
     // The same precedence as chat dispatch, which queues into a start first.
-    const starting = this.startingBySession.get(sessionId);
+    const starting = this.#startingBySession.get(sessionId);
     if (starting) return [...starting.queue];
-    const turn = this.bySession.get(sessionId);
+    const turn = this.#bySession.get(sessionId);
     return turn ? [...(turn.handingOver ? [turn.handingOver] : []), ...turn.queue] : [];
   }
 
   /** Every session that has at least one pending follow-up. */
   sessionsWithFollowUps(): string[] {
     const ids = new Set<string>();
-    for (const [sessionId, turn] of this.bySession) {
+    for (const [sessionId, turn] of this.#bySession) {
       if (turn.handingOver || turn.queue.length > 0) ids.add(sessionId);
     }
-    for (const [sessionId, starting] of this.startingBySession) {
+    for (const [sessionId, starting] of this.#startingBySession) {
       if (starting.queue.length > 0) ids.add(sessionId);
     }
     return [...ids];
@@ -477,7 +606,7 @@ export class TurnCoordinator {
     if (!sessionId) return;
     // Dropping nothing changed nothing.
     if (change.dropped?.entries.length === 0 && !change.started) return;
-    this.onQueueChanged?.(sessionId, change);
+    this.#onQueueChanged?.(sessionId, change);
   }
 
   /**
@@ -498,24 +627,87 @@ export class TurnCoordinator {
     this.queueChanged(sessionId, { dropped: { entries: dropped, reason } });
   }
 
+  /**
+   * Count a session start against the concurrency cap and, for a known
+   * session, reserve it so chat dispatch queues behind it. Pair with
+   * `endStarting` on every exit.
+   */
+  beginStarting(sessionId: string | null | undefined, starting: StartingSession): void {
+    if (sessionId) this.#startingBySession.set(sessionId, starting);
+    this.#startingSessions += 1;
+  }
+
+  /** End a start begun with `beginStarting`; a newer reservation for the session is kept. */
+  endStarting(sessionId: string | null | undefined, starting: StartingSession): void {
+    this.#startingSessions = Math.max(0, this.#startingSessions - 1);
+    if (sessionId && this.#startingBySession.get(sessionId) === starting) {
+      this.#startingBySession.delete(sessionId);
+    }
+  }
+
+  /** Make a slot running, indexed by its session once it has one. */
+  registerTurn(turn: RunningTurn): void {
+    this.#running.add(turn);
+    if (turn.sessionId) this.#bySession.set(turn.sessionId, turn);
+  }
+
+  /** Index a running slot under the session id its backend just named. */
+  bindSession(sessionId: string, turn: RunningTurn): void {
+    this.#bySession.set(sessionId, turn);
+  }
+
+  /** Remove an ended slot; a newer slot indexed under the same session is kept. */
+  unregisterTurn(turn: RunningTurn): void {
+    if (turn.sessionId && this.#bySession.get(turn.sessionId) === turn) {
+      this.#bySession.delete(turn.sessionId);
+    }
+    this.#running.delete(turn);
+  }
+
+  /** Record whether a session's newest acceptance was stored, ordering its recovery (#964). */
+  setSessionOrdered(sessionId: string, ordered: boolean): void {
+    if (ordered) this.#unorderedSessions.delete(sessionId);
+    else this.#unorderedSessions.add(sessionId);
+  }
+
+  /** Reserve a handoff key (#61) until `releaseHandoff` is called with the same entry. */
+  registerHandoff(handoffId: string, entry: PendingHandoff): void {
+    this.#handoffs.set(handoffId, entry);
+  }
+
+  /** Release a handoff key, unless a newer attempt holds it. */
+  releaseHandoff(handoffId: string, entry: PendingHandoff): void {
+    if (this.#handoffs.get(handoffId) === entry) this.#handoffs.delete(handoffId);
+  }
+
+  /** Track a running handoff preparation summary (#61); it counts as an active run. */
+  registerHandoffPreparation(handoffId: string, preparation: HandoffPreparation): void {
+    this.#handoffPreparations.set(handoffId, preparation);
+  }
+
+  /** Stop tracking a preparation, unless a newer one holds the key. */
+  releaseHandoffPreparation(handoffId: string, abort: AbortController): void {
+    if (this.#handoffPreparations.get(handoffId)?.abort === abort) this.#handoffPreparations.delete(handoffId);
+  }
+
   /** Remember what became of an ask request, within the TTL/count bounds. */
   recordAskOutcome(outcome: AskOutcome): void {
     const cutoff = outcome.at - ASK_OUTCOME_TTL_MS;
-    for (const [id, existing] of this.askOutcomes) {
-      if (existing.at > cutoff && this.askOutcomes.size < ASK_OUTCOME_MAX) break;
-      this.askOutcomes.delete(id);
+    for (const [id, existing] of this.#askOutcomes) {
+      if (existing.at > cutoff && this.#askOutcomes.size < ASK_OUTCOME_MAX) break;
+      this.#askOutcomes.delete(id);
     }
     // Re-inserting moves the entry to the end, so map order stays age order.
-    this.askOutcomes.delete(outcome.requestId);
-    this.askOutcomes.set(outcome.requestId, outcome);
+    this.#askOutcomes.delete(outcome.requestId);
+    this.#askOutcomes.set(outcome.requestId, outcome);
   }
 
   /** The outcome for a request id, unless it has aged out. */
   askOutcome(requestId: string, now = Date.now()): AskOutcome | undefined {
-    const outcome = this.askOutcomes.get(requestId);
+    const outcome = this.#askOutcomes.get(requestId);
     if (!outcome) return undefined;
     if (outcome.at <= now - ASK_OUTCOME_TTL_MS) {
-      this.askOutcomes.delete(requestId);
+      this.#askOutcomes.delete(requestId);
       return undefined;
     }
     return outcome;
@@ -532,21 +724,153 @@ export class TurnCoordinator {
     });
   }
 
+  /** The pending ask with this id, of whichever kind. */
+  pendingAsk(requestId: string): PendingAsk | undefined {
+    return this.#asks.get(requestId);
+  }
+
+  /** Pending asks of one kind, in the order they were opened. */
+  pendingAsks<K extends AskKind>(kind: K): ReadonlyMap<string, PendingAskEntry<K>> {
+    const asks = new Map<string, PendingAskEntry<K>>();
+    for (const [id, ask] of this.#asks) {
+      if (ask.kind === kind) asks.set(id, ask.entry as PendingAskEntry<K>);
+    }
+    return asks;
+  }
+
+  /**
+   * Open an ask unless its id is already pending, and say whether it opened.
+   *
+   * The rule differs by kind today, and is preserved here until #2773 rules
+   * on one: `ask_user` and `ask_user_list` replace their own kind's entry
+   * from the same turn and refuse (and log) one from another turn, while any
+   * other pending id refuses every kind without a log.
+   */
+  openAsk<K extends AskKind>(kind: K, entry: PendingAskEntry<K>): boolean {
+    const existing = this.#asks.get(entry.requestId);
+    if (existing) {
+      if (existing.kind !== kind || (kind !== "ask_user" && kind !== "ask_user_list")) return false;
+      if (this.collides(existing.entry, entry.requestId, entry.turn)) return false;
+    }
+    this.#asks.set(entry.requestId, { kind, entry } as PendingAsk);
+    return true;
+  }
+
+  /**
+   * Settle a pending ask with an answer: remove it and record who accepted
+   * it. The caller resolves the entry's promise with the answer.
+   */
+  acceptAsk(ask: PendingAsk, submission: { submissionId: string; principalId: string }): void {
+    const { entry } = ask;
+    if (this.#asks.get(entry.requestId) === ask) this.#asks.delete(entry.requestId);
+    this.recordAskOutcome({
+      requestId: entry.requestId,
+      sessionId: entry.turn.sessionId,
+      turnId: entry.turnId,
+      state: "accepted",
+      submissionId: submission.submissionId,
+      principalId: submission.principalId,
+      at: Date.now(),
+    });
+  }
+
   /**
    * Remove a pending ask of any kind and record why. Used by dismissal; a
    * turn ending goes through drainPendingForTurn.
    */
   cancelAsk(requestId: string): void {
-    const p =
-      this.pendingAskUser.get(requestId) ??
-      this.pendingAskUserList.get(requestId) ??
-      this.pendingAskUserRank.get(requestId) ??
-      this.pendingAskUserForm.get(requestId);
-    this.pendingAskUser.delete(requestId);
-    this.pendingAskUserList.delete(requestId);
-    this.pendingAskUserRank.delete(requestId);
-    this.pendingAskUserForm.delete(requestId);
-    if (p) this.closeAsk(p, "cancelled");
+    const p = this.#asks.get(requestId);
+    this.#asks.delete(requestId);
+    if (p) this.closeAsk(p.entry, "cancelled");
+  }
+
+  /** Open a permission request unless another turn holds its id; says whether it opened. */
+  openApproval(toolUseId: string, entry: PendingApproval): boolean {
+    if (this.#claimedApprovals.has(toolUseId) || this.#expiringApprovals.has(toolUseId)) return false;
+    if (this.collides(this.#pendingApprovals.get(toolUseId), toolUseId, entry.turn)) return false;
+    this.#pendingApprovals.set(toolUseId, entry);
+    return true;
+  }
+
+  /**
+   * Transfer a pending answer to one handler. Keep it owned through any
+   * storage wait so invalidation/teardown can still expire it exactly once.
+   */
+  claimApproval(toolUseId: string, accepts: (p: PendingApproval) => boolean = () => true): PendingApproval | undefined {
+    const p = this.#pendingApprovals.get(toolUseId);
+    if (!p || !accepts(p)) return undefined;
+    this.#pendingApprovals.delete(toolUseId);
+    this.#claimedApprovals.set(toolUseId, p);
+    return p;
+  }
+
+  /** Expire a waiting or claimed answer; late handlers can no longer settle it. */
+  expireApproval(toolUseId: string, reason: string, cause: "safety_changed" | "turn_ended" | "grant_storage_failed",
+    accepts: (p: PendingApproval) => boolean = () => true): boolean {
+    const p = this.#pendingApprovals.get(toolUseId) ?? this.#claimedApprovals.get(toolUseId);
+    if (!p || !accepts(p)) return false;
+    this.#pendingApprovals.delete(toolUseId);
+    this.#claimedApprovals.delete(toolUseId);
+    this.#expiringApprovals.add(toolUseId);
+    if (p.expire) p.expire(reason, cause);
+    else {
+      this.recordApprovalOutcome(toolUseId, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, reason });
+      p.resolve({ behavior: "deny", message: reason });
+    }
+    return true;
+  }
+
+  /** Answer a claimed permission request and record its outcome. */
+  settleApproval(
+    toolUseId: string,
+    claimed: PendingApproval,
+    decision: PermissionDecision,
+    response: { principalId: string; always?: boolean; channel?: ApprovalChannel }
+  ): void {
+    if (this.#claimedApprovals.get(toolUseId) !== claimed) return;
+    const refusal = decision.behavior === "allow" ? claimed.revalidate?.() : null;
+    if (refusal) {
+      this.expireApproval(toolUseId, refusal, "safety_changed", p => p === claimed);
+      return;
+    }
+    this.#claimedApprovals.delete(toolUseId);
+    this.recordApprovalOutcome(toolUseId, {
+      outcome: decision.behavior === "deny" ? "denied" : "granted",
+      turnId: claimed.turnId,
+      sessionId: claimed.turn.sessionId,
+      ...(response.channel ? { channel: response.channel } : {}),
+    });
+    claimed.resolve(decision, response);
+  }
+
+  /** Open a location request unless another turn holds its id; says whether it opened. */
+  openLocation(requestId: string, entry: PendingLocation): boolean {
+    if (this.collides(this.#pendingLocation.get(requestId), requestId, entry.turn)) return false;
+    this.#pendingLocation.set(requestId, entry);
+    return true;
+  }
+
+  /** Remove and return a pending location request that `accepts` matches; the caller settles it. */
+  claimLocation(requestId: string, accepts: (p: PendingLocation) => boolean = () => true): PendingLocation | undefined {
+    const p = this.#pendingLocation.get(requestId);
+    if (!p || !accepts(p)) return undefined;
+    this.#pendingLocation.delete(requestId);
+    return p;
+  }
+
+  /** Open a mask request unless another turn holds its id; says whether it opened. */
+  openMask(requestId: string, entry: PendingMask): boolean {
+    if (this.collides(this.#pendingMask.get(requestId), requestId, entry.turn)) return false;
+    this.#pendingMask.set(requestId, entry);
+    return true;
+  }
+
+  /** Remove and return a pending mask request that `accepts` matches; the caller settles it. */
+  claimMask(requestId: string, accepts: (p: PendingMask) => boolean = () => true): PendingMask | undefined {
+    const p = this.#pendingMask.get(requestId);
+    if (!p || !accepts(p)) return undefined;
+    this.#pendingMask.delete(requestId);
+    return p;
   }
 
   private locationCounter = 0;
@@ -560,18 +884,18 @@ export class TurnCoordinator {
     return `mask-${Date.now().toString(36)}-${++this.maskCounter}`;
   }
 
-  /** True while any session has a running turn. */
   /**
    * Backend runs occupying the concurrency cap: running and starting turns,
    * and handoff preparation summaries (#61). Every admission check reads
    * this, so no kind of run can slip past the others.
    */
   activeRuns(): number {
-    return this.running.size + this.startingSessions + this.handoffPreparations.size;
+    return this.#running.size + this.#startingSessions + this.#handoffPreparations.size;
   }
 
+  /** True while any session has a running turn. */
   isTurnActive(): boolean {
-    return this.running.size > 0;
+    return this.#running.size > 0;
   }
 
   /** Construct and synchronously register a context with its initial reference. */
@@ -580,22 +904,23 @@ export class TurnCoordinator {
     expiresAt: number;
     valid: boolean;
   }): AuthorizationContext {
+    const registry = this.#authorizationRegistry;
     let initialReleased = false;
     const releaseReference = () => {
-      const count = this.authorizationRegistry.get(authorization);
+      const count = registry.get(authorization);
       if (count === undefined) return;
-      if (count === 1) this.authorizationRegistry.delete(authorization);
-      else this.authorizationRegistry.set(authorization, count - 1);
+      if (count === 1) registry.delete(authorization);
+      else registry.set(authorization, count - 1);
     };
     const authorization: AuthorizationContext = {
       [authorizationContextBrand]: true,
       ...input,
       retain: () => {
-        const count = this.authorizationRegistry.get(authorization);
+        const count = registry.get(authorization);
         if (count === undefined) {
           throw new Error("Cannot retain a released authorization context");
         }
-        this.authorizationRegistry.set(authorization, count + 1);
+        registry.set(authorization, count + 1);
         let released = false;
         return () => {
           if (released) return;
@@ -609,13 +934,13 @@ export class TurnCoordinator {
         releaseReference();
       },
     };
-    this.authorizationRegistry.set(authorization, 1);
+    registry.set(authorization, 1);
     return authorization;
   }
 
   /** Add principals whose registered authorization context has expired. */
   collectExpiredPrincipalIds(now: number, ids: Set<string>): void {
-    for (const authorization of this.authorizationRegistry.keys()) {
+    for (const authorization of this.#authorizationRegistry.keys()) {
       if (authorization.valid && authorization.expiresAt <= now) {
         ids.add(authorization.principalId);
       }
@@ -624,7 +949,7 @@ export class TurnCoordinator {
 
   /** Invalidate every registered context belonging to one of these principals. */
   invalidateAuthorizations(principalIds: ReadonlySet<string>): void {
-    for (const authorization of this.authorizationRegistry.keys()) {
+    for (const authorization of this.#authorizationRegistry.keys()) {
       if (principalIds.has(authorization.principalId)) authorization.valid = false;
     }
   }
@@ -636,7 +961,7 @@ export class TurnCoordinator {
   revokePrincipals(principalIds: ReadonlySet<string>): RunningTurn[] {
     const affectedRunning: RunningTurn[] = [];
     this.invalidateAuthorizations(principalIds);
-    for (const turn of this.running) {
+    for (const turn of this.#running) {
       if (principalIds.has(turn.principalId)) {
         affectedRunning.push(turn);
       }
@@ -654,17 +979,28 @@ export class TurnCoordinator {
     return affectedRunning;
   }
 
-  /** Cancel every running turn (used on shutdown). */
+  /**
+   * Cancel every running turn and session start (used on shutdown), then
+   * settle any pending request whose turn is no longer running, so nothing a
+   * caller awaits is left unsettled. Returns whether any turn or start was
+   * cancelled.
+   */
   cancelAll(reason: string): boolean {
-    const hadWork = this.running.size > 0 || this.startingBySession.size > 0;
-    for (const [sessionId, starting] of this.startingBySession) {
+    const hadWork = this.#running.size > 0 || this.#startingBySession.size > 0;
+    for (const [sessionId, starting] of this.#startingBySession) {
       starting.cancelled = true;
       // Release, never truncate: each entry's lease settles host work it carries.
       this.dropStartingQueue(sessionId, starting, reason);
     }
-    if (!hadWork) return false;
-    for (const turn of [...this.running]) this.cancelTurn(turn, reason);
-    return true;
+    for (const turn of [...this.#running]) this.cancelTurn(turn, reason);
+    const orphaned = new Set<RunningTurn>();
+    for (const p of this.#pendingApprovals.values()) orphaned.add(p.turn);
+    for (const p of this.#claimedApprovals.values()) orphaned.add(p.turn);
+    for (const p of this.#asks.values()) orphaned.add(p.entry.turn);
+    for (const p of this.#pendingLocation.values()) orphaned.add(p.turn);
+    for (const p of this.#pendingMask.values()) orphaned.add(p.turn);
+    for (const turn of orphaned) this.drainPendingForTurn(turn, reason);
+    return hadWork;
   }
 
   /** Cancel a session's current turn and drop its queued follow-ups. */
@@ -690,49 +1026,60 @@ export class TurnCoordinator {
 
   /** Record a settled permission outcome and tell the host. */
   recordApprovalOutcome(toolUseId: string, record: ToolResolutionRecord): void {
-    this.resolvedApprovals.delete(toolUseId);
-    this.resolvedApprovals.set(toolUseId, record);
-    while (this.resolvedApprovals.size > MAX_RESOLVED_APPROVALS) {
-      const oldest = this.resolvedApprovals.keys().next().value;
+    this.#expiringApprovals.delete(toolUseId);
+    this.#resolvedApprovals.delete(toolUseId);
+    this.#resolvedApprovals.set(toolUseId, record);
+    while (this.#resolvedApprovals.size > MAX_RESOLVED_APPROVALS) {
+      const oldest = this.#resolvedApprovals.keys().next().value;
       if (oldest === undefined) break;
-      this.resolvedApprovals.delete(oldest);
+      this.#resolvedApprovals.delete(oldest);
     }
-    this.onApprovalSettled?.(toolUseId, record);
+    this.#onApprovalSettled?.(toolUseId, record);
+  }
+
+  /**
+   * Why this turn's interactive requests were drained, when they were for
+   * this turn id. A drain runs once, so a request a backend raises after it
+   * (a turn limit that ran out before the question reached the bridge) would
+   * never settle and would park startTurn until restart (#3553). Openers
+   * refuse with this reason instead.
+   */
+  drainedReason(turn: RunningTurn, turnId: string): string | undefined {
+    const drained = this.#drained.get(turn);
+    return drained?.turnId === turnId ? drained.reason : undefined;
+  }
+
+  /**
+   * Refuse an ask raised after its turn's drain: record it closed as ended,
+   * as the drain would have, and return the drain's reason. Undefined when
+   * the turn's requests were not drained and the ask may open.
+   */
+  refuseDrainedAsk(p: { turn: RunningTurn; turnId: string; requestId: string }): string | undefined {
+    const reason = this.drainedReason(p.turn, p.turnId);
+    if (reason !== undefined) this.closeAsk(p, "ended");
+    return reason;
   }
 
   /** Resolve/reject every pending interactive request belonging to one turn. */
   drainPendingForTurn(turn: RunningTurn, reason: string): void {
-    for (const [id, p] of this.pendingApprovals) {
+    // A drain of an aborted turn ends its interactive requests; every such
+    // caller aborts first. The first one's reason is the one kept.
+    if (turn.abortController?.signal.aborted && this.#drained.get(turn)?.turnId !== turn.turnId)
+      this.#drained.set(turn, { turnId: turn.turnId, reason });
+    for (const [id, p] of [...this.#pendingApprovals, ...this.#claimedApprovals]) {
       if (p.turn !== turn) continue;
-      p.resolve({ behavior: "deny", message: reason });
-      this.pendingApprovals.delete(id);
       // A terminal turn settles its own cards: no tool_result is coming, and
       // a client must be able to clear the card without waiting for one.
-      this.recordApprovalOutcome(id, { outcome: "expired", turnId: p.turnId, sessionId: p.turn.sessionId, reason });
+      this.expireApproval(id, reason, "turn_ended", entry => entry === p);
     }
-    for (const [id, p] of this.pendingAskUser) {
-      if (p.turn !== turn) continue;
-      p.reject(new Error(reason));
-      this.pendingAskUser.delete(id);
-      this.closeAsk(p, "ended");
-    }
-    for (const [id, p] of this.pendingAskUserList) {
-      if (p.turn !== turn) continue;
-      p.reject(new Error(reason));
-      this.pendingAskUserList.delete(id);
-      this.closeAsk(p, "ended");
-    }
-    for (const [id, p] of this.pendingAskUserRank) {
-      if (p.turn !== turn) continue;
-      p.reject(new Error(reason));
-      this.pendingAskUserRank.delete(id);
-      this.closeAsk(p, "ended");
-    }
-    for (const [id, p] of this.pendingAskUserForm) {
-      if (p.turn !== turn) continue;
-      p.reject(new Error(reason));
-      this.pendingAskUserForm.delete(id);
-      this.closeAsk(p, "ended");
+    // Kind by kind, in the order the per-kind maps were once drained.
+    for (const kind of ASK_KINDS) {
+      for (const [id, { kind: pendingKind, entry: p }] of this.#asks) {
+        if (pendingKind !== kind || p.turn !== turn) continue;
+        p.reject(new Error(reason));
+        this.#asks.delete(id);
+        this.closeAsk(p, "ended");
+      }
     }
     this.drainClientBoundForTurn(turn, reason);
   }
@@ -748,15 +1095,15 @@ export class TurnCoordinator {
    * re-deliver on reconnect.
    */
   drainClientBoundForTurn(turn: RunningTurn, reason: string): void {
-    for (const [id, p] of this.pendingLocation) {
+    for (const [id, p] of this.#pendingLocation) {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
-      this.pendingLocation.delete(id);
+      this.#pendingLocation.delete(id);
     }
-    for (const [id, p] of this.pendingMask) {
+    for (const [id, p] of this.#pendingMask) {
       if (p.turn !== turn) continue;
       p.reject(new Error(reason));
-      this.pendingMask.delete(id);
+      this.#pendingMask.delete(id);
     }
   }
 
@@ -768,14 +1115,9 @@ export class TurnCoordinator {
    * a future backend broke that invariant — fail the new request loudly rather
    * than silently overwriting (and thus resolving) another turn's entry.
    */
-  collidesAcrossTurns<T extends { turn: RunningTurn }>(
-    map: Map<string, T>,
-    id: string,
-    turn: RunningTurn
-  ): boolean {
-    const existing = map.get(id);
+  private collides(existing: { turn: RunningTurn } | undefined, id: string, turn: RunningTurn): boolean {
     if (existing && existing.turn !== turn) {
-      this.log?.emit({
+      this.#log?.emit({
         severityText: "ERROR",
         body: "interactive id collision: already pending for another turn",
         attributes: { "request.id": id },
@@ -783,35 +1125,5 @@ export class TurnCoordinator {
       return true;
     }
     return false;
-  }
-
-  /** Test seam: abort everything and clear all turn/pending state. */
-  reset(): void {
-    for (const turn of [...this.running]) {
-      clearTimeout(turn.timeoutHandle);
-      turn.abortController.abort();
-      for (const entry of turn.queue.splice(0)) entry.releaseAuthorization();
-    }
-    for (const starting of this.startingBySession.values()) {
-      starting.cancelled = true;
-      // Release, never truncate: each entry's lease settles host work it carries.
-      for (const entry of starting.queue.splice(0)) entry.releaseAuthorization();
-    }
-    this.startingBySession.clear();
-    this.unorderedSessions.clear();
-    this.running.clear();
-    this.bySession.clear();
-    this.pendingApprovals.clear();
-    this.resolvedApprovals.clear();
-    this.pendingAskUser.clear();
-    this.pendingAskUserList.clear();
-    this.pendingAskUserRank.clear();
-    this.pendingAskUserForm.clear();
-    this.askOutcomes.clear();
-    this.pendingLocation.clear();
-    for (const preparation of this.handoffPreparations.values()) preparation.abort.abort();
-    this.handoffPreparations.clear();
-    this.handoffs.clear();
-    this.startingSessions = 0;
   }
 }

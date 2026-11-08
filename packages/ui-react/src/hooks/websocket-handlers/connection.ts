@@ -1,13 +1,15 @@
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import type { ServerMessageHandlerMap } from "./types.js";
 
-type ConnectionFrame =
+type ConnectionFrame = "safety_history" | "safety_update" | "safety_unavailable"
   | "dialogue_history" | "scope_decision_receipt"
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
   | "tool_resolution" | "session_queue" | "conversation_opened" | "conversation_closed"
-  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired";
+  | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired"
+  | "attachment_read";
 
 export const connectionFrameHandlers = {
+  safety_history: () => {}, safety_update: () => {}, safety_unavailable: () => {},
   dialogue_history: () => {},
   scope_decision_receipt: (msg, context) => context.state.setScopeDecisionReceipt(msg),
   server_hello: (msg, context) => {
@@ -42,11 +44,14 @@ export const connectionFrameHandlers = {
   // Root-owned conversation routing consumes permission outcomes before demux;
   // ordinary chat progress keeps its existing handlers.
   tool_resolution: () => {},
-  // Pending follow-ups (#1002) are consumed by the connection before demux.
-  session_queue: () => {},
+  // Pending follow-ups (#1002): a connection-wide frame, never demultiplexed.
+  session_queue: (msg, context) => context.queueReport(msg),
   // Browser invalidation is #3231's: this client does not declare
   // `chatDeletion`, so the host never sends it this frame.
   chat_retired: () => {},
+  // Sent-row read states are #3155's: this client does not declare
+  // `attachmentReads`, so the host never sends it this frame.
+  attachment_read: () => {},
   conversation_opened: () => {},
   conversation_closed: () => {},
   conversation_event: () => {},

@@ -258,7 +258,8 @@ test("fixture cleanup drains account-switch recovery before the next real seed",
   try {
     await ready;
     expect((await navigator.locks.query()).held?.filter(lock => lock.name === "brain-ui:recording")).toHaveLength(1);
-    await expect(c.root.recordings!.sink().begin!({ mimeType: "audio/webm;codecs=opus" })).rejects.toThrow("Recording in another Brain tab");
+    // The holder is this store's own recovery, not another tab (#3326).
+    await expect(c.root.recordings!.sink().begin!({ mimeType: "audio/webm;codecs=opus" })).rejects.toThrow("Recordings are still being checked. Try again in a moment.");
     let completed = false;
     cleanup = c.cleanup().then(() => { completed = true; });
     await navigator.locks.query(); // A native round trip, while the known owner remains held.

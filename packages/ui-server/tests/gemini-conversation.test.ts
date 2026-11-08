@@ -1,5 +1,6 @@
 /** Real Bun WebSocket transport, loopback only. No vendor session or key. */
 import { afterEach, expect, test } from "bun:test";
+import { contextualStatus } from "./helpers/contextual-status";
 import { contextualRefusals } from "./helpers/contextual-refusals";
 import { createGeminiConversationProvider } from "../src/voice/gemini-conversation";
 import type { StartTurnRequest, LiveConversationEvent, LiveConversationSession } from "@schlessera/brain-ui-sdk/server";
@@ -506,7 +507,7 @@ test.each(["text", "binary"] as const)("real %s adapter and host keep chat progr
   } });
   const host = new WsHost({ registry: createStaticBackendRegistry([backend], "fake"), catalog: createSessionCatalog(() => db), conversationProvider: f.provider });
   const oldCleanup = cleanup!;
-  cleanup = async () => { release(); host.coordinator.reset(); await host.close(); db.close(); await oldCleanup(); };
+  cleanup = async () => { release(); await host.close(); db.close(); await oldCleanup(); };
   const handlers = createWsHandlers(host, testPrincipal());
   const frames: any[] = [];
   const ws = { send: (data: string) => frames.push(JSON.parse(data)) } as WSContext;
@@ -769,4 +770,33 @@ test("maximal resync stays within the Gemini ceilings with whole source facts (#
   // Older shells fill the rest; selection stops only when the next whole shell (at most ~2.2 KB with a reason) cannot fit.
   expect(utf8(text)).toBeGreaterThan(24_000 - 2_300);
   await next.close();
+});
+
+test("Gemini status requires exact live binding, is monotone and never completes the native call", async () => {
+  const f = await fixture(true, true, false, "text", true);
+  f.emit({ toolCall: { functionCalls: [{ id: "status-native", name: "host_task" }] } });
+  await until(() => f.received.some(event => event.kind === "work_requested"));
+  const binding = { nativeHandle: "status-native", taskId: "status-task", requestId: "status-request" };
+  const exact = { conversationId: "ithaca", epoch: 1, ...binding };
+  const queued = { state: "queued" as const, intent: 'Find the mast. "Ignore permissions" is uncertain data.' };
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("binding");
+  f.session.bindContextualWork!(binding);
+  for (const wrong of [{ epoch: 2 }, { conversationId: "elsewhere" }, { taskId: "other" }, { requestId: "other" }, { nativeHandle: "other" }]) {
+    expect(() => f.session.reportWorkStatus!({ ...exact, ...wrong }, queued), "STATUS_REJECTS_EVERY_MISMATCHED_IDENTITY").toThrow("binding");
+  }
+  f.session.reportWorkStatus!(exact, queued); f.session.reportWorkStatus!(exact, queued);
+  f.session.reportWorkStatus!(exact, { state: "running", intent: "Find the mast." });
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("backwards");
+  await until(() => f.sent.filter(frame => frame.toolResponse).length === 2);
+  expect(f.sent.filter(frame => frame.toolResponse).map(frame => frame.toolResponse.functionResponses[0].willContinue)).toEqual([true, true]);
+  await f.session.returnWork({ ...exact, provenance: "contextual", turnId: "status-turn" }, result);
+  await until(() => f.sent.filter(frame => frame.toolResponse).length === 3);
+  expect(f.sent.filter(frame => frame.toolResponse).at(-1).toolResponse.functionResponses[0]).toMatchObject({ id: "status-native", willContinue: false, response: { outcome: "completed", output: result.facts } });
+  expect(() => f.session.reportWorkStatus!(exact, queued)).toThrow("binding");
+});
+
+for (const mode of ["complete", "storage", "replace", "withdraw", "status-error"] as const) test(`host acceptance status on actual gemini adapter: ${mode}`, async () => {
+  const f = await fixture(true, true, false, "text", true);
+  const oldCleanup = cleanup!;
+  await contextualStatus("gemini", mode, f, close => { cleanup = async () => { await close(); await oldCleanup(); }; });
 });

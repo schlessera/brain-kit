@@ -56,7 +56,7 @@ SDK conversion without adding a public embedding-provider seam.
 
 The image CLI preserves `bytes`, `costIsEstimate`, `costUsd`, `model`, `note`,
 `output`, `outputs`, `provider`, `reason` and `renamed`
-(`const payload`, `packages/module-images/src/cli.ts:407-419`). Its help example
+(`const payload`, `packages/module-images/src/cli.ts:408-420`). Its help example
 is abbreviated; it is not the complete machine contract. Internal image raw
 usage does not imply that this envelope exposes it.
 
@@ -156,8 +156,10 @@ concrete durable owner and transaction point in the later implementation, with
 restart/retry controls, rather than relying on a worker-supplied counter.
 
 Budget coverage excluded provider/tool spend until #1673; it now names the
-relayed CLI providers and nothing else
-(`TURN_BUDGET_COVERAGE`, `packages/ui-server/src/brain/turn-budgets.ts:46`).
+relayed CLI providers, where the host wires its Apify ledger (#3307) the
+Apify runs it admitted, and the hosted external compute jobs it admitted
+(#3108), and nothing else
+(`TURN_BUDGET_COVERAGE`, `packages/ui-server/src/brain/turn-budgets.ts:47`).
 Only qualified recorded units may advance that disclosure. Before activation,
 prove refusal before the next dispatch once the applicable known budget is
 exhausted, alongside native cancellation/cleanup and deduplication. Exact advance

@@ -139,7 +139,7 @@ The common threshold and copy are (`stateRoomWarning`,
 `packages/ui-sdk/src/state-room.ts:9-13`). Claude observes the completed actual
 copy (`populate(root) {`, `packages/ui-backend-claude/src/worker-state.ts:231-253`);
 Pi retains its existing payload/reserve admission (`checkSessionSize`,
-`packages/ui-backend-pi/src/worker-protocol.ts:21-26`).
+`packages/ui-backend-pi/src/worker-protocol.ts:28-33`).
 
 The notice labels the measurement `As of the last turn` with its age, including
 historical/offline replay. Unknown measurements show no invented percentage.
@@ -159,8 +159,8 @@ size refusal takes precedence over the notice, and shared-budget busy keeps
 its distinct retry treatment. Nothing archives, purges or automatically sends.
 The notice's presentation and actions are (`StateRoomNotice`,
 `packages/ui-react/src/components/chat/state-room-notice.tsx:22-100`); the host
-keeps the measurement and first quiet event (`if (msg.type === "result") {`,
-`packages/ui-server/src/ws/bridge.ts:282-292`).
+keeps the measurement and first quiet event (`const onResult`,
+`packages/ui-server/src/ws/bridge-capabilities/emission.ts:203-228`).
 
 ### Historical state directories remain untouched
 

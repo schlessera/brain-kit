@@ -1,7 +1,7 @@
-import type { ClientMessage, Draft, ServerMessage, SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
+import { COMPOSER_FILES_CAPABILITY, type ClientMessage, type Draft, type ServerMessage, type SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { createDraftApi, type DraftApi, type DraftCallResult } from "./draft-api.js";
-import { hasContent, type ComposerDraft, type DraftSend } from "../stores/draft-state.js";
+import { bindableFiles, hasContent, type ComposerDraft, type DraftSend } from "../stores/draft-state.js";
 import type { PendingAttachment } from "./image-attachments.js";
 import { moveTracks, removeTracks, trackKey } from "./draft-tracks.js";
 
@@ -37,7 +37,7 @@ const RETRY_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
 /** Errors the host sends for a frame it could not tie to a request, when they name none. */
 const UNCORRELATED = ["RATE_LIMITED", "PARSE_ERROR", "INTERNAL_ERROR"];
 
-export interface DraftClientOptions {
+interface DraftClientOptions {
   send: (msg: ClientMessage) => boolean;
   api?: DraftApi;
 }
@@ -162,7 +162,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       // The lost save created revision 1. A later one is another device's
       // edit since: never deleted unseen, it is a conflict on the empty draft.
       if (read.ok && read.value.revision > 1) {
-        drafts.setState((s) => (s.drafts[d.draftId] ? { drafts: { ...s.drafts, [d.draftId]: { ...s.drafts[d.draftId]!, uncertain: false, host: { revision: read.value.revision, edit: -1, sessionId: read.value.sessionId, attachmentIds: read.value.attachments.map((a) => a.attachmentId), updatedAt: read.value.updatedAt } } } } : s));
+        drafts.setState((s) => (s.drafts[d.draftId] ? { drafts: { ...s.drafts, [d.draftId]: { ...s.drafts[d.draftId]!, uncertain: false, host: { revision: read.value.revision, edit: -1, sessionId: read.value.sessionId, attachmentIds: read.value.attachments.map((a) => a.attachmentId), ...(read.value.files ? { fileIds: read.value.files.map((f) => f.fileId) } : {}), updatedAt: read.value.updatedAt } } } } : s));
         drafts.getState().conflictWith(d.draftId, read.value, true);
         return;
       }
@@ -199,11 +199,17 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       uploads.set(attachment, result.value.attachmentId);
       drafts.getState().uploaded(d.draftId, attachment, result.value.attachmentId);
     }
+    // Only originals minted for this id can be bound here (#3155); one
+    // carried from another id waits to be chosen again, and is not listed.
+    const fileIds = bindableFiles(d).map((f) => f.file.fileId);
     const body = {
       // A save never moves a draft: a bound one stays its host session's until a bind.
       sessionId: d.host ? d.host.sessionId : d.sessionId,
       text: d.text,
       attachmentIds: d.attachments.map((a) => uploads.get(a)!),
+      // Listed whenever this revision or the last one binds any, so removing
+      // the last original unbinds it; omitted for a host without them.
+      ...(fileIds.length > 0 || (d.host?.fileIds?.length ?? 0) > 0 ? { fileIds } : {}),
     };
     const ifMatch = d.host?.revision ?? 0;
     const fingerprint = JSON.stringify([ifMatch, body]);
@@ -218,7 +224,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       bumpHost(d.draftId);
       drafts.getState().saved(d.draftId, {
         revision: result.value.revision, edit: d.edit, sessionId: body.sessionId,
-        attachmentIds: body.attachmentIds, updatedAt: result.value.updatedAt,
+        attachmentIds: body.attachmentIds, ...(body.fileIds ? { fileIds: body.fileIds } : {}), updatedAt: result.value.updatedAt,
       }, uploads);
       return;
     }
@@ -371,7 +377,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     c.addUserMessage(key, send.text, send.message.source,
       send.attachments.length ? send.attachments.map((a) => ({ previewUrl: a.previewUrl, mediaType: a.attachment.mediaType })) : undefined,
       { requestId: send.requestId, ...(send.message.thinkingLevel !== undefined ? { thinkingLevel: send.message.thinkingLevel } : {}) },
-      send.files?.length ? send.files : undefined);
+      send.files?.length ? send.files : undefined,
+      send.attachmentFiles?.length ? send.attachmentFiles.map((f) => f.file) : undefined);
     if (!(buffer?.isStreaming ?? false)) c.startAssistantMessage(key, undefined, send.requestId);
   }
 
@@ -427,7 +434,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     hello(msg: Extract<ServerMessage, { type: "server_hello" }>): void {
       if (disposed) return;
       const supported = msg.capabilities?.sessionDrafts === true;
-      drafts.getState().setSupport(supported, supported ? (msg.sessionDraftLimits as SessionDraftLimits | undefined) : undefined);
+      // Composer originals need durable drafts to bind them (#3155, design §9).
+      const files = supported && msg.capabilities?.[COMPOSER_FILES_CAPABILITY] === true ? msg.attachmentLimits ?? null : null;
+      drafts.getState().setSupport(supported, supported ? (msg.sessionDraftLimits as SessionDraftLimits | undefined) : undefined, files);
       if (!supported) return;
       failures.clear();
       // A new connection is new evidence: what was full may have room now.

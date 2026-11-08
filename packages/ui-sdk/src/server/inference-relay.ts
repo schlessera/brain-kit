@@ -100,9 +100,14 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   try {
     server = Bun.serve({
       unix: socketPath,
-      async fetch(request, owner) {
-        // Streaming inference can idle between events for longer than the default.
-        owner.timeout(request, 0);
+      // Streaming inference can idle between events for longer than Bun's 10s
+      // default, e.g. while a model writes one large tool input. Bun 1.4 does
+      // not honour a per-request `timeout(request, 0)` once the response
+      // streams, so disable it here.
+      // bun-types declares idleTimeout only for hostname servers; the runtime
+      // honours it on a Unix socket too (#3441 regression tests prove it).
+      ...({ idleTimeout: 0 } as object),
+      async fetch(request) {
         const url = new URL(request.url);
         const path = url.pathname;
         if (request.method !== "POST") return refuse(request.method, path, 405, "Only inference requests are relayed");
@@ -181,6 +186,10 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         if (operation && !operation.charge(headerBytes(`${request.method} ${path}${url.search} HTTP/1.1`, headers))) {
           return denied("max_bytes_per_turn");
         }
+        // Body/credential waits may have crossed an input-recording failure.
+        // Re-enter the concrete host admission at the last dispatch boundary.
+        if(operation&&!await operation.admit())return denied("inference_admission_refused");
+        if(operation&&!operation.commit())return denied("inference_admission_refused");
         let response: Response;
         try {
           // Never follow a redirect: the upstream must not choose another host.
