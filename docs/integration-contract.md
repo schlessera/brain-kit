@@ -20,6 +20,22 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Setup timeouts name their step (additive, 0.45.0, #3664)
+
+A separate-UID worker launch that misses its identity readiness deadline still
+refuses with `errorClass: "worker_host_unsupported"` and the requirement
+`worker_identity_setup_timed_out`. That requirement now always carries a
+parenthetical detail, which it never had before. The detail names the
+supervisor's last recorded setup step, for example
+`(step: launch-sent, ms: 312, sinceSpawnMs: 340)`. The steps are `started`,
+`listening`, `launch-sent`, `launch-acked`, `status-read` and `mounts-acked`.
+`step: none` means no step was recorded, and `step: refused (…)` means the record
+was not read. Any launch stderr follows after `; `, within the existing 400-byte
+detail. Requirement text is descriptive and other requirements already carry
+such a detail, so no field, class or meaning changes. See
+[wire](integration-contract/wire.md) and [the worker-host status](integration-contract/http.md).
+This ships in a minor.
+
 ## Observed live content map (additive, 0.45.0, #3630)
 
 `ConversationOrientation.knowledge[].topic` additionally accepts `content_map`:

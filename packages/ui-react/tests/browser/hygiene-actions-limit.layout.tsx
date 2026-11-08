@@ -8,6 +8,7 @@ import type { HygieneReviewRead } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
+import { stopHygieneFixture } from "./hygiene-fixture-stop.ts";
 
 let fixture: { id: string; url: string } | undefined;
 let renderer: Root | undefined, ui: BrainUiRoot | undefined, host: HTMLDivElement | undefined, socket: WebSocket | undefined;
@@ -44,7 +45,7 @@ async function disposeScene() {
   sceneSocket?.close();
   sceneHost?.remove();
   await Promise.allSettled([...sceneResume.requests]);
-  if (sceneFixture) await commands.hygieneServer({ op: "stop", id: sceneFixture.id });
+  if (sceneFixture) await stopHygieneFixture(sceneFixture.id);
 }
 afterEach(async () => {
   await disposeScene();

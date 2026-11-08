@@ -269,6 +269,22 @@ const SPECIFIED: Record<string, string> = {
   "diagram-cluster-border": "#847c6f",
   "diagram-text": "#231f1a",
   "diagram-focal-tint": "#fbf1e0",
+  // The voice surface (#3692). Its borders are strokes, so they take the INK
+  // hue as every other border does; the shared `voice` fill rule would give
+  // them the fill hue. The control highlight is a lit top edge, which on paper
+  // stays light instead of inverting to an ink veil.
+  "voice-border-you": "rgba(127,76,8,0.5)",
+  "voice-border-brain": "rgba(21,89,76,0.5)",
+  "voice-border-idle": "rgba(95,88,76,0.35)",
+  "voice-border-fail": "rgba(156,42,36,0.5)",
+  "voice-control-shadow": "rgba(90,78,58,0.28)",
+  "voice-control-highlight": "rgba(255,255,255,0.7)",
+  // The opaque grounds are the light tints composited over the paper canvas,
+  // as the dark ones are over the dark canvas.
+  "voice-ground-you": "#eadbc3",
+  "voice-ground-brain": "#d5dfd3",
+  "voice-ground-idle": "#d5d0c5",
+  "voice-ground-fail": "#eed5cc",
 };
 
 /* ── Derivation ─────────────────────────────────────────────────────────── */

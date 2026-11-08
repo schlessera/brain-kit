@@ -480,8 +480,28 @@ app.get("/api/files/content", (c) => {
   const type = ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "mp4" ? "video/mp4" : "application/octet-stream";
   return new Response(ext === "mp4" ? new Uint8Array(64) : PNG, { headers: { "content-type": type, "cache-control": "no-store" } });
 });
+/**
+ * Answer every request a hold is keeping open, and stop holding new ones. The
+ * browser command's `stop` waits for every forwarded request before it sends
+ * SIGTERM, so teardown calls this first: a test that fails while a request is
+ * held then reports its own assertion instead of a hook timeout (#3665).
+ */
+function releaseHolds() {
+  holdPlans = false;
+  holdNext = false;
+  if (mode === "hold") mode = "";
+  if (details === "hold") details = "details";
+  for (const release of planHolds.splice(0)) release();
+  hold?.();
+  hold = undefined;
+  releaseNext?.();
+  releaseNext = undefined;
+  holdDetails?.();
+  holdDetails = undefined;
+}
 app.post("/fixture", async (c) => {
   const p = await c.req.json();
+  if (p.releaseAll) releaseHolds();
   if (p.holdNext !== undefined) holdNext = p.holdNext;
   if (p.as) as = p.as;
   if (p.details) details = p.details;
@@ -563,10 +583,7 @@ const server = Bun.serve({
 });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
 process.on("SIGTERM", () => {
-  for (const release of planHolds.splice(0)) release();
-  hold?.();
-  releaseNext?.();
-  holdDetails?.();
+  releaseHolds();
   stream.close();
   server.stop(true);
   db.close();
