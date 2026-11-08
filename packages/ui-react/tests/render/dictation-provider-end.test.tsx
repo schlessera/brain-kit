@@ -616,6 +616,7 @@ for (const words of [true, false]) test(`an error reported while Done drains sur
     throw new Error(`Unexpected dictation fixture request: ${path}`);
   } });
   roots.push(root);
+  primeDictation(root, "drain-fails");
   let options!: Parameters<Parameters<BrainUiRoot["asr"]["register"]>[1]>[0];
   let settle!: () => void;
   root.asr.register("drain-fails", (opts) => {
