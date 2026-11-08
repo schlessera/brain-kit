@@ -1057,6 +1057,7 @@ describe("brain MCP tools", () => {
       "brain_read",
       "brain_list",
       "brain_graph",
+      "brain_read_many",
       "brain_add",
       "brain_update",
     ]) {

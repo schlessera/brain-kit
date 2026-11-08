@@ -98,7 +98,7 @@ const FAMILY_BY_TOOL: Record<string, string> = {
   write: "file_write", edit: "file_write", multiedit: "file_write", notebookedit: "file_write",
   write_file: "file_write", edit_file: "file_write", apply_staged_changes: "file_write",
   read: "file_read", read_file: "file_read", notebookread: "file_read", brain_read: "file_read",
-  brain_read_base: "file_read",
+  brain_read_base: "file_read", brain_read_many: "file_read",
   grep: "search", glob: "search", ls: "search", brain_search: "search", brain_list: "search",
   webfetch: "web", websearch: "web", web_fetch: "web", web_search: "web",
   brain_add: "brain_write", brain_update: "brain_write", brain_archive: "brain_write",
