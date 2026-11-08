@@ -1538,6 +1538,27 @@ protocol types for the [HTTP shapes](../http-api.md#selectable-dictation-provide
 If-Match). `voiceSession(signal?, selection?: VoiceSessionRequest)` sends no body
 when selection is omitted. Explicit selection never substitutes another provider.
 
+**Additive (0.45.0, #3709): choosing the dictation provider in the app.** The
+ui-react Settings selection accepts `voice`; `openSettings("voice")` opens the
+lazy Voice pane between Models and Accounts, and Models remains the default.
+The pane reads discovery and writes the dictation settings only; it requests no
+session, microphone or provider. The shipped composer sends
+`voiceSession(signal, { providerId, smart })` with the provider it disclosed and
+refuses a response naming another. The first take to a provider on a device
+waits for an explicit acknowledgement of its `destination` (device-local, per
+account, keyed by provider id and destination text) before either request.
+`RecordingStore.transcribe(partition, id, progress, retry?, provider?)` gains an
+optional fifth argument, sent as `Speech-Provider`; without it the upload
+behaves as before. A retry refused with `transcription_provider_mismatch`
+applies the returned receipt and rejects, keeping the recording. `@schlessera/brain-ui-kit`'s `Composer` adds `micTip?: boolean`, which
+shows `micLabel` as the mic's pointer tooltip outside dictation, and
+`micUnavailable?: string`, which keeps the mic named and focusable but
+`aria-disabled`, uses the string as its accessible description and tooltip, and
+ignores taps and keys; the shipped composer sets it when discovery reports no
+registered dictation service. `RecordingStore.transcribe` rejections for a
+pre-claim refusal carry the server's error code as `code`. No wire, HTTP or
+protocol shape changes.
+
 The route builds keyterms only when supported, snapshots provider identity and
 capabilities, and publishes `VoiceSessionResponse` with connection material.
 The client's matching `AsrClientFactory` receives that whole session through

@@ -7,6 +7,7 @@ import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
 import { dictationFailure, dictationExplanation, speechError } from "./dictation-failure.js";
 import { registerAsrClients } from "./asr-clients.js";
 import { endDictation, live, owners, release, stopping, type Capture } from "./dictation-capture.js";
+import { acknowledge, dictationTarget, freshDiscovery, invalidateDiscovery, isAcknowledged, loadDiscovery } from "./dictation-providers.js";
 
 /** Apply pronunciation overrides client-side to a finalized transcript. */
 function applyOverrides(
@@ -39,6 +40,8 @@ export function useDictation() {
   // AbortController for the in-flight session fetch, so stop/cancel/unmount
   // can actually cancel a pending connect rather than just ignoring its result.
   const sessionAbortRef = useRef<AbortController | null>(null);
+  // Resolves the acknowledgement card a start() is waiting on (D4).
+  const consentRef = useRef<((confirmed: boolean) => void) | null>(null);
   // The last capture this hook started, on the root it started it on.
   const captureRef = useRef<Capture | null>(null);
   const setMode = useVoiceStore((s) => s.setMode);
@@ -57,6 +60,9 @@ export function useDictation() {
     owners.set(root.stores, capture);
     resetCapture();
     setProviderId(null);
+    consentRef.current?.(false);
+    consentRef.current = null;
+    root.stores.voice.setState({ dictationGate: null, dictationTarget: null });
     // Show the sheet immediately, but as "connecting" — the mic is still shut
     // during the session fetch, so we must not present a live "Listening" state
     // (or its pulsing dot) until capture is actually open.
@@ -65,13 +71,46 @@ export function useDictation() {
 
     const abort = new AbortController();
     sessionAbortRef.current = abort;
+    const current = () => startGenRef.current === gen && live(capture);
 
     try {
+      // Where the words go, from a snapshot young enough to disclose (#3709).
+      // A fresh one is used without waiting, so a known, acknowledged service
+      // requests its session in the same task as the tap.
+      const snapshot = freshDiscovery(root) ?? await loadDiscovery(root, { signal: abort.signal }).catch((error: unknown) => {
+        throw error instanceof TypeError ? speechError("Discovery transport failed", "network") : error;
+      });
+      if (!current()) return;
+      const target = dictationTarget(snapshot);
+      if (target.kind === "blocked") {
+        // Nowhere to send audio: no session, no microphone, no fallback.
+        if (sessionAbortRef.current === abort) sessionAbortRef.current = null;
+        root.stores.voice.setState({ dictationGate: target, connecting: false });
+        return;
+      }
+      const provider = target.provider;
+      if (!isAcknowledged(root, provider)) {
+        // D4: the first take to this service on this device names where the
+        // audio goes and waits for Start dictation before anything is minted.
+        root.stores.voice.setState({ dictationGate: { kind: "consent", provider }, connecting: false });
+        const confirmed = await new Promise<boolean>((resolve) => {
+          consentRef.current = resolve;
+          abort.signal.addEventListener("abort", () => resolve(false), { once: true });
+        });
+        if (!confirmed || !current()) return;
+        acknowledge(root, provider);
+        root.stores.voice.setState({ dictationGate: null, connecting: true });
+      }
+      // The take is bound to the provider it disclosed; a default saved
+      // elsewhere from now on changes nothing about it.
+      root.stores.voice.setState({ dictationTarget: provider });
       // Fetch the dictation session + pronunciation overrides. The AsrClient's
       // start() opens the mic and buffers audio until its stream is ready, so
       // words spoken during connect are not lost.
       const [session, ov] = await Promise.all([
-        api.voiceSession(abort.signal).catch((error: unknown) => {
+        api.voiceSession(abort.signal, { providerId: provider.id, smart: target.smart }).catch((error: unknown) => {
+          // A refusal or failure may mean the choice changed: read it again next tap.
+          invalidateDiscovery(root);
           // Fetch transport failures have no provider code. Do not inspect their text.
           throw error instanceof TypeError ? speechError("Session transport failed", "network") : error;
         }),
@@ -84,9 +123,14 @@ export function useDictation() {
       // have no reference left to stop it.
       if (startGenRef.current !== gen) return;
       if (sessionAbortRef.current === abort) sessionAbortRef.current = null;
+      // An explicit selection is exact: a session for any other service is
+      // refused, never used in its place.
+      if (session.providerId !== provider.id) {
+        invalidateDiscovery(root);
+        throw speechError("The session names a different speech provider", "unknown");
+      }
       overridesRef.current = ov.overrides;
-      // Surface which provider actually served this session (e.g. a silent
-      // fallback to browser speech) — see the sheet's provider indicator.
+      // Surface which provider actually served this session.
       setProviderId(session.providerId);
 
       const hints = speechUiHints(session.capabilities);
@@ -139,7 +183,7 @@ export function useDictation() {
       clientRef.current?.stop();
       clientRef.current = null;
       setError(dictationExplanation(reason, "startup"));
-      root.stores.voice.setState({ dictationNotice: { reason, phase: "startup", retained: false } });
+      root.stores.voice.setState({ dictationNotice: { reason, phase: "startup", retained: false }, dictationGate: null, dictationTarget: null });
       release(capture);
       setConnecting(false);
       setMode("idle");
@@ -161,6 +205,8 @@ export function useDictation() {
   // runs, not when the hook mounted, so it reaches a session started later.
   const releaseCapture = useCallback((): AsrClient | null => {
     startGenRef.current++;
+    consentRef.current?.(false);
+    consentRef.current = null;
     sessionAbortRef.current?.abort();
     sessionAbortRef.current = null;
     const client = clientRef.current;
@@ -260,5 +306,12 @@ export function useDictation() {
     };
   }, [root, releaseCapture]);
 
-  return { start, stop, cancel };
+  /** Start dictation on the acknowledgement card (D4). */
+  const confirm = useCallback(() => {
+    const resolve = consentRef.current;
+    consentRef.current = null;
+    resolve?.(true);
+  }, []);
+
+  return { start, stop, cancel, confirm };
 }

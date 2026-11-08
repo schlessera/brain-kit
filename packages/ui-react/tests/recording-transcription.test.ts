@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createStore } from "zustand/vanilla";
-import { createRecordingStore, type RecordingStore } from "../src/lib/recordings.js";
+import { createRecordingStore, PROVIDER_MISMATCH, type RecordingStore } from "../src/lib/recordings.js";
 import { updateHeld } from "../src/lib/update-holds.js";
 import type { BrainUiServices } from "../src/root.js";
 import type { LocalPartitions } from "../src/lib/local-partitions.js";
@@ -247,4 +247,48 @@ for (const field of ["transcription", "transcribeRequestId", "transcriptionMessa
   const value = field === "transcription" ? { ...done, status: "outcome_unknown" as const, text: undefined, failure: { reason: "outcome_unknown" as const, retryable: false } } : field === "transcribeRequestId" ? "newer-dispatch" : "Result unconfirmed";
   f.data.set(key, { ...index, [field]: value });
   expect((await s.get("account:odysseus", f.id))![field], "new metadata invalidates the stale recovery projection").toEqual(value);
+});
+
+// #3709: an upload names the service its confirmation showed; a retry stays with its attempt's service.
+test("a named upload sends Speech-Provider and skips the effective-provider probe", async () => {
+  const f = fixture(), done = await f.seed("saved"); const seen: Array<{ url: string; provider: string | null }> = [];
+  f.root.request = async (url, init) => {
+    const provider = new Headers(init?.headers).get("speech-provider");
+    seen.push({ url, provider });
+    // The receipt names the service that actually transcribed: the one named.
+    if (init?.method === "PUT") return Response.json({ ...done, providerId: provider });
+    return new Response("{}", { status: 404 });
+  };
+  const s = f.make(); await Bun.sleep(5); seen.length = 0;
+  await s.transcribe("account:odysseus", f.id, () => {}, undefined, "alpha");
+  expect(seen.filter(r => r.url.endsWith("/transcription")).map(r => r.provider), "SPEECH_PROVIDER_HEADER_IS_THE_CONFIRMED_ID").toEqual([null, "alpha"]);
+  expect(seen.some(r => r.url.endsWith("/voice/capabilities")), "a named upload does not ask for the effective provider").toBe(false);
+  expect((await s.get("account:odysseus", f.id))!.state).toBe("transcript-ready");
+  expect((await s.get("account:odysseus", f.id))!.transcription?.providerId, "the stored receipt names the dispatched service").toBe("alpha");
+});
+test("a refusal names its code, so the tray can learn a service is gone", async () => {
+  const f = fixture(); await f.seed("saved");
+  f.root.request = async (_url, init) => init?.method === "PUT"
+    ? Response.json({ error: "speech_provider_unavailable", message: "That dictation service isn't available on this host." }, { status: 409 })
+    : new Response("{}", { status: 404 });
+  const s = f.make(); await Bun.sleep(5);
+  const error = await s.transcribe("account:odysseus", f.id, () => {}, undefined, "gamma").catch((e: unknown) => e);
+  expect((error as { code?: string }).code).toBe("speech_provider_unavailable");
+  expect((error as Error).message).toBe("That dictation service isn't available on this host.");
+  expect((await s.get("account:odysseus", f.id))!.chunkCount, "the recording is kept").toBe(1);
+});
+test("a retry refused for naming another service keeps the recording and says why", async () => {
+  const f = fixture(), done = await f.seed("saved");
+  const failed = { ...done, status: "failed", text: undefined, providerId: "alpha", failure: { reason: "provider_error", retryable: true }, failures: [{ reason: "provider_error", retryable: true, attemptId: "first" }] };
+  f.root.request = async (url, init) => {
+    if (init?.method === "PUT") return Response.json({ error: "transcription_provider_mismatch", message: "Retry with the original transcription service.", receipt: failed }, { status: 409 });
+    if (url.endsWith("/transcription")) return Response.json(failed);
+    return new Response("{}", { status: 404 });
+  };
+  const s = f.make(); await Bun.sleep(5);
+  await expect(s.transcribe("account:odysseus", f.id, () => {}, "first", "beta")).rejects.toThrow(PROVIDER_MISMATCH);
+  const row = (await s.get("account:odysseus", f.id))!;
+  expect(row.state, "the stored receipt stands").toBe("failed");
+  expect(row.transcription?.providerId, "the receipt keeps its own service").toBe("alpha");
+  expect(row.chunkCount, "the audio stays on the device").toBe(1);
 });

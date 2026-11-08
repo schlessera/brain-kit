@@ -20,6 +20,18 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
+
+`openSettings("voice")` opens a new Settings › Voice pane, which holds the
+brain-wide dictation default. `RecordingStore.transcribe` accepts an optional
+provider id, sent as `Speech-Provider`; a retry refused for naming another
+provider applies the returned receipt and rejects; a pre-claim refusal
+carries the server's code as `code`. The kit `Composer` adds
+`micTip?: boolean` and `micUnavailable?: string`. Existing calls behave as before, and no HTTP or protocol
+shape changes. See
+[the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
+This ships in a minor.
+
 ## Bounded multi-read (additive, 0.45.0, #3642)
 
 A new read tool, `brain_read_many`, on the MCP server and the pi backend, and a

@@ -61,7 +61,7 @@ export function endDictation(
 ): boolean {
   const { finalText, partial, reviewText, draining } = voice.getState();
   if (draining && also.draining !== false) {
-    voice.setState({ connecting: false, mode: "idle" });
+    voice.setState({ connecting: false, mode: "idle", dictationGate: null });
     return false;
   }
   const merged = [finalText, partial].filter(Boolean).join(" ").trim();
@@ -69,6 +69,8 @@ export function endDictation(
     ...also,
     connecting: false,
     mode: "idle",
+    dictationGate: null,
+    dictationTarget: null,
     finalText: "",
     partial: "",
     audioLevel: 0,

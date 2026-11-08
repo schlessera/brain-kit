@@ -42,7 +42,7 @@ export function createBrainStores(env: StoreEnvironment) {
     share: createShareStore(),
     handoff,
     followUp: createFollowUpStore(),
-    voice: createVoiceStore(),
+    voice: createVoiceStore(env),
     trackers: createTrackerStore(env),
     // The list is where handoff links live (#61): every answer indexes them.
     sessions: createSessionListStore(env, (sessions) => handoff.getState().setLinks(sessions)),
