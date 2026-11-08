@@ -211,7 +211,10 @@ for (const theme of ["light", "dark"] as const) for (const [width, height] of [[
   await expect.poll(shown, { timeout: 2000 }).toBe(true);
   await s.capture("attach-hover-tooltip");
   await userEvent.hover(tip());
-  await new Promise(resolve => setTimeout(resolve, 300));
+  // A tip that lost its host's hover runs its 150 ms visibility transition to
+  // hidden. Reading the style starts any such transition; await it to the end.
+  void getComputedStyle(tip()).visibility;
+  await Promise.all(tip().getAnimations().map(animation => animation.finished));
   expect(shown(), "the pointer can rest on the tooltip").toBe(true);
   await userEvent.keyboard("{Escape}");
   expect(shown(), "Escape dismisses a hover tooltip without moving the pointer").toBe(false);
