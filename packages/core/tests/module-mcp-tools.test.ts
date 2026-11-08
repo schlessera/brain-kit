@@ -9,9 +9,10 @@ import { brainConfigSchema } from "../src/lib/config";
 import { loadModules } from "../src/lib/module-loader";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
-// Core's own tools in registration order: the eight document tools, the six
-// external compute tools (#3107), then the fixed Apify operations (#3162).
-const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_add", "brain_update", "brain_archive",
+// Core's own tools in registration order: the five single read tools, the
+// bounded multi-read (#3642), the three write tools, the six external compute
+// tools (#3107), then the fixed Apify operations (#3162).
+const CORE = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_read_many", "brain_add", "brain_update", "brain_archive",
   "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
   "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_run", "brain_apify_status", "brain_apify_results", "brain_apify_abort", "brain_apify_availability", "brain_apify_approvals", "brain_apify_revoke"];
 const roots: string[] = [];

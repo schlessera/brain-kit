@@ -83,6 +83,7 @@ export const VALUE_FLAGS = new Set([
   "copy", "copy-sha256", "journal", "to", "expect-premise",
   "expect-sha", "expect-approval", "pattern", "ignore-adjust",
   "session", "max-charge-usd",
+  "max-total-chars", "max-item-chars",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

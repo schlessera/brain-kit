@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
@@ -43,7 +43,7 @@ function withoutDescriptions(schema: unknown): unknown {
   );
 }
 
-const READ_TOOLS = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph"];
+const READ_TOOLS = ["brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_read_many"];
 const COMPUTE_TOOLS = [
   "brain_compute_health", "brain_compute_plan", "brain_compute_run", "brain_compute_status", "brain_compute_cancel", "brain_compute_collect",
 ];
@@ -70,7 +70,7 @@ afterAll(async () => {
   cleanup(root);
 });
 
-test("lists all 24 brain_* tools", async () => {
+test("lists all 25 brain_* tools", async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
   expect(names).toEqual([...ALL_TOOLS].sort());
@@ -411,6 +411,114 @@ describe("brain_read", () => {
     expect(res.isError).toBe(true);
     const [first] = res.content as Array<{ type: string; text: string }>;
     expect(first.text).toContain('available headings: "Current Identity", "How to Work With Odysseus"');
+  });
+});
+
+describe("brain_read_many (#3642)", () => {
+  type Text = Array<{ type: string; text: string }>;
+  const readMany = async (args: Record<string, unknown>, signal?: AbortSignal) =>
+    (await client.callTool({ name: "brain_read_many", arguments: args }, undefined, signal ? { signal } : undefined)) as {
+      content: Text;
+      structuredContent?: unknown;
+      isError?: boolean;
+    };
+  const envelope = (res: { content: Text }) => JSON.parse(res.content[0]!.text) as {
+    items: Array<Record<string, unknown> & { index: number; kind: string }>;
+    truncated: boolean;
+    max_total_chars: number;
+    max_item_chars: number;
+    warnings: string[];
+  };
+
+  test("answers several documents in request order as one compact JSON text block, with no structuredContent", async () => {
+    const res = await readMany({
+      requests: [
+        { path: "me/identity.md" },
+        { path: "me/identity.md", section: "how to work with odysseus" },
+        { path: "../escape.md" },
+        { path: "notes/no-such-note.md" },
+        { path: "./me/identity.md" },
+      ],
+    });
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent).toBeUndefined();
+    expect(res.content).toHaveLength(1);
+    const body = envelope(res);
+    expect(res.content[0]!.text).toBe(JSON.stringify(body));
+    expect(res.content[0]!.text.length).toBeLessThanOrEqual(body.max_total_chars);
+    expect(body.items.map((i) => (i.kind === "error" ? `error:${i.code}` : i.kind))).toEqual(["full", "full", "error:refused", "error:not_found", "duplicate"]);
+    expect(body.items.map((i) => i.index)).toEqual([0, 1, 2, 3, 4]);
+    // Full items are what brain_read returns for the same path and section.
+    const single = await client.callTool({ name: "brain_read", arguments: { path: "me/identity.md", section: "how to work with odysseus" } });
+    expect(body.items[1]!.content).toBe((single.content as Text)[0]!.text);
+    expect(body.items[0]!.content).toBe(readFileSync(join(root, "me/identity.md"), "utf-8"));
+    // No item carries the host's brain root.
+    expect(res.content[0]!.text).not.toContain(root);
+    expect(body).toMatchObject({ truncated: true, max_total_chars: 24_000, max_item_chars: 8_000 });
+    expect(Array.isArray(body.warnings)).toBe(true);
+  });
+
+  test("a symlink out of the root is refused per item while its neighbours are read", async () => {
+    const outside = `${root}-cave.md`;
+    writeFileSync(outside, "Polyphemus keeps this cave closed.\n");
+    symlinkSync(outside, join(root, "notes/cave-link.md"));
+    try {
+      const res = await readMany({ requests: [{ path: "notes/cave-link.md" }, { path: "me/identity.md" }] });
+      const text = res.content[0]!.text;
+      expect(text).not.toContain("Polyphemus");
+      expect(envelope(res).items.map((i) => i.code ?? i.kind)).toEqual(["refused", "full"]);
+    } finally {
+      rmSync(join(root, "notes/cave-link.md"), { force: true });
+      rmSync(outside, { force: true });
+    }
+  });
+
+  test("caps bound the whole text and each item, and a small total pages a document", async () => {
+    const res = await readMany({ requests: [{ path: "me/identity.md" }, { path: "me/identity.md", offset: 1 }], max_total_chars: 2_000, max_item_chars: 800 });
+    const body = envelope(res);
+    expect(res.content[0]!.text.length).toBeLessThanOrEqual(2_000);
+    for (const item of body.items) expect(JSON.stringify(item).length).toBeLessThanOrEqual(800);
+    expect(body.items[1]).toMatchObject({ kind: "partial", offset: 1, next: { offset: expect.any(Number) } });
+  });
+
+  test("invalid input is a tool error and is never clamped", async () => {
+    for (const args of [
+      { requests: [] },
+      { requests: Array.from({ length: 21 }, () => ({ path: "me/identity.md" })) },
+      { requests: [{ path: "me/identity.md" }], max_total_chars: 50_000 },
+      { requests: [{ path: "me/identity.md" }], max_total_chars: 2_000, max_item_chars: 3_000 },
+      { requests: [{ path: "me/identity.md", column: 2 }] },
+      { requests: [{ path: "me/identity.md", unknown: true }] },
+    ]) {
+      const res = await readMany(args);
+      expect(res.isError, JSON.stringify(args).slice(0, 80)).toBe(true);
+      expect(res.structuredContent).toBeUndefined();
+    }
+  });
+
+  test("concurrent callers each get their own complete, identical answer", async () => {
+    const args = { requests: [{ path: "me/identity.md" }, { path: "me/identity.md", section: "Reaching Odysseus" }] };
+    const results = await Promise.all(Array.from({ length: 6 }, () => readMany(args)));
+    const texts = results.map((r) => r.content[0]!.text);
+    expect(new Set(texts).size).toBe(1);
+    expect(envelope(results[0]!).items.map((i) => i.kind)).toEqual(["full", "full"]);
+  });
+
+  test("a cancelled call rejects on the client, its neighbours complete, and the server keeps serving", async () => {
+    const controller = new AbortController();
+    const many = { requests: Array.from({ length: 20 }, (_, i) => ({ path: "me/identity.md", offset: i + 1 })) };
+    const calls = [readMany(many), readMany(many, controller.signal), readMany(many)];
+    controller.abort();
+    const settled = await Promise.allSettled(calls);
+    expect(settled.map((s) => s.status)).toEqual(["fulfilled", "rejected", "fulfilled"]);
+    const after = await readMany({ requests: [{ path: "me/identity.md" }] });
+    expect(envelope(after).items[0]!.kind).toBe("full");
+  });
+
+  test("brain_read keeps its whole-file default and output beside it", async () => {
+    const res = await client.callTool({ name: "brain_read", arguments: { path: "me/identity.md" } });
+    expect((res.content as Text)[0]!.text).toBe(readFileSync(join(root, "me/identity.md"), "utf-8"));
+    expect(res.structuredContent).toBeUndefined();
   });
 });
 

@@ -73,6 +73,8 @@ export const DEFAULT_ALLOWED_TOOLS = [
   `${BRAIN_MCP_PREFIX}brain_read`,
   `${BRAIN_MCP_PREFIX}brain_list`,
   `${BRAIN_MCP_PREFIX}brain_graph`,
+  // The bounded multi-read (#3642): brain_read's permission default, reviewed for the new name.
+  `${BRAIN_MCP_PREFIX}brain_read_many`,
   "mcp__brain-ui__brain_add",
   BRAIN_UPDATE_TOOL,
   // Direct backend consumers without a hosted application bridge retain
@@ -129,6 +131,8 @@ export const VOICE_ALLOWED_TOOLS: readonly string[] = Object.freeze([
   `${BRAIN_MCP_PREFIX}brain_list`,
   // Read-only link traversal.
   `${BRAIN_MCP_PREFIX}brain_graph`,
+  // Read-only, up to 20 documents under one size cap; each read as brain_read reads it.
+  `${BRAIN_MCP_PREFIX}brain_read_many`,
   // Read-only local module queue, capped at 50 summaries; no egress.
   `${BRAIN_MCP_PREFIX}jobs_review`,
   // Capture, the most valuable eyes-free action. A create destroys nothing:
@@ -195,6 +199,7 @@ const BRAIN_READ_TOOLS = new Set([
   `${BRAIN_MCP_PREFIX}brain_read`,
   `${BRAIN_MCP_PREFIX}brain_list`,
   `${BRAIN_MCP_PREFIX}brain_graph`,
+  `${BRAIN_MCP_PREFIX}brain_read_many`,
   `${BRAIN_MCP_PREFIX}jobs_review`,
 ]);
 

@@ -43,6 +43,7 @@ import {
   readDocument,
   searchDocuments,
 } from "./lib/ops/read.js";
+import { READ_MANY_DESCRIPTION, readMany, readManyInputShape } from "./lib/ops/read-many.js";
 import { addDocument, archiveWithReindex, splitTags, updateDocumentFields } from "./lib/ops/write.js";
 import {
   COMPUTE_TOOL_NAMES,
@@ -427,6 +428,27 @@ function registerReadTools(server: McpServer, t: CoreTools): void {
   );
 }
 
+/**
+ * `brain_read_many` (#3642): the bounded multi-read, registered after the
+ * five single read tools. Its result is the JSON envelope once, as text, with
+ * no `structuredContent`: a second copy would double the wire size the caps
+ * bound (docs/decisions/bounded-multi-read.md). The read tools' warnings ride
+ * in the envelope, once per call.
+ */
+function registerReadManyTool(server: McpServer, t: CoreTools): void {
+  server.registerTool(
+    "brain_read_many",
+    { description: READ_MANY_DESCRIPTION, inputSchema: readManyInputShape, annotations: { readOnlyHint: true } },
+    async (params, extra) => {
+      try {
+        return jsonText(await readMany(t.brain.root, params, { signal: extra.signal, warnings: t.toolWarnings(t.stale()) }));
+      } catch (e) {
+        return errorResult(e);
+      }
+    }
+  );
+}
+
 /** brain_add, brain_update and brain_archive, in that order. Each refuses while the config is invalid. */
 function registerWriteTools(server: McpServer, t: CoreTools): void {
   const deps = { db: t.db, root: t.brain.root, taxonomy: t.brain.taxonomy };
@@ -712,6 +734,7 @@ export async function startMcpServer(
     { instructions: serverInstructions(brain.config?.profile?.name) }
   );
   registerReadTools(server, tools);
+  registerReadManyTool(server, tools);
   registerWriteTools(server, tools);
   const computeOps = createComputeOps({ root: brain.root, config: brain.config, caller: { kind: "mcp", principal: localPrincipal() } });
   const computeDriver = createComputeDriver(computeOps);
@@ -724,7 +747,7 @@ export async function startMcpServer(
   // Core's names are registered first. Module tools are fixed for this
   // process and registered before connect, so no list-changed event is sent.
   const owners = new Map<string, string | null>([
-    "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph",
+    "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "brain_read_many",
     "brain_add", "brain_update", "brain_archive", ...COMPUTE_TOOL_NAMES,
     ...APIFY_OPERATIONS.map(operation => APIFY_TOOL_NAMES[operation]),
   ].map((name) => [name, null]));

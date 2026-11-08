@@ -7,8 +7,8 @@ import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE } from "@schl
  * what the Claude backend exposes:
  *
  *   read_file, grep — repo-scoped file access
- *   brain_search, brain_context, brain_read, brain_list, brain_graph —
- *     read paths of the brain MCP surface, in-process
+ *   brain_search, brain_context, brain_read, brain_list, brain_graph,
+ *   brain_read_many — read paths of the brain MCP surface, in-process
  *   write_file, edit_file, bash, brain_add, brain_update, brain_archive —
  *     mutating; serialized under the shared write lock
  *   ask_user, get_current_location, query_activity, request_image_mask —
@@ -30,7 +30,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { createPiBridgeTools } from "./bridge-tools.js";
 import { brainReadBaseTool, routedApplicationTools } from "./application-tools.js";
-import { brainAddTool, brainArchiveTool, brainContextTool, brainGraphTool, brainListTool, brainReadTool, brainSearchTool, brainUpdateTool } from "./brain-tools.js";
+import { brainAddTool, brainArchiveTool, brainContextTool, brainGraphTool, brainListTool, brainReadManyTool, brainReadTool, brainSearchTool, brainUpdateTool } from "./brain-tools.js";
 import { bashTool, editFileTool, grepTool, readFileTool, writeFileTool } from "./file-tools.js";
 import { createBrainToolKit } from "./tool-kit.js";
 import type { BrainAccess } from "./brain-access.js";
@@ -127,6 +127,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_read: "read",
   brain_list: "read",
   brain_graph: "read",
+  // A bounded read of several documents (#3642): each member as brain_read reads it.
+  brain_read_many: "read",
   ask_user: "read",
   ask_user_list: "read",
   ask_user_rank: "read",
@@ -184,6 +186,7 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   "brain_read_base",
   "brain_list",
   "brain_graph",
+  "brain_read_many",
   "brain_add",
   "brain_update",
   "write_file",
@@ -228,6 +231,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     brainReadTool(kit),
     brainListTool(kit),
     brainGraphTool(kit),
+    brainReadManyTool(kit),
     writeFileTool(kit),
     editFileTool(kit),
     bashTool(kit),
