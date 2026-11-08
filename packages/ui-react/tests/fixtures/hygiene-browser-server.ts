@@ -194,6 +194,10 @@ let mediaKept = 0;
 let planRefusals: Record<string, Array<Record<string, unknown>>> = {};
 let holdPlans = false;
 const planHolds: Array<() => void> = [];
+/** Told when a plan parks in a hold. */
+let parked: (() => void) | undefined;
+/** Another device's preview, started by `foreignPreview`. */
+let foreign: Promise<unknown> | undefined;
 let applyMode = "";
 let undoMode = "";
 const mediaJournal = new Map<string, { action: string; plan: Record<string, unknown> }>();
@@ -226,6 +230,7 @@ async function mediaPlan(args: string[], signal?: AbortSignal) {
   if (holdPlans)
     await new Promise<void>((resolve, reject) => {
       planHolds.push(resolve);
+      parked?.();
       signal?.addEventListener("abort", () => reject(new Error("aborted")));
     });
   const linked = m.links.conversations > 0 ? "linked" : m.source === "scratch" && m.links.state !== "complete" ? "unknown" : "unlinked";
@@ -543,14 +548,21 @@ app.post("/fixture", async (c) => {
   if (p.mediaFiles) { mediaFiles = p.mediaFiles === "default" ? MEDIA_DEFAULT : p.mediaFiles; mediaDone.clear(); mediaKept = 0; }
   if (p.planRefusals) planRefusals = p.planRefusals;
   if (p.holdPlans !== undefined) holdPlans = p.holdPlans;
-  if (p.releasePlans) { holdPlans = false; for (const release of planHolds.splice(0)) release(); }
+  if (p.releasePlans) {
+    holdPlans = false; for (const release of planHolds.splice(0)) release();
+    // The other device's preview has finished, and freed the scan, when this answers.
+    await foreign; foreign = undefined;
+  }
   if (p.applyMode !== undefined) applyMode = p.applyMode;
   if (p.undoMode !== undefined) undoMode = p.undoMode;
   if (p.foreignPreview) {
     const current = review.read().action!;
     holdPlans = true;
-    void review.preview(penelope.id, { itemId: current.id, optionId: "media-delete", expectedVersion: current.version, input: null }).catch(() => {});
-    await new Promise((r) => setTimeout(r, 50));
+    const inPlan = new Promise<void>((resolve) => { parked = resolve; });
+    foreign = review.preview(penelope.id, { itemId: current.id, optionId: "media-delete", expectedVersion: current.version, input: null }).catch(() => {});
+    // Its scan is running once its plan parks in the hold (or it ended without one).
+    await Promise.race([inPlan, foreign]);
+    parked = undefined;
   }
   if (p.start) await review.command(principal.id, "start");
   return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext, files });

@@ -44,7 +44,11 @@ afterEach(async () => {
   if (originalTheme === undefined) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = originalTheme;
 });
-const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
+// Kept real time: a second media request, or one before Load, would come from
+// Chromium's native loader for an element a later render mounts. No page event
+// marks a request that is never made, so these cases read the fixture's file
+// log after a window in which such a render and its request would arrive.
+const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const set = async (patch: Record<string, unknown>) => (await commands.hygieneServer({ op: "set", id: fixture!.id, patch })) as Fixture;
 
 const HARBOUR = ".brain/scratch/2026-07-11/harbour-dawn.jpg";
@@ -290,8 +294,8 @@ test("dark 320: only the latest preview renders; `a` does nothing while checking
   await expect.poll(() => region()?.dataset.mediaPreviewRegion).toBe("checking");
   await destination("places/ithaca/second.jpg");
   title().focus();
+  // The key handler sends synchronously: when the dispatched key returns, a frame would already be recorded.
   await userEvent.keyboard("a");
-  await settle();
   expect(status()).toBe("Preview in progress. You can change your choice.");
   expect(frames.filter((f) => f.type === "inbox_resolve"), "`a` sends nothing while checking").toEqual([]);
   await set({ releasePlans: true });
@@ -308,8 +312,8 @@ test("dark 320: another device's running preview answers preview-busy as an aler
   await set({ foreignPreview: true });
   await radio("Persist here").click();
   await expect.poll(() => alertText()).toBe("Another device is checking a file. Try again in a moment.");
+  // Answered once the other device's preview has finished and freed the scan.
   await set({ releasePlans: true });
-  await settle();
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await ready("Preview ready");
 });
