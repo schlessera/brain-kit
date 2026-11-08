@@ -25,7 +25,7 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_compute_cancel", "mcp__brain__brain_compute_collect", "mcp__brain__brain_compute_health",
     "mcp__brain__brain_compute_plan", "mcp__brain__brain_compute_run", "mcp__brain__brain_compute_status",
     "mcp__brain__brain_context", "mcp__brain__brain_graph",
-    "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_search", "mcp__brain__brain_update",
+    "mcp__brain__brain_list", "mcp__brain__brain_read", "mcp__brain__brain_read_many", "mcp__brain__brain_search", "mcp__brain__brain_update",
   ]);
   // 24 before the six external compute bridge tools (#3108), the ten fixed Apify bridge tools (#3162) and read_attachment (#3154).
   expect(capture.request.tools.filter(tool => tool.name.startsWith("mcp__brain-ui__"))).toHaveLength(41);
