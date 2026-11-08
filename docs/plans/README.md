@@ -22,6 +22,7 @@ because the code has become the better answer to "what does this do".
 | [chat-attachments.md](chat-attachments.md) | Generic composer attachments: source inventory, capability matrix, routing, admission/ownership/cleanup schema, bounded on-demand reader, composer states and the proof briefs for #3153–#3155. | [#3150](https://github.com/schlessera/brain-kit/issues/3150) |
 | [chat-history-deletion.md](chat-history-deletion.md) | Approved local deletion policy with unbuilt lifecycle design, retained-record boundaries and proof obligations. | [#3234](https://github.com/schlessera/brain-kit/issues/3234) |
 | [reviewable-session-safety.md](reviewable-session-safety.md) | Proposed occurrence/coverage/review DTOs, finite limits, human authority and prospective trust publication; no runtime APIs implied. | [#3596](https://github.com/schlessera/brain-kit/issues/3596), [#3597](https://github.com/schlessera/brain-kit/issues/3597), [#3598](https://github.com/schlessera/brain-kit/issues/3598) |
+| [selectable-dictation.md](selectable-dictation.md) | Dictation provider registration, discovery, precedence and per-take/upload binding; the Gemini 3.5 Transcribe Live provider/client transport; Voice-pane dictation states and the #3707–#3710 proof split. | [#3705](https://github.com/schlessera/brain-kit/issues/3705) |
 
 ## What does not live here
 
