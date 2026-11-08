@@ -2022,7 +2022,8 @@ export interface SpeechCapabilities {
   endpointing: boolean;
   /** Absent/false means saved recordings cannot be transcribed. Derived from the optional server method. */
   savedAudio?: boolean;
-  /** Supports SMART cleanup of the current unsent dictation. */
+  /** True when the provider honours `createSession({ mode })`: "smart" cleans up fillers, self-corrections
+   * and formatting, "verbatim" transcribes as spoken. Absent/false means the mode option is ignored. */
   smartTranscription?: boolean;
 }
 
