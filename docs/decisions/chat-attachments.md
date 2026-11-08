@@ -324,7 +324,10 @@ originals, on a host that advertises `composerFiles`:
     tab is waiting for is the transcript's own optimistic row. It is not
     drawn a second time, so the rev 5 *Sending…* state shows only in the
     moment before its frame leaves. On this host the bubble replaces D52's
-    review block for that send.
+    review block for that send. With no bubble to draw the list adds nothing
+    to the transcript, not even an empty row and its divider: the last
+    message stays the reading column's last node, as #1013 measures, and the
+    polite region that speaks background changes sits outside the column.
   - **Reload.** A held snapshot comes back *Paused after reload*, and only
     its Send sends it. A dispatched one comes back unconfirmed, with
     **Check** (one recovery read) and **Send again**. A returned one comes

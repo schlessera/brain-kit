@@ -101,7 +101,8 @@ async function mount(fixture: SnapshotHost, width = 1280, height = 900) {
   const draft = () => { const s = root.stores.drafts.getState(); return s.drafts[s.idFor(SESSION)]; };
   /** Every non-empty text the snapshot live region took, in order. */
   const spoken: string[] = [];
-  const region = host.querySelector("[data-snapshot-announcement]");
+  // The region is portaled out of the transcript (#1013): this mount's is the newest in the body.
+  const region = [...document.querySelectorAll("[data-snapshot-announcement]")].at(-1);
   if (region) new MutationObserver(() => { if (region.textContent) spoken.push(region.textContent); }).observe(region, { childList: true, characterData: true, subtree: true });
   const reload = () => { flushSync(() => renderer.unmount()); root.dispose(); host.remove(); scene.disposed = true; };
   return { root, host, socket, field, sendButton, bubbles, bubble, messages, draft, spoken, reload };
@@ -401,4 +402,6 @@ test("case 28: Delete… on a returned snapshot drops its references; the host k
   await expect.poll(() => document.activeElement).toBe(s.field());
   expect(s.spoken.at(-1)).toBe("Unsent message deleted.");
   expect(s.bubbles()).toHaveLength(0);
+  // No bubble, no transcript node: the last message stays the column's last row (#1013).
+  expect(s.host.querySelector("[data-transcript]")!.children, "nothing left in the transcript").toHaveLength(0);
 });

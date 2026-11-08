@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button, Overlay, StatusIndicator, type StatusIndicatorState } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -22,6 +23,9 @@ import { UserTurn } from "./transcript-turn.js";
  * - Focus moves only on the reader's own action. A background change (an
  *   upload not stored, a send unconfirmed) is announced once, politely, and
  *   leaves focus where it is.
+ * - No bubble, no transcript node: the polite region lives outside the
+ *   reading column, so an empty list neither adds a row nor its divider and
+ *   the last message stays the column's last child (#1013).
  */
 type BubbleKind = "held" | "paused" | "cancelled" | "failed" | "refused" | "returned" | "sending" | "unconfirmed";
 
@@ -157,9 +161,12 @@ export function OutgoingSnapshots() {
   const deletingBubble = deleting && bubbles.find((b) => b.s.snapshotId === deleting.snapshotId);
   const fileCount = deletingBubble ? deletingBubble.s.files.length : 0;
 
-  return (
+  // Mounted before anything it says, so the first change is announced; never a column row.
+  // The region keeps its place in the tree as bubbles come and go: a remount would not be spoken.
+  const region = createPortal(<div className="sr-only" aria-live="polite" data-snapshot-announcement="">{announcement}</div>, document.body);
+
+  return (<>{region}{total > 0 && (
     <div data-outgoing-snapshots="">
-      <div className="sr-only" aria-live="polite" data-snapshot-announcement="">{announcement}</div>
       {bubbles.map((b, i) => (
         <SnapshotBubble key={b.s.snapshotId} bubble={b} index={i} total={total} composerEmpty={composerEmpty}
           onUserAction={(id, said) => { userAction.current.add(id); if (said) setAnnouncement(said); }}
@@ -193,7 +200,7 @@ export function OutgoingSnapshots() {
         </Overlay>
       )}
     </div>
-  );
+  )}</>);
 }
 
 function SnapshotBubble({ bubble: b, index, total, composerEmpty, onUserAction, onDelete }: {
