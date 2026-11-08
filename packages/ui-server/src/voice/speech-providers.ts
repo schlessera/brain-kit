@@ -7,13 +7,14 @@
  * - `webspeech` — no server session; the browser's SpeechRecognition does the
  *                 work, so it returns empty url/token.
  *
- * VOICE_PROVIDER selects the provider; default is deepgram when
- * DEEPGRAM_API_KEY is set, otherwise selection fails. An external value takes
- * precedence over auto-detection and must match an explicit VOICE_PROVIDER.
+ * Registration is fixed at construction. VOICE_PROVIDER selects a host default;
+ * saved settings choose among registered providers without automatic fallback.
+ * A legacy external value replaces built-ins and must match VOICE_PROVIDER.
  * Both arrive here as the resolved
  * {@link VoiceConfig} — this module reads no environment.
  */
 
+import type { DictationSettings, VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
 import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { defineSpeechProvider, SpeechTranscriptionError } from "@schlessera/brain-ui-sdk/server";
 import type { VoiceConfig } from "../config/env.js";
@@ -116,49 +117,21 @@ export const webspeechSpeechProvider: SpeechProvider = defineSpeechProvider({
   },
 });
 
-/**
- * Select the active speech provider from the resolved voice config.
- *
- * webspeech is OPT-IN ONLY (`VOICE_PROVIDER=webspeech`): on Chromium it streams
- * microphone audio to Google, so it must never be a silent fallback when the
- * Deepgram key goes missing. Every other unresolved case throws so the caller
- * 500s loudly instead of quietly degrading to third-party egress.
- */
-export function pickSpeechProvider(voice: VoiceConfig, supplied?: SpeechProvider): SpeechProvider {
-  const configured = voice.provider;
-  if (supplied !== undefined) {
-    assertSpeechProvider(supplied);
-    if (configured && configured !== supplied.id) {
-      throw new Error(`VOICE_PROVIDER="${configured}" does not match supplied SpeechProvider "${supplied.id}".`);
-    }
-    return supplied;
-  }
-  if (configured === "webspeech") return webspeechSpeechProvider;
-  if (configured === "deepgram") {
-    if (!voice.deepgramApiKey) {
-      throw new Error("VOICE_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set.");
-    }
-    return createDeepgramSpeechProvider(voice.deepgramApiKey);
-  }
-  if (configured) {
-    throw new Error(
-      `Unknown VOICE_PROVIDER="${configured}" (expected "deepgram" or "webspeech").`
-    );
-  }
-  // Auto-detect: Deepgram when its key is present; otherwise fail loudly.
-  if (voice.deepgramApiKey) return createDeepgramSpeechProvider(voice.deepgramApiKey);
-  throw new Error(
-    'No speech provider configured. Set DEEPGRAM_API_KEY, or set ' +
-      'VOICE_PROVIDER=webspeech to explicitly opt into the browser speech API ' +
-      "(which streams audio to Google on Chromium)."
-  );
-}
+const NO_SPEECH_PROVIDER = 'No speech provider configured. Set DEEPGRAM_API_KEY, or set ' +
+  'VOICE_PROVIDER=webspeech to explicitly opt into the browser speech API ' +
+  '(which streams audio to Google on Chromium).';
 
 /** Validate a by-value implementation before invoking it or building keyterms. */
 function assertSpeechProvider(provider: SpeechProvider): void {
   if (!provider || typeof provider !== "object" || typeof provider.id !== "string" ||
       !provider.id || provider.id !== provider.id.trim().toLowerCase()) {
     throw new Error("Invalid SpeechProvider: id must be a nonempty, trimmed, lowercase string.");
+  }
+  for (const field of ["label", "destination"] as const) {
+    if (provider[field] !== undefined && typeof provider[field] !== "string") throw new Error(`Invalid SpeechProvider: ${field} must be a string.`);
+  }
+  if (provider.capabilities?.smartTranscription !== undefined && typeof provider.capabilities.smartTranscription !== "boolean") {
+    throw new Error("Invalid SpeechProvider: smartTranscription must be boolean.");
   }
   for (const capability of ["streaming", "interimResults", "keyterms", "endpointing"] as const) {
     if (typeof provider.capabilities?.[capability] !== "boolean") {
@@ -180,3 +153,91 @@ function assertSpeechProvider(provider: SpeechProvider): void {
 export function speechCapabilities(provider: SpeechProvider) {
   return { ...provider.capabilities, savedAudio: typeof provider.transcribeRecording === "function" };
 }
+
+/** Built-in registration point: add createGeminiSpeechProvider(voice.geminiApiKey)
+ * here when #3708 supplies that factory. No placeholder provider is advertised. */
+function configuredSpeechProviders(voice: VoiceConfig): SpeechProvider[] {
+  const providers: SpeechProvider[] = [];
+  if (voice.deepgramApiKey) providers.push(createDeepgramSpeechProvider(voice.deepgramApiKey));
+  if (voice.provider === "webspeech") providers.push(webspeechSpeechProvider);
+  return providers;
+}
+
+/** Construction fixes identities, metadata, capabilities and executors. Settings
+ * only choose among these values; they never construct or probe a provider.
+ *
+ * Misuse of the additive options (`speechProviders`, `defaultSpeechProviderId`)
+ * fails construction. Legacy misconfiguration (an invalid by-value
+ * `speechProvider`, a `VOICE_PROVIDER` that names an unregistered or
+ * mismatching provider) keeps its documented meaning: the server starts and
+ * the voice routes answer with the existing 500 `{ error }` envelope. */
+export function createSpeechProviderRegistry(voice: VoiceConfig, options: {
+  speechProvider?: SpeechProvider;
+  speechProviders?: SpeechProvider[];
+  defaultSpeechProviderId?: string;
+} = {}) {
+  if (options.speechProvider !== undefined && options.speechProviders !== undefined) {
+    throw new Error("Supply either speechProvider or speechProviders, not both.");
+  }
+  const providers = new Map<string, SpeechProvider>();
+  const register = (value: SpeechProvider) => {
+    assertSpeechProvider(value);
+    if (providers.has(value.id)) throw new Error(`Duplicate SpeechProvider id "${value.id}".`);
+    providers.set(value.id, Object.freeze({
+      id: value.id,
+      ...(value.label !== undefined ? { label: value.label } : {}),
+      ...(value.destination !== undefined ? { destination: value.destination } : {}),
+      capabilities: Object.freeze(speechCapabilities(value)),
+      createSession: value.createSession.bind(value),
+      ...(value.transcribeRecording ? { transcribeRecording: value.transcribeRecording.bind(value) } : {}),
+    }));
+  };
+  const supplied = options.speechProvider;
+  let legacyError: Error | null = null;
+  const defer = (fn: () => void) => { try { fn(); } catch (error) { legacyError ??= error instanceof Error ? error : new Error(String(error)); } };
+  if (supplied !== undefined) {
+    defer(() => register(supplied));
+    defer(() => {
+      if (voice.provider && voice.provider !== supplied.id) {
+        throw new Error(`VOICE_PROVIDER="${voice.provider}" does not match supplied SpeechProvider "${supplied.id}".`);
+      }
+    });
+  } else {
+    for (const value of configuredSpeechProviders(voice)) register(value);
+    for (const value of options.speechProviders ?? []) register(value);
+  }
+  if (options.defaultSpeechProviderId !== undefined && !providers.has(options.defaultSpeechProviderId)) {
+    throw new Error(`defaultSpeechProviderId "${options.defaultSpeechProviderId}" is not a registered speech provider.`);
+  }
+  const host = options.defaultSpeechProviderId ?? supplied?.id ?? voice.provider ?? (providers.has("deepgram") ? "deepgram" : null);
+  if (legacyError === null && host !== null && !providers.has(host)) {
+    legacyError = host === "deepgram" ? new Error("VOICE_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set.")
+      : new Error(`Unknown VOICE_PROVIDER="${host}" (expected a registered speech provider: ${[...providers.keys()].join(", ") || "none"}).`);
+  }
+  const failed = (): never => { throw legacyError!; };
+  const discovery = (settings: DictationSettings): VoiceProvidersResponse => {
+    if (legacyError) failed();
+    const saved = settings.defaultProvider;
+    const savedUsable = saved !== null && providers.has(saved);
+    const effective = saved !== null ? savedUsable ? saved : null : host ?? (providers.size === 1 ? providers.keys().next().value! : null);
+    const source = saved !== null ? savedUsable ? "saved" : "unavailable" : host !== null ? "host" : effective !== null ? "only" : "none";
+    return {
+      providers: [...providers.values()].map(provider => ({ id: provider.id, label: provider.label ?? provider.id,
+        ...(provider.destination !== undefined ? { destination: provider.destination } : {}), capabilities: { ...provider.capabilities } })),
+      dictation: { saved, savedUsable, host, effective, source, smart: settings.smart, revision: settings.revision },
+    };
+  };
+  return {
+    has: (id: string) => legacyError === null && providers.has(id),
+    get: (id: string): SpeechProvider | undefined => legacyError ? failed() : providers.get(id),
+    discovery,
+    effective(settings: DictationSettings): SpeechProvider {
+      const id = discovery(settings).dictation.effective;
+      if (id !== null) return providers.get(id)!;
+      // Preserve the original unconfigured-client error text.
+      if (!providers.size && settings.defaultProvider === null) throw new Error(NO_SPEECH_PROVIDER);
+      throw new Error("No effective speech provider. Choose an available dictation service in Settings.");
+    },
+  };
+}
+export type SpeechProviderRegistry = ReturnType<typeof createSpeechProviderRegistry>;

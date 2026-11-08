@@ -9,6 +9,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { DesktopPalette } from "../../src/components/layout/desktop-palette.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
+import { stopHygieneFixture } from "./hygiene-fixture-stop.ts";
 
 let fixture: { id: string; url: string; scratch: string } | undefined;
 let renderer: Root | undefined,
@@ -52,7 +53,7 @@ async function disposeScene() {
   sceneUi?.dispose();
   sceneSocket?.close();
   sceneHost?.remove();
-  if (sceneFixture) await commands.hygieneServer({ op: "stop", id: sceneFixture.id });
+  if (sceneFixture) await stopHygieneFixture(sceneFixture.id);
   frames.length = 0;
 }
 afterEach(async () => {

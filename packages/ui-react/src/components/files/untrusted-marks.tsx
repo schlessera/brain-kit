@@ -404,14 +404,23 @@ export function MarkedUntrustedList({ onAllFiles, onFind }: { onAllFiles(): void
   const [missing, setMissing] = useState<MarkRow | null>(null);
   const [clearing, setClearing] = useState<MarkRow | null>(null);
   const returnRow = useRef<string | null>(null);
+  // A finished clear names the row to focus once the dialog's close has committed.
+  const [cleared, setCleared] = useState<{ next: string | null } | null>(null);
   useEffect(() => { heading.current?.focus({ preventScroll: true }); void marks?.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const toRow = (path: string | null) => {
+    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-mark-row]") ?? [])];
+    (rows.find(row => row.dataset.markRow === path) ?? heading.current)?.focus({ preventScroll: true });
+  };
+  // The clear settles after awaits, outside any discrete event, so its
+  // `setClearing(null)` commits in a later task. Until then the modal dialog
+  // keeps the list inert, and a frame can come first: focus after the commit
+  // instead (#3665, the #3657 class).
+  useEffect(() => { if (cleared) toRow(cleared.next); }, [cleared]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!marks) return null;
   const list = marks.list;
   const owner = list.status === "ready" && list.canClear;
-  const focusRow = (path: string | null) => requestAnimationFrame(() => {
-    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-mark-row]") ?? [])];
-    (rows.find(row => row.dataset.markRow === path) ?? heading.current)?.focus({ preventScroll: true });
-  });
+  // Discrete clicks and Escape commit in a microtask, before any frame.
+  const focusRow = (path: string | null) => requestAnimationFrame(() => toRow(path));
   const open = async (row: MarkRow) => {
     // A stale row (the mark was cleared or the file left) refreshes the list instead.
     const check = await readMark(root, row.path);
@@ -475,7 +484,7 @@ export function MarkedUntrustedList({ onAllFiles, onFind }: { onAllFiles(): void
           setClearing(null);
           marks.announce(already ? "This mark was already cleared." : "Untrusted mark cleared");
           await marks.changed();
-          focusRow(next);
+          setCleared({ next });
         }} /> : null}
     </div>
   );

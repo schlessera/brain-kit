@@ -161,7 +161,7 @@ test("an ambiguous upload stays recoverable while the host has not claimed its b
 });
 
 
-for (const [status, error] of [[413, "recording_too_large"], [415, "recording_media_unsupported"], [400, "recording_hash_invalid"], [501, "saved_audio_unsupported"]] as const) test(`definitive pre-claim ${status} rejection leaves audio reviewable`, async () => {
+for (const [status, error] of [[413, "recording_too_large"], [415, "recording_media_unsupported"], [400, "recording_hash_invalid"], [501, "saved_audio_unsupported"], [409, "speech_provider_unavailable"]] as const) test(`definitive pre-claim ${status} rejection leaves audio reviewable`, async () => {
   const f = fixture(); await f.seed("saved"); let uploads = 0;
   f.root.request = async (url, init) => { if (url.endsWith("capabilities")) return Response.json({ capabilities: { savedAudio: true } }); if (init?.method === "PUT") { uploads++; return Response.json({ error, message: "Recording rejected before provider dispatch." }, { status }); } return new Response("{}", { status: 404 }); };
   const s = f.make(); await expect(s.transcribe("account:odysseus", f.id, () => {})).rejects.toThrow(); await s.syncTranscriptions();

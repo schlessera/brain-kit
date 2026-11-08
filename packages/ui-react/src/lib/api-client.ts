@@ -18,6 +18,9 @@ import type {
   VoiceKeytermsResponse,
   VoiceTokenResponse,
   VoiceSessionResponse,
+  VoiceSessionRequest,
+  VoiceProvidersResponse,
+  DictationSettings,
   PronunciationOverride,
   ProviderInfo,
   UnavailableProfileInfo,
@@ -517,8 +520,14 @@ export function createBrainApi(
       ),
 
     /** Mint a dictation session for the active speech provider. */
-    voiceSession: (signal?: AbortSignal) =>
-      fetchJson<VoiceSessionResponse>("/voice/session", { method: "POST", signal }),
+    voiceSession: (signal?: AbortSignal, selection?: VoiceSessionRequest) =>
+      fetchJson<VoiceSessionResponse>("/voice/session", { method: "POST", signal, ...(selection !== undefined ? { body: JSON.stringify(selection) } : {}) }),
+
+    voiceProviders: () => fetchJson<VoiceProvidersResponse>("/voice/providers"),
+    dictationSettings: () => fetchJson<DictationSettings>("/voice/dictation/settings"),
+    saveDictationSettings: (settings: DictationSettings) =>
+      fetchJson<DictationSettings>("/voice/dictation/settings", { method: "PUT", headers: { "If-Match": `"${settings.revision}"` },
+        body: JSON.stringify({ defaultProvider: settings.defaultProvider, smart: settings.smart }) }),
 
     /** @deprecated use voiceSession(); kept during client transition. */
     voiceToken: () =>

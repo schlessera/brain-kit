@@ -9,6 +9,7 @@ import { keepSubscriptionProof, lastSubscriptionTurnAt } from "../agent/subscrip
 export const url = import.meta.url;
 function operations(db: Database, log?: Logger) {
   return {
+    saveDictationSettings: (expected: string, value: { defaultProvider: string | null; smart: boolean }) => settings.saveDictationSettings(db, expected, value),
     setSetting: (key: string, value: unknown) => settings.setSetting(db, key, value),
     setHiddenModelIds: (ids: string[]) => settings.setHiddenModelIds(db, ids),
     setDefaultModelId: (id: string | null) => settings.setDefaultModelId(db, id),
@@ -55,6 +56,7 @@ export function createSettingsWrites(db: Database, writer?: SqliteWriter, log?: 
       return result.value;
     });
   return {
+    saveDictationSettings: (...args) => invoke("saveDictationSettings", args),
     setSetting: (...args) => invoke("setSetting", args),
     setHiddenModelIds: (...args) => invoke("setHiddenModelIds", args),
     setDefaultModelId: (...args) => invoke("setDefaultModelId", args),

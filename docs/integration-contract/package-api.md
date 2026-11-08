@@ -1502,9 +1502,34 @@ the supplied implementation. It validates a nonempty trimmed lowercase id,
 four boolean capabilities and callable `createSession` before invoking it.
 The returned `SpeechSession` has a string URL, finite nonnegative expiry,
 optional string token and optional string-record params. Empty URL/zero expiry
-remain supported for browser/local sessions. Validation, mismatch and provider
-failures return the existing 500 `{ error }` envelope without fallback.
+remain supported for browser/local sessions. An invalid legacy value, a
+`VOICE_PROVIDER` mismatch or an unregistered `VOICE_PROVIDER` keeps the server
+running; the voice routes answer with the existing 500 `{ error }` envelope,
+as do session validation and provider failures, without fallback.
 The deprecated token route remains Deepgram-specific.
+
+`CreateAppOptions.speechProviders?: SpeechProvider[]` adds implementations to
+configured built-ins. Supplying it together with legacy `speechProvider`, duplicate
+ids, invalid list entries or an unregistered `defaultSpeechProviderId` fails construction.
+Legacy `speechProvider` replaces all built-ins and must match `VOICE_PROVIDER`.
+`defaultSpeechProviderId?: string` sets the host default ahead of `VOICE_PROVIDER`,
+then registered Deepgram; a legacy supplied value is its own default. Deepgram
+registers when its key is configured; browser speech registers only through
+`VOICE_PROVIDER=webspeech`. The Gemini built-in registration point is reserved for
+#3708's factory; this change does not advertise a placeholder Gemini implementation.
+A saved brain-wide choice overrides the host default. Removed saved choices block
+selection; with neither saved nor host choice only a sole provider is selected.
+
+`SpeechProvider` adds optional `label?: string`, `destination?: string` and
+`createSession` option `mode?: "smart" | "verbatim"`; `SpeechCapabilities` adds
+`smartTranscription?: boolean`. Mode is passed only to providers declaring it.
+Identity, capabilities, metadata and executor references are fixed at registration.
+`VoiceProvidersResponse`, `DictationSettings`, `VoiceSessionRequest` are exported
+protocol types for the [HTTP shapes](../http-api.md#selectable-dictation-providers).
+`createBrainApi` adds `voiceProviders()`, `dictationSettings()` and
+`saveDictationSettings(settings: DictationSettings)` (sends the revision as
+If-Match). `voiceSession(signal?, selection?: VoiceSessionRequest)` sends no body
+when selection is omitted. Explicit selection never substitutes another provider.
 
 The route builds keyterms only when supported, snapshots provider identity and
 capabilities, and publishes `VoiceSessionResponse` with connection material.

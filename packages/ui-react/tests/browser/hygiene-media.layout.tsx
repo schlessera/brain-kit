@@ -14,6 +14,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { DesktopPalette } from "../../src/components/layout/desktop-palette.js";
 import { ActivityPage } from "../../src/components/activity/activity-page.js";
+import { stopHygieneFixture } from "./hygiene-fixture-stop.ts";
 
 type Fixture = { calls: string[][]; files: string[]; read: { review: { status: string; media?: unknown } } };
 let fixture: { id: string; url: string } | undefined;
@@ -39,12 +40,7 @@ afterEach(async () => {
   u?.dispose();
   s?.close();
   h?.remove();
-  if (f) {
-    // Stop drains every forwarded request, so a failure while a plan is held must release it first,
-    // or the drain waits on the held preview until Node's fetch times out (#3657).
-    try { await commands.hygieneServer({ op: "set", id: f.id, patch: { releasePlans: true } }); }
-    finally { await commands.hygieneServer({ op: "stop", id: f.id }); }
-  }
+  if (f) await stopHygieneFixture(f.id);
   if (originalTheme === undefined) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = originalTheme;
 });

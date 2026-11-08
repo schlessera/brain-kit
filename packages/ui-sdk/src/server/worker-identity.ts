@@ -1,5 +1,5 @@
 /** Host-only identity broker client. No authority from this module enters a payload. */
-import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, statfsSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, statfsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { workerIdentityHelperInput } from "../config/env.js";
@@ -15,6 +15,10 @@ export function workerCleanupUnconfirmed(error: unknown): boolean {
   return typeof error === "object" && error !== null && "cleanupUnconfirmed" in error && error.cleanupUnconfirmed === true;
 }
 export interface IdentityRoot { name: "state" | "temp"; path: string; bytes: number }
+/** The supervisor's setup steps, in order, as its progress record names them (#3664). */
+const SETUP_STEPS = new Set(["started", "listening", "launch-sent", "launch-acked", "status-read", "mounts-acked"]);
+/** The largest progress record read; the supervisor writes about 60 bytes. */
+const SETUP_PROGRESS_BYTES = 128;
 interface Ready { ok: true; workerUid: number; worker: { pid: number; start: string }; roots: Record<string, { fd: number; dev: number; ino: number }> }
 
 /** Resolve only trusted host configuration, never a worker's child environment. */
@@ -201,6 +205,27 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     terminate() {
       try { request("signal", { signal: "KILL" }); }
       catch { fallback(["signal"]); }
+    },
+    /**
+     * The supervisor's last recorded setup step, for a readiness timeout's
+     * detail (#3664). Read before close removes the directory; never follows
+     * a link, never blocks and never reads more than the bound.
+     */
+    setupProgress(spawnedAt: number): string {
+      let fd: number | undefined;
+      try {
+        fd = openSync(`${readyPath}.progress`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        if (!fstatSync(fd).isFile()) return "step: refused (not a regular file)";
+        const chunk = Buffer.alloc(SETUP_PROGRESS_BYTES + 1), length = readSync(fd, chunk, 0, chunk.length, 0);
+        if (length > SETUP_PROGRESS_BYTES) return "step: refused (oversized)";
+        const record = JSON.parse(chunk.subarray(0, length).toString("utf8")) as { step?: unknown; ms?: unknown; wallMs?: unknown } | null;
+        if (!record || typeof record.step !== "string" || !SETUP_STEPS.has(record.step) || !Number.isSafeInteger(record.ms) || (record.ms as number) < 0
+          || !Number.isSafeInteger(record.wallMs)) return "step: refused (malformed)";
+        return `step: ${record.step}, ms: ${record.ms as number}, sinceSpawnMs: ${(record.wallMs as number) - spawnedAt}`;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        return code === "ENOENT" ? "step: none" : code === "ELOOP" ? "step: refused (symlink)" : error instanceof SyntaxError ? "step: refused (malformed)" : "step: refused (unreadable)";
+      } finally { if (fd !== undefined) closeSync(fd); }
     },
     close() { runWorkerStepsSync(closeSteps()); },
     /** `close`, with the same refusal and fallback cleanup, as steps (#2844). */

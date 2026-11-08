@@ -193,11 +193,18 @@ if (import.meta.main) {
       "extra-fd": ['        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)', '        fds.append(os.dup(fds[0]))\n        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)'],
       "no-view": ['        elif operation == "view":\n            view(connection, request, token, record)', '        elif operation == "view":\n            refuse("operation")'],
       "host-view": ['            fd = os.open("/proc/%s/root%s" % (value["pid"], record["view"]), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)', '            fd = os.open(record["view"], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)'],
+      // #3664: launch never acknowledges. Its termination is slowed past the host's
+      // readiness deadline, so the supervisor's own failure record cannot win that race.
+      "no-launch-ack": ['    send(connection, {})\n    connection.close()\n    parent = os.getppid()', '    time.sleep(60)\n    send(connection, {})\n    connection.close()\n    parent = os.getppid()'],
       "foreign-mount": ['        info = os.stat(source)', '        foreign = source + "/foreign"\n        os.mkdir(foreign, 0o755)\n        foreign_options = ("size=4096,mode=2770,uid=%s,gid=%s" % (SERVER_UID, SHARED_GID)).encode()\n        if libc.mount(b"tmpfs", foreign.encode(), b"tmpfs", 2 | 4, foreign_options): refuse("foreign_fixture_mount")\n        info = os.stat(source)'],
+    };
+    const faultFollowups: Record<string, [string, string]> = {
+      "no-launch-ack": ['    deadline, previous = time.monotonic() + 2, None', '    time.sleep(1.5)\n    deadline, previous = time.monotonic() + 2, None'],
     };
     const faultHashes: Record<string, { script: string; binary: string }> = {};
     for (const [name, [before, after]] of Object.entries(faultEdits)) {
-      const script = changed(helperScript, before, after), scriptPath = join(artifact, `fault-${name}.py`);
+      const followup = faultFollowups[name];
+      const script = followup ? changed(changed(helperScript, before, after), ...followup) : changed(helperScript, before, after), scriptPath = join(artifact, `fault-${name}.py`);
       writeFileSync(scriptPath, script);
       const parsed = Bun.spawnSync(["python3", "-I", "-S", "-c", "import ast,sys;ast.parse(open(sys.argv[1]).read())", scriptPath], { stdout: "pipe", stderr: "pipe" });
       if (parsed.exitCode !== 0) throw Error(`Invalid fault fixture ${name}: ${parsed.stderr.toString()}`);

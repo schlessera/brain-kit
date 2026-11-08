@@ -1371,6 +1371,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
   let status: ReturnType<typeof createWorkerStatusPipe> | undefined;
   let identityBroker: ReturnType<typeof prepareWorkerIdentity> | undefined;
   let identityFinished = false, identityReferences = 0;
+  /** A setup timeout's last recorded supervisor step, read before close removes it (#3664). */
+  let setupProgress = "";
   let completeMaintenanceSetup: (() => void) | undefined;
   let failMaintenanceSetup: ((error: unknown) => void) | undefined;
   const identityHandles: WorkerStateHandle[] = [];
@@ -1444,7 +1446,11 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     let pid: number;
     let identityReady: ReturnType<NonNullable<typeof identityBroker>["ready"]> | undefined;
     try { identityReady = identityBroker ? yield* identityBroker.readySteps(child.pid, deadline) : undefined; }
-    catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
+    catch (error) {
+      const requirement = error instanceof Error ? error.message : String(error);
+      if (requirement === "worker_identity_setup_timed_out") setupProgress = identityBroker!.setupProgress(deadline - STATE_SETUP_MS);
+      throw new WorkerHostError(requirement);
+    }
     try { pid = identityReady?.worker.pid ?? (yield* status!.childPidSteps(child.pid, deadline)); }
     catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
     status?.closeWriter();
@@ -1581,7 +1587,9 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     child?.kill("SIGKILL");
     if (stateFd !== undefined) closeSync(stateFd);
     if (tempFd !== undefined) closeSync(tempFd);
-    const detail = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
+    const diagnostics = error instanceof WorkerHostError && pipes ? launchDiagnostics(pipes.parent[2]) : "";
+    // The recorded step leads: a supervisor's own failure line may follow it, and need not name one.
+    const detail = [setupProgress, diagnostics].filter(Boolean).join("; ").slice(0, 400);
     pipes?.cleanup();
     if (cleanupFailure) {
       // Keep native ownership/recovery intent and admission held: cleanup
@@ -1595,8 +1603,8 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     if (child) void child.exited.finally(async () => { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
     else { void Promise.resolve(areaOutput?.cleanup()).finally(() => input.preparedOutput ? undefined : startupView?.cleanup()).catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
     if (detail) {
-      throw new WorkerHostError(NO_TMPFS_SIZE.test(detail)
-        ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${detail})`
+      throw new WorkerHostError(NO_TMPFS_SIZE.test(diagnostics)
+        ? `bubblewrap 0.7 or later, for the worker's size-limited tmpfs mounts (${diagnostics})`
         : `${(error as WorkerHostError).requirement} (${detail})`);
     }
     throw error;

@@ -939,6 +939,10 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
   Linux/qualifying WSL2 route. It creates no backend session or transcript.
+  The requirement is descriptive text, not an enumerated value; it may carry a
+  parenthetical detail. A separate-UID setup timeout names the supervisor's last
+  recorded step there (additive, #3664):
+  `worker_identity_setup_timed_out (step: launch-sent, ms: 312, sinceSpawnMs: 340)`.
   `worker_resource_limit` (#1660) means a host resource limit ended the turn's
   worker; the message names the limit, its value and whether an rlimit or the
   worker's cgroup enforced it.

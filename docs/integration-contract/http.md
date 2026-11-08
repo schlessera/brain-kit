@@ -223,6 +223,10 @@ The status reports; it does not decide. A pass is never cached and a known
 failure never short-circuits a turn: every turn runs its own probe and refuses
 with `worker_host_unsupported` naming the requirement
 ([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1632#issuecomment-6112509133)).
+A requirement may end in a parenthetical detail. When a turn's separate-UID
+launch times out during identity setup, its refusal names the supervisor's last
+recorded setup step there. The probe's own requirement is unchanged
+([additive, #3664](../integration-contract.md#setup-timeouts-name-their-step-additive-0450-3664)).
 Clients must tolerate either mode being absent.
 
 <a id="root-server-warning-additive-1638"></a>
@@ -1052,3 +1056,17 @@ correlation on this read. No other value or duplicate parameter is accepted.
 The cursor and subsequent subscription retain that choice. Omitting it keeps
 the original strict version-1 record shape. This metadata grants no authority
 and never infers attribution for opaque transport.
+
+### Selectable dictation providers (additive, #3707)
+
+The [dictation routes](../http-api.md#selectable-dictation-providers) add
+read-only `/api/voice/providers` discovery and revisioned
+`/api/voice/dictation/settings` GET/PUT. The registered set is fixed; a removed
+saved choice blocks dictation. Only human owners/ambient accounts write settings.
+`POST /api/voice/session` accepts optional `{ providerId, smart }`; an explicit
+id is exact or 409 `speech_provider_unavailable`, never a fallback. Bodyless
+clients and `/voice/capabilities` retain their shapes. Discovery never mints.
+Saved-audio PUT binds `Speech-Provider` before claim/body consumption; absent
+headers preserve effective-provider resolution. Retry provider changes return
+409 `transcription_provider_mismatch` with the receipt. Settings revisions,
+error codes, response schemas and operation binding are supported HTTP promises.
