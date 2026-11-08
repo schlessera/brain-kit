@@ -60,6 +60,7 @@ export const BOOLEAN_FLAGS = new Set([
   "no-background",
   "migrate", "preview", "stdin",
   "notify-success", "approve",
+  "overview",
 ]);
 
 /** Flags that take a value. Used together with BOOLEAN_FLAGS to reject typos. */
@@ -83,6 +84,7 @@ export const VALUE_FLAGS = new Set([
   "copy", "copy-sha256", "journal", "to", "expect-premise",
   "expect-sha", "expect-approval", "pattern", "ignore-adjust",
   "session", "max-charge-usd",
+  "max-total-chars", "max-item-chars", "path-prefix",
 ]);
 
 const KNOWN_FLAGS = new Set<string>([...BOOLEAN_FLAGS, ...VALUE_FLAGS]);

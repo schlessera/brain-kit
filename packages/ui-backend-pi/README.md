@@ -280,6 +280,7 @@ output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marke
 | `brain_read` | read | auto-allow | `safeResolve` inside repo |
 | `brain_list` | read | auto-allow | in-process `filterSearch` (read-only db) |
 | `brain_graph` | read | auto-allow | in-process link-graph walk (read-only db) |
+| `brain_read_many` | read | auto-allow | each request through `safeResolve`, as `brain_read`; core's bounded multi-read |
 | `ask_user` | read | auto-allow | routes to `bridge.askUser` |
 | `ask_user_list` | read | auto-allow | routes to `bridge.askUserList`; refuses a turn declaring `noGrantSurface` |
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |

@@ -183,8 +183,8 @@ that root. Every return is `QueryResult<T>`.
 | `listIndexDocuments` | `type?: string`, `tag?: string`, `status?: string`, `relevance?: string`, `limit?: number` | `ListedDocument[]` |
 | `findIndexDocuments` | `type?: string`, `excludeStatus?: string`, `pathSuffix?: string` | `DocumentCandidate[]` |
 
-Source: (`readGraphMeta`, `packages/core/src/queries/index.ts:10-12`), through
-(`findIndexDocuments`, `packages/core/src/queries/index.ts:131-159`); exported
+Source: (`readGraphMeta`, `packages/core/src/queries/index.ts:12-14`), through
+(`findIndexDocuments`, `packages/core/src/queries/index.ts:185-213`); exported
 results (`export type Direction`, `packages/core/src/queries/types.ts:2-109`).
 #534's public export inventory and #537's module-author inventory include the
 bound context and every signature-reachable option/result type, including
@@ -220,7 +220,7 @@ predicate. `status.md` alone admits near-names; `/status.md` misses the root and
 nested case variants. Neither safely narrows this selection. Do not alter the
 suffix contract or use bounded `listIndexDocuments` (default 20, maximum 100).
 `findIndexDocuments` returns the complete path-ordered set in one snapshot,
-without a cap/pagination loss (`findIndexDocuments`, `packages/core/src/queries/index.ts:131-159`).
+without a cap/pagination loss (`findIndexDocuments`, `packages/core/src/queries/index.ts:185-213`).
 
 Read source frontmatter under the callback root and retain existing stage,
 staleness and taxonomy rules. The module's parsed config and separate jobs

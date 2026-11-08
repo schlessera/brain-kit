@@ -9,6 +9,7 @@ import type { CoreCommand } from "../types.js";
 import { searchCommand } from "./search.js";
 import { contextCommand } from "./context.js";
 import { readCommand } from "./read.js";
+import { readManyCommand } from "./read-many.js";
 import { listCommand } from "./list.js";
 import { briefingCommand } from "./briefing.js";
 import { addCommand } from "./add.js";
@@ -50,6 +51,7 @@ export const CORE_COMMANDS: Record<string, CoreCommand> = {
   search: searchCommand,
   context: contextCommand,
   read: readCommand,
+  "read-many": readManyCommand,
   list: listCommand,
   briefing: briefingCommand,
   add: addCommand,
