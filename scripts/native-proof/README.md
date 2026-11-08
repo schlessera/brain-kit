@@ -331,6 +331,64 @@ exhaustion (`worktree-allocation-cleanup-proven` with no subsequent
 `worktree-allocation-deferred`) from failed cleanup (`worktree-allocation-refused`
 only).
 
+### Repository efficiency
+
+Case 19 ([#3513](https://github.com/schlessera/brain-kit/issues/3513),
+`reference-efficiency.ts`) measures what repository acquisition and managed
+worktrees actually allocate. The workload is a generated Odysseus
+repository: 2,000 short files, three incompressible 2 MiB charts, a submodule
+gitlink and an LFS-style pointer, then changed commits. The real reference
+service, transport workers and worktree service run against the
+pool through the served manager. Each step writes one row to
+`reference-efficiency.json`, which names the kernel, btrfs-progs, Git, Bun and
+candidate (`BRAIN_PROOF_CANDIDATE`, the host checkout's `HEAD`, with `+dirty`
+appended for a modified tree).
+
+Every row records the pool's own accounting basis. `chargedBytes` is the
+unique physical allocation across data, metadata and system, replication
+included. Each sealed root's `ownerBytes` is its simple-quota first-owner
+charge. Writable worktrees and staging roots have no owner charge until they
+are sealed, so their comparisons use the census's exclusive extents.
+`pendingBytes` and `availableBytes` are the admission reservations. A
+`btrfs filesystem du` census reports total, exclusive and shared extents per
+path. Git's `count-objects` is recorded as logical object size only; no
+logical size or sum of `st_blocks` is reported as unique usage. The run checks:
+
+- **Reuse.** A repeat read inside the refresh window, and an unchanged
+  refresh after it, reuse the one source root and allocate at most 256 KiB.
+  Four concurrent readers of a changed revision join one refresh, which
+  creates exactly one root.
+- **Sharing.** Two managed worktrees from one source add less than a tenth of
+  the source's charge, and most of their extents stay shared. An edit and a
+  local commit charge only the edited worktree, and the release keeps the
+  commit as unpreserved work.
+- **Refresh.** A changed refresh snapshots the previous root, so it charges
+  the new objects and changed checkout. That is less than half a cold
+  acquisition, never a re-clone.
+- **Copy paths.** A same-filesystem `--reflink=always` copy charges under a
+  quarter of a `--reflink=never` copy. A reflink onto another filesystem
+  fails, and the automatic fallback allocates every byte. The turn data tree's
+  best-effort `COPYFILE_FICLONE` copies fall back the same way.
+- **Sharing loss.** `git repack -a -d -f` in a worktree, or a linked
+  `git worktree add` inside one, allocates its objects or checkout as new
+  extents charged to that worktree alone.
+
+Repository features, as the transport handles them:
+
+| Feature | Behaviour |
+| --- | --- |
+| Clone depth and partial clone | Every fetch is the complete history of one ref: no `--depth`, `--filter` or `--reference` object borrowing, so no lifetime depends on another repository. |
+| Submodules | Not fetched. A gitlink checks out as an empty directory. |
+| Git LFS | Not fetched. No LFS filter is configured, so pointers stay text. |
+| Linked Git worktrees | Possible inside a writable worktree. They share its object store but not its checkout extents. |
+| Repack and GC | `gc.auto = 0` in every reference repository, so nothing repacks automatically. A manual repack loses extent sharing with the source. |
+| Retained owners | Simple quotas charge shared extents to their first owner. A snapshot's inherited extents stay charged to the source root until both are deleted and the space is observed reclaimed. |
+
+The assertions combine structural ratios, which a full copy or an avoidable
+checkout would break, with absolute tolerances in `EFFICIENCY_TOLERANCES`.
+The tolerances were set from the first hosted baseline, with its measured values
+beside each. They bound growth; they are not promises of zero metadata cost.
+
 ### Integrated app proof
 
 `bun scripts/prove-reference-pool.ts --integrated [--backend=claude|--backend=pi]`
