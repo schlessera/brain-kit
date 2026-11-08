@@ -58,6 +58,8 @@ function buildDeepgramUrl(keyterms: string[]): string {
 export function createDeepgramSpeechProvider(apiKey: string | null): SpeechProvider {
   return defineSpeechProvider({
     id: "deepgram",
+    label: "Deepgram",
+    destination: "Microphone audio streams from this browser to Deepgram (nova-3).",
     capabilities: {
       streaming: true,
       interimResults: true,
@@ -108,6 +110,8 @@ export function createDeepgramSpeechProvider(apiKey: string | null): SpeechProvi
 
 export const webspeechSpeechProvider: SpeechProvider = defineSpeechProvider({
   id: "webspeech",
+  label: "Browser speech recognition",
+  destination: "Your browser recognizes speech; on Chromium, microphone audio goes to Google.",
   capabilities: {
     streaming: true,
     interimResults: true,

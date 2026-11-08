@@ -167,6 +167,11 @@ describe("Gemini registration in the dictation registry", () => {
     expect(effective(voice({ provider: "deepgram", geminiApiKey: KEY, deepgramApiKey: "fixture-deepgram" })).id).toBe("deepgram");
     const both = createSpeechProviderRegistry(voice({ geminiApiKey: KEY, deepgramApiKey: "fixture-deepgram" }));
     expect(both.discovery(NONE_SAVED).providers.map(p => p.id)).toEqual(["deepgram", "gemini"]);
+    // Built-ins disclose their own name and destination; clients need no per-id mapping.
+    expect(both.discovery(NONE_SAVED).providers.map(p => [p.label, p.destination !== undefined])).toEqual([["Deepgram", true], ["Google Gemini 3.5 Transcribe Live", true]]);
+    const browser = createSpeechProviderRegistry(voice({ provider: "webspeech" })).discovery(NONE_SAVED).providers[0]!;
+    expect(browser).toMatchObject({ id: "webspeech", label: "Browser speech recognition" });
+    expect(browser.destination).toContain("Google");
     expect(both.effective({ ...NONE_SAVED, defaultProvider: "gemini" }).id).toBe("gemini");
     expect(() => effective(voice({}))).toThrow("Set DEEPGRAM_API_KEY or GEMINI_API_KEY");
     expect(() => effective(voice({ provider: "athena" }))).toThrow('Unknown VOICE_PROVIDER="athena"');
