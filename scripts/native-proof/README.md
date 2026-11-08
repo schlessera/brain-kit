@@ -336,7 +336,9 @@ appended for a modified tree).
 
 Every row records the pool's own accounting basis. `chargedBytes` is the
 unique physical allocation across data, metadata and system, replication
-included. Each root's `ownerBytes` is its simple-quota first-owner charge.
+included. Each sealed root's `ownerBytes` is its simple-quota first-owner
+charge. Writable worktrees and staging roots have no owner charge until they
+are sealed, so their comparisons use the census's exclusive extents.
 `pendingBytes` and `availableBytes` are the admission reservations. A
 `btrfs filesystem du` census reports total, exclusive and shared extents per
 path. Git's `count-objects` is recorded as logical object size only; no

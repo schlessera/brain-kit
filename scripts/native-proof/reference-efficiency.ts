@@ -111,6 +111,8 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
   }
   const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => { const began = performance.now(); const value = await work(); return [value, Math.round(performance.now() - began)]; };
   const owner = (step: Step, id: string) => step.roots.find(root => root.id === id)?.ownerBytes ?? null;
+  // Writable roots carry no owner charge until sealed, so worktrees compare on the census's exclusive extents.
+  const exclusive = (step: Step, path: string) => { const entry = step.census.find(value => value.path === path); expect(entry, `REFERENCE_EFFICIENCY_CENSUS_${step.step}`).toBeDefined(); return entry!.exclusive; };
   const pathOf = async (id: string) => (await records()).find(record => record.id === id)!.path!;
   const sourceRoots = async () => (await records()).filter(record => record.purpose === "source" && record.state === "sealed").map(record => record.id);
 
@@ -162,7 +164,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
       .toEqual({ first: cold.commit, second: cold.commit, sources: [cold.rootId] });
     // An independent full copy of each worktree would add at least the source's charge twice.
     expect(worktreeGrowth, "REFERENCE_EFFICIENCY_WORKTREES_SHARE_SOURCE").toBeLessThan(coldOwner / 10);
-    for (const id of [first.id, second.id]) expect(owner(allocated, id)!, `REFERENCE_EFFICIENCY_WORKTREE_OWNER_CHARGE_SMALL`).toBeLessThan(coldOwner / 10);
+    for (const path of [firstPath, secondPath]) expect(exclusive(allocated, path), "REFERENCE_EFFICIENCY_WORKTREE_EXCLUSIVE_SMALL").toBeLessThan(coldOwner / 10);
     const shared = allocated.census.find(entry => entry.path === firstPath)!;
     expect(shared.exclusive, "REFERENCE_EFFICIENCY_WORKTREE_EXTENTS_SHARED").toBeLessThan(shared.total / 10);
 
@@ -172,19 +174,19 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     command(["git", "-c", "safe.directory=*", "--git-dir", join(firstPath, ".git"), "--work-tree", firstPath, "-c", "user.name=Penelope", "-c", "user.email=penelope@ithaca.example",
       "-c", "core.hooksPath=/dev/null", "commit", "-q", "-am", "Penelope corrects the log"]);
     const edited = await measure("isolated-edit", null, [firstPath, secondPath]);
-    expect(owner(edited, first.id)! - owner(allocated, first.id)!, "REFERENCE_EFFICIENCY_EDIT_CHARGES_ITS_WORKTREE").toBeGreaterThanOrEqual(W.chartBytes);
-    expect(Math.abs(owner(edited, second.id)! - owner(allocated, second.id)!), "REFERENCE_EFFICIENCY_EDIT_LEAVES_SIBLING").toBeLessThanOrEqual(64 * 1024);
+    expect(exclusive(edited, firstPath) - exclusive(allocated, firstPath), "REFERENCE_EFFICIENCY_EDIT_CHARGES_ITS_WORKTREE").toBeGreaterThanOrEqual(W.chartBytes);
+    expect(Math.abs(exclusive(edited, secondPath) - exclusive(allocated, secondPath)), "REFERENCE_EFFICIENCY_EDIT_LEAVES_SIBLING").toBeLessThanOrEqual(64 * 1024);
     expect(owner(edited, cold.rootId), "REFERENCE_EFFICIENCY_EDIT_LEAVES_SOURCE").toBe(owner(allocated, cold.rootId));
     expect(readFileSync(join(secondPath, "odyssey", "book-0", "line-0.md"), "utf8"), "REFERENCE_EFFICIENCY_EDIT_ISOLATED").toBe("Ithaca log: book 0, line 0.\n");
     // Repacking in a worktree rewrites its objects as new extents: the sharing with its source is lost, not copied for free.
     const inSecond = (...args: string[]) => command(["git", "-c", "safe.directory=*", "--git-dir", join(secondPath, ".git"), "--work-tree", secondPath, "-c", "core.hooksPath=/dev/null", ...args]);
     inSecond("repack", "-q", "-a", "-d", "-f");
     const repacked = await measure("worktree-repack", null, [secondPath], { objects: objects(secondPath) });
-    const repackLoss = owner(repacked, second.id)! - owner(edited, second.id)!;
+    const repackLoss = exclusive(repacked, secondPath) - exclusive(edited, secondPath);
     // A linked Git worktree inside a managed worktree shares its object store but checks every file out as new extents.
     inSecond("worktree", "add", "-q", "--detach", join(secondPath, "linked"), "HEAD");
     const linked = await measure("linked-git-worktree", null, [secondPath, join(secondPath, "linked")]);
-    const linkedGrowth = owner(linked, second.id)! - owner(repacked, second.id)!;
+    const linkedGrowth = exclusive(linked, secondPath) - exclusive(repacked, secondPath);
     report.findings.sharingLoss = { repackLoss, linkedGrowth };
     expect(repackLoss, "REFERENCE_EFFICIENCY_REPACK_LOSES_SHARING").toBeGreaterThanOrEqual(W.charts * W.chartBytes);
     expect(linkedGrowth, "REFERENCE_EFFICIENCY_LINKED_WORKTREE_CHECKS_OUT_NEW_EXTENTS").toBeGreaterThanOrEqual(W.charts * W.chartBytes);
@@ -242,8 +244,8 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     command(["cp", "-a", "--reflink=auto", `${current}/charts`, across]);
     const acrossBytes = Number(command(["du", "-s", "-B1", across]).split(/\s/)[0]);
     const copies = await measure("copy-paths", null, [reflinked.path!, copied.path!], { reflinkMs, copyMs, crossFilesystem: { reflinkExit: crossReflink.exitCode, reflinkError: crossReflink.stderr.toString().trim().slice(-200), autoAllocatedBytes: acrossBytes } });
-    const reflinkOwner = owner(copies, reflinked.id)!, copyOwner = owner(copies, copied.id)!;
-    report.findings.copyPaths = { reflinkOwner, copyOwner, crossFilesystemAllocated: acrossBytes };
+    const reflinkOwner = exclusive(copies, reflinked.path!), copyOwner = exclusive(copies, copied.path!);
+    report.findings.copyPaths = { basis: "census exclusive bytes", reflinkOwner, copyOwner, crossFilesystemAllocated: acrossBytes };
     expect(copyOwner, "REFERENCE_EFFICIENCY_FULL_COPY_CHARGES_DATA").toBeGreaterThanOrEqual(W.charts * W.chartBytes + W.addedChartBytes);
     expect(reflinkOwner, "REFERENCE_EFFICIENCY_REFLINK_SHARES_DATA").toBeLessThan(copyOwner / 4);
     expect(copies.chargedBytes - copyBase.chargedBytes, "REFERENCE_EFFICIENCY_COPY_PATHS_GROWTH").toBeGreaterThanOrEqual(copyOwner);
