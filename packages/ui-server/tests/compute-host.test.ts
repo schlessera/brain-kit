@@ -382,18 +382,21 @@ describe("cancellation racing admission (R7)", () => {
 
   test("cancelling a turn waits for its in-flight compute calls and cancels what they started", async () => {
     let f!: Fixture;
-    let release!: () => void;
+    let release!: () => void, reserving = false;
     const held = new Promise<void>(resolve => { release = resolve; });
     f = fixture({ host: { budgets: { compute: {
-      async reserve(jobId: string, turnId: string, sessionId: string | null, usd: number | null) { await held; return f.budgets.compute.reserve(jobId, turnId, sessionId, usd); },
+      async reserve(jobId: string, turnId: string, sessionId: string | null, usd: number | null) { reserving = true; await held; return f.budgets.compute.reserve(jobId, turnId, sessionId, usd); },
       settle: (jobId: string, usd: number | null) => f.budgets.compute.settle(jobId, usd),
     } } as never } });
     await f.begin("t-1");
     const running = f.host.forTurn(f.turn("t-1"))(run({ argv: ["sleep", "600"] }));
-    await until(() => f.cards.length === 1, "the card");
+    await until(() => f.cards.length === 1 && reserving, "the held reservation");
     let cancelled = false;
     const cancelling = f.host.cancelTurn("t-1", "the turn was cancelled").then(() => { cancelled = true; });
-    await Bun.sleep(10);
+    // The call is held inside its reservation, before its job row exists, so
+    // cancelTurn's first sweep finds nothing and only the in-flight call can
+    // keep it waiting. That sweep is in memory: one macrotask runs it out.
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(cancelled, "CANCEL_WAITS_FOR_INFLIGHT_CALL").toBe(false);
     release();
     await Promise.all([running, cancelling]);
@@ -486,7 +489,9 @@ describe("ledger settlement", () => {
   });
 
   test("a later visit to a settled job rewrites neither its row nor its run", async () => {
-    const f = fixture();
+    // The host's own clock, so a rewrite would carry a later stamp.
+    let hostNow = Date.UTC(2026, 6, 12, 9);
+    const f = fixture({ host: { clock: () => hostNow } as never });
     await f.begin("t-1");
     const compute = f.host.forTurn(f.turn("t-1"));
     const started = ok(await compute(run()));
@@ -494,7 +499,7 @@ describe("ledger settlement", () => {
     const snapshot = () => ({ row: hostRow(f, started.job.id), endedAt: f.store.getSpan(`compute:${started.job.id}`)!.endedAt,
       events: f.store.snapshotRun(`compute:${started.job.id}`)!.events.length });
     const before = snapshot();
-    await Bun.sleep(5);
+    hostNow += 60_000;
     ok(await compute(job("brain_compute_status", started.job.id)));
     ok(await compute(job("brain_compute_collect", started.job.id)));
     expect(snapshot(), "SETTLED_ROW_NOT_REWRITTEN").toEqual(before);

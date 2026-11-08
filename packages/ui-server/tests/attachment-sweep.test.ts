@@ -147,8 +147,11 @@ test("concurrent uploads at the pool edge cannot multiply the cap: reservations 
     duplex: "half",
   });
   const first = start(0), second = start(1);
-  await Bun.sleep(50);
-  // Two 40-byte uploads are reserved and still streaming. A third cannot fit.
+  // Both uploads have reserved their declared 40 bytes and are still streaming.
+  const reserved = () => t.app.db.query("SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS b FROM attachment_reservations").get() as { n: number; b: number };
+  for (const deadline = Date.now() + 5_000; reserved().n < 2 && Date.now() < deadline;) await Bun.sleep(5);
+  expect(reserved(), "ATTACHMENT_STREAMING_UPLOADS_RESERVED").toEqual({ n: 2, b: 80 });
+  // A third cannot fit.
   const third = await t.fetch("/api/drafts/draft-2/files", { method: "POST", body: "y".repeat(40),
     headers: { cookie, origin: "http://localhost", host: "localhost", "idempotency-key": "k2", "content-type": "text/plain", "content-length": "40", "x-file-name": "log-2.txt" } });
   expect([third.status, await third.json()]).toEqual([507, expect.objectContaining({ error: "ATTACHMENT_CAPACITY", bound: "pool" })]);

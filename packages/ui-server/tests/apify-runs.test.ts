@@ -6,7 +6,7 @@
  * Actor and its prices are fictional, and nothing reaches the network.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
@@ -410,7 +410,11 @@ describe("races and shared accounting", () => {
     const child = join(import.meta.dir, "fixtures", "apify-ledger-race-child.ts");
     openLedger();
     const procs = [0, 1, 2, 3].map(index => Bun.spawn([process.execPath, child, ledgerPath, go, String(index)], { stdout: "pipe", stderr: "pipe" }));
-    await Bun.sleep(300);
+    // Every child has opened the ledger and is waiting at the start line before
+    // it opens, so all four contend for the allowance at once.
+    const ready = procs.map((_, index) => `${go}.${index}.ready`);
+    while (!ready.every(path => existsSync(path)) && procs.every(proc => proc.exitCode === null)) await Bun.sleep(5);
+    expect(ready.every(path => existsSync(path)), "APIFY_RACE_CHILDREN_READY").toBe(true);
     writeFileSync(go, "");
     const outputs = await Promise.all(procs.map(async proc => ({ code: await proc.exited, out: (await new Response(proc.stdout).text()).trim(), err: await new Response(proc.stderr).text() })));
     for (const output of outputs) expect(output.code, `APIFY_RACE_CHILD_EXIT: ${output.err}`).toBe(0);
