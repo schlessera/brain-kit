@@ -1,0 +1,61 @@
+file	line	rule	outcome	note
+packages/compute-boat/tests/settlement.test.ts	53	settling-sleep	justified	condition poll: exits once the job is terminal and released; 20-iteration cap
+packages/core/tests/compute-cli.test.ts	222	settling-sleep	justified	condition poll on job.json until running; 20 s failure maximum
+packages/core/tests/compute-cli.test.ts	251	settling-sleep	justified	condition poll in newJobIn; 20 s failure maximum
+packages/core/tests/compute-cli.test.ts	262	settling-sleep	replaced	read stderr until the SIGTERM handler logs, then open the stage gate
+packages/core/tests/compute-cli.test.ts	288	settling-sleep	replaced	same for SIGINT; the earlier read loop no longer races reads against 500 ms
+packages/core/tests/compute-ops.test.ts	225	settling-sleep	replaced	count answered status visits; check after each
+packages/core/tests/compute-ops.test.ts	232	settling-sleep	justified	negative window after settle, reason in source: no event marks that no timer is armed
+packages/core/tests/compute-ops.test.ts	244	settling-sleep	replaced	stop() right after an answered visit
+packages/core/tests/compute-ops.test.ts	247	negative-window	justified	negative window after stop, reason in source
+packages/core/tests/compute-race.run.ts	32	settling-sleep	justified	real-time stimulus widening a broken lock's window; reason in source
+packages/core/tests/compute-race.run.ts	102	settling-sleep	justified	condition poll until the SIGKILL point; 500-iteration cap
+packages/core/tests/compute-race.test.ts	40	settling-sleep	replaced	each racer prints ready; barrier written once all are ready
+packages/core/tests/compute-recovery.test.ts	240	settling-sleep	justified	condition poll on real local processes; 300-iteration cap
+packages/ui-server/tests/apify-runs.test.ts	413	negative-window	replaced	race children write ready files once their ledger is open
+packages/ui-server/tests/attachment-extract.test.ts	90	settling-sleep	replaced	Bun.spawn observer resolves on the first child spawn (descriptor restored)
+packages/ui-server/tests/attachment-reads-delivery.test.ts	70	settling-sleep	replaced	ping/pong barrier after client_hello on the same socket
+packages/ui-server/tests/attachment-sweep.test.ts	150	settling-sleep	replaced	poll attachment_reservations until both uploads hold their bytes
+packages/ui-server/tests/bridge-capabilities.test.ts	60	fixture-delay	justified	zero-ms macrotask yield, documented
+packages/ui-server/tests/compute-host.test.ts	396	negative-window	replaced	reserve double flags reserving; then one macrotask
+packages/ui-server/tests/compute-host.test.ts	497	settling-sleep	replaced	the host's clock option is advanced instead of a real sleep
+packages/ui-server/tests/fixtures/extract-misbehaving-worker.ts	10	settling-sleep	justified	fixture hold: the measured input for timeout and queue bounds; reason in source
+packages/ui-server/tests/helpers/contextual-status.ts	114	negative-window	replaced	one macrotask, then a marker frame on the same ordered socket
+packages/ui-server/tests/helpers/contextual-status.ts	137	negative-window	justified	the provider socket is closed, so no later frame can mark arrival; reason in source
+packages/ui-server/tests/journal-idle-maintenance.test.ts	111	negative-race	justified	failure maximum; reason in source
+packages/ui-server/tests/policy-observation-pause.test.ts	138	settling-sleep	justified	real-time stimulus against a Date.now() deadline; reason in source
+packages/ui-server/tests/relay-recording-settlement.test.ts	87	negative-window	replaced	egress wrapper records admit() start; then one macrotask
+packages/ui-server/tests/safety-ledger.test.ts	266	negative-window	replaced	pending-count poll, check at hold answer, and a contact-time check
+packages/ui-server/tests/session-run-stages.test.ts	399	settling-sleep	replaced	await the controller's abort event
+packages/ui-server/tests/tainted-destination-ask.test.ts	150	settling-sleep	justified	negative window, reason in source: nothing outside the proxy marks the shared card
+packages/ui-server/tests/tainted-destination-ask.test.ts	218	negative-window	justified	negative window, reason in source: a late loopback contact has no frame
+packages/ui-server/tests/turn-coordinator.test.ts	18	settling-sleep	justified	failure maximum; docstring says so
+packages/ui-server/tests/ws-ask-turn-timeout.test.ts	144	settling-sleep	justified	zero-ms yield or a gate at every caller
+packages/ui-server/tests/ws-ask-turn-timeout.test.ts	149	settling-sleep	justified	fixture hold cleared by abort
+packages/ui-server/tests/ws-handlers.test.ts	98	fixture-delay	not-a-wait	placeholder timeout handle, never awaited
+packages/ui-server/tests/ws-turn-budgets.test.ts	65	changed-line	justified	failure maximum (abort wins); the late branch's 200 ms early return replaced by the submitted-report count
+packages/ui-server/tests/ws-turn-budgets.test.ts	73	changed-line	justified	failure maximum
+packages/ui-backend-claude/tests/transcript-archive-event-loop.test.ts	30	fixture-delay	justified	real-time stimulus (fsync delay); reason in source
+packages/ui-backend-claude/tests/transcript-archive-event-loop.test.ts	85	fixture-delay	justified	zero-ms timer that is the subject; reason in source
+packages/ui-react/tests/attachment-queue.test.ts	79	settling-sleep	replaced	fake timers; the 2 s busy retry is advanced too
+packages/ui-react/tests/browser/composer-files.offline.tsx	258	settling-sleep	replaced	the fixture socket delivers the host's acceptance
+packages/ui-react/tests/browser/hygiene-media.layout.tsx	47	settling-sleep	replaced+justified	settle alias: 294 and 312 replaced; 147, 359, 369, 376 kept as native-loader windows with reason in source
+packages/ui-react/tests/draft-files.test.ts	48	settling-sleep	replaced	fake timers advance the 800 ms debounce
+packages/ui-react/tests/fixtures/hygiene-browser-server.ts	553	settling-sleep	replaced	race the in-plan release against the foreign plan parking
+packages/ui-sdk/tests/fixtures/worker-var-sockets.ts	152	fixture-delay	justified	failure maximum, cleared
+packages/ui-sdk/tests/inference-relay.test.ts	150	settling-sleep	justified	real-time stimulus: Bun's native socket idle timer; reason in source
+packages/ui-sdk/tests/refused-launch-gate.test.ts	25	fixture-delay	justified	stands in for scheduler latency before a native death; reason in source
+packages/ui-sdk/tests/refused-launch-gate.test.ts	38	fixture-delay	justified	same
+packages/ui-sdk/tests/refused-launch-gate.test.ts	76	negative-window	replaced	poll /proc/<pid>/stat until each gated sandbox is gone; 10 s failure maximum (no mutation turned this case red)
+packages/ui-sdk/tests/refused-launch-gate.test.ts	99	negative-window	replaced	same
+packages/ui-sdk/tests/refused-launch-gate.test.ts	122	negative-window	replaced	same
+packages/ui-sdk/tests/worker-var-sockets.test.ts	50	fixture-delay	justified	failure maximum, cleared
+tests/host-admission.test.ts	117	negative-race	justified	failure maximum, now a cleared timer
+packages/ui-sdk/tests/provider-relay.test.ts	301	changed-line	justified	real-time stimulus: Bun's native socket idle timer; reason in source
+packages/ui-kit/tests/visual/ghost-handoff.visual.tsx	30	changed-line	justified	long task that must delay the browser's own frames; reason in source
+packages/ui-kit/tests/visual/streaming-handoff.visual.tsx	28	changed-line	justified	same
+tests/build-concurrency.test.ts	160	changed-line	justified	condition poll in an embedded child
+packages/ui-react/tests/local-work-runtime.test.ts	732	changed-line	justified	condition poll with a failure maximum
+packages/ui-react/tests/browser/conversation-controls.offline.tsx	214	changed-line	replaced	await the tip's running transitions after reading its style
+packages/ui-react/tests/untrusted-marks-runtime.test.ts	414	earlier residue	justified	window starts after both 404 lookups answer; an unsupported server draws nothing; reason in source
+packages/ui-server/tests/private-index.test.ts	176	earlier residue	replaced	release the boot writer once a later peer check has answered; the wait must settle after the release

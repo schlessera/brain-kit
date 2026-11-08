@@ -1,0 +1,36 @@
+file	line	text
+packages/ui-backend-claude/tests/worker-cleanup.test.ts	59	await new Promise(resolve => setTimeout(resolve, 0));
+packages/ui-backend-claude/tests/worker-cleanup.test.ts	77	for (let waited = 0; refused.live && waited < 100; waited++) await Bun.sleep(20);
+packages/ui-backend-claude/tests/worker-stdio-release.test.ts	82	while (!releasing) await Bun.sleep(1);
+packages/ui-backend-claude/tests/worker-stdio-release.test.ts	83	await new Promise(resolve => setTimeout(resolve, 0));
+packages/ui-kit/tests/visual/ghost-handoff.visual.tsx	30	setTimeout(() => {
+packages/ui-kit/tests/visual/streaming-handoff.visual.tsx	28	setTimeout(() => {
+packages/ui-kit/tests/visual/streaming-handoff.visual.tsx	112	const nativeTimeout = globalThis.setTimeout;
+packages/ui-kit/tests/visual/streaming-handoff.visual.tsx	117	const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: unknown[]) => {
+packages/ui-react/tests/browser/conversation-controls.offline.tsx	214	await new Promise(resolve => setTimeout(resolve, 300));
+packages/ui-react/tests/browser/conversation-controls.offline.tsx	322	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
+packages/ui-react/tests/browser/transcript-qualifiers.offline.tsx	66	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
+packages/ui-react/tests/browser/transcript-qualifiers.offline.tsx	113	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
+packages/ui-react/tests/fixtures/contextual-conversation-browser-server.ts	161	const timer = setTimeout(() => finish("deadline"), deadlineMs);
+packages/ui-react/tests/local-work-runtime.test.ts	732	while (Date.now() < end && !(await done())) await Bun.sleep(100);
+packages/ui-react/tests/runtime-hook-phases.test.ts	45	while (!(records.some((r) => r.event === "exit") && records.some((r) => r.event === "stderr-complete"))) await Bun.sleep(1);
+packages/ui-react/tests/runtime-hook-phases.test.ts	46	await new Promise((resolve) => setTimeout(resolve, 0));
+packages/ui-sdk/tests/provider-relay.test.ts	301	await Bun.sleep(15_000);
+packages/ui-sdk/tests/worker-steps-event-loop.test.ts	225	setTimeout(answered.resolve, 0); // after the late answer's own continuation has run
+packages/ui-server/tests/application-index-timing.test.ts	30	let slow: ReturnType<typeof setTimeout> | undefined;
+packages/ui-server/tests/application-index-timing.test.ts	31	try { await Promise.race([writesMeasured, new Promise<void>(resolve => { slow = setTimeout(resolve, 1500); })]); } finally { clearTimeout(slow); }
+packages/ui-server/tests/http-mount-timers.test.ts	71	const live = setTimeout(() => { fired++; liveFired.resolve(); }, 40).unref();
+packages/ui-server/tests/http-mount-timers.test.ts	101	const refreshed = setTimeout(() => { fired++; refreshedFired.resolve(); }, 20).unref();
+packages/ui-server/tests/turn-egress.test.ts	329	for (const end = Date.now() + 300; !writes.taint("turn-harbour", "ithaca") && Date.now() < end;) await Bun.sleep(1);
+packages/ui-server/tests/ws-turn-budgets.test.ts	65	await Promise.race([new Promise<void>(done => req.signal.addEventListener("abort", () => done(), { once: true })), Bun.sleep(abortWindowMs)]);
+packages/ui-server/tests/ws-turn-budgets.test.ts	73	await Promise.race([new Promise<void>(done => req.signal.addEventListener("abort", () => done(), { once: true })), Bun.sleep(abortWindowMs)]);
+tests/build-concurrency.test.ts	83	while (!existsSync(join(root, "alpha-exited")) && !exited && Date.now() < deadline) await Bun.sleep(10);
+tests/build-concurrency.test.ts	160	await Bun.sleep(5);
+tests/helpers/planning-observer.ts	80	timer = setTimeout(() => reject(new Error(`no first reading within ${PLANNING_OBSERVER_LIMITS.stopMs} ms`)), PLANNING_OBSERVER_LIMITS.stopMs);
+tests/helpers/planning-observer.ts	93	let timer: ReturnType<typeof setTimeout> | undefined;
+tests/test-invocation-lifetime.test.ts	56	write("node_modules/.bin/tsc", `#!${process.execPath}\nimport {renameSync,writeFileSync} from "node:fs";writeFileSync("tmp/compiler-pid.tmp",String(process.pid));renameSync("tmp/compiler-pid.tmp","tmp
+tests/test-invocation-lifetime.test.ts	75	write("survivor.ts", consumerProbe + `const end=Date.now()+10000;while(!require("fs").existsSync("tmp/owner-died")&&Date.now()<end)await Bun.sleep(10);expect(invocationBuild(root,["ithaca"]),"DEAD_OWN
+tests/test-invocation-lifetime.test.ts	77	const out=openSync("tmp/survivor.log","w");const child=spawn(process.execPath,["survivor.ts"],{detached:true,stdio:["ignore",out,out],env:process.env});child.unref();writeFileSync("tmp/survivor-pid.tm
+tests/test-invocation-lifetime.test.ts	156	writeFileSync("node_modules/.bin/tsc",'#!'+process.execPath+'\\nimport {renameSync,writeFileSync} from "node:fs";writeFileSync("tmp/nested-compiler.tmp",String(process.pid));renameSync("tmp/nested-com
+tests/test-script.test.ts	128	while (!(existsSync(join(ledger, "state.json")) && readFileSync(join(ledger, "state.json"), "utf8").includes('"holding"'))) await Bun.sleep(10);
+tests/test-script.test.ts	133	while (!readFileSync(join(ledger, "state.json"), "utf8").includes('"queued"')) await Bun.sleep(10);

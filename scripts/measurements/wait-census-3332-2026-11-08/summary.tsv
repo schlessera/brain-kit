@@ -1,0 +1,13 @@
+verdict	role	lines
+justified	auto-release-cap	1
+justified	condition-poll	35
+justified	embedded-child-hold	4
+justified	event-loop-yield	10
+justified	failure-maximum	14
+justified	negative-race	2
+justified	negative-window	11
+not-a-wait	comment	1
+not-a-wait	helper-definition	1
+not-a-wait	timer-instrumentation	12
+replaceable	fixture-delay	8
+replaceable	settling-sleep	29
