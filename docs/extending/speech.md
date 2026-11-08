@@ -307,9 +307,15 @@ capability limits, then select **Start**. With either built-in service, use
 **Send now** to commit recognized text. The ordinary transcript, tools and
 question/permission controls remain available while host work runs asynchronously.
 
-Mute ends microphone capture until Unmute; Leave returns to the composer with
-retained review text in its original draft. Stop reply cuts local audio while
-capture and host work continue. Ordinary interruption retains initiating PCM and
+While the conversation runs, the composer becomes the tall voice field. Its
+colour, meter, icon and one word say who has the floor (Listening, Thinking,
+Working, Speaking, Needs your tap, Muted, Reconnecting), with the service and
+the connected time beside it. Mute ends microphone capture until Unmute; brain
+may finish its current sentence. End returns to the composer with retained
+review text in its original draft. Interrupt, enabled only while a reply
+plays, cuts local audio while capture and host work continue. A failure that
+withdraws capture shows "Live conversation stopped" with its reason; Start
+again reopens the disclosure. Ordinary interruption retains initiating PCM and
 uses bounded local output recovery; timeout exposes Recover reply audio without
 muting the microphone. Delayed old audio can occasionally play after recovery.
 Recoverable hide/disconnect/resync retain consent in the same disclosed scope and

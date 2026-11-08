@@ -41,46 +41,51 @@ async function scene(ctx: TestContext, width: number, height: number, theme: "li
   const client = ui.connection.conversation;
   const deliver = (message: ServerMessage) => network.socket()!.deliver(message);
   const capture = async (name: string) => { await page.screenshot({ element: host, path: `../../.vitest-attachments/conversation-controls/${theme}-${width}-${height}-${scale}-${name}.png` }); };
-  const active = () => flushSync(() => client.state.setState({ active: true, sessionId: SESSION, connection: "Connected", profile: PROFILE, disclosureOpen: false }));
-  const strip = () => host.querySelector<HTMLElement>('[data-conversation-strip]')!;
+  const active = () => flushSync(() => client.state.setState({ active: true, sessionId: SESSION, connection: "Connected", capture: "listening", profile: PROFILE, disclosureOpen: false }));
+  const strip = () => host.querySelector<HTMLElement>('[data-conversation-field]')!;
+  const control = (name: string) => strip().querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!;
+  const word = () => strip().querySelector('[data-voice-word]')?.textContent;
   if (scale !== 1) {
     // Text-only enlargement exercises wrapping independently of viewport zoom.
-    const large = document.createElement("style"); large.textContent = `[data-conversation-strip] { font-size:${12 * scale}px } [data-conversation-strip] :is(div,button,[role=button]) { font-size:inherit !important; line-height:1.3 !important }`;
+    const large = document.createElement("style"); large.textContent = `[data-conversation-field] { font-size:${12 * scale}px } [data-conversation-field] :is(div,button,[role=button]) { font-size:inherit !important; line-height:1.3 !important }`;
     document.head.append(large); ctx.onTestFinished(() => large.remove());
   }
-  return { ui, client, host, deliver, capture, active, strip, network };
+  return { ui, client, host, deliver, capture, active, strip, control, word, network };
 }
 
 for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`control audit ${theme} ${width}x${height} text ${scale}`, async ctx => {
   const s = await scene(ctx, width, height, theme, scale);
   s.active();
-  for (const [name, connection, interaction, micOn, playing] of [
-    ["connecting", "Connecting", "Listening", false, false],
-    ["listening", "Connected", "Listening", true, false],
-    ["muted", "Connected", "Listening", false, false],
-    ["working", "Connected", "Working", false, false],
-    ["speaking", "Connected", "Speaking", false, true],
-    ["interruption", "Reconnecting", "Checking whether the reply stopped", false, false],
-    ["reconnect", "Speech lost", "Listening", false, false],
+  for (const [name, connection, interaction, micOn, playing, capture, state] of [
+    ["connecting", "Connecting", "Listening", false, false, "listening", "S5"],
+    ["listening", "Connected", "Listening", true, false, "listening", "L1"],
+    ["muted", "Connected", "Listening", false, false, "muted", "L7"],
+    ["working", "Connected", "Working", true, false, "listening", "L2"],
+    ["speaking", "Connected", "Speaking", false, true, "listening", "L4"],
+    ["interruption", "Reconnecting", "Checking whether the reply stopped", false, false, "listening", "L8"],
+    ["reconnect", "Speech lost", "Listening", false, false, "listening", "L8"],
+    ["stopped", "Speech lost", "Listening", false, false, "stopped", "L9"],
   ] as const) {
-    flushSync(() => s.client.state.setState({ connection, interaction, micOn, playing, notice: name === "reconnect" ? "Speech connection lost. Resume when ready." : "" }));
+    flushSync(() => s.client.state.setState({ connection, interaction, micOn, playing, capture, notice: name === "reconnect" || name === "stopped" ? "Speech connection lost. Resume when ready." : "" }));
+    expect(s.strip().dataset.liveState, name).toBe(state);
     // Pin keyboard modality and focus; earlier test input must not change a baseline's ring.
-    if (name === "interruption") { s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!.focus(); await userEvent.keyboard("{ArrowRight}"); }
+    if (name === "interruption") { s.control("Mute").focus(); await userEvent.keyboard("{ArrowRight}"); }
     await s.capture(name);
     if (name === "interruption" && width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`interruption-${theme}-${scale}`);
-    const status = s.strip().children[1] as HTMLElement;
-    expect(status.scrollHeight, `${name}: status must not paint over the next row`).toBeLessThanOrEqual(status.clientHeight + 1);
+    const field = s.strip().querySelector<HTMLElement>(".bk-voice-field")!;
+    expect(field.scrollHeight, `${name}: the field's words must not paint outside it`).toBeLessThanOrEqual(field.clientHeight + 1);
     expect(s.strip().scrollWidth, `${name}: no horizontal overflow`).toBeLessThanOrEqual(s.strip().clientWidth);
     for (const control of s.strip().querySelectorAll<HTMLElement>('button,[role=button]')) {
       expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
       expect(control.scrollWidth, `${name}: full control label`).toBeLessThanOrEqual(control.clientWidth + 1);
     }
   }
-  flushSync(() => s.client.state.setState({ connection: "Connected", interaction: "Review before sending", micOn: false, notice: "", text: "Ask Nestor about the departure, the harbour supplies and the next meeting before sailing." }));
+  flushSync(() => s.client.state.setState({ connection: "Connected", capture: "listening", interaction: "Review before sending", micOn: false, notice: "", text: "Ask Nestor about the departure, the harbour supplies and the next meeting before sailing." }));
   s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "ithaca-turn", text: "The departure note needs review." });
   s.deliver({ type: "tool_approval_request", sessionId: SESSION, turnId: "ithaca-turn", toolUseId: "ithaca-write", toolName: "Write", kind: "tool", input: { file_path: "voyage/raft.md", content: "Review the raft supplies" } });
   await expect.poll(() => s.host.querySelector('[data-approval-card]')).not.toBe(null);
-  s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!.focus(); await userEvent.keyboard("{ArrowRight}");
+  await expect.poll(() => s.strip().dataset.liveState, { message: "a pending approval card is L6" }).toBe("L6");
+  s.control("Mute").focus(); await userEvent.keyboard("{ArrowRight}");
   await s.capture("review-permission");
   if (width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`review-permission-${theme}-${scale}`);
   const line = s.strip().querySelector<HTMLElement>('[data-voice-refusal-window]')!;
@@ -93,9 +98,9 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   expect(s.client.permissions.state.getState().records[0]?.script).not.toContain("unmute to refuse");
   const review = s.strip().querySelector<HTMLElement>('[data-conversation-review]')!;
   expect(page.getByRole("region", { name: "Unsent voice transcript" }).element()).toBe(review);
-  s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!.focus();
-  await userEvent.keyboard("{Tab}");
-  expect(document.activeElement, "Tab reaches the review after service details").toBe(review);
+  page.getByRole("button", { name: "Send now", exact: true }).element().focus();
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(document.activeElement, "the keyboard reaches the review before its Send now").toBe(review);
   const beforeScroll = review.scrollTop;
   await userEvent.keyboard("{ArrowDown}");
   if (review.scrollHeight > review.clientHeight) await expect.poll(() => review.scrollTop).toBeGreaterThan(beforeScroll);
@@ -140,7 +145,9 @@ for (const theme of ["light", "dark"] as const) test(`entry and connecting discl
   expect(s.network.socket()!.frames("conversation_start")[0]!.disclosed).toEqual(DISCLOSED_PROFILE);
   expect(s.client.state.getState().connection,"PROVIDER_OPENING_IS_STILL_PENDING").toBe("Connecting");
   expect(s.client.state.getState().profile).toBe(null);expect(s.client.state.getState().micOn).toBe(false);
-  await userEvent.click(page.getByRole("button",{name:"Voice service details",exact:true}));
+  expect(s.strip().dataset.liveState, "a pending opening draws Connecting (S5)").toBe("S5");
+  expect(s.control("Mute").disabled, "nothing to mute while connecting").toBe(true);
+  flushSync(() => s.client.details());
   await expect.poll(()=>s.client.state.getState().disclosureOpen).toBe(true);
   await s.capture("pending-connecting-disclosure");
   // A known destination is not enough when the host connection is unavailable.
@@ -249,7 +256,8 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "notice-turn", text: "The supplies need review." });
   s.deliver({ type: "tool_approval_request", sessionId: SESSION, turnId: "notice-turn", toolUseId: "notice-write", toolName: "Write", kind: "tool", input: { file_path: "voyage/raft.md", content: "Review supplies" } });
   await expect.poll(() => s.host.querySelector('[data-approval-card]')).not.toBe(null);
-  const details = s.strip().querySelector<HTMLElement>('[aria-label="Voice service details"]')!;
+  flushSync(() => s.client.state.setState({ connection: "Speech lost" }));
+  const details = s.control("Mute");
   details.focus();
   for (const notice of [
     "Microphone input ended. Check the device, then resume.",
@@ -269,24 +277,24 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     expect(s.strip().textContent?.split(notice)).toHaveLength(2);
     expect(s.strip().querySelector('[data-conversation-review]')?.textContent).toContain(text);
     expect(document.activeElement, "a diagnostic must not steal focus").toBe(details);
-    const status = s.strip().children[1] as HTMLElement;
-    expect(status.scrollHeight, "diagnostic wraps within its growing row").toBeLessThanOrEqual(status.clientHeight + 1);
+    expect(s.strip().dataset.liveState, "a recoverable loss with retained consent is Reconnecting").toBe("L8");
     expect(node.scrollWidth).toBeLessThanOrEqual(node.clientWidth + 1);
     expect(node.scrollHeight).toBeLessThanOrEqual(node.clientHeight + 1);
     expect(s.strip().scrollWidth).toBeLessThanOrEqual(s.strip().clientWidth);
   }
-  await userEvent.keyboard("{Tab}");
   const review = s.strip().querySelector<HTMLElement>('[data-conversation-review]')!;
-  expect(document.activeElement).toBe(review);
+  page.getByRole("button", { name: "Discard", exact: true }).element().focus();
+  for (let step = 0; step < 3 && document.activeElement !== review; step++) await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(document.activeElement, "the keyboard reaches the review").toBe(review);
   expect(getComputedStyle(review).outlineStyle).not.toBe("none");
   expect(page.getByRole("button", { name: "Send now", exact: true }).element().getAttribute("aria-disabled")).toBe("true");
   // A long diagnostic must not remove access to the host-owned permission card.
   flushSync(() => s.client.state.setState({ notice: "Microphone input ended. Check the device, then resume.", connection: "Speech lost" }));
   details.focus(); await userEvent.keyboard("{ArrowRight}");
   const diagnosticBounds = page.getByRole("status", { name: "Voice notice" }).element().getBoundingClientRect();
-  const controls = page.getByRole("button", { name: "Resume microphone" }).element().getBoundingClientRect();
+  const controls = s.strip().querySelector<HTMLElement>(".bk-voice-field")!.getBoundingClientRect();
   expect(diagnosticBounds.top).toBeGreaterThanOrEqual(s.strip().getBoundingClientRect().top);
-  expect(diagnosticBounds.bottom, "the complete device notice fits above sticky controls").toBeLessThanOrEqual(controls.top);
+  expect(diagnosticBounds.bottom, "the complete device notice fits above the voice field").toBeLessThanOrEqual(controls.top);
   if (scale === 2) {
     // The reference captures hover plus keyboard focus. Pin both inputs:
     // earlier permission-card clicks move when transcript arrival layout changes.
@@ -310,28 +318,28 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   const s = await scene(ctx, width, height, theme, scale);
   s.active();
   flushSync(() => s.client.state.setState({ text: "Ask Nestor about the supplies.", interaction: "Review before sending", micOn: true, notice: "spoken portion unknown" }));
-  const names = ["Mute mic", "Stop reply", "Leave voice"];
-  const controls = () => names.map(name => page.getByRole("button", { name, exact: true }).element() as HTMLElement);
-  expect(s.strip().textContent, "Stop reply keeps its place before playback starts").toContain("Stop reply");
+  const names = ["Mute", "Interrupt", "End"];
+  const controls = () => names.map(name => s.control(name));
+  expect(s.control("Interrupt"), "Interrupt keeps its place before playback starts").not.toBe(null);
   const targets = controls();
   const bounds = targets.map(node => node.getBoundingClientRect());
-  expect(targets[1].getAttribute("aria-disabled")).toBe("true");
+  expect(targets[1].disabled, "Interrupt is disabled outside L4").toBe(true);
   for (const box of bounds) { expect(box.height).toBeGreaterThanOrEqual(44); expect(box.width).toBeGreaterThanOrEqual(44); }
   // The strip holds Speaking for 300 ms after playback stops. That timer runs
   // on a fake clock, so each gap is exact rather than a real wait.
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }); ctx.onTestFinished(() => { vi.useRealTimers(); });
   for (const gap of [10, 40, 100, 20]) {
     flushSync(() => s.client.state.setState({ playing: true, interaction: "Speaking" }));
-    await expect.element(page.getByRole("button", { name: "Stop reply", exact: true })).not.toHaveAttribute("aria-disabled", "true");
+    await expect.poll(() => s.control("Interrupt").disabled).toBe(false);
     targets[0].focus();
     await userEvent.keyboard("{Tab}");
-    expect(document.activeElement, "Tab reaches Stop reply in its stable slot").toBe(targets[1]);
+    expect(document.activeElement, "Tab reaches Interrupt in its stable slot").toBe(targets[1]);
     flushSync(() => s.client.state.setState({ playing: false, interaction: gap === 40 ? "Listening" : "Review before sending" }));
     flushSync(() => vi.advanceTimersByTime(gap));
-    expect(s.strip().children[1].textContent, "short PCM gaps retain Speaking feedback").toContain("Speaking");
+    expect(s.word(), "short PCM gaps retain Speaking feedback").toBe("Speaking");
     expect(s.client.state.getState().micOn, "display smoothing must not mute or resume capture").toBe(true);
     expect(s.client.state.getState().playing, "presentation must not alter sample-level state").toBe(false);
-    expect(targets[1].getAttribute("aria-disabled"), "Stop remains available across a short gap").not.toBe("true");
+    expect(targets[1].disabled, "Interrupt remains available across a short gap").toBe(false);
     controls().forEach((node, index) => {
       const box = node.getBoundingClientRect();
       expect([box.x, box.y, box.width, box.height], "control geometry stays fixed across PCM windows").toEqual([bounds[index].x, bounds[index].y, bounds[index].width, bounds[index].height]);
@@ -343,13 +351,13 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   await s.capture("reply-gap");
   flushSync(() => vi.runOnlyPendingTimers());
   vi.useRealTimers();
-  await expect.poll(() => targets[1].getAttribute("aria-disabled")).toBe("true");
-  expect(s.strip().children[1].textContent).toContain("Review before sending");
+  await expect.poll(() => targets[1].disabled).toBe(true);
+  expect(s.word()).toBe("Listening");
   flushSync(() => s.client.state.setState({ playing: true, interaction: "Speaking" }));
   flushSync(() => s.client.state.setState({ playing: false, interaction: "Review before sending" }));
   flushSync(() => s.client.state.setState({ connection: "Speech lost", notice: "Speech connection lost. Resume when ready." }));
-  expect(s.strip().children[1].textContent, "connection loss is never smoothed away").toContain("Review before sending");
-  expect(targets[1].getAttribute("aria-disabled")).toBe("true");
+  expect(s.word(), "connection loss is never smoothed away").toBe("Reconnecting…");
+  expect(targets[1].disabled).toBe(true);
   flushSync(() => s.client.state.setState({ connection: "Connected", notice: "", playing: true, interaction: "Speaking" }));
   flushSync(() => s.client.state.setState({ playing: false, interaction: "Review before sending" }));
   targets[0].focus();
@@ -357,9 +365,9 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   expect(document.activeElement).toBe(targets[1]);
   await userEvent.keyboard("{Enter}");
   expect(s.client.state.getState().outputRecovery).not.toBe("audible");
-  expect(s.strip().children[1].textContent, "explicit output stop takes precedence immediately").not.toContain("Speaking");
-  expect(targets[1].getAttribute("aria-disabled")).toBe("true");
-  expect(s.client.state.getState().micOn, "Stop reply preserves microphone intent").toBe(true);
+  expect(s.word(), "explicit output stop takes precedence immediately").not.toBe("Speaking");
+  expect(targets[1].disabled).toBe(true);
+  expect(s.client.state.getState().micOn, "Interrupt preserves microphone intent").toBe(true);
   expect(s.network.socket()!.frames("conversation_audio")).toHaveLength(0);
   expect(s.network.socket()!.frames("conversation_commit")).toHaveLength(0);
 });

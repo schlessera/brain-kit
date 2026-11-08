@@ -1364,7 +1364,7 @@ implements them with the session store:
 | `settings/modules-tab.tsx` complete source values | `<details>` | Evidence: `Complete source values · {n} keys`. |
 | `settings/module-settings-fields.tsx` collapsible lists | `Surface` and `<details>` | Editable item: `ItemCard`. |
 | `voice/conversation-unassigned.tsx` | `<details>` "Optional voice review" | Optional control: `Callout` and "Review in composer". |
-| `voice/conversation-strip.tsx` background tasks | `<details>` | Evidence: `Background tasks · {n} contextual requests`. |
+| `voice/conversation-field.tsx` background tasks | `<details>` | Evidence: `Background tasks · {n} contextual requests`. |
 | `voice/recordings-tray.tsx` header | raw `aria-expanded` button | Panel: `Tray`, `On this device · {n} recordings · {size}`. |
 | `graph/graph-maintenance.tsx` finding groups | `TextButton` and dot | Panel: `Tray` with the lens swatch; the label keeps the kind's name. |
 | `graph/graph-scene.tsx` `ClusterLegend` | raw `aria-expanded` row | Panel: `Tray`, `Topics · {n}`. |
