@@ -238,7 +238,7 @@ taxonomy: {
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Persistent owner authorization for this automation. A key or CLI flag cannot turn it on. |
-| `profile` | `"conservative"` | `conservative`: floor 0.9 plus cross-checks; `balanced`: 0.7 plus cross-checks; `permissive`: floor 0, currency question only. |
+| `profile` | `"balanced"` | `conservative`: floor 0.9 plus cross-checks; `balanced`: 0.7 plus cross-checks; `permissive`: floor 0, currency question only. |
 | `minConfidence` | From profile | Optional 0–1 override; every required answer must meet it. This is answer concentration, **not** a probability of correctness. |
 | `crossChecks` | From profile | Also require positive answers on support for all included assertions and sufficient in-scope coverage. They can only veto the currency answer; confidence is never averaged or multiplied. |
 | `maxFiles` | `10` | At most 1–100 uncached model judgments per invocation. Cached negatives do not consume the quota. |

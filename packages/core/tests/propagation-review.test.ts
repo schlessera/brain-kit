@@ -97,7 +97,7 @@ test("propagation inspection is keyless and explicitly disabled until the owner 
     expect(result.code).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report).toMatchObject({ enabled: false, acknowledged: 0, changedFiles: [],
-      settings: { profile: "conservative", minConfidence: 0.9, crossChecks: true } });
+      settings: { profile: "balanced", minConfidence: 0.7, crossChecks: true } });
   } finally { cleanup(root); }
 });
 
@@ -166,6 +166,23 @@ test("inspection-only next does not ask a provider or write a receipt even with 
   await scriptedCli(brain, ["next", "--dry-run"], "forbid");
   expect(existsSync(join(brain.root, "propagation-requests.jsonl"))).toBe(false);
   expect(existsSync(join(brain.root, PROPAGATION_REVIEWS_PATH))).toBe(false);
+});
+
+test("balanced defaults accept at the floor with cross-checks and honor an explicit conservative profile", async () => {
+  const brain = fixture();
+  reply = async request => response(request, {}, 0.7);
+  const balanced = await reviewPropagations(brain, ["notes/derivative.md"], { now: NOW });
+  expect(balanced.settings).toMatchObject({ profile: "balanced", minConfidence: 0.7, crossChecks: true });
+  expect(balanced.acknowledged).toBe(1);
+  expect(await lag(brain)).toBe(0);
+  expect(Object.keys(calls[0]!.questions)).toEqual(["currency", "assertions", "coverage"]);
+
+  updatePolicy(brain, { profile: "conservative" });
+  const conservative = await reviewPropagations(brain, ["notes/derivative.md"], { now: NOW });
+  expect(conservative.settings).toMatchObject({ profile: "conservative", minConfidence: 0.9, crossChecks: true });
+  expect(conservative.reviewRequired).toBe(1);
+  expect(await lag(brain)).toBeGreaterThan(0);
+  expect(calls).toHaveLength(1);
 });
 
 test("threshold changes reuse judgments but immediately change acknowledgement eligibility", async () => {
@@ -311,6 +328,20 @@ test("a receipt file changed during judgment is not overwritten", async () => {
   const report = await reviewPropagations(brain, ["notes/derivative.md"], { now: NOW });
   expect(report.acknowledged).toBe(0);
   expect(readFileSync(join(brain.root, PROPAGATION_REVIEWS_PATH), "utf8")).toBe("Owner notes; do not replace.\n");
+});
+
+test.each([
+  ["notes", true],
+  ["notes/", true],
+  ["notes/source.md", true],
+  ["notes/*.md", true],
+  ["notes/source", false],
+] as const)("provider exclusion %s respects directory boundaries", async (pattern, excluded) => {
+  const brain = fixture(undefined, { exclude: [pattern] });
+  const report = await reviewPropagations(brain, ["notes/derivative.md"], { now: NOW });
+  expect(report.unavailable).toBe(excluded ? 1 : 0);
+  expect(report.acknowledged).toBe(excluded ? 0 : 1);
+  expect(calls).toHaveLength(excluded ? 0 : 1);
 });
 
 test("symlinked review output cannot write outside the brain", async () => {

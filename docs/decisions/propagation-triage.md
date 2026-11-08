@@ -232,8 +232,10 @@ multiplied into a supposed correctness probability.
 
 Presets were chosen as policy controls before their diagnostic run:
 conservative is 0.9 with checks, balanced 0.7 with checks, permissive 0 with
-the currency question alone. Explicit overrides are supported. The default is
-conservative, not a claim that 0.9 means 90% correct. The dry-run report exposes
+the currency question alone. Explicit overrides are supported. The maintainer
+selected balanced as the default on 2026-11-08; this is a policy choice, and its
+0.7 floor does not mean 70% correct. Automation still requires explicit opt-in.
+The dry-run report exposes
 every judgment and threshold sensitivity; it can help an owner choose how much
 automation to allow while keeping all structural/context checks mandatory.
 

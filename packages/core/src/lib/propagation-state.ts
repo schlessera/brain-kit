@@ -5,6 +5,7 @@ import { join, posix, relative } from "node:path";
 import { Glob } from "bun";
 import { z } from "zod";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
+import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { JevChoiceAnswer } from "./jev.js";
 import type { Taxonomy } from "./taxonomy.js";
 import { safeResolve, writeFileSafely } from "./safe-path.js";
@@ -39,7 +40,7 @@ export function propagationText(root: string, path: string, taxonomy: Taxonomy, 
   const absolute = safeResolve(root, path), canonicalRoot = safeResolve(root, ".");
   if (!absolute || !canonicalRoot || !path.endsWith(".md") || path.startsWith("context/hygiene/")) throw new PropagationUnavailable("unavailable-path");
   const canonical = relative(canonicalRoot, absolute).split("\\").join("/");
-  const excluded = (p: string) => taxonomy.isExcludedPath(p) || settings.exclude.some(pattern => new Glob(pattern).match(p) || p === pattern || p.startsWith(pattern.replace(/\/$/, "") + "/"));
+  const excluded = (p: string) => taxonomy.isExcludedPath(p) || settings.exclude.some(pattern => new Glob(pattern).match(p) || isWithin(pattern, p, { trailingSeparator: "boundary" }));
   if (excluded(path) || excluded(canonical)) throw new PropagationUnavailable("excluded-path");
   const stat = lstatSync(join(root, path));
   if (!stat.isFile() || stat.size > 160000) throw new PropagationUnavailable("unavailable-file");

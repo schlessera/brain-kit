@@ -22,7 +22,8 @@ state; the main question is unchanged. Structural prerequisites (known scope,
 available regular historical sources, exact recorded derivative or explicit
 reference) are applied by product code before any request. Presets were declared
 before the run and are compared without choosing a new floor from held-out.
-The shipped default remains conservative.
+The maintainer selected balanced as the shipped default on 2026-11-08, after
+this diagnostic. The recorded presets and observations are unchanged.
 
 Every available case runs three repetitions. Missing history/scope remains an
 unavailable product outcome, not a guessed label. Golds are used for scoring

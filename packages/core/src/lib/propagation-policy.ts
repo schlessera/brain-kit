@@ -18,7 +18,7 @@ export interface PropagationSettings {
   exclude: string[];
 }
 export function propagationSettings(config: PropagationConfig): PropagationSettings {
-  const profile = config?.profile ?? "conservative";
+  const profile = config?.profile ?? "balanced";
   const defaults = { conservative: { floor: 0.9, checks: true }, balanced: { floor: 0.7, checks: true }, permissive: { floor: 0, checks: false } }[profile];
   return { enabled: config?.enabled === true, profile, minConfidence: config?.minConfidence ?? defaults.floor,
     crossChecks: config?.crossChecks ?? defaults.checks, maxFiles: config?.maxFiles ?? 10,

@@ -24,7 +24,8 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 
 Optional canonical `hygiene.propagation` configuration authorizes bounded JEV
 currency review with source diffs, user-selected confidence floors and veto-only
-cross-checks. It is off by default. Separate Markdown judgment receipts can
+cross-checks. Automation is off by default; opted-in review defaults to the
+balanced profile (0.7 floor with both cross-checks). Separate Markdown judgment receipts can
 suppress a propagation finding without changing content-edit dates; all changed
 or unavailable evidence returns to review. `brain hygiene propagation --json`
 adds inspectable dry-run/judgment/sensitivity output, and enabled reconciliation

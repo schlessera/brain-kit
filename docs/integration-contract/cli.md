@@ -1408,6 +1408,10 @@ acceptance gate, not a proved content defect. `unavailable` retains review
 `config-changed`, `context-changed`, or provider errors). `deferred` is a run
 limit, not acknowledgement. Future reason strings may be added.
 
+With no profile configured, settings report `balanced`, `minConfidence: 0.7`
+and `crossChecks: true`; `enabled` still defaults to false. Explicit profile,
+confidence and cross-check settings override these defaults.
+
 The concrete model is `jev-1.13.0`. The currency Choice must say `still_current`;
 when cross-checks are enabled, both assertions and coverage Choices must say
 `yes`. Every required confidence must meet the current floor. A higher floor
