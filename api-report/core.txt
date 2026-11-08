@@ -155,6 +155,13 @@ export "./internal" (./src/internal.ts)
   type IngestOutcome
   MAX_SCOPE_ENTRIES
   MAX_SCOPE_ENTRY_LENGTH
+  READ_MANY_DESCRIPTION
+  READ_MANY_MAX_PATH_CHARS
+  READ_MANY_MAX_REQUESTS
+  READ_MANY_MAX_SECTION_CHARS
+  READ_MANY_MAX_TOTAL_CHARS
+  READ_MANY_MIN_ITEM_CHARS
+  READ_MANY_MIN_TOTAL_CHARS
   REVIEW_SEVERITY
   REVIEW_URGENCY
   type ResolvedComputeInstance
@@ -204,6 +211,7 @@ export "./internal" (./src/internal.ts)
   prepareIngest
   pruneScratch
   readDocumentPart
+  readMany
   relevanceOnArchive
   rerankSetup
   resolveCompletionProvider

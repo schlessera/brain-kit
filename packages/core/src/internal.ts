@@ -21,6 +21,17 @@ export type { ContextScopeInput } from "./lib/context-scope.js";
 export { initContext } from "./lib/context.js";
 export type { BrainContext } from "./lib/context.js";
 export { readDocumentPart } from "./lib/document-parts.js";
+// The bounded multi-read pi's brain_read_many adapts (#3642).
+export {
+  READ_MANY_DESCRIPTION,
+  READ_MANY_MAX_PATH_CHARS,
+  READ_MANY_MAX_REQUESTS,
+  READ_MANY_MAX_SECTION_CHARS,
+  READ_MANY_MAX_TOTAL_CHARS,
+  READ_MANY_MIN_ITEM_CHARS,
+  READ_MANY_MIN_TOTAL_CHARS,
+  readMany,
+} from "./lib/ops/read-many.js";
 export { updateDocument } from "./lib/frontmatter-edit.js";
 export type { FrontmatterValue } from "./lib/frontmatter-edit.js";
 export { inertGeneratedText, rewriteGeneratedRegion, splitFrontmatterBlock } from "./lib/generated-regions.js";

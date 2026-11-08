@@ -1,12 +1,15 @@
 /**
- * #3641 spike harness: a candidate bounded multi-read contract, measured
- * against the individual `brain_read` calls agents make today.
+ * #3641 spike harness, rerun by #3642 against the delivered bounded
+ * multi-read: `brain_read_many` measured against the individual `brain_read`
+ * calls agents make today.
  *
  * Three arms on the same Odysseus scenarios (`bounded-read/scenarios.ts`):
- * sequential individual reads, parallel individual reads, and the PRIVATE
- * prototype batch (`bounded-read/prototype.ts`, not exported, not a served
- * tool). Mechanics run through the real keyless stdio MCP server and Pi's
- * real agent loop with its faux provider. The faux provider's tool choices
+ * sequential individual reads, parallel individual reads, and the batch. The
+ * spike measured a private prototype; since #3642 the contract tests drive the
+ * shipped core operation (`readMany`, `packages/core/src/lib/ops/read-many.ts`),
+ * the MCP arm calls the served `brain_read_many` over stdio, and the Pi arm
+ * executes the roster's `brain_read_many`. Mechanics run through the real
+ * keyless stdio MCP server and Pi's real agent loop with its faux provider. The faux provider's tool choices
  * are scripted: they prove runtime mechanics, never that a model would choose
  * or understand a tool, and its request count is not a provider-request
  * saving. Provider tokens, cache, cost and model usability stay unavailable.
@@ -23,7 +26,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { runAgentLoop, type AgentEvent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type Message } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
 
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { readDocument } from "../packages/core/src/lib/ops/read.ts";
@@ -39,9 +41,9 @@ import { createNativeJournalFixture } from "../packages/ui-server/tests/helpers/
 
 import { bytes, envelopeOverhead, escapedChars, maxOverlap, median, recordWire, sizeOf, timed, UNAVAILABLE, wireTotals } from "./bounded-read/measure.ts";
 import {
-  DEFAULT_TOTAL_CHARS, MAX_ITEMS, PROPOSED_TOOL, readManyPrototype, ReadManyRequestError,
+  READ_MANY_DEFAULT_TOTAL_CHARS as DEFAULT_TOTAL_CHARS, READ_MANY_MAX_REQUESTS as MAX_ITEMS, readMany, ReadManyRequestError,
   type ReadManyInput, type ReadManyItem, type ReadManyRequest, type ReadManyResult,
-} from "./bounded-read/prototype.ts";
+} from "../packages/core/src/lib/ops/read-many.ts";
 import { raftLog, REFERENCE_DATE, SCENARIOS, scenarioDocuments, SMALL_PATHS } from "./bounded-read/scenarios.ts";
 
 const REPEATS = 5;
@@ -57,7 +59,7 @@ let root: string;
 let outside: string;
 
 const kinds = (r: ReadManyResult) => r.items.map(i => i.kind === "error" ? `error:${i.code}` : i.kind);
-const read = (input: ReadManyInput, opts?: Parameters<typeof readManyPrototype>[2]) => readManyPrototype(root, input, opts);
+const read = (input: ReadManyInput, opts?: Parameters<typeof readMany>[2]) => readMany(root, input, opts);
 const scenario = (id: string) => SCENARIOS.find(s => s.id === id)!;
 
 beforeAll(async () => {
@@ -79,7 +81,7 @@ afterAll(() => {
   rmSync(outside, { force: true });
 });
 
-describe("prototype contract over the Odysseus scenarios", () => {
+describe("delivered contract over the Odysseus scenarios", () => {
   test("every scenario keeps the whole serialized result and each item within their char caps", async () => {
     const rows: unknown[] = [];
     for (const s of SCENARIOS) {
@@ -127,7 +129,9 @@ describe("prototype contract over the Odysseus scenarios", () => {
       sections: ["full", "full", "full"],
       "missing-refused": ["error:not_found", "error:refused", "error:refused", "error:refused", "error:not_a_file", "error:section_not_found"],
       duplicates: ["full", "duplicate", "full", "duplicate", "full"],
-      "aggregate-overflow": [...Array(13).fill("full"), ...Array(6).fill("outline"), "error:budget_exhausted"],
+      // The spike's prototype held 13 whole, 6 outlines and 1 stub; without the
+      // dropped per-item size fields on full items one more note fits whole.
+      "aggregate-overflow": [...Array(14).fill("full"), "outline", ...Array(5).fill("error:budget_exhausted")],
     };
     for (const s of SCENARIOS) expect([s.id, kinds(await read({ requests: s.requests }))]).toEqual([s.id, expected[s.id]!]);
   });
@@ -211,7 +215,7 @@ describe("prototype contract over the Odysseus scenarios", () => {
   });
 
   test("duplicates point at the first equal request and one call reads each file once", async () => {
-    const work = { filesRead: 0, rawBytes: 0 };
+    const work = { filesRead: 0, bytesRead: 0 };
     const r = await read({ requests: scenario("duplicates").requests }, { work });
     expect(r.items[1]).toMatchObject({ kind: "duplicate", of: 0 });
     expect(r.items[3]).toMatchObject({ kind: "duplicate", of: 2 });
@@ -246,13 +250,13 @@ describe("prototype contract over the Odysseus scenarios", () => {
 
   test("cancellation stops reading between files and returns nothing partial", async () => {
     const controller = new AbortController();
-    const work = { filesRead: 0, rawBytes: 0 };
+    const work = { filesRead: 0, bytesRead: 0 };
     const pending = read({ requests: scenario("aggregate-overflow").requests }, { signal: controller.signal, work });
     await Promise.resolve();
     controller.abort(new Error("Odysseus cancelled the read"));
     await expect(pending).rejects.toThrow("Odysseus cancelled the read");
     expect(work.filesRead).toBeLessThan(20);
-    evidence.prototypeCancellation = { requested: 20, filesReadBeforeStop: work.filesRead };
+    evidence.batchCancellation = { requested: 20, filesReadBeforeStop: work.filesRead };
   });
 
   test("the old single read keeps its uncapped outline threshold (#383)", () => {
@@ -278,10 +282,6 @@ const TASKS: Array<{ id: string; rounds: ReadManyRequest[][]; legacy?: Array<Rec
 const legacyArgs = (task: (typeof TASKS)[number]) =>
   task.legacy ?? task.rounds.map(round => round.map(r => ({ path: r.path, ...(r.section ? { section: r.section } : {}) })));
 
-/** A modelled JSON-RPC response carrying the prototype result as the MCP server's structured tools do. */
-const modelledResponse = (id: number, result: ReadManyResult) =>
-  JSON.stringify({ result: { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result }, jsonrpc: "2.0", id });
-
 describe("real keyless stdio MCP exercise", () => {
   let client: Client;
   let transport: StdioClientTransport;
@@ -302,8 +302,10 @@ describe("real keyless stdio MCP exercise", () => {
 
   const call = async (args: Record<string, unknown>, signal?: AbortSignal) =>
     (await client.callTool({ name: "brain_read", arguments: args }, undefined, signal ? { signal } : undefined)) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+  const callMany = async (args: Record<string, unknown>, signal?: AbortSignal) =>
+    (await client.callTool({ name: "brain_read_many", arguments: args }, undefined, signal ? { signal } : undefined)) as { content: Array<{ type: string; text: string }>; isError?: boolean; structuredContent?: unknown };
 
-  test("sequential, parallel and modelled-batch arms over the same tasks", async () => {
+  test("sequential, parallel and served-batch arms over the same tasks", async () => {
     const rows: unknown[] = [];
     for (const task of TASKS) {
       const args = legacyArgs(task);
@@ -336,25 +338,34 @@ describe("real keyless stdio MCP exercise", () => {
         expect(measured.warningParts, `NO_WARNING_IN_MEASURED_ARMS ${task.id}`).toEqual([]);
         arms[arm] = { ...measured, latencyMsMedian: median(times), latencyMsAll: times.map(t => Math.round(t * 100) / 100) };
       }
-      // The prototype is not a served tool: its in-process time excludes the
-      // stdio hop and its response bytes are modelled with the same framing.
+      // The served brain_read_many over the same stdio pipe: one text block, no structuredContent.
       const times: number[] = [];
-      let modelled: Record<string, unknown> = {};
+      let served: Record<string, unknown> = {};
       for (let rep = 0; rep < REPEATS; rep++) {
-        const results: ReadManyResult[] = [];
-        const { ms } = await timed(async () => { for (const round of task.rounds) results.push(await read({ requests: round })); });
+        const sentBefore = wire.sent.length, receivedBefore = wire.received.length;
+        const texts: string[] = [];
+        const { ms } = await timed(async () => {
+          for (const round of task.rounds) {
+            const r = await callMany({ requests: round });
+            expect(r.isError, `BATCH_SERVED ${task.id}`).toBeFalsy();
+            expect(r.content, `BATCH_TEXT_ONLY ${task.id}`).toHaveLength(1);
+            texts.push(r.content[0]!.text);
+          }
+        });
         times.push(ms);
-        const responses = results.map((r, i) => modelledResponse(1_000 + i, r));
-        modelled = {
+        const received = wire.received.slice(receivedBefore);
+        const results = texts.map(t => JSON.parse(t) as ReadManyResult);
+        served = {
           toolCalls: task.rounds.length, dependentRounds: task.rounds.length,
-          responsesModelled: wireTotals(responses),
-          payload: sizeOf(results.map(r => JSON.stringify(r)).join("")),
-          envelopeCharsPerCall: responses.map((line, i) => envelopeOverhead(line, [JSON.stringify(results[i])])),
+          requestsSent: wireTotals(wire.sent.slice(sentBefore)), responsesReceived: wireTotals(received),
+          payload: sizeOf(texts.join("")),
+          envelopeCharsPerCall: received.map((line, i) => envelopeOverhead(line, [texts[i] ?? ""])),
           kinds: results.map(kinds),
-          wireNote: "structuredResult sends the JSON twice (text copy and structuredContent); the cap bounds each copy",
+          warnings: results.flatMap(r => r.warnings),
         };
+        for (const [i, text] of texts.entries()) expect(text.length, `BATCH_TOTAL_CAP ${task.id}`).toBeLessThanOrEqual(results[i]!.max_total_chars);
       }
-      arms.batchModelled = { ...modelled, latencyMsMedian: median(times), latencyMsInProcessOnly: true };
+      arms.batchServed = { ...served, latencyMsMedian: median(times), latencyMsAll: times.map(t => Math.round(t * 100) / 100) };
       rows.push({ task: task.id, arms });
       const seq = arms.sequential as { requestsSent: { messages: number } }, par = arms.parallel as { requestsSent: { messages: number } };
       expect(seq.requestsSent.messages).toBe(args.flat().length);
@@ -384,15 +395,16 @@ describe("real keyless stdio MCP exercise", () => {
     }
   }, 60_000);
 
-  test("roster cost: the listed brain_read definition and the proposed one", async () => {
+  test("roster cost: the listed brain_read and brain_read_many definitions", async () => {
     const { tools } = await client.listTools();
     const listed = tools.find(t => t.name === "brain_read")!;
-    evidence.rosterChars = { brain_read: JSON.stringify(listed).length, proposed_brain_read_many: JSON.stringify(PROPOSED_TOOL).length,
+    const many = tools.find(t => t.name === "brain_read_many")!;
+    evidence.rosterChars = { brain_read: JSON.stringify(listed).length, brain_read_many: JSON.stringify(many).length,
       note: "Present on every provider request of a session that has the tool, cached or not; provider tokens unavailable" };
   });
 
-  test("individual reads return what the prototype's full items carry", async () => {
-    const batch = await read({ requests: SMALL_PATHS.map(path => ({ path })) });
+  test("individual reads return what the served batch's full items carry", async () => {
+    const batch = JSON.parse((await callMany({ requests: SMALL_PATHS.map(path => ({ path })) })).content[0]!.text) as ReadManyResult;
     const individual = await Promise.all(SMALL_PATHS.map(path => call({ path })));
     for (const [i, r] of individual.entries()) {
       const item = batch.items[i]!;
@@ -451,21 +463,6 @@ function agentTool(def: { name: string; label: string; description: string; para
   };
 }
 
-/** The private prototype as an in-test Pi tool. Never registered with a backend. */
-function prototypeTool(spans: Array<{ start: number; end: number }>): AgentTool {
-  return {
-    name: "prototype_read_many", label: "Prototype", description: "Private #3641 prototype; not a supported tool.",
-    parameters: Type.Object({ requests: Type.Array(Type.Object({ path: Type.String(), section: Type.Optional(Type.String()) })) }) as never,
-    async execute(_id, params, signal) {
-      const start = performance.now();
-      try {
-        const result = await read(params as ReadManyInput, { signal });
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: null };
-      } finally { spans.push({ start, end: performance.now() }); }
-    },
-  };
-}
-
 interface PiRun { providerRequests: number; contextCharsPerRequest: number[]; toolResults: string[]; transcriptChars: number; spans: Array<{ start: number; end: number }>; events: AgentEvent[]; ms: number; messages: AgentMessage[] }
 
 /**
@@ -490,11 +487,12 @@ async function piRun(steps: Array<Array<{ name: string; args: Record<string, unk
   ]);
   const tools = createBrainTools({ brain: createBrainAccess(root), turn: createTurnContext(), lock: toolLockFromKeyed(createKeyedLock()) });
   const brainRead = tools.find(t => t.name === "brain_read")!;
+  const brainReadMany = tools.find(t => t.name === "brain_read_many")!;
   const events: AgentEvent[] = [];
   let started = 0;
   const { ms, value: messages } = await timed(() => runAgentLoop(
     [{ role: "user", content: "Odysseus asks for the raft overview.", timestamp: 0 } as AgentMessage],
-    { messages: [], tools: [agentTool(brainRead as never, spans), ...(opts.batch ? [prototypeTool(spans)] : [])] },
+    { messages: [], tools: [agentTool(brainRead as never, spans), ...(opts.batch ? [agentTool(brainReadMany as never, spans)] : [])] },
     { model: faux.getModel(), convertToLlm: m => m as Message[], ...(opts.mode ? { toolExecution: opts.mode } : {}) },
     e => { events.push(e); if (e.type === "tool_execution_start") opts.onStart?.(started++); },
     opts.signal,
@@ -509,7 +507,7 @@ async function piRun(steps: Array<Array<{ name: string; args: Record<string, unk
 describe("Pi tool-execution exercise (faux provider, scripted calls)", () => {
   const readCalls = (round: Array<Record<string, unknown>>) => round.map(args => ({ name: "brain_read", args }));
 
-  test("one message of parallel calls, one call per message, sequential mode and a prototype batch", async () => {
+  test("one message of parallel calls, one call per message, sequential mode and a brain_read_many batch", async () => {
     const rows: unknown[] = [];
     for (const task of TASKS) {
       const legacy = legacyArgs(task);
@@ -517,7 +515,7 @@ describe("Pi tool-execution exercise (faux provider, scripted calls)", () => {
         parallelOneMessage: { steps: legacy.map(readCalls), opts: {} },
         sequentialMode: { steps: legacy.map(readCalls), opts: { mode: "sequential" as const } },
         oneCallPerMessage: { steps: legacy.flatMap(round => round.map(args => readCalls([args]))), opts: {} },
-        prototypeBatch: { steps: task.rounds.map(round => [{ name: "prototype_read_many", args: { requests: round } }]), opts: { batch: true } },
+        batch: { steps: task.rounds.map(round => [{ name: "brain_read_many", args: { requests: round } }]), opts: { batch: true } },
       };
       const out: Record<string, unknown> = {};
       for (const [name, arm] of Object.entries(arms)) {
@@ -540,7 +538,7 @@ describe("Pi tool-execution exercise (faux provider, scripted calls)", () => {
       rows.push({ task: task.id, arms: out });
     }
     evidence.pi = {
-      runtime: "pi-agent-core runAgentLoop with pi-ai createFauxCore; the curated brain_read factory from createBrainTools",
+      runtime: "pi-agent-core runAgentLoop with pi-ai createFauxCore; the curated brain_read and brain_read_many factories from createBrainTools",
       defaultToolExecution: "parallel (pi-agent-core Agent default; the Pi backend does not set it)",
       repeats: REPEATS,
       tasks: rows,
@@ -563,7 +561,7 @@ describe("Pi tool-execution exercise (faux provider, scripted calls)", () => {
     const run = await piRun([readCalls(SMALL_PATHS.map(path => ({ path })))], { signal: controller.signal, onStart: n => { if (n === 0) controller.abort(); } });
     const ends = run.events.filter(e => e.type === "tool_execution_end") as Extract<AgentEvent, { type: "tool_execution_end" }>[];
     const batch = new AbortController();
-    const batchRun = await piRun([[{ name: "prototype_read_many", args: { requests: SMALL_PATHS.map(path => ({ path })) } }]], { batch: true, signal: batch.signal, onStart: () => batch.abort() });
+    const batchRun = await piRun([[{ name: "brain_read_many", args: { requests: SMALL_PATHS.map(path => ({ path })) } }]], { batch: true, signal: batch.signal, onStart: () => batch.abort() });
     const batchEnds = batchRun.events.filter(e => e.type === "tool_execution_end") as Extract<AgentEvent, { type: "tool_execution_end" }>[];
     const summary = (r: PiRun, e: typeof ends) => ({
       readsExecuted: r.spans.length,
@@ -573,15 +571,15 @@ describe("Pi tool-execution exercise (faux provider, scripted calls)", () => {
       streamCalls: r.providerRequests,
       lastStopReason: (r.messages.filter(m => (m as { role?: string }).role === "assistant").at(-1) as { stopReason?: string } | undefined)?.stopReason,
     });
-    const individual = summary(run, ends), prototype = summary(batchRun, batchEnds);
+    const individual = summary(run, ends), batchSummary = summary(batchRun, batchEnds);
     evidence.piCancellation = {
-      individual, prototypeBatch: prototype,
+      individual, batch: batchSummary,
       note: "Aborted at the first tool_execution_start. Parallel mode stops preparing calls, so later calls of the message get no result; " +
         "the loop then calls the stream function once more with the aborted signal and the faux provider answers 'aborted'. " +
         "Whether a real provider adapter sends anything for that call is not observable offline.",
     };
     // Observed mechanics: nothing is read after the abort, and the loop settles with an aborted answer.
-    for (const r of [individual, prototype]) {
+    for (const r of [individual, batchSummary]) {
       expect(r.readsExecuted).toBe(0);
       expect(r.toolResultMessages).toBe(1);
       expect(r.streamCalls).toBe(2);
@@ -630,6 +628,6 @@ describe("turn-journal observation per call", () => {
   });
 });
 
-test("the default prototype cap stays under the Claude Agent SDK's 50,000-char persistence threshold", () => {
+test("the default total cap stays under the Claude Agent SDK's 50,000-char persistence threshold", () => {
   expect(DEFAULT_TOTAL_CHARS).toBeLessThan(50_000);
 });

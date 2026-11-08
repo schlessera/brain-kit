@@ -7,7 +7,7 @@
  * project documents serve the small-file cases. The world's reference date is
  * the pinned `2026-07-12`.
  */
-import type { ReadManyRequest } from "./prototype.ts";
+import type { ReadManyRequest } from "../../packages/core/src/lib/ops/read-many.ts";
 
 export const REFERENCE_DATE = "2026-07-12";
 

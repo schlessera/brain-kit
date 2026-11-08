@@ -15,7 +15,15 @@ import {
   isIsoDate,
   MAX_SCOPE_ENTRIES,
   MAX_SCOPE_ENTRY_LENGTH,
+  READ_MANY_DESCRIPTION,
+  READ_MANY_MAX_PATH_CHARS,
+  READ_MANY_MAX_REQUESTS,
+  READ_MANY_MAX_SECTION_CHARS,
+  READ_MANY_MAX_TOTAL_CHARS,
+  READ_MANY_MIN_ITEM_CHARS,
+  READ_MANY_MIN_TOTAL_CHARS,
   readDocumentPart,
+  readMany,
   SEARCH_SORTS,
   type SearchOptions,
 } from "@schlessera/brain/internal";
@@ -300,6 +308,53 @@ export function brainReadTool(kit: BrainToolKit): ToolDefinition {
         sectionHint: 'section: "<heading>"',
       });
       return textResult(clip(text, MAX_READ_BYTES), { path: params.path });
+    },
+  } satisfies ToolDefinition;
+}
+
+/**
+ * `brain_read_many` (#3642): core's bounded multi-read, the operation the MCP
+ * tool and `brain read-many` run. Each request resolves through this
+ * roster's own containment (`resolveInRepo`, the rule `brain_read` uses), and
+ * the call stops between files when the tool or the turn is aborted. It
+ * remembers no write base: a retrieval hash is not a hosted write receipt.
+ * Its result is already within its cap, and JSON clipped as text would not
+ * parse, so it is never clipped.
+ */
+export function brainReadManyTool(kit: BrainToolKit): ToolDefinition {
+  const { brain, turn } = kit;
+  const request = Type.Object(
+    {
+      path: Type.String({ minLength: 1, maxLength: READ_MANY_MAX_PATH_CHARS, description: "Repo-relative document path." }),
+      section: Type.Optional(Type.String({ maxLength: READ_MANY_MAX_SECTION_CHARS, description: "Heading text of one section." })),
+      offset: Type.Optional(Type.Integer({ minimum: 1, description: "Line to page from (next.offset)." })),
+      column: Type.Optional(Type.Integer({ minimum: 0, description: "Column in the offset line (next.column)." })),
+      expected_sha256: Type.Optional(
+        Type.String({ pattern: "^[0-9a-f]{64}$", description: "sha256 of an earlier item of this file." })
+      ),
+    },
+    { additionalProperties: false }
+  );
+  return {
+    name: "brain_read_many",
+    label: "Read brain documents",
+    description: READ_MANY_DESCRIPTION,
+    parameters: Type.Object(
+      {
+        requests: Type.Array(request, { minItems: 1, maxItems: READ_MANY_MAX_REQUESTS, description: "In priority order." }),
+        max_total_chars: Type.Optional(
+          Type.Integer({ minimum: READ_MANY_MIN_TOTAL_CHARS, maximum: READ_MANY_MAX_TOTAL_CHARS })
+        ),
+        max_item_chars: Type.Optional(
+          Type.Integer({ minimum: READ_MANY_MIN_ITEM_CHARS, maximum: READ_MANY_MAX_TOTAL_CHARS })
+        ),
+      },
+      { additionalProperties: false }
+    ),
+    async execute(_id: string, params: unknown, signal?: AbortSignal) {
+      const aborted = signal && turn.signal ? AbortSignal.any([signal, turn.signal]) : signal ?? turn.signal ?? undefined;
+      const result = await readMany(brain.root, params, { signal: aborted, resolve: (path) => brain.resolveInRepo(path) });
+      return textResult(JSON.stringify(result), { count: result.items.length, truncated: result.truncated });
     },
   } satisfies ToolDefinition;
 }

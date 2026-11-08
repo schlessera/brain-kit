@@ -11,7 +11,7 @@ import { STABLE_BRIDGE_ROSTER } from "../scripts/turn-surface-fixture";
 const completeBridgeNames = STABLE_BRIDGE_ROSTER.map(name => `mcp__brain-ui__${name}`).sort();
 const completeCoreNames = [
   "brain_add", "brain_archive", "brain_context", "brain_graph", "brain_list",
-  "brain_read", "brain_search", "brain_update",
+  "brain_read", "brain_read_many", "brain_search", "brain_update",
 ].map(name => `mcp__brain__${name}`).sort();
 
 test("installed CLI spawns before routing settles, then applies MCP load set", async () => {

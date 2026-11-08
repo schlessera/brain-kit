@@ -35,8 +35,9 @@ contract changes. The prototype is private to the harness.
 The harness is [`experiments/bounded-read-contract.test.ts`](../../experiments/bounded-read-contract.test.ts).
 Its plain measurement helpers are in [`experiments/bounded-read/measure.ts`](../../experiments/bounded-read/measure.ts),
 written so the multi-query search spike (#3645) can reuse them. The private
-prototype is [`experiments/bounded-read/prototype.ts`](../../experiments/bounded-read/prototype.ts)
-and the scenarios are [`experiments/bounded-read/scenarios.ts`](../../experiments/bounded-read/scenarios.ts).
+prototype was `experiments/bounded-read/prototype.ts`; #3642 replaced it with
+the shipped operation and removed it (see [Delivered](#delivered-in-3642)).
+The scenarios are [`experiments/bounded-read/scenarios.ts`](../../experiments/bounded-read/scenarios.ts).
 
 **Scenarios.** Odysseus documents generated from fixed text, so they are the
 same bytes on every run, written into a copy of the core fixture corpus with
@@ -72,7 +73,7 @@ prototype batch, each repeated five times:
   corpus. A recording wrapper on the client transport logs every JSON-RPC
   message. The prototype is not a served tool, so its response uses the
   framing the server's structured tools use (`structuredResult`,
-  `packages/core/src/mcp-server.ts:161-164`). Its latency is in-process.
+  `packages/core/src/mcp-server.ts:165-168`). Its latency is in-process.
 - **Pi**: `runAgentLoop` from `pi-agent-core` with `pi-ai`'s faux provider,
   executing the curated `brain_read` from `createBrainTools`. The faux provider
   is **scripted**. Its tool choices and request count show runtime mechanics
@@ -188,7 +189,7 @@ parallel default, with concurrency 1.
 Unchanged, and the harness asserts it. With only a path, `brain_read` returns
 the whole file however large: 70,612 chars for the huge line, over MCP. Pi
 clips it at 100,000 chars
-(`brainReadTool`, `packages/ui-backend-pi/src/brain-tools.ts:178-221`). The
+(`brainReadTool`, `packages/ui-backend-pi/src/brain-tools.ts:210-254`). The
 `max_tokens` option stays a threshold, not a cap
 (`readDocumentPart`, `packages/core/src/lib/document-parts.ts:152-199`): a
 100-token threshold on the crew ledger returns a 20,190-char outline, almost
@@ -346,6 +347,84 @@ execution proof.
    available, not preferred.
 5. **Revisit** the metadata cost if the trial shows the batch is chosen mainly
    for small-file overviews, where it is the larger answer.
+
+<a id="delivered-in-3642"></a>
+
+## Delivered in #3642
+
+#3642 ships the contract above as `brain_read_many` on MCP and pi and as
+`brain read-many --json`, over one core operation
+(`readMany`, `packages/core/src/lib/ops/read-many.ts:426-480`). The
+integration contract is
+[Bounded multi-read](../integration-contract/mcp.md#bounded-multi-read-additive-0450-3642).
+The harness now drives that operation, calls the served tool over stdio and
+executes pi's roster tool; the prototype is gone.
+
+**Details this record left open, as #3642 decided them:**
+
+- `full` items carry `sha256` and `content` only, as recommended above.
+  `bytes`, `chars` and `est_tokens` stay on `outline` and `partial` items and
+  describe the requested scope (the document or the section), not the file.
+- `truncated` is true for an `outline`, an `error`, or a `partial` with a
+  `next`. A last page completes its request.
+- An outline that could hold no heading is not returned; the scope is paged
+  instead, so the item always offers a choice or makes progress.
+- `bad_offset` also covers a `column` at or past the end of its line and a
+  `column` that splits a surrogate pair. `expected_sha256` must be 64
+  lowercase hex characters, or the call is refused.
+- A request whose own `budget_exhausted` stub exceeds `max_item_chars` (a
+  1,024-character path of characters JSON escapes) refuses the whole call,
+  like a total too small for every stub.
+- The paging primitive was not moved out of `ui-sdk`. `brain_read_base` stays
+  untouched, and its pager stops before a line that does not fit, while this
+  one fills the rest of the page with that line's prefix. The two share the
+  line-splitting and code-point rules, not code.
+- MCP returns the envelope once, as text, with no `outputSchema` or
+  `structuredContent`. The read tools' warnings ride in the envelope once,
+  not as a second content block. The CLI prints the same envelope as compact
+  JSON and has no warnings; neither has pi.
+- Each surface resolves requests with the resolver its `brain_read` uses
+  (`safeResolve` in core, pi's `resolveInRepo`, the same rule). Pi's tool
+  records no write base: a retrieval hash is not a hosted write receipt.
+- Placement in the backends: auto-allowed wherever `brain_read` is, in the
+  Claude voice posture ([voice-permission.md](voice-permission.md)), among the
+  named reads that take no lock, at the index barrier, replayable as a read on
+  inbox yield, and in the `file_read` roadblock family. It is not a schedule
+  tool, not in `HOST_READS` and has no execution proof: the journal observes it
+  as `unproven`, as it does `brain_read`.
+- The listed definition is 1,706 characters, about the 1,702 estimated above
+  (the first draft, with longer field descriptions, was 2,252). The description
+  states behaviour and does not recommend the tool over parallel reads.
+
+**Re-measured** on 2026-11-08 with the served tool, the same scenarios and
+five repeats (MCP stdio, characters):
+
+| Task | Calls (individual / batch) | Individual payload | Individual responses on the wire | Batch payload | Batch response on the wire | Latency ms, median (seq / par / batch) |
+| --- | --- | --- | --- | --- | --- | --- |
+| overview-small | 4 / 1 | 3,540 | 3,963 | 4,362 | 4,661 | 1.9 / 1.8 / 10.2 |
+| sections | 3 / 1 | 645 | 886 | 1,283 | 1,452 | 8.1 / 5.1 / 4.1 |
+| overflow-20 | 20 / 1 | 29,022 | 30,762 | 23,921 | 24,592 | 7.4 / 2.3 / 20.2 |
+| outline-then-section | 2 / 2 | 6,923 | 7,332 | 8,358 | 9,965 | 39 / 33 / 44 |
+
+- The conclusion stands: for the same content the batch is larger (4,362
+  against 3,540 chars for four small files), and smaller only where its cap
+  cut content (`overflow-20` held 14 notes whole, 1 as an outline and 5 as
+  `budget_exhausted` stubs). Dropping the size fields from `full` items cut
+  the batch payload by 4–9% against the prototype; text-only output cut
+  the wire response to about half the modelled one.
+- Served, the batch is no faster: its median latency is higher than parallel
+  reads in three of four tasks. These are warm-host medians of five runs
+  and support no ranking.
+- Pi (scripted faux provider): one batch message and one message of parallel
+  reads both take two requests; the batch transcript is 1–7% larger for
+  the two equal-content tasks, 30% larger for `outline-then-section` (its
+  outline is structured JSON, not `brain_read`'s outline text) and 28% smaller
+  for `overflow-20`, where its cap cut. Its
+  first request is 1,557 chars larger, the size of the added tool definition,
+  which every request of a session carries.
+- One journal observation per batch call against one per read, as before.
+- Provider tokens, cache, cost and model usability remain unavailable. Gate 4
+  still holds: nothing recommends the tool until a real-model trial.
 
 ## Limits of this evidence
 
