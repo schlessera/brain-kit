@@ -308,7 +308,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const dictation = useDictation();
   // The mic names the service the next take goes to (D4), from the read-only
   // discovery snapshot. Reading it mints nothing and opens no microphone.
-  const discovery = useVoiceStore((s) => s.discovery?.snapshot ?? null);
+  // A stale snapshot may no longer be the server's, so it names nothing.
+  const discovery = useVoiceStore((s) => s.discovery && !s.discovery.stale ? s.discovery.snapshot : null);
+  const discoveryStale = useVoiceStore((s) => s.discovery?.stale === true);
   // Before the microphone opens (the acknowledgement or a blocked take), nothing is being dictated yet.
   const gated = useVoiceStore((s) => s.dictationGate !== null);
   const nextTarget = discovery ? dictationTarget(discovery) : null;
@@ -330,7 +332,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
   useEffect(() => {
     if (micMode === "dictate") void loadDiscovery(root).catch(() => {});
-  }, [root, micMode]);
+  }, [root, micMode, discoveryStale]);
+  // Plan §7: with no dictation service registered, the mic is disabled and
+  // says why. Recording on the device does not depend on one.
+  const dictationUnavailable = micMode === "dictate" && voiceMode !== "dictate" && discovery?.providers.length === 0
+    ? "Dictation isn\u0027t set up on this host." : undefined;
 
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
@@ -898,6 +904,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           mic={micMode !== "unsupported"}
           micLabel={micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
           micTip={micMode === "dictate" && voiceMode !== "dictate" && dictateLabel !== undefined}
+          micUnavailable={dictationUnavailable}
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send

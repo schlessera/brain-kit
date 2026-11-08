@@ -48,7 +48,7 @@ function fixture(ctx: TestContext, backendUrl?: string) {
       await new Promise(r => setTimeout(r, 40));
       if (drop) throw new TypeError("Connection lost at 40%");
       init.onUploadProgress?.(100);
-      stored = { recordingId: url.pathname.split("/").at(-2)!, sha256: new Headers(init.headers).get("content-sha256")!, providerId: "deepgram", status: "transcribing", attemptId: crypto.randomUUID(), retryCount: url.searchParams.has("retry") ? (stored?.retryCount ?? 0) + 1 : 0, failures: [] };
+      stored = { recordingId: url.pathname.split("/").at(-2)!, sha256: new Headers(init.headers).get("content-sha256")!, providerId: new Headers(init.headers).get("speech-provider") ?? "deepgram", status: "transcribing", attemptId: crypto.randomUUID(), retryCount: url.searchParams.has("retry") ? (stored?.retryCount ?? 0) + 1 : 0, failures: [] };
       if (hold) await new Promise<void>(r => { release = r; });
       stored = fail ? { ...stored, status: "failed", failure: { reason: "rate_limit", retryable: true }, failures: [{ reason: "rate_limit", retryable: true, attemptId: stored.attemptId }] } : { ...stored, status: "done", text: TEXT };
       return Response.json(stored);
@@ -309,6 +309,7 @@ test("the effective service names itself in the confirmation and in the upload",
   await tap(button(c.host, "Upload and transcribe"));
   await expect.poll(() => c.host.querySelector("textarea")?.value).toBe(TEXT);
   expect(c.providers, "TRAY_UPLOAD_NAMES_CONFIRMED_PROVIDER").toEqual(["alpha"]);
+  expect((await c.root.recordings!.list("account:odysseus"))[0]!.transcription?.providerId, "the receipt names the service that transcribed").toBe("alpha");
 });
 
 for (const width of [320, 1280]) test(`a dictation service without saved audio offers an explicit, unsaved choice at ${width}px`, async ctx => {
@@ -327,6 +328,7 @@ for (const width of [320, 1280]) test(`a dictation service without saved audio o
   await tap(button(c.host, "Upload and transcribe"));
   await expect.poll(() => c.host.querySelector("textarea")?.value).toBe(TEXT);
   expect(c.providers, "the chosen service, and only it, receives the recording").toEqual(["gamma"]);
+  expect((await c.root.recordings!.list("account:odysseus"))[0]!.transcription?.providerId, "the receipt names the service that transcribed").toBe("gamma");
   expect(document.documentElement.scrollWidth, "no horizontal scroll").toBeLessThanOrEqual(width);
   const violations = (await axe.run(c.host, { rules: { region: { enabled: false } } })).violations;
   expect(violations.map(v => v.id)).toEqual([]);

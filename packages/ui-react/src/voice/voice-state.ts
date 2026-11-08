@@ -15,6 +15,29 @@ export type DictationGate =
   | { kind: "consent"; provider: DiscoveredProvider }
   | { kind: "blocked"; reason: "none" | "choose" | "unavailable"; saved: string | null };
 
+/** A brain-wide dictation choice as Settings › Voice writes it. */
+export type DictationChoice = { defaultProvider: string | null; smart: boolean };
+
+/**
+ * Settings › Voice writes, kept on the root rather than in the pane (#3709):
+ * an accepted choice is written even after the pane closes, and reopening it
+ * shows where the writes stand.
+ */
+export interface DictationSaveState {
+  /** The newest accepted choice the server has not confirmed yet. */
+  pending: DictationChoice | null;
+  status:
+    | { kind: "saving" }
+    | { kind: "failed"; retry: DictationChoice; text: string }
+    /** Changed on another device; `current` once the server's value was read again. */
+    | { kind: "stale"; current: boolean }
+    | null;
+  /** The last discovery read failed: what is shown may be out of date. */
+  refreshFailed: boolean;
+  /** The account a save was refused for as not the owner. */
+  refusedAccount: string | null;
+}
+
 export interface VoiceState {
   mode: VoiceMode;
   connecting: boolean;      // session fetch / mic open in progress (mic not yet live)
@@ -27,8 +50,13 @@ export interface VoiceState {
   /** The provider this take disclosed and was sent to; frozen for the take. */
   dictationTarget: DiscoveredProvider | null;
   dictationGate: DictationGate | null;
-  /** The last discovery snapshot and when it was read (`GET /voice/providers`). */
-  discovery: { snapshot: VoiceProvidersResponse; at: number } | null;
+  /**
+   * The last discovery snapshot and when it was read (`GET /voice/providers`).
+   * `stale` marks one that may no longer be the server's: a take reads
+   * discovery again before it discloses anything from it.
+   */
+  discovery: { snapshot: VoiceProvidersResponse; at: number; stale?: boolean } | null;
+  dictationSave: DictationSaveState;
   /** Device-local acknowledgement storage; a read that fails returns null. */
   readAcknowledgement: (key: string) => string | null;
   writeAcknowledgement: (key: string, value: string) => void;
@@ -75,6 +103,7 @@ export function createVoiceStore(env?: Pick<StoreEnvironment, "storage" | "stora
     dictationTarget: null,
     dictationGate: null,
     discovery: null,
+    dictationSave: { pending: null, status: null, refreshFailed: false, refusedAccount: null },
     readAcknowledgement: (key) => {
       try {
         const storage = env?.storage() ?? null;

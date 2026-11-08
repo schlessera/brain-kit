@@ -67,6 +67,8 @@ export interface ComposerViewProps {
   micLabel?: string;
   /** Shows micLabel as the mic's pointer tooltip. */
   micTip?: boolean;
+  /** Why the mic cannot be used: it is drawn disabled with this explanation. */
+  micUnavailable?: string;
   /** Off: no mic is drawn, because there is no capture to offer. */
   mic?: boolean;
   value: string;
@@ -300,6 +302,7 @@ export function ComposerView(p: ComposerViewProps) {
         mic={p.mic}
         micLabel={p.micLabel}
         micTip={p.micTip}
+        micUnavailable={p.micUnavailable}
       />
     </div>
   );

@@ -71,12 +71,21 @@ the moment it is picked, and **Clean up as I speak** (on by default) when the
 chosen service declares SMART transcription. The pane reads
 `GET /api/voice/providers` and writes `PUT /api/voice/dictation/settings`
 against its revision; it never opens the microphone, requests a session or
-calls a provider. A save that fails reverts and offers **Try again**; a save
-another device overtook reloads with "Changed on another device"; a non-owner
-sees the choice read-only. With one service the pane shows it without a
-choice; with none it says dictation isn't set up. A saved service the host no
-longer registers is shown as a dashed "Saved choice · not available" row and
-blocks dictation until another is picked; nothing falls back.
+calls a provider. Writes belong to the root, not to the pane: a choice picked
+while an earlier save is still on its way is written even if Settings closes.
+A confirmed save is shown at once and makes the discovery snapshot stale, so
+the next take reads discovery again before it discloses anything. A save that
+fails reverts and offers **Try again**; a save another device overtook says
+"Changed on another device" and reloads the current value; a read that fails is
+reported even over an older snapshot, which is never called current. The
+controls are enabled only once the authenticated probe has named an account,
+which it does only for the owner; anyone else sees the choice read-only before
+trying, and the server still refuses them. With one service the pane shows it
+without a choice; with none it says dictation isn't set up and the mic is
+disabled with that explanation (recording on the device is unaffected). A
+saved service the host no longer registers is shown as a dashed "Saved choice
+· not available" row and blocks dictation until another is picked; nothing
+falls back.
 
 The mic is named for the next take's service ("Dictate · Deepgram"), as its
 accessible name and pointer tooltip. The first take to a service on a device
@@ -84,11 +93,16 @@ shows where its audio goes, with **Cancel** and **Start dictation**, before any
 session request or microphone access. The acknowledgement is stored on the
 device per account, keyed by the service and its destination text; storage that
 fails asks again. A take sends the service it disclosed and refuses a session
-for any other; a default saved during a take applies to the next one. With no
-service to send to, the sheet says so and offers **Open Settings**. Saved
-recordings are confirmed for the effective service when it can transcribe them;
-otherwise the tray offers an unsaved, per-recording choice among the services
-that can, and the upload names the confirmed one (`Speech-Provider`).
+for any other; a default saved during a take applies to the next one. After
+**Start dictation**, focus continues on **Done**. With no service to send to,
+the sheet says so and offers **Open Settings**. Saved recordings are confirmed
+for the effective service when it can transcribe them; otherwise the tray
+offers an unsaved, per-recording choice among the services that can. Each new
+confirmation is resolved from the root's current discovery and keeps that
+target until it uploads; the upload names it (`Speech-Provider`). When the host
+answers that the service is gone, the tray reads discovery again and the next
+upload needs a new confirmation. Labels and destinations the server sends win;
+built-ins registered without them fall back to client-side names.
 
 When a provider ends dictation with an error, or dictation cannot start, a
 persistent amber notice explains the failure below review. Its safe copy refers

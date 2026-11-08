@@ -33,13 +33,17 @@ const WIDTHS = [320, 1280] as const;
 const SHOTS = process.env.BRAIN_DICTATION_SCREENSHOTS;
 const hook = runtimeHookPhases("dictation-selection-runtime");
 
-type Id = "alpha" | "beta";
+type Id = "alpha" | "beta" | "gamma";
 const streaming = { streaming: true, interimResults: true, keyterms: false, endpointing: false };
 /** What each double did, observed on the server side. */
-const minted: Record<Id, number> = { alpha: 0, beta: 0 };
+const minted: Record<Id, number> = { alpha: 0, beta: 0, gamma: 0 };
+/** Which double transcribed each saved recording, in order, as the server dispatched it. */
+const transcribed: Id[] = [];
 const held: Partial<Record<Id, { arrive: () => void; gate: Promise<void> }>> = {};
 const sockets: Array<{ provider: string; open: boolean }> = [];
 const log: Array<{ method: string; path: string; body?: string }> = [];
+/** The `Speech-Provider` each saved-recording upload named. */
+const uploads: Array<string | null> = [];
 
 function provider(id: Id): SpeechProvider {
   const base = {
@@ -51,9 +55,11 @@ function provider(id: Id): SpeechProvider {
       return { url: `ws://127.0.0.1:${speech!.port}/?provider=${id}`, expiresAt: Date.now() + 60_000 };
     },
   };
+  const transcribeRecording = async () => { transcribed.push(id); return { text: `Transcribed by ${id}` }; };
   return id === "alpha"
-    ? defineSpeechProvider({ ...base, label: "Alpha Transcribe", destination: "Microphone audio streams from this browser to Alpha, a fixture service.", capabilities: { ...streaming, smartTranscription: false },
-      transcribeRecording: async () => ({ text: "Odysseus reaches Ithaca." }) })
+    ? defineSpeechProvider({ ...base, label: "Alpha Transcribe", destination: "Microphone audio streams from this browser to Alpha, a fixture service.", capabilities: { ...streaming, smartTranscription: false }, transcribeRecording })
+    : id === "gamma"
+    ? defineSpeechProvider({ ...base, label: "Gamma Archive", destination: "Microphone audio streams from this browser to Gamma, a fixture service.", capabilities: { ...streaming, smartTranscription: false }, transcribeRecording })
     : defineSpeechProvider({ ...base, label: "Beta Live", destination: "Microphone audio streams from this browser to Beta, a fixture service.", capabilities: { ...streaming, smartTranscription: true } });
 }
 
@@ -86,6 +92,7 @@ async function start(providers: Id[]) {
   const handle = async (request: Request, bun: unknown) => {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/voice/")) log.push({ method: request.method, path: url.pathname, ...(request.method === "POST" && url.pathname === "/api/voice/session" ? { body: await request.clone().text() } : {}) });
+    if (request.method === "PUT" && url.pathname.endsWith("/transcription")) uploads.push(request.headers.get("speech-provider"));
     return current.fetch(request, bun as never);
   };
   for (let attempt = 0; ; attempt++) {
@@ -309,7 +316,9 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       expect(sockets.at(-1), "the server says the take reached alpha").toEqual({ provider: "alpha", open: true });
       expect(await page.getByText("To Alpha Transcribe", { exact: true }).count()).toBe(1);
       await shot(page, `listening-${width}`);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      // Start dictation left the page; the keyboard carries on to Done.
+      expect(await page.evaluate(() => document.activeElement?.textContent?.trim()), "FOCUS_CONTINUES_ON_DONE").toBe("Done");
+      await page.keyboard.press("Enter");
       await page.waitForFunction(() => (window as unknown as { __dictation: { state(): { reviewText: string } } }).__dictation.state().reviewText === "Heard by alpha");
 
       // Reload: the acknowledgement is device-local and persists.
@@ -443,10 +452,17 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
     for (const width of WIDTHS) {
       const reader = await open(width, "reader");
       try {
+        const writes = puts();
         const pane = await settings(reader);
-        await pane.getByRole("radio", { name: /^Alpha Transcribe/ }).check();
-        await pane.locator("[data-dictation-owner]").waitFor();
+        // Before anything is tried, the controls say who can change them.
+        expect(await pane.locator("[data-dictation-owner]").count(), "READ_ONLY_BEFORE_ANY_SAVE").toBe(1);
         expect(await pane.locator("[data-dictation-owner]").textContent()).toBe("Only the owner can change this.");
+        const radios = await pane.getByRole("radio").all();
+        expect(radios.length).toBe(2);
+        for (const radio of radios) expect(await radio.isDisabled(), "READ_ONLY_BEFORE_ANY_SAVE").toBe(true);
+        await pane.locator('[data-dictation-provider="alpha"]').click({ force: true });
+        await reader.waitForTimeout(200);
+        expect(puts(), "a non-owner's view attempts no write").toBe(writes);
         expect(await pane.getByRole("radio", { name: /^Beta Live/ }).isChecked(), "the server value stands").toBe(true);
         for (const radio of await pane.getByRole("radio").all()) expect(await radio.isDisabled()).toBe(true);
         await shot(reader, `read-only-${width}`);
@@ -511,10 +527,18 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
         expect(await pane.getByRole("radio").count()).toBe(0);
         await shot(page, `voice-none-${width}`);
         await closeSettings(page);
-        await mic(page, "Dictate").click();
-        await page.locator('[data-dictation-gate="blocked"]').waitFor();
-        expect(await page.getByRole("button", { name: "Open Settings" }).count(), "nothing to choose").toBe(0);
-        await page.getByRole("button", { name: "Close" }).click();
+        // Plan §7: no service at all disables the mic, which says why.
+        const dictate = mic(page, "Dictate");
+        expect(await dictate.getAttribute("aria-disabled"), "ZERO_PROVIDERS_DISABLE_THE_MIC").toBe("true");
+        expect(await dictate.evaluate((node) => document.getElementById(node.getAttribute("aria-describedby") ?? "")?.textContent), "the mic explains why").toBe("Dictation isn't set up on this host.");
+        await dictate.hover();
+        await shot(page, `mic-unavailable-${width}`);
+        await dictate.click({ force: true });
+        await dictate.focus();
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(200);
+        expect((await state(page)).mode, "a disabled mic opens nothing").toBe("idle");
+        expect(await page.locator("[data-dictation-gate]").count()).toBe(0);
       } finally { await closeAll(); }
     }
 
@@ -532,4 +556,132 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
     }
     await restart(["alpha", "beta"]);
   }, 180_000);
+
+  for (const width of WIDTHS) test(`${width}px: a choice queued behind a slow save is written after Settings closes`, async () => {
+    await otherDevice("alpha");
+    const page = await open(width);
+    try {
+      const pane = await settings(page);
+      // Hold Beta's write at the browser until the pane has closed.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      let first = true;
+      await page.route("**/api/voice/dictation/settings", async (route) => {
+        if (route.request().method() === "PUT" && first) { first = false; await held; }
+        await route.continue();
+      });
+      const before = puts();
+      await pane.getByRole("radio", { name: /^Beta Live/ }).check();
+      await pane.getByRole("radio", { name: /^Alpha Transcribe/ }).check();
+      await closeSettings(page);
+      await page.locator("[data-dictation-settings]").waitFor({ state: "hidden" }).catch(() => {});
+      release();
+      for (let waited = 0; puts() < before + 2; waited += 10) { if (waited > 10_000) break; await Bun.sleep(10); }
+      expect(puts() - before, "QUEUED_CHOICE_SURVIVES_CLOSE: both accepted choices reach the server").toBe(2);
+      // The request is logged as it arrives; give the server its moment to write.
+      let saved = "";
+      for (let waited = 0; saved !== "alpha" && waited < 5_000; waited += 50) {
+        saved = (await (await fetch(`${origin}/api/voice/dictation/settings`, { headers: { cookie: `brain_ui_session=${cookies.owner}` } })).json() as { defaultProvider: string }).defaultProvider;
+        if (saved !== "alpha") await Bun.sleep(50);
+      }
+      expect(saved, "the last choice is the one that stands").toBe("alpha");
+    } finally { await closeAll(); }
+  }, 60_000);
+
+  test("a save whose follow-up read fails is what the next take uses, and the pane says the read failed", async () => {
+    await otherDevice("alpha");
+    const page = await open(1280);
+    try {
+      await take(page, "Dictate · Alpha Transcribe");
+      const pane = await settings(page);
+      let failReads = false;
+      await page.route("**/api/voice/providers", (route) => failReads ? route.abort("failed") : route.continue());
+      failReads = true;
+      // "Saving…" clears only once the follow-up read has settled.
+      await saves(page, () => pane.getByRole("radio", { name: /^Beta Live/ }).check());
+      expect(await pane.getByText("Couldn't check the dictation services just now. What's shown may be out of date.").count(), "REFRESH_FAILURE_IS_SHOWN").toBe(1);
+      expect(await pane.getByRole("radio", { name: /^Beta Live/ }).isChecked(), "the confirmed choice is shown").toBe(true);
+      await closeSettings(page);
+      failReads = false;
+      const before = sessions().length;
+      await page.getByRole("button", { name: /^Dictate/ }).click();
+      const card = page.locator('[data-dictation-gate="consent"]');
+      await Promise.race([card.waitFor(), (async () => { while (sessions().length === before) await Bun.sleep(10); })()]);
+      expect(sessions().slice(before).map((entry) => JSON.parse(entry.body!).providerId), "TAKE_AFTER_SAVE_USES_CONFIRMED_PROVIDER: nothing goes to the older choice").toEqual([]);
+      expect(await card.textContent()).toContain("Dictation goes to Beta Live");
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await idle(page);
+    } finally { await closeAll(); }
+  }, 60_000);
+
+  for (const width of WIDTHS) test(`${width}px: each tray confirmation names the current service, keeps it through upload, and a removed one is confirmed afresh`, async () => {
+    await restart(["alpha", "beta", "gamma"]);
+    await otherDevice("alpha");
+    const page = await open(width);
+    const recording = page.locator("[data-recordings-tray]");
+    const confirmation = page.locator('[role="group"][aria-label^="Upload recording"]');
+    try {
+      await page.evaluate(() => (window as unknown as { __dictation: { seedRecording(): Promise<void> } }).__dictation.seedRecording());
+      await recording.locator("button").first().click();
+      await page.getByRole("button", { name: /^Transcribe recording/ }).waitFor();
+
+      // The item is mounted (and was told Alpha). Settings switches to Gamma.
+      let pane = await settings(page);
+      await saves(page, () => pane.getByRole("radio", { name: /^Gamma Archive/ }).check());
+      await closeSettings(page);
+      await page.getByRole("button", { name: /^Transcribe recording/ }).click();
+      expect(await confirmation.textContent(), "TRAY_CONFIRMATION_NAMES_CURRENT_SERVICE").toContain("Your server sends it to Gamma Archive.");
+      await fits(page, width, '[role="group"][aria-label^="Upload recording"] label');
+
+      // Settings changes while the confirmation is open: it keeps what it disclosed.
+      pane = await settings(page);
+      await saves(page, () => pane.getByRole("radio", { name: /^Alpha Transcribe/ }).check());
+      await closeSettings(page);
+      expect(await confirmation.textContent(), "TRAY_CONFIRMATION_KEEPS_ITS_TARGET").toContain("Your server sends it to Gamma Archive.");
+      const sent = { uploads: uploads.length, transcribed: transcribed.length };
+      await page.getByRole("button", { name: "Upload and transcribe" }).click();
+      await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>("[data-recordings-tray] textarea")?.value === "Transcribed by gamma");
+      expect(uploads.slice(sent.uploads), "the upload names the confirmed service").toEqual(["gamma"]);
+      expect(transcribed.slice(sent.transcribed), "TRAY_DISPATCHED_PROVIDER: the server transcribed with Gamma").toEqual(["gamma"]);
+
+      // A second recording, confirmed for Gamma; then the host drops Gamma.
+      await page.getByRole("button", { name: /^Discard/ }).first().click();
+      await page.getByRole("button", { name: /^Delete recording/ }).click();
+      await page.evaluate(() => (window as unknown as { __dictation: { seedRecording(): Promise<void> } }).__dictation.seedRecording());
+      await otherDevice("gamma");
+      pane = await settings(page);
+      await closeSettings(page);
+      // The host restarts without Gamma. This device's snapshot, read moments
+      // ago, still names it; a reconnect asks for consent again anyway.
+      await restart(["alpha", "beta"]);
+      await page.waitForFunction("window.__dictation?.ready()");
+      await recording.locator("button").first().waitFor();
+      if (!await page.getByRole("button", { name: /^Transcribe recording/ }).isVisible()) await recording.locator("button").first().click();
+      await page.getByRole("button", { name: /^Transcribe recording/ }).click();
+      expect(await confirmation.textContent(), "the confirmation names what this device last read").toContain("Your server sends it to Gamma Archive.");
+      const refused = { uploads: uploads.length, transcribed: transcribed.length };
+      await page.getByRole("button", { name: "Upload and transcribe" }).click();
+      await page.getByText("That dictation service isn't available on this host.").first().waitFor();
+      expect(uploads.slice(refused.uploads), "one refused upload, and no automatic second one").toEqual(["gamma"]);
+      expect(transcribed.length, "nothing was transcribed in Gamma's place").toBe(refused.transcribed);
+
+      // The next confirmation is resolved from what the host has now, and asks again.
+      await page.getByRole("button", { name: /^Transcribe recording/ }).click();
+      await confirmation.waitFor();
+      expect(await confirmation.textContent(), "STALE_PROVIDER_RECOVERY_NAMES_CURRENT").not.toContain("Gamma");
+      const choice = confirmation.getByRole("radio", { name: "Alpha Transcribe" });
+      expect(await choice.isChecked(), "the one capable service is offered").toBe(true);
+      await fits(page, width, '[role="group"][aria-label^="Upload recording"] label');
+      expect(uploads.length, "a new destination waits for an explicit confirmation").toBe(refused.uploads + 1);
+      await page.getByRole("button", { name: "Upload and transcribe" }).click();
+      await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>("[data-recordings-tray] textarea")?.value === "Transcribed by alpha");
+      expect(uploads.slice(refused.uploads), "the recovery upload names Alpha").toEqual(["gamma", "alpha"]);
+      expect(transcribed.slice(refused.transcribed), "and the server transcribed with Alpha").toEqual(["alpha"]);
+      await shot(page, `tray-recovered-${width}`);
+    } finally {
+      await closeAll();
+      await otherDevice("alpha");
+      await restart(["alpha", "beta"]);
+    }
+  }, 120_000);
 });

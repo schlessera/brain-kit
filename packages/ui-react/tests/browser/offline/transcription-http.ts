@@ -35,7 +35,7 @@ export const transcriptionHttp: BrowserCommand<[Operation], unknown> = async (ct
         if (request.drop && percent >= 40) req.socket.destroy();
       });
       req.on("end", () => {
-        receipt = { recordingId: req.url!.split("/").at(-2), sha256: hash.digest("hex"), providerId: "deepgram", status: "done", attemptId: id, retryCount: 0, failures: [], text: "Odysseus asks Penelope about the loom order." };
+        receipt = { recordingId: req.url!.split("/").at(-2), sha256: hash.digest("hex"), providerId: typeof req.headers["speech-provider"] === "string" ? req.headers["speech-provider"] : "deepgram", status: "done", attemptId: id, retryCount: 0, failures: [], text: "Odysseus asks Penelope about the loom order." };
         respond(receipt);
       });
     });

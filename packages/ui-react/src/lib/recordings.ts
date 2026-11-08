@@ -803,7 +803,8 @@ export function createRecordingStore(options: RecordingStoreOptions): RecordingS
           else {
             const preclaim: Record<string, number> = { recording_id_invalid: 400, recording_hash_invalid: 400, recording_empty: 400, recording_too_large: 413, recording_media_unsupported: 415, saved_audio_unsupported: 501, speech_provider_unavailable: 409, transcription_not_found: 404, transcription_retry_stale: 409 };
             if (preclaim[result.error] === response.status) definitiveRejection = typeof result.message === "string" ? result.message : "The recording was rejected before transcription. The recording is kept.";
-            throw new Error(result.message ?? "Could not transcribe. The recording is kept.");
+            // The code lets the caller react (a service the host no longer has); the message is for people.
+            throw Object.assign(new Error(result.message ?? "Could not transcribe. The recording is kept."), { code: typeof result.error === "string" ? result.error : undefined });
           }
         } catch (error) {
           const key = identity(partition, id);

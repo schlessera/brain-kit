@@ -15,7 +15,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ApiRequestError, type BrainApi } from "../../src/lib/api-client.js";
 import { useDictation } from "../../src/voice/use-dictation.js";
-import { acknowledge, dictationTarget, isAcknowledged, isDiscovery, loadDiscovery, providerDestination } from "../../src/voice/dictation-providers.js";
+import { acknowledge, dictationTarget, freshDiscovery, isAcknowledged, isDiscovery, loadDiscovery, providerDestination } from "../../src/voice/dictation-providers.js";
 
 const roots: BrainUiRoot[] = [];
 afterEach(() => {
@@ -176,7 +176,8 @@ describe("binding a take to what it disclosed (plan §5)", () => {
     expect(s.clients, "no client for the substituted service").toHaveLength(0);
     expect(voice(s.root).mode).toBe("idle");
     expect(voice(s.root).dictationNotice).toEqual({ reason: "unknown", phase: "startup", retained: false });
-    expect(voice(s.root).discovery, "the next tap reads the choice again").toBeNull();
+    expect(voice(s.root).discovery?.stale, "the next tap reads the choice again").toBe(true);
+    expect(freshDiscovery(s.root)).toBeNull();
   });
 
   test("409 speech_provider_unavailable uses the startup notice and starts no other recognizer", async () => {

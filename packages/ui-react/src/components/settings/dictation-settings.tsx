@@ -1,122 +1,74 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button, Callout, Placeholder, Toggle } from "@schlessera/brain-ui-kit";
 import type { VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
-import { useBrainUiRoot } from "../../root-context.js";
-import { useVoiceStore } from "../../voice/voice-store.js";
-import { ApiRequestError } from "../../lib/api-client.js";
-import { loadDiscovery, providerLabel, type DictationProvider } from "../../voice/dictation-providers.js";
+import { useBrainUiRoot, useRootStore } from "../../root-context.js";
+import { useVoiceStore, type DictationChoice, type DictationSaveState } from "../../voice/voice-store.js";
+import { providerLabel, type DictationProvider } from "../../voice/dictation-providers.js";
+import { dictationSaveRunning, refreshDictationDiscovery, saveDictationChoice } from "../../voice/dictation-settings-save.js";
 
-type Choice = { defaultProvider: string | null; smart: boolean };
-type Status =
-  | { kind: "saving" }
-  | { kind: "failed"; retry: Choice; text: string }
-  | { kind: "stale" }
-  | null;
+type Choice = DictationChoice;
+type Status = DictationSaveState["status"];
 
 /**
  * The Dictation group of Settings › Voice (#3709; plan §7, D1, D2).
  *
  * One radio per registered provider, saved brain-wide the moment it is
  * picked, as the Models default is, and the Clean up as I speak switch when
- * the effective provider declares SMART. The container reads discovery,
- * serializes writes against the settings revision and reports every
- * outcome; it never requests a session, a microphone or a provider. A save
- * changes the next take only: a running take keeps the service it disclosed.
+ * the effective provider declares SMART. The writes and their outcome live on
+ * the root (`dictation-settings-save.ts`), so closing the pane never drops an
+ * accepted choice; this only presents them. It never requests a session, a
+ * microphone or a provider. A save changes the next take only: a running take
+ * keeps the service it disclosed.
  */
 export function DictationSettings({ active }: { active: boolean }) {
   const root = useBrainUiRoot();
-  const stored = useVoiceStore((s) => s.discovery?.snapshot ?? null);
-  // A take may drop the cached snapshot (a refused session) while this is
-  // open; keep showing the last one read rather than flashing to loading.
-  const [shown, setShown] = useState<{ root: object; snapshot: VoiceProvidersResponse } | null>(null);
-  const snapshot = stored ?? (shown?.root === root ? shown.snapshot : null);
-  const [loadError, setLoadError] = useState(false);
-  const [pending, setPending] = useState<Choice | null>(null);
-  const [status, setStatus] = useState<Status>(null);
-  const [readOnly, setReadOnly] = useState(false);
+  const snapshot = useVoiceStore((s) => s.discovery?.snapshot ?? null);
+  const save = useVoiceStore((s) => s.dictationSave);
   const take = useVoiceStore((s) => s.mode === "dictate" ? s.dictationTarget : null);
-  const lifetime = useRef(0);
-  const desired = useRef<Choice | null>(null);
-  const writing = useRef(false);
-
-  useEffect(() => { if (stored) setShown({ root, snapshot: stored }); }, [root, stored]);
-
-  const reload = useCallback(async (generation: number) => {
-    try {
-      await loadDiscovery(root, { force: true });
-      if (generation === lifetime.current) setLoadError(false);
-    } catch {
-      if (generation === lifetime.current) setLoadError(true);
-    }
-  }, [root]);
+  // Authority comes before any control is enabled. The authenticated probe
+  // names an account only for the owner (or an ambient principal), exactly
+  // the principals the settings write accepts; the server still decides.
+  const account = useRootStore("connection", (s) => s.accountKey);
+  const probed = useRootStore("connection", (s) => s.vpnStatus === "connected");
+  // Mounted without the connection gate, nothing has probed yet: ask the
+  // same probe the gate would have, and keep its answer to this pane.
+  const [ownProbe, setOwnProbe] = useState<{ root: object; owner: boolean } | null>(null);
+  useEffect(() => {
+    if (!active || account !== null || probed) return;
+    let live = true;
+    void root.request(root.backendUrl("/api/vpn-check"), { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<{ accountKey?: unknown }> : null)
+      .then((body) => { if (live && body) setOwnProbe({ root, owner: typeof body.accountKey === "string" && body.accountKey !== "" }); })
+      .catch(() => { /* Unknown authority keeps the controls disabled. */ });
+    return () => { live = false; };
+  }, [active, account, probed, root]);
+  const probedOwner = account !== null ? true : probed ? false : ownProbe?.root === root ? ownProbe.owner : null;
+  const refused = save.refusedAccount !== null && save.refusedAccount === (account ?? "");
+  const readOnly = refused || probedOwner === false;
+  const canWrite = probedOwner === true && !refused;
 
   useEffect(() => {
-    const generation = ++lifetime.current;
-    desired.current = null;
-    setPending(null); setStatus(null); setReadOnly(false); setLoadError(false);
-    // Opening Settings reads the current choice; it mints nothing.
-    if (active) void reload(generation);
-    return () => { lifetime.current++; };
-  }, [active, root, reload]);
+    if (!active) return;
+    // Opening Settings reads the current choice; it mints nothing. An earlier
+    // outcome is not news any more, unless a write is still on its way.
+    if (!dictationSaveRunning(root)) root.stores.voice.setState((s) => ({ dictationSave: { ...s.dictationSave, status: null } }));
+    void refreshDictationDiscovery(root);
+  }, [active, root]);
 
-  /** Latest-wins writes, one at a time, each against the newest revision. */
-  async function save(next: Choice) {
-    const generation = lifetime.current;
-    desired.current = next;
-    setPending(next);
-    setStatus({ kind: "saving" });
-    if (writing.current) return;
-    writing.current = true;
-    try {
-      while (desired.current && generation === lifetime.current) {
-        const want: Choice = desired.current;
-        const base = root.stores.voice.getState().discovery?.snapshot ?? snapshot;
-        if (!base) throw new Error("Dictation settings are not loaded");
-        try {
-          await root.api.saveDictationSettings({ ...want, revision: base.dictation.revision });
-        } catch (error) {
-          desired.current = null;
-          if (generation !== lifetime.current) return;
-          const status = error instanceof ApiRequestError ? error.status : 0;
-          const code = error instanceof Error ? error.message : "";
-          setPending(null);
-          if (status === 403) {
-            setReadOnly(true);
-            setStatus(null);
-          } else if (status === 409 || status === 428) {
-            // Changed on another device: show what the server holds now.
-            setStatus({ kind: "stale" });
-            await reload(generation);
-          } else if (code === "speech_provider_unknown") {
-            setStatus({ kind: "failed", retry: want, text: "That dictation service isn't available on this host." });
-            await reload(generation);
-          } else {
-            setStatus({ kind: "failed", retry: want, text: "Couldn't save. Your dictation service is unchanged." });
-          }
-          return;
-        }
-        if (desired.current === want) desired.current = null;
-        // The next take reads the confirmed choice, not this optimistic one.
-        await loadDiscovery(root, { force: true }).catch(() => { if (generation === lifetime.current) setLoadError(true); });
-      }
-      if (generation === lifetime.current) { setPending(null); setStatus(null); }
-    } finally {
-      writing.current = false;
-    }
-  }
-
+  const pending = save.pending;
   return <DictationSettingsView
     snapshot={snapshot}
-    loading={active && !snapshot && !loadError}
-    loadError={loadError && !snapshot}
+    loading={active && !snapshot && !save.refreshFailed}
+    loadError={save.refreshFailed}
     pending={pending}
-    status={status}
+    status={save.status}
     readOnly={readOnly}
+    disabled={!canWrite}
     take={take}
-    onReload={() => void reload(lifetime.current)}
-    onChoose={(id) => { if (snapshot) void save({ defaultProvider: id, smart: pending?.smart ?? snapshot.dictation.smart }); }}
-    onSmart={(smart) => { if (snapshot) void save({ defaultProvider: pending ? pending.defaultProvider : snapshot.dictation.saved, smart }); }}
-    onRetry={(choice) => void save(choice)}
+    onReload={() => void refreshDictationDiscovery(root)}
+    onChoose={(id) => { if (snapshot && canWrite) void saveDictationChoice(root, { defaultProvider: id, smart: pending?.smart ?? snapshot.dictation.smart }); }}
+    onSmart={(smart) => { if (snapshot && canWrite) void saveDictationChoice(root, { defaultProvider: pending ? pending.defaultProvider : snapshot.dictation.saved, smart }); }}
+    onRetry={(choice) => { if (canWrite) void saveDictationChoice(root, choice); }}
   />;
 }
 
@@ -126,7 +78,10 @@ interface ViewProps {
   loadError: boolean;
   pending: Choice | null;
   status: Status;
+  /** Not the owner: the controls stay disabled and say why. */
   readOnly: boolean;
+  /** No write is possible yet (read-only, or authority not established). */
+  disabled: boolean;
   /** The service a running take was sent to. */
   take: DictationProvider | null;
   onReload: () => void;
@@ -155,7 +110,7 @@ function DictationSettingsView(p: ViewProps) {
   const smart = p.pending?.smart ?? dictation?.smart ?? true;
   const unavailable = !p.pending && dictation?.source === "unavailable" ? dictation.saved : null;
   const single = providers.length === 1 && !unavailable;
-  const disabled = p.readOnly;
+  const disabled = p.disabled;
 
   return <section aria-labelledby={heading} aria-busy={p.loading || undefined} className="flex min-w-0 flex-col gap-3" data-dictation-settings="">
     <div>
@@ -165,7 +120,7 @@ function DictationSettingsView(p: ViewProps) {
 
     {p.loading && <Placeholder variant="loading" lines={3} />}
     {p.loadError && <div className="flex flex-col gap-2">
-      <Callout tone="red" variant="banner" icon="failed" text="Couldn't load the dictation services." />
+      <Callout tone="red" variant="banner" icon="failed" text={snapshot ? "Couldn't check the dictation services just now. What's shown may be out of date." : "Couldn't load the dictation services."} />
       <div><Button label="Try again" icon="retry" tone="ghost" size="sm" block={false} reach onClick={p.onReload} /></div>
     </div>}
 
@@ -213,7 +168,7 @@ function DictationSettingsView(p: ViewProps) {
 
     {p.take && checked !== p.take.id && <p role="status" className="text-xs text-muted-foreground" data-dictation-take="">Dictating with {providerLabel(p.take)} now. Your change applies to the next take.</p>}
     {p.readOnly && <p id={`${id}-owner`} className="text-xs text-muted-foreground" data-dictation-owner="">Only the owner can change this.</p>}
-    <div role="status" className="text-xs text-muted-foreground empty:hidden">{p.status?.kind === "saving" ? "Saving…" : p.status?.kind === "stale" ? "Changed on another device. Showing the current choice." : ""}</div>
+    <div role="status" className="text-xs text-muted-foreground empty:hidden">{p.status?.kind === "saving" ? "Saving…" : p.status?.kind === "stale" ? p.status.current ? "Changed on another device. Showing the current choice." : "Changed on another device." : ""}</div>
     {p.status?.kind === "failed" && <div role="alert" className="flex flex-col gap-2">
       <Callout tone="red" variant="banner" icon="failed" text={p.status.text} />
       <div><Button label="Try again" icon="retry" tone="ghost" size="sm" block={false} reach onClick={() => p.status?.kind === "failed" && p.onRetry(p.status.retry)} /></div>

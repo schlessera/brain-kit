@@ -1544,8 +1544,13 @@ account, keyed by provider id and destination text) before either request.
 optional fifth argument, sent as `Speech-Provider`; without it the upload
 behaves as before. A retry refused with `transcription_provider_mismatch`
 applies the returned receipt and rejects, keeping the recording. `@schlessera/brain-ui-kit`'s `Composer` adds `micTip?: boolean`, which
-shows `micLabel` as the mic's pointer tooltip outside dictation. No wire,
-HTTP or protocol shape changes.
+shows `micLabel` as the mic's pointer tooltip outside dictation, and
+`micUnavailable?: string`, which keeps the mic named and focusable but
+`aria-disabled`, uses the string as its accessible description and tooltip, and
+ignores taps and keys; the shipped composer sets it when discovery reports no
+registered dictation service. `RecordingStore.transcribe` rejections for a
+pre-claim refusal carry the server's error code as `code`. No wire, HTTP or
+protocol shape changes.
 
 The route builds keyterms only when supported, snapshots provider identity and
 capabilities, and publishes `VoiceSessionResponse` with connection material.

@@ -7,7 +7,7 @@
 // one-time per-device acknowledgement (D4). Reading discovery never mints a
 // credential, never opens the microphone and never sends audio.
 
-import type { VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
+import type { DictationSettings, VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiRoot } from "../root.js";
 
 export type DictationProvider = VoiceProvidersResponse["providers"][number];
@@ -15,22 +15,34 @@ export type DictationProvider = VoiceProvidersResponse["providers"][number];
 /** A take reads discovery again when its snapshot is older than this (plan §5). */
 const DISCOVERY_MAX_AGE_MS = 60_000;
 
-/** Display names for built-ins that register without a label. */
+/**
+ * Display names for built-ins that register without a label or destination.
+ * The server's own `label` and `destination` win whenever it sends them.
+ */
 const BUILT_IN: Record<string, { label: string; short: string; destination: string }> = {
   deepgram: { label: "Deepgram", short: "Deepgram", destination: "While you speak, microphone audio streams from this browser to Deepgram." },
   webspeech: { label: "Browser speech", short: "Browser speech", destination: "While you speak, microphone audio goes to this browser's speech service. In Chrome, that is Google." },
-  gemini: { label: "Google Gemini", short: "Gemini", destination: "While you speak, microphone audio streams from this browser to Google." },
+  gemini: { label: "Google Gemini 3.5 Transcribe Live", short: "Gemini", destination: "While you speak, microphone audio streams from this browser to Google." },
 };
+
+/** The server's label, when it sent one; a label equal to the id means none was registered. */
+const serverLabel = (provider: DictationProvider): string | null =>
+  provider.label && provider.label !== provider.id ? provider.label : null;
 
 /** The provider's full name, as the sheet and Settings show it. */
 export function providerLabel(provider: DictationProvider): string {
-  if (provider.label && provider.label !== provider.id) return provider.label;
-  return BUILT_IN[provider.id]?.label ?? provider.id;
+  return serverLabel(provider) ?? BUILT_IN[provider.id]?.label ?? provider.id;
 }
 
-/** The short name for the mic's accessible name and tooltip. */
+/**
+ * The short name for the mic's accessible name and tooltip. A built-in's
+ * short name stands in only for the name it shortens; any other label the
+ * server sends is used as it is.
+ */
 export function providerShortLabel(provider: DictationProvider): string {
-  return BUILT_IN[provider.id]?.short ?? providerLabel(provider);
+  const known = BUILT_IN[provider.id];
+  const label = serverLabel(provider);
+  return known && (label === null || label === known.label) ? known.short : providerLabel(provider);
 }
 
 /** Where the audio goes, in the provider's own words when it gave any. */
@@ -82,15 +94,49 @@ const cacheOf = (root: BrainUiRoot): Cache => {
   return cache;
 };
 
-/** The root's snapshot, when it is young enough for a take to use as is. */
+/** The root's snapshot, when it is current and young enough for a take to use as is. */
 export function freshDiscovery(root: BrainUiRoot, maxAgeMs = DISCOVERY_MAX_AGE_MS): VoiceProvidersResponse | null {
   const known = root.stores.voice.getState().discovery;
-  return known && Date.now() - known.at <= maxAgeMs ? known.snapshot : null;
+  return known && !known.stale && Date.now() - known.at <= maxAgeMs ? known.snapshot : null;
 }
 
-/** Forget the snapshot, so the next take reads the server's current choice. */
+/**
+ * The snapshot may no longer be the server's: the next take reads discovery
+ * again before it discloses anything, and no read issued before now can
+ * publish over what comes next. The snapshot stays for display, marked stale.
+ */
 export function invalidateDiscovery(root: BrainUiRoot): void {
-  root.stores.voice.setState({ discovery: null });
+  const cache = cacheOf(root);
+  cache.inflight = null;
+  cache.published = cache.issued;
+  const known = root.stores.voice.getState().discovery;
+  if (known && !known.stale) root.stores.voice.setState({ discovery: { ...known, stale: true } });
+}
+
+/**
+ * The snapshot with settings the server confirmed, resolved by the server's
+ * own precedence (plan §4): a saved choice wins, or is unavailable; else the
+ * host default; else the only registered provider.
+ */
+function reconcileDiscovery(snapshot: VoiceProvidersResponse, settings: DictationSettings): VoiceProvidersResponse {
+  const ids = snapshot.providers.map((provider) => provider.id);
+  const saved = settings.defaultProvider;
+  const host = snapshot.dictation.host;
+  const savedUsable = saved !== null && ids.includes(saved);
+  const effective = saved !== null ? savedUsable ? saved : null : host ?? (ids.length === 1 ? ids[0]! : null);
+  const source = saved !== null ? savedUsable ? "saved" : "unavailable" : host !== null ? "host" : effective !== null ? "only" : "none";
+  return { providers: snapshot.providers, dictation: { saved, savedUsable, host, effective, source, smart: settings.smart, revision: settings.revision } };
+}
+
+/**
+ * A write the server confirmed. Settings, the mic and the tray show it at
+ * once; the snapshot it was made against is stale, so a take re-reads
+ * discovery before it uses it.
+ */
+export function confirmDictationSettings(root: BrainUiRoot, settings: DictationSettings): void {
+  invalidateDiscovery(root);
+  const known = root.stores.voice.getState().discovery;
+  if (known) root.stores.voice.setState({ discovery: { snapshot: reconcileDiscovery(known.snapshot, settings), at: known.at, stale: true } });
 }
 
 /**

@@ -146,6 +146,12 @@ export interface ComposerProps {
   micLabel?: string;
   /** Shows `micLabel` as the pointer tooltip too, as the attach trigger does. Off while dictating. */
   micTip?: boolean;
+  /**
+   * Why the mic cannot be used now ("Dictation isn't set up on this host.").
+   * The mic stays focusable and named but is `aria-disabled`, takes this as
+   * its accessible description and tooltip, and a tap or key does nothing.
+   */
+  micUnavailable?: string;
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
@@ -202,6 +208,9 @@ export function Composer(p: ComposerProps) {
 
   const showAttach = p.attach !== false && v !== "plain";
   const showMic = p.mic !== false && (v === "send" || v === "plain");
+  const voiceReasonId = useId();
+  const voiceUnavailable = p.micUnavailable !== undefined;
+  const voiceAct = Boolean(p.onMic) || voiceUnavailable;
   const showSend = v === "send" && !streaming;
   const showStop = v === "send" && streaming;
   const editable = Boolean(p.onChange) && !dictating;
@@ -331,7 +340,7 @@ export function Composer(p: ComposerProps) {
             onChange={editable ? (e: ChangeEvent<HTMLTextAreaElement>) => p.onChange?.(e.target.value) : undefined}
             onKeyDown={onKeyDown}
           />
-          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} tip={p.micTip === true && !dictating} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
+          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} tip={p.micTip === true && !dictating} unavailable={dictating ? undefined : p.micUnavailable} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
           {showStop ? (
             <span
               style={{ ...disc(28, accent.red.fill, false), cursor: stopAct ? "pointer" : "default" }}
@@ -362,15 +371,19 @@ export function Composer(p: ComposerProps) {
         </div>
         {v === "voice" && p.mic !== false ? (
           <span
-            style={disc(54, accent.amber.fill, true)}
-            className={p.onMic ? "bk-control" : undefined}
-            role={p.onMic ? "button" : undefined}
-            aria-label={p.onMic ? (p.micLabel ?? "Hold to talk") : undefined}
-            tabIndex={p.onMic ? 0 : undefined}
-            onClick={p.onMic}
-            onKeyDown={p.onMic ? pressable(() => p.onMic?.()) : undefined}
+            style={{ ...disc(54, accent.amber.fill, true), ...(voiceUnavailable ? { opacity: 0.45, cursor: "not-allowed" } : {}) }}
+            className={voiceAct ? "bk-control" : undefined}
+            role={voiceAct ? "button" : undefined}
+            aria-label={voiceAct ? (p.micLabel ?? "Hold to talk") : undefined}
+            aria-disabled={voiceUnavailable ? true : undefined}
+            aria-describedby={voiceUnavailable ? voiceReasonId : undefined}
+            title={p.micUnavailable}
+            tabIndex={voiceAct ? 0 : undefined}
+            onClick={voiceUnavailable ? undefined : p.onMic}
+            onKeyDown={p.onMic && !voiceUnavailable ? pressable(() => p.onMic?.()) : undefined}
           >
             <Icon icon="mic" size={24} color={color.onFill} />
+            {voiceUnavailable ? <span id={voiceReasonId} hidden>{p.micUnavailable}</span> : null}
           </span>
         ) : null}
       </div>
@@ -487,12 +500,15 @@ function resetTip(trigger: HTMLElement, left: boolean) {
  * keystroke: Escape, or opening the menu, hides it until the pointer leaves or
  * focus moves away. An inert trigger — a dictating composer — has no tooltip.
  */
-function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; tip?: boolean; targetSize?: number; onClick?: () => void }) {
-  const act = Boolean(props.onClick);
-  const tip = act && props.tip === true;
+function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; tip?: boolean; unavailable?: string; targetSize?: number; onClick?: () => void }) {
+  const reasonId = useId();
+  const unavailable = props.unavailable;
+  // Unavailable still names itself and explains why, so it stays reachable.
+  const act = Boolean(props.onClick) || unavailable !== undefined;
+  const tip = act && (props.tip === true || unavailable !== undefined);
   const activate = (target: HTMLElement) => {
     if (tip) dismissTip(target);
-    props.onClick?.();
+    if (unavailable === undefined) props.onClick?.();
   };
   return (
     <span
@@ -505,13 +521,16 @@ function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: act ? "pointer" : "default",
+          cursor: unavailable !== undefined ? "not-allowed" : act ? "pointer" : "default",
+          opacity: unavailable !== undefined ? 0.45 : undefined,
           "--hv-bg": token("hover-veil-strong"),
         } as CSSProperties
       }
       className={act ? (tip ? "bk-control bk-tip-host" : "bk-control") : undefined}
       role={act ? "button" : undefined}
       aria-label={act ? props.label : undefined}
+      aria-disabled={unavailable !== undefined ? true : undefined}
+      aria-describedby={unavailable !== undefined ? reasonId : undefined}
       aria-haspopup={act ? props.haspopup : undefined}
       tabIndex={act ? 0 : undefined}
       onClick={act ? (event) => activate(event.currentTarget) : undefined}
@@ -525,7 +544,7 @@ function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "
       onBlur={tip ? (event) => resetTip(event.currentTarget, false) : undefined}
     >
       <Icon icon={props.icon} size={17} color={color.inkMute} />
-      {tip ? <span className="bk-tip" data-composer-tip="" aria-hidden="true">{props.label}</span> : null}
+      {tip ? <span id={unavailable !== undefined ? reasonId : undefined} className="bk-tip" data-composer-tip="" aria-hidden="true">{unavailable ?? props.label}</span> : null}
     </span>
   );
 }

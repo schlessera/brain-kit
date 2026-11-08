@@ -80,6 +80,21 @@ export function DictationSheet({
     if (open && gate) gateRef.current?.focus();
   }, [open, gate]);
 
+  // Start dictation removes the control that held focus. When focus was in
+  // the card, it continues on Done, so the keyboard can finish the take; the
+  // phone sheet's initial focus has already run and does not run again.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const continueFocus = useRef(false);
+  const confirm = onConfirm && (() => {
+    continueFocus.current = Boolean(cardRef.current?.contains(document.activeElement));
+    onConfirm();
+  });
+  useEffect(() => {
+    if (gate || !continueFocus.current) return;
+    continueFocus.current = false;
+    if (open) doneRef.current?.focus();
+  }, [open, gate]);
+
   useEffect(() => {
     if (!open || !desktop || draining) return;
     const onKey = (event: KeyboardEvent) => {
@@ -131,7 +146,7 @@ export function DictationSheet({
           </div>
         )}
 
-        {gate ? <DictationGateCard gate={gate} actionRef={gateRef} onCancel={onCancel} onConfirm={onConfirm} onOpenSettings={onOpenSettings} /> : <>
+        {gate ? <DictationGateCard gate={gate} cardRef={cardRef} actionRef={gateRef} onCancel={onCancel} onConfirm={confirm} onOpenSettings={onOpenSettings} /> : <>
         {/* Waveform */}
         {!desktop && <div className="flex items-center justify-center px-6 py-4">
           <Waveform level={audioLevel} />
@@ -208,8 +223,9 @@ export function DictationSheet({
  * acknowledgement of where audio goes (D4), or why there is nowhere to send
  * it. Neither offers a per-take change of service (D2).
  */
-function DictationGateCard({ gate, actionRef, onCancel, onConfirm, onOpenSettings }: {
+function DictationGateCard({ gate, cardRef, actionRef, onCancel, onConfirm, onOpenSettings }: {
   gate: DictationGate;
+  cardRef: RefObject<HTMLDivElement | null>;
   actionRef: RefObject<HTMLButtonElement | null>;
   onCancel: () => void;
   onConfirm?: () => void;
@@ -226,7 +242,7 @@ function DictationGateCard({ gate, actionRef, onCancel, onConfirm, onOpenSetting
     : gate.reason === "unavailable" ? `${gate.saved ? `${gate.saved} isn\u0027t available on this host. ` : ""}Choose a dictation service in Settings › Voice. Nothing was captured.`
     : "Choose a dictation service in Settings › Voice. Nothing was captured.";
   const action = consent ? { label: "Start dictation", run: onConfirm } : gate.reason === "none" ? null : { label: "Open Settings", run: onOpenSettings };
-  return <div role="group" aria-labelledby={`${id}-title`} aria-describedby={`${id}-text`} data-dictation-gate={gate.kind} className="flex flex-col gap-3 px-5 py-4">
+  return <div ref={cardRef} role="group" aria-labelledby={`${id}-title`} aria-describedby={`${id}-text`} data-dictation-gate={gate.kind} className="flex flex-col gap-3 px-5 py-4">
     <p id={`${id}-title`} className="text-base font-semibold text-foreground">{title}</p>
     <p id={`${id}-text`} className="text-sm leading-relaxed text-muted-foreground">{text}</p>
     <div className="flex flex-wrap justify-end gap-2">

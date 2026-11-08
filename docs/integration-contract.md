@@ -25,8 +25,9 @@ The reasoning is in [decisions/contract-versioning.md](decisions/contract-versio
 `openSettings("voice")` opens a new Settings › Voice pane, which holds the
 brain-wide dictation default. `RecordingStore.transcribe` accepts an optional
 provider id, sent as `Speech-Provider`; a retry refused for naming another
-provider applies the returned receipt and rejects. The kit `Composer` adds
-`micTip?: boolean`. Existing calls behave as before, and no HTTP or protocol
+provider applies the returned receipt and rejects; a pre-claim refusal
+carries the server's code as `code`. The kit `Composer` adds
+`micTip?: boolean` and `micUnavailable?: string`. Existing calls behave as before, and no HTTP or protocol
 shape changes. See
 [the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
 This ships in a minor.
