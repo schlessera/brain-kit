@@ -15,8 +15,9 @@ function nameOf(el: Element): string {
  *   - every state label has an icon AND a word, so no state is colour alone;
  *   - every control's target is at least 44px on both axes (an inline
  *     uncertain word is text, and exempt as inline text is);
- *   - the state label's word and meta sit on the field's own opaque ground, so
- *     a meter bar never lies under a glyph (#3746);
+ *   - text in the field has no background of its own; it carries a halo in the
+ *     field's ground, and the tall label row sits in the meter's solid top
+ *     fade (#3746);
  *   - nothing escapes the story's column (except the thinking sweep, which
  *     travels across its meter and is clipped by it, and the contents of the
  *     out-of-sight "Talk live…" button, clipped by its own 1px box).
@@ -33,13 +34,19 @@ export async function voiceA11y(root: HTMLElement) {
     await expect(label.querySelector("svg"), "state label has an icon").not.toBeNull();
     await expect(label.querySelector("[data-voice-word]")?.textContent?.trim(), "state label has a word").toBeTruthy();
   }
-  for (const text of root.querySelectorAll("[data-voice-word], .bk-voice-label-meta")) {
-    const field = text.closest(".bk-voice-field");
+  for (const text of root.querySelectorAll<HTMLElement>("[data-voice-word], .bk-voice-label-meta, .bk-voice-text")) {
+    const field = text.closest<HTMLElement>(".bk-voice-field");
     if (!field) continue;
-    // The field eases its fill (120ms); a theme switch just before a story
-    // would otherwise be read mid-transition.
-    await Promise.all(field.getAnimations().map((a) => a.finished.catch(() => undefined)));
-    await expect(getComputedStyle(text).backgroundColor, `${text.textContent} sits on the field's ground`).toBe(getComputedStyle(field).backgroundColor);
+    const name = text.textContent?.trim().slice(0, 24);
+    await expect(getComputedStyle(text).backgroundColor, `${name}: no text background`).toBe("rgba(0, 0, 0, 0)");
+    for (const inner of text.querySelectorAll("span")) await expect(getComputedStyle(inner).backgroundColor, `${name}: no text background`).toBe("rgba(0, 0, 0, 0)");
+    await expect(getComputedStyle(text).textShadow, `${name}: halo in the field's ground`).not.toBe("none");
+    const meter = field.querySelector(":scope > .bk-voice-meter");
+    if (field.dataset.shape === "tall" && meter && !text.matches(".bk-voice-text")) {
+      // The tall label row sits in the meter's solid top fade.
+      await expect(getComputedStyle(meter, "::after").backgroundImage, `${name}: in the top fade`).toContain("linear-gradient");
+      await expect(text.getBoundingClientRect().bottom, `${name}: within the fade's solid band`).toBeLessThanOrEqual(meter.getBoundingClientRect().top + 28);
+    }
   }
   await expect(overflowing(root, "*:not(.bk-voice-sweep):not(.bk-voice-talk-live *)")).toEqual([]);
 }
