@@ -29,7 +29,11 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono<AppEnv> {
   return new Hono<AppEnv>()
     .get("/voice/providers", (c) => {
       c.header("Cache-Control", "no-store");
-      return c.json(speechProviders.discovery(getDictationSettings(db)));
+      try {
+        return c.json(speechProviders.discovery(getDictationSettings(db)));
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : "Voice providers failed" }, 500);
+      }
     })
     .get("/voice/dictation/settings", (c) => {
       c.header("Cache-Control", "no-store");
@@ -66,7 +70,10 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono<AppEnv> {
     .post("/voice/session", async (c) => {
       let request: VoiceSessionRequest = {};
       try {
-        const raw = await c.req.text();
+        // Legacy clients POST without a JSON body (or with ignored text); only an
+        // explicit JSON request expresses a selection, and it is validated strictly.
+        const json = /^application\/json\b/i.test(c.req.header("content-type") ?? "");
+        const raw = json ? await c.req.text() : "";
         if (raw) {
           const body = JSON.parse(raw);
           if (!body || typeof body !== "object" || Array.isArray(body) ||

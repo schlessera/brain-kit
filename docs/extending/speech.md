@@ -40,14 +40,14 @@ A supplied value takes precedence over automatic Deepgram key detection. If
 `config.voice.provider` is set (including by `VOICE_PROVIDER`), it must equal
 the supplied id. Ids are nonempty, trimmed and lowercase. Without a value,
 `deepgram`/`webspeech` keep their existing selection rules; absent credentials
-never select browser speech. A mismatch or invalid registration fails construction. Session validation and
-legacy provider failures return 500 `{ error }` from the protected
+never select browser speech. A mismatch, an invalid legacy value, session
+validation and provider failures return 500 `{ error }` from the protected
 `POST /api/voice/session`, without trying another service.
 
 To offer several services, pass `createApp({ speechProviders: [first, second],
 defaultSpeechProviderId: first.id })`. The list adds to configured built-ins;
 duplicate ids (including built-in collisions), supplying both registration options,
-and unregistered host defaults fail construction. Browser speech remains opt-in.
+and an unregistered `defaultSpeechProviderId` fail construction. Browser speech remains opt-in.
 The legacy single value replaces built-ins. A saved dictation choice overrides
 the host default; a removed saved choice blocks dictation until explicitly changed.
 Registration snapshots metadata, capabilities and bound methods; changing a supplied

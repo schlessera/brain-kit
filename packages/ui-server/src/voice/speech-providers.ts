@@ -164,7 +164,13 @@ function configuredSpeechProviders(voice: VoiceConfig): SpeechProvider[] {
 }
 
 /** Construction fixes identities, metadata, capabilities and executors. Settings
- * only choose among these values; they never construct or probe a provider. */
+ * only choose among these values; they never construct or probe a provider.
+ *
+ * Misuse of the additive options (`speechProviders`, `defaultSpeechProviderId`)
+ * fails construction. Legacy misconfiguration (an invalid by-value
+ * `speechProvider`, a `VOICE_PROVIDER` that names an unregistered or
+ * mismatching provider) keeps its documented meaning: the server starts and
+ * the voice routes answer with the existing 500 `{ error }` envelope. */
 export function createSpeechProviderRegistry(voice: VoiceConfig, options: {
   speechProvider?: SpeechProvider;
   speechProviders?: SpeechProvider[];
@@ -173,10 +179,8 @@ export function createSpeechProviderRegistry(voice: VoiceConfig, options: {
   if (options.speechProvider !== undefined && options.speechProviders !== undefined) {
     throw new Error("Supply either speechProvider or speechProviders, not both.");
   }
-  const supplied = options.speechProvider;
-  const values = supplied !== undefined ? [supplied] : [...configuredSpeechProviders(voice), ...(options.speechProviders ?? [])];
   const providers = new Map<string, SpeechProvider>();
-  for (const value of values) {
+  const register = (value: SpeechProvider) => {
     assertSpeechProvider(value);
     if (providers.has(value.id)) throw new Error(`Duplicate SpeechProvider id "${value.id}".`);
     providers.set(value.id, Object.freeze({
@@ -187,13 +191,32 @@ export function createSpeechProviderRegistry(voice: VoiceConfig, options: {
       createSession: value.createSession.bind(value),
       ...(value.transcribeRecording ? { transcribeRecording: value.transcribeRecording.bind(value) } : {}),
     }));
+  };
+  const supplied = options.speechProvider;
+  let legacyError: Error | null = null;
+  const defer = (fn: () => void) => { try { fn(); } catch (error) { legacyError ??= error instanceof Error ? error : new Error(String(error)); } };
+  if (supplied !== undefined) {
+    defer(() => register(supplied));
+    defer(() => {
+      if (voice.provider && voice.provider !== supplied.id) {
+        throw new Error(`VOICE_PROVIDER="${voice.provider}" does not match supplied SpeechProvider "${supplied.id}".`);
+      }
+    });
+  } else {
+    for (const value of configuredSpeechProviders(voice)) register(value);
+    for (const value of options.speechProviders ?? []) register(value);
   }
-  if (supplied && voice.provider && supplied.id !== voice.provider) {
-    throw new Error(`VOICE_PROVIDER="${voice.provider}" does not match supplied SpeechProvider "${supplied.id}".`);
+  if (options.defaultSpeechProviderId !== undefined && !providers.has(options.defaultSpeechProviderId)) {
+    throw new Error(`defaultSpeechProviderId "${options.defaultSpeechProviderId}" is not a registered speech provider.`);
   }
-  const host = options.defaultSpeechProviderId ?? (supplied?.id ?? voice.provider ?? (providers.has("deepgram") ? "deepgram" : null));
-  if (host !== null && !providers.has(host)) throw new Error("The host default speech provider is not registered.");
+  const host = options.defaultSpeechProviderId ?? supplied?.id ?? voice.provider ?? (providers.has("deepgram") ? "deepgram" : null);
+  if (legacyError === null && host !== null && !providers.has(host)) {
+    legacyError = host === "deepgram" ? new Error("VOICE_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set.")
+      : new Error(`Unknown VOICE_PROVIDER="${host}" (expected a registered speech provider: ${[...providers.keys()].join(", ") || "none"}).`);
+  }
+  const failed = (): never => { throw legacyError!; };
   const discovery = (settings: DictationSettings): VoiceProvidersResponse => {
+    if (legacyError) failed();
     const saved = settings.defaultProvider;
     const savedUsable = saved !== null && providers.has(saved);
     const effective = saved !== null ? savedUsable ? saved : null : host ?? (providers.size === 1 ? providers.keys().next().value! : null);
@@ -205,8 +228,8 @@ export function createSpeechProviderRegistry(voice: VoiceConfig, options: {
     };
   };
   return {
-    has: (id: string) => providers.has(id),
-    get: (id: string) => providers.get(id),
+    has: (id: string) => legacyError === null && providers.has(id),
+    get: (id: string): SpeechProvider | undefined => legacyError ? failed() : providers.get(id),
     discovery,
     effective(settings: DictationSettings): SpeechProvider {
       const id = discovery(settings).dictation.effective;

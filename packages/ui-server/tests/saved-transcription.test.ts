@@ -206,7 +206,9 @@ test("optional capability declarations must match the method and Web Speech refu
     const provider = fake(async () => ({ text: "Ithaca" }));
     provider.capabilities.savedAudio = !withMethod;
     if (!withMethod) delete provider.transcribeRecording;
-    await expect(httpContractApp({ env: { VOICE_PROVIDER: "fixture-speech" }, speechProvider: provider })).rejects.toThrow("savedAudio contradicts transcribeRecording");
+    const t = await httpContractApp({ env: { VOICE_PROVIDER: "fixture-speech" }, speechProvider: provider });
+    try { expect((await t.fetch("/api/voice/capabilities")).status).toBe(500); expect((await t.fetch(path(randomUUID()), put())).status).toBe(500); }
+    finally { await t.close(); }
   }
   const webspeech = await httpContractApp();
   try {

@@ -39,9 +39,13 @@ Deepgram only when its key is present, otherwise failure. Browser speech is an
 explicit opt-in; it never becomes a fallback after a missing key or provider
 failure.
 
-The approved #3707 registration rules move provider validation and host-default
-mismatch errors to construction; session validation stays inside the mounted
-session route's error boundary. A provider id is nonempty, trimmed and
+Legacy configuration errors stay inside the mounted session route's existing
+error boundary: an invalid by-value `speechProvider`, a `VOICE_PROVIDER` that
+mismatches it, or a `VOICE_PROVIDER` naming an unregistered provider still lets
+the server start and answers the voice routes with the existing 500 `{ error }`.
+Only misuse of the additive #3707 options (`speechProviders` together with
+`speechProvider`, an invalid or duplicate list entry, an unregistered
+`defaultSpeechProviderId`) fails construction. A provider id is nonempty, trimmed and
 lowercase, matching environment resolution. All four capabilities are boolean;
 `createSession` is callable. Sessions carry a string URL, finite nonnegative
 expiry and optional string token/string-record params. Empty URL and zero

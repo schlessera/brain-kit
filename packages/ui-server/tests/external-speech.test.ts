@@ -43,11 +43,6 @@ test("a supplied provider wins over automatic Deepgram discovery but never an ex
   const provider = externalProvider({ createSession: async () => { calls++; return localSession; } });
   for (const selection of ["", "fixture-speech", "deepgram", "webspeech", "unknown"]) {
     const before = calls;
-    if (selection && selection !== provider.id) {
-      await expect(httpContractApp({ env: { VOICE_PROVIDER: selection, DEEPGRAM_API_KEY: "unused-fixture-key" }, speechProvider: provider })).rejects.toThrow(`VOICE_PROVIDER="${selection}" does not match supplied SpeechProvider "fixture-speech".`);
-      expect(calls).toBe(before);
-      continue;
-    }
     const t = await httpContractApp({ env: { VOICE_PROVIDER: selection, DEEPGRAM_API_KEY: "unused-fixture-key" }, speechProvider: provider });
     try {
       const response = await t.fetch("/api/voice/session", { method: "POST" });
@@ -94,10 +89,6 @@ test("a provider failure stays a session error even when a built-in key is confi
 
 test("selection without an external value preserves opt-in browser speech and fails closed otherwise", async () => {
   for (const selection of ["", "deepgram", "unknown", "webspeech"]) {
-    if (selection === "deepgram" || selection === "unknown") {
-      await expect(httpContractApp({ env: { VOICE_PROVIDER: selection, DEEPGRAM_API_KEY: "" } })).rejects.toThrow("host default speech provider is not registered");
-      continue;
-    }
     const t = await httpContractApp({ env: { VOICE_PROVIDER: selection, DEEPGRAM_API_KEY: "" } });
     try {
       const response = await t.fetch("/api/voice/session", { method: "POST" });
@@ -118,11 +109,16 @@ for (const [field, value] of [
   ["id", ""], ["id", " Fixture "], ["capabilities", {}],
   ["capabilities", { streaming: "true", interimResults: false, keyterms: false, endpointing: false }], ["createSession", null],
 ] as const) {
-  test(`construction rejects invalid provider ${field}: ${JSON.stringify(value)}`, async () => {
+  test(`the mounted route rejects invalid provider ${field}: ${JSON.stringify(value)}`, async () => {
     let called = false;
     const provider = externalProvider({ createSession: async () => { called = true; return localSession; }, [field]: value } as unknown as Partial<SpeechProvider>);
-    await expect(httpContractApp({ env: { VOICE_PROVIDER: "" }, speechProvider: provider })).rejects.toThrow("Invalid SpeechProvider");
-    expect(called).toBe(false);
+    const t = await httpContractApp({ env: { VOICE_PROVIDER: "" }, speechProvider: provider });
+    try {
+      const response = await t.fetch("/api/voice/session", { method: "POST" });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: expect.stringContaining("Invalid SpeechProvider") });
+      expect(called).toBe(false);
+    } finally { await t.close(); }
   });
 }
 

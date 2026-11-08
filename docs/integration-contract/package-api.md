@@ -1502,13 +1502,15 @@ the supplied implementation. It validates a nonempty trimmed lowercase id,
 four boolean capabilities and callable `createSession` before invoking it.
 The returned `SpeechSession` has a string URL, finite nonnegative expiry,
 optional string token and optional string-record params. Empty URL/zero expiry
-remain supported for browser/local sessions. Invalid registrations and host-default mismatches fail construction. Session
-validation and legacy provider failures retain the 500 `{ error }` envelope without fallback.
+remain supported for browser/local sessions. An invalid legacy value, a
+`VOICE_PROVIDER` mismatch or an unregistered `VOICE_PROVIDER` keeps the server
+running; the voice routes answer with the existing 500 `{ error }` envelope,
+as do session validation and provider failures, without fallback.
 The deprecated token route remains Deepgram-specific.
 
 `CreateAppOptions.speechProviders?: SpeechProvider[]` adds implementations to
 configured built-ins. Supplying it together with legacy `speechProvider`, duplicate
-ids, invalid implementations or an unregistered host default fails construction.
+ids, invalid list entries or an unregistered `defaultSpeechProviderId` fails construction.
 Legacy `speechProvider` replaces all built-ins and must match `VOICE_PROVIDER`.
 `defaultSpeechProviderId?: string` sets the host default ahead of `VOICE_PROVIDER`,
 then registered Deepgram; a legacy supplied value is its own default. Deepgram

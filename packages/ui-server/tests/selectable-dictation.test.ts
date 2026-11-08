@@ -26,7 +26,7 @@ const audio = new Uint8Array([1, 2, 3]);
 const path = (id: string) => `/api/voice/recordings/${id}/transcription`;
 const upload = (provider?: string): RequestInit => ({ method: "PUT", body: audio,
   headers: { "Content-Type": "audio/webm", "Content-SHA256": createHash("sha256").update(audio).digest("hex"), ...(provider !== undefined ? { "Speech-Provider": provider } : {}) } });
-const mint = (providerId?: string, smart?: boolean): RequestInit => ({ method: "POST", ...(providerId !== undefined ? { body: JSON.stringify({ providerId, smart }) } : {}) });
+const mint = (providerId?: string, smart?: boolean): RequestInit => ({ method: "POST", ...(providerId !== undefined ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerId, smart }) } : {}) });
 const save = (t: HttpContractApp, defaultProvider: string | null, revision = "0", smart = true, headers = {}) => t.fetch(settingsPath, {
   method: "PUT", headers: { "Content-Type": "application/json", "If-Match": `"${revision}"`, ...headers }, body: JSON.stringify({ defaultProvider, smart }),
 });
@@ -215,7 +215,7 @@ test("invalid settings are total and malformed requests do not change them", asy
       expect((await t.fetch(settingsPath, { method: "PUT", headers: { "If-Match": '"0"' }, body })).status).toBe(400);
     }
     for (const body of ["{", "null", "[]", '{"providerId":42}', '{"smart":1}']) {
-      expect((await t.fetch("/api/voice/session", { method: "POST", body })).status).toBe(400);
+      expect((await t.fetch("/api/voice/session", { method: "POST", headers: { "Content-Type": "application/json" }, body })).status).toBe(400);
     }
     expect(calls).toEqual({ alpha: [], beta: [], audio: [] });
   } finally { writer.close(); await t.close(); }
