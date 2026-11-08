@@ -14,6 +14,8 @@ export function nativeHostDockerArgs(root: string, artifact: string, uid: string
         ...(retainIndexNamespace ? ["--env=BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE=1"] : []),
         ...(applyTiming ? ["--env=BRAIN_NATIVE_PROOF_APPLY_TIMING=1"] : []),
         ...(observationTiming ? ["--env=BRAIN_NATIVE_PROOF_OBSERVATION_TIMING=1"] : []),
+        // #2783: the media review flow's worker scenario, once per qualification, in the Claude UID 1000 cell.
+        ...(backend === "claude" && uid === "1000" && !retainIndexNamespace && !applyTiming && !observationTiming ? ["--env=BRAIN_NATIVE_PROOF_MEDIA_FLOW=1"] : []),
         "--cap-drop=ALL", ...(uid === "0" ? ["--cap-add=SETFCAP"] : []), ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"].map(value => `--cap-add=${value}`),
         "--security-opt=no-new-privileges", `--security-opt=seccomp=${join(root, "scripts/native-proof/seccomp.json")}`,
         ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []),

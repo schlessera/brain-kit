@@ -1,5 +1,8 @@
 /** Offline C5 fixture: real routes/coordinator/SQLite/stream, deterministic CLI boundary.
- * C6 owns the separate full browser → CLI → Markdown proof. */
+ * C6 owns the separate full browser → CLI → Markdown proof. With `mediaFlow`,
+ * the hygiene routes forward instead to the real media review flow (#2783):
+ * an Odysseus brain, the real CLI and the real review server, as its own
+ * process (`ui-server/tests/helpers/media-flow.ts`). */
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +18,7 @@ import { createInboxStream } from "../../../ui-server/src/inbox/stream.js";
 import type { AppEnv } from "../../../ui-server/src/app-env.js";
 import type { BrainClient } from "../../../ui-server/src/brain/client.js";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
+import type { MediaFlow } from "../../../ui-server/tests/helpers/media-flow.js";
 
 const scratch = mkdtempSync(join(tmpdir(), "c5-server-"));
 const db = createUiDb(join(scratch, "ui.sqlite"));
@@ -461,6 +465,14 @@ const auth = {
   release() {},
 };
 const app = new Hono<AppEnv>();
+/** The real media review flow, when a scene asked for it: its JSON routes answer for this fixture's. */
+let flow: MediaFlow | undefined;
+app.use("/api/hygiene/*", async (c, next) => {
+  if (!flow) return next();
+  const body = c.req.method === "GET" ? undefined : await c.req.text();
+  const r = await fetch(`${flow.url}${c.req.path}`, { method: c.req.method, headers: { "content-type": "application/json", "x-media-flow-principal": "owner" }, ...(body ? { body } : {}) });
+  return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+});
 app.use("*", async (c, next) => {
   c.set("principal", (as === "agent" ? agent : principal) as never);
   if (c.req.method === "GET" && c.req.path === "/api/hygiene/review") {
@@ -553,7 +565,22 @@ app.post("/fixture", async (c) => {
     await new Promise((r) => setTimeout(r, 50));
   }
   if (p.start) await review.command(principal.id, "start");
-  return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext, files });
+  // The real media flow (#2783): boot it, then read its bytes, counts and remote, or kill and boot it again.
+  const result: Record<string, unknown> = {};
+  if (p.mediaFlow) {
+    if (flow) throw new Error("media flow already running");
+    // Loaded only for a flow scene: every other scene starts and stops as before.
+    const { createMediaFlow } = await import("../../../ui-server/tests/helpers/media-flow.js");
+    flow = createMediaFlow(p.mediaFlow);
+    await flow.boot();
+    if (p.mediaFlow.start !== false) await flow.command("start");
+  }
+  if (flow && p.flowRestart) { const port = Number(new URL(flow.url).port); await flow.kill(); await flow.boot({ port }); }
+  if (flow && p.flowParity) result.parity = await flow.parity({ sync: p.flowParity === "sync", eligibility: !!p.flowEligibility });
+  if (flow && p.flowBytes) { result.bytes = flow.bytes(); result.texts = Object.fromEntries((p.flowBytes === true ? [] : p.flowBytes as string[]).map(path => [path, flow!.text(path)])); }
+  if (flow && p.flowRemote) result.remote = flow.remoteFiles();
+  if (flow && p.flowRead) result.flowRead = await flow.read();
+  return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext, files, flow: flow ? { url: flow.url, ...result } : null });
 });
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -588,5 +615,6 @@ process.on("SIGTERM", () => {
   server.stop(true);
   db.close();
   rmSync(scratch, { recursive: true, force: true });
-  process.exit(0);
+  if (!flow) process.exit(0);
+  void flow.close().finally(() => process.exit(0));
 });
