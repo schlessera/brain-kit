@@ -255,7 +255,12 @@ test("Send pressed while a file uploads holds once, then sends that file after t
   expect(s.files.saves.length, "a save bound the file before the send").toBeGreaterThan(0);
   expect(s.messages()[0]!.draftRef, "sent from the acknowledged revision that binds it").toEqual({ draftId: s.files.saves.at(-1)!.draftId, revision: s.files.saves.length });
   expect(s.files.saves.at(-1)!.fileIds).toEqual(s.messages()[0]!.attachmentRefs!.map((r) => r.fileId));
-  await new Promise((resolve) => setTimeout(resolve, 1_200));
+  // The host's acceptance is the only later input to the hold: it lifts the
+  // pending send's wait and consumes the draft. `deliver` commits it in
+  // `flushSync`, so the hold's effect has run again with both changes.
+  const requestId = s.messages()[0]!.requestId!;
+  FixtureSocket.last!.deliver({ type: "session_info", sessionId: SESSION, isNew: false, requestId });
+  expect(s.root.stores.drafts.getState().sends[requestId]?.state, "the host accepted the send").toBe("accepted");
   expect(s.messages(), "the hold sends once").toHaveLength(1);
 });
 
