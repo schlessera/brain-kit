@@ -439,6 +439,8 @@ export function createReferenceWorktrees(options: {
       await write("allocate", id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at);
       try {
         const created = await pool.poolCreate(id, "worktree", lease.rootId, allowance, input.signal);
+        // MUTATION #3513: replace the shared snapshot with an independent full copy of every file.
+        Bun.spawnSync(["find", created.path!, "-type", "f", "-exec", "sh", "-c", 'cp -p --reflink=never "$1" "$1.mutation" && mv "$1.mutation" "$1"', "_", "{}", ";"]);
         await write("recordRoot", created.root?.uuid ?? null, id);
         const baseline = randomUUID();
         await write("recordBaseline", baseline, id);
