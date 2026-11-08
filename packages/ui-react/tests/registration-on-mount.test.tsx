@@ -130,6 +130,9 @@ if (!childMode) {
       expect(harness.createAsrClient(asrOptions("deepgram"))).toBeInstanceOf(
         harness.DeepgramClient
       );
+      expect(harness.createAsrClient(asrOptions("gemini"))).toBeInstanceOf(
+        harness.GeminiAsrClient
+      );
       expect(harness.createAsrClient(asrOptions("webspeech"))).toBeInstanceOf(
         harness.WebSpeechClient
       );
@@ -212,7 +215,7 @@ if (!childMode) {
     const providers = registerAsrClient.mock.calls.map(
       ([providerId]: [string, AsrClientFactory]) => providerId
     );
-    expect([...new Set(providers)]).toEqual(["deepgram", "webspeech"]);
+    expect([...new Set(providers)]).toEqual(["deepgram", "gemini", "webspeech"]);
 
     strictDictation.unmount();
     strictTimeline.unmount();

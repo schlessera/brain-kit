@@ -82,7 +82,7 @@ previous list and reports the reason via `state().error`.
 
 `DEFAULT_ALLOWED_TOOLS` covers the built-in file/search/web tools plus most of
 the brain CLI's own MCP tools — `brain_search`, `brain_context`, `brain_read`,
-`brain_list`, `brain_graph`, `brain_add` and `brain_update`, as
+`brain_list`, `brain_graph`, `brain_read_many`, `brain_add` and `brain_update`, as
 `mcp__brain__*`. The write-capable two are in there deliberately: `Write` and
 `Edit` are already allowed, so an agent that wanted to change the repo never
 needed `brain_add` to do it, and routing the change through the brain tools is
@@ -148,7 +148,7 @@ execution regardless of allowlisting — measured against the runtime
 The hook covers `Bash`, `Edit`, `Write`, `NotebookEdit` and every
 `mcp__brain__` tool. Brain MCP tools share the brain document lock unless
 they are a named read: `brain_search`, `brain_context`, `brain_read`,
-`brain_list`, `brain_graph` or `jobs_review`. Every other brain tool name,
+`brain_list`, `brain_graph`, `brain_read_many` or `jobs_review`. Every other brain tool name,
 including a module tool, takes that same lock. A tool's own `readOnlyHint`
 does not grant an exemption. This follows
 [the module-tool decision](../../docs/decisions/module-mcp-tools.md#6-annotations-and-permissions).

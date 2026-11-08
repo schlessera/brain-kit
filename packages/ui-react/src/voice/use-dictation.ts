@@ -155,6 +155,7 @@ export function useDictation() {
         onError: (err) => {
           if (!live(capture)) return;
           capture.failure = dictationFailure(err);
+          if (stopping.has(capture)) capture.drainFailure = capture.failure;
           setError(dictationExplanation(capture.failure, "open"));
         },
       });
@@ -257,14 +258,26 @@ export function useDictation() {
       // drain, so nothing sees the drain over and the words not yet in review.
       // Auth cancellation may have invalidated a Done still awaiting drain.
       if (commitToReview && capture && !stopping.has(capture)) return;
-      const handled = endDictation(root.stores.voice, commitToReview, drained || ownDrain ? { draining: false } : {});
+      // A failure the client reported while it drained (an abnormal close, a
+      // socket error) ends this Done as the provider-ended path would: the
+      // kept words carry a notice saying why. One reported earlier, which the
+      // take survived, does not: Done is not a provider failure.
+      const { finalText, partial } = root.stores.voice.getState();
+      const notice = commitToReview && drained && capture?.drainFailure
+        ? { reason: capture.drainFailure, phase: "ended" as const, retained: Boolean([finalText, partial].join(" ").trim()) }
+        : null;
+      const handled = endDictation(root.stores.voice, commitToReview, {
+        ...(drained || ownDrain ? { draining: false } : {}),
+        ...(notice ? { dictationNotice: notice } : {}),
+      });
       if (capture) {
         release(capture);
         // Ended: nothing it reports from now on is heard.
         stopping.delete(capture);
       }
       // Another hook's drain still owns the buffer: leave it to that drain.
-      if (handled) resetCapture();
+      // endDictation already cleared the transcript; a notice stays shown.
+      if (handled && !notice) resetCapture();
       if (drainFailure) throw drainFailure.error;
     },
     [releaseCapture, resetCapture, root]

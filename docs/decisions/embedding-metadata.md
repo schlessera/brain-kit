@@ -33,14 +33,14 @@ tradeoff, not a measured claim that prefixes cannot improve retrieval.
 
 Type, status, tag, update-date and deadline filters operate on stored
 document fields
-(`buildFilters`, `packages/core/src/lib/search-engine.ts:135-182`).
+(`buildFilters`, `packages/core/src/lib/search-engine.ts:135-190`).
 The document-level keyword lane searches title, summary, tags and aliases
 with BM25 weights, alongside the separate chunk lane
-(`const byDocument =`, `packages/core/src/lib/search-engine.ts:439-450`).
+(`const byDocument =`, `packages/core/src/lib/search-engine.ts:448-459`).
 When enabled, the judgment reranker receives type and tags as candidate
 fields, and status, relevance and updated as lifecycle attributes
-(`toRerankCandidate`, `packages/core/src/lib/search-engine.ts:1140-1152`),
-(`lifecycleAttributes`, `packages/core/src/lib/search-engine.ts:1155-1161`).
+(`toRerankCandidate`, `packages/core/src/lib/search-engine.ts:1149-1161`),
+(`lifecycleAttributes`, `packages/core/src/lib/search-engine.ts:1164-1170`).
 These paths can use current metadata without serializing it into every
 chunk's vector input. Stored vector filter columns are also synchronized
 with type and archived status

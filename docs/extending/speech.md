@@ -78,7 +78,13 @@ offers the registered providers that do. See the
 The [selection Chrome proof](../../packages/ui-react/tests/dictation-selection-runtime.test.ts)
 registers two keyless providers this way and checks which one each take reached.
 
-The four streaming capabilities are boolean. Optional `savedAudio` is derived from a callable `transcribeRecording`; a contradictory explicit declaration is rejected. `streaming` describes streaming recognition,
+The four streaming capabilities are boolean. Optional `savedAudio` is derived from a callable `transcribeRecording`; a contradictory explicit declaration is rejected.
+Optional `smartTranscription` is boolean when supplied: it declares that
+`createSession` honours its optional `mode` option, `"smart"` for cleaned-up
+text or `"verbatim"` for text as spoken. Absent `mode` means the provider's
+default; providers without the capability ignore it. Optional `label` and
+`destination` are nonempty strings naming the service and saying where
+microphone audio goes. `streaming` describes streaming recognition,
 `interimResults` controls partial display, `keyterms` controls domain-term
 building, and `endpointing` distinguishes automatic utterance-end evidence from
 manual Done. Capabilities do not confer permissions or confidence/provenance
@@ -260,6 +266,67 @@ The public conformance probe's optional `recording()` observes actual forwarded
 bytes, content type, keyterms and returned text; it is required when this method
 is implemented. The [saved-audio tests](../../packages/ui-server/tests/saved-transcription.test.ts)
 exercise a fake provider through the real mounted routes without service keys.
+
+## Built-in Gemini 3.5 Transcribe Live dictation
+
+Setting `GEMINI_API_KEY` registers Google's dedicated streaming transcription
+model, `gemini-3.5-transcribe-live`, as the built-in `gemini` dictation
+provider. `VOICE_PROVIDER=gemini` selects it explicitly. Without
+`VOICE_PROVIDER` it is used only when `DEEPGRAM_API_KEY` is unset, so a host
+that already has a Gemini key for chat models keeps dictating to Deepgram.
+Microphone audio then streams from the browser straight to Google, and the
+dictation sheet says so.
+
+The key stays on the server. For each take the server sends one
+`POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` with the
+key in `x-goog-api-key` and receives a single-use ephemeral token: `uses: 1`,
+60 seconds to connect (`newSessionExpireTime`, also the session's
+`expiresAt`), 11 minutes overall (`expireTime`). Its `bidiGenerateContentSetup`
+carries the model, the `TEXT` response modality and the transcription config,
+and its `fieldMask` names exactly those fields, so they are locked and the
+token cannot open any other Live session. (`liveConnectConstraints` and
+`lockAdditionalFields` are the `@google/genai` option names; the REST body is
+what that SDK serializes them to.) The browser's `setup` frame repeats the
+locked setup field for field. The transcription config is
+`mode: "SMART"` unless `createSession` receives `mode: "verbatim"`, plus the
+brain's existing keyterms as `customVocabulary`: at most 100 terms of at most
+64 UTF-8 bytes, in order. No chat, history, screen or corpus context is sent.
+Language is detected automatically. Every mint failure returns the session
+route's 500 `{ "error": "Gemini dictation session failed" }`; neither the key
+nor Google's response text appears in a response, log or error, and no other
+provider is tried. Capabilities are `streaming`, `interimResults`, `keyterms`
+and `smartTranscription`; `endpointing` is false, so the sheet keeps a manual
+Done. There is no saved-recording transcription, so `savedAudio` is false.
+
+The session URL is Google's constrained Live endpoint
+(`…v1alpha.GenerativeService.BidiGenerateContentConstrained`, the path the
+installed `@google/genai` 2.24.0 uses; Google's token guide says `v1beta`, and
+[#3710](https://github.com/schlessera/brain-kit/issues/3710) qualifies which
+one Google accepts). The browser client `GeminiAsrClient`, registered as
+`gemini` by `registerAsrClients`, appends `?access_token=<token>`, sends the
+same model and transcription config as its setup, and streams mono PCM16 LE at
+16 kHz in 100 ms frames (3,200 bytes) as base64 `realtimeInput.audio`. Its
+AudioWorklet captures at the hardware rate and resamples; it never assumes a
+16 kHz context. Up to 5 seconds of audio wait for `setupComplete`; more than
+that, a 10-second handshake, a socket error or an upload backlog above
+256 KiB ends the take with a connection failure rather than dropping audio.
+`interimInputTranscription` text replaces the partial; each
+`inputTranscription` text is one final (`endsTurn` from `finished`, true when
+absent). Done stops the microphone, sends the last partial frame and
+`audioStreamEnd`, and waits up to 3 seconds for a `finished` final or
+`turnComplete`. A hard stop, cancel or unmount releases the tracks,
+AudioContext, worklet, timers, queue and socket. There is no session
+resumption: Google ends a session after 10 minutes, and the take then ends as
+provider-ended, with the words heard kept for review.
+
+The keyless [server proof](../../packages/ui-server/tests/gemini-speech.test.ts)
+runs the published provider conformance and the mounted routes against a
+loopback `auth_tokens` double. The [client proof](../../packages/ui-react/tests/asr-gemini.test.ts)
+runs the published client conformance and the wire bounds, and the
+[Chromium proof](../../packages/ui-react/tests/browser/dictation-gemini.offline.tsx)
+dictates through the real ChatPage, worklet and 44.1/48 kHz contexts against
+an offline socket. They show protocol and resource behaviour, not that Google
+accepts the token or how accurate or fast it is; that is #3710.
 
 ## Live conversation with Gemini
 

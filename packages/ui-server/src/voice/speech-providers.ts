@@ -4,6 +4,8 @@
  *
  * - `deepgram`  — mints a short-lived Deepgram token and the full streaming WS
  *                 URL (base params + domain keyterms baked in).
+ * - `gemini`    — mints a single-use constrained Gemini Live token for
+ *                 gemini-3.5-transcribe-live (`gemini-speech.ts`).
  * - `webspeech` — no server session; the browser's SpeechRecognition does the
  *                 work, so it returns empty url/token.
  *
@@ -19,6 +21,7 @@ import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { defineSpeechProvider, SpeechTranscriptionError } from "@schlessera/brain-ui-sdk/server";
 import type { VoiceConfig } from "../config/env.js";
 import { mintDeepgramToken } from "./deepgram-token.js";
+import { createGeminiSpeechProvider } from "./gemini-speech.js";
 
 const DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/listen";
 
@@ -55,6 +58,8 @@ function buildDeepgramUrl(keyterms: string[]): string {
 export function createDeepgramSpeechProvider(apiKey: string | null): SpeechProvider {
   return defineSpeechProvider({
     id: "deepgram",
+    label: "Deepgram",
+    destination: "Microphone audio streams from this browser to Deepgram (nova-3).",
     capabilities: {
       streaming: true,
       interimResults: true,
@@ -105,6 +110,8 @@ export function createDeepgramSpeechProvider(apiKey: string | null): SpeechProvi
 
 export const webspeechSpeechProvider: SpeechProvider = defineSpeechProvider({
   id: "webspeech",
+  label: "Browser speech recognition",
+  destination: "Your browser recognizes speech; on Chromium, microphone audio goes to Google.",
   capabilities: {
     streaming: true,
     interimResults: true,
@@ -117,7 +124,7 @@ export const webspeechSpeechProvider: SpeechProvider = defineSpeechProvider({
   },
 });
 
-const NO_SPEECH_PROVIDER = 'No speech provider configured. Set DEEPGRAM_API_KEY, or set ' +
+const NO_SPEECH_PROVIDER = 'No speech provider configured. Set DEEPGRAM_API_KEY or GEMINI_API_KEY, or set ' +
   'VOICE_PROVIDER=webspeech to explicitly opt into the browser speech API ' +
   '(which streams audio to Google on Chromium).';
 
@@ -127,16 +134,19 @@ function assertSpeechProvider(provider: SpeechProvider): void {
       !provider.id || provider.id !== provider.id.trim().toLowerCase()) {
     throw new Error("Invalid SpeechProvider: id must be a nonempty, trimmed, lowercase string.");
   }
-  for (const field of ["label", "destination"] as const) {
-    if (provider[field] !== undefined && typeof provider[field] !== "string") throw new Error(`Invalid SpeechProvider: ${field} must be a string.`);
-  }
-  if (provider.capabilities?.smartTranscription !== undefined && typeof provider.capabilities.smartTranscription !== "boolean") {
-    throw new Error("Invalid SpeechProvider: smartTranscription must be boolean.");
-  }
   for (const capability of ["streaming", "interimResults", "keyterms", "endpointing"] as const) {
     if (typeof provider.capabilities?.[capability] !== "boolean") {
       throw new Error(`Invalid SpeechProvider "${provider.id}": capabilities.${capability} must be boolean.`);
     }
+  }
+  for (const field of ["label", "destination"] as const) {
+    const value = provider[field];
+    if (value !== undefined && (typeof value !== "string" || !value.trim())) {
+      throw new Error(`Invalid SpeechProvider "${provider.id}": ${field} must be a nonempty string when supplied.`);
+    }
+  }
+  if (provider.capabilities.smartTranscription !== undefined && typeof provider.capabilities.smartTranscription !== "boolean") {
+    throw new Error(`Invalid SpeechProvider "${provider.id}": capabilities.smartTranscription must be boolean when supplied.`);
   }
   if (provider.transcribeRecording !== undefined && typeof provider.transcribeRecording !== "function") {
     throw new Error(`Invalid SpeechProvider "${provider.id}": transcribeRecording must be a function when supplied.`);
@@ -154,11 +164,12 @@ export function speechCapabilities(provider: SpeechProvider) {
   return { ...provider.capabilities, savedAudio: typeof provider.transcribeRecording === "function" };
 }
 
-/** Built-in registration point: add createGeminiSpeechProvider(voice.geminiApiKey)
- * here when #3708 supplies that factory. No placeholder provider is advertised. */
+/** Built-ins registered from configuration. A key adds a choice; it never
+ * makes that provider the host default (D3). Browser speech stays opt-in. */
 function configuredSpeechProviders(voice: VoiceConfig): SpeechProvider[] {
   const providers: SpeechProvider[] = [];
   if (voice.deepgramApiKey) providers.push(createDeepgramSpeechProvider(voice.deepgramApiKey));
+  if (voice.geminiApiKey) providers.push(createGeminiSpeechProvider(voice.geminiApiKey));
   if (voice.provider === "webspeech") providers.push(webspeechSpeechProvider);
   return providers;
 }
@@ -212,6 +223,7 @@ export function createSpeechProviderRegistry(voice: VoiceConfig, options: {
   const host = options.defaultSpeechProviderId ?? supplied?.id ?? voice.provider ?? (providers.has("deepgram") ? "deepgram" : null);
   if (legacyError === null && host !== null && !providers.has(host)) {
     legacyError = host === "deepgram" ? new Error("VOICE_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set.")
+      : host === "gemini" ? new Error("VOICE_PROVIDER=gemini but GEMINI_API_KEY is not set.")
       : new Error(`Unknown VOICE_PROVIDER="${host}" (expected a registered speech provider: ${[...providers.keys()].join(", ") || "none"}).`);
   }
   const failed = (): never => { throw legacyError!; };

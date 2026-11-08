@@ -32,6 +32,20 @@ shape changes. See
 [the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
 This ships in a minor.
 
+## Bounded multi-read (additive, 0.45.0, #3642)
+
+A new read tool, `brain_read_many`, on the MCP server and the pi backend, and a
+new command, `brain read-many --json`, all over one core operation. One call
+reads up to 20 documents or sections and keeps its whole JSON answer within
+`max_total_chars` (default 24,000, 2,000 to 40,000) and each item within
+`max_item_chars` (default 8,000), counted as UTF-16 units of the serialized
+JSON. Each item is `full`, `outline`, `partial`, `duplicate` or `error`, carries
+its file's `sha256`, and says how to continue; invalid input is refused, never
+clamped. `brain_read`, `brain_read_base` and every other tool and envelope are
+unchanged. See [the MCP component](integration-contract/mcp.md#bounded-multi-read-additive-0450-3642)
+and [the CLI component](integration-contract/cli.md). This ships in a minor; no
+breaking ruling is required.
+
 ## Setup timeouts name their step (additive, 0.45.0, #3664)
 
 A separate-UID worker launch that misses its identity readiness deadline still

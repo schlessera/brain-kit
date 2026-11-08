@@ -67,7 +67,7 @@ test("inventory uses actual core stdio tools, project skill files and production
     expect(prepared.peer.tools.map(tool => tool.name).sort()).toEqual([...STABLE_BRIDGE_ROSTER]);
     expect(prepared.peer.tools.every(tool => tool._meta?.["anthropic/alwaysLoad"] === true)).toBe(true);
     expect(prepared.peer.tools.every(tool => Object.keys(tool.inputSchema.properties ?? {}).length > 0)).toBe(true);
-    expect(core.tools.map(tool => tool.name).sort()).toEqual(["brain_add", "brain_archive", "brain_context", "brain_graph", "brain_list", "brain_read", "brain_search", "brain_update"]);
+    expect(core.tools.map(tool => tool.name).sort()).toEqual(["brain_add", "brain_archive", "brain_context", "brain_graph", "brain_list", "brain_read", "brain_read_many", "brain_search", "brain_update"]);
     expect(core.client.getInstructions()).toContain("Odysseus");
     const response = await core.client.callTool({ name: "brain_read", arguments: { path: "me/identity.md" } });
     expect(response.isError).not.toBe(true);
