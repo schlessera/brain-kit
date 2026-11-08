@@ -245,10 +245,12 @@ describe("the background driver", () => {
     const driver = createComputeDriver(visits.ops, { initialDelayMs: 5, maxDelayMs: 20 });
     driver.track(run.job.id);
     expect(driver.tracked()).toEqual([run.job.id]);
-    // Two visits have answered "running"; the third is armed 12 ms later, after this macrotask.
-    await visits.visited(2);
-    await macrotask();
-    expect(driver.tracked()).toEqual([run.job.id]);
+    // Each visit answers "running"; the next is armed at least 8 ms later, after this macrotask.
+    for (const n of [1, 2]) {
+      await visits.visited(n);
+      await macrotask();
+      expect(driver.tracked()).toEqual([run.job.id]);
+    }
     clock.advance(6_000);
     for (let i = 0; i < 100 && driver.tracked().length > 0; i++) await Bun.sleep(10);
     expect(driver.tracked()).toEqual([]);
