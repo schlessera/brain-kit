@@ -62,7 +62,7 @@ for (const row of [
     expect(discovery.status).toBe(200); expect(discovery.headers.get("cache-control")).toBe("no-store");
     const body = await discovery.json();
     expect(body.providers.map((p: { id: string }) => p.id)).toEqual(row.ids);
-    expect(body.dictation).toEqual({ saved: row.saved, savedUsable: row.saved !== null && row.ids.includes(row.saved), host: row.host ?? null,
+    expect(body.dictation).toEqual({ saved: row.saved, savedUsable: row.saved !== null && row.ids.some(id => id === row.saved), host: row.host ?? null,
       effective: row.effective, source: row.source, smart: !row.saved, revision: row.saved ? "3" : "0" });
     expect(calls).toEqual({ alpha: [], beta: [], audio: [] });
     const capabilities = await t.fetch("/api/voice/capabilities");
@@ -89,7 +89,7 @@ test("held mint keeps the requested provider across a default save", async () =>
   const t = await httpContractApp({ env: { VOICE_PROVIDER: "" }, speechProviders: [alpha, beta], defaultSpeechProviderId: "alpha" });
   let pending: Promise<Response> | undefined;
   try {
-    pending = t.fetch("/api/voice/session", mint("beta", false));
+    pending = Promise.resolve(t.fetch("/api/voice/session", mint("beta", false)));
     // Race-safe even under the mutation: a wrong provider resolves immediately.
     await Promise.race([entered.promise, pending]);
     expect(calls.beta, "the disclosed beta provider must mint, even while alpha is the default").toEqual([{ keyterms: [], mode: "verbatim" }]);
@@ -108,7 +108,7 @@ test("held upload keeps the header provider across a default save", async () => 
   const t = await httpContractApp({ env: { VOICE_PROVIDER: "" }, speechProviders: [alpha, beta], defaultSpeechProviderId: "beta" });
   let pending: Promise<Response> | undefined;
   try {
-    const id = randomUUID(); pending = t.fetch(path(id), upload("alpha"));
+    const id = randomUUID(); pending = Promise.resolve(t.fetch(path(id), upload("alpha")));
     await Promise.race([entered.promise, pending]);
     expect(calls.audio, "the disclosed alpha provider must receive the audio despite the streaming-only default").toEqual([audio]);
     expect((await save(t, "alpha")).status).toBe(200);
@@ -126,7 +126,7 @@ test("upload admission freezes the header before the request body finishes", asy
   const t = await httpContractApp({ env: { VOICE_PROVIDER: "" }, speechProviders: [alpha, beta], defaultSpeechProviderId: "alpha" });
   let pending: Promise<Response> | undefined;
   try {
-    pending = t.fetch(path(randomUUID()), { ...upload("alpha"), body, duplex: "half" } as RequestInit);
+    pending = Promise.resolve(t.fetch(path(randomUUID()), { ...upload("alpha"), body, duplex: "half" } as RequestInit));
     await reading.promise;
     expect((await save(t, "beta")).status).toBe(200);
     finish(); const result = await (await pending).json();

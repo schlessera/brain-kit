@@ -510,7 +510,7 @@ track measurements and unchanged original bytes; the composer transport creates
 no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
 
-**R** — [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+**R** — [selectable-dictation.test.ts](../packages/ui-server/tests/selectable-dictation.test.ts) covers exact provider selection, settings revisions/authority and held mint/upload binding; [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
 
 **RV — User history restoration.** `turn-revert.test.ts` exercises raw restoration,
 Undo, partial conflicts, operation identity, authorization, original voice and
