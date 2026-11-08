@@ -17,8 +17,8 @@ export function Handoff({ render }: { render: (loading: boolean, width: number) 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <TextButton label="Reload" onClick={() => setLoading(true)} />
-        <TextButton label="Land" onClick={() => setLoading(false)} />
+        <TextButton inline label="Reload" onClick={() => setLoading(true)} />
+        <TextButton inline label="Land" onClick={() => setLoading(false)} />
       </div>
       {[320, 720].map((width) => (
         <div key={width} data-width={width} style={{ width, maxWidth: "100%" }}>

@@ -11,7 +11,7 @@ export function StreamingHandoff() {
   const [count, setCount] = useState(0);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-      <TextButton label="Token" onClick={() => setCount(n => Math.min(TOKENS.length, n + 1))} style={{ alignSelf: "flex-start" }} />
+      <TextButton inline label="Token" onClick={() => setCount(n => Math.min(TOKENS.length, n + 1))} style={{ alignSelf: "flex-start" }} />
       <StreamingAnswer phase="writing" target="drafting" elapsed="2.0s" cost="~$0.03 so far" text={TOKENS.slice(0, count).join("")} />
     </div>
   );
