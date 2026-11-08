@@ -47,6 +47,15 @@ import {
  */
 const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
 
+/** BRAIN_UI_PI_EXTENSIONS (#3658): curated tools unless discovery is explicitly chosen. */
+function parsePiExtensions(raw: string | undefined): "curated" | "discover" {
+  const value = raw?.trim().toLowerCase() || "curated";
+  if (value !== "curated" && value !== "discover") {
+    throw new Error('BRAIN_UI_PI_EXTENSIONS must be "curated" or "discover".');
+  }
+  return value;
+}
+
 function parseDefaultThinkingLevel(raw: string | undefined): ThinkingLevel {
   const value = raw?.trim() || "medium";
   if (!isThinkingLevel(value)) throw new Error("BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL is not a thinking level.");
@@ -611,6 +620,17 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_PI_EXTENSIONS",
+    description:
+      '"curated" runs pi turns on the host\'s curated tools and leaves installed pi extensions inactive (reported at startup). ' +
+      '"discover" turns pi extension discovery on; managed input-safety collection does not support loaded extensions, so with any ' +
+      "installed extension pi reports its profiles as unavailable and refuses its turns before admission, while other backends keep running. " +
+      "In either mode a configured pi package that is not installed does the same. " +
+      "Any other value refuses boot.",
+    default: "curated",
+    required: false,
+  },
+  {
     name: "CLAUDE_CODE_OAUTH_TOKEN",
     description:
       "Subscription token from `claude setup-token`: authenticates every Claude " +
@@ -811,6 +831,8 @@ export interface AgentConfig {
    * profiles join the picker.
    */
   piProfilesJson: string | null;
+  /** BRAIN_UI_PI_EXTENSIONS (#3658): whether pi loads installed extensions; absent means curated. */
+  piExtensions?: "curated" | "discover";
   modelDiscovery: boolean;
   modelTtlMs: number;
   /** Each Claude worker's runtime-state allowance in bytes, resolved and validated (#1625). */
@@ -1207,6 +1229,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       defaultThinkingLevel: parseDefaultThinkingLevel(env.BRAIN_UI_CLAUDE_DEFAULT_THINKING_LEVEL),
       profilesJson: env.BRAIN_UI_CLAUDE_PROFILES?.trim() || null,
       piProfilesJson: env.BRAIN_UI_PI_PROFILES?.trim() || null,
+      piExtensions: parsePiExtensions(env.BRAIN_UI_PI_EXTENSIONS),
       modelDiscovery,
       modelTtlMs: ttlHours * 60 * 60 * 1000,
       workerStateBytes: workerState.allowanceBytes,
