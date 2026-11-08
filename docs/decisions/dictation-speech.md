@@ -33,21 +33,26 @@ or bypass the host's permission and turn machinery.
 `createApp({ speechProvider })` supplies an implementation by value. It wins
 over automatic Deepgram discovery. An explicit `config.voice.provider` must
 match its id; a mismatch fails instead of choosing either implementation
-(`pickSpeechProvider`, `packages/ui-server/src/voice/speech-providers.ts:127-155`).
+(`createSpeechProviderRegistry`, `packages/ui-server/src/voice/speech-providers.ts:174-242`).
 Without the value, existing selection remains: explicit built-ins, automatic
 Deepgram only when its key is present, otherwise failure. Browser speech is an
 explicit opt-in; it never becomes a fallback after a missing key or provider
 failure.
 
-Provider validation and session validation happen inside the mounted session
-route's existing error boundary. A provider id is nonempty, trimmed and
+Legacy configuration errors stay inside the mounted session route's existing
+error boundary: an invalid by-value `speechProvider`, a `VOICE_PROVIDER` that
+mismatches it, or a `VOICE_PROVIDER` naming an unregistered provider still lets
+the server start and answers the voice routes with the existing 500 `{ error }`.
+Only misuse of the additive #3707 options (`speechProviders` together with
+`speechProvider`, an invalid or duplicate list entry, an unregistered
+`defaultSpeechProviderId`) fails construction. A provider id is nonempty, trimmed and
 lowercase, matching environment resolution. All four capabilities are boolean;
 `createSession` is callable. Sessions carry a string URL, finite nonnegative
 expiry and optional string token/string-record params. Empty URL and zero
-expiry remain valid for browser/local implementations. Unknown configuration,
-mismatch, invalid implementations/results and minting failures return the
-existing 500 `{ error }` envelope. Authentication and the deprecated
-Deepgram-specific token route keep their existing meanings.
+expiry remain valid for browser/local implementations. Invalid session results
+and legacy minting failures retain the existing 500 `{ error }` envelope.
+Authentication and the deprecated Deepgram-specific token route keep their
+existing meanings.
 
 Keyterms are built only for a provider declaring support. The route snapshots
 identity/capabilities before minting; the matching client receives the minted
@@ -124,10 +129,10 @@ path through the brain server under these rulings: recognition of playback via
 a live track remains a browser path, and on-device recognition is outside the
 baseline. Thus Deepgram is the only built-in saved-audio implementation;
 external providers may omit the optional method on the existing seam
-(`transcribeRecording?`, `packages/ui-sdk/src/server/speech.ts:38-43`).
+(`transcribeRecording?`, `packages/ui-sdk/src/server/speech.ts:40-45`).
 The server derives the advertised capability from that method, rather than
 trusting a flag disconnected from its executor
-(`speechCapabilities`, `packages/ui-server/src/voice/speech-providers.ts:180-182`).
+(`speechCapabilities`, `packages/ui-server/src/voice/speech-providers.ts:153-155`).
 An absent capability keeps playback, typing and retention available, with the
 tray's explicit unavailable explanation.
 
@@ -168,13 +173,13 @@ transient/capacity rejection: provider errors, rate limits and definitive
 provider timeouts. Unknown outcomes stay terminal. Audio/media, parameter,
 validation and authentication failures do not offer Retry. Classification and
 attempt counts belong to the receipt, not an automatic client retry loop
-(`transcriptionFailure`, `packages/ui-server/src/routes/transcriptions.ts:21-36`).
+(`transcriptionFailure`, `packages/ui-server/src/routes/transcriptions.ts:22-37`).
 This qualified rule supersedes an unqualified promise of one call even after
 an explicit retry. Plain repeats and uncertain outcomes never redispatch.
 
 The upload budget is **10,041,155 bytes**, a derived policy value rather than a
 duration check (`MAX_TRANSCRIPTION_BYTES`,
-`packages/ui-server/src/routes/transcriptions.ts:14-18`). The
+`packages/ui-server/src/routes/transcriptions.ts:15-19`). The
 [October 8 bitrate finding](https://github.com/schlessera/brain-kit/issues/1021#issuecomment-6055498109)
 reran the V1 probe's track-ended case three times per desktop engine, with
 Chromium 153.0.8010.12 and Firefox 155.0 in Playwright 1.63.0's Ubuntu 24.04.4

@@ -25,13 +25,15 @@ export interface SpeechSession {
  */
 export interface SpeechProvider {
   id: string;
+  label?: string;
+  destination?: string;
   capabilities: SpeechCapabilities;
   /**
    * Mint one dictation session. `keyterms` are domain terms from the brain's
    * keyterm builder — providers without keyterm support ignore them
    * (capabilities.keyterms = false).
    */
-  createSession(opts: { keyterms: string[] }): Promise<SpeechSession>;
+  createSession(opts: { keyterms: string[]; mode?: "smart" | "verbatim" }): Promise<SpeechSession>;
   /** Optional saved-audio path. Call only the provider from the server with its
    * server-held credential; forward bytes unchanged. Reject on failure. No
    * automatic retries. Untyped errors are terminal unknown outcomes. */
