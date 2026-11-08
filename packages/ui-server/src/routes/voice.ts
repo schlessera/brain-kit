@@ -1,44 +1,98 @@
+import type { Database } from "bun:sqlite";
+import type { AppEnv } from "../app-env.js";
+import { getDictationSettings } from "../db/settings.js";
+import type { SettingsWrites } from "../db/settings-writes.js";
 import { Hono } from "hono";
 import type {
   VoiceKeytermsResponse,
   VoiceTokenResponse,
   VoiceSessionResponse,
+  VoiceSessionRequest,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { VoiceConfig } from "../config/env.js";
-import type { SpeechProvider, SpeechSession } from "@schlessera/brain-ui-sdk/server";
+import type { SpeechSession } from "@schlessera/brain-ui-sdk/server";
 import { mintDeepgramToken } from "../voice/deepgram-token.js";
 import { getKeyterms, type KeytermSettings } from "../voice/keyterm-builder.js";
-import { pickSpeechProvider, speechCapabilities } from "../voice/speech-providers.js";
+import { type SpeechProviderRegistry, speechCapabilities } from "../voice/speech-providers.js";
 
 interface VoiceRoutesDeps {
   voice: VoiceConfig;
   keyterms: KeytermSettings;
-  speechProvider?: SpeechProvider;
+  speechProviders: SpeechProviderRegistry;
+  db: Database;
+  settingsWrites: SettingsWrites;
 }
 
-export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono {
-  const { voice, keyterms, speechProvider } = deps;
+export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono<AppEnv> {
+  const { voice, keyterms, speechProviders, db, settingsWrites } = deps;
 
-  return new Hono()
+  return new Hono<AppEnv>()
+    .get("/voice/providers", (c) => {
+      c.header("Cache-Control", "no-store");
+      try {
+        return c.json(speechProviders.discovery(getDictationSettings(db)));
+      } catch (err) {
+        return c.json({ error: err instanceof Error ? err.message : "Voice providers failed" }, 500);
+      }
+    })
+    .get("/voice/dictation/settings", (c) => {
+      c.header("Cache-Control", "no-store");
+      const settings = getDictationSettings(db);
+      c.header("ETag", `"${settings.revision}"`);
+      return c.json(settings);
+    })
+    .put("/voice/dictation/settings", async (c) => {
+      c.header("Cache-Control", "no-store");
+      const principal = c.get("principal");
+      if (principal?.kind !== "owner" && principal?.kind !== "ambient") return c.json({ error: "owner_required" }, 403);
+      const match = c.req.header("If-Match");
+      if (match === undefined) return c.json({ error: "dictation_settings_stale", message: "If-Match is required.", current: getDictationSettings(db) }, 428);
+      const body = await c.req.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          !(body.defaultProvider === null || typeof body.defaultProvider === "string") ||
+          (body.smart !== undefined && typeof body.smart !== "boolean")) return c.json({ error: "dictation_settings_invalid" }, 400);
+      if (body.defaultProvider !== null && !speechProviders.has(body.defaultProvider)) return c.json({ error: "speech_provider_unknown", message: "That dictation service isn't available on this host." }, 400);
+      const expected = /^"[0-9]+"$/.test(match) ? match.slice(1, -1) : match;
+      const result = await settingsWrites.saveDictationSettings(expected, { defaultProvider: body.defaultProvider, smart: body.smart ?? true });
+      if (!result.saved) return c.json({ error: "dictation_settings_stale", message: "Changed on another device.", current: result.current }, 409);
+      c.header("ETag", `"${result.current.revision}"`);
+      return c.json(result.current);
+    })
     .get("/voice/capabilities", (c) => {
       c.header("Cache-Control", "no-store");
       try {
-        const provider = pickSpeechProvider(voice, speechProvider);
+        const provider = speechProviders.effective(getDictationSettings(db));
         return c.json({ providerId: provider.id, capabilities: speechCapabilities(provider) });
       } catch (err) {
         return c.json({ error: err instanceof Error ? err.message : "Voice capabilities failed" }, 500);
       }
     })
     .post("/voice/session", async (c) => {
+      let request: VoiceSessionRequest = {};
       try {
-        const provider = pickSpeechProvider(voice, speechProvider);
+        // Legacy clients POST without a JSON body (or with ignored text); only an
+        // explicit JSON request expresses a selection, and it is validated strictly.
+        const json = /^application\/json\b/i.test(c.req.header("content-type") ?? "");
+        const raw = json ? await c.req.text() : "";
+        if (raw) {
+          const body = JSON.parse(raw);
+          if (!body || typeof body !== "object" || Array.isArray(body) ||
+              (body.providerId !== undefined && typeof body.providerId !== "string") ||
+              (body.smart !== undefined && typeof body.smart !== "boolean")) return c.json({ error: "voice_session_invalid" }, 400);
+          request = body;
+        }
+      } catch { return c.json({ error: "voice_session_invalid" }, 400); }
+      try {
+        const settings = getDictationSettings(db);
+        const provider = request.providerId !== undefined ? speechProviders.get(request.providerId) : speechProviders.effective(settings);
+        if (!provider) return c.json({ error: "speech_provider_unavailable", message: "That dictation service isn't available on this host." }, 409);
         const providerId = provider.id;
         const capabilities = speechCapabilities(provider);
         // Only fetch domain keyterms when the provider can use them.
         const terms = capabilities.keyterms
           ? getKeyterms(keyterms, false).keyterms
           : [];
-        const session = await provider.createSession({ keyterms: terms });
+        const session = await provider.createSession({ keyterms: terms, ...(capabilities.smartTranscription ? { mode: (request.smart ?? settings.smart) ? "smart" : "verbatim" } as const : {}) });
         assertSpeechSession(session);
         const body: VoiceSessionResponse = {
           providerId,
@@ -51,7 +105,7 @@ export function createVoiceRoutes(deps: VoiceRoutesDeps): Hono {
         return c.json(body);
       } catch (err) {
         return c.json(
-          { error: err instanceof Error ? err.message : "Voice session failed" },
+          { error: request.providerId !== undefined ? "Voice session failed" : err instanceof Error ? err.message : "Voice session failed" },
           500
         );
       }
