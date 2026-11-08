@@ -138,7 +138,7 @@ async function reach(path: string) {
 async function agree(pending: number, options: { sync?: boolean; selected?: boolean } = {}) {
   // An Undo's receipt replicates before its request returns; the server's count settles with the request.
   await expect.poll(async () => ((await set({ flowRead: true })) as Flow & { flowRead: { review: { media?: Counts } } }).flowRead.review.media?.awaitingReview, { timeout: 5000 }).toBe(pending);
-  const { parity } = await set({ flowParity: options.sync === false ? "cli" : "sync" });
+  const { parity } = await set({ flowParity: options.sync === false ? "cli" : "sync", flowEligibility: options.selected === false });
   expect(parity!.server.media, "MEDIA_FLOW_BROWSER_SERVER_COUNT").toEqual({ awaitingReview: pending, setAside: 0, kept: 0 });
   expect(parity!.cli.media, "MEDIA_FLOW_BROWSER_CLI_COUNT").toEqual(parity!.server.media);
   if (options.selected !== false) expect(parity!.cli.findingId, "MEDIA_FLOW_BROWSER_SELECTION").toBe(parity!.server.findingId);

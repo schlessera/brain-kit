@@ -218,13 +218,14 @@ export function createMediaFlow(options: { directory?: string; media?: readonly 
    * With `sync`, an ordinary `brain sync` runs too, and commits and pushes
    * whatever the brain's rules track: use it where the flow has settled.
    */
-  async function parity(options: { sync?: boolean } = {}): Promise<Parity> {
+  async function parity(options: { sync?: boolean; eligibility?: boolean } = {}): Promise<Parity> {
     const r = await read();
     const deferred = (r.review.deferred ?? []) as Array<{ findingId: string; fingerprint: string }>;
     const next = cli("hygiene", "--json", "next", ...(deferred.length ? ["--defer", deferred.map(d => `${d.findingId}=${d.fingerprint}`).join(",")] : []));
     const synced = options.sync === false ? null : sync();
     const finding = r.action?.status === "pending" ? r.action.hygiene.finding : null;
-    const selected = finding ? cli("hygiene", "--json", "next", "--finding", finding.id, "--dry-run") : null;
+    // Only a card an Undo did not replace needs it: one more CLI read.
+    const selected = finding && options.eligibility ? cli("hygiene", "--json", "next", "--finding", finding.id, "--dry-run") : null;
     return {
       eligible: selected ? selected.finding?.id === finding.id && selected.finding.fingerprint === finding.fingerprint : null,
       sync: synced ? { pending: synced.run.leftovers.mediaPending, setAside: synced.run.leftovers.mediaSetAside, report: synced.run.report, agent: synced.agent, status: synced.run.status } : null,

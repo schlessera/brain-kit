@@ -576,7 +576,7 @@ app.post("/fixture", async (c) => {
     if (p.mediaFlow.start !== false) await flow.command("start");
   }
   if (flow && p.flowRestart) { const port = Number(new URL(flow.url).port); await flow.kill(); await flow.boot({ port }); }
-  if (flow && p.flowParity) result.parity = await flow.parity({ sync: p.flowParity === "sync" });
+  if (flow && p.flowParity) result.parity = await flow.parity({ sync: p.flowParity === "sync", eligibility: !!p.flowEligibility });
   if (flow && p.flowBytes) { result.bytes = flow.bytes(); result.texts = Object.fromEntries((p.flowBytes === true ? [] : p.flowBytes as string[]).map(path => [path, flow!.text(path)])); }
   if (flow && p.flowRemote) result.remote = flow.remoteFiles();
   if (flow && p.flowRead) result.flowRead = await flow.read();

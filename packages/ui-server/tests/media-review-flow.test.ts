@@ -144,7 +144,7 @@ async function actionRoundTrip(f: MediaFlow, path: string, optionId: string, to:
   if (initial[KEPT] === null && keptLog !== null) expect(keptLog, "MEDIA_FLOW_UNDO_KEPT_ENTRY").not.toContain("### media-");
   else expect(f.bytes()[KEPT]).toBe(initial[KEPT]!);
   // A sync after Undo commits none of it.
-  const p = await f.parity({ sync: true });
+  const p = await f.parity({ sync: true, eligibility: true });
   agree(p, want.initial, "kept");
   for (const file of [path, ...(to ? [to] : [])]) expect(f.remoteFiles(), "MEDIA_FLOW_UNDO_NOT_COMMITTED").not.toContain(file);
 
@@ -278,7 +278,7 @@ test("capacity: a capture that cannot fit the change journal refuses before any 
   const receipt = (await f.until(r => r.action?.hygiene?.outcome && r.action.hygiene.outcome.status !== "applying", "a refused outcome")).action.hygiene.outcome;
   expect(receipt, "MEDIA_FLOW_CAPACITY_REFUSED").toMatchObject({ status: "refused", reason: "capture-capacity", media: { outcome: "refused", reason: "capture-capacity" } });
   expect(f.bytes(), "MEDIA_FLOW_CAPACITY_NO_WRITE").toEqual(before);
-  agree(await f.parity({ sync: true }), { pending: 2 }, "kept");
+  agree(await f.parity({ sync: true, eligibility: true }), { pending: 2 }, "kept");
   await device.close();
 });
 
@@ -299,7 +299,7 @@ test("stale premise: a config edited after the Move preview makes the apply stal
   expect(outcome, "MEDIA_FLOW_STALE_OUTCOME").toMatchObject({ status: "stale", media: { outcome: "stale", reason: "premise-changed" } });
   expect(f.bytes(), "MEDIA_FLOW_STALE_NO_WRITE").toEqual(before);
   expect(f.text(NOTE), "MEDIA_FLOW_STALE_REFERENCE").toBe(NOTE_TEXT);
-  agree(await f.parity({ sync: false }), { pending: 2 }, "kept");
+  agree(await f.parity({ sync: false, eligibility: true }), { pending: 2 }, "kept");
   await device.close();
 });
 
@@ -330,7 +330,7 @@ test("interruption: a host killed between the copy and its kept entry is compens
   expect(f.bytes(), "MEDIA_FLOW_INTERRUPTED_COPY_COMPENSATED").toEqual(before);
   const recovered = await f.until(r => r.action?.hygiene?.outcome?.media, "the recovered receipt");
   expect(recovered.action.hygiene.outcome, "MEDIA_FLOW_INTERRUPTED_COPY_RECEIPT").toMatchObject({ status: "check_failed", media: { outcome: "compensated", action: "keep-copy" } });
-  agree(await f.parity({ sync: true }), { pending: 1 }, "kept");
+  agree(await f.parity({ sync: true, eligibility: true }), { pending: 1 }, "kept");
   expect(f.remoteFiles(), "MEDIA_FLOW_INTERRUPTED_COPY_UNCOMMITTED").not.toContain(HARBOUR_TO);
   await device.close().catch(() => {});
 });
@@ -350,7 +350,7 @@ test("interruption: a host killed after a Move wrote the file and its reference 
   expect(f.text(NOTE)).toBe(NOTE_TEXT);
   const recovered = await f.until(r => r.action?.hygiene?.outcome?.media, "the recovered receipt");
   expect(recovered.action.hygiene.outcome, "MEDIA_FLOW_INTERRUPTED_MOVE_RECEIPT").toMatchObject({ status: "check_failed", media: { outcome: "compensated", action: "move" } });
-  agree(await f.parity({ sync: true }), { pending: 2 }, "kept");
+  agree(await f.parity({ sync: true, eligibility: true }), { pending: 2 }, "kept");
   expect(f.remoteFiles()).not.toContain(LOOM_TO);
   await device.close().catch(() => {});
 });
@@ -413,6 +413,6 @@ test("in maintenance workers: the review's CLI runs behind the native manager bo
   const undone = await f.undo(receipt.media.journalId);
   expect(undone.body.mediaUndo, "MEDIA_FLOW_WORKER_UNDONE").toMatchObject({ outcome: "undone" });
   expect(withKept(f.bytes(), null), "MEDIA_FLOW_WORKER_UNDO_BYTES").toEqual(before);
-  agree(await f.parity({ sync: true }), { pending: 1 }, "kept");
+  agree(await f.parity({ sync: true, eligibility: true }), { pending: 1 }, "kept");
   await device.close();
 });
