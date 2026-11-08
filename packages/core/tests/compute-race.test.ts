@@ -58,7 +58,13 @@ async function race(spec: { maxConcurrent: number; ceiling?: number; cap: number
     return { child, stdout: lines(child.stdout) };
   });
   // Release the barrier only once every racer is waiting at it, so all of them contend for admission.
-  for (const racer of racers) expect(await racer.stdout.next()).toBe("ready");
+  // Bounded, so a racer that never reports ready fails here; the file's
+  // teardown kills every child it spawned.
+  let bound: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timedOut = new Promise<string>(resolve => { bound = setTimeout(() => resolve("RACER_NEVER_READY"), 10_000); });
+    for (const racer of racers) expect(await Promise.race([racer.stdout.next(), timedOut])).toBe("ready");
+  } finally { clearTimeout(bound); }
   writeFileSync(barrier, "");
   const results = await Promise.all(
     racers.map(async ({ child, stdout }) => {

@@ -29,7 +29,8 @@ for (const adapter of ["claude", "pi"] as const)
       // behind the turn's earlier writes, so the fake waits for the host's abort
       // instead of a fixed 200 ms a loaded runner can exceed; 2.5 s is only a
       // failure maximum. Only "late" returns early on purpose: as soon as its
-      // reports are submitted, before their commit lands 400 ms later.
+      // reports are submitted, before the wrapper below delivers their observed
+      // result, 400 ms later.
       const abortWindowMs = 2500;
       const reports: unknown[] = [];
       let reportsAtReturn = -1;

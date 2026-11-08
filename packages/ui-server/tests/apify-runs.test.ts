@@ -413,10 +413,15 @@ describe("races and shared accounting", () => {
     // Every child has opened the ledger and is waiting at the start line before
     // it opens, so all four contend for the allowance at once.
     const ready = procs.map((_, index) => `${go}.${index}.ready`);
-    while (!ready.every(path => existsSync(path)) && procs.every(proc => proc.exitCode === null)) await Bun.sleep(5);
-    expect(ready.every(path => existsSync(path)), "APIFY_RACE_CHILDREN_READY").toBe(true);
-    writeFileSync(go, "");
-    const outputs = await Promise.all(procs.map(async proc => ({ code: await proc.exited, out: (await new Response(proc.stdout).text()).trim(), err: await new Response(proc.stderr).text() })));
+    let outputs: { code: number; out: string; err: string }[];
+    try {
+      // The deadline is a failure maximum: a child that never gets ready fails
+      // the named check instead of the runner's timeout.
+      for (const end = Date.now() + 10_000; !ready.every(path => existsSync(path)) && procs.every(proc => proc.exitCode === null) && Date.now() < end;) await Bun.sleep(5);
+      expect(ready.every(path => existsSync(path)), "APIFY_RACE_CHILDREN_READY").toBe(true);
+      writeFileSync(go, "");
+      outputs = await Promise.all(procs.map(async proc => ({ code: await proc.exited, out: (await new Response(proc.stdout).text()).trim(), err: await new Response(proc.stderr).text() })));
+    } finally { for (const proc of procs) if (proc.exitCode === null) proc.kill(); }
     for (const output of outputs) expect(output.code, `APIFY_RACE_CHILD_EXIT: ${output.err}`).toBe(0);
     const results = outputs.map(output => output.out);
     expect(results.filter(result => result === "admitted"), `APIFY_TWO_PROCESS_RACE: ${results.join(",")}`).toHaveLength(1);

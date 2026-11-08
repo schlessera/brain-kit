@@ -98,7 +98,14 @@ test("cancelling the turn kills a running child and drops a queued one", async (
   try {
     const running = single.extract(new Uint8Array(8), request(1, 1, 10_000), controller.signal);
     const queued = single.extract(new Uint8Array(8), request(1, 1, 10_000), controller.signal);
-    await spawned.promise;
+    // Bounded, so a read that settles without spawning, or never spawns, fails
+    // here and the finally below still restores Bun.spawn.
+    let bound: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([spawned.promise,
+        running.then(result => { throw new Error(`EXTRACT_SETTLED_BEFORE_SPAWN: ${JSON.stringify(result)}`); }),
+        new Promise<never>((_, reject) => { bound = setTimeout(() => reject(new Error("EXTRACT_NEVER_SPAWNED")), 10_000); })]);
+    } finally { clearTimeout(bound); }
     const at = Date.now();
     controller.abort();
     expect(await running, "EXTRACT_CANCEL_RUNNING").toEqual({ outcome: "cancelled" });
