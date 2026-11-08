@@ -21,6 +21,7 @@ import { installFaultNetwork } from "./offline/fault-network.ts";
 import { installWavMicrophone, watchMicrophone } from "./offline/fake-microphone.ts";
 import { generateWav, AUDIO_FIXTURES } from "./offline/audio-fixtures.ts";
 import { describeHit, touchFloor } from "./hit-reach.js";
+import { deepgramDiscovery } from "../fixtures/dictation-discovery.js";
 
 const TEXT = "Ask Penelope whether the loom order arrived.";
 const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
@@ -146,6 +147,10 @@ for (const theme of ["dark", "light"]) for (const width of [320, 390, 900, 1280]
     expect(c.host.querySelector('[aria-label="Scroll to latest"]'), "reading mode disabled tailing").not.toBeNull();
     const anchor = [...c.host.querySelectorAll<HTMLElement>("[data-transcript-anchor]")].find(el => el.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top)!;
     const top = anchor.getBoundingClientRect().top;
+    // The tray's Transcribe control waits on dictation discovery (#3709). Known
+    // up front, it renders with the tray, so this measures the tray appearing
+    // rather than a later discovery answer growing it.
+    c.root.stores.voice.setState({ discovery: { snapshot: deepgramDiscovery(false), at: Date.now() + 24 * 60 * 60_000 } });
     const requestsBefore = c.net.requests.length; const framesBefore = c.net.frames.length;
     const row = await c.seed("interrupted");
     const card = await c.seed("transcript-ready", TEXT, "2026-07-12T09:00:00");
