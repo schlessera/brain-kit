@@ -178,6 +178,31 @@ test("case 22: at ten snapshots Send is refused with nothing sent and the text k
   expect(s.sendButton().getAttribute("aria-disabled")).toBeNull();
 });
 
+test("case 22: when another device frees a slot, the queue-full notice clears within one re-read interval, from reads alone", async () => {
+  const fixture = snapshotHost();
+  fixture.seed("draft-ithaca", Array.from({ length: 10 }, (_, i) => ({ snapshotId: `ret-${i}`, requestId: `r-ret-${i}`, text: `Oar stroke ${i + 1}.`, state: "returned" as const })));
+  const s = await mount(fixture);
+  await expect.poll(() => s.bubbles().length).toBe(10);
+  await typed(s, "Turn the ship for Aeaea.");
+  await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
+  s.sendButton().click();
+  await expect.poll(() => s.host.querySelector("[data-outgoing-full]")?.textContent ?? "", { timeout: 5_000 }).toContain(FULL);
+  // Another device deletes one of the chat's returned snapshots on the host.
+  const row = fixture.rows.get("draft-ithaca")!;
+  fixture.rows.set("draft-ithaca", { ...row, revision: row.revision + 1, updatedAt: Date.now(), snapshots: row.snapshots!.filter((x) => x.snapshotId !== "ret-0") });
+  expect(fixture.count()).toBe(9);
+  const savesBefore = fixture.saves.length;
+  const readsBefore = fixture.calls.length;
+  // No action in this tab: the bounded re-read (ruling A, every 15 s) finds the free slot.
+  await expect.poll(() => s.host.querySelector("[data-outgoing-full]"), { timeout: 20_000, interval: 250 }).toBeNull();
+  expect(s.sendButton().getAttribute("aria-disabled")).not.toBe("true");
+  expect(s.field().value, "the text is still here").toBe("Turn the ship for Aeaea.");
+  const reads = fixture.calls.slice(readsBefore);
+  expect(reads.some((c) => c.startsWith("GET ") && c.endsWith("/drafts/draft-ithaca")), "it read the chat's draft").toBe(true);
+  expect(fixture.saves.length, "the re-read saved nothing").toBe(savesBefore);
+  expect(s.messages(), "and sent nothing").toHaveLength(0);
+}, 40_000);
+
 test("case 23: two devices at nine snapshots send at the same moment and exactly one is admitted", async () => {
   const fixture = snapshotHost();
   const a = await mount(fixture);

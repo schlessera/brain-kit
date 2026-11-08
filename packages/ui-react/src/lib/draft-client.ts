@@ -33,6 +33,12 @@ const CHECK_TIMEOUT_MS = 10_000;
 
 /** A pause in typing before a change is saved. */
 const SAVE_DELAY_MS = 800;
+/**
+ * While a chat is full of outgoing snapshots, how often a visible tab asks the
+ * host whether another tab or device freed a slot (#3155, maintainer ruling A
+ * of 2026-11-08: a bounded re-read; there is no draft change frame).
+ */
+const FULL_RECHECK_MS = 15_000;
 /** Backoff for a save that got no answer or a transient refusal. */
 const RETRY_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
 
@@ -590,9 +596,57 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   });
   function advanceAll() { if (drafts.getState().snapshotsOn) for (const id of Object.keys(drafts.getState().drafts)) advanceSnapshots(id); }
 
-  const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+  /**
+   * The queue-full notice (#3155) clears when this tab frees a slot, and
+   * otherwise from a host read: the chat's drafts are listed, and each one of
+   * that chat is read for its snapshots. Reads only, never a save; it runs
+   * only while the notice shows and the tab is visible, every
+   * FULL_RECHECK_MS, and at once on focus, `online` and hello.
+   */
+  let fullTimer: ReturnType<typeof setTimeout> | null = null;
+  let fullChecking = false;
+  const visible = () => typeof document === "undefined" || document.visibilityState === "visible";
+  function scheduleFullCheck() {
+    if (fullTimer) { clearTimeout(fullTimer); fullTimer = null; }
+    if (disposed || !drafts.getState().outgoingFull || !visible()) return;
+    fullTimer = setTimeout(() => { fullTimer = null; void recheckFull(); }, FULL_RECHECK_MS);
+  }
+  async function recheckFull(): Promise<void> {
+    const full = drafts.getState().outgoingFull;
+    if (disposed || !full || fullChecking || !visible() || !live()) { scheduleFullCheck(); return; }
+    fullChecking = true;
+    try {
+      const listed = await api.list();
+      if (disposed || drafts.getState().outgoingFull !== full) return;
+      if (!listed.ok) return;
+      const ids = listed.value.drafts
+        .filter((x) => x.draftId === full.draftId || (full.sessionId !== null && x.sessionId === full.sessionId))
+        .map((x) => x.draftId);
+      let count = 0;
+      for (const id of ids) {
+        const read = await api.get(id);
+        if (disposed || drafts.getState().outgoingFull !== full) return;
+        // A draft gone since the list holds nothing; any other failure proves nothing.
+        if (!read.ok) { if (read.status === 404 || read.status === 410) continue; return; }
+        count += read.value.snapshots?.length ?? 0;
+      }
+      if (count < full.limit) drafts.getState().clearOutgoingFull();
+    } finally {
+      fullChecking = false;
+      scheduleFullCheck();
+    }
+  }
+  const unsubscribeFull = drafts.subscribe((state, prev) => { if (state.outgoingFull !== prev.outgoingFull) scheduleFullCheck(); });
+  const onFocus = () => { if (drafts.getState().outgoingFull) void recheckFull(); };
+  if (typeof window !== "undefined") window.addEventListener("focus", onFocus);
+
+  const onVisible = () => {
+    if (document.visibilityState === "visible") { void refresh(); if (drafts.getState().outgoingFull) void recheckFull(); }
+    else scheduleFullCheck();
+  };
   const onOnline = () => {
     void refresh();
+    if (drafts.getState().outgoingFull) void recheckFull();
     for (const d of Object.values(drafts.getState().drafts)) if (owed(d)) schedule(d.draftId, 0);
   };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
@@ -615,6 +669,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       retryFull();
       void refresh();
       for (const d of Object.values(drafts.getState().drafts)) if (owed(d)) schedule(d.draftId, 0);
+      if (drafts.getState().outgoingFull) void recheckFull();
     },
 
     /**
@@ -789,6 +844,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       unsubscribeView();
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
       if (typeof window !== "undefined") window.removeEventListener("online", onOnline);
+      if (typeof window !== "undefined") window.removeEventListener("focus", onFocus);
+      if (fullTimer) clearTimeout(fullTimer);
+      unsubscribeFull();
     },
   };
 }

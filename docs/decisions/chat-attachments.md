@@ -313,9 +313,13 @@ originals, on a host that advertises `composerFiles`:
     alone, never joined to newer words (rev 4 correction 3). Only
     Send waits. Drafting and every bubble action stay available, and Cancel
     never asks for a slot. The notice clears when this tab frees one: a
-    Delete…, an Edit, or an acceptance. Clearing it live when another device
-    frees a slot is not built. It waits on the maintainer's choice of
-    mechanism
+    Delete…, an Edit, or an acceptance. When another tab or device frees a
+    slot, a bounded re-read clears it (maintainer ruling A, 2026-11-08; there
+    is no draft change frame). While the notice shows and the tab is visible,
+    the draft client lists the host's drafts every 15 s, reads each one of
+    that chat, and counts their snapshots. It also re-reads at once on focus,
+    `online` and hello. These are reads only; the notice clears when the
+    count is below the limit
     ([decision request](https://github.com/schlessera/brain-kit/issues/3155#issuecomment-6723796317)).
   - **Bubbles in the transcript (G2 A).** Held, returned and unconfirmed
     snapshots render after the last accepted message in creation order. Each
