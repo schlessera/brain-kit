@@ -139,6 +139,8 @@ export "./internal" (./src/internal.ts)
   type ComputeService
   type ComputeServiceOptions
   ComputeStateError
+  type ContextCoverage
+  type ContextScopeInput
   type EffectiveGovernancePolicy
   type FrontmatterValue
   GEMINI_FLASH_MODEL
@@ -151,6 +153,8 @@ export "./internal" (./src/internal.ts)
   type HygieneLogEntry
   type IngestInput
   type IngestOutcome
+  MAX_SCOPE_ENTRIES
+  MAX_SCOPE_ENTRY_LENGTH
   REVIEW_SEVERITY
   REVIEW_URGENCY
   type ResolvedComputeInstance
@@ -174,9 +178,11 @@ export "./internal" (./src/internal.ts)
   computeJobInput
   computeJobView
   computeRequestInput
+  coverageNote
   createComputeDriver
   createComputeOps
   createComputeService
+  emptyContextCoverage
   estimateTokens
   geminiCompletions
   getContext

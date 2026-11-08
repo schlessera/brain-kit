@@ -9,7 +9,16 @@ import { readFileSync } from "fs";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { isIsoDate, readDocumentPart, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain/internal";
+import {
+  coverageNote,
+  emptyContextCoverage,
+  isIsoDate,
+  MAX_SCOPE_ENTRIES,
+  MAX_SCOPE_ENTRY_LENGTH,
+  readDocumentPart,
+  SEARCH_SORTS,
+  type SearchOptions,
+} from "@schlessera/brain/internal";
 
 import { clip, MAX_OUTPUT_BYTES, MAX_READ_BYTES, PI_BRAIN_UPDATE_TOOL_NAME, textResult, type BrainToolKit } from "./tool-kit.js";
 
@@ -213,6 +222,10 @@ export function brainSearchTool(kit: BrainToolKit): ToolDefinition {
   } satisfies ToolDefinition;
 }
 
+/** One of `brain_context`'s path scope lists, bounded as core bounds it. */
+const scopeList = (description: string) =>
+  Type.Array(Type.String({ minLength: 1, maxLength: MAX_SCOPE_ENTRY_LENGTH }), { maxItems: MAX_SCOPE_ENTRIES, description });
+
 /** `brain_context`: a token-limited context block for a query. */
 export function brainContextTool(kit: BrainToolKit): ToolDefinition {
   const { brain } = kit;
@@ -225,10 +238,21 @@ export function brainContextTool(kit: BrainToolKit): ToolDefinition {
     parameters: Type.Object({
       query: Type.String({ description: "What to gather context about." }),
       maxTokens: Type.Optional(Type.Number({ description: "Token budget (default 4000)." })),
+      include: Type.Optional(scopeList(
+        'Only draw on these repository-relative paths: an exact file path, or a folder ending in "/" for everything under it.'
+      )),
+      exclude: Type.Optional(scopeList('Never draw on these paths (exact, or a folder ending in "/"); an exclusion wins over include.')),
     }),
-    async execute(_id: string, params: { query: string; maxTokens?: number }) {
-      const block = await brain.context(params.query, params.maxTokens ?? 4000);
-      return textResult(block || "No relevant context found.", { query: params.query });
+    async execute(_id: string, params: { query: string; maxTokens?: number; include?: string[]; exclude?: string[] }) {
+      const scoped = (params.include?.length ?? 0) > 0 || (params.exclude?.length ?? 0) > 0;
+      if (!scoped) {
+        const block = await brain.context(params.query, params.maxTokens ?? 4000);
+        return textResult(block || "No relevant context found.", { query: params.query });
+      }
+      // A scoped block says what it covers, after the block and outside its budget.
+      const coverage = emptyContextCoverage();
+      const block = await brain.context(params.query, params.maxTokens ?? 4000, { include: params.include, exclude: params.exclude, coverage });
+      return textResult(`${block || "No relevant context found in the scope."}\n\n${coverageNote(coverage)}`, { query: params.query, coverage });
     },
   } satisfies ToolDefinition;
 }

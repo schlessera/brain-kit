@@ -31,6 +31,8 @@ import { listIndexDocuments, pageIndexDocuments, readLinkWalk, type DocumentPage
 import { type EmbeddingProvider } from "@schlessera/brain";
 import {
   estimateTokens,
+  type ContextCoverage,
+  type ContextScopeInput,
   initContext,
   relevanceOnArchive,
   resolveEmbeddingProvider,
@@ -53,8 +55,12 @@ export interface BrainAccess {
   /** Resolve a repo-relative path, refusing anything that escapes the repo. */
   resolveInRepo(relPath: string): string | null;
   search(opts: SearchOptions): Promise<SearchResponse>;
-  /** A token-limited, retrieval-focused context block for a query (markdown). */
-  context(query: string, maxTokens?: number): Promise<string>;
+  /**
+   * A token-limited, retrieval-focused context block for a query (markdown).
+   * `options.include`/`exclude` scope every lane (#3644); with a scope and a
+   * `coverage` record, the record is filled with what the block covers.
+   */
+  context(query: string, maxTokens?: number, options?: ContextOptions): Promise<string>;
   add(input: IngestInput): Promise<IngestOutcome>;
   /** Metadata-filtered listing (no query) — mirrors the brain_list MCP tool. */
   list(opts: ListOptions): Promise<ListedDocument[]>;
@@ -66,6 +72,11 @@ export interface BrainAccess {
   update(input: UpdateInput): Promise<UpdateOutcome>;
   /** Archive a document (status + move + reindex) — mirrors brain_archive. */
   archive(relPath: string, dryRun?: boolean): Promise<ArchiveResult>;
+}
+
+export interface ContextOptions extends ContextScopeInput {
+  /** Filled for a scoped call; untouched for an unscoped one. */
+  coverage?: ContextCoverage;
 }
 
 export interface ListOptions {
@@ -229,7 +240,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       }
     },
 
-    async context(query: string, maxTokens = 4000): Promise<string> {
+    async context(query: string, maxTokens = 4000, options: ContextOptions = {}): Promise<string> {
       const c = await ensureContext();
       const db = openRead(c.dbPath);
       try {
@@ -248,6 +259,8 @@ export function createBrainAccess(brainPath: string): BrainAccess {
           embeddings,
           rerank: rerankSetup(c.config?.reranker),
           warnings,
+          scope: { include: options.include, exclude: options.exclude },
+          coverage: options.coverage,
         });
         // Warnings lead the block, in whatever budget the block left over.
         let budget = maxTokens - (block ? estimateTokens(block) : 0);

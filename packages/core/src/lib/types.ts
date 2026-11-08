@@ -105,6 +105,13 @@ export interface SearchOptions {
   /** Fill each result's `chunks` with its chunks that match the query, best
    * first. Off by default; a query-less (filter) search gets empty lists. */
   chunks?: boolean;
+  /**
+   * Restrict every lane to these document paths (`allow`) or away from them
+   * (`deny`), exactly as indexed. Internal: `assembleContext` passes its
+   * caller's path scope here (#3644) so the candidate pool is drawn from the
+   * scope rather than filtered after the limit.
+   */
+  paths?: { allow?: readonly string[]; deny?: readonly string[] };
 }
 
 export const SEARCH_SORTS = ["score", "updated", "deadline"] as const;
