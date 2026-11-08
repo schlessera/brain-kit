@@ -186,6 +186,8 @@ function providerNoteFor(
   switch (providerId) {
     case "deepgram":
       return { text: "via Deepgram", warn: false };
+    case "gemini":
+      return { text: "via Google Gemini · audio goes to Google", warn: true };
     case "webspeech":
       // Browser speech (Chrome) streams mic audio to Google — call it out.
       return { text: "via browser speech · audio goes to Google", warn: true };

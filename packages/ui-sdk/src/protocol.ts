@@ -1624,8 +1624,10 @@ export interface ProviderInfo {
  * backend never sends free text and no configuration detail, such as an
  * environment key name, leaves the host. A new reason is an additive contract
  * change; a client shows a reason it does not know as a generic one.
+ * `unsupported-configuration` (#3658): the backend's configuration, such as an
+ * extension set managed input-safety collection cannot run, fails every turn.
  */
-export const PROFILE_UNAVAILABLE_REASONS = ["needs-credentials"] as const;
+export const PROFILE_UNAVAILABLE_REASONS = ["needs-credentials", "unsupported-configuration"] as const;
 export type ProfileUnavailableReason = (typeof PROFILE_UNAVAILABLE_REASONS)[number];
 
 export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason {
@@ -2022,7 +2024,8 @@ export interface SpeechCapabilities {
   endpointing: boolean;
   /** Absent/false means saved recordings cannot be transcribed. Derived from the optional server method. */
   savedAudio?: boolean;
-  /** Supports SMART cleanup of the current unsent dictation. */
+  /** True when the provider honours `createSession({ mode })`: "smart" cleans up fillers, self-corrections
+   * and formatting, "verbatim" transcribes as spoken. Absent/false means the mode option is ignored. */
   smartTranscription?: boolean;
 }
 

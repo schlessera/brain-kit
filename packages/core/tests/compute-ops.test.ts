@@ -214,21 +214,51 @@ describe("caller binding", () => {
 });
 
 describe("the background driver", () => {
+  /**
+   * `ops` whose `status` answers count as visits: `visited(n)` resolves once
+   * the driver's nth status call has answered, before the driver continues.
+   */
+  function counted(ops: ComputeOps) {
+    let visits = 0;
+    const waiting: { n: number; resolve: () => void }[] = [];
+    const wrapped: ComputeOps = {
+      ...ops,
+      status: async (input) => {
+        const result = await ops.status(input);
+        visits++;
+        for (const w of waiting.filter((w) => w.n <= visits)) w.resolve();
+        return result;
+      },
+    };
+    const visited = (n: number) => (visits >= n ? Promise.resolve() : new Promise<void>((resolve) => waiting.push({ n, resolve })));
+    return { ops: wrapped, visited };
+  }
+  /** One macrotask: the driver's continuation after an answered visit has run. */
+  const macrotask = () => new Promise<void>((resolve) => setImmediate(resolve));
+
   test("advances tracked jobs through status until settled, then stops visiting", async () => {
     const { ops, clock, memory } = setup();
     const o = ops(TELEMACHUS);
     const run = await o.run({ provider: "pylos-memory", argv: ["sleep", "5"] });
     if (!run.ok) throw new Error(run.error.code);
-    const driver = createComputeDriver(o, { initialDelayMs: 5, maxDelayMs: 20 });
+    const visits = counted(o);
+    const driver = createComputeDriver(visits.ops, { initialDelayMs: 5, maxDelayMs: 20 });
     driver.track(run.job.id);
     expect(driver.tracked()).toEqual([run.job.id]);
-    await Bun.sleep(40);
-    expect(driver.tracked()).toEqual([run.job.id]);
+    // Each visit answers "running"; the next is armed at least 8 ms later, after this macrotask.
+    for (const n of [1, 2]) {
+      await visits.visited(n);
+      await macrotask();
+      expect(driver.tracked()).toEqual([run.job.id]);
+    }
     clock.advance(6_000);
     for (let i = 0; i < 100 && driver.tracked().length > 0; i++) await Bun.sleep(10);
     expect(driver.tracked()).toEqual([]);
     expect(await o.status({ job: run.job.id })).toMatchObject({ ok: true, job: { state: "succeeded", cleanup: { state: "released" } } });
     const polls = memory.calls.filter((c) => c.method === "poll").length;
+    // Nothing is tracked, so the driver arms no timer and no visit is due.
+    // A visit it wrongly scheduled would fire within maxDelayMs (20 ms); the
+    // window gives it three of those, and there is no event for "no timer".
     await Bun.sleep(60);
     expect(memory.calls.filter((c) => c.method === "poll").length).toBe(polls);
     driver.stop();
@@ -239,11 +269,16 @@ describe("the background driver", () => {
     const o = ops(TELEMACHUS);
     const run = await o.run({ provider: "pylos-memory", argv: ["sleep", "600"] });
     if (!run.ok) throw new Error(run.error.code);
-    const driver = createComputeDriver(o, { initialDelayMs: 5, maxDelayMs: 5 });
+    const visits = counted(o);
+    const driver = createComputeDriver(visits.ops, { initialDelayMs: 5, maxDelayMs: 5 });
     driver.track(run.job.id);
-    await Bun.sleep(30);
+    // Stop once a visit has answered, before the driver re-tracks the job.
+    await visits.visited(1);
     driver.stop();
     const calls = memory.calls.length;
+    // Stopped, the driver clears its timer and arms no other. A visit it still
+    // ran would come within its 5 ms delay; the window gives it eight, and
+    // there is no event for "no timer".
     await Bun.sleep(40);
     expect(memory.calls.length).toBe(calls);
     expect(memory.calls.some((c) => c.method === "kill" || c.method === "release")).toBe(false);

@@ -118,11 +118,13 @@ export interface CreatePiBackendOptions {
   sessionDir?: string;
   /**
    * Load pi extensions (installed pi packages and repo-local extensions).
-   * Default TRUE preserves discovery, but managed workers refuse any loaded
-   * extension or extension loading error: the pinned SDK's extension message
-   * injection and final dispatch paths are not qualified for safety collection.
-   * This includes web, MCP and subagent extensions. Set false to use only the
-   * host's curated tools. Skills and context files still load.
+   * Default FALSE (#3658): only the host's curated tools; installed extensions
+   * stay installed and inactive. Skills and context files still load. TRUE
+   * opts into discovery, but managed workers refuse any loaded extension or
+   * extension loading error: the pinned SDK's extension message injection and
+   * final dispatch paths are not qualified for safety collection. This
+   * includes web, MCP and subagent extensions. The hosted module refuses such
+   * a turn before admission instead (`gateUnsupportedConfiguration`).
    */
   loadExtensions?: boolean;
   /**

@@ -147,7 +147,12 @@ test("concurrent connections to the same new host share one card", async () => {
   const proxy = await turn(db, bridge);
   try {
     const both = [get(proxy.socketPath, island.url.href), get(proxy.socketPath, `${island.url.href}again`)];
-    await raised(asks, Promise.all(both)); await Bun.sleep(50);
+    await raised(asks, Promise.all(both));
+    // Negative window, kept real time: nothing outside the proxy marks the
+    // second connection reaching the shared card, and the bridge double sees
+    // only cards, the action under test. 50 ms lets its loopback request
+    // reach admission and raise a second card if the host does not share it.
+    await Bun.sleep(50);
     expect(asks.requests, "TAINTED_ASK_ONE_CARD_PER_HOST").toHaveLength(1);
     asks.answer({ behavior: "allow" });
     expect((await Promise.all(both)).map(result => result.status)).toEqual([200, 200]);
@@ -215,6 +220,9 @@ test("cancelling the turn while the card is pending refuses the connection; a la
     controller.abort();
     asks.answer({ behavior: "allow" });
     expect((await response).status, "TAINTED_ASK_CANCEL_REFUSES").not.toBe(200);
+    // Negative window, kept real time: a contact the late allow started would
+    // reach the island over loopback after the refusal, and no frame on that
+    // path can mark its absence. 50 ms gives such a connection its chance.
     await Bun.sleep(50);
     expect(calls, "TAINTED_ASK_CANCEL_NO_CONTACT").toBe(0);
     expect(events(db, "egress_connection"), "TAINTED_ASK_CANCEL_NOT_ADMITTED").toMatchObject([{ outcome: "cancelled", bytes: 0 }]);

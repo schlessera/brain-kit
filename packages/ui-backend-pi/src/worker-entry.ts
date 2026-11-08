@@ -16,6 +16,7 @@ import { toolLockFromKeyed } from "./tools.js";
 import { createPiBridgeTools } from "./bridge-tools.js";
 import { PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit } from "./backend-options.js";
+import { discoversPiExtensions } from "./extension-inspection.js";
 
 interface Init {
   type: "init";
@@ -145,7 +146,7 @@ async function initialize(init: Init): Promise<void> {
         try { return await fn(); } finally { await rpc("unlock", scope.name, scope.id, { lockId }); }
       },
     } : toolLockFromKeyed(createKeyedLock()),
-    allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: init.backend.loadExtensions ?? true,
+    allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: discoversPiExtensions(init.backend),
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
     ...(init.relayed?.transport ? { pinnedSettings: { transport: init.relayed.transport } } : {}),

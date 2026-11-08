@@ -74,6 +74,15 @@ describe("ordinary pi isolated worker", () => {
     expect(r.running).toEqual([]);
     policyUnchanged(r);
   });
+  test("an installed extension stays inactive under the default configuration and the curated turn succeeds (#3658)", async () => {
+    const r = await probe("inactive-extension");
+    expect(r.failure, "PI_DEFAULT_IGNORES_INSTALLED_EXTENSION").toBeUndefined();
+    expect(r.frames.at(-1), "PI_DEFAULT_CURATED_TURN_SUCCEEDS").toMatchObject({ type: "result", outcome: "success" });
+    expect(r.firstTools, "PI_DEFAULT_CURATED_ROSTER").toContain("bash");
+    expect(r.firstTools, "PI_DEFAULT_EXTENSION_NOT_LOADED").not.toContain("inactive_voyage");
+    expect(r.running).toEqual([]);
+    policyUnchanged(r);
+  });
   test("curated bash, routed writes and nested bash cannot change policy while a permitted edit is recorded", async () => {
     const r = await probe("attacks");
     policyUnchanged(r);

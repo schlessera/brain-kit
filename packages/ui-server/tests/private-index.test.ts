@@ -169,22 +169,32 @@ test("the first type-selector turn after server start waits for a writer started
   // Admitted with the server, before the turn: its plan cannot hold me/.
   const boot = await gate.acquire("shared", "brain CLI version");
   expect(boot.folderPaths, "SERVER_START_WRITER_PLANS_NO_TYPE_FOLDER").toEqual([]);
-  // The boot writer finishes a little after the turn reaches it. A turn that
-  // refuses, or checks without waiting, never lets it finish first.
+  // The boot writer finishes after the turn's wait has seen it still lacking
+  // the folder. Gate procedures run in submission order, so once a peer check
+  // submitted after the wait's first check reports the boot writer, that first
+  // check has reported it too. The turn's admission steps are recorded: the
+  // peer-plan step must end, and every later step start, after the release. A
+  // turn that refuses, checks without waiting or stops awaiting the wait
+  // proceeds before it.
   let releasedAt: number | undefined;
+  const steps: { name: string; at: number; ended?: number }[] = [];
+  const timing = (name: string) => { const step: { name: string; at: number; ended?: number } = { name, at: performance.now() }; steps.push(step); return () => { step.ended = performance.now(); }; };
   const hook = spyOn(gate, "acquire").mockImplementation(async (...args) => {
     const hold = await acquire(...args), wait = hold.waitForPeerFolderPlans?.bind(hold);
     return wait ? Object.assign(hold, { waitForPeerFolderPlans: (...values: Parameters<typeof wait>) => {
-      setTimeout(() => { releasedAt = performance.now(); boot.release(); }, 300);
-      return wait(...values);
+      const waiting = wait(...values);
+      void hold.assertPeerFolderPlans!(values[0]).then(() => {}, () => {}).then(() => { releasedAt = performance.now(); boot.release(); });
+      return waiting;
     } }) : hold;
   });
   let hold: Awaited<ReturnType<typeof f.turns.begin>> | undefined, refusal: unknown;
   try {
-    try { hold = await f.turns.begin("first-after-start", new AbortController().signal); } catch (error) { refusal = error; }
-    const admittedAt = performance.now();
+    try { hold = await f.turns.begin("first-after-start", new AbortController().signal, undefined, undefined, undefined, timing); } catch (error) { refusal = error; }
     expect(refusal, "FIRST_PROVIDER_POLICY_TURN_AFTER_START_ADMITTED").toBeUndefined();
-    expect(releasedAt !== undefined && admittedAt >= releasedAt, "ADMITTED_ONLY_ONCE_THE_SERVER_START_WRITER_FINISHED").toBe(true);
+    const peer = steps.findIndex(step => step.name === "peer_folder_plans");
+    expect(peer >= 0 && releasedAt !== undefined, "PEER_PLAN_STEP_RAN_AND_RELEASED").toBe(true);
+    expect(steps[peer]!.ended! >= releasedAt! && steps.slice(peer + 1).every(step => step.at >= releasedAt!),
+      "ADMITTED_ONLY_ONCE_THE_SERVER_START_WRITER_FINISHED").toBe(true);
     expect(hold!.sandbox.profile, hold!.sandbox.fallbackReason).toBe("governed");
     expect(hold!.sandbox.retainedFolders, "TYPE_FOLDER_RETAINED").toEqual([".brain-cache", ".brain-index", "me"]);
   } finally { hook.mockRestore(); boot.release(); await hold?.end(); }

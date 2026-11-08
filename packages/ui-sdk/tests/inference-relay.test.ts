@@ -143,6 +143,9 @@ describe("inference relay", () => {
 
   test("a stream that idles longer than Bun's default idle timeout still arrives whole (#3441)", async () => {
     // A model writing one large tool input can send nothing for over 10s.
+    // Kept real time: the timeout under test is Bun's native socket idle timer
+    // (10 s by default), which no JavaScript clock advances. 15 s outlasts it
+    // by 5 s.
     const paused = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, fetch: () => {
       let pulls = 0;
       return new Response(new ReadableStream<Uint8Array>({ async pull(controller) {

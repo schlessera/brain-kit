@@ -183,6 +183,7 @@ signatures (every public export and the types it is made of)
         defaultThinkingLevel?: ThinkingLevel;
         profilesJson: string | null;
         piProfilesJson: string | null;
+        piExtensions?: "curated" | "discover";
         modelDiscovery: boolean;
         modelTtlMs: number;
         workerStateBytes: number;
@@ -2187,6 +2188,7 @@ signatures (every public export and the types it is made of)
     export interface VoiceConfig {
         provider: string | null;
         deepgramApiKey: string | null;
+        geminiApiKey?: string | null;
         keytermLimit: number;
         cacheDir: string;
     }
