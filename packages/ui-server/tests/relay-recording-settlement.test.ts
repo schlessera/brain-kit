@@ -68,9 +68,17 @@ for (const kind of ["inference", "provider"] as const) {
           return writes.record(event);
         } });
       const path = kind === "inference" ? "/v1/messages" : "/v1beta/models/gemini-2.5-flash:generateContent";
+      // The relay's admission of its own operation, observed: when it starts, and when it answers.
+      const admission = { entered: Promise.withResolvers<void>(), answered: false };
+      const observed = <Operation extends { admit(): Promise<boolean> }>(operation: Operation): Operation => ({ ...operation, admit() {
+        admission.entered.resolve();
+        return operation.admit().finally(() => { admission.answered = true; });
+      } });
+      const egress = { ...proxy, inference: (...args: Parameters<typeof proxy.inference>) => observed(proxy.inference(...args)),
+        relayed: (...args: Parameters<typeof proxy.relayed>) => observed(proxy.relayed(...args)) };
       const relay = kind === "inference"
-        ? startInferenceRelay({ upstream: origin.url.origin, routes: [path], credentials: { "x-api-key": "odysseus-host-key" }, egress: proxy })
-        : startProviderRelay({ egress: proxy, credential: name => name === "GEMINI_API_KEY" ? "odysseus-host-key" : undefined,
+        ? startInferenceRelay({ upstream: origin.url.origin, routes: [path], credentials: { "x-api-key": "odysseus-host-key" }, egress })
+        : startProviderRelay({ egress, credential: name => name === "GEMINI_API_KEY" ? "odysseus-host-key" : undefined,
           origins: new Map([["GEMINI_API_KEY", [origin.url.origin]]]) });
       let dispatch: Promise<number> | undefined;
       try {
@@ -84,7 +92,12 @@ for (const kind of ["inference", "provider"] as const) {
           ...(kind === "provider" ? { "x-brain-provider": "gemini", "x-brain-provider-key": "GEMINI_API_KEY", "x-brain-provider-origin": origin.url.origin } : {}) };
         let completed = false;
         dispatch = exchange(relay.socketPath, path, "POST", headers, body).then(status => { completed = true; return status; });
-        await Bun.sleep(30);
+        // The relay has received the request and asked to admit it. Its own
+        // recording is held in the worker; everything else admission awaits is
+        // in memory, so one macrotask runs whatever does not wait for the hold.
+        await admission.entered.promise;
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(admission.answered, "RELAY_WAITS_FOR_OWN_EGRESS_RECORDING").toBe(false);
         expect(completed, "RELAY_WAITS_FOR_OWN_EGRESS_RECORDING").toBe(false);
         expect(upstream).toBe(0);
         if (mode === "shared loss") pending = writes.safetyFail("other-turn");

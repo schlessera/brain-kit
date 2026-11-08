@@ -109,9 +109,16 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
     : frame.delegation_id && frame.content?.startsWith('{"hostTaskStatus"') ? [{ id: frame.delegation_id, state: JSON.parse(frame.content).hostTaskStatus, content: frame.content, frame }] : []);
   await recognize("Find the mast decision.", 0); request("mast-native");
   await until(() => !!finishAdmission);
-  // Negative window: persistence is deliberately unresolved, so no causal
-  // completion event exists to await. This tests absence of premature acceptance.
-  await Bun.sleep(10);
+  // Persistence is held, so durable admission never completes here. One
+  // macrotask runs every host continuation that does not wait for it. A status
+  // any of them sent travels the same ordered provider socket as the audio
+  // frame the host forwards after it: once that frame has arrived, every
+  // earlier status would have too.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const audioFrames = () => f.sent.filter(frame => frame.realtimeInput?.audio || frame.type === "session.input_audio.append").length;
+  const forwarded = audioFrames();
+  send({ type: "conversation_audio", conversationId, epoch, utteranceId: "capture", sequence: 1, rate: engine === "gemini" ? 16000 : 24000, pcm: "AAA=" });
+  await until(() => audioFrames() > forwarded);
   expect(statuses(), "NO_PROVIDER_ACCEPTANCE_BEFORE_DURABLE_ADMISSION").toEqual([]);
   expect(turns).toHaveLength(0);
   if (mode === "replace") {
@@ -134,6 +141,10 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
     if (mode === "storage") await until(() => frames.some(frame => frame.nativeHandle === "mast-native" && frame.state === "refused"));
     else if (mode === "status-error") await until(() => frames.some(frame => frame.type === "conversation_closed"));
     else await host.catalog.settled!();
+    // Negative window, kept real time: a wrong acceptance would cross the real
+    // provider socket after this outcome. Status-error and GPT withdrawal have
+    // closed that socket, so no later frame can follow it and mark its arrival.
+    // 10 ms gives a frame already sent on loopback its chance to arrive.
     await Bun.sleep(10);
     expect(statuses(), "FAILED_OR_STALE_ADMISSION_NEVER_CLAIMS_ACCEPTED").toEqual([]);
     expect(turns).toHaveLength(0);

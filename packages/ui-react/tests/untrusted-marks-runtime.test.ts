@@ -411,10 +411,17 @@ describe.skipIf(!executablePath)("untrusted marks in the real Files panel", () =
     const unsupported = await open("owner", 1440, 900, "light");
     try {
       await unsupported.page.route("**/api/files/untrusted**", route => route.fulfill({ status: 404, contentType: "text/plain", body: "404 Not Found" }));
+      const lookup = (part: string) => unsupported.page.waitForResponse(response => response.url().includes(part) && response.status() === 404);
+      const list = lookup("/api/files/untrusted/list");
       await unsupported.page.reload();
       await unsupported.page.waitForFunction("window.__marks !== undefined");
+      const detail = lookup(`/api/files/untrusted?path=${encodeURIComponent(MESSAGE)}`);
       await openFile(unsupported.page, MESSAGE);
+      await Promise.all([list, detail]);
       await unsupported.page.getByRole("button", { name: "Copy path" }).waitFor();
+      // Both lookups have been answered. An unsupported server draws nothing, so
+      // no element or state change marks the answer having been rendered: this
+      // window lets a wrongly drawn cue, control or entry row commit.
       await Bun.sleep(200);
       expect(await unsupported.page.locator("[data-untrusted-cue], [data-untrusted-control], [data-untrusted-unknown], [data-untrusted-entry]").count(), "UNSUPPORTED_NOTHING").toBe(0);
     } finally { await unsupported.context.close(); }

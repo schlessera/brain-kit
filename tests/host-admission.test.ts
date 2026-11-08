@@ -1,7 +1,7 @@
 // Host-wide admission for heavy local commands (#2943): separate worktrees on
 // one machine share a limited number of slots instead of timing out together.
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { admissionLimit, admissionOrder, PREEMPTED_EXIT, readHistory, testLedgerFor, type AdmissionEntry } from "../scripts/host-admission.mjs";
@@ -68,12 +68,19 @@ describe("host admission ledger", () => {
   test("with the limit at 1, heavy commands from two worktrees run one after the other and neither times out", async () => {
     const { dir, ledger, timings } = fixture();
     const log = join(dir, "log");
-    // Each command fails if another is running, and has its own deadline.
+    // Each command fails if another is running. It holds its slot until the
+    // test writes its release file (at most 10 s), so the second command is
+    // queued behind the first by construction rather than by a race against a
+    // fixed sleep, which a loaded host can lose.
     const heavy = (name: string) => `if ! mkdir ${dir}/running 2>/dev/null; then echo OVERLAP-${name} >> ${log}; exit 9; fi; ` +
-      `echo start-${name} >> ${log}; sleep 0.4; echo end-${name} >> ${log}; rmdir ${dir}/running`;
+      `echo start-${name} >> ${log}; i=0; while [ ! -e ${dir}/release-${name} ] && [ $i -lt 1000 ]; do sleep 0.01; i=$((i+1)); done; ` +
+      `echo end-${name} >> ${log}; rmdir ${dir}/running`;
     const first = admit(join(dir, "ithaca"), ledger, timings, heavy("ithaca"));
     await until(() => holding(ledger).length === 1, "the first holder");
     const second = admit(join(dir, "ogygia"), ledger, timings, heavy("ogygia"));
+    await until(() => queued(ledger).length === 1, "the second command queued behind the first");
+    writeFileSync(join(dir, "release-ithaca"), "");
+    writeFileSync(join(dir, "release-ogygia"), "");
     const deadline = Bun.sleep(8_000).then(() => "timed out");
     expect(await Promise.race([Promise.all([first.child.exited, second.child.exited]), deadline])).toEqual([0, 0]);
     expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(["start-ithaca", "end-ithaca", "start-ogygia", "end-ogygia"]);
@@ -114,7 +121,12 @@ describe("host admission ledger", () => {
     await holder.child.exited;
     expect(alive(orphan), "the detached command survives its killed wrapper").toBe(true);
     const next = admit(join(dir, "ogygia"), ledger, timings, "echo PENELOPE_ADMITTED");
-    expect(await Promise.race([next.child.exited, Bun.sleep(8_000).then(() => "blocked")])).toBe(0);
+    // A failure maximum: a slot that is never reclaimed blocks this admission.
+    // On success the exit settles first and the deadline is cleared.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const blocked = new Promise<string>((resolve) => { deadline = setTimeout(() => resolve("blocked"), 8_000); });
+    try { expect(await Promise.race([next.child.exited, blocked])).toBe(0); }
+    finally { clearTimeout(deadline); }
     expect(await next.output).toContain("PENELOPE_ADMITTED");
     expect(alive(orphan), "reclaiming the slot stops the orphaned group").toBe(false);
     expect(readHistory(ledger).map(event => event.kind)).toContain("reclaimed");
