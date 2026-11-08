@@ -4734,6 +4734,12 @@ is additive; legacy backend session IDs and native provider guards keep their
 meaning. No provider history-selection API is delivered by this slice.
 
 
+`DialogueEvidence` additionally includes `voice_interruption` and `voice_end`
+(#3729, additive in 0.45.0), with their runtime schemas in the same entry.
+`DialogueJournal` gains `interruption()` and `ended()` for the host's existing
+write path. The [wire amendment](wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
+defines when each is written and how the client draws them.
+
 Failed-write live text exposes optional `ServerConversationEvent.retention` and
 `ServerError.historyOwnerId`, plus the existing client projection's explicit
 unsaved recognition/output fields (#3177). These are additive evidence and

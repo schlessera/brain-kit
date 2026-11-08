@@ -2671,6 +2671,36 @@ answer. Its complete semantic source group remains readable with unknown
 cross-stream position until the missing history page or evidence is available.
 
 
+### Retained barge-in and conversation end (additive, 0.45.0, #3729)
+
+`DialogueEvidence` gains two kinds. Both are display evidence, retained on the
+existing dialogue write path under the same owner, scope, bound and coverage
+rules as text records:
+
+- `voice_interruption` (`conversationId`, `epoch`, `providerId`, optional
+  `outputId`) is written when the host forwards a provider `interrupted`
+  event. `outputId` is present only when the provider named one. The live
+  `interrupted` frame is sent first and never waits for the write. Its absence
+  is never evidence that a reply completed or was heard.
+- `voice_end` (`conversationId`, `epoch`, `providerId`, `startedAt`,
+  `endedAt`) is written when the operator's final, non-resumable
+  `conversation_stop` ends a conversation whose last epoch opened.
+  `startedAt` is the host clock (Unix milliseconds) when this host first opened
+  the conversation's current run; `endedAt` is the stop, never earlier than
+  `startedAt`. A resumable pause, a disconnect, a provider close or a refused
+  or failed open ends nothing and writes none. A persona may be added later as
+  an optional field once conversations carry one (#3617).
+
+Neither kind enters provider history (`readLiveHistory` reads only `voice`
+text records), tasks, review, permission speech or playback. The React client
+draws the cut-off tag only on the reply whose exact conversation, epoch and
+`outputId` a retained `voice_interruption` names, and the end divider only from
+a retained `voice_end`, with its duration taken from `endedAt - startedAt`. A
+live chat and the same chat reloaded therefore show the same marks; a client
+observation alone draws neither. A client from an earlier minor validates
+`DialogueEvidence` exhaustively and refuses a page that carries one of these
+kinds; the first-party client ships with the host in lockstep.
+
 ### Failed-write text and contextual capture (additive, #3177)
 
 A text `conversation_event` may carry `retention: "unsaved"` only when the host
