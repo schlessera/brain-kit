@@ -8726,7 +8726,7 @@ signatures (every public export and the types it is made of)
         warnings: z.ZodArray<z.ZodString>;
     }, z.core.$strip>;
   PROFILE_UNAVAILABLE_REASONS (packages/ui-sdk/src/protocol.ts)
-    const PROFILE_UNAVAILABLE_REASONS: readonly ["needs-credentials"];
+    const PROFILE_UNAVAILABLE_REASONS: readonly ["needs-credentials", "unsupported-configuration"];
   PROPOSE_POLICY_CHANGE_CONTRACT (packages/ui-sdk/src/tool-contracts/policy.ts)
     const PROPOSE_POLICY_CHANGE_CONTRACT: import("./contract.js").ToolContract<"propose_policy_change", z.ZodObject<{
         content: z.ZodString;
