@@ -2187,6 +2187,7 @@ signatures (every public export and the types it is made of)
     export interface VoiceConfig {
         provider: string | null;
         deepgramApiKey: string | null;
+        geminiApiKey?: string | null;
         keytermLimit: number;
         cacheDir: string;
     }
