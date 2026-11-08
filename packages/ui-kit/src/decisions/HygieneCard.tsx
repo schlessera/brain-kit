@@ -235,7 +235,10 @@ export function HygieneEnd({
         {due ? <div style={mono}>next snooze due {due}</div> : null}
         <div style={mono}>{informational} informational markers not shown</div>
       </div>
-      {snoozed > 0 ? <TextButton label={`Show snoozed (${snoozed})`} onClick={onShowSnoozed} /> : null}
+      {/* A column stack stretches its items; a text action keeps its own width (#3751). */}
+      {snoozed > 0 ? (
+        <TextButton label={`Show snoozed (${snoozed})`} onClick={onShowSnoozed} style={{ alignSelf: "center" }} />
+      ) : null}
       {dismissedErrors > 0 ? (
         <p style={{ ...mono, textAlign: "center" }}>
           Validation still reports {dismissedErrors} dismissed {dismissedErrors === 1 ? "error" : "errors"}. Dismissing
@@ -264,8 +267,13 @@ export function HygieneBlocker({
         tone="red"
         text={`Validation couldn't load brain.config: ${reason}. Fix the configuration, then start again.`}
       />
-      <TextButton label="Open configuration ›" onClick={onOpen} />
-      <TextButton label="Start again" disabled={busy} onClick={onRetry} />
+      {/* Both actions answer the callout above, so they sit together under it,
+          start-aligned and content-sized rather than stretched across the
+          column with their labels centred (#3751). */}
+      <div data-hygiene-blocker-actions="" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16 }}>
+        <TextButton label="Open configuration ›" onClick={onOpen} />
+        <TextButton label="Start again" disabled={busy} onClick={onRetry} />
+      </div>
     </section>
   );
 }

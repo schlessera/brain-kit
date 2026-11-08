@@ -1,9 +1,61 @@
+import { useState, type CSSProperties } from "react";
 import preview from "#.storybook/preview";
-import { fn } from "storybook/test";
+import { expect, fn } from "storybook/test";
 import { HygieneCard } from "../../src/decisions/HygieneCard.js";
 import { TextButton } from "../../src/primitives/TextButton.js";
+import { color, font } from "../../src/tokens.js";
 import { stage, wide } from "../_stage.js";
 const click = fn();
+
+/**
+ * The caller-owned controls, drawn the way Actions draws them
+ * (`packages/ui-react/src/components/activity/hygiene-review.tsx`): bordered
+ * 44px rows in the card's own type, a teal accent and a teal edge on the
+ * chosen fix. A bare browser radio here documents a card nobody ships.
+ */
+const control = (invalid = false): CSSProperties => ({
+  minHeight: 44,
+  width: "100%",
+  boxSizing: "border-box",
+  border: `1px solid ${invalid ? "var(--bk-red-ink)" : color.edge}`,
+  borderRadius: 8,
+  padding: "10px 12px",
+  background: color.canvas,
+  color: color.ink,
+  font: `400 13px/1.5 ${font.body}`,
+});
+
+const FIXES = ["Link to places/eumaeus-hut.md", "Link to another note…", "Keep the text, remove the link"];
+
+function FixOptions() {
+  const [chosen, setChosen] = useState(FIXES[0]);
+  return (
+    <div role="radiogroup" aria-label="Fix: broken link" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {FIXES.map((fix) => (
+        <label
+          key={fix}
+          data-fix-option=""
+          style={{
+            ...control(),
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            borderColor: chosen === fix ? "var(--bk-teal-ink)" : color.edge,
+          }}
+        >
+          <input
+            type="radio"
+            name="fix"
+            checked={chosen === fix}
+            onChange={() => setChosen(fix)}
+            style={{ accentColor: "var(--bk-teal-ink)", margin: 0 }}
+          />
+          {fix}
+        </label>
+      ))}
+    </div>
+  );
+}
 const meta = preview.meta({
   title: "Decisions/HygieneCard",
   component: HygieneCard,
@@ -19,22 +71,7 @@ const meta = preview.meta({
     priority: "must fix · urgency unknown · open 12 days",
     onWhy: click,
     onReveal: click,
-    controls: (
-      <div role="radiogroup" aria-label="Fix: broken link">
-        <label style={{ display: "flex", alignItems: "center", minHeight: 44 }}>
-          <input type="radio" name="fix" defaultChecked />
-          Link to places/eumaeus-hut.md
-        </label>
-        <label style={{ display: "flex", alignItems: "center", minHeight: 44 }}>
-          <input type="radio" name="fix" />
-          Link to another note…
-        </label>
-        <label style={{ display: "flex", alignItems: "center", minHeight: 44 }}>
-          <input type="radio" name="fix" />
-          Keep the text, remove the link
-        </label>
-      </div>
-    ),
+    controls: <FixOptions />,
     preview: {
       path: "journeys/return-to-ithaca.md",
       changes: [{ line: 14, before: "[[Eumaios hut]]", after: "[[places/eumaeus-hut|Eumaios hut]]" }],
@@ -45,7 +82,21 @@ const meta = preview.meta({
     dismiss: { label: "Dismiss", onClick: click },
   },
 });
-export const BrokenLink = meta.story({});
+/** The fix options are the card's own rows: 44px, 13px body type, the chosen one edged in teal. */
+export const BrokenLink = meta.story({
+  play: async ({ canvasElement }) => {
+    const options = [...canvasElement.querySelectorAll<HTMLElement>("[data-fix-option]")];
+    await expect(options).toHaveLength(3);
+    for (const option of options) {
+      const style = getComputedStyle(option);
+      await expect(style.fontSize, "a fix option uses the card's type, not the document's").toBe("13px");
+      await expect(option.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      await expect(style.borderTopStyle).toBe("solid");
+    }
+    const [chosen, other] = options.map((option) => getComputedStyle(option).borderTopColor);
+    await expect(chosen, "the chosen fix is edged differently").not.toBe(other);
+  },
+});
 export const RequiredField = meta.story({
   args: {
     title: "A required frontmatter field is missing or invalid",
@@ -53,27 +104,14 @@ export const RequiredField = meta.story({
     location: "field created",
     excerpt: undefined,
     controls: (
-      <div>
-        <label htmlFor="created">created (YYYY-MM-DD)</label>
-        <input
-          id="created"
-          aria-describedby="created-error"
-          aria-invalid
-          defaultValue="2026-07-1"
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            minHeight: 44,
-            color: "var(--bk-ink)",
-            background: "var(--bk-canvas)",
-            border: "1px solid var(--bk-red-ink)",
-            borderRadius: 8,
-            padding: 10,
-          }}
-        />
-        <p id="created-error" style={{ color: "var(--bk-red-ink)" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <label htmlFor="created" style={{ font: `500 10px/1.5 ${font.mono}`, color: color.inkMute }}>
+          created (YYYY-MM-DD)
+        </label>
+        <input id="created" aria-describedby="created-error" aria-invalid defaultValue="2026-07-1" style={control(true)} />
+        <div id="created-error" style={{ color: "var(--bk-red-ink)", font: `400 11.5px/1.5 ${font.body}` }}>
           Use YYYY-MM-DD, for example 2026-07-12.
-        </p>
+        </div>
       </div>
     ),
     preview: undefined,
