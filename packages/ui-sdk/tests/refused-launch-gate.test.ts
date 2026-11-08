@@ -12,7 +12,9 @@ import { createWorkerStatusPipe, type WorkerStatusSupervisor } from "../src/serv
 // yet let die. Only a gate that waits for their deaths keeps the payload out.
 // The live launch now gates in the sandbox and refuses EOF itself (#3392); the
 // fixtures below keep bubblewrap's EOF-opening --block-fd on purpose, so they
-// prove this ordering as a guard of its own.
+// prove this ordering as a guard of its own. The delays are real time: they
+// stand in for scheduler latency before a native process dies, which a fake
+// clock cannot hold back.
 const SIGNAL_DELAY_MS = 200;
 const PID_SIGNAL_DELAY_MS = 2 * SIGNAL_DELAY_MS;
 

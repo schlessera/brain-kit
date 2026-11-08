@@ -296,6 +296,8 @@ describe("second review", () => {
 
   test("a response body that idles longer than Bun's default idle timeout still arrives whole (#3441)", async () => {
     // Bun closes a started response that sends nothing for 10s unless the server disables idleTimeout.
+    // Kept real time: that idle timer is native, so no JavaScript clock advances
+    // it. 15 s outlasts it by 5 s.
     reply = () => new Response(new ReadableStream<Uint8Array>({ async start(controller) {
       controller.enqueue(new TextEncoder().encode('{"usage":'));
       await Bun.sleep(15_000);

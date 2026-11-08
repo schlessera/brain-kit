@@ -114,7 +114,12 @@ describe("host admission ledger", () => {
     await holder.child.exited;
     expect(alive(orphan), "the detached command survives its killed wrapper").toBe(true);
     const next = admit(join(dir, "ogygia"), ledger, timings, "echo PENELOPE_ADMITTED");
-    expect(await Promise.race([next.child.exited, Bun.sleep(8_000).then(() => "blocked")])).toBe(0);
+    // A failure maximum: a slot that is never reclaimed blocks this admission.
+    // On success the exit settles first and the deadline is cleared.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const blocked = new Promise<string>((resolve) => { deadline = setTimeout(() => resolve("blocked"), 8_000); });
+    try { expect(await Promise.race([next.child.exited, blocked])).toBe(0); }
+    finally { clearTimeout(deadline); }
     expect(await next.output).toContain("PENELOPE_ADMITTED");
     expect(alive(orphan), "reclaiming the slot stops the orphaned group").toBe(false);
     expect(readHistory(ledger).map(event => event.kind)).toContain("reclaimed");
