@@ -18,7 +18,7 @@ import { createInboxStream } from "../../../ui-server/src/inbox/stream.js";
 import type { AppEnv } from "../../../ui-server/src/app-env.js";
 import type { BrainClient } from "../../../ui-server/src/brain/client.js";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
-import { createMediaFlow, type MediaFlow } from "../../../ui-server/tests/helpers/media-flow.js";
+import type { MediaFlow } from "../../../ui-server/tests/helpers/media-flow.js";
 
 const scratch = mkdtempSync(join(tmpdir(), "c5-server-"));
 const db = createUiDb(join(scratch, "ui.sqlite"));
@@ -569,6 +569,8 @@ app.post("/fixture", async (c) => {
   const result: Record<string, unknown> = {};
   if (p.mediaFlow) {
     if (flow) throw new Error("media flow already running");
+    // Loaded only for a flow scene: every other scene starts and stops as before.
+    const { createMediaFlow } = await import("../../../ui-server/tests/helpers/media-flow.js");
     flow = createMediaFlow(p.mediaFlow);
     await flow.boot();
     if (p.mediaFlow.start !== false) await flow.command("start");
@@ -607,12 +609,12 @@ const server = Bun.serve({
   },
 });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
-process.on("SIGTERM", async () => {
+process.on("SIGTERM", () => {
   releaseHolds();
   stream.close();
   server.stop(true);
   db.close();
   rmSync(scratch, { recursive: true, force: true });
-  await flow?.close();
-  process.exit(0);
+  if (!flow) process.exit(0);
+  void flow.close().finally(() => process.exit(0));
 });
