@@ -7,7 +7,7 @@ import type { VoiceConfig } from "../src/config/env";
 import {
   createGeminiSpeechProvider, GEMINI_AUTH_TOKENS_URL, GEMINI_SESSION_FAILED, GEMINI_TRANSCRIBE_MODEL, GEMINI_TRANSCRIBE_URL,
 } from "../src/voice/gemini-speech";
-import { pickSpeechProvider } from "../src/voice/speech-providers";
+import { createSpeechProviderRegistry } from "../src/voice/speech-providers";
 import { AUTH_TOKEN_WITH_VOCABULARY, AUTH_TOKEN_WITHOUT_VOCABULARY, authTokenWireError } from "./fixtures/gemini-auth-token-wire";
 import { httpContractApp } from "./helpers/http-contract-app";
 
@@ -151,23 +151,30 @@ describe("Gemini dictation session", () => {
 
 const voice = (overrides: Partial<VoiceConfig>): VoiceConfig => ({ provider: null, deepgramApiKey: null, geminiApiKey: null, keytermLimit: 0, cacheDir: "/tmp", ...overrides });
 
-describe("Gemini selection over the single built-in provider", () => {
-  test("VOICE_PROVIDER=gemini needs GEMINI_API_KEY", () => {
-    expect(() => pickSpeechProvider(voice({ provider: "gemini" }))).toThrow("VOICE_PROVIDER=gemini but GEMINI_API_KEY is not set.");
-    expect(pickSpeechProvider(voice({ provider: "gemini", geminiApiKey: KEY, deepgramApiKey: "unused" })).id).toBe("gemini");
+const NONE_SAVED = { defaultProvider: null, smart: true, revision: "0" };
+const effective = (config: VoiceConfig, supplied?: SpeechProvider) =>
+  createSpeechProviderRegistry(config, supplied ? { speechProvider: supplied } : {}).effective(NONE_SAVED);
+
+describe("Gemini registration in the dictation registry", () => {
+  test("VOICE_PROVIDER=gemini needs GEMINI_API_KEY, as a route error rather than a boot failure", () => {
+    expect(() => effective(voice({ provider: "gemini" }))).toThrow("VOICE_PROVIDER=gemini but GEMINI_API_KEY is not set.");
+    expect(effective(voice({ provider: "gemini", geminiApiKey: KEY, deepgramApiKey: "unused" })).id).toBe("gemini");
   });
 
-  test("a Gemini key is used without VOICE_PROVIDER only when it is the only key; Deepgram keeps precedence", () => {
-    expect(pickSpeechProvider(voice({ geminiApiKey: KEY })).id).toBe("gemini");
-    expect(pickSpeechProvider(voice({ geminiApiKey: KEY, deepgramApiKey: "fixture-deepgram" })).id).toBe("deepgram");
-    expect(pickSpeechProvider(voice({ provider: "deepgram", geminiApiKey: KEY, deepgramApiKey: "fixture-deepgram" })).id).toBe("deepgram");
-    expect(() => pickSpeechProvider(voice({}))).toThrow("Set DEEPGRAM_API_KEY or GEMINI_API_KEY");
-    expect(() => pickSpeechProvider(voice({ provider: "athena" }))).toThrow('expected "deepgram", "gemini" or "webspeech"');
+  test("a Gemini key adds a choice; it is used unsaved only as the only provider, and Deepgram stays the host default (D3)", () => {
+    expect(effective(voice({ geminiApiKey: KEY })).id).toBe("gemini");
+    expect(effective(voice({ geminiApiKey: KEY, deepgramApiKey: "fixture-deepgram" })).id).toBe("deepgram");
+    expect(effective(voice({ provider: "deepgram", geminiApiKey: KEY, deepgramApiKey: "fixture-deepgram" })).id).toBe("deepgram");
+    const both = createSpeechProviderRegistry(voice({ geminiApiKey: KEY, deepgramApiKey: "fixture-deepgram" }));
+    expect(both.discovery(NONE_SAVED).providers.map(p => p.id)).toEqual(["deepgram", "gemini"]);
+    expect(both.effective({ ...NONE_SAVED, defaultProvider: "gemini" }).id).toBe("gemini");
+    expect(() => effective(voice({}))).toThrow("Set DEEPGRAM_API_KEY or GEMINI_API_KEY");
+    expect(() => effective(voice({ provider: "athena" }))).toThrow('Unknown VOICE_PROVIDER="athena"');
   });
 
   test("the declared capabilities are streaming, SMART, keyterms, manual Done and no saved audio", () => {
-    const provider = pickSpeechProvider(voice({ provider: "gemini", geminiApiKey: KEY }));
-    expect(provider.capabilities).toEqual({ streaming: true, interimResults: true, keyterms: true, endpointing: false, smartTranscription: true });
+    const provider = effective(voice({ provider: "gemini", geminiApiKey: KEY }));
+    expect(provider.capabilities).toEqual({ streaming: true, interimResults: true, keyterms: true, endpointing: false, smartTranscription: true, savedAudio: false });
     expect(provider.transcribeRecording).toBeUndefined();
     expect(provider.label).toBe("Google Gemini 3.5 Transcribe Live");
     expect(provider.destination).toContain("Google");
@@ -181,10 +188,11 @@ describe("Gemini selection over the single built-in provider", () => {
       [{ capabilities: { ...base.capabilities, smartTranscription: "yes" as unknown as boolean } }, "smartTranscription must be boolean"],
     ];
     for (const [overrides, message] of invalid) {
-      expect(() => pickSpeechProvider(voice({}), { ...base, ...overrides } as SpeechProvider)).toThrow(message);
+      expect(() => effective(voice({}), { ...base, ...overrides } as SpeechProvider)).toThrow(message);
+      expect(() => createSpeechProviderRegistry(voice({}), { speechProviders: [{ ...base, ...overrides } as SpeechProvider] })).toThrow(message);
     }
     const valid = defineSpeechProvider({ ...base, label: "Fixture", destination: "Audio stays on this fixture.", capabilities: { ...base.capabilities, smartTranscription: false } });
-    expect(pickSpeechProvider(voice({}), valid)).toBe(valid);
+    expect(effective(voice({}), valid)).toMatchObject({ id: "fixture-speech", label: "Fixture", destination: "Audio stays on this fixture." });
   });
 });
 

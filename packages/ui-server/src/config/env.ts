@@ -697,21 +697,22 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "DEEPGRAM_API_KEY",
     description: "Deepgram API key for streaming ASR (short-lived tokens are minted from it).",
     default: null,
-    required: "VOICE_PROVIDER=deepgram (or voice use with neither VOICE_PROVIDER nor GEMINI_API_KEY set)",
+    required: "When registering built-in Deepgram dictation",
   },
   {
     name: "GEMINI_API_KEY",
     description:
       "Google Gemini API key. For dictation it registers the gemini-3.5-transcribe-live provider (id gemini): the server " +
-      "mints a single-use constrained token from it per take, so the key itself never reaches the browser. Dictation uses " +
-      "it when VOICE_PROVIDER=gemini, or without VOICE_PROVIDER only when DEEPGRAM_API_KEY is unset.",
+      "mints a single-use constrained token from it per take, so the key itself never reaches the browser. A configured key " +
+      "makes Gemini a selectable dictation provider; it becomes the default only through VOICE_PROVIDER=gemini, a saved " +
+      "choice, or as the only registered provider.",
     default: null,
-    required: "VOICE_PROVIDER=gemini",
+    required: "When registering built-in Gemini dictation",
   },
   {
     name: "VOICE_PROVIDER",
     description:
-      'Speech provider: "deepgram", "gemini", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present, then gemini when only GEMINI_API_KEY is present.',
+      'Host default dictation provider: "deepgram", "gemini", "webspeech" (explicit opt-in; Chromium streams audio to Google), or a registered by-value id. createApp({ defaultSpeechProviderId }) takes precedence. A legacy speechProvider replaces built-ins and must match this name. Unset prefers that value, otherwise registered deepgram. A configured GEMINI_API_KEY only adds a choice. A saved dictation choice overrides the host default; an unavailable saved choice never falls back.',
     default: "(auto-detect)",
     required: false,
   },

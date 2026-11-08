@@ -92,6 +92,7 @@ import {
   MessageCircleQuestion,
   MessageSquare,
   Mic,
+  MicOff,
   Newspaper,
   Paperclip,
   Pause,
@@ -110,12 +111,14 @@ import {
   ShieldQuestion,
   SlidersHorizontal,
   Sparkles,
+  Square,
   SquarePen,
   Sunrise,
   Telescope,
   ThumbsDown,
   ThumbsUp,
   TriangleAlert,
+  Volume2,
   Wallet,
   Waypoints,
   Wifi,
@@ -222,6 +225,11 @@ export const ICONS = {
   finished: CircleCheck,
   withdrawn: CircleMinus,
   filter: SlidersHorizontal,
+  // The voice surface (#3692): brain's voice beside your mic, the muted mic,
+  // and Interrupt, which stops brain mid-sentence.
+  speaker: Volume2,
+  "mic-off": MicOff,
+  interrupt: Square,
 } as const satisfies Record<string, LucideIcon>;
 
 /** Every semantic name the kit knows. The kit's icon vocabulary. */

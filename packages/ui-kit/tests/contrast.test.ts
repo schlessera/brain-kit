@@ -115,11 +115,13 @@ describe("contrast", () => {
     // are borders, and the first count of 81 had swept them in as grounds.
     // 76 became 79 with the seventh drop: the lapsed row's gold ground and
     // the two tinted-diff grounds, all under the 10% the floor is stated for.
+    // 79 became 83 with the voice field's four grounds (#3692), 8-16%: above
+    // that range, and asserted against the floor here all the same.
     const tints = Object.keys(T).filter((name) => /(^|-)tint(-|$)/.test(name) && T[name]!.startsWith("rgba"));
     const overSurface = tints.filter((name) => contrast(INK_MUTE, over(parse(T[name]!), SURFACE)) < 4.5);
     const overRaised = tints.filter((name) => contrast(INK_MUTE, over(parse(T[name]!), RAISED)) < 4.5);
 
-    expect(tints.length).toBe(79);
+    expect(tints.length).toBe(83);
     expect(overSurface).toEqual([]);
     expect(overRaised).toEqual([]);
 

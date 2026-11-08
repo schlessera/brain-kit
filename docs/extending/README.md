@@ -194,8 +194,8 @@ first-party code: `EMBEDDING_PROVIDERS`, `COMPLETION_PROVIDERS`,
 `@schlessera/brain-compute-boat` package and is unavailable until it ships), `BUILTIN_EMITTERS` in
 `packages/core/src/lib/skills/index.ts`, the `FIRST_PARTY_BACKENDS` table in
 `packages/ui-server/src/agent/backend.ts`, and — the same thing written by hand
-rather than as a registry — the two `VOICE_PROVIDER` names `pickSpeechProvider`
-accepts in `packages/ui-server/src/voice/speech-providers.ts`.
+rather than as a registry — the built-in dictation providers `configuredSpeechProviders` registers in
+`packages/ui-server/src/voice/speech-providers.ts`.
 
 Promotion is therefore only a question for some of the seams. The two client
 seams are not in it: a `ToolRenderer` pack and an `AsrClient` are registered by

@@ -72,6 +72,7 @@ import { createGovernanceRoutes } from "./routes/governance.js";
 import { createTranscriptionRoutes } from "./routes/transcriptions.js";
 import { createTranscriptionWrites } from "./voice/transcription-writes.js";
 import { createSettingsWrites } from "./db/settings-writes.js";
+import { createSpeechProviderRegistry } from "./voice/speech-providers.js";
 import { createVoiceRoutes } from "./routes/voice.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
@@ -238,6 +239,10 @@ export interface CreateAppOptions {
    * @experimental Part of the SpeechProvider seam until 1.0.
    */
   speechProvider?: SpeechProvider;
+  /** Additional by-value dictation providers, fixed at construction. */
+  speechProviders?: SpeechProvider[];
+  /** Must name a registered dictation provider. */
+  defaultSpeechProviderId?: string;
   /**
    * Live-conversation provider (#957), registered separately from dictation.
    * Absent: the host does not advertise `liveConversation` and refuses the
@@ -341,6 +346,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(options.dbPath !== undefined ? { dbPath: options.dbPath } : {}),
     exec: resolved.exec ?? ambientExecConfig(),
   };
+  const speechProviders = createSpeechProviderRegistry(config.voice, options);
   // First thing built, because everything below may want to report — including
   // the auth validation that can refuse to boot and the migration runner.
   const observability =
@@ -993,7 +999,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         origin: allowedOrigins,
         allowMethods: ["GET", "POST", "PUT", "DELETE"],
         // If-Match and Idempotency-Key carry draft revisions and receipts (#979).
-        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key", "Content-SHA256"],
+        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key", "Content-SHA256", "Speech-Provider"],
         credentials: true,
       })
     );
@@ -1181,9 +1187,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // record leaks strictly more (session activity, errors, spend).
   app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
-  app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProvider: options.speechProvider }));
+  app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProviders, db, settingsWrites }));
   const transcriptions = createTranscriptionWrites(db, { brainPath: config.brainPath, authMode }, writer);
-  app.route("/api", createTranscriptionRoutes({ store: transcriptions, voice: config.voice, keyterms, speechProvider: options.speechProvider }));
+  app.route("/api", createTranscriptionRoutes({ store: transcriptions, keyterms, speechProviders, db }));
   app.route(
     "/api",
     createFilesRoutes({ brainRoot: config.brainPath, log: observability.logger("files"), marks: { db, writer } })

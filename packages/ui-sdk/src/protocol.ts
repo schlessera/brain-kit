@@ -1990,6 +1990,31 @@ export interface TranscriptionErrorResponse {
   receipt?: RecordingTranscription;
 }
 
+/** An explicit provider is exact; omitted selection retains legacy resolution. */
+export interface VoiceSessionRequest {
+  providerId?: string;
+  smart?: boolean;
+}
+
+export interface DictationSettings {
+  defaultProvider: string | null;
+  smart: boolean;
+  revision: string;
+}
+
+export interface VoiceProvidersResponse {
+  providers: Array<{ id: string; label: string; destination?: string; capabilities: SpeechCapabilities }>;
+  dictation: {
+    saved: string | null;
+    savedUsable: boolean;
+    host: string | null;
+    effective: string | null;
+    source: "saved" | "host" | "only" | "none" | "unavailable";
+    smart: boolean;
+    revision: string;
+  };
+}
+
 export interface SpeechCapabilities {
   streaming: boolean;
   interimResults: boolean;
