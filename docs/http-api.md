@@ -227,7 +227,7 @@ Range. WebSocket upgrade requires an actual GET.
 `ALL /api/*` installs origin policy, configured CORS and authentication.
 With nonempty `ALLOWED_ORIGINS`, CORS middleware answers allowed **OPTIONS
 /api/** preflights with 204 before authentication, advertising GET, POST, PUT,
-DELETE, the `Content-Type`, `If-Match` and `Idempotency-Key` and `Content-SHA256` headers, and credentials. Origin policy runs first; a rejected
+DELETE, the `Content-Type`, `If-Match`, `Idempotency-Key`, `Content-SHA256` and `Speech-Provider` headers, and credentials. Origin policy runs first; a rejected
 origin gets 403. Without that configured middleware there is no universal
 OPTIONS endpoint: authentication/routing decide the response. These are
 transport behaviors, not independently supported OPTIONS resource operations.

@@ -48,12 +48,12 @@ test("configured CORS preflight runs before authentication and refuses unapprove
   const t = await httpContractApp({ env: { AUTH_MODE: "proxy", TRUST_PROXY: "1", PROXY_AUTH_HEADER: "x-fixture-user", ALLOWED_ORIGINS: "https://client.example" } });
   try {
     const response = await t.fetch("/api/status", { method: "OPTIONS", headers: {
-      origin: "https://client.example", "access-control-request-method": "GET", "access-control-request-headers": "Content-Type",
+      origin: "https://client.example", "access-control-request-method": "PUT", "access-control-request-headers": "Content-Type,Content-SHA256,Speech-Provider",
     } });
     expect(response.status).toBe(204);
     expect(response.headers.get("access-control-allow-origin")).toBe("https://client.example");
     expect(response.headers.get("access-control-allow-methods")?.split(",").sort()).toEqual(["DELETE", "GET", "POST", "PUT"]);
-    expect(response.headers.get("access-control-allow-headers")).toBe("Content-Type,If-Match,Idempotency-Key,Content-SHA256");
+    expect(response.headers.get("access-control-allow-headers")).toBe("Content-Type,If-Match,Idempotency-Key,Content-SHA256,Speech-Provider");
     expect(response.headers.get("access-control-allow-credentials")).toBe("true");
     expect(await response.text()).toBe("");
     expect((await t.fetch("/api/status", { method: "OPTIONS", headers: { origin: "https://attacker.example" } })).status).toBe(403);

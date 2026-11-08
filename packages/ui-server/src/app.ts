@@ -999,7 +999,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         origin: allowedOrigins,
         allowMethods: ["GET", "POST", "PUT", "DELETE"],
         // If-Match and Idempotency-Key carry draft revisions and receipts (#979).
-        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key", "Content-SHA256"],
+        allowHeaders: ["Content-Type", "If-Match", "Idempotency-Key", "Content-SHA256", "Speech-Provider"],
         credentials: true,
       })
     );
