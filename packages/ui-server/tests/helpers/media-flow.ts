@@ -76,8 +76,22 @@ export const MEDIA_BYTES: Record<string, Buffer> = {
 };
 export const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
 
+/**
+ * The native proof container runs this suite as root, where a worker cannot
+ * map its user namespace. There, as for the hosted app, the server, the CLI
+ * and Git run as the unprivileged app UID it names, and own the flow's files.
+ */
+const APP_UID = process.env.BRAIN_MEDIA_FLOW_UID;
+if (APP_UID !== undefined && !/^[1-9][0-9]{0,5}$/.test(APP_UID)) throw new Error("BRAIN_MEDIA_FLOW_UID must name an unprivileged UID");
+const asApp = (argv: string[]) => APP_UID ? ["/usr/bin/setpriv", `--reuid=${APP_UID}`, `--regid=${APP_UID}`, "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", ...argv] : argv;
+function own(directory: string) {
+  if (!APP_UID) return;
+  const r = Bun.spawnSync(["chown", "-R", `${APP_UID}:${APP_UID}`, directory]);
+  if (r.exitCode !== 0) throw new Error(`chown ${directory}: ${r.stderr.toString()}`);
+}
+
 export function git(cwd: string, ...args: string[]): string {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { env: gitEnv(cwd) });
+  const r = Bun.spawnSync(asApp(["git", "-C", cwd, ...args]), { env: gitEnv(cwd) });
   if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`);
   return r.stdout.toString().trim();
 }
@@ -102,7 +116,8 @@ export function createMediaFlow(options: { directory?: string; media?: readonly 
   const directory = options.directory ?? mkdtempSync(join(tmpdir(), "brain-media-flow-"));
   const root = join(directory, "brain"), remote = join(directory, "remote.git"), state = join(directory, "server");
   mkdirSync(root); mkdirSync(state);
-  Bun.spawnSync(["git", "init", "-q", "--bare", "-b", "main", remote], { env: gitEnv(directory) });
+  own(directory);
+  Bun.spawnSync(asApp(["git", "init", "-q", "--bare", "-b", "main", remote]), { env: gitEnv(directory) });
   git(root, "init", "-q", "-b", "main");
   for (const [k, v] of [["user.name", "Odysseus"], ["user.email", "odysseus@example.test"], ["commit.gpgsign", "false"]]) git(root, "config", k!, v!);
   put(root, ".gitignore", ".brain/\nbrain.db\nbrain.db-*\n.brain-index/\nnode_modules\n");
@@ -111,19 +126,21 @@ export function createMediaFlow(options: { directory?: string; media?: readonly 
   put(root, "scripts/brain-cli.ts", `await import(${JSON.stringify(CORE_CLI)});\n`);
   put(root, "notes/ithaca.md", "---\ntitle: Ithaca\ntype: note\ncreated: 2026-07-12\nupdated: " + TODAY + "\ntags: [voyage]\n---\n# Ithaca\n\nThe island Odysseus sails home to.\n");
   put(root, NOTE, NOTE_TEXT);
+  own(directory);
   git(root, "add", "-A"); git(root, "commit", "-qm", "Odysseus's brain");
   git(root, "remote", "add", "origin", remote); git(root, "push", "-q", "-u", "origin", "main");
   const present = options.media ?? Object.keys(MEDIA_BYTES);
   for (const path of present) put(root, path, options.bytes?.[path] ?? MEDIA_BYTES[path]!);
   // The conversation that linked the scratch file pins it; the pins exist with or without it.
   put(root, PINS, PINS_TEXT);
+  const home = join(directory, "home"); mkdirSync(home);
+  own(directory);
 
   let child: ChildProcess | undefined, url = "", stderr = "", hostExecution = "", governed: unknown = null;
-  const home = join(directory, "home"); mkdirSync(home);
   const env = { PATH: process.env.PATH ?? "", HOME: home, BRAIN_ROOT: root, GIT_CONFIG_NOSYSTEM: "1", TMPDIR: process.env.TMPDIR ?? tmpdir() };
 
   function cliRun(args: string[]) {
-    const r = Bun.spawnSync([process.execPath, "--preload", PRELOAD, CORE_CLI, ...args], { cwd: root, env });
+    const r = Bun.spawnSync(asApp([process.execPath, "--preload", PRELOAD, CORE_CLI, ...args]), { cwd: root, env });
     return { code: r.exitCode ?? -1, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
   }
   /** The real offline CLI; exits 0 and 1 carry JSON. */
@@ -140,7 +157,8 @@ export function createMediaFlow(options: { directory?: string; media?: readonly 
     if (boot.interrupt) writeFileSync(join(state, "interrupt.txt"), boot.interrupt); else rmSync(join(state, "interrupt.txt"), { force: true });
     rmSync(join(state, "interrupted.flag"), { force: true });
     stderr = "";
-    const proc = spawn(process.execPath, ["--preload", PRELOAD, SERVER, root, state, String(boot.port ?? 0), String(boot.capBytes ?? 0), boot.execution ?? "host"], { cwd: REPO, env, stdio: ["ignore", "pipe", "pipe"] });
+    const [command, ...argv] = asApp([process.execPath, "--preload", PRELOAD, SERVER, root, state, String(boot.port ?? 0), String(boot.capBytes ?? 0), boot.execution ?? "host"]);
+    const proc = spawn(command!, argv, { cwd: REPO, env, stdio: ["ignore", "pipe", "pipe"] });
     child = proc;
     proc.stderr!.on("data", b => { stderr += String(b); });
     const ready = await new Promise<{ url: string; hostExecution: string; governed: unknown }>((res, reject) => {

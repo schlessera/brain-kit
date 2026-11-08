@@ -59,6 +59,8 @@ const TRACK_PLACES = '{ "media": { "ignore": [".brain/scratch/**"], "track": ["p
 
 /** An applied effect captures, runs the CLI and selects again before its receipt replicates; the test's own limit still bounds it. */
 const RECEIPT_MS = 10_000;
+/** A selection, preview or reconnect waits on the real CLI and server, not on a frame. */
+const SERVER_MS = 5_000;
 const set = async (patch: Record<string, unknown>) => ((await commands.hygieneServer({ op: "set", id: fixture!.id, patch })) as { flow: Flow }).flow;
 
 /** Open a socket to the flow's server and route the root's decisions over it, as the app's connection does. */
@@ -75,7 +77,7 @@ async function connect(root: BrainUiRoot, url: string) {
     root.connection.handleServerMessage(p.message);
   };
   ws.onclose = () => root.stores.inbox.getState().connectionLost();
-  await expect.poll(() => root.stores.inbox.getState().online).toBe(true);
+  await expect.poll(() => root.stores.inbox.getState().online, { timeout: SERVER_MS }).toBe(true);
 }
 
 async function scene(mediaFlow: { media: string[]; config?: string }, width: number, theme: string) {
@@ -104,9 +106,9 @@ async function scene(mediaFlow: { media: string[]; config?: string }, width: num
   document.body.append(h);
   const r = renderer = createRoot(h);
   flushSync(() => r.render(<BrainUiProvider root={root}><ActivityPage /><DesktopPalette /></BrainUiProvider>));
-  await expect.poll(() => h.querySelector("[data-hygiene-id]")).not.toBeNull();
+  await expect.poll(() => h.querySelector("[data-hygiene-id]"), { timeout: SERVER_MS }).not.toBeNull();
   if (width >= 1280) await page.getByRole("button", { name: /^Open finding:/ }).click();
-  await expect.poll(() => h.querySelector("[data-hygiene-media]")).not.toBeNull();
+  await expect.poll(() => h.querySelector("[data-hygiene-media]"), { timeout: SERVER_MS }).not.toBeNull();
   return flow;
 }
 const card = () => host!.querySelector<HTMLElement>("[data-hygiene-media]");
@@ -118,8 +120,8 @@ const receipt = () => host!.querySelector<HTMLElement>("[data-media-receipt]")?.
 const countLine = () => host!.querySelector("[data-hygiene-media-count]")?.textContent ?? null;
 const name = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 async function ready() {
-  await expect.poll(() => status()).toBe("Preview ready");
-  await expect.poll(() => region()?.dataset.mediaPreviewRegion).toBe("ready");
+  await expect.poll(() => status(), { timeout: SERVER_MS }).toBe("Preview ready");
+  await expect.poll(() => region()?.dataset.mediaPreviewRegion, { timeout: SERVER_MS }).toBe("ready");
 }
 async function destination(value: string) {
   await page.getByRole("textbox", { name: /Destination/ }).fill(value);
@@ -130,14 +132,14 @@ async function reach(path: string) {
   for (let i = 0; i < 4 && title() !== name(path); i++) {
     const from = title();
     await page.getByRole("button", { name: "Leave pending", exact: true }).click();
-    await expect.poll(() => title() !== null && title() !== from).toBe(true);
+    await expect.poll(() => title() !== null && title() !== from, { timeout: SERVER_MS }).toBe(true);
   }
   expect(title(), "MEDIA_FLOW_BROWSER_CARD").toBe(name(path));
 }
 /** The server and the CLI agree on count and selection; with a sync, so does `brain sync`, and the card's count line. */
 async function agree(pending: number, options: { sync?: boolean; selected?: boolean } = {}) {
   // An Undo's receipt replicates before its request returns; the server's count settles with the request.
-  await expect.poll(async () => ((await set({ flowRead: true })) as Flow & { flowRead: { review: { media?: Counts } } }).flowRead.review.media?.awaitingReview, { timeout: 5000 }).toBe(pending);
+  await expect.poll(async () => ((await set({ flowRead: true })) as Flow & { flowRead: { review: { media?: Counts } } }).flowRead.review.media?.awaitingReview, { timeout: SERVER_MS }).toBe(pending);
   const { parity } = await set({ flowParity: options.sync === false ? "cli" : "sync", flowEligibility: options.selected === false });
   expect(parity!.server.media, "MEDIA_FLOW_BROWSER_SERVER_COUNT").toEqual({ awaitingReview: pending, setAside: 0, kept: 0 });
   expect(parity!.cli.media, "MEDIA_FLOW_BROWSER_CLI_COUNT").toEqual(parity!.server.media);
@@ -148,7 +150,7 @@ async function agree(pending: number, options: { sync?: boolean; selected?: bool
     expect(parity!.sync.report).toContain(`Media awaiting review: ${pending}`);
     for (const path of [LOOM, SHIELD, SKETCH, ARGUS, HARBOUR]) expect(parity!.sync.report).not.toContain(path);
   }
-  await expect.poll(() => countLine(), { timeout: 5000 }).toBe(`Media awaiting review: ${pending}`);
+  await expect.poll(() => countLine(), { timeout: SERVER_MS }).toBe(`Media awaiting review: ${pending}`);
 }
 async function undo(prefix: RegExp, path: string) {
   await page.getByRole("button", { name: prefix }).click();
@@ -179,7 +181,7 @@ test("light 1280: Move… with its destination moves the file and rewrites its r
   await scene({ media: [LOOM, ARGUS], config: TRACK_PLACES }, 1280, "light");
   await reach(LOOM);
   // The preview loads the file's real bytes from the files route.
-  await expect.poll(() => card()!.querySelector<HTMLImageElement>("[data-media-frame] img")?.naturalWidth ?? 0).toBe(24);
+  await expect.poll(() => card()!.querySelector<HTMLImageElement>("[data-media-frame] img")?.naturalWidth ?? 0, { timeout: SERVER_MS }).toBe(24);
   await page.getByRole("radio", { name: "Move to a final location" }).click();
   await destination("places/ithaca/penelope-loom.png");
   await ready();
@@ -236,18 +238,18 @@ test("dark 320: Leave pending, then the host restarts mid-pass and the device re
   const flow = await scene({ media: [SHIELD, ARGUS] }, 320, "dark");
   const first = title();
   await page.getByRole("button", { name: "Leave pending", exact: true }).click();
-  await expect.poll(() => title() !== null && title() !== first).toBe(true);
+  await expect.poll(() => title() !== null && title() !== first, { timeout: SERVER_MS }).toBe(true);
   const second = title();
   await agree(2, { sync: false });
   // The host dies; the socket drops. The same state boots again on the same port.
   await set({ flowRestart: true });
-  await expect.poll(() => ui!.stores.inbox.getState().online).toBe(false);
+  await expect.poll(() => ui!.stores.inbox.getState().online, { timeout: SERVER_MS }).toBe(false);
   await connect(ui!, flow.url);
-  await expect.poll(() => title()).toBe(second);
+  await expect.poll(() => title(), { timeout: SERVER_MS }).toBe(second);
   expect((await set({ flowRead: true }) as Flow & { flowRead: { review: { deferred: unknown[] } } }).flowRead.review.deferred, "MEDIA_FLOW_BROWSER_RESTART_DEFERRAL").toHaveLength(1);
   await agree(2);
   await page.getByRole("button", { name: "Leave pending", exact: true }).click();
-  await expect.poll(() => card()).toBeNull();
-  await expect.poll(() => countLine()).toBe("Media awaiting review: 2");
+  await expect.poll(() => card(), { timeout: SERVER_MS }).toBeNull();
+  await expect.poll(() => countLine(), { timeout: SERVER_MS }).toBe("Media awaiting review: 2");
   expect((await set({ flowBytes: true })).bytes![SHIELD]).not.toBeNull();
 });

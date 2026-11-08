@@ -147,6 +147,8 @@ try:
     run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)
     # #2783: the media review flow with every review CLI command in a maintenance worker, in this runtime.
     if os.environ.get("BRAIN_NATIVE_PROOF_MEDIA_FLOW") == "1":
+        # As the hosted app does, its server, CLI and Git run as the unprivileged app UID.
+        os.environ["BRAIN_MEDIA_FLOW_UID"] = APP_UID
         run(["/usr/local/bin/bun", "run", "test", "/repo/packages/ui-server/tests/media-review-flow.test.ts", "-t", "in maintenance workers"], timeout=120)
 except BaseException as error:
     failure = error
