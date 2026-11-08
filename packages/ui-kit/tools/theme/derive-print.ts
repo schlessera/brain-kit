@@ -58,6 +58,12 @@ const GROUNDS = new Set([
   "rail-bg",
   "diagram-bg",
   "diagram-node",
+  // The voice field's opaque grounds (#3692): on paper the field is the page,
+  // outlined by its border, like every other card.
+  "voice-ground-you",
+  "voice-ground-brain",
+  "voice-ground-idle",
+  "voice-ground-fail",
   "diagram-cluster",
   "diagram-focal-tint",
 ]);
