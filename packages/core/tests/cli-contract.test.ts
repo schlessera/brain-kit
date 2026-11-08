@@ -382,6 +382,49 @@ describe("list", () => {
   });
 });
 
+// #3643: --path-prefix, --overview and --cursor print one bounded page of the
+// shared paged listing; without them the bare array above is unchanged.
+describe("list paged discovery", () => {
+  type Page = { documents: Array<Record<string, unknown>>; next_cursor: string | null; total: number; warnings: string[] };
+  const paged = async (args: string[]) => {
+    const { stdout, stderr, code } = await runCli(root, ["list", ...args, "--json"]);
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    return JSON.parse(stdout) as Page;
+  };
+
+  test("prints { documents, next_cursor, total, warnings } and pages to the end", async () => {
+    const first = await paged(["--path-prefix", "projects/active/raft", "--overview", "--limit", "2"]);
+    expect(Object.keys(first)).toEqual(["documents", "next_cursor", "total", "warnings"]);
+    expect(first.documents).toHaveLength(2);
+    expect(first.next_cursor).toBeString();
+    const rest = await paged(["--path-prefix", "projects/active/raft", "--overview", "--limit", "100", "--cursor", first.next_cursor!]);
+    expect(rest.next_cursor).toBeNull();
+    const paths = [...first.documents, ...rest.documents].map((d) => d.path);
+    expect(paths.length).toBe(first.total);
+    expect(new Set(paths).size).toBe(first.total);
+    expect(paths.every((p) => (p as string).startsWith("projects/active/raft/"))).toBe(true);
+    const status = [...first.documents, ...rest.documents].find((d) => d.path === "projects/active/raft/status.md");
+    expect(status).toMatchObject({ updated: "2026-06-30", deadline: "2026-07-29", summary: "Latest planning check and next action for leaving Ogygia" });
+    expect(typeof status!.indexed_body_bytes).toBe("number");
+  });
+
+  test("a bad prefix or cursor is a usage error with no output", async () => {
+    for (const [args, message] of [
+      [["--path-prefix", "../outside"], "--path-prefix: path_prefix must be a root-relative folder"],
+      [["--cursor", "nope"], "--cursor: cursor is not a cursor this listing issued"],
+    ] as const) {
+      const { stdout, stderr, code } = await runCli(root, ["list", ...args, "--json"]);
+      expect({ code, stdout }).toEqual({ code: 1, stdout: "" });
+      expect(stderr).toContain(message);
+    }
+  });
+
+  test("--overview does not swallow the next argument", async () => {
+    const page = await paged(["--overview", "--type", "health", "--limit", "1"]);
+    expect(page.documents[0]!.type).toBe("health");
+  });
+});
+
 // #1351: --limit is a whole number from 1 to 100, default 20. Anything else is
 // a usage error that runs no query, in both output modes.
 describe("list --limit", () => {

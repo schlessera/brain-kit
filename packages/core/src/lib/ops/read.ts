@@ -1,6 +1,6 @@
 /**
  * The read operations behind the core MCP tools (`brain_search`,
- * `brain_context`, `brain_read`, `brain_list`). Each takes resolved
+ * `brain_context`, `brain_read`, `brain_list`, and `brain_list`'s paged form). Each takes resolved
  * dependencies and already-validated input and returns the result object;
  * the MCP server keeps the schemas, the caps, the shared warnings and the
  * mapping to MCP content (#1349).
@@ -13,6 +13,12 @@ import type { BrainContext } from "../context.js";
 import { assembleContext, emptyContextCoverage, type ContextCoverage } from "../context-assembler.js";
 import { MAX_SCOPE_ENTRIES, MAX_SCOPE_ENTRY_LENGTH } from "../context-scope.js";
 import { readDocumentPart } from "../document-parts.js";
+import {
+  finishDocumentPage,
+  selectDocumentPage,
+  type DocumentPage,
+  type DocumentPageInput,
+} from "../document-page.js";
 import { rerankSetup } from "../registry.js";
 import { safeResolve } from "../safe-path.js";
 import { filterSearch, hybridSearch } from "../search-engine.js";
@@ -228,4 +234,21 @@ export function listDocuments(db: Database, input: ListInput): { documents: List
       tags: r.tags,
     })),
   };
+}
+
+/** `brain list --overview/--path-prefix/--cursor` and the matching `brain_list` inputs (#3643). */
+export type PageInput = DocumentPageInput;
+
+/**
+ * One bounded page of the paged listing: the selection, cursor and output
+ * bound shared with the `pageIndexDocuments` query. `warnings` are the
+ * caller's own (config, staleness) and count against the bound. Throws
+ * {@link DocumentPageError} for a bad prefix or cursor.
+ */
+export function pageDocuments(
+  deps: { db: Database; root: string },
+  input: PageInput,
+  warnings: string[] = []
+): DocumentPage {
+  return finishDocumentPage(deps.root, selectDocumentPage(deps.db, input), { warnings });
 }
