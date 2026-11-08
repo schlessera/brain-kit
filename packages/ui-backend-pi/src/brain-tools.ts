@@ -9,7 +9,24 @@ import { readFileSync } from "fs";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { isIsoDate, readDocumentPart, SEARCH_SORTS, type SearchOptions } from "@schlessera/brain/internal";
+import {
+  coverageNote,
+  emptyContextCoverage,
+  isIsoDate,
+  MAX_SCOPE_ENTRIES,
+  MAX_SCOPE_ENTRY_LENGTH,
+  READ_MANY_DESCRIPTION,
+  READ_MANY_MAX_PATH_CHARS,
+  READ_MANY_MAX_REQUESTS,
+  READ_MANY_MAX_SECTION_CHARS,
+  READ_MANY_MAX_TOTAL_CHARS,
+  READ_MANY_MIN_ITEM_CHARS,
+  READ_MANY_MIN_TOTAL_CHARS,
+  readDocumentPart,
+  readMany,
+  SEARCH_SORTS,
+  type SearchOptions,
+} from "@schlessera/brain/internal";
 
 import { clip, MAX_OUTPUT_BYTES, MAX_READ_BYTES, PI_BRAIN_UPDATE_TOOL_NAME, textResult, type BrainToolKit } from "./tool-kit.js";
 
@@ -25,6 +42,44 @@ interface BrainSearchParams {
   deadline_to?: string;
   sort?: SearchOptions["sort"];
   upcoming?: boolean;
+  overview?: boolean;
+}
+
+/** The longest summary one overview search result shows, in code points. */
+const SEARCH_SUMMARY_CHARS = 300;
+
+/** A summary as one bounded line: whitespace runs collapsed, at most SEARCH_SUMMARY_CHARS code points. */
+function summaryLine(summary: string): string {
+  const points = Array.from(summary.replace(/\s+/g, " ").trim());
+  return points.length > SEARCH_SUMMARY_CHARS ? `${points.slice(0, SEARCH_SUMMARY_CHARS - 1).join("")}…` : points.join("");
+}
+
+/**
+ * Overview search output within MAX_OUTPUT_BYTES UTF-8 bytes: warnings,
+ * then whole result entries in rank order while they fit, then how many
+ * were left out. Never cut inside an entry.
+ */
+function fitSearchOverview(warnings: string[], entries: string[]): string {
+  const footer = (n: number) => `… ${n} more result(s) omitted to fit the output budget`;
+  const lines: string[] = [];
+  let size = 0;
+  const add = (line: string, reserve: number) => {
+    const cost = Buffer.byteLength(line, "utf8") + (lines.length > 0 ? 1 : 0);
+    if (size + cost + reserve > MAX_OUTPUT_BYTES) return false;
+    lines.push(line);
+    size += cost;
+    return true;
+  };
+  const reserve = Buffer.byteLength(footer(COUNT_PLACEHOLDER), "utf8") + 1;
+  for (const w of warnings) if (!add(`> ${w}`, reserve)) break;
+  if (entries.length === 0) add("No results found.", 0);
+  for (const [i, entry] of entries.entries()) {
+    if (!add(entry, i === entries.length - 1 ? 0 : reserve)) {
+      lines.push(footer(entries.length - i));
+      break;
+    }
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -101,7 +156,9 @@ export function brainSearchTool(kit: BrainToolKit): ToolDefinition {
       "over grep for finding notes by meaning. Returns ranked results with snippets. " +
       "For questions about time (\"what is due next\", \"what changed this week\"), turn the " +
       "dates into the date filters yourself (YYYY-MM-DD, inclusive) and pick a sort; " +
-      "upcoming is a shortcut for deadline_from today, sort deadline.",
+      "upcoming is a shortcut for deadline_from today, sort deadline. " +
+      "Pass overview to also see each result's status, updated date (from frontmatter, not file or project activity), " +
+      "deadline and summary, so you can choose what to read.",
     parameters: Type.Object({
       query: Type.String({ description: "Natural-language or keyword query." }),
       type: Type.Optional(Type.String({ description: "Filter by document type." })),
@@ -118,6 +175,9 @@ export function brainSearchTool(kit: BrainToolKit): ToolDefinition {
       ),
       upcoming: Type.Optional(
         Type.Boolean({ description: "Same as deadline_from today and sort deadline; an explicit deadline_from or sort wins." })
+      ),
+      overview: Type.Optional(
+        Type.Boolean({ description: "Also show status, updated, deadline and summary for every result." })
       ),
     }),
     async execute(_id: string, params: BrainSearchParams) {
@@ -140,6 +200,22 @@ export function brainSearchTool(kit: BrainToolKit): ToolDefinition {
         deadlineTo: params.deadline_to,
         sort: params.sort ?? (params.upcoming ? "deadline" : undefined),
       });
+      if (params.overview === true) {
+        // The facts core already returned, under an explicit budget (#3643).
+        const entries = results.map((r) => {
+          const facts = [
+            `status ${r.status || "active"}`,
+            ...(r.updated ? [`updated ${r.updated}`] : []),
+            ...(r.deadline ? [`due ${r.deadline}`] : []),
+          ].join(" · ");
+          return (
+            `- ${r.path} — ${r.title} [${r.type}] · ${facts}` +
+            (r.summary ? `\n    summary: ${summaryLine(r.summary)}` : "") +
+            (r.snippet ? `\n    ${r.snippet}` : "")
+          );
+        });
+        return textResult(fitSearchOverview(warnings, entries), { count: results.length });
+      }
       const lines: string[] = [];
       for (const w of warnings) lines.push(`> ${w}`);
       if (results.length === 0) lines.push("No results found.");
@@ -154,6 +230,10 @@ export function brainSearchTool(kit: BrainToolKit): ToolDefinition {
   } satisfies ToolDefinition;
 }
 
+/** One of `brain_context`'s path scope lists, bounded as core bounds it. */
+const scopeList = (description: string) =>
+  Type.Array(Type.String({ minLength: 1, maxLength: MAX_SCOPE_ENTRY_LENGTH }), { maxItems: MAX_SCOPE_ENTRIES, description });
+
 /** `brain_context`: a token-limited context block for a query. */
 export function brainContextTool(kit: BrainToolKit): ToolDefinition {
   const { brain } = kit;
@@ -166,10 +246,21 @@ export function brainContextTool(kit: BrainToolKit): ToolDefinition {
     parameters: Type.Object({
       query: Type.String({ description: "What to gather context about." }),
       maxTokens: Type.Optional(Type.Number({ description: "Token budget (default 4000)." })),
+      include: Type.Optional(scopeList(
+        'Only draw on these repository-relative paths: an exact file path, or a folder ending in "/" for everything under it.'
+      )),
+      exclude: Type.Optional(scopeList('Never draw on these paths (exact, or a folder ending in "/"); an exclusion wins over include.')),
     }),
-    async execute(_id: string, params: { query: string; maxTokens?: number }) {
-      const block = await brain.context(params.query, params.maxTokens ?? 4000);
-      return textResult(block || "No relevant context found.", { query: params.query });
+    async execute(_id: string, params: { query: string; maxTokens?: number; include?: string[]; exclude?: string[] }) {
+      const scoped = (params.include?.length ?? 0) > 0 || (params.exclude?.length ?? 0) > 0;
+      if (!scoped) {
+        const block = await brain.context(params.query, params.maxTokens ?? 4000);
+        return textResult(block || "No relevant context found.", { query: params.query });
+      }
+      // A scoped block says what it covers, after the block and outside its budget.
+      const coverage = emptyContextCoverage();
+      const block = await brain.context(params.query, params.maxTokens ?? 4000, { include: params.include, exclude: params.exclude, coverage });
+      return textResult(`${block || "No relevant context found in the scope."}\n\n${coverageNote(coverage)}`, { query: params.query, coverage });
     },
   } satisfies ToolDefinition;
 }
@@ -221,6 +312,53 @@ export function brainReadTool(kit: BrainToolKit): ToolDefinition {
   } satisfies ToolDefinition;
 }
 
+/**
+ * `brain_read_many` (#3642): core's bounded multi-read, the operation the MCP
+ * tool and `brain read-many` run. Each request resolves through this
+ * roster's own containment (`resolveInRepo`, the rule `brain_read` uses), and
+ * the call stops between files when the tool or the turn is aborted. It
+ * remembers no write base: a retrieval hash is not a hosted write receipt.
+ * Its result is already within its cap, and JSON clipped as text would not
+ * parse, so it is never clipped.
+ */
+export function brainReadManyTool(kit: BrainToolKit): ToolDefinition {
+  const { brain, turn } = kit;
+  const request = Type.Object(
+    {
+      path: Type.String({ minLength: 1, maxLength: READ_MANY_MAX_PATH_CHARS, description: "Repo-relative document path." }),
+      section: Type.Optional(Type.String({ maxLength: READ_MANY_MAX_SECTION_CHARS, description: "Heading text of one section." })),
+      offset: Type.Optional(Type.Integer({ minimum: 1, description: "Line to page from (next.offset)." })),
+      column: Type.Optional(Type.Integer({ minimum: 0, description: "Column in the offset line (next.column)." })),
+      expected_sha256: Type.Optional(
+        Type.String({ pattern: "^[0-9a-f]{64}$", description: "sha256 of an earlier item of this file." })
+      ),
+    },
+    { additionalProperties: false }
+  );
+  return {
+    name: "brain_read_many",
+    label: "Read brain documents",
+    description: READ_MANY_DESCRIPTION,
+    parameters: Type.Object(
+      {
+        requests: Type.Array(request, { minItems: 1, maxItems: READ_MANY_MAX_REQUESTS, description: "In priority order." }),
+        max_total_chars: Type.Optional(
+          Type.Integer({ minimum: READ_MANY_MIN_TOTAL_CHARS, maximum: READ_MANY_MAX_TOTAL_CHARS })
+        ),
+        max_item_chars: Type.Optional(
+          Type.Integer({ minimum: READ_MANY_MIN_ITEM_CHARS, maximum: READ_MANY_MAX_TOTAL_CHARS })
+        ),
+      },
+      { additionalProperties: false }
+    ),
+    async execute(_id: string, params: unknown, signal?: AbortSignal) {
+      const aborted = signal && turn.signal ? AbortSignal.any([signal, turn.signal]) : signal ?? turn.signal ?? undefined;
+      const result = await readMany(brain.root, params, { signal: aborted, resolve: (path) => brain.resolveInRepo(path) });
+      return textResult(JSON.stringify(result), { count: result.items.length, truncated: result.truncated });
+    },
+  } satisfies ToolDefinition;
+}
+
 /** `brain_list`: document metadata, cut by whole rows. */
 export function brainListTool(kit: BrainToolKit): ToolDefinition {
   const { brain } = kit;
@@ -229,7 +367,12 @@ export function brainListTool(kit: BrainToolKit): ToolDefinition {
     label: "List brain documents",
     description:
       "List documents in the brain knowledge base with optional filters for type, tag, " +
-      "status, and relevance. Returns metadata (path, title, type, relevance, status, tags).",
+      "status, and relevance. Returns metadata (path, title, type, relevance, status, tags). " +
+      "For an inventory, pass path_prefix (a folder, matched on whole path segments) and/or overview " +
+      "(adds summary, updated: the frontmatter date, not file or project activity, deadline, indexed_at and " +
+      "indexed_body_bytes: UTF-8 bytes of the indexed body, not the file size). Those return one bounded page, " +
+      "newest updated first then by path, with total and next_cursor; pass next_cursor as cursor for the next page " +
+      "until it is null.",
     parameters: Type.Object({
       type: Type.Optional(Type.String({ description: "Filter by document type." })),
       tag: Type.Optional(Type.String({ description: "Filter by tag." })),
@@ -240,11 +383,41 @@ export function brainListTool(kit: BrainToolKit): ToolDefinition {
         Type.String({ description: "Filter by relevance (primary, secondary, historical)." })
       ),
       limit: Type.Optional(Type.Number({ description: "Max results (default 20)." })),
+      path_prefix: Type.Optional(
+        Type.String({ description: 'Only documents at or below this folder or file, e.g. "projects/active".' })
+      ),
+      overview: Type.Optional(
+        Type.Boolean({ description: "Add summary, updated, deadline, indexed_at and indexed_body_bytes to every row." })
+      ),
+      cursor: Type.Optional(Type.String({ description: "next_cursor from the previous page of the same listing." })),
     }),
     async execute(
       _id: string,
-      params: { type?: string; tag?: string; status?: string; relevance?: string; limit?: number }
+      params: {
+        type?: string;
+        tag?: string;
+        status?: string;
+        relevance?: string;
+        limit?: number;
+        path_prefix?: string;
+        overview?: boolean;
+        cursor?: string;
+      }
     ) {
+      if (params.path_prefix !== undefined || params.overview !== undefined || params.cursor !== undefined) {
+        // Core's bounded page (#3643), the same one `brain_list` returns over MCP.
+        const page = await brain.page({
+          type: params.type,
+          tag: params.tag,
+          status: params.status,
+          relevance: params.relevance,
+          limit: params.limit,
+          pathPrefix: params.path_prefix,
+          overview: params.overview,
+          cursor: params.cursor,
+        });
+        return textResult(JSON.stringify(page), { count: page.documents.length });
+      }
       const documents = await brain.list(params);
       // Compact, and cut by whole rows to MAX_JSON_CHARS: a byte-clipped JSON
       // document would not parse.
