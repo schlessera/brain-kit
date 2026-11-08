@@ -166,3 +166,14 @@ test("hosted curated default blocks Pi only for a configured package that is not
   expect(String((refusal as Error).message), "PI_MISSING_PACKAGE_MESSAGE").toContain("not installed");
   expect(existsSync(join(agent, "npm")), "PI_MISSING_PACKAGE_INSTALLED_NOTHING").toBe(false);
 });
+
+test("in the curated default only a missing package or an inspection failure blocks the gate", async () => {
+  const { backend, started } = voyageBackend();
+  const installed = gateUnsupportedConfiguration(backend, brain, false);
+  expect(await installed.listUnavailableProfiles!(), "PI_CURATED_INSTALLED_PASSES").toEqual([]);
+  await installed.startTurn(turn().req);
+  expect(started.length, "PI_CURATED_INSTALLED_RUNS").toBe(1);
+  const unknown = gateUnsupportedConfiguration(backend, brain, false, async () => ({ ok: false, error: "settings unreadable" }));
+  await expect(unknown.startTurn(turn().req), "PI_CURATED_UNKNOWN_REFUSES").rejects.toBeInstanceOf(BackendRequestError);
+  expect(started.length, "PI_CURATED_UNKNOWN_NEVER_RUNS").toBe(1);
+});
