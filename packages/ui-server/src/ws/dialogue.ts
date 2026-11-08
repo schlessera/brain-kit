@@ -136,7 +136,8 @@ export class DialogueJournal {
    */
   ended(conversationId: string, principalId: string, evidence: Extract<DialogueEvidence, { kind: "voice_end" }>): boolean {
     const owner = this.conversations.get(conversationId) ?? this.catalog.dialogueOwnerForConversation?.(conversationId, principalId);
-    if (!owner || owner.principal_id !== principalId) return false;
+    // An owner whose writes failed since it opened is not written to again.
+    if (!owner || owner.principal_id !== principalId || this.failedOwners.has(owner.id)) return false;
     this.append(owner, JSON.stringify([conversationId, "ended", evidence.startedAt]), evidence);
     return true;
   }

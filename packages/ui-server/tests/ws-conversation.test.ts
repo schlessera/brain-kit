@@ -2097,3 +2097,13 @@ test("an interruption without an output identity is retained without one",async(
  client.send({type:"conversation_stop",conversationId:c.id});await settle();
  expect(rows().filter(e=>e.kind==="voice_end")).toHaveLength(1);
 });
+
+test("a conversation whose storage failed retains no end at the operator's final stop",async()=>{
+ const s=setup(),client=await s.connect();
+ const c=await client.open();
+ const finish=s.host.conversations!.storageFailing(c.id);
+ finish("Storage drain completed.");await settle();
+ client.send({type:"conversation_stop",conversationId:c.id});await settle();await s.host.dialogue.settled();
+ const ends=(s.db.query("SELECT payload FROM dialogue_records").all() as {payload:string}[]).map(r=>JSON.parse(r.payload)).filter(e=>e.kind==="voice_end");
+ expect(ends,"NO_END_WRITTEN_AFTER_STORAGE_FAILURE").toEqual([]);
+});

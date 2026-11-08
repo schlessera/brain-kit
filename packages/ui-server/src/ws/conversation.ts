@@ -537,8 +537,9 @@ export class ConversationHost {
       ? retained : this.owned(ws, connection, msg.conversationId);
     if (!conversation) return;
     // Only an operator's final stop ends the conversation; a resumable pause
-    // continues it. Retain the end before the epoch's journal closes.
-    if (!msg.resumable && conversation.startedAt !== undefined && conversation.openedEpoch === conversation.lastEpoch) {
+    // continues it. Retain the end before the epoch's journal closes. A failed
+    // or indeterminate store is never written to again, not even for an end.
+    if (!msg.resumable && conversation.startedAt !== undefined && conversation.openedEpoch === conversation.lastEpoch && !conversation.epoch?.storageFailing) {
       this.host.dialogue.ended(conversation.id, conversation.principalId, { kind: "voice_end", conversationId: conversation.id, epoch: conversation.lastEpoch,
         providerId: this.provider.id, startedAt: conversation.startedAt, endedAt: Math.max(conversation.startedAt, Date.now()) });
     }

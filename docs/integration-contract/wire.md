@@ -2688,7 +2688,9 @@ rules as text records:
   `startedAt` is the host clock (Unix milliseconds) when this host first opened
   the conversation's current run; `endedAt` is the stop, never earlier than
   `startedAt`. A resumable pause, a disconnect, a provider close or a refused
-  or failed open ends nothing and writes none. A persona may be added later as
+  or failed open ends nothing and writes none. Nor does a stop after that
+  epoch's dialogue storage failed or became indeterminate: the host never
+  writes to such a store again, so that chat draws no divider. A persona may be added later as
   an optional field once conversations carry one (#3617).
 
 Neither kind enters provider history (`readLiveHistory` reads only `voice`
