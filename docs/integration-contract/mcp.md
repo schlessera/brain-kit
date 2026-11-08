@@ -14,7 +14,7 @@ Tool names and input schemas are stable:
 | `brain_search` | readOnly | `{ results, warnings }` — each result is `{ path, title, type, relevance, status, summary, updated, deadline, tags, score, snippet, supersededBy? }`; every field after `type` may be `null`. `status`, `summary`, `updated` and `deadline` are additive in 0.38.0. `supersededBy`, the path of the document that `supersedes` this one, is present only when one does (additive in 0.38.0) |
 | `brain_context` | readOnly | `{ context, warnings }` |
 | `brain_read` | readOnly | none — the first `content` block is the file text, verbatim; with `section`, that section; over `max_tokens`, the frontmatter and an outline of headings with estimated token counts. `max_tokens` is the threshold that switches to the outline, not a cap on the output: a large frontmatter or very many headings give an outline larger than it |
-| `brain_list` | readOnly | `{ documents, warnings }` |
+| `brain_list` | readOnly | `{ documents, warnings }`; with `path_prefix`, `overview` or `cursor`, one bounded page `{ documents, next_cursor, total, truncated?, warnings }` (see [paged inventory](#brain_list-paged-inventory-additive-0450-3643), additive in 0.45.0) |
 | `brain_graph` | readOnly | `{ edges: [{ source, target, resolved }], nodes: [{ path, title, type, summary, updated }], warnings }`. `nodes` holds one entry, sorted by `path`, for every document an edge touches: each `source`, and each `target` whose `resolved` is `true`. An unresolved target is raw link text and never a node. `summary` and `updated` may be `null`. `nodes` is additive in 0.38.0 |
 | `brain_add` / `brain_update` / `brain_archive` | non-destructive, idempotent (update/archive) | result object |
 | `brain_compute_*` | see [External compute tools](#external-compute-tools-additive-0450-3107) | the `brain compute` envelope |
@@ -54,7 +54,7 @@ applies one:
 | `brain_search` | `query`, `type?`, `tag?`, `relevance?`, `mode?` (`fts`\|`vector`\|`hybrid`, default `hybrid`), `rerank?` (`none`\|`heuristic`\|`jev`; omitted → the configured provider when `reranker.enabled` is true and available, otherwise local heuristic. An explicit `jev` cannot enable judgment while off; it warns and falls back. 0.39.0 added `jev` and dropped the schema default of `heuristic`), `include_archived?` (default `false`), `assets_only?` (default `false`), `limit?` (default `10`), `updated_since?`, `updated_before?`, `deadline_from?`, `deadline_to?` (`YYYY-MM-DD`, inclusive), `sort?` (`score`\|`updated`\|`deadline`, default `score`), `upcoming?` (default `false`) — the six date inputs added in 0.38.0, additively; an invalid date is a tool error |
 | `brain_context` | `query`, `max_tokens?` (default `4000`), `include_identity?` (default `true`), `include_current_focus?` (default `true`) |
 | `brain_read` | `path`, `section?` (a heading's visible text, compared under Unicode canonical caseless matching (full case folding); the body is parsed as GFM, and only top-level ATX and setext headings count, never one inside code, HTML, a table, a list or a blockquote; the section runs to the next heading of the same or higher level; of two equal headings the first is returned; an unknown one is an error naming the document's headings), `max_tokens?` (positive safe integer; the threshold for the outline, not an output cap; no default, so the whole file comes back unless it is given). Both additive in 0.38.0 |
-| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100) |
+| `brain_list` | `type?`, `tag?`, `status?`, `relevance?`, `limit?` (integer `1`–`100`, default `20`; the schema says `"type": "integer", "minimum": 1, "maximum": 100`. A fraction, `0`, a negative or a value over `100` is rejected as invalid input, a tool result with `isError: true` and no `structuredContent`, the convention every schema violation follows. **Breaking in 0.41.0 (#1351):** the schema was a plain `number` and the server clamped the value into 1–100, so `0` listed 1 and `500` listed 100), `path_prefix?`, `overview?` (boolean), `cursor?` (the three additive in 0.45.0, #3643) |
 | `brain_graph` | `path`, `depth?` (default `1`), `direction?` (`outgoing`\|`incoming`\|`both`, default `both`) |
 | `brain_add` | `content`, `type?`, `title?`, `tags?` (comma-separated) |
 | `brain_update` | `path`, `summary?`, `status?` (`active`\|`archived`\|`draft`), `relevance?` (`primary`\|`secondary`\|`historical`), `tags?` (comma-separated, replaces), `deadline?`, `next_review?` (ISO 8601; `""` removes), `append_content?`. Setting `status: "archived"` applies `brain_archive`'s relevance rule to the effective relevance (the `relevance` passed in the same call, else the document's): a `primary` or missing one becomes `historical` and `"relevance"` is listed in `changes`; an explicit `secondary` or `historical` stays (additive in 0.38.0) |
@@ -62,6 +62,37 @@ applies one:
 
 Read tools append an index-staleness warning when markdown files are newer
 than their `indexed_at`.
+
+<a id="brain_list-paged-inventory-additive-0450-3643"></a>
+
+### `brain_list` paged inventory (additive, 0.45.0, #3643)
+
+Passing any of `path_prefix`, `overview` or `cursor`, even `overview: false`,
+selects one bounded page of the shared paged inventory instead of the legacy
+listing: `{ documents, next_cursor, total, truncated?, warnings }`, newest
+`updated` first then by `path`, at most 30,000 UTF-8 bytes of compact JSON,
+whole rows only. Every row keeps the six listing fields; `overview: true` adds
+`summary`, `updated`, `deadline`, `indexed_at` and `indexed_body_bytes`, and a
+row shortened to fit names the fields in `clipped`. `updated` is the
+frontmatter date as indexed, not the file's mtime or project activity;
+`indexed_body_bytes` is the UTF-8 size of the indexed body without its
+frontmatter, never the whole file's size. `path_prefix` matches whole path
+segments. `next_cursor` is `null` at the end; a malformed cursor, a cursor
+from a listing with other filters or prefix, and a malformed prefix are tool
+errors (`isError: true`, no `structuredContent`) naming the input. The page
+carries the server's usual warnings, a stale-cursor warning when the index
+changed since the cursor was issued, and, with `overview`, a warning for
+listed sources changed after indexing or missing. Pi's `brain_list` takes the
+same three inputs and returns the same page as compact JSON text, and pi's
+`brain_search` takes `overview` to show each result's status, `updated`,
+`deadline` and summary (whitespace collapsed, at most 300 code points)
+within its 30,000-byte output, keeping whole results and ending with
+`… <n> more result(s) omitted to fit the output budget` when they do not all
+fit; without it pi's search output is unchanged. The fields, order, cursor,
+bound and warnings are specified once in
+[the paged inventory](../content-index-queries.md#paged-inventory-and-the-overview-projection).
+A call with none of the three inputs returns the legacy `{ documents,
+warnings }` byte for byte.
 
 <a id="external-compute-tools-additive-0450-3107"></a>
 

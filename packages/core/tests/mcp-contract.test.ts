@@ -347,6 +347,73 @@ describe("brain_list", () => {
   });
 });
 
+// #3643: path_prefix, overview and cursor select one bounded page; a call
+// without them keeps the legacy envelope byte for byte.
+describe("brain_list paged discovery", () => {
+  type Page = { documents: Array<Record<string, unknown>>; next_cursor: string | null; total: number; truncated?: true; warnings: string[] };
+  const call = async (args: Record<string, unknown>) => {
+    const res = await client.callTool({ name: "brain_list", arguments: args });
+    const [first] = res.content as Array<{ type: string; text: string }>;
+    return { res, text: first?.text ?? "" };
+  };
+
+  test("a legacy call keeps exactly { documents, warnings } with six fields per row", async () => {
+    const { res, text } = await call({ type: "project", limit: 5 });
+    const sc = res.structuredContent as Record<string, unknown>;
+    expect(Object.keys(sc)).toEqual(["documents", "warnings"]);
+    for (const row of sc.documents as object[]) expect(Object.keys(row)).toEqual(["path", "title", "type", "relevance", "status", "tags"]);
+    expect(text).toBe(JSON.stringify(sc));
+  });
+
+  test("pages through a prefix with next_cursor, total and the overview fields", async () => {
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let total = -1;
+    for (let i = 0; i < 20; i++) {
+      const { res, text } = await call({ path_prefix: "projects/active", overview: true, limit: 2, ...(cursor ? { cursor } : {}) });
+      expect(res.isError).toBeFalsy();
+      const sc = res.structuredContent as Page;
+      expect(Object.keys(sc)).toEqual(["documents", "next_cursor", "total", "warnings"]);
+      expect(text).toBe(JSON.stringify(sc));
+      expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(30_000);
+      total = sc.total;
+      for (const row of sc.documents) {
+        expect(row.path as string).toStartWith("projects/active/");
+        expect(Object.keys(row)).toEqual(["path", "title", "type", "relevance", "status", "tags", "summary", "updated", "deadline", "indexed_at", "indexed_body_bytes"]);
+        seen.push(row.path as string);
+      }
+      if (sc.next_cursor === null) break;
+      cursor = sc.next_cursor;
+    }
+    expect(seen.length).toBe(total);
+    expect(new Set(seen).size).toBe(total);
+    expect(seen).toContain("projects/active/raft/status.md");
+  });
+
+  test("the page equals brain list --json and pageIndexDocuments on the same index", async () => {
+    const { res } = await call({ path_prefix: "projects", overview: true, limit: 3 });
+    const cli = await runCli(root, ["list", "--path-prefix", "projects", "--overview", "--limit", "3", "--json"]);
+    expect(cli.code).toBe(0);
+    expect(JSON.parse(cli.stdout)).toEqual(res.structuredContent as Page);
+    const { pageIndexDocuments } = await import("../src/queries/index");
+    const query = pageIndexDocuments({ brainPath: root, pathPrefix: "projects", overview: true, limit: 3 });
+    expect(query.ok && query.value).toEqual(res.structuredContent as Page);
+  });
+
+  test("an invalid cursor, another listing's cursor and an escaping prefix are tool errors", async () => {
+    const bad = await call({ cursor: "not-a-cursor" });
+    expect(bad.res.isError).toBe(true);
+    expect(bad.text).toContain("cursor is not a cursor this listing issued");
+    const first = (await call({ path_prefix: "projects", limit: 1 })).res.structuredContent as Page;
+    const other = await call({ path_prefix: "notes", cursor: first.next_cursor });
+    expect(other.res.isError).toBe(true);
+    expect(other.text).toContain("cursor belongs to a listing with other filters or path_prefix");
+    const escape = await call({ path_prefix: "../outside" });
+    expect(escape.res.isError).toBe(true);
+    expect(escape.text).toContain("path_prefix must be a root-relative folder");
+  });
+});
+
 describe("brain_context", () => {
   test("returns { context, warnings } structuredContent", async () => {
     const res = await client.callTool({

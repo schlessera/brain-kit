@@ -1232,8 +1232,12 @@ records the approved request boundary and override policy.
 The concrete synchronous `@schlessera/brain/queries` entry supports
 `readGraphMeta`, `readGraphClusters`, `readGraphNeighborhood`,
 `readGraphDiscovery`, `readGraphMaintenance`, `readLinkWalk`,
-`readVoiceVocabulary`, `listIndexDocuments`, `findIndexDocuments` and
-`readStorageReferences`. The additive Storage operation takes `{brainPath, path}`
+`readVoiceVocabulary`, `listIndexDocuments`, `findIndexDocuments`,
+`readStorageReferences` and `pageIndexDocuments`. The additive paging
+operation (0.45.0, #3643) returns one bounded page of the
+[paged inventory](../content-index-queries.md#paged-inventory-and-the-overview-projection)
+as `DocumentPage` (`PagedDocument` rows), the same page `brain list --overview`
+and `brain_list` return. The additive Storage operation takes `{brainPath, path}`
 and returns the common query envelope with `{sources: [{path, indexedAt}], truncated}`.
 It limits resolved incoming sources to 200, reads index metadata only, and refuses
 a symlinked index. Zero observed sources never establishes that a file is unused.
@@ -1252,6 +1256,9 @@ without loading executable config or providers for those two reads. Their
 existing pi text/details envelopes, listing default `20`/cap `100`, graph
 default `1`/cap `4`, direction, ordering and truncation remain unchanged.
 An absent indexed graph path still returns empty `edges` and `nodes`.
+Pi's `brain_list` with `path_prefix`, `overview` or `cursor` (additive in
+0.45.0) returns `pageIndexDocuments`' page as compact JSON text; an
+`invalid_input` there names `path_prefix`, `limit` and `cursor` in its error.
 Index compatibility, WAL snapshot consistency and per-call replacement checks
 belong to core. Missing indexes retain the `brain index` instruction; incompatible
 or corrupt indexes request `brain index --force`; busy indexes request a retry;
