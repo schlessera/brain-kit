@@ -209,7 +209,8 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     advance();
     const [changed, changedMs] = await timed(request);
     const changedRoot = await pathOf(changed.rootId);
-    const refreshed = await measure("changed-refresh", changedMs, [coldRoot, changedRoot], { objects: objects(changedRoot) });
+    // The superseded root has already left its view, so the census covers the new root only.
+    const refreshed = await measure("changed-refresh", changedMs, [changedRoot], { objects: objects(changedRoot) });
     expect(changed.rootId, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_NEW_ROOT").not.toBe(cold.rootId);
     const refreshOwner = owner(refreshed, changed.rootId)!;
     report.findings.changedRefreshPerCold = refreshOwner / coldOwner;
