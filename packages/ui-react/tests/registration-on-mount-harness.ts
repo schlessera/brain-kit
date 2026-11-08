@@ -9,5 +9,6 @@ export { piToolPack } from "../src/components/chat/renderers/pi-tools.js";
 export { useDictation } from "../src/voice/use-dictation.js";
 export { registerAsrClients } from "../src/voice/asr-clients.js";
 export { DeepgramClient } from "../src/voice/asr-deepgram.js";
+export { GeminiAsrClient } from "../src/voice/asr-gemini.js";
 export { WebSpeechClient } from "../src/voice/asr-webspeech.js";
 export { useChatStore } from "../src/stores/chat-store.js";

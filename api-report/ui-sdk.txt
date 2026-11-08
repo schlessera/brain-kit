@@ -11391,13 +11391,17 @@ signatures (every public export and the types it is made of)
         keyterms: boolean;
         endpointing: boolean;
         savedAudio?: boolean;
+        smartTranscription?: boolean;
     }
   SpeechProvider (packages/ui-sdk/src/server/speech.ts)
     export interface SpeechProvider {
         id: string;
+        label?: string;
+        destination?: string;
         capabilities: SpeechCapabilities;
         createSession(opts: {
             keyterms: string[];
+            mode?: "smart" | "verbatim";
         }): Promise<SpeechSession>;
         transcribeRecording?(input: {
             audio: Uint8Array;

@@ -4,11 +4,14 @@
  *
  * - `deepgram`  — mints a short-lived Deepgram token and the full streaming WS
  *                 URL (base params + domain keyterms baked in).
+ * - `gemini`    — mints a single-use constrained Gemini Live token for
+ *                 gemini-3.5-transcribe-live (`gemini-speech.ts`).
  * - `webspeech` — no server session; the browser's SpeechRecognition does the
  *                 work, so it returns empty url/token.
  *
  * VOICE_PROVIDER selects the provider; default is deepgram when
- * DEEPGRAM_API_KEY is set, otherwise selection fails. An external value takes
+ * DEEPGRAM_API_KEY is set, then gemini when GEMINI_API_KEY is the only key,
+ * otherwise selection fails. An external value takes
  * precedence over auto-detection and must match an explicit VOICE_PROVIDER.
  * Both arrive here as the resolved
  * {@link VoiceConfig} — this module reads no environment.
@@ -18,6 +21,7 @@ import type { SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { defineSpeechProvider, SpeechTranscriptionError } from "@schlessera/brain-ui-sdk/server";
 import type { VoiceConfig } from "../config/env.js";
 import { mintDeepgramToken } from "./deepgram-token.js";
+import { createGeminiSpeechProvider } from "./gemini-speech.js";
 
 const DEEPGRAM_WS_URL = "wss://api.deepgram.com/v1/listen";
 
@@ -140,15 +144,24 @@ export function pickSpeechProvider(voice: VoiceConfig, supplied?: SpeechProvider
     }
     return createDeepgramSpeechProvider(voice.deepgramApiKey);
   }
+  if (configured === "gemini") {
+    if (!voice.geminiApiKey) {
+      throw new Error("VOICE_PROVIDER=gemini but GEMINI_API_KEY is not set.");
+    }
+    return createGeminiSpeechProvider(voice.geminiApiKey);
+  }
   if (configured) {
     throw new Error(
-      `Unknown VOICE_PROVIDER="${configured}" (expected "deepgram" or "webspeech").`
+      `Unknown VOICE_PROVIDER="${configured}" (expected "deepgram", "gemini" or "webspeech").`
     );
   }
-  // Auto-detect: Deepgram when its key is present; otherwise fail loudly.
+  // Auto-detect: Deepgram when its key is present. A Gemini key alone makes
+  // Gemini the only registered provider, so it is used (D3); it never takes
+  // precedence over Deepgram. Otherwise fail loudly.
   if (voice.deepgramApiKey) return createDeepgramSpeechProvider(voice.deepgramApiKey);
+  if (voice.geminiApiKey) return createGeminiSpeechProvider(voice.geminiApiKey);
   throw new Error(
-    'No speech provider configured. Set DEEPGRAM_API_KEY, or set ' +
+    'No speech provider configured. Set DEEPGRAM_API_KEY or GEMINI_API_KEY, or set ' +
       'VOICE_PROVIDER=webspeech to explicitly opt into the browser speech API ' +
       "(which streams audio to Google on Chromium)."
   );
@@ -164,6 +177,15 @@ function assertSpeechProvider(provider: SpeechProvider): void {
     if (typeof provider.capabilities?.[capability] !== "boolean") {
       throw new Error(`Invalid SpeechProvider "${provider.id}": capabilities.${capability} must be boolean.`);
     }
+  }
+  for (const field of ["label", "destination"] as const) {
+    const value = provider[field];
+    if (value !== undefined && (typeof value !== "string" || !value.trim())) {
+      throw new Error(`Invalid SpeechProvider "${provider.id}": ${field} must be a nonempty string when supplied.`);
+    }
+  }
+  if (provider.capabilities.smartTranscription !== undefined && typeof provider.capabilities.smartTranscription !== "boolean") {
+    throw new Error(`Invalid SpeechProvider "${provider.id}": capabilities.smartTranscription must be boolean when supplied.`);
   }
   if (provider.transcribeRecording !== undefined && typeof provider.transcribeRecording !== "function") {
     throw new Error(`Invalid SpeechProvider "${provider.id}": transcribeRecording must be a function when supplied.`);

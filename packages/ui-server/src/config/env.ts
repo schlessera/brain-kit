@@ -697,12 +697,21 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "DEEPGRAM_API_KEY",
     description: "Deepgram API key for streaming ASR (short-lived tokens are minted from it).",
     default: null,
-    required: "VOICE_PROVIDER=deepgram (or any voice use without VOICE_PROVIDER=webspeech)",
+    required: "VOICE_PROVIDER=deepgram (or voice use with neither VOICE_PROVIDER nor GEMINI_API_KEY set)",
+  },
+  {
+    name: "GEMINI_API_KEY",
+    description:
+      "Google Gemini API key. For dictation it registers the gemini-3.5-transcribe-live provider (id gemini): the server " +
+      "mints a single-use constrained token from it per take, so the key itself never reaches the browser. Dictation uses " +
+      "it when VOICE_PROVIDER=gemini, or without VOICE_PROVIDER only when DEEPGRAM_API_KEY is unset.",
+    default: null,
+    required: "VOICE_PROVIDER=gemini",
   },
   {
     name: "VOICE_PROVIDER",
     description:
-      'Speech provider: "deepgram", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present.',
+      'Speech provider: "deepgram", "gemini", "webspeech" (opt-in only — Chromium streams audio to Google), or the id supplied through createApp({ speechProvider }). An explicit name must match a supplied value. Unset prefers that value, otherwise auto-detects deepgram when its key is present, then gemini when only GEMINI_API_KEY is present.',
     default: "(auto-detect)",
     required: false,
   },
@@ -835,6 +844,9 @@ export interface VoiceConfig {
   /** Trimmed, lowercased VOICE_PROVIDER; null when unset (auto-detect). */
   provider: string | null;
   deepgramApiKey: string | null;
+  /** GEMINI_API_KEY; registers the Gemini Transcribe Live dictation provider. Optional so
+   * hand-built configs stay valid; absent means unset. */
+  geminiApiKey?: string | null;
   keytermLimit: number;
   /** Resolved keyterm cache directory. */
   cacheDir: string;
@@ -1211,6 +1223,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     voice: {
       provider: env.VOICE_PROVIDER?.trim().toLowerCase() || null,
       deepgramApiKey: env.DEEPGRAM_API_KEY || null,
+      geminiApiKey: env.GEMINI_API_KEY || null,
       keytermLimit: Number(env.VOICE_KEYTERM_LIMIT || 500),
       cacheDir: env.VOICE_CACHE_DIR || join(brainPath, ".brain-ui"),
     },

@@ -10,6 +10,7 @@
 import type { BrainUiRoot } from "../root.js";
 import { defaultRoot } from "../default-root.js";
 import { DeepgramClient } from "./asr-deepgram.js";
+import { GeminiAsrClient } from "./asr-gemini.js";
 import { WebSpeechClient } from "./asr-webspeech.js";
 import { providerEnded } from "./dictation-capture.js";
 
@@ -23,6 +24,21 @@ export function registerAsrClients(root: BrainUiRoot = defaultRoot): void {
       onAudioLevel: (level) => root.stores.voice.getState().setAudioLevel(level),
       // The socket closed without a stop(): end of stream, an idle timeout,
       // a drop or an expired grant. What was heard goes to review (#1189).
+      onClose: () => providerEnded(root.stores, client),
+    });
+    return client;
+  });
+
+  root.asr.register("gemini", (opts) => {
+    const client: GeminiAsrClient = new GeminiAsrClient({
+      url: opts.session.url,
+      token: opts.session.token ?? "",
+      params: opts.session.params ?? {},
+      onEvent: opts.onEvent,
+      onError: opts.onError,
+      onAudioLevel: (level) => root.stores.voice.getState().setAudioLevel(level),
+      // The session ended without a stop(): Google's session limit, an
+      // expired token, an error or a drop. What was heard goes to review.
       onClose: () => providerEnded(root.stores, client),
     });
     return client;
