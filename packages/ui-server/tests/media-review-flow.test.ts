@@ -24,6 +24,9 @@ async function flow(media?: readonly string[], boot: Parameters<MediaFlow["boot"
   return f;
 }
 
+/** The bytes with the kept log's set to `value`: Undo of a copy leaves the log, without its entry. */
+const withKept = (bytes: Record<string, string | null>, value: string | null): Record<string, string | null> => ({ ...bytes, [KEPT]: value });
+
 type Want = { pending: number; dismissed?: number; snoozed?: number; kept?: number };
 /**
  * The CLI and the server report one count, one set-aside split and one
@@ -137,7 +140,7 @@ async function actionRoundTrip(f: MediaFlow, path: string, optionId: string, to:
   expect(undone.body.mediaUndo, "MEDIA_FLOW_UNDONE").toMatchObject({ outcome: "undone" });
   // Undo of a kept copy leaves the kept log without its entry (rev 5 §5.7).
   const keptLog = f.text(KEPT);
-  expect({ ...f.bytes(), [KEPT]: initial[KEPT] }, "MEDIA_FLOW_UNDO_BYTES").toEqual(initial);
+  expect(withKept(f.bytes(), initial[KEPT]), "MEDIA_FLOW_UNDO_BYTES").toEqual(initial);
   if (initial[KEPT] === null && keptLog !== null) expect(keptLog, "MEDIA_FLOW_UNDO_KEPT_ENTRY").not.toContain("### media-");
   else expect(f.bytes()[KEPT]).toBe(initial[KEPT]!);
   // A sync after Undo commits none of it.
@@ -253,7 +256,7 @@ test("restart and reconnect mid-pass keep the deferrals, set-aside dispositions 
   expect(finished.review.status, "MEDIA_FLOW_PASS_COMPLETE").toBe("complete");
   agree(await f.parity({ sync: true }), { pending: 2, dismissed: 1, snoozed: 1 });
   // Nothing was written to the brain's media, config or references.
-  expect({ ...f.bytes(), [KEPT]: null }, "MEDIA_FLOW_DISPOSITIONS_NO_MEDIA_WRITE").toEqual(before);
+  expect(withKept(f.bytes(), null), "MEDIA_FLOW_DISPOSITIONS_NO_MEDIA_WRITE").toEqual(before);
 
   // The next pass forgets the deferrals and selects both deferred files again.
   const next = (await f.command("start")).body;
@@ -409,7 +412,7 @@ test("in maintenance workers: the review's CLI runs behind the native manager bo
   agree(await f.parity({ sync: false }), { pending: 1 });
   const undone = await f.undo(receipt.media.journalId);
   expect(undone.body.mediaUndo, "MEDIA_FLOW_WORKER_UNDONE").toMatchObject({ outcome: "undone" });
-  expect({ ...f.bytes(), [KEPT]: null }, "MEDIA_FLOW_WORKER_UNDO_BYTES").toEqual(before);
+  expect(withKept(f.bytes(), null), "MEDIA_FLOW_WORKER_UNDO_BYTES").toEqual(before);
   agree(await f.parity({ sync: true }), { pending: 1 }, "kept");
   await device.close();
 });

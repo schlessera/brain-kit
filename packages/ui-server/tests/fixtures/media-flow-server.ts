@@ -66,7 +66,7 @@ const gate = createWriterGate(db, brainPath);
 let broker: { socketPath: string; close(): void } | undefined;
 if (execution === "worker") { replaceNativeStartupAcquisitionForFixture(); broker = native.serve(); }
 const boundary = broker
-  ? createHostBoundary({ brainPath, exec: {}, dbPath, nativeManager: createNativeBrainManagerClient({ socketPath: broker.socketPath, leasePath: join(state, "native-leases.sqlite"), timeoutMs: NATIVE_MANAGER_OPERATION_TIMEOUT_MS, maxDeltaBytes: NATIVE_MANAGER_MAX_DELTA_BYTES }) })
+  ? createHostBoundary({ brainPath, exec: {}, dbPath, nativeManager: createNativeBrainManagerClient({ socketPath: broker.socketPath, timeoutMs: NATIVE_MANAGER_OPERATION_TIMEOUT_MS, maxDeltaBytes: NATIVE_MANAGER_MAX_DELTA_BYTES }) })
   : createHostBoundary({ brainPath, exec: {}, dbPath, workerHost: () => ({ ok: false, requirement: "the media flow fixture runs the CLI on the host" }) });
 // As the app does at boot: qualify the worker boundary before any admission.
 const governed = await boundary.prepare();
