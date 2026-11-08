@@ -323,10 +323,10 @@ extension usable. The hosted module inspects Pi's extension configuration
 (settings package lists and the global/project extension directories, read
 through Pi's package manager without importing or installing anything) before
 each roster read and each non-restricted turn. It blocks Pi when that
-configuration would fail every managed turn: with discovery on, any extension,
-loading error or inspection failure; in the curated default, a configured
-package that is not installed (managed workers require prepared packages even
-when they load no extension). Blocked, Pi lists its profiles as unavailable
+configuration would fail every managed turn: with discovery on, any extension
+or loading error; in the curated default, a configured package that is not
+installed (managed workers require prepared packages even when they load no
+extension); in either mode, an inspection failure. Blocked, Pi lists its profiles as unavailable
 with reason `unsupported-configuration` and refuses the turn before a worker
 starts, with an actionable message. The input-safety collector's failure path
 is not engaged and other backends keep running. Restricted autonomous turns

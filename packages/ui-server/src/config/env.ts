@@ -625,7 +625,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       '"curated" runs pi turns on the host\'s curated tools and leaves installed pi extensions inactive (reported at startup). ' +
       '"discover" turns pi extension discovery on; managed input-safety collection does not support loaded extensions, so with any ' +
       "installed extension pi reports its profiles as unavailable and refuses its turns before admission, while other backends keep running. " +
-      "In either mode a configured pi package that is not installed does the same. " +
+      "In either mode a configured pi package that is not installed, or configuration that cannot be inspected, does the same. " +
       "Any other value refuses boot.",
     default: "curated",
     required: false,
