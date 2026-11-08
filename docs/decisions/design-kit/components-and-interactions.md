@@ -1407,7 +1407,7 @@ details. On 2026-11-02 they approved the specification on the issue
 
 Every state has its own existing `Icon` key and an existing semantic ink, so
 neither colour nor motion carries meaning alone
-(`STATES`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:46-55`).
+(`STATES`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:52-61`).
 
 | State | Glyph key | Tone | Motion |
 | --- | --- | --- | --- |
@@ -1432,7 +1432,7 @@ neither colour nor motion carries meaning alone
 ### Interaction
 
 The control
-(`StatusIndicator`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:121-223`)
+(`StatusIndicator`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:127-229`)
 draws a 20px glyph inside a native 44px `<button>`. A square `::before` keeps
 the target's corners inside the rounded paint. The control has no native
 `title`, so it composes the `TranscriptQualifiers` pattern and does not use
@@ -1453,7 +1453,7 @@ the target's corners inside the rounded paint. The control has no native
   user is on keeps focus.
 - **One polite live region** sits beside the trigger, or inside the modal while
   it is open, because the rest of the page is inert then
-  (`useAnnouncement`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:81-118`).
+  (`useAnnouncement`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:87-124`).
   It announces after a 1s coalescing window, and only when the derived state
   changes or an operation newly enters attention, unknown, failed or refused.
   Progress, summary and fact changes stay silent.
@@ -1462,7 +1462,7 @@ the target's corners inside the rounded paint. The control has no native
 
 The display state is derived, worst first: refused, failed, unknown,
 attention, active, queued, success, idle
-(`statusIndicatorLead`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:63-69`).
+(`statusIndicatorLead`, `packages/ui-kit/src/chrome/StatusIndicator.tsx:69-75`).
 Two or more operations show a count. Details list every operation separately,
 keyed by the consumer's id, never by array index. An empty list renders a
 reserved 44px slot with no control. It is idle, never success, and it is how

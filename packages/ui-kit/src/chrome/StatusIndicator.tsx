@@ -40,6 +40,12 @@ export interface StatusIndicatorProps {
   operations: StatusIndicatorOperation[];
   /** Focus target when details close after the trigger has gone. */
   returnFocus?: () => HTMLElement | null;
+  /**
+   * False when the consumer announces this status itself (additive): the
+   * indicator then renders no live region, so one change is never spoken
+   * twice. Defaults to true.
+   */
+  announce?: boolean;
 }
 
 /** The approved matrix: one distinct existing glyph per state, existing semantic tones. */
@@ -180,7 +186,7 @@ export function StatusIndicator(p: StatusIndicatorProps) {
   const scheme = () => trigger.current ? getComputedStyle(trigger.current).colorScheme : undefined;
   // Exactly one live region exists: inside the modal while it is open (the
   // rest of the page is inert then), beside the trigger otherwise.
-  const live = <span className="bk-sr-only" aria-live="polite" data-status-live="">{announcement}</span>;
+  const live = p.announce === false ? null : <span className="bk-sr-only" aria-live="polite" data-status-live="">{announcement}</span>;
 
   return <span className="bk-status-indicator" data-status-indicator={empty ? "empty" : state} data-tone={s.tone} data-count={count > 1 ? count : undefined}>
     {empty ? <span className="bk-status-indicator-slot" aria-hidden="true" /> : <button
