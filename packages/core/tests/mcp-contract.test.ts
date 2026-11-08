@@ -397,7 +397,7 @@ describe("brain_list paged discovery", () => {
     expect(JSON.parse(cli.stdout)).toEqual(res.structuredContent as Page);
     const { pageIndexDocuments } = await import("../src/queries/index");
     const query = pageIndexDocuments({ brainPath: root, pathPrefix: "projects", overview: true, limit: 3 });
-    expect(query.ok && query.value).toEqual(res.structuredContent as Page);
+    expect(query.ok ? (query.value as unknown) : query).toEqual(res.structuredContent);
   });
 
   test("an invalid cursor, another listing's cursor and an escaping prefix are tool errors", async () => {
