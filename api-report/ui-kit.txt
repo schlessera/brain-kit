@@ -78,6 +78,8 @@ export "." (./src/index.ts)
   type ContactFact
   type ContactKind
   type ContactTone
+  ConversationEndDivider
+  CutOffTag
   DataTable
   type DataTableCell
   type DataTableColumn
@@ -169,6 +171,9 @@ export "." (./src/index.ts)
   type MessageRole
   Meter
   type MeterProps
+  MicButton
+  type MicButtonProps
+  type MicPhase
   ModelPicker
   type ModelPickerProps
   type NotificationAction
@@ -232,6 +237,15 @@ export "." (./src/index.ts)
   type SessionStripProps
   SideRail
   type SideRailProps
+  type Speaker
+  SpokenMark
+  type SpokenMarkProps
+  SpokenTurn
+  type SpokenTurnProps
+  StartCard
+  type StartCardNotice
+  type StartCardPersona
+  type StartCardProps
   type StatTile
   StatTiles
   type StatTilesProps
@@ -290,8 +304,33 @@ export "." (./src/index.ts)
   type TurnErrorAction
   TurnErrorCard
   type TurnErrorCardProps
+  UncertainWord
+  type UncertainWordProps
+  UnplayedText
+  VOICE_SKINS
   type ValueTone
   type ViewState
+  VoiceControlButton
+  type VoiceControlButtonProps
+  VoiceField
+  type VoiceFieldLabel
+  type VoiceFieldProps
+  type VoiceFieldShape
+  VoiceMeter
+  type VoiceMeterMode
+  type VoiceMeterProps
+  type VoiceMotion
+  VoiceNotice
+  type VoiceNoticeAction
+  type VoiceNoticeProps
+  type VoiceSkin
+  VoiceStateLabel
+  type VoiceStateLabelProps
+  VoiceText
+  type VoiceTextProps
+  type VoiceTone
+  VoiceToolChip
+  type VoiceToolChipProps
   WORKING_STATES
   type WorkingSession
   type WorkingSessionView
@@ -897,6 +936,14 @@ signatures (every public export and the types it is made of)
     export type ContactKind = "person" | "company" | "project";
   ContactTone (packages/ui-kit/src/types.ts)
     export type ContactTone = "teal" | "blue" | "purple" | "amber" | "neutral";
+  ConversationEndDivider (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function ConversationEndDivider({ label }: {
+        label: string;
+    }): import("react").JSX.Element;
+  CutOffTag (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function CutOffTag({ label = "cut off" }: {
+        label?: string;
+    }): import("react").JSX.Element;
   DataAttributes (packages/ui-kit/src/chrome/Overlay.tsx)
     type DataAttributes = {
         [key: `data-${string}`]: string | number | boolean | undefined;
@@ -1278,6 +1325,7 @@ signatures (every public export and the types it is made of)
     const ICONS: {
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "folder-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "mic-off": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly activity: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly add: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly agent: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1322,6 +1370,7 @@ signatures (every public export and the types it is made of)
         readonly history: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly image: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly install: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly interrupt: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly later: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly latest: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ledger: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1349,6 +1398,7 @@ signatures (every public export and the types it is made of)
         readonly send: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly settings: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly share: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly speaker: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly steps: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly stopped: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly suggestion: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1629,6 +1679,28 @@ signatures (every public export and the types it is made of)
         gradient?: boolean;
         labelWidth?: number;
     }
+  MicButton (packages/ui-kit/src/voice/MicButton.tsx)
+    export function MicButton(p: MicButtonProps): import("react").JSX.Element;
+  MicButtonProps (packages/ui-kit/src/voice/MicButton.tsx)
+    export interface MicButtonProps {
+        phase?: MicPhase;
+        progress?: number;
+        hint?: boolean;
+        name?: string;
+        hintLabel?: string;
+        onClick?: () => void;
+        onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onPointerUp?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onPointerLeave?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onPointerCancel?: (event: PointerEvent<HTMLButtonElement>) => void;
+        onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
+        onTalkLive?: () => void;
+        talkLiveLabel?: string;
+        disabled?: boolean;
+        motion?: VoiceMotion;
+    }
+  MicPhase (packages/ui-kit/src/voice/MicButton.tsx)
+    export type MicPhase = "idle" | "pressed" | "holding" | "complete";
   ModelPicker (packages/ui-kit/src/chrome/ModelPicker.tsx)
     export function ModelPicker(p: ModelPickerProps): import("react").JSX.Element;
   ModelPickerProps (packages/ui-kit/src/chrome/ModelPicker.tsx)
@@ -2092,6 +2164,56 @@ signatures (every public export and the types it is made of)
         hint?: string | null;
         width?: number;
     }
+  Speaker (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export type Speaker = "you" | "brain";
+  SpokenMark (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function SpokenMark(p: SpokenMarkProps): import("react").JSX.Element;
+  SpokenMarkProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface SpokenMarkProps {
+        speaker: Speaker;
+    }
+  SpokenTurn (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function SpokenTurn(p: SpokenTurnProps): import("react").JSX.Element;
+  SpokenTurnProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface SpokenTurnProps {
+        speaker: Speaker;
+        inProgress?: boolean;
+        cutOff?: boolean;
+        children?: ReactNode;
+    }
+  StartCard (packages/ui-kit/src/voice/StartCard.tsx)
+    export function StartCard(p: StartCardProps): import("react").JSX.Element;
+  StartCardNotice (packages/ui-kit/src/voice/StartCard.tsx)
+    export interface StartCardNotice {
+        kind: "warn" | "block" | "error";
+        text: string;
+        action?: {
+            label: string;
+            onClick?: () => void;
+        };
+    }
+  StartCardPersona (packages/ui-kit/src/voice/StartCard.tsx)
+    export interface StartCardPersona {
+        id: string;
+        name: string;
+        voice?: string;
+    }
+  StartCardProps (packages/ui-kit/src/voice/StartCard.tsx)
+    export interface StartCardProps {
+        service: string | null;
+        disclosure?: string;
+        shared?: string[];
+        onChangeService?: () => void;
+        showService?: boolean;
+        personas?: StartCardPersona[];
+        selectedPersona?: string;
+        onSelectPersona?: (id: string) => void;
+        notice?: StartCardNotice;
+        onStart?: () => void;
+        onCancel?: () => void;
+        startLabel?: string;
+        motion?: VoiceMotion;
+    }
   StatTile (packages/ui-kit/src/blocks/StatTiles.tsx)
     export interface StatTile {
         label: string;
@@ -2423,10 +2545,127 @@ signatures (every public export and the types it is made of)
         busy?: boolean;
         retryWarning?: boolean;
     }
+  UncertainWord (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function UncertainWord(p: UncertainWordProps): import("react").JSX.Element;
+  UncertainWordProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface UncertainWordProps {
+        children: ReactNode;
+        onClick?: () => void;
+    }
+  UnplayedText (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function UnplayedText({ children }: {
+        children: ReactNode;
+    }): import("react").JSX.Element;
+  VOICE_SKINS (packages/ui-kit/src/voice/tone.ts)
+    const VOICE_SKINS: Readonly<Record<VoiceTone, VoiceSkin>>;
   ValueTone (packages/ui-kit/src/types.ts)
     export type ValueTone = Tone | InkTone;
   ViewState (packages/ui-kit/src/types.ts)
     export type ViewState = "ready" | "loading" | "empty" | "error";
+  VoiceControlButton (packages/ui-kit/src/voice/VoiceControlButton.tsx)
+    export function VoiceControlButton(p: VoiceControlButtonProps): import("react").JSX.Element;
+  VoiceControlButtonProps (packages/ui-kit/src/voice/VoiceControlButton.tsx)
+    export interface VoiceControlButtonProps {
+        name: string;
+        icon: IconName;
+        tone?: "neutral" | "end" | "you" | "brain";
+        pressed?: boolean;
+        disabled?: boolean;
+        busy?: boolean;
+        onClick?: () => void;
+    }
+  VoiceField (packages/ui-kit/src/voice/VoiceField.tsx)
+    export function VoiceField(p: VoiceFieldProps): import("react").JSX.Element;
+  VoiceFieldLabel (packages/ui-kit/src/voice/VoiceField.tsx)
+    export interface VoiceFieldLabel {
+        icon: IconName;
+        word: string;
+        meta?: string;
+        spin?: boolean;
+        live?: "polite" | "assertive";
+    }
+  VoiceFieldProps (packages/ui-kit/src/voice/VoiceField.tsx)
+    export interface VoiceFieldProps {
+        shape?: VoiceFieldShape;
+        tone?: VoiceTone;
+        label?: VoiceFieldLabel;
+        meter?: VoiceMeterMode;
+        level?: number;
+        outline?: boolean;
+        name?: string;
+        children?: ReactNode;
+        trailing?: ReactNode;
+        controls?: ReactNode;
+        motion?: VoiceMotion;
+    }
+  VoiceFieldShape (packages/ui-kit/src/voice/VoiceField.tsx)
+    export type VoiceFieldShape = "compact" | "tall" | "card";
+  VoiceMeter (packages/ui-kit/src/voice/VoiceMeter.tsx)
+    export function VoiceMeter(p: VoiceMeterProps): import("react").JSX.Element | null;
+  VoiceMeterMode (packages/ui-kit/src/voice/VoiceMeter.tsx)
+    export type VoiceMeterMode = "level" | "sweep" | "flat" | "hatch" | "none";
+  VoiceMeterProps (packages/ui-kit/src/voice/VoiceMeter.tsx)
+    export interface VoiceMeterProps {
+        mode?: VoiceMeterMode;
+        level?: number;
+        bars?: number;
+        motion?: VoiceMotion;
+    }
+  VoiceMotion (packages/ui-kit/src/voice/tone.ts)
+    export type VoiceMotion = "auto" | "reduce";
+  VoiceNotice (packages/ui-kit/src/voice/VoiceNotice.tsx)
+    export function VoiceNotice(p: VoiceNoticeProps): import("react").JSX.Element;
+  VoiceNoticeAction (packages/ui-kit/src/voice/VoiceNotice.tsx)
+    export interface VoiceNoticeAction {
+        label: string;
+        onClick?: () => void;
+        tone?: "you" | "brain";
+    }
+  VoiceNoticeProps (packages/ui-kit/src/voice/VoiceNotice.tsx)
+    export interface VoiceNoticeProps {
+        tone?: VoiceTone;
+        icon: IconName;
+        title: string;
+        body?: string;
+        actions?: VoiceNoticeAction[];
+        live?: "polite" | "assertive";
+        motion?: VoiceMotion;
+    }
+  VoiceSkin (packages/ui-kit/src/voice/tone.ts)
+    export interface VoiceSkin {
+        ink: string;
+        tint: string;
+        border: string;
+        bar: string;
+    }
+  VoiceStateLabel (packages/ui-kit/src/voice/VoiceStateLabel.tsx)
+    export function VoiceStateLabel(p: VoiceStateLabelProps): import("react").JSX.Element;
+  VoiceStateLabelProps (packages/ui-kit/src/voice/VoiceStateLabel.tsx)
+    export interface VoiceStateLabelProps {
+        icon: IconName;
+        word: string;
+        meta?: string;
+        spin?: boolean;
+        live?: "polite" | "assertive";
+    }
+  VoiceText (packages/ui-kit/src/voice/VoiceField.tsx)
+    export function VoiceText(p: VoiceTextProps): import("react").JSX.Element;
+  VoiceTextProps (packages/ui-kit/src/voice/VoiceField.tsx)
+    export interface VoiceTextProps {
+        text?: string;
+        partial?: string;
+        placeholder?: string;
+        children?: ReactNode;
+    }
+  VoiceTone (packages/ui-kit/src/voice/tone.ts)
+    export type VoiceTone = "you" | "brain" | "idle" | "fail";
+  VoiceToolChip (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export function VoiceToolChip(p: VoiceToolChipProps): import("react").JSX.Element;
+  VoiceToolChipProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export interface VoiceToolChipProps {
+        label: string;
+        state?: "running" | "done";
+    }
   WEB_APP_COLORS (packages/ui-kit/src/brand.ts)
     const WEB_APP_COLORS: {
         readonly background_color: "#0c1417";
