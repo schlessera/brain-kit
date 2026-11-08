@@ -2005,6 +2005,15 @@ The SDK publishes `ATTACHMENT_READS_CAPABILITY`, `AttachmentReadEntry`,
 `serverAttachmentReadSchema` and `sessionAttachmentReadsResponseSchema`
 schemas; `serverMessageSchema` accepts the new frame.
 
+**The first-party client declares it (0.45.0, #3155).** `BrainUiClient`'s
+`client_hello` declares `attachmentReads: true`, so a consumer of the SDK
+client can receive `attachment_read` frames; `serverMessageSchema` already
+parses them, and a consumer that ignores unknown frame types is unaffected.
+`@schlessera/brain-ui-react` reads a session's records when its view opens and
+after each hello, appends each frame, and derives a sent row's read state only
+from those records. Until a session's records arrive, a sent row claims neither
+"read" nor "not read yet".
+
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ### Explicit chat deletion (additive, #3230)
