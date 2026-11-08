@@ -1,6 +1,7 @@
 // Render test for a replayed message's source (#549): a user message the
-// host replays with `source: "voice-dictate"` keeps its dictation badge, and
-// one replayed without a source renders as typed. The frame goes through the
+// host replays with `source: "voice-dictate"` keeps its spoken mark (#3700:
+// the kit's inline amber mic), and one replayed without a source renders as
+// typed, with no mark. The frame goes through the
 // real client handler into the store, and the stored message is rendered by
 // the component the transcript uses. Queries come from `render()`, never
 // `screen` — see tests/render/dom.ts for why.
@@ -54,19 +55,21 @@ function replayAndRender(messages: SessionHistoryMessage[]) {
 }
 
 describe("a replayed user message keeps its source", () => {
-  test("a dictated message shows the dictation badge after replay", () => {
+  test("a dictated message shows the spoken mark after replay", () => {
     const [dictated] = replayAndRender([
       { role: "user", content: "Buy oat milk", toolCalls: [], source: "voice-dictate" },
       { role: "assistant", content: "Added.", toolCalls: [] },
     ]);
     expect(dictated!.container.textContent).toContain("Buy oat milk");
-    expect(dictated!.getByRole("img", { name: "Voice dictation" })).toBeTruthy();
+    expect(dictated!.getByRole("img", { name: "Spoken by you" })).toBeTruthy();
+    expect(dictated!.container.querySelectorAll(".bk-spoken-mark"), "one mark, inline in the turn").toHaveLength(1);
   });
 
   test("a message replayed without a source renders as typed, with no badge", () => {
     const [typed] = replayAndRender([{ role: "user", content: "Buy oat milk", toolCalls: [] }]);
     expect(typed!.container.textContent).toContain("Buy oat milk");
-    expect(typed!.queryByRole("img", { name: /^Voice/ })).toBeNull();
+    expect(typed!.queryByRole("img", { name: /^Spoken by/ })).toBeNull();
+    expect(typed!.container.querySelector(".bk-spoken-turn"), "a legacy turn is a plain bubble").toBeNull();
     expect(useChatStore.getState().buffers["s1"]!.messages[0]!.source).toBe("typed");
   });
 });

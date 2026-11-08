@@ -589,7 +589,12 @@ test("cold restored speech explicitly has unknown original discussion position",
   s.client.enter(); s.client.start();
   s.deliver({...PROFILE,resync:{work:0,outputs:1},requestId:String(s.socket.frames("conversation_start").at(-1)!.requestId)});
   s.deliver({ type: "conversation_output", conversationId: PROFILE.conversationId, epoch: 1, outputId: "historical-voyage", generated: "An earlier voyage reply.", playback: "unknown" });
-  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("Original discussion position unknown");
+  await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("An earlier voyage reply.");
+  // #3700: the unknown position is evidence in the details, not a diagnostic line in the chat.
+  expect(s.host.querySelector("[data-conversation-output]")!.textContent).not.toContain("Original discussion position unknown");
+  await userEvent.click(s.host.querySelector<HTMLButtonElement>('[data-conversation-output] [data-transcript-qualifiers="generated"]')!);
+  await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Original discussion position unknown");
+  await userEvent.keyboard("{Escape}");
   expect(s.client.state.getState().micOn).toBe(false);
 });
 
@@ -1064,7 +1069,7 @@ test("bounded recognition eviction and replacement never fabricate cold-reload d
   await expect.poll(() => s.host.textContent).toContain("Voice reconnected");
   expect(s.client.state.getState().recognition.at(-1)).toMatchObject({ epoch: 2, sequence: 0, text: "A new voyage." });
   s.client.leave();
-  await expect.poll(() => s.host.textContent).toContain("Voice ended");
+  await expect.poll(() => s.host.querySelector('[role="separator"]')?.getAttribute("aria-label")).toMatch(/^Live conversation ended: Live/);
   s.ui.stores.chat.getState().setActiveSession("pylos-watch");
   s.client.enter();
   expect(s.client.state.getState().recognition).toEqual([]);

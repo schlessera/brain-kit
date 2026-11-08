@@ -7,7 +7,9 @@ import type { ConversationClientState, ConversationClientOutput, ConversationRec
 export type TranscriptEntry =
   | { key: string; sessionId: string | null; kind: "message"; message: ChatMessage; index: number; section: "whole" | "progress" | "answer"; start?: number; end?: number }
   | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput; restored: boolean }
-  | { key: string; sessionId: string | null; kind: "voice-boundary"; conversationId: string; epoch: number; label: "Voice ended" | "Voice reconnected" }
+  | { key: string; sessionId: string | null; kind: "voice-boundary"; conversationId: string; epoch: number; label: "Voice ended" | "Voice reconnected";
+      /** Locally observed, from this client first seeing the conversation open to its end. Absent when the open was not observed. */
+      durationMs?: number }
   | {key:string;sessionId:string|null;kind:"history-notice";label:string}
   | { key: string; sessionId: string | null; kind: "recognition"; fragments: ConversationRecognition[] };
 
@@ -41,6 +43,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     return positions.get(key)!.arrival;
   };
   const boundaries = new Map<string, Extract<TranscriptEntry, { kind: "voice-boundary" }>>();
+  const opened = new Map<string, number>();
   const split = new Set<string>();
   const runs = new Map<string, Array<{ key: string; start: number; end: number }>>();
   const textBefore = new Map<string, string>();
@@ -284,16 +287,20 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     if (next.buffers !== old.buffers || next.draft !== old.draft || next.detachedDrafts !== old.detachedDrafts) sync();
   });
   const stopVoice = voice.subscribe((next, old) => {
+    if (next.active && next.profile && !opened.has(next.profile.conversationId)) opened.set(next.profile.conversationId, Date.now());
     if (old.profile && old.active && (!next.active || next.profile && next.profile.conversationId === old.profile.conversationId && next.profile.epoch > old.profile.epoch)) {
       const reconnect = next.active && next.profile;
       const profile = reconnect || old.profile;
       const key = JSON.stringify(["voice-boundary", profile.conversationId, profile.epoch, sequence]);
       position(key); latest.set(next.sessionId, key);
-      boundaries.set(key, { kind: "voice-boundary", key, sessionId: next.sessionId, conversationId: profile.conversationId, epoch: profile.epoch, label: reconnect ? "Voice reconnected" : "Voice ended" });
+      const start = opened.get(profile.conversationId);
+      if (!reconnect) opened.delete(profile.conversationId);
+      boundaries.set(key, { kind: "voice-boundary", key, sessionId: next.sessionId, conversationId: profile.conversationId, epoch: profile.epoch, label: reconnect ? "Voice reconnected" : "Voice ended",
+        ...(!reconnect && start !== undefined ? { durationMs: Math.max(0, Date.now() - start) } : {}) });
     }
     if (next.profile !== old.profile || next.recognition !== old.recognition || next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId || next.dialogue !== old.dialogue) sync(); });
   sync();
-  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); boundaries.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
+  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); boundaries.clear(); opened.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
 }
 
 /** Data-only display projections. Text ordinals stay intact for classified blocks. */
