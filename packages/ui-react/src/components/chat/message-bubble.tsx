@@ -114,6 +114,8 @@ export const MessageBubble = memo(function MessageBubble({
 }) {
   const root = useBrainUiRoot();
   const isUser = message.role === "user";
+  // Dictated or reviewed voice text came in by voice; its source survives replay.
+  const spoken = isUser && (message.source === "voice-dictate" || message.source === "voice-conversation");
   const reducedMotion = useReducedMotion();
   const shellStartedAt = useShellStartedAt(message);
 
@@ -128,7 +130,6 @@ export const MessageBubble = memo(function MessageBubble({
       <TurnHeader
         who={isUser ? message.source === "voice-context" ? "Conversation task" : "You" : root.config.assistantName}
         when={message.turnShell ? (shellStartedAt !== null ? formatTime(shellStartedAt) : undefined) : formatTime(message.timestamp)}
-        voice={isUser && (message.source === "voice-dictate" || message.source === "voice-conversation") ? message.source : undefined}
         effort={isUser && message.thinkingLevel !== undefined ? (
           message.effectiveThinkingLevel === undefined ? `effort ${message.thinkingLevel} requested` :
           message.effectiveThinkingLevel === message.thinkingLevel ? `effort ${message.thinkingLevel}` :
@@ -143,11 +144,12 @@ export const MessageBubble = memo(function MessageBubble({
       ) : isUser && message.source === "voice-context" ? (
         taskContext ?? <ConversationTaskContext message={message} />
       ) : isUser ? (
-        <UserTurn>
+        <UserTurn spoken={spoken}>
+          {spoken && message.content && <span className="chat-message-body whitespace-pre-wrap">{linkifyPaths(message.content)}</span>}
           <UserAttachments message={message} />
           {!!message.files?.length && <div className="grid gap-2">{message.files.map(file => <AttachmentRow key={file.path} {...trackRowProps(file)} />)}</div>}
           {!!message.attachmentFiles?.length && <div className="grid gap-2" data-sent-files="">{message.attachmentFiles.map(file => <AttachmentRow key={file.fileId} {...attachmentRowProps(file)} />)}</div>}
-          {message.content && (
+          {!spoken && message.content && (
             <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}
             </div>

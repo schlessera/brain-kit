@@ -1,12 +1,12 @@
 import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
-import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
+import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { TranscriptReadingScope } from "@schlessera/brain-ui-kit/internal";
-import { Button } from "@schlessera/brain-ui-kit";
+import { Button, ConversationEndDivider } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
@@ -760,7 +760,9 @@ export function ChatPage() {
                   {visibleEntries.map((entry) => {
                     if (entry.kind === "history-notice") return <p key={entry.key} className="py-3 text-sm">{entry.label}</p>;
                     if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} />;
-                    if (entry.kind === "voice-boundary") return <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
+                    if (entry.kind === "voice-boundary") return entry.label === "Voice ended"
+                      ? <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationEndDivider label={conversationEndLabel(entry.durationMs)} /></div>
+                      : <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
                     if (entry.kind === "recognition") {
                       const first = entry.fragments[0]!;
                       const preceding = entries.slice(0, entries.indexOf(entry)).filter(e => e.kind === "recognition").flatMap(e => e.kind === "recognition" ? e.fragments : []);
