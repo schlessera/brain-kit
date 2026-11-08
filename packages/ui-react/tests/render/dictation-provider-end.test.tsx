@@ -598,3 +598,38 @@ test("cancelled and superseded session fetches never create startup notices", as
   expect(voice(root).dictationNotice, "cancelled start is quiet").toBeNull();
   expect(FakeRecognition.all.length).toBe(0);
 });
+
+// A client whose Done fails part-way (Gemini's abnormal close or socket error
+// while it drains) reports the failure, then resolves its drain. The Done
+// still hands the words to review, and the failure survives it as the notice.
+for (const words of [true, false]) test(`an error reported while Done drains survives the Done as the ended notice (${words ? "words retained" : "empty"})`, async () => {
+  const session: VoiceSessionResponse = { providerId: "drain-fails", url: "wss://speech.invalid/v1/listen", token: "odysseus-grant", expiresAt: Date.now() + 60_000, capabilities };
+  const root = createBrainUiRoot({ storage: null, request: async (input) => {
+    const path = new URL(input, "http://localhost").pathname;
+    if (path === "/api/voice/session") return Response.json(session);
+    if (path === "/api/voice/overrides") return Response.json({ overrides: [] });
+    if (path === "/api/status") return Response.json({ contentRenderers: [] });
+    throw new Error(`Unexpected dictation fixture request: ${path}`);
+  } });
+  roots.push(root);
+  let options!: Parameters<Parameters<BrainUiRoot["asr"]["register"]>[1]>[0];
+  let settle!: () => void;
+  root.asr.register("drain-fails", (opts) => {
+    options = opts;
+    return { start: async () => {}, stop() {}, drainAndStop: () => new Promise<void>((resolve) => { settle = resolve; }) };
+  });
+  const { dictation } = await mount(root);
+  await listen(root, dictation);
+  if (words) act(() => options.onEvent({ type: "final", text: "Ask Nestor", endsTurn: false }));
+  let done!: Promise<void>;
+  act(() => { done = dictation.result.current.stop(); });
+  expect(voice(root).draining).toBe(true);
+  await act(async () => {
+    options.onError(Object.assign(new Error("Gemini session closed"), { code: "network" }));
+    settle();
+    await done;
+  });
+  expect(voice(root).mode).toBe("idle");
+  expect(voice(root).reviewText).toBe(words ? "Ask Nestor" : "");
+  expect(voice(root).dictationNotice, "DONE_DRAIN_FAILURE_NOTICE").toEqual({ reason: "network", phase: "ended", retained: words });
+});
