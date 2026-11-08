@@ -1,0 +1,6 @@
+---
+"@schlessera/brain": minor
+"@schlessera/brain-backend-pi": minor
+---
+
+Paged document discovery with an overview projection (#3643). `brain list --path-prefix <path> --overview --cursor <cursor>`, `brain_list`'s new `path_prefix`, `overview` and `cursor` inputs (MCP and pi) and the new `pageIndexDocuments` query in `@schlessera/brain/queries` return one bounded page, `{ documents, next_cursor, total, truncated?, warnings }`. Rows come newest `updated` first and then by path, and `next_cursor` enumerates a scope of any size without duplicates while the index is unchanged. A cursor carried across an index change continues, with a warning. Each page fits 30,000 UTF-8 bytes of compact JSON, and only whole rows go in. A row too large to fit has its summary shortened and lists the shortened fields in `clipped`. `path_prefix` matches whole path segments. `overview` adds `summary`, `updated` (the frontmatter date, not file or project activity), `deadline`, `indexed_at` and `indexed_body_bytes` (the UTF-8 size of the indexed body without frontmatter, not the file size). It also warns when a listed source changed after indexing or is missing. Pi's `brain_search` gains `overview`, which shows each result's status, dates and summary within its output budget. Calls without the new inputs return exactly what they returned before.

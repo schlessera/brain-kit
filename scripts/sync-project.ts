@@ -74,7 +74,7 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
     also: [46, 47, 48, 88, 93, 541, 543],
     repo: "schlessera/brain-kit",
   }],
-  "Answer quality": [{ epics: [363, 364, 365, 838, 1603, 3103, 3150, 3157], also: [50], repo: "schlessera/brain-kit" }],
+  "Answer quality": [{ epics: [363, 364, 365, 838, 1603, 3103, 3150, 3157, 3640], also: [50], repo: "schlessera/brain-kit" }],
   Modules: [{ epics: [32, 524, 731, 732, 733, 1100, 2079], also: [59, 60, 1393], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
   Voice: [{ epics: [54, 3705], also: [91], repo: "schlessera/brain-kit" }],
