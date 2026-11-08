@@ -374,8 +374,10 @@ Repository features, as the transport handles them:
 | Repack and GC | `gc.auto = 0` in every reference repository, so nothing repacks automatically. A manual repack loses extent sharing with the source. |
 | Retained owners | Simple quotas charge shared extents to their first owner. A snapshot's inherited extents stay charged to the source root until both are deleted and the space is observed reclaimed. |
 
-The thresholds are structural ratios that a full copy or an avoidable
-checkout would break. They are not promises of zero metadata cost.
+The assertions combine structural ratios, which a full copy or an avoidable
+checkout would break, with absolute tolerances in `EFFICIENCY_TOLERANCES`.
+The tolerances were set from the first hosted baseline, with its measured values
+beside each. They bound growth; they are not promises of zero metadata cost.
 
 ### Integrated app proof
 

@@ -28,6 +28,28 @@ const MIB = 1024 ** 2;
 /** Generated workload: 40 books of 50 short lines, three 2 MiB charts, then one changed commit. */
 export const EFFICIENCY_WORKLOAD = Object.freeze({ books: 40, lines: 50, charts: 3, chartBytes: 2 * MIB, changedLines: 50, addedChartBytes: 2 * MIB });
 
+/**
+ * Regression tolerances, set from the first hosted baseline (heavy feedback run
+ * 42475041809 at 59caf001: kernel 7.0.0-1017-azure, btrfs-progs 6.6.3, Git 2.43.0,
+ * Bun 1.4.2) with headroom for runner variance. Measured values are in comments.
+ * They bound metadata growth; none of them is a promise of zero metadata cost.
+ */
+export const EFFICIENCY_TOLERANCES = Object.freeze({
+  /** Repeat read and unchanged refresh: measured 0. */
+  reuseBytes: 256 * 1024,
+  /** Two worktrees from one source, pool-wide: measured 229,376. */
+  worktreePairBytes: 1 * MIB,
+  /** Changed refresh, pool-wide: measured 6,787,072 for 2 MiB added and 50 files changed. */
+  changedRefreshBytes: 10 * MIB,
+  /** Concurrent refresh of one changed file, pool-wide: measured 421,888. */
+  concurrentRefreshBytes: 2 * MIB,
+  /** Same-filesystem reflink copy, census exclusive: measured 0. */
+  reflinkBytes: 256 * 1024,
+  /** Cold acquisition elapsed: measured 1,265 ms. Concurrent refresh: measured 4,688 ms. */
+  coldMs: 15_000, concurrentMs: 30_000,
+});
+const T = EFFICIENCY_TOLERANCES;
+
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 export interface EfficiencyContext {
   client: Client;
@@ -143,7 +165,8 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     const reread = await measure("repeat-read", warmMs);
     expect({ root: warm.rootId, roots: await sourceRoots() }, "REFERENCE_EFFICIENCY_REPEAT_READ_REUSES_ROOT").toEqual({ root: cold.rootId, roots: [cold.rootId] });
     expect(warmMs, "REFERENCE_EFFICIENCY_REPEAT_READ_FASTER_THAN_COLD").toBeLessThan(coldMs);
-    expect(reread.chargedBytes - acquired.chargedBytes, "REFERENCE_EFFICIENCY_REPEAT_READ_ALLOCATES_NOTHING").toBeLessThanOrEqual(256 * 1024);
+    expect(coldMs, "REFERENCE_EFFICIENCY_COLD_ELAPSED").toBeLessThanOrEqual(T.coldMs);
+    expect(reread.chargedBytes - acquired.chargedBytes, "REFERENCE_EFFICIENCY_REPEAT_READ_ALLOCATES_NOTHING").toBeLessThanOrEqual(T.reuseBytes);
 
     // Unchanged refresh after the window: validated in place, no new root.
     advance();
@@ -151,7 +174,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     const validated = await measure("unchanged-refresh", unchangedMs);
     expect({ root: unchanged.rootId, roots: await sourceRoots(), refreshed: unchanged.refreshedAt > cold.refreshedAt }, "REFERENCE_EFFICIENCY_UNCHANGED_REFRESH_IN_PLACE")
       .toEqual({ root: cold.rootId, roots: [cold.rootId], refreshed: true });
-    expect(validated.chargedBytes - acquired.chargedBytes, "REFERENCE_EFFICIENCY_UNCHANGED_REFRESH_ALLOCATES_NOTHING").toBeLessThanOrEqual(256 * 1024);
+    expect(validated.chargedBytes - acquired.chargedBytes, "REFERENCE_EFFICIENCY_UNCHANGED_REFRESH_ALLOCATES_NOTHING").toBeLessThanOrEqual(T.reuseBytes);
 
     // Two managed worktrees snapshot the one source: they share its extents and charge almost nothing.
     const [first, firstMs] = await timed(() => worktrees.allocate({ principalId: penelope.id, repository, revision: "main" }));
@@ -164,6 +187,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
       .toEqual({ first: cold.commit, second: cold.commit, sources: [cold.rootId] });
     // An independent full copy of each worktree would add at least the source's charge twice.
     expect(worktreeGrowth, "REFERENCE_EFFICIENCY_WORKTREES_SHARE_SOURCE").toBeLessThan(coldOwner / 10);
+    expect(worktreeGrowth, "REFERENCE_EFFICIENCY_WORKTREES_WITHIN_TOLERANCE").toBeLessThanOrEqual(T.worktreePairBytes);
     for (const path of [firstPath, secondPath]) expect(exclusive(allocated, path), "REFERENCE_EFFICIENCY_WORKTREE_EXCLUSIVE_SMALL").toBeLessThan(coldOwner / 10);
     const shared = allocated.census.find(entry => entry.path === firstPath)!;
     expect(shared.exclusive, "REFERENCE_EFFICIENCY_WORKTREE_EXTENTS_SHARED").toBeLessThan(shared.total / 10);
@@ -217,7 +241,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     // The new chart is stored once as a Git object and once checked out; nothing inherited is copied.
     expect(refreshOwner, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_CHARGES_NEW_DATA").toBeGreaterThanOrEqual(2 * W.addedChartBytes);
     expect(refreshOwner, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_NOT_A_RECLONE").toBeLessThan(coldOwner / 2);
-    expect(refreshed.chargedBytes - parked.chargedBytes, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_GROWTH_BOUNDED").toBeLessThan(coldOwner / 2 + 2 * W.addedChartBytes);
+    expect(refreshed.chargedBytes - parked.chargedBytes, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_GROWTH_BOUNDED").toBeLessThanOrEqual(T.changedRefreshBytes);
 
     // Concurrent readers during one refresh join it: exactly one new root, every reader on it.
     writeFileSync(join(work, "odyssey", "book-2", "line-0.md"), "Ithaca log: book 2, line 0, the Phaeacians listen.\n");
@@ -230,7 +254,8 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     const joined = await measure("concurrent-refresh", concurrentMs, [], { peakPendingBytes: peak });
     const added = (await sourceRoots()).filter(id => !before.includes(id));
     expect({ added: added.length, readers: new Set(readers.map(lease => lease.rootId)).size }, "REFERENCE_EFFICIENCY_CONCURRENT_REFRESH_ONE_ROOT").toEqual({ added: 1, readers: 1 });
-    expect(joined.chargedBytes - refreshed.chargedBytes, "REFERENCE_EFFICIENCY_CONCURRENT_REFRESH_SMALL").toBeLessThan(coldOwner / 10);
+    expect(joined.chargedBytes - refreshed.chargedBytes, "REFERENCE_EFFICIENCY_CONCURRENT_REFRESH_SMALL").toBeLessThanOrEqual(T.concurrentRefreshBytes);
+    expect(concurrentMs, "REFERENCE_EFFICIENCY_CONCURRENT_REFRESH_ELAPSED").toBeLessThanOrEqual(T.concurrentMs);
 
     // Copy paths: a same-filesystem reflink shares extents; a full copy and a cross-filesystem copy do not.
     const current = await pathOf(readers[0]!.rootId);
@@ -248,7 +273,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     const reflinkOwner = exclusive(copies, reflinked.path!), copyOwner = exclusive(copies, copied.path!);
     report.findings.copyPaths = { basis: "census exclusive bytes", reflinkOwner, copyOwner, crossFilesystemAllocated: acrossBytes };
     expect(copyOwner, "REFERENCE_EFFICIENCY_FULL_COPY_CHARGES_DATA").toBeGreaterThanOrEqual(W.charts * W.chartBytes + W.addedChartBytes);
-    expect(reflinkOwner, "REFERENCE_EFFICIENCY_REFLINK_SHARES_DATA").toBeLessThan(copyOwner / 4);
+    expect(reflinkOwner, "REFERENCE_EFFICIENCY_REFLINK_SHARES_DATA").toBeLessThanOrEqual(T.reflinkBytes);
     expect(copies.chargedBytes - copyBase.chargedBytes, "REFERENCE_EFFICIENCY_COPY_PATHS_GROWTH").toBeGreaterThanOrEqual(copyOwner);
     expect({ reflink: crossReflink.exitCode !== 0, fallbackFull: acrossBytes >= W.charts * W.chartBytes }, "REFERENCE_EFFICIENCY_CROSS_FILESYSTEM_COPIES").toEqual({ reflink: true, fallbackFull: true });
     rmSync(across, { recursive: true, force: true });
