@@ -366,6 +366,47 @@ Pass `announce={false}` to `InlineToast` when a containing live region combines
 the receipt with other feedback. `AskUserFormCard` uses this for one announcement
 of branch reveals, hidden nodes, answers set aside and the remaining count.
 
+## Voice surface
+
+One mic and one field cover dictation and live conversation (#3692). The
+components only present; the consumer maps its own dictation or conversation
+state onto them and owns every timer, permission and connection.
+
+- `VoiceField` is the surface that replaces the composer. `compact` keeps the
+  composer's 52px at rest and one fixed 84px while a state label shows (D3–D5).
+  `tall` is one fixed 136px for live states L1–L8. `card` grows to its content,
+  for the Start card and notices.
+- `tone` picks from one colour language: `you` (amber, you and your mic),
+  `brain` (teal, brain and its voice), `idle` (grey, nothing is heard) and
+  `fail` (red, only End and failures). `VOICE_SKINS` names the
+  `--bk-voice-*` tokens behind it.
+- `meter` shows the `level` prop (0–1) as bars, a `sweep` (thinking/working), a
+  `flat` line (muted) or a paused `hatch` (reconnecting). The words and the
+  state label sit on the field's opaque ground, so the meter never lowers text
+  contrast.
+- `MicButton` draws `idle`, `pressed`, `holding` (the ring from `progress`) and
+  `complete`, plus the "Keep holding to talk live" hint. It hands every pointer
+  and key event to the caller, which owns the hold threshold. `onTalkLive` adds
+  a "Talk live…" button that stays out of sight until it takes keyboard focus.
+- `VoiceControlButton` is a raised 44px round control with pressed (solid),
+  disabled and busy forms. `tone="end"` is the only red one.
+- `VoiceNotice` is a card with an icon, a title, one line and at most two
+  actions.
+- `StartCard` holds the disclosure line, "What's shared", the Service row (with
+  Change only when `onChangeService` is passed), the persona radio group, the
+  `warn`/`block`/`error` notices and one Start button. A `block` or `error`
+  notice, or `service={null}`, leaves Start `aria-disabled`.
+- `SpokenTurn`, `SpokenMark`, `UncertainWord`, `UnplayedText`, `CutOffTag`,
+  `VoiceToolChip` and `ConversationEndDivider` are the chat's spoken-turn marks.
+  A typed or legacy turn stays a plain `MessageBubble`.
+
+`motion="reduce"` (or an ancestor with `data-motion="reduce"`) forces the
+static form that `prefers-reduced-motion: reduce` produces: a still level line,
+a flat tint for the sweep, a solid cursor, no turning icons, a ring without
+easing and instant shape changes. Every state keeps its icon and its word.
+Stories live under `Voice/` and `Screens/Voice`. Per-state baselines are in
+`tests/visual/voice.visual.tsx`.
+
 ## Dictating composer state
 
 `Composer` accepts `state="dictating"` to preserve a read-only draft and

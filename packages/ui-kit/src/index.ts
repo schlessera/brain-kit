@@ -236,6 +236,31 @@ export {
 /* Chrome — the frame a screen is assembled inside. */
 export { BottomSheet, type BottomSheetProps } from "./chrome/BottomSheet.js";
 export { DiscButton, DiscRow, type DiscButtonProps, type DiscRowProps } from "./chrome/DiscButton.js";
+
+/* The voice surface (#3692): one mic, one field, one colour language for
+ * dictation and live conversation. Presentational; ui-react wires the state. */
+export { VOICE_SKINS, type VoiceMotion, type VoiceSkin, type VoiceTone } from "./voice/tone.js";
+export { VoiceMeter, type VoiceMeterMode, type VoiceMeterProps } from "./voice/VoiceMeter.js";
+export { VoiceStateLabel, type VoiceStateLabelProps } from "./voice/VoiceStateLabel.js";
+export { VoiceControlButton, type VoiceControlButtonProps } from "./voice/VoiceControlButton.js";
+export { VoiceField, VoiceText, type VoiceFieldLabel, type VoiceFieldProps, type VoiceFieldShape, type VoiceTextProps } from "./voice/VoiceField.js";
+export { MicButton, type MicButtonProps, type MicPhase } from "./voice/MicButton.js";
+export { VoiceNotice, type VoiceNoticeAction, type VoiceNoticeProps } from "./voice/VoiceNotice.js";
+export { StartCard, type StartCardNotice, type StartCardPersona, type StartCardProps } from "./voice/StartCard.js";
+export {
+  ConversationEndDivider,
+  CutOffTag,
+  SpokenMark,
+  SpokenTurn,
+  UncertainWord,
+  UnplayedText,
+  VoiceToolChip,
+  type Speaker,
+  type SpokenMarkProps,
+  type SpokenTurnProps,
+  type UncertainWordProps,
+  type VoiceToolChipProps,
+} from "./voice/SpokenTurn.js";
 export { Composer, type ComposerProps, type ComposerRecall, type ComposerState } from "./chrome/Composer.js";
 export { ComposerRow, type ComposerRowProps } from "./chrome/ComposerRow.js";
 export {
