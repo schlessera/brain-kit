@@ -47,7 +47,7 @@ extraction under your governance policy, not web search.
 | Tool | Kind | structuredContent |
 |---|---|---|
 | `brain_search` | read-only | `{ results, warnings }` — same envelope as the CLI |
-| `brain_context` | read-only | `{ context, warnings }` |
+| `brain_context` | read-only | `{ context, warnings }`; with `include`/`exclude` paths, also `coverage`: what the briefing holds and what it left out ([scoped context](integration-contract/mcp.md#scoped-context-additive-0450-3644)) |
 | `brain_read` | read-only | file text; `section` returns one section, and `max_tokens` returns the frontmatter and an outline when the file is larger. `max_tokens` is a threshold, not a cap on the output |
 | `brain_list` | read-only | `{ documents, warnings }` |
 | `brain_graph` | read-only | `{ edges, nodes, warnings }` — the wiki-link graph, and the title, type, summary and date of each document in it |

@@ -45,3 +45,22 @@ export function enumFlag<const T extends string>(flags: Flags, name: string, val
   }
   return raw as T;
 }
+
+/**
+ * Every value of a repeatable flag, in order, read from the raw arguments
+ * (`parseArgs` keeps only the last). Arguments after a bare `--` are
+ * positional and never read as flags. A flag given without a value is a
+ * usage error.
+ */
+export function repeatedFlag(argv: readonly string[], name: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--") break;
+    if (argv[i] !== `--${name}`) continue;
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) throw new UsageError(`--${name} needs a value`);
+    values.push(value);
+    i++;
+  }
+  return values;
+}

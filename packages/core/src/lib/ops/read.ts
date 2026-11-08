@@ -10,7 +10,8 @@ import { readFileSync } from "fs";
 import { z } from "zod";
 
 import type { BrainContext } from "../context.js";
-import { assembleContext } from "../context-assembler.js";
+import { assembleContext, emptyContextCoverage, type ContextCoverage } from "../context-assembler.js";
+import { MAX_SCOPE_ENTRIES, MAX_SCOPE_ENTRY_LENGTH } from "../context-scope.js";
 import { readDocumentPart } from "../document-parts.js";
 import { rerankSetup } from "../registry.js";
 import { safeResolve } from "../safe-path.js";
@@ -104,19 +105,54 @@ export async function searchDocuments(
   };
 }
 
+/**
+ * One of `brain_context`'s scope lists as its input schema: at most
+ * {@link MAX_SCOPE_ENTRIES} paths of 1 to {@link MAX_SCOPE_ENTRY_LENGTH}
+ * characters. The entry rules (`scopeEntryError`) run in the assembler, so
+ * every surface refuses the same entries with the same message.
+ */
+export const contextScopeListSchema = z.array(z.string().min(1).max(MAX_SCOPE_ENTRY_LENGTH)).max(MAX_SCOPE_ENTRIES);
+
+/** A scoped briefing's coverage, as `brain_context` declares it in its output schema. */
+export const contextCoverageSchema = z.object({
+  exhaustive: z.literal(false),
+  include: z.array(z.string()).nullable(),
+  exclude: z.array(z.string()),
+  excerpts: z.array(
+    z.object({
+      path: z.string(),
+      lane: z.enum(["identity", "focus", "search", "related"]),
+      form: z.enum(["whole", "cut", "section", "snippet", "summary"]),
+    })
+  ),
+  omitted: z.array(z.object({ path: z.string(), reason: z.enum(["budget", "unavailable", "not_ranked", "excluded"]) })),
+  omittedMore: z.number().int().min(0),
+  budgetExhausted: z.boolean(),
+}) satisfies z.ZodType<ContextCoverage>;
+
 export interface ContextInput {
   query: string;
   maxTokens: number;
   includeIdentity: boolean;
   includeCurrentFocus: boolean;
+  /** Paths the briefing may draw on (#3644); absent or empty, every path not excluded. */
+  include?: readonly string[];
+  /** Paths the briefing never draws on; an exclusion wins over an inclusion. */
+  exclude?: readonly string[];
 }
 
-/** A topic briefing within a token budget. `warnings` reports a degraded lane or a reranker that did not run. */
+/**
+ * A topic briefing within a token budget. `warnings` reports a degraded lane
+ * or a reranker that did not run. `coverage` is present only when the input
+ * carries a path scope: what the briefing holds and what it left out.
+ */
 export async function contextBriefing(
   deps: ReadDeps & { brain: BrainContext },
   input: ContextInput
-): Promise<{ context: string; warnings: string[] }> {
+): Promise<{ context: string; warnings: string[]; coverage?: ContextCoverage }> {
   const warnings: string[] = [];
+  const scoped = (input.include?.length ?? 0) > 0 || (input.exclude?.length ?? 0) > 0;
+  const coverage = scoped ? emptyContextCoverage() : undefined;
   const context = await assembleContext(deps.db, deps.brain, {
     query: input.query,
     maxTokens: input.maxTokens,
@@ -125,8 +161,9 @@ export async function contextBriefing(
     embeddings: deps.embeddings,
     rerank: rerankSetup(deps.brain.config?.reranker),
     warnings,
+    ...(scoped ? { scope: { include: input.include, exclude: input.exclude }, coverage } : {}),
   });
-  return { context, warnings };
+  return coverage ? { context, warnings, coverage } : { context, warnings };
 }
 
 export interface ReadInput {

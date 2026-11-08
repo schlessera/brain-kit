@@ -431,6 +431,24 @@
       "include_current_focus": {
         "default": true,
         "type": "boolean"
+      },
+      "include": {
+        "maxItems": 64,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "exclude": {
+        "maxItems": 64,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
       }
     },
     "required": [
