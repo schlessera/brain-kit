@@ -110,7 +110,7 @@ export function HygieneCard(p: HygieneCardProps) {
           : undefined
       }
     >
-      <div style={{ ...stack, containerType: "inline-size", containerName: "bk-hygiene" }} data-hygiene-card="">
+      <div style={stack} data-hygiene-card="">
         <h3
           tabIndex={-1}
           data-hygiene-title=""

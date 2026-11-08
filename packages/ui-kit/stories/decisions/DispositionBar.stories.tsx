@@ -12,6 +12,9 @@ async function sidesPaired(canvasElement: HTMLElement, canvas: { getByRole: (rol
   const dismiss = box(canvas.getByRole("button", { name: /^Dismiss/ }));
   await expect(Math.round(dismiss.top), "Dismiss shares Later's row").toBe(Math.round(later.top));
   await expect(Math.abs(dismiss.width - later.width), "Later and Dismiss split their row evenly").toBeLessThanOrEqual(1);
+  const bar = box(canvasElement.querySelector<HTMLElement>("[data-disposition-bar]")!);
+  await expect(Math.round(later.left), "the pair starts at the bar's edge").toBe(Math.round(bar.left));
+  await expect(Math.round(dismiss.right), "the pair fills its row").toBe(Math.round(bar.right));
   for (const side of [later, dismiss]) {
     await expect(side.width).toBeGreaterThanOrEqual(96);
     await expect(side.height).toBeGreaterThanOrEqual(44);

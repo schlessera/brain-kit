@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import preview from "#.storybook/preview";
-import { expect, fn } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 import { HygieneCard } from "../../src/decisions/HygieneCard.js";
 import { TextButton } from "../../src/primitives/TextButton.js";
 import { color, font } from "../../src/tokens.js";
@@ -95,6 +95,19 @@ export const BrokenLink = meta.story({
     }
     const [chosen, other] = options.map((option) => getComputedStyle(option).borderTopColor);
     await expect(chosen, "the chosen fix is edged differently").not.toBe(other);
+    // Later and Dismiss always share a row. On a phone that row is under the
+    // commit and they fill it; on a wide card all three share one row.
+    const bar = canvasElement.querySelector<HTMLElement>("[data-disposition-bar]")!.getBoundingClientRect();
+    const commit = within(canvasElement).getByRole("button", { name: /^Apply fix/ }).getBoundingClientRect();
+    const later = within(canvasElement).getByRole("button", { name: /^Later/ }).getBoundingClientRect();
+    const dismiss = within(canvasElement).getByRole("button", { name: /^Dismiss/ }).getBoundingClientRect();
+    await expect(Math.round(dismiss.top), "Dismiss shares Later's row").toBe(Math.round(later.top));
+    if (later.top > commit.top) {
+      await expect(Math.round(later.left), "the pair starts at the bar's edge").toBe(Math.round(bar.left));
+      await expect(Math.round(dismiss.right), "the pair fills its row").toBe(Math.round(bar.right));
+    } else {
+      await expect(commit.width, "on one row the commit takes the slack").toBeGreaterThan(later.width);
+    }
   },
 });
 export const RequiredField = meta.story({
