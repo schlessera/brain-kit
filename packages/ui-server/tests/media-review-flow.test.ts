@@ -9,7 +9,7 @@
  * and the same selection. Offline and keyless.
  */
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ARGUS, CONFIG, CONFIG_TEXT, COUNTED, HARBOUR, HARBOUR_TO, KEPT, LOOM, LOOM_TO, MEDIA_BYTES, NOTE, NOTE_TEXT, PINS, PINS_TEXT, SHIELD, SKETCH,
@@ -50,13 +50,6 @@ function agree(p: Parity, want: Want, selection: "selected" | "kept" = "selected
   for (const path of [...Object.keys(MEDIA_BYTES), "photos/", "inbox/", ".brain/"]) expect(p.sync.report, "MEDIA_FLOW_REPORT_NO_PATH").not.toContain(path);
 }
 
-/** The pending card, which must be the media finding at `path`. */
-async function cardFor(f: MediaFlow, path: string) {
-  const r = await f.until(read => read.action?.status === "pending", "a pending card");
-  expect(r.action.hygiene.finding.path, "MEDIA_FLOW_CARD").toBe(path);
-  expect(r.action.hygiene.finding.category).toBe("media");
-  return r.action;
-}
 /** Wait until the server has finished the decision on `cardId` and settled its next selection. */
 const settled = (f: MediaFlow, cardId: string) => f.until(r => r.action?.id !== cardId && (r.review.status !== "active" || r.action?.status === "pending"), `card ${cardId} settled`);
 /**
