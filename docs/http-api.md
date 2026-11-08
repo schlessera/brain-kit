@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion and individual safety-review routes mounted by `createApp`: 176 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion and individual safety-review routes mounted by `createApp`: 179 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -184,6 +184,9 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
+| GET | `/api/voice/providers` | S | Read registered dictation providers and effective selection; never mint | Authenticated discovery, no-store. |
+| GET | `/api/voice/dictation/settings` | S | Read brain-wide dictation choice, SMART mode and revision | Independent of live conversation settings. |
+| PUT | `/api/voice/dictation/settings` | S | Save dictation choice with If-Match revision | Human owner/ambient only; stale writes never overwrite. |
 | GET | `/api/voice/capabilities` | S | Read active-provider capabilities without minting a credential | Saved-audio discovery and independent clients; additive #1021 contract. |
 | GET | `/api/voice/recordings/:recordingId/transcription` | S | Read an account-owned durable transcription receipt | Saved-audio status recovery; never dispatches a provider. |
 | PUT | `/api/voice/recordings/:recordingId/transcription` | S | Explicitly upload or retry saved audio | Account ownership, verified hash, bounded body and durable claim protect idempotency. |
@@ -209,7 +212,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 176 declared endpoints are mounted regardless of backend, renderer or
+All 179 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -224,7 +227,7 @@ Range. WebSocket upgrade requires an actual GET.
 `ALL /api/*` installs origin policy, configured CORS and authentication.
 With nonempty `ALLOWED_ORIGINS`, CORS middleware answers allowed **OPTIONS
 /api/** preflights with 204 before authentication, advertising GET, POST, PUT,
-DELETE, the `Content-Type`, `If-Match` and `Idempotency-Key` and `Content-SHA256` headers, and credentials. Origin policy runs first; a rejected
+DELETE, the `Content-Type`, `If-Match`, `Idempotency-Key`, `Content-SHA256` and `Speech-Provider` headers, and credentials. Origin policy runs first; a rejected
 origin gets 403. Without that configured middleware there is no universal
 OPTIONS endpoint: authentication/routing decide the response. These are
 transport behaviors, not independently supported OPTIONS resource operations.
@@ -845,7 +848,7 @@ SDK speech-session payloads rather than exposing long-lived provider keys:
 
 | Supported operation | Inputs/defaults | Success | Errors and behavior |
 | --- | --- | --- | --- |
-| POST `/api/voice/session` | No inputs; configured active speech provider, including `createApp({ speechProvider })` | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing, derived savedAudio) | 500 `{ error }` for unavailable provider/minting, invalid provider/session, or explicit provider/value mismatch; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
+| POST `/api/voice/session` | Optional JSON `VoiceSessionRequest` `{ providerId?, smart? }`; absent body uses the effective provider | `VoiceSessionResponse`: providerId, connection url, optional token/params, expiresAt and capabilities (streaming, interimResults, keyterms, endpointing, derived savedAudio) | An explicit unregistered provider gives 409 `speech_provider_unavailable` before minting; malformed/non-object JSON or wrong field types give 400 `voice_session_invalid`. No effective provider or mint/session validation failure gives 500 `{ error }`; no fallback. Keyterms are included only when supported by the provider; browser/local sessions can omit token and use empty URL/zero expiry. |
 | POST `/api/voice/token` | No inputs | `{ token, expiresAt }` | Deprecated Deepgram-specific alias retained for client migration; mints directly with 60-second requested TTL, 500 `{ error }` on failure. |
 | GET `/api/voice/keyterms` | `rebuild=1` forces cache rebuild; all other values read normal cache | `{ keyterms: string[], generatedAt, count }` | 500 `{ error }` on read/build failure, including a missing, corrupt, locked or unreadable index. Without a usable optional `@schlessera/brain` peer, or with an index version core cannot read, 200 with an empty vocabulary that is never cached ([optional core peer](integration-contract/package-api.md#ui-server-optional-core-peer-breaking-host-migration-697)). |
 | GET `/api/voice/overrides` | No inputs | `{ overrides: [{ match, replacement }] }` | Configured pronunciation replacements; 500 `{ error }` on cache read/build failure. |
@@ -1357,6 +1360,44 @@ authority and disclosure rules are security properties and are pinned by
   records whose file it can currently read. Only the owner's rows and details
   carry `markedBy: { label, you }`; other principals' responses omit the field.
 
+## Selectable dictation providers
+
+`GET /api/voice/providers` returns `VoiceProvidersResponse`: `providers[]`
+contains `{ id, label, destination?, capabilities }`; `dictation` contains
+`{ saved, savedUsable, host, effective, source, smart, revision }`. Ids absent
+from selection are `null`, `savedUsable` is false when nothing is saved, and
+`source` is `saved | host | only | none | unavailable`. Discovery is authenticated,
+`no-store`, and never mints credentials or probes providers. Labels default to
+ids; saved-audio support comes from the optional provider method.
+
+The registered set is fixed at construction. The saved choice wins if registered;
+if removed, it blocks dictation without fallback. With no saved choice, use the
+host default, otherwise the sole registered provider, otherwise none. Multiple
+providers without a default require a deliberate choice. `/voice/capabilities`
+keeps its response shape and reports this effective provider.
+
+`GET /api/voice/dictation/settings` returns `DictationSettings`
+`{ defaultProvider: string | null, smart: boolean, revision: string }` and a quoted
+revision `ETag`. Defaults are `{ defaultProvider: null, smart: true, revision: "0" }`.
+Corrupt/invalid operational KV `voice.dictation` rows use those defaults; storage
+uses a numeric revision. `PUT` accepts `{ defaultProvider, smart? }` (`smart`
+defaults true); `null` clears the saved choice. Send `If-Match: "<revision>"`
+(the unquoted revision is also accepted). Only human `owner`/`ambient` principals
+may write; others receive 403 `{ error: "owner_required" }`. Unknown providers
+return 400 `speech_provider_unknown`, invalid bodies 400 `dictation_settings_invalid`,
+missing If-Match 428 `dictation_settings_stale`, and stale writes 409
+`dictation_settings_stale` with `current`. A successful write returns 200 with the
+new settings/revision and ETag. Reads and writes are `no-store`; neither mints a
+session, changes a running take, nor touches conversation settings or history.
+
+`POST /api/voice/session` resolves a supplied `providerId` exactly, before minting,
+regardless of current defaults. It snapshots identity/capabilities for the response.
+`smart` overrides the saved mode for this request; only a provider declaring
+`smartTranscription` receives `mode: "smart" | "verbatim"`. Omitted mode uses the
+saved switch (initially true). A failed exact mint returns generic 500
+`{ error: "Voice session failed" }` without provider diagnostics or credentials.
+Bodyless legacy requests retain their previous response/error shape.
+
 ## Saved-audio transcription
 
 The protected `GET /api/voice/capabilities` returns `VoiceCapabilitiesResponse`
@@ -1390,7 +1431,14 @@ specifies the receipt fields, errors, retry decision and permanent retention.
 `PUT` responds 200 with the stored receipt, including provider failures; a
 failed plain replay gives 409. `?retry=<failed attemptId>` is the only retry
 request, with at most three user retries and no automatic provider calls.
-Unsupported providers return 501 `saved_audio_unsupported`.
+`Speech-Provider: <id>` binds upload admission to exactly the disclosed provider,
+before reading the audio and before claiming a receipt. An unknown id returns
+409 `speech_provider_unavailable`; a streaming-only provider returns 501
+`saved_audio_unsupported`. Neither claims or dispatches. Without this header,
+legacy uploads resolve the effective provider at request admission. A retry
+naming a different provider returns 409 `transcription_provider_mismatch` with
+its original receipt and never dispatches. Plain repeats, tombstones, unknown
+outcomes and the retry ceiling retain their existing semantics.
 `DELETE ?disposition=accepted|discarded` returns 200 with a `consumed` receipt;
 an invalid disposition gives 400. It removes text, retains the immutable id
 and hash, and inserts a hashless tombstone if no upload has claimed yet.

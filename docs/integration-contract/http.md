@@ -1050,3 +1050,18 @@ expiry are rechecked at delivery after settlement. `snapshotComplete` and
 detector completeness are separate; neither omitted details nor a review receipt
 replace the aggregate. Route absence and refused reads are explicitly
 unavailable. Existing history visibility and mutation authority remain intact.
+
+
+### Selectable dictation providers (additive, #3707)
+
+The [dictation routes](../http-api.md#selectable-dictation-providers) add
+read-only `/api/voice/providers` discovery and revisioned
+`/api/voice/dictation/settings` GET/PUT. The registered set is fixed; a removed
+saved choice blocks dictation. Only human owners/ambient accounts write settings.
+`POST /api/voice/session` accepts optional `{ providerId, smart }`; an explicit
+id is exact or 409 `speech_provider_unavailable`, never a fallback. Bodyless
+clients and `/voice/capabilities` retain their shapes. Discovery never mints.
+Saved-audio PUT binds `Speech-Provider` before claim/body consumption; absent
+headers preserve effective-provider resolution. Retry provider changes return
+409 `transcription_provider_mismatch` with the receipt. Settings revisions,
+error codes, response schemas and operation binding are supported HTTP promises.

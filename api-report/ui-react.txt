@@ -1107,6 +1107,7 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<WorkerHostStatus>;
+        dictationSettings: () => Promise<DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
             exists: boolean;
@@ -1228,6 +1229,7 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<ModelCatalogResponse>;
+        saveDictationSettings: (settings: DictationSettings) => Promise<DictationSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<SessionRecoveryResult>;
@@ -1333,7 +1335,8 @@ signatures (every public export and the types it is made of)
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: PronunciationOverride[];
         }>;
-        voiceSession: (signal?: AbortSignal) => Promise<VoiceSessionResponse>;
+        voiceProviders: () => Promise<VoiceProvidersResponse>;
+        voiceSession: (signal?: AbortSignal, selection?: VoiceSessionRequest) => Promise<VoiceSessionResponse>;
         voiceToken: () => Promise<VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;
@@ -1601,6 +1604,7 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<import("@schlessera/brain-ui-sdk").WorkerHostStatus>;
+        dictationSettings: () => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
             exists: boolean;
@@ -1722,6 +1726,7 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<import("@schlessera/brain-ui-sdk").ModelCatalogResponse>;
+        saveDictationSettings: (settings: import("@schlessera/brain-ui-sdk").DictationSettings) => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<import("@schlessera/brain-ui-sdk").SessionRecoveryResult>;
@@ -1827,7 +1832,8 @@ signatures (every public export and the types it is made of)
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: import("@schlessera/brain-ui-sdk").PronunciationOverride[];
         }>;
-        voiceSession: (signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").VoiceSessionResponse>;
+        voiceProviders: () => Promise<import("@schlessera/brain-ui-sdk").VoiceProvidersResponse>;
+        voiceSession: (signal?: AbortSignal, selection?: import("@schlessera/brain-ui-sdk").VoiceSessionRequest) => Promise<import("@schlessera/brain-ui-sdk").VoiceSessionResponse>;
         voiceToken: () => Promise<import("@schlessera/brain-ui-sdk").VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;
