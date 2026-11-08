@@ -5,7 +5,13 @@
  * routes, on loopback. Nothing is canned. `tests/helpers/media-flow.ts` boots
  * it on one state directory, and stops, kills and boots it again there.
  *
- * argv: <brain> <state> <port> <journal cap bytes, 0 for the default>
+ * argv: <brain> <state> <port> <journal cap bytes, 0 for the default> <host|worker>
+ *
+ * `worker` runs every brain CLI command the server issues in a real
+ * maintenance worker behind the native manager boundary, with the test-only
+ * copied checkpoints, as the worker-backed review suites do; a host that
+ * cannot start one fails rather than falling back. `host` runs them as host
+ * processes, as a server on a host without a qualified worker does.
  *
  * Test-only seams, each named by the parent: a principal per request
  * (`x-media-flow-principal` or `?as=` on the socket: the owner Odysseus, a
@@ -33,8 +39,10 @@ import { createInboxStore } from "../../src/inbox/store.js";
 import { createInboxStream } from "../../src/inbox/stream.js";
 import type { AppEnv } from "../../src/app-env.js";
 import { createNativeJournalFixture } from "../helpers/native-journal-fixture.js";
+import { replaceNativeStartupAcquisitionForFixture } from "../helpers/fixture-native-startup.js";
+import { createNativeBrainManagerClient, NATIVE_MANAGER_MAX_DELTA_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS } from "@schlessera/brain-ui-sdk/internal";
 
-const [brainPath, state, port, cap] = process.argv.slice(2) as [string, string, string, string];
+const [brainPath, state, port, cap, execution] = process.argv.slice(2) as [string, string, string, string, "host" | "worker"];
 const dbPath = join(state, "ui.sqlite");
 const db = createUiDb(dbPath);
 const principalsFile = join(state, "principals.json");
@@ -53,10 +61,15 @@ const native = createNativeJournalFixture(brainPath, state);
 const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath, dbPath, objectsRoot: join(state, "objects"), ...(Number(cap) > 0 ? { capBytes: Number(cap) } : {}) });
 await journal.ready;
 const gate = createWriterGate(db, brainPath);
-// The brain client the app builds, on a host without a qualified worker: the
-// CLI runs as a host process under the same gates. The hosted native proof
-// runs this flow's effects inside real maintenance workers instead.
-const boundary = createHostBoundary({ brainPath, exec: {}, dbPath, workerHost: () => ({ ok: false, requirement: "the media flow fixture runs the CLI on the host" }) });
+// The brain client the app builds. In a worker, through the native manager
+// boundary; otherwise on a host without a qualified worker, as host processes.
+let broker: { socketPath: string; close(): void } | undefined;
+if (execution === "worker") { replaceNativeStartupAcquisitionForFixture(); broker = native.serve(); }
+const boundary = broker
+  ? createHostBoundary({ brainPath, exec: {}, dbPath, nativeManager: createNativeBrainManagerClient({ socketPath: broker.socketPath, leasePath: join(state, "native-leases.sqlite"), timeoutMs: NATIVE_MANAGER_OPERATION_TIMEOUT_MS, maxDeltaBytes: NATIVE_MANAGER_MAX_DELTA_BYTES }) })
+  : createHostBoundary({ brainPath, exec: {}, dbPath, workerHost: () => ({ ok: false, requirement: "the media flow fixture runs the CLI on the host" }) });
+// As the app does at boot: qualify the worker boundary before any admission.
+const governed = await boundary.prepare();
 const brain = createBrainClient({ brainPath, exec: {}, boundary });
 
 /** Stop dead at `interrupt.txt`'s CLI step, before (`keep-copy`) or after (`media`) it runs. */
@@ -106,11 +119,12 @@ const server = Bun.serve<{ principalId: string }, never>({
     close(ws) { stream.dropConnection({ raw: ws } as never); },
   },
 });
-console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}`, principals }));
+console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}`, principals, hostExecution: boundary.status().hostExecution, governed }));
 process.on("SIGTERM", async () => {
   stream.close();
   server.stop(true);
   await journal.close();
+  broker?.close();
   await native.close();
   db.close();
   process.exit(0);

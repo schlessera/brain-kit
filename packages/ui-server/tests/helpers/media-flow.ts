@@ -118,7 +118,7 @@ export function createMediaFlow(options: { directory?: string; media?: readonly 
   // The conversation that linked the scratch file pins it; the pins exist with or without it.
   put(root, PINS, PINS_TEXT);
 
-  let child: ChildProcess | undefined, url = "", stderr = "";
+  let child: ChildProcess | undefined, url = "", stderr = "", hostExecution = "", governed: unknown = null;
   const home = join(directory, "home"); mkdirSync(home);
   const env = { PATH: process.env.PATH ?? "", HOME: home, BRAIN_ROOT: root, GIT_CONFIG_NOSYSTEM: "1", TMPDIR: process.env.TMPDIR ?? tmpdir() };
 
@@ -135,20 +135,21 @@ export function createMediaFlow(options: { directory?: string; media?: readonly 
   /** One ordinary `brain sync`, as a person or cron runs it. */
   function sync(): any { return cli("sync", "--json"); }
 
-  async function boot(boot: { port?: number; capBytes?: number; interrupt?: string } = {}) {
+  async function boot(boot: { port?: number; capBytes?: number; interrupt?: string; execution?: "host" | "worker" } = {}) {
     if (child) throw new Error("server already running");
     if (boot.interrupt) writeFileSync(join(state, "interrupt.txt"), boot.interrupt); else rmSync(join(state, "interrupt.txt"), { force: true });
     rmSync(join(state, "interrupted.flag"), { force: true });
     stderr = "";
-    const proc = spawn(process.execPath, ["--preload", PRELOAD, SERVER, root, state, String(boot.port ?? 0), String(boot.capBytes ?? 0)], { cwd: REPO, env, stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(process.execPath, ["--preload", PRELOAD, SERVER, root, state, String(boot.port ?? 0), String(boot.capBytes ?? 0), boot.execution ?? "host"], { cwd: REPO, env, stdio: ["ignore", "pipe", "pipe"] });
     child = proc;
     proc.stderr!.on("data", b => { stderr += String(b); });
-    url = await new Promise<string>((res, reject) => {
+    const ready = await new Promise<{ url: string; hostExecution: string; governed: unknown }>((res, reject) => {
       let out = "";
       const timer = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error(`media flow server did not start: ${stderr}`)); }, 20_000);
       proc.once("exit", code => { clearTimeout(timer); reject(new Error(`media flow server exited ${code}: ${stderr}`)); });
-      proc.stdout!.on("data", b => { out += String(b); if (out.includes("\n")) { clearTimeout(timer); try { res(JSON.parse(out.split("\n")[0]!).url); } catch (e) { reject(e); } } });
+      proc.stdout!.on("data", b => { out += String(b); if (out.includes("\n")) { clearTimeout(timer); try { res(JSON.parse(out.split("\n")[0]!)); } catch (e) { reject(e); } } });
     });
+    url = ready.url; hostExecution = ready.hostExecution; governed = ready.governed;
     return url;
   }
   /** SIGTERM: the server closes its stream, journal and database. */
@@ -248,7 +249,7 @@ export function createMediaFlow(options: { directory?: string; media?: readonly 
     await kill();
     rmSync(directory, { recursive: true, force: true });
   }
-  return { directory, root, remote, state, get url() { return url; }, get stderr() { return stderr; },
+  return { directory, root, remote, state, get url() { return url; }, get stderr() { return stderr; }, get hostExecution() { return hostExecution; }, get governed() { return governed; },
     cli, cliRun, sync, git: (...args: string[]) => git(root, ...args), boot, stop, kill, request, read, command, preview, undo, device, until, parity, bytes, text, remoteFiles, interrupted, close };
 }
 export type MediaFlow = ReturnType<typeof createMediaFlow>;

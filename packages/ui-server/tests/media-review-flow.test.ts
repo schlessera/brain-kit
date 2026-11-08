@@ -391,3 +391,32 @@ test("isolation: another owner device cannot undo Odysseus's effect, and a deleg
   await agent.close();
   await device.close();
 });
+
+test("in maintenance workers: the review's CLI runs behind the native manager boundary, Keep a permanent copy applies and Undo restores, and the counts agree", async () => {
+  // Every brain command the server issues runs in a credential-free maintenance
+  // worker, with no host fallback; the copied checkpoints are the test-only broker's.
+  const f = await flow([HARBOUR, ARGUS], { execution: "worker" });
+  expect(f.hostExecution, "MEDIA_FLOW_WORKER_EXECUTION").toBe("worker");
+  // The boundary qualified a maintenance worker at boot, as the app requires before admission.
+  expect(f.governed, "MEDIA_FLOW_WORKER_QUALIFIED").toMatchObject({ available: true });
+  const device = await f.device();
+  const before = f.bytes();
+  expect((await f.command("start")).status, "MEDIA_FLOW_WORKER_START").toBe(200);
+  const card = await reach(f, device, HARBOUR);
+  await destination(f, card, "media-keep-copy", HARBOUR_TO);
+  device.resolve(card.id, "media-keep-copy");
+  const receipt = await receiptOf(f, device, card.id);
+  expect(receipt.media, "MEDIA_FLOW_WORKER_KEPT").toMatchObject({ outcome: "kept", undo: { available: true } });
+  await settled(f, card.id);
+  const kept = f.bytes();
+  expect(kept[HARBOUR_TO], "MEDIA_FLOW_WORKER_COPY").toBe(sha(MEDIA_BYTES[HARBOUR]!));
+  expect(kept[HARBOUR]).toBe(before[HARBOUR]!);
+  expect(kept[PINS]).toBe(before[PINS]!);
+  expect(f.text(KEPT), "MEDIA_FLOW_WORKER_KEPT_ENTRY").toContain(`- copy: \`${HARBOUR_TO}\``);
+  agree(await f.parity({ sync: false }), { pending: 1 });
+  const undone = await f.undo(receipt.media.journalId);
+  expect(undone.body.mediaUndo, "MEDIA_FLOW_WORKER_UNDONE").toMatchObject({ outcome: "undone" });
+  expect({ ...f.bytes(), [KEPT]: null }, "MEDIA_FLOW_WORKER_UNDO_BYTES").toEqual(before);
+  agree(await f.parity({ sync: true }), { pending: 1 }, "kept");
+  await device.close();
+});

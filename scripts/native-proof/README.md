@@ -10,6 +10,15 @@ prerequisites. Preparation can download dependencies; the proof uses
 `--network=none`, `--pull=never`, the normal test network guards and loopback
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
 
+The Claude UID 1000 cell of a default run then runs the media review flow's
+worker scenario (#2783) in the same container:
+`packages/ui-server/tests/media-review-flow.test.ts -t "in maintenance workers"`.
+It runs every brain command the review server issues in a maintenance worker,
+with that suite's test-only copied checkpoints rather than this Btrfs volume.
+It applies Keep a permanent copy and undoes it, and holds the server, the CLI
+and `brain sync` to one count. The fixture records the command and its exit
+code in `native-fixture.json`.
+
 `--apply-timing` adds one strict conversation after the cancellation checks
 (#2835), once the earlier turns' index refresh has finished. Claude calls its
 turn's `brain-ui` MCP `write_file` handler 20 times and `edit_file` 20 times,
