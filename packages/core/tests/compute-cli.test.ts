@@ -253,15 +253,45 @@ describe("a run interrupted or left unclean", () => {
     throw new Error(`no new job reached ${state}`);
   }
 
+  /**
+   * Read `reader` until the text seen so far contains `needle`, the stream
+   * ends or 10 s pass (a failure maximum, cleared once a read answers); return
+   * everything read. The run logs a signal from its handler, so that line is
+   * on stderr once the signal has been recorded.
+   */
+  async function readUntil(reader: ReadableStreamDefaultReader<Uint8Array>, needle: string, seen = ""): Promise<string> {
+    const decoder = new TextDecoder();
+    const deadline = Date.now() + 10_000;
+    while (!seen.includes(needle) && Date.now() < deadline) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<undefined>((resolve) => (timer = setTimeout(resolve, deadline - Date.now(), undefined)));
+      const chunk = await Promise.race([reader.read(), late]);
+      clearTimeout(timer);
+      if (!chunk || chunk.done) break;
+      seen += decoder.decode(chunk.value, { stream: true });
+    }
+    return seen;
+  }
+
+  /** The rest of `reader`'s stream, after `seen`. */
+  async function readToEnd(reader: ReadableStreamDefaultReader<Uint8Array>, seen: string): Promise<string> {
+    const decoder = new TextDecoder();
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) seen += decoder.decode(chunk.value, { stream: true });
+    return seen + decoder.decode();
+  }
+
   test("a signal while the job is still starting is kept: the job is cancelled once it has started", async () => {
     rmSync(gate(), { force: true });
     const before = new Set(jobIds(faults));
     const proc = spawnRun(["--provider", "ithaca-gated", "--source", "notes/raft.md", "--json", "--", "sleep", "60"]);
     const id = await newJobIn(before, "staging");
     proc.kill("SIGTERM");
-    await Bun.sleep(200);
+    // Open the stage only once the run has recorded the signal, so it arrives while the job is starting.
+    const reader = proc.stderr.getReader();
+    const logged = await readUntil(reader, "SIGTERM received");
+    expect(logged).toContain("SIGTERM received");
     writeFileSync(gate(), "");
-    const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), readToEnd(reader, logged), proc.exited]);
     rmSync(gate(), { force: true });
     expect(code).toBe(3);
     expect(stderr).toContain("SIGTERM received, cancelling");
@@ -276,16 +306,11 @@ describe("a run interrupted or left unclean", () => {
     const proc = spawnRun(["--provider", "ithaca-gated", "--source", "notes/route.md", "--human", "--", "sleep", "60"]);
     const id = await newJobIn(before, "staging");
     const reader = proc.stderr.getReader();
-    let seen = "";
-    const deadline = Date.now() + 10_000;
-    while (!seen.includes(id) && Date.now() < deadline) {
-      const chunk = await Promise.race([reader.read(), Bun.sleep(500).then(() => undefined)]);
-      if (chunk?.value) seen += new TextDecoder().decode(chunk.value);
-      if (chunk?.done) break;
-    }
+    const seen = await readUntil(reader, id);
     expect(seen).toContain(id);
     proc.kill("SIGINT");
-    await Bun.sleep(200);
+    // Open the stage only once the run has recorded the signal, so it arrives while the job is starting.
+    expect(await readUntil(reader, "SIGINT received", seen)).toContain("SIGINT received");
     writeFileSync(gate(), "");
     reader.releaseLock();
     const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);

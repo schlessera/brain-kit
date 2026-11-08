@@ -27,9 +27,13 @@ for (const adapter of ["claude", "pi"] as const)
       const priced = mode !== "token", backstop = mode === "sdk", unavailable = mode === "unavailable", late = mode === "late";
       // The block follows the report's commit on the write worker (#2850), queued
       // behind the turn's earlier writes, so the fake waits for the host's abort
-      // instead of a fixed 200 ms a loaded runner can exceed. Only "late" returns
-      // early on purpose: before its commit lands, 400 ms after the response.
-      const abortWindowMs = late ? 200 : 2500;
+      // instead of a fixed 200 ms a loaded runner can exceed; 2.5 s is only a
+      // failure maximum. Only "late" returns early on purpose: as soon as its
+      // reports are submitted, before the wrapper below delivers their observed
+      // result, 400 ms later.
+      const abortWindowMs = 2500;
+      const reports: unknown[] = [];
+      let reportsAtReturn = -1;
       let failAccounting: () => void = () => { };
       const root = await mkdtemp(resolve(tmpdir(), "odysseus-budget-host-")), brain = resolve(root, "brain");
       await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
@@ -61,7 +65,9 @@ for (const adapter of ["claude", "pi"] as const)
                 for (const frame of stream.adapt({ type: "stream_event", event } as SDKMessage))
                   req.bridge.emit(frame);
               }
-            if (!req.signal.aborted)
+            if (late)
+              reportsAtReturn = reports.length;
+            else if (!req.signal.aborted)
               await Promise.race([new Promise<void>(done => req.signal.addEventListener("abort", () => done(), { once: true })), Bun.sleep(abortWindowMs)]);
           }
           else {
@@ -83,7 +89,7 @@ for (const adapter of ["claude", "pi"] as const)
         budgets: (() => {
           const budgets = createTurnBudgets(app.db, { resolve: () => ({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1, estimate: false, source: "snapshot" }) });
           // The blocking report's commit lands after the backend has returned (#2850).
-          return late ? { ...budgets, observe: (...args: Parameters<typeof budgets.observe>) => { const committed = budgets.observe(...args); return committed && Bun.sleep(400).then(() => committed); } } : budgets;
+          return late ? { ...budgets, observe: (...args: Parameters<typeof budgets.observe>) => { reports.push(args[1]); const committed = budgets.observe(...args); return committed && Bun.sleep(400).then(() => committed); } } : budgets;
         })() }) : app.wsHost;
       failAccounting = () => app.db.exec("DROP TABLE turn_budget_days");
       try {
@@ -106,6 +112,8 @@ for (const adapter of ["claude", "pi"] as const)
         expect(receivedContext, "NO_ROUTINE_BUDGET_TAIL_AT_ADMISSION").toBeUndefined();
         expect(called, "BUDGET_ACTUAL_ADAPTER_LAUNCHED").toBe(1);
         expect(aborted, "BUDGET_HOST_ABORTS_ACTUAL_ADAPTER").toBe(!late);
+        if (late)
+          expect([reportsAtReturn > 0, reportsAtReturn], "LATE_RESPONSE_RETURNS_WITH_EVERY_REPORT_SUBMITTED").toEqual([true, reports.length]);
         expect(maxBudget).toBe(10);
         const failure = frames().findLast(frame => frame.type === "error")!;
         expect(failure).toMatchObject(unavailable ? { code: "BUDGET_UNAVAILABLE", failure: { errorClass: "budget_unavailable" } } : { code: "BUDGET_EXCEEDED", failure: { errorClass: "budget_exceeded", budgetScope: "turn" } });
