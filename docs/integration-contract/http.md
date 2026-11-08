@@ -223,6 +223,10 @@ The status reports; it does not decide. A pass is never cached and a known
 failure never short-circuits a turn: every turn runs its own probe and refuses
 with `worker_host_unsupported` naming the requirement
 ([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1632#issuecomment-6112509133)).
+A requirement may end in a parenthetical detail. When a turn's separate-UID
+launch times out during identity setup, its refusal names the supervisor's last
+recorded setup step there. The probe's own requirement is unchanged
+([additive, #3664](../integration-contract.md#setup-timeouts-name-their-step-additive-0450-3664)).
 Clients must tolerate either mode being absent.
 
 <a id="root-server-warning-additive-1638"></a>
