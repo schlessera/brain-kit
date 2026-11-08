@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { expect, waitFor } from "storybook/test";
 import { StreamingAnswer } from "../src/conversation/StreamingAnswer.js";
+import { TextButton } from "../src/primitives/TextButton.js";
 import { FADE_MS, FRAMES_AFTER_FADE, watchHandoff } from "./_handoff-clock.js";
 
 const TOKENS = ["Circe named", " them in order,", " on the morning", " we sailed from Aeaea."];
@@ -10,7 +11,7 @@ export function StreamingHandoff() {
   const [count, setCount] = useState(0);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-      <button type="button" onClick={() => setCount(n => Math.min(TOKENS.length, n + 1))}>Token</button>
+      <TextButton label="Token" onClick={() => setCount(n => Math.min(TOKENS.length, n + 1))} style={{ alignSelf: "flex-start" }} />
       <StreamingAnswer phase="writing" target="drafting" elapsed="2.0s" cost="~$0.03 so far" text={TOKENS.slice(0, count).join("")} />
     </div>
   );

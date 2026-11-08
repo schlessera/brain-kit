@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { expect, waitFor } from "storybook/test";
+import { TextButton } from "../src/primitives/TextButton.js";
 import { FADE_MS, FRAMES_AFTER_FADE, watchHandoff } from "./_handoff-clock.js";
 
 /**
@@ -16,12 +17,8 @@ export function Handoff({ render }: { render: (loading: boolean, width: number) 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" onClick={() => setLoading(true)}>
-          Reload
-        </button>
-        <button type="button" onClick={() => setLoading(false)}>
-          Land
-        </button>
+        <TextButton label="Reload" onClick={() => setLoading(true)} />
+        <TextButton label="Land" onClick={() => setLoading(false)} />
       </div>
       {[320, 720].map((width) => (
         <div key={width} data-width={width} style={{ width, maxWidth: "100%" }}>

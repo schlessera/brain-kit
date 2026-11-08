@@ -4,6 +4,7 @@ import { expect, fn, waitFor } from "storybook/test";
 
 import type { GhostRole } from "../../src/internal/GhostText.js";
 import { Placeholder } from "../../src/states/Placeholder.js";
+import { TextButton } from "../../src/primitives/TextButton.js";
 import type { Tone } from "../../src/types.js";
 import { CONTROL_RING, ring, Row, stage, wide } from "../_stage.js";
 
@@ -195,9 +196,7 @@ export const Arrived = meta.story({
       const [arrived, setArrived] = useState(false);
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-          <button type="button" onClick={() => setArrived((a) => !a)}>
-            {arrived ? "Reload" : "Arrive"}
-          </button>
+          <TextButton label={arrived ? "Reload" : "Arrive"} onClick={() => setArrived((a) => !a)} style={{ alignSelf: "flex-start" }} />
           <Placeholder variant="loading" seed="omens" ghost={[{ role: "sans", size: 12, length: 92 }]} arrived={arrived}>
             <div style={{ font: "400 12px/1.55 var(--font-body, 'Plus Jakarta Sans',sans-serif)", color: "var(--bk-color-ink)" }}>
               An eagle carrying a goose across the courtyard, reported by a guest at the second feast.
