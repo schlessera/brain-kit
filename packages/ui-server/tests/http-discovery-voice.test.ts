@@ -74,7 +74,7 @@ test("mounted voice session and legacy token use only short-lived injected grant
   try {
     for (const path of ["/api/voice/session", "/api/voice/token"]) {
       const before = Date.now();
-      const response = await t.fetch(path, { method: "POST", body: "ignored non-JSON input" });
+      const response = await t.fetch(path, { method: "POST" });
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.token).toBe("fixture-short-lived-token");

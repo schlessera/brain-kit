@@ -27,6 +27,8 @@ export async function httpContractApp(options: {
   renderer?: CreateAppOptions["renderer"];
   registry?: CreateAppOptions["registry"];
   speechProvider?: SpeechProvider;
+  speechProviders?: SpeechProvider[];
+  defaultSpeechProviderId?: string;
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "brain-http-contract-"));
   const brainPath = join(root, "brain");
@@ -81,6 +83,8 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
   try {
     const appOptions: CreateAppOptions & { speechProvider?: SpeechProvider } = {
       config, observability,
+      speechProviders: options.speechProviders,
+      defaultSpeechProviderId: options.defaultSpeechProviderId,
       registry: options.registry ?? createStaticBackendRegistry([backend]),
       ...(options.speechProvider ? { speechProvider: options.speechProvider } : {}),
       ...(options.staticRoot ? { staticRoot } : {}),

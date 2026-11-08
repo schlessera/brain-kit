@@ -72,6 +72,7 @@ export function transcriptionOperations(db: Database, accountKey: (principal: Pr
           if (row.status === "transcribing") return refuse(409, "transcription_in_progress", "Transcription is already in progress.", stored);
           if (row.status === "outcome_unknown") return refuse(409, "transcription_outcome_unknown", "The provider may have processed this audio. It cannot be retried.", stored);
           if (!retry) return refuse(409, "transcription_failed", "Review the failed transcription before choosing a retry.", stored);
+          if (providerId !== row.provider_id) return refuse(409, "transcription_provider_mismatch", "Retry with the original transcription service.", stored);
           if (retry !== row.attempt_id) return refuse(409, "transcription_retry_stale", "This retry names an older attempt.", stored);
           if (!stored.failure?.retryable) return refuse(409, "transcription_not_retryable", "This provider rejection cannot be retried.", stored);
           if (row.retry_count >= 3) return refuse(409, "transcription_retry_limit", "All three retries have been used. The recording is kept.", stored);

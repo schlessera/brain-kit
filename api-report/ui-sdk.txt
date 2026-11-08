@@ -168,6 +168,7 @@ export "." (./src/index.ts)
   type DialogueEvidence
   type DialoguePage
   type DialogueRecord
+  type DictationSettings
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -468,6 +469,8 @@ export "." (./src/index.ts)
   type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
+  type VoiceProvidersResponse
+  type VoiceSessionRequest
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
@@ -742,6 +745,7 @@ export "./client" (./src/client/index.ts)
   type DialogueEvidence
   type DialoguePage
   type DialogueRecord
+  type DictationSettings
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -1133,6 +1137,8 @@ export "./client" (./src/client/index.ts)
   type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
+  type VoiceProvidersResponse
+  type VoiceSessionRequest
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WebSocketClose
@@ -1602,6 +1608,7 @@ export "./protocol" (./src/protocol.ts)
   type DialogueEvidence
   type DialoguePage
   type DialogueRecord
+  type DictationSettings
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -1896,6 +1903,8 @@ export "./protocol" (./src/protocol.ts)
   type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
+  type VoiceProvidersResponse
+  type VoiceSessionRequest
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WikilinkMapResponse
@@ -2408,6 +2417,7 @@ export "./server" (./src/server/index.ts)
   type DialogueEvidence
   type DialoguePage
   type DialogueRecord
+  type DictationSettings
   type Draft
   type DraftAttachment
   type DraftAttachmentResponse
@@ -2845,6 +2855,8 @@ export "./server" (./src/server/index.ts)
   type VoiceCapabilitiesResponse
   type VoiceKeytermsResponse
   type VoiceMode
+  type VoiceProvidersResponse
+  type VoiceSessionRequest
   type VoiceSessionResponse
   type VoiceTokenResponse
   type WebSearchBrief
@@ -7297,6 +7309,12 @@ signatures (every public export and the types it is made of)
         identity: string;
         evidence: DialogueEvidence;
     }
+  DictationSettings (packages/ui-sdk/src/protocol.ts)
+    export interface DictationSettings {
+        defaultProvider: string | null;
+        smart: boolean;
+        revision: string;
+    }
   Draft (packages/ui-sdk/src/protocol.ts)
     export interface Draft {
         draftId: string;
@@ -11391,13 +11409,17 @@ signatures (every public export and the types it is made of)
         keyterms: boolean;
         endpointing: boolean;
         savedAudio?: boolean;
+        smartTranscription?: boolean;
     }
   SpeechProvider (packages/ui-sdk/src/server/speech.ts)
     export interface SpeechProvider {
         id: string;
+        label?: string;
+        destination?: string;
         capabilities: SpeechCapabilities;
         createSession(opts: {
             keyterms: string[];
+            mode?: "smart" | "verbatim";
         }): Promise<SpeechSession>;
         transcribeRecording?(input: {
             audio: Uint8Array;
@@ -12444,6 +12466,29 @@ signatures (every public export and the types it is made of)
     }
   VoiceMode (packages/ui-sdk/src/protocol.ts)
     export type VoiceMode = "idle" | "dictate" | "conversation";
+  VoiceProvidersResponse (packages/ui-sdk/src/protocol.ts)
+    export interface VoiceProvidersResponse {
+        providers: Array<{
+            id: string;
+            label: string;
+            destination?: string;
+            capabilities: SpeechCapabilities;
+        }>;
+        dictation: {
+            saved: string | null;
+            savedUsable: boolean;
+            host: string | null;
+            effective: string | null;
+            source: "saved" | "host" | "only" | "none" | "unavailable";
+            smart: boolean;
+            revision: string;
+        };
+    }
+  VoiceSessionRequest (packages/ui-sdk/src/protocol.ts)
+    export interface VoiceSessionRequest {
+        providerId?: string;
+        smart?: boolean;
+    }
   VoiceSessionResponse (packages/ui-sdk/src/protocol.ts)
     export interface VoiceSessionResponse {
         providerId: string;

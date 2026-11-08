@@ -142,6 +142,9 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/status/worker-host` | `mounted supported handler: POST /api/status/worker-host` | T |
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
 | `GET /api/voice/overrides` | `mounted supported handler: GET /api/voice/overrides` | N |
+| `GET /api/voice/providers` | `mounted supported handler: GET /api/voice/providers` | R |
+| `GET /api/voice/dictation/settings` | `mounted supported handler: GET /api/voice/dictation/settings` | R |
+| `PUT /api/voice/dictation/settings` | `mounted supported handler: PUT /api/voice/dictation/settings` | R |
 | `GET /api/voice/capabilities` | `mounted supported handler: GET /api/voice/capabilities` | R |
 | `GET /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: GET /api/voice/recordings/:recordingId/transcription` | R |
 | `PUT /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: PUT /api/voice/recordings/:recordingId/transcription` | R |

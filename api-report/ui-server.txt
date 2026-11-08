@@ -511,6 +511,8 @@ signatures (every public export and the types it is made of)
         dbPath?: string;
         renderer?: AppRenderer;
         speechProvider?: SpeechProvider;
+        speechProviders?: SpeechProvider[];
+        defaultSpeechProviderId?: string;
         conversationProvider?: LiveConversationProvider;
         labeller?: LabellerOptions;
         turnTimeoutMs?: number;
