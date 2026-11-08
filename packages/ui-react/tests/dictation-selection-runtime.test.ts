@@ -208,12 +208,20 @@ async function closeSettings(page: Page) {
   await page.evaluate(() => (window as unknown as { __dictation: { closeSettings(): void } }).__dictation.closeSettings());
 }
 const puts = () => log.filter((entry) => entry.method === "PUT" && entry.path === "/api/voice/dictation/settings").length;
-/** Runs a Settings action that saves, and waits until the server received it and the pane settled. */
+/**
+ * Runs a Settings action that saves, and waits until the server received it,
+ * the write's outcome is in the root and discovery was read again after it.
+ * The pane's own `role=status` is not the signal: during a take the first one
+ * is the active-take notice, which is there before the save completes.
+ */
 async function saves(page: Page, action: () => Promise<unknown>) {
   const before = puts();
   await action();
   for (let waited = 0; puts() <= before; waited += 10) { if (waited > 10_000) throw new Error("No settings save reached the server"); await Bun.sleep(10); }
-  await page.waitForFunction(() => !document.querySelector("[data-dictation-settings] [role=status]")?.textContent?.includes("Saving"));
+  await page.waitForFunction(() => {
+    const { save, discovery } = (window as unknown as { __dictation: { state(): { save: { pending: boolean; status: string | null; refreshFailed: boolean }; discovery: { stale: boolean } | null } } }).__dictation.state();
+    return !save.pending && save.status !== "saving" && discovery !== null && (!discovery.stale || save.refreshFailed);
+  });
 }
 async function shot(page: Page, name: string) {
   if (!SHOTS) return;
@@ -230,7 +238,17 @@ async function fits(page: Page, width: number, selector: string) {
   for (const height of heights) expect(height, `${selector} target at ${width}px`).toBeGreaterThanOrEqual(44);
 }
 const mic = (page: Page, name: string) => page.getByRole("button", { name, exact: true });
-const live = (page: Page) => page.waitForFunction(() => (window as unknown as { __dictation: { state(): { connecting: boolean; clients: Array<{ tracks: string[] }> } } }).__dictation.state().clients.at(-1)?.tracks.includes("live"));
+/**
+ * The take is capturing: its client's microphone track is live and its start
+ * finished, so its socket is open. A client publishes its track before it
+ * awaits the socket, so a live track alone can still precede the socket.
+ */
+const live = (page: Page) => page.waitForFunction(() => { const s = (window as unknown as { __dictation: { state(): { connecting: boolean; clients: Array<{ tracks: string[] }> } } }).__dictation.state(); return !s.connecting && s.clients.at(-1)?.tracks.includes("live"); });
+/** The speech server's record of the first socket opened after `count` were known. */
+async function socketAfter(count: number) {
+  for (let waited = 0; sockets.length <= count; waited += 10) { if (waited > 10_000) throw new Error("No new speech socket reached the server"); await Bun.sleep(10); }
+  return sockets[count]!;
+}
 const idle = (page: Page) => page.waitForFunction(() => (window as unknown as { __dictation: { state(): { mode: string } } }).__dictation.state().mode === "idle");
 /** One complete take, acknowledging the service on this device first if it asks. */
 async function take(page: Page, name: string) {
@@ -308,12 +326,13 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       expect(sessions().length, "Escape opens nothing").toBe(before);
       expect(await gum(page)).toBe(0);
 
+      const known = sockets.length;
       await dictate.click();
       await card.waitFor();
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => { const s = (window as unknown as { __dictation: { state(): { connecting: boolean; clients: Array<{ tracks: string[] }> } } }).__dictation.state(); return !s.connecting && s.clients.at(-1)?.tracks.includes("live"); });
       expect(sessions().slice(before).map((entry) => JSON.parse(entry.body!)), "the disclosed service is requested").toEqual([{ providerId: "alpha", smart: true }]);
-      expect(sockets.at(-1), "the server says the take reached alpha").toEqual({ provider: "alpha", open: true });
+      expect(await socketAfter(known), "the server says the take reached alpha").toEqual({ provider: "alpha", open: true });
       expect(await page.getByText("To Alpha Transcribe", { exact: true }).count()).toBe(1);
       await shot(page, `listening-${width}`);
       // Start dictation left the page; the keyboard carries on to Done.
@@ -345,13 +364,13 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await page.locator('[data-dictation-gate="consent"]').waitFor();
       // Another device chooses Beta while this card names Alpha.
       await otherDevice("beta");
-      const before = { sessions: sessions().length, alpha: minted.alpha, beta: minted.beta };
+      const before = { sessions: sessions().length, alpha: minted.alpha, beta: minted.beta, sockets: sockets.length };
       await page.getByRole("button", { name: "Start dictation" }).click();
       while (sessions().length === before.sessions) await Bun.sleep(10);
       expect(sessions().slice(before.sessions).map((entry) => entry.body ? JSON.parse(entry.body).providerId : null), "RACE_DISCLOSED_PROVIDER_IS_SENT").toEqual(["alpha"]);
       await live(page);
       expect([minted.alpha - before.alpha, minted.beta - before.beta], "only alpha minted").toEqual([1, 0]);
-      expect(sockets.at(-1)).toEqual({ provider: "alpha", open: true });
+      expect(await socketAfter(before.sockets)).toEqual({ provider: "alpha", open: true });
       expect((await state(page)).target).toBe("alpha");
       await page.getByRole("button", { name: "Done", exact: true }).click();
 
@@ -377,9 +396,12 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
     const page = await open(1280);
     try {
       await take(page, "Dictate · Alpha Transcribe");
+      const known = sockets.length;
       await mic(page, "Dictate · Alpha Transcribe").click();
       await live(page);
-      const socket = sockets.at(-1)!;
+      // This take's own socket, never the previous take's closed one.
+      const socket = await socketAfter(known);
+      expect(sockets.length, "one socket for this take").toBe(known + 1);
       const before = { sessions: sessions().length, clients: (await state(page)).clients.length };
       const pane = await settings(page);
       await saves(page, () => pane.getByRole("radio", { name: /^Beta Live/ }).check());

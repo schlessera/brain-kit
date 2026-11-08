@@ -19,6 +19,12 @@ export type DictationGate =
 export type DictationChoice = { defaultProvider: string | null; smart: boolean };
 
 /**
+ * Who a Settings write is made for: the account the pane established as the
+ * writer and the auth generation (`root.authLock.epoch()`) it was established in.
+ */
+export type DictationWriter = { account: string; epoch: number };
+
+/**
  * Settings › Voice writes, kept on the root rather than in the pane (#3709):
  * an accepted choice is written even after the pane closes, and reopening it
  * shows where the writes stand.
@@ -34,8 +40,8 @@ export interface DictationSaveState {
     | null;
   /** The last discovery read failed: what is shown may be out of date. */
   refreshFailed: boolean;
-  /** The account a save was refused for as not the owner. */
-  refusedAccount: string | null;
+  /** The writer a save was refused for as not the owner; it holds for that identity only. */
+  refused: DictationWriter | null;
 }
 
 export interface VoiceState {
@@ -103,7 +109,7 @@ export function createVoiceStore(env?: Pick<StoreEnvironment, "storage" | "stora
     dictationTarget: null,
     dictationGate: null,
     discovery: null,
-    dictationSave: { pending: null, status: null, refreshFailed: false, refusedAccount: null },
+    dictationSave: { pending: null, status: null, refreshFailed: false, refused: null },
     readAcknowledgement: (key) => {
       try {
         const storage = env?.storage() ?? null;

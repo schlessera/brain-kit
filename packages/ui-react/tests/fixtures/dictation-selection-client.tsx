@@ -46,6 +46,9 @@ Object.assign(window, {
       return {
         mode: voice.mode, connecting: voice.connecting, providerId: voice.providerId, reviewText: voice.reviewText,
         gate: voice.dictationGate?.kind ?? null, target: voice.dictationTarget?.id ?? null, notice: voice.dictationNotice,
+        // Where Settings writes stand, and whether discovery was read again after them.
+        save: { pending: voice.dictationSave.pending !== null, status: voice.dictationSave.status?.kind ?? null, refreshFailed: voice.dictationSave.refreshFailed },
+        discovery: voice.discovery ? { at: voice.discovery.at, stale: voice.discovery.stale === true } : null,
         clients: clients.map(({ providerId, client }) => ({ providerId, session: client.options.session.providerId, tracks: client.stream?.getTracks().map((track) => track.readyState) ?? [] })),
       };
     },

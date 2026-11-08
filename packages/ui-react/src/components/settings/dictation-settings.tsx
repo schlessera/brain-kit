@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { Button, Callout, Placeholder, Toggle } from "@schlessera/brain-ui-kit";
 import type { VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
@@ -28,24 +28,38 @@ export function DictationSettings({ active }: { active: boolean }) {
   // Authority comes before any control is enabled. The authenticated probe
   // names an account only for the owner (or an ambient principal), exactly
   // the principals the settings write accepts; the server still decides.
+  // Every authority belongs to one auth generation: sign-out, a lock or a
+  // restore moves `root.authLock.epoch()` on and ends what was established.
+  const epoch = useSyncExternalStore(root.authLock.state.subscribe, () => root.authLock.epoch());
   const account = useRootStore("connection", (s) => s.accountKey);
   const probed = useRootStore("connection", (s) => s.vpnStatus === "connected");
   // Mounted without the connection gate, nothing has probed yet: ask the
-  // same probe the gate would have, and keep its answer to this pane.
-  const [ownProbe, setOwnProbe] = useState<{ root: object; owner: boolean } | null>(null);
+  // same probe the gate would have, and keep its answer, with the account it
+  // named and the generation it was asked in, to this pane.
+  const [ownProbe, setOwnProbe] = useState<{ root: object; epoch: number; account: string | null } | null>(null);
   useEffect(() => {
+    // An account change ends what an earlier probe established.
+    setOwnProbe(null);
     if (!active || account !== null || probed) return;
     let live = true;
     void root.request(root.backendUrl("/api/vpn-check"), { cache: "no-store" })
       .then((response) => response.ok ? response.json() as Promise<{ accountKey?: unknown }> : null)
-      .then((body) => { if (live && body) setOwnProbe({ root, owner: typeof body.accountKey === "string" && body.accountKey !== "" }); })
+      .then((body) => {
+        if (!live || !body || root.authLock.epoch() !== epoch) return;
+        setOwnProbe({ root, epoch, account: typeof body.accountKey === "string" && body.accountKey !== "" ? body.accountKey : null });
+      })
       .catch(() => { /* Unknown authority keeps the controls disabled. */ });
     return () => { live = false; };
-  }, [active, account, probed, root]);
-  const probedOwner = account !== null ? true : probed ? false : ownProbe?.root === root ? ownProbe.owner : null;
-  const refused = save.refusedAccount !== null && save.refusedAccount === (account ?? "");
+  }, [active, account, probed, root, epoch]);
+  const probe = ownProbe?.root === root && ownProbe.epoch === epoch ? ownProbe : null;
+  // The account this pane would write for, once authority is established.
+  const writerAccount = account ?? (probed ? null : probe?.account ?? null);
+  const probedOwner = account !== null ? true : probed ? false : probe ? probe.account !== null : null;
+  // A refusal holds for the identity that was refused, and no other.
+  const refused = save.refused !== null && save.refused.account === writerAccount && save.refused.epoch === epoch;
   const readOnly = refused || probedOwner === false;
-  const canWrite = probedOwner === true && !refused;
+  const canWrite = probedOwner === true && !refused && writerAccount !== null;
+  const write = (choice: Choice) => { if (canWrite && writerAccount !== null) void saveDictationChoice(root, choice, { account: writerAccount, epoch }); };
 
   useEffect(() => {
     if (!active) return;
@@ -66,9 +80,9 @@ export function DictationSettings({ active }: { active: boolean }) {
     disabled={!canWrite}
     take={take}
     onReload={() => void refreshDictationDiscovery(root)}
-    onChoose={(id) => { if (snapshot && canWrite) void saveDictationChoice(root, { defaultProvider: id, smart: pending?.smart ?? snapshot.dictation.smart }); }}
-    onSmart={(smart) => { if (snapshot && canWrite) void saveDictationChoice(root, { defaultProvider: pending ? pending.defaultProvider : snapshot.dictation.saved, smart }); }}
-    onRetry={(choice) => { if (canWrite) void saveDictationChoice(root, choice); }}
+    onChoose={(id) => { if (snapshot) write({ defaultProvider: id, smart: pending?.smart ?? snapshot.dictation.smart }); }}
+    onSmart={(smart) => { if (snapshot) write({ defaultProvider: pending ? pending.defaultProvider : snapshot.dictation.saved, smart }); }}
+    onRetry={write}
   />;
 }
 
