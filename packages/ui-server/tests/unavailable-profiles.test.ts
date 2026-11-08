@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { registryBrainFixture } from "./helpers/registry-brain";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createBackendRegistry, createStaticBackendRegistry } from "../src/agent/backend";
@@ -125,5 +128,51 @@ describe("the registry admits only the closed enum", () => {
     const registry = createStaticBackendRegistry([makeFakeBackend({ id: "odysseus" })]);
     const response = await createProviderRoutes({ registry }).request("/providers");
     expect(Object.keys(await response.json())).toEqual(["providers", "backends"]);
+  });
+});
+
+describe("pi extension configuration is reported before admission (#3658)", () => {
+  let agentDir: string, previousAgentDir: string | undefined;
+  beforeEach(() => {
+    agentDir = mkdtempSync(join(tmpdir(), "odysseus-pi-agent-"));
+    previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    mkdirSync(join(brain.root, ".pi/extensions"), { recursive: true });
+    writeFileSync(join(brain.root, ".pi/extensions/loom.ts"), "export default function () {}\n");
+  });
+  afterEach(() => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    rmSync(agentDir, { recursive: true, force: true });
+  });
+  function piRegistry(piExtensions?: string) {
+    const config = resolveServerConfig({
+      NODE_ENV: "test", BRAIN_PATH: brain.root,
+      BRAIN_UI_PI_PROFILES: JSON.stringify([{ id: "gpt-api", label: "GPT (API)", vendor: "openai", model: "gpt-5.5" }]),
+      ...(piExtensions === undefined ? {} : { BRAIN_UI_PI_EXTENSIONS: piExtensions }),
+    });
+    return createBackendRegistry({ brainPath: config.brainPath, agent: config.agent });
+  }
+
+  test("the curated default keeps pi runnable beside an installed extension", async () => {
+    const registry = piRegistry();
+    expect((await registry.listAllProviders()).map((p) => p.id), "PI_CURATED_RUNNABLE").toEqual(["claude", "gpt-api"]);
+    expect(await registry.listUnavailableProviders(), "PI_CURATED_NOT_UNAVAILABLE").toEqual([]);
+  });
+
+  test("discover with an installed extension lists pi apart and leaves Claude routable", async () => {
+    const registry = piRegistry("discover");
+    expect((await registry.listAllProviders()).map((p) => p.id), "PI_DISCOVER_ONLY_CLAUDE_RUNNABLE").toEqual(["claude"]);
+    expect((await registry.getBackendForProfile("claude"))?.id, "CLAUDE_STILL_ROUTES").toBe("claude");
+    expect(await registry.getBackendForProfile("gpt-api"), "PI_PROFILE_NOT_ROUTABLE").toBeUndefined();
+    const { text, body } = await providersBody(registry);
+    expect(body.unavailable, "PI_REASON_CROSSES_THE_HOST_FILTER").toEqual([
+      { id: "gpt-api", label: "GPT (API)", reason: "unsupported-configuration", backendId: "pi" },
+    ]);
+    expect(text, "NO_PATH_LEAVES_THE_HOST").not.toContain("loom.ts");
+  });
+
+  test("an unknown BRAIN_UI_PI_EXTENSIONS value refuses configuration", () => {
+    expect(() => piRegistry("everything"), "PI_EXTENSIONS_VALUE_VALIDATED").toThrow("BRAIN_UI_PI_EXTENSIONS");
   });
 });

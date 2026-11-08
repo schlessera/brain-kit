@@ -1201,7 +1201,7 @@ A backend may report profiles it is configured with but cannot run now
 (ruled 2026-10-06 on #1044: a separate optional roster, closed reason enum).
 
 ```
-PROFILE_UNAVAILABLE_REASONS = ["needs-credentials"]
+PROFILE_UNAVAILABLE_REASONS = ["needs-credentials", "unsupported-configuration"]
 AgentBackend.listUnavailableProfiles?(): { id, label, reason }[] | Promise<…>
 GET /api/providers → { providers, backends, unavailable?: { id, label, reason, backendId }[] }
 ```
@@ -1211,8 +1211,11 @@ GET /api/providers → { providers, backends, unavailable?: { id, label, reason,
   are unchanged. An unavailable id is never a valid `providerId`. The member
   is optional on the existing `AgentBackend` interface, not a new seam; a
   backend without it reports none. Claude reports a profile whose required
-  environment key is missing as `needs-credentials`; pi lists every configured
-  profile and omits the member.
+  environment key is missing as `needs-credentials`. pi lists every configured
+  profile, except when its configuration would fail every managed turn
+  (#3658, additive): with extension discovery opted in and any extension or
+  loading error, or with a configured package that is not installed, the
+  hosted module lists none and reports each as `unsupported-configuration`.
 - **Closed reason.** The host keeps only `id`, `label` and a `reason` in
   `PROFILE_UNAVAILABLE_REASONS`, adds the reporting `backendId`, drops any
   other entry and filters hidden profiles. No backend free text, such as a key

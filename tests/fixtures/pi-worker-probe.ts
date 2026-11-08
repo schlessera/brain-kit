@@ -106,6 +106,12 @@ export default async function(pi) {
 // Only unsupported-configuration controls load external Pi factories. All
 // ordinary behavior below is driven by the installed curated tool inventory.
 if (extensionOnly) writeFileSync(join(extensionDir, "proof.ts"), extensionSource);
+// #3658: an installed extension under the default configuration stays inactive.
+const inactiveExtension = scenario === "inactive-extension";
+if (inactiveExtension) writeFileSync(join(extensionDir, "inactive.ts"), `export default function (pi) {
+  pi.registerTool({name:"inactive_voyage",label:"Inactive voyage",description:"Fictional inactive extension",parameters:{type:"object",properties:{}},
+    async execute() { return {content:[{type:"text",text:"The inactive extension ran."}],details:null}; }});
+}`);
 const inspectionPath = join(brainPath, "worker-inspection.ts");
 writeFileSync(inspectionPath, `import {writeFileSync,readFileSync,readdirSync,readlinkSync,statSync} from "node:fs";
 import {getAgentDir} from ${JSON.stringify(Bun.resolveSync("@earendil-works/pi-coding-agent", resolve("packages/ui-backend-pi")))};
@@ -160,6 +166,7 @@ export default function(pi) { pi.registerTool({name:"probe_cached_extension",lab
   if (scenario === "cached-package-offline-missing") { rmSync(packageRoot, {recursive:true}); process.env.PI_OFFLINE="1"; }
 }
 let calls = 0;
+let firstTools: string[] | undefined;
 const applicationReceipts: BrainApplicationResult[] = [];
 const frames: ServerMessage[] = [];
 let approvals = 0;
@@ -221,6 +228,7 @@ else toolCalls = [inspect];
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   calls++;
   const body = await request.json() as { tools?: Array<{ name: string }> };
+  if (calls === 1) firstTools = body.tools?.map(t => t.name) ?? [];
   const chosen = calls === 1 ? toolCalls : calls === 2 ? followUp : [];
   for (const tool of chosen) if (!body.tools?.some(t => t.name === tool.name)) throw new Error(`Fixture did not reach installed ${tool.name}`);
   const events: unknown[] = [{ type: "message_start", message: { id: "msg_fixture", type: "message", role: "assistant",
@@ -240,7 +248,7 @@ const parentFiles = ["auth.json", "models.json", "settings.json", "npm/node_modu
   "npm/node_modules/odysseus-worker-extension/index.js", "npm/node_modules/odysseus-worker-extension/worker-write"];
 const parentBytes = () => parentFiles.map(name => existsSync(join(agentDir, name)) ? readFileSync(join(agentDir, name), "utf8") : null);
 const parentState = parentBytes();
-const backend = createPiBackend({ brainPath, sessionDir, loadExtensions: extensionOnly || cachedPackageState,
+const backend = createPiBackend({ brainPath, sessionDir, ...(inactiveExtension ? {} : { loadExtensions: extensionOnly || cachedPackageState }),
   ...(scenario === "forge-bridge" ? { allowedTools: ["forge_worker"] } : {}),
   profiles: [{ id: "fixture", label: "Fixture", vendor: "anthropic", model: "claude-sonnet-4-6", thinkingLevel: "off" }], confirmBashPatterns: [] });
 const db = createUiDb(":memory:");
@@ -303,7 +311,7 @@ try {
     await startFixtureTurn(backend, brainPath, { sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge,
       ...(stateSandbox ? { workerSandbox: stateSandbox } : {}) });
   }
-  console.log(JSON.stringify({ frames, calls, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
+  console.log(JSON.stringify({ frames, calls, firstTools, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
     parentStateUnchanged: JSON.stringify(parentState) === JSON.stringify(parentBytes()),
     parentHomeWriteExists: defaultHomeState ? existsSync("/root/worker-home-write") : undefined,
     resumedHistory: sessions[0] ? await backend.getHistory(sessions[0].id) : [],
