@@ -262,6 +262,23 @@ describe("the full sweep", () => {
     ]);
   });
 
+  test("the dictation-provider epic and its children land on the Voice track", async () => {
+    const fake = new FakeGitHub(
+      [
+        { repo: KIT, number: 3705, labels: ["epic"] },
+        { repo: KIT, number: 3707, parent: { repo: KIT, number: 3705 } },
+      ],
+      [
+        { id: "epic", url: url(KIT, 3705), Status: "Backlog" },
+        { id: "child", url: url(KIT, 3707), Status: "Backlog" },
+      ],
+    );
+    const { code } = await run(fake, ["--apply"]);
+    expect(code).toBe(0);
+    expect(fake.items.find((i) => i.id === "epic")!.Track).toBe("Voice");
+    expect(fake.items.find((i) => i.id === "child")!.Track).toBe("Voice");
+  });
+
   test("never writes over a Status a person set, and still writes a derived one", async () => {
     const fake = new FakeGitHub(
       [
