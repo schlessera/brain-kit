@@ -19,6 +19,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { createPcmResampler } from "../../src/voice/pcm-capture.js";
 import { installFaultNetwork, type FaultNetwork, type FaultSocket } from "./offline/fault-network.ts";
+import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 const ITHACA = "odysseus-ithaca";
 const SPEECH = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained";
@@ -64,6 +65,8 @@ async function mount(ctx: TestContext): Promise<Scene> {
   host.style.cssText = "position:fixed;inset:0;width:390px;height:780px";
   document.body.append(host);
   const ui = createBrainUiRoot({ storage: null, request: net.request });
+  // Selection and the one-time acknowledgement (#3709) precede every take.
+  primeDictation(ui, "gemini");
   const renderer = createRoot(host);
   let mounted = true;
   const unmount = () => { if (mounted) { mounted = false; flushSync(() => renderer.unmount()); } };
@@ -124,7 +127,7 @@ function hardware(ctx: TestContext, rate: number) {
   return { contexts, streams, worklet };
 }
 
-const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Dictate"]');
+const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label^="Dictate"]');
 
 async function startDictating(s: Scene): Promise<FaultSocket> {
   await expect.poll(() => dictate(s), { message: "the composer has a mic" }).not.toBe(null);
