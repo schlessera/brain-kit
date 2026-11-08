@@ -546,7 +546,7 @@ test("a failed asynchronous launch closes its separate-UID broker through awaite
     } finally { spawns.restore(); await seam.restore(); }
   };
   try {
-    const confirmed = { refusal: "worker_identity_setup_timed_out", unconfirmed: false, operations: [["close", "close:answered"]],
+    const confirmed = { refusal: "worker_identity_setup_timed_out (step: none)", unconfirmed: false, operations: [["close", "close:answered"]],
       trace: ["close", "closed", "worker-killed"], killed: ["SIGKILL" as NodeJS.Signals] };
     expect(await runs(() => launchAgentWorkerAsync(launch(views[0]!))), "ASYNC_LAUNCH_AWAITS_BROKER_CLOSE")
       .toEqual({ ...confirmed, spawns: { sync: 0, async: 1 } });
