@@ -234,7 +234,7 @@ Before this, the terminal frame replaced an unanswered card with a dismissed
 stub, and its draft went with the controls. Now the card stays the editable
 question under a prompt that says the turn ended or timed out
 (`const [endedDismissed`,
-`packages/ui-react/src/components/chat/message-bubble.tsx:630-648`). Its
+`packages/ui-react/src/components/chat/message-bubble.tsx:632-650`). Its
 Submit sends no frame to the ended request. It records the answer locally as
 a `closed`/`ended` delivery, so the card shows the shipped Not delivered
 footer with Copy answer and Send as message (R1). Send as message is the only
