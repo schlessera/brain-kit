@@ -21,12 +21,12 @@ and of the ordinary chat/task model.
 - One server provider per host. `pickSpeechProvider` returns the supplied
   by-value provider, an explicit `VOICE_PROVIDER` built-in, Deepgram when its
   key is present, or throws
-  (`pickSpeechProvider`, `packages/ui-server/src/voice/speech-providers.ts:127-155`).
+  (`pickSpeechProvider` in `speech-providers.ts` at `a63e564`; #3707 replaced it with `createSpeechProviderRegistry`).
 - Every route calls it again per request. The session route mints for whatever
   it returns
-  (`.post("/voice/session"`, `packages/ui-server/src/routes/voice.ts:32-58`),
+  (`POST /voice/session` in `routes/voice.ts` at `a63e564`),
   and so does the saved-audio upload, before claiming a receipt
-  (`app.put(path`, `packages/ui-server/src/routes/transcriptions.ts:82-111`).
+  (the upload `PUT` in `routes/transcriptions.ts` at `a63e564`).
 - The browser already keys clients by provider id
   (`createAsrClientRegistry`, `packages/ui-sdk/src/client/asr.ts:41-60`;
   `registerAsrClients`, `packages/ui-react/src/voice/asr-clients.ts:16-41`).
@@ -229,7 +229,7 @@ Content-Type: application/json
 - The value is stored in the operational settings KV as `voice.dictation`
   (`{ defaultProvider: string | null, smart: boolean, revision: number }`).
   The reader is total: a corrupt or invalid row reads as `{ null, true, 0 }`
-  (`getSetting`, `packages/ui-server/src/db/settings.ts:26-41`).
+  (`getSetting`, `packages/ui-server/src/db/settings.ts:27-42`).
   `defaultProvider: null` clears the saved choice.
 - Writes need a human owner. This route enforces that itself; it does not
   assume the Models route's guard. Any authenticated human session may read.

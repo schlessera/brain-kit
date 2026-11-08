@@ -718,6 +718,34 @@
   /* The voice composer's button throws a glow the send button does not: it is
    * the primary action of a whole screen rather than one control in a row. */
   --bk-composer-voice-glow: rgba(224,159,62,0.35);
+  /* The voice surface (#3692): one colour language for dictation and live
+   * conversation. Amber is you and your mic, teal is brain and its voice, grey
+   * is nothing being heard, red is only End and failures. A tint fills the
+   * field, a border outlines it, a bar is the level meter behind the words and
+   * the hatch is the paused (reconnecting) stripe. The control shadow and
+   * highlight lift Mute, Interrupt and End off the meter. */
+  --bk-voice-tint-you: light-dark(rgba(224,159,62,0.16), rgba(224,159,62,0.14));
+  --bk-voice-tint-brain: light-dark(rgba(91,181,162,0.16), rgba(91,181,162,0.13));
+  --bk-voice-tint-idle: light-dark(rgba(95,88,76,0.16), rgba(154,150,161,0.1));
+  --bk-voice-tint-fail: light-dark(rgba(248,113,113,0.15), rgba(248,113,113,0.08));
+  --bk-voice-border-you: light-dark(rgba(127,76,8,0.5), rgba(224,159,62,0.45));
+  --bk-voice-border-brain: light-dark(rgba(21,89,76,0.5), rgba(91,181,162,0.45));
+  --bk-voice-border-idle: light-dark(rgba(95,88,76,0.35), rgba(154,150,161,0.3));
+  --bk-voice-border-fail: light-dark(rgba(156,42,36,0.5), rgba(248,113,113,0.45));
+  --bk-voice-bar-you: rgba(224,159,62,0.42);
+  --bk-voice-bar-brain: rgba(91,181,162,0.48);
+  --bk-voice-bar-idle: light-dark(rgba(95,88,76,0.35), rgba(154,150,161,0.35));
+  --bk-voice-hatch-idle: light-dark(rgba(95,88,76,0.16), rgba(154,150,161,0.14));
+  --bk-voice-control-shadow: light-dark(rgba(90,78,58,0.28), rgba(0,0,0,0.5));
+  --bk-voice-control-highlight: light-dark(rgba(255,255,255,0.7), rgba(255,255,255,0.08));
+  /* Each tint composited once over the canvas, opaque: the field's own fill,
+   * and the ground the words and the state label sit on, line by line, so the
+   * meter shows around them and never under them. Text contrast is then a
+   * property of two solid colours rather than of where a bar happens to fall. */
+  --bk-voice-ground-you: light-dark(#eadbc3, #2a2218);
+  --bk-voice-ground-brain: light-dark(#d5dfd3, #162425);
+  --bk-voice-ground-idle: light-dark(#d5d0c5, #1a1c20);
+  --bk-voice-ground-fail: light-dark(#eed5cc, #1f161a);
 
   /* ── Desktop (D22) ──────────────────────────────────────────────────
    *
@@ -1197,6 +1225,24 @@
   --bk-graph-canvas-bg: #ffffff;
   --bk-graph-node-focus-tint: transparent;
   --bk-composer-voice-glow: transparent;
+  --bk-voice-tint-you: transparent;
+  --bk-voice-tint-brain: transparent;
+  --bk-voice-tint-idle: transparent;
+  --bk-voice-tint-fail: transparent;
+  --bk-voice-border-you: #a58252;
+  --bk-voice-border-brain: #5b8b82;
+  --bk-voice-border-idle: #a7a39d;
+  --bk-voice-border-fail: #ba6a66;
+  --bk-voice-bar-you: #f2d7ae;
+  --bk-voice-bar-brain: #b0dbd2;
+  --bk-voice-bar-idle: #c7c5c0;
+  --bk-voice-hatch-idle: #e5e4e2;
+  --bk-voice-control-shadow: transparent;
+  --bk-voice-control-highlight: #ffffff;
+  --bk-voice-ground-you: #ffffff;
+  --bk-voice-ground-brain: #ffffff;
+  --bk-voice-ground-idle: #ffffff;
+  --bk-voice-ground-fail: #ffffff;
   --bk-rail-bg: #ffffff;
   --bk-rail-tint-active: transparent;
   --bk-rail-tint-active-hover: transparent;
@@ -1471,6 +1517,19 @@
   .bk-disc .bk-disc-label {
     transition: none;
   }
+
+  /* The voice surface (#3692): one static level line instead of moving bars,
+   * a flat tint instead of the sweep, a solid cursor, a ring that follows
+   * progress without easing, and instant shape changes. Every state keeps its
+   * icon and word. `[data-motion="reduce"]` repeats this for stories. The
+   * voice rules are declared further down at one class each, and a media query
+   * adds no specificity, so each selector here carries one more. */
+  .bk-voice-tone.bk-voice-field, .bk-voice-mic .bk-voice-mic-disc { transition: none; }
+  .bk-voice-meter .bk-voice-bars, .bk-voice-meter .bk-voice-sweep { display: none; }
+  .bk-voice-meter .bk-voice-level { display: block; }
+  .bk-voice-meter[data-mode="sweep"] { background: var(--bk-voice-tint); }
+  .bk-voice-ring .bk-voice-ring-fill { transition: none; }
+  span.bk-voice-cursor, span.bk-voice-ctl-spin, span.bk-voice-spin { animation: none; }
 }
 
 /* ── Interaction states ────────────────────────────────────────────────────
@@ -2679,3 +2738,172 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 @media (max-width: 480px) { .bk-status-facts { grid-template-columns: minmax(0, 1fr); gap: 0; } .bk-status-facts dd { margin-bottom: 8px; } }
 /* A wrapping row of reaching sm Buttons needs 16px between rows (#3252). */
 .bk-status-actions { display: flex; flex-wrap: wrap; gap: 16px 8px; margin-top: 12px; }
+
+/* ── The voice surface (#3692) ────────────────────────────────────────────
+ *
+ * Dictation and live conversation share one field, one colour language and one
+ * set of controls. `data-tone` picks the speaker: `you` (amber: you and your
+ * mic), `brain` (teal: brain and its voice), `idle` (grey: nothing is being
+ * heard) and `fail` (red: only End and failures). Each tone sets four local
+ * properties that every voice part reads, so dictation and live cannot drift:
+ * the field tint, its border, the meter bar and the state ink.
+ *
+ * `data-shape` fixes the field's geometry. `compact` (dictation) keeps the
+ * composer's own height at rest and one fixed height while a state label shows,
+ * so D3, D4 and D5 never move the page; `tall` (live) is one fixed height for
+ * L1 to L8; `card` (Start and notices) grows to its content, upward when the
+ * composer is docked to the bottom.
+ *
+ * Motion: the meter's bars follow the `level` prop, the thinking sweep crosses
+ * the field, the in-progress cursor blinks and the hold ring eases. Under
+ * `prefers-reduced-motion: reduce`, or inside an element with
+ * `data-motion="reduce"` (how a reduced-motion story shows it without emulating
+ * the media query), the meter becomes one static level line, the sweep a flat
+ * tint, the cursor solid, the ring follows progress without easing and shape
+ * changes are instant. Every state still has its icon and its word, so no state
+ * relies on colour or animation alone. */
+[data-tone="you"].bk-voice-tone { --bk-voice-ground: var(--bk-voice-ground-you); --bk-voice-tint: var(--bk-voice-tint-you); --bk-voice-border: var(--bk-voice-border-you); --bk-voice-bar: var(--bk-voice-bar-you); --bk-voice-ink: var(--bk-amber-ink); --bk-voice-solid: var(--bk-amber-fill); }
+[data-tone="brain"].bk-voice-tone { --bk-voice-ground: var(--bk-voice-ground-brain); --bk-voice-tint: var(--bk-voice-tint-brain); --bk-voice-border: var(--bk-voice-border-brain); --bk-voice-bar: var(--bk-voice-bar-brain); --bk-voice-ink: var(--bk-teal-ink); --bk-voice-solid: var(--bk-teal-fill); }
+[data-tone="idle"].bk-voice-tone { --bk-voice-ground: var(--bk-voice-ground-idle); --bk-voice-tint: var(--bk-voice-tint-idle); --bk-voice-border: var(--bk-voice-border-idle); --bk-voice-bar: var(--bk-voice-bar-idle); --bk-voice-ink: var(--bk-color-ink-dim); --bk-voice-solid: var(--bk-neutral-fill); }
+[data-tone="fail"].bk-voice-tone { --bk-voice-ground: var(--bk-voice-ground-fail); --bk-voice-tint: var(--bk-voice-tint-fail); --bk-voice-border: var(--bk-voice-border-fail); --bk-voice-bar: var(--bk-voice-border-fail); --bk-voice-ink: var(--bk-red-ink); --bk-voice-solid: var(--bk-red-fill); }
+
+.bk-voice-field {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bk-voice-border);
+  border-radius: 22px;
+  background-color: var(--bk-voice-ground);
+  color: var(--bk-color-ink);
+  transition: height 180ms ease, border-color 120ms linear, background-color 120ms linear;
+}
+.bk-voice-field[data-outline="true"] { border-width: 1.5px; border-color: var(--bk-color-ink-dim); }
+.bk-voice-field[data-shape="compact"] { height: 52px; padding: 0 6px 0 16px; flex-direction: row; align-items: center; gap: 8px; }
+.bk-voice-field[data-shape="compact"][data-labelled="true"] { height: 84px; }
+.bk-voice-field[data-shape="tall"] { height: 136px; padding: 10px 10px 10px 16px; }
+.bk-voice-field[data-shape="card"] { padding: 14px; gap: 12px; border-radius: 20px; }
+.bk-voice-body { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 1 1 auto; min-width: 0; align-self: stretch; }
+.bk-voice-field[data-shape="tall"] .bk-voice-body { justify-content: flex-start; }
+.bk-voice-trailing { position: relative; z-index: 1; display: flex; align-items: center; flex: none; }
+.bk-voice-controls { position: relative; z-index: 1; display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: auto; }
+
+/* Two lines of text, clamped to the NEWEST words: the box is two lines tall and
+ * bottom-aligned, so a long dictation scrolls up out of the top. */
+.bk-voice-text { font: 400 13.5px/20px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); max-height: 40px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; overflow-wrap: anywhere; }
+.bk-voice-text-partial { color: var(--bk-color-ink-mute); }
+/* Words and the state label sit on the field's opaque ground, line by line:
+ * the meter shows around them, never under a glyph. */
+.bk-voice-text > span, .bk-voice-field[data-shape="compact"] .bk-voice-label > span:not(.bk-voice-label-meta) { background: var(--bk-voice-ground); -webkit-box-decoration-break: clone; box-decoration-break: clone; border-radius: 4px; }
+.bk-voice-text > span { padding: 1px 2px; margin: 0 -2px; }
+.bk-voice-text-placeholder { color: var(--bk-color-ink-mute); }
+
+.bk-voice-label { display: flex; align-items: center; gap: 6px; min-width: 0; font: 600 12px/16px "Plus Jakarta Sans", sans-serif; color: var(--bk-voice-ink); }
+.bk-voice-label-icon { display: inline-flex; flex: none; }
+.bk-voice-label-meta { margin-left: auto; padding-left: 8px; font: 500 10.5px/16px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The meter sits BEHIND the words: a band across the field, clipped to its
+ * corners, never a target. */
+.bk-voice-meter { position: absolute; inset: 0; z-index: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
+.bk-voice-field[data-shape="tall"] > .bk-voice-meter { top: 30px; bottom: 6px; border-radius: 0 0 21px 21px; }
+.bk-voice-bars { position: absolute; inset: 6px 12px; display: flex; align-items: center; justify-content: space-between; gap: 2px; }
+.bk-voice-bar { flex: 0 0 3px; min-height: 2px; border-radius: 2px; background: var(--bk-voice-bar); transition: height 90ms linear; }
+.bk-voice-level { display: none; position: absolute; left: 12px; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--bk-voice-bar); }
+.bk-voice-flat { position: absolute; left: 12px; right: 12px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px; background: var(--bk-voice-bar); }
+.bk-voice-hatch { position: absolute; inset: 0; background-image: repeating-linear-gradient(135deg, var(--bk-voice-hatch-idle) 0 8px, transparent 8px 16px); }
+.bk-voice-sweep { position: absolute; top: 0; bottom: 0; left: 0; width: 45%; background-image: linear-gradient(90deg, transparent, var(--bk-voice-tint), transparent); animation: bk-voice-sweep 1.8s linear infinite; }
+@keyframes bk-voice-sweep { from { transform: translateX(-100%); } to { transform: translateX(230%); } }
+
+/* Raised round controls, lifted off the meter by a soft shadow and a lit top
+ * edge. Pressed is solid ink; End is the only red; the ✓ is your amber. */
+.bk-voice-ctl { appearance: none; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: var(--bk-color-raised); color: var(--bk-color-ink); font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; box-shadow: 0 4px 14px var(--bk-voice-control-shadow), inset 0 1px 0 var(--bk-voice-control-highlight), inset 0 0 0 1px var(--bk-color-edge); }
+.bk-voice-ctl[aria-pressed="true"] { background: var(--bk-color-ink); color: var(--bk-color-canvas); }
+.bk-voice-ctl[data-tone="end"] { background: var(--bk-red-fill); color: var(--bk-on-fill); box-shadow: 0 4px 14px var(--bk-voice-control-shadow), inset 0 1px 0 var(--bk-voice-control-highlight); }
+.bk-voice-ctl[data-tone="you"] { background: var(--bk-amber-fill); color: var(--bk-on-fill); box-shadow: 0 4px 14px var(--bk-voice-control-shadow), inset 0 1px 0 var(--bk-voice-control-highlight); }
+.bk-voice-ctl[data-tone="brain"] { background: var(--bk-teal-fill); color: var(--bk-on-fill); box-shadow: 0 4px 14px var(--bk-voice-control-shadow), inset 0 1px 0 var(--bk-voice-control-highlight); }
+.bk-voice-ctl:disabled, .bk-voice-ctl[aria-disabled="true"] { opacity: .45; cursor: default; }
+.bk-voice-ctl:focus-visible, .bk-voice-mic:focus-visible, .bk-voice-action:focus-visible, .bk-voice-close:focus-visible, .bk-voice-start:focus-visible, .bk-voice-link:focus-visible, .bk-voice-talk-live:focus-visible, .bk-uncertain-btn:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+.bk-voice-ctl-spin, .bk-voice-spin { display: inline-flex; animation: bk-action-spin 1s linear infinite; }
+
+/* The composer mic, with the hold ring. The 44px box is the target; the 36px
+ * disc is the paint. Holding turns it teal while the ring fills. */
+.bk-voice-mic-wrap { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; }
+.bk-voice-mic { appearance: none; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--bk-color-ink-dim); font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: none; user-select: none; -webkit-user-select: none; }
+.bk-voice-mic-disc { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); transition: background-color 120ms linear; }
+.bk-voice-mic[data-phase="pressed"] .bk-voice-mic-disc, .bk-voice-mic[data-phase="holding"] .bk-voice-mic-disc, .bk-voice-mic[data-phase="complete"] .bk-voice-mic-disc { background: var(--bk-teal-fill); color: var(--bk-on-fill); box-shadow: none; }
+.bk-voice-ring { position: absolute; inset: 0; width: 44px; height: 44px; transform: rotate(-90deg); pointer-events: none; }
+.bk-voice-ring-track { fill: none; stroke: var(--bk-voice-border-brain); stroke-width: 3; }
+.bk-voice-ring-fill { fill: none; stroke: var(--bk-teal-ink); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset 80ms ease-out; }
+.bk-voice-hint, .bk-voice-talk-live { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--bk-color-surface); box-shadow: inset 0 0 0 1px var(--bk-voice-border-brain); color: var(--bk-teal-ink); font: 600 12px/16px "Plus Jakarta Sans", sans-serif; white-space: nowrap; }
+.bk-voice-hint { position: absolute; right: 0; bottom: calc(100% + 8px); pointer-events: none; }
+/* "Talk live…" for keyboard and screen readers: out of sight until it takes
+ * focus, then shown where the hold hint would be. */
+.bk-voice-talk-live { appearance: none; border: 0; margin: 0; cursor: pointer; position: absolute; right: 0; bottom: calc(100% + 8px); min-height: 44px; padding: 0 14px; }
+.bk-voice-talk-live:not(:focus-visible) { clip-path: inset(50%); width: 1px; height: 1px; min-height: 0; padding: 0; overflow: hidden; }
+
+/* A notice in the field: icon, title, one line, up to two actions. */
+.bk-voice-notice-head { display: flex; align-items: flex-start; gap: 10px; }
+.bk-voice-notice-icon, .bk-voice-card-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--bk-voice-tint); color: var(--bk-voice-ink); box-shadow: inset 0 0 0 1px var(--bk-voice-border); }
+.bk-voice-notice-title { margin: 0; font: 600 14px/20px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); }
+.bk-voice-notice-body { margin: 2px 0 0; font: 400 12.5px/18px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-dim); overflow-wrap: anywhere; }
+.bk-voice-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.bk-voice-action { appearance: none; box-sizing: border-box; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--bk-color-raised); color: var(--bk-color-ink); box-shadow: inset 0 0 0 1px var(--bk-color-edge); font: 600 13px/1 "Plus Jakarta Sans", sans-serif; cursor: pointer; }
+.bk-voice-action[data-tone="you"] { background: var(--bk-amber-fill); color: var(--bk-on-fill); box-shadow: none; }
+.bk-voice-action[data-tone="brain"] { background: var(--bk-teal-fill); color: var(--bk-on-fill); box-shadow: none; }
+
+/* The Start card. */
+.bk-voice-card-head { display: flex; align-items: flex-start; gap: 10px; }
+.bk-voice-card-line { flex: 1 1 auto; margin: 0; padding-top: 4px; font: 400 13.5px/19px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); }
+.bk-voice-card-line strong { font-weight: 600; }
+.bk-voice-close { appearance: none; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px; margin: -8px -8px -8px 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--bk-color-ink-dim); cursor: pointer; }
+.bk-voice-close > span { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); }
+.bk-voice-service { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px 0 12px; border-radius: 12px; background: var(--bk-color-surface); box-shadow: inset 0 0 0 1px var(--bk-color-edge); }
+.bk-voice-service[data-required="true"] { box-shadow: inset 0 0 0 1.5px var(--bk-amber-ink); }
+.bk-voice-service-key { font: 600 10px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--bk-color-ink-mute); }
+.bk-voice-service-name { flex: 1 1 auto; min-width: 0; font: 600 13px/18px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-voice-link { appearance: none; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--bk-teal-ink); font: 600 12.5px/1 "Plus Jakarta Sans", sans-serif; cursor: pointer; }
+.bk-voice-personas { display: flex; flex-direction: column; margin: 0; padding: 0; border-radius: 12px; overflow: hidden; background: var(--bk-color-surface); box-shadow: inset 0 0 0 1px var(--bk-color-edge); }
+.bk-voice-persona { appearance: none; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; margin: 0; padding: 7px 12px; border: 0; border-top: 1px solid var(--bk-color-line); background: transparent; color: var(--bk-color-ink); text-align: left; font: inherit; cursor: pointer; }
+.bk-voice-persona:first-child { border-top: 0; }
+.bk-voice-persona[aria-checked="true"] { background: var(--bk-voice-tint-brain); }
+.bk-voice-persona:focus-visible { outline: 2px solid var(--bk-focus-ring); outline-offset: -2px; }
+.bk-voice-persona-name { display: block; font: 600 13px/18px "Plus Jakarta Sans", sans-serif; }
+.bk-voice-persona-voice { display: block; font: 400 11px/15px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-dim); }
+.bk-voice-persona-check { margin-left: auto; display: inline-flex; color: var(--bk-teal-ink); }
+.bk-voice-card-notice { display: flex; align-items: flex-start; gap: 8px; margin: 0; font: 500 12px/17px "Plus Jakarta Sans", sans-serif; color: var(--bk-voice-ink); }
+.bk-voice-card-notice > .bk-voice-label-icon { padding-top: 1px; }
+.bk-voice-start { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin: 0; border: 0; border-radius: 999px; background: var(--bk-teal-fill); color: var(--bk-on-fill); font: 600 15px/1 "Plus Jakarta Sans", sans-serif; cursor: pointer; }
+.bk-voice-start[aria-disabled="true"] { opacity: .45; cursor: default; }
+.bk-voice-shared { align-self: center; }
+.bk-voice-shared-list { margin: 0; padding: 0 0 0 18px; font: 400 12px/18px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-dim); }
+
+/* Spoken turns in the chat: small inline marks, never diagnostics. */
+.bk-spoken-mark { display: inline-flex; vertical-align: -2px; margin-right: 6px; }
+.bk-spoken-mark[data-speaker="you"] { color: var(--bk-amber-ink); }
+.bk-spoken-mark[data-speaker="brain"] { color: var(--bk-teal-ink); }
+.bk-spoken-turn { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.bk-spoken-turn[data-speaker="you"] { align-items: flex-end; }
+.bk-spoken-bubble { max-width: 82%; box-sizing: border-box; padding: 10px 13px; border: 1px solid var(--bk-color-edge); border-radius: 16px 16px 5px 16px; background: var(--bk-color-raised); font: 400 13.5px/1.55 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
+.bk-spoken-bubble[data-in-progress="true"] { border-color: var(--bk-amber-ink); background: transparent; }
+.bk-spoken-prose { font: 400 13.5px/1.7 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
+.bk-voice-cursor { display: inline-block; width: 7px; height: 1.05em; margin-left: 2px; vertical-align: -2px; background: var(--bk-amber-fill); animation: bk-voice-blink 1s steps(1, end) infinite; }
+@keyframes bk-voice-blink { 50% { opacity: 0; } }
+.bk-uncertain { text-decoration-line: underline; text-decoration-style: dotted; text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-color: currentColor; }
+.bk-uncertain-btn { appearance: none; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.bk-unplayed { color: var(--bk-color-ink-mute); }
+.bk-cut-off { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 6px; border-radius: 5px; vertical-align: 1px; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); font: 500 10px/14px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-dim); white-space: nowrap; }
+.bk-voice-tool { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); font: 500 11.5px/16px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-dim); }
+.bk-voice-tool > .bk-voice-label-icon { color: var(--bk-teal-ink); }
+.bk-voice-divider { display: flex; align-items: center; gap: 10px; width: 100%; font: 500 10.5px/16px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-dim); }
+.bk-voice-divider::before, .bk-voice-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--bk-color-line); }
+.bk-voice-divider > .bk-voice-label-icon { color: var(--bk-teal-ink); }
+
+/* Reduced motion from `data-motion="reduce"`; the media query's half is in
+ * the kit's one reduced-motion block above. */
+[data-motion="reduce"].bk-voice-field, [data-motion="reduce"] .bk-voice-field, [data-motion="reduce"] .bk-voice-mic-disc { transition: none; }
+[data-motion="reduce"] .bk-voice-bars, [data-motion="reduce"] .bk-voice-sweep { display: none; }
+[data-motion="reduce"] .bk-voice-level { display: block; }
+[data-motion="reduce"] .bk-voice-meter[data-mode="sweep"] { background: var(--bk-voice-tint); }
+[data-motion="reduce"] .bk-voice-ring-fill { transition: none; }
+[data-motion="reduce"] .bk-voice-cursor, [data-motion="reduce"] .bk-voice-ctl-spin, [data-motion="reduce"] .bk-voice-spin { animation: none; }

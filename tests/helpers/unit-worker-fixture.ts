@@ -2,7 +2,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: boolean; failAfterDiagnostics?: boolean; diagnosticLink?: "file" | "directory" | "ancestor" } = {}) {
+export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: boolean; failAfterDiagnostics?: boolean; diagnosticLink?: "file" | "directory" | "ancestor"; dropReport?: boolean } = {}) {
   const source = resolve(import.meta.dir, "../..");
   const root = mkdtempSync(join(dirname(source), ".odysseus-unit-workers-"));
   mkdirSync(join(root, "tmp"));
@@ -15,7 +15,15 @@ export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: 
   };
   write("scripts/unit-worker-entry.sh", readFileSync(join(source, "scripts/unit-worker-entry.sh"), "utf8"));
   write(".gitignore", "node_modules/\ntmp/\ndist/\n.vitest-attachments/\n");
-  write("package.json", JSON.stringify({ name: "odysseus-unit-fixture", type: "module", scripts: { build: "bun scripts/build.ts", test: "bun scripts/test.ts" } }));
+  write("package.json", JSON.stringify({ name: "odysseus-unit-fixture", type: "module", scripts: { build: "bun scripts/build.ts",
+    test: options.dropReport ? "bun scripts/drop-report.ts" : "bun scripts/test.ts" } }));
+  // The Odysseus worker's tests pass and it exits 0, but its JUnit report is gone.
+  if (options.dropReport) write("scripts/drop-report.ts", `import {rmSync} from "node:fs";
+const args=process.argv.slice(2);
+const child=Bun.spawn([process.execPath,"scripts/test.ts",...args],{stdio:["inherit","inherit","inherit"]});
+const code=await child.exited;
+if(code===0&&args.some(arg=>arg.endsWith("tests/odysseus.test.ts")))rmSync("tmp/unit-report.xml");
+process.exit(code);\n`);
   write("packages/raft/package.json", JSON.stringify({ name: "@odysseus/raft", version: "1.0.0" }));
   write("packages/raft/README.md", "Odysseus builds the raft.\n");
   // This byte-owned stand-in tests dependency copying, not a compiler version.
