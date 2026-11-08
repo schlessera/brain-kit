@@ -63,8 +63,10 @@ export interface ComposerViewProps {
   dictationNotice?: string;
   onDismissDictationNotice?: () => void;
   onDismissCaptureNotice?: () => void;
-  /** The mic's accessible name when it does not dictate. */
+  /** The mic's accessible name when it does not dictate, or names the dictation service. */
   micLabel?: string;
+  /** Shows micLabel as the mic's pointer tooltip. */
+  micTip?: boolean;
   /** Off: no mic is drawn, because there is no capture to offer. */
   mic?: boolean;
   value: string;
@@ -297,6 +299,7 @@ export function ComposerView(p: ComposerViewProps) {
         onMic={p.onMic}
         mic={p.mic}
         micLabel={p.micLabel}
+        micTip={p.micTip}
       />
     </div>
   );

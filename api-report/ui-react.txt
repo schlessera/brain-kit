@@ -714,7 +714,7 @@ signatures (every public export and the types it is made of)
         saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
         accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
         assign(id: string): Promise<void>;
-        transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string): Promise<void>;
+        transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string, provider?: string): Promise<void>;
         syncTranscriptions(): Promise<void>;
         busy(): boolean;
         subscribe(listener: () => void): () => void;

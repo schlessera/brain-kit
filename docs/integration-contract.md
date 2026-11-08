@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
+
+`openSettings("voice")` opens a new Settings › Voice pane, which holds the
+brain-wide dictation default. `RecordingStore.transcribe` accepts an optional
+provider id, sent as `Speech-Provider`; a retry refused for naming another
+provider applies the returned receipt and rejects. The kit `Composer` adds
+`micTip?: boolean`. Existing calls behave as before, and no HTTP or protocol
+shape changes. See
+[the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
+This ships in a minor.
+
 ## Setup timeouts name their step (additive, 0.45.0, #3664)
 
 A separate-UID worker launch that misses its identity readiness deadline still

@@ -142,8 +142,10 @@ export interface ComposerProps {
    * so no mic is drawn as if it worked.
    */
   mic?: boolean;
-  /** The mic's accessible name, when the app's capture is not dictation ("Record on this device"). */
+  /** The mic's accessible name, when the app's capture is not dictation ("Record on this device"), or names its service ("Dictate · Deepgram"). */
   micLabel?: string;
+  /** Shows `micLabel` as the pointer tooltip too, as the attach trigger does. Off while dictating. */
+  micTip?: boolean;
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
@@ -329,7 +331,7 @@ export function Composer(p: ComposerProps) {
             onChange={editable ? (e: ChangeEvent<HTMLTextAreaElement>) => p.onChange?.(e.target.value) : undefined}
             onKeyDown={onKeyDown}
           />
-          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
+          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} tip={p.micTip === true && !dictating} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
           {showStop ? (
             <span
               style={{ ...disc(28, accent.red.fill, false), cursor: stopAct ? "pointer" : "default" }}

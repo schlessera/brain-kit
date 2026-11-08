@@ -6,7 +6,7 @@ import { BrainUiProvider, useRootStore } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { SettingsPanel } from "../../src/components/settings/settings-panel.js";
 
-const panes = ["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"];
+const panes = ["Appearance & input", "Models", "Voice", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"];
 for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as const) {
   test(`Settings pane identity and manual traversal at ${width} ${theme}`, async ctx => {
     const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
@@ -49,7 +49,7 @@ for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as c
     const count = requests.length;
     (models.element() as HTMLElement).focus();
     await userEvent.keyboard(width < 900 ? "{ArrowRight}" : "{ArrowDown}");
-    expect(document.activeElement).toBe(page.getByRole("tab", { name: "Accounts", exact: true }).element());
+    expect(document.activeElement).toBe(page.getByRole("tab", { name: "Voice", exact: true }).element());
     expect(ui.stores.ui.getState().settingsTab).toBe("models");
     expect(requests).toHaveLength(count);
     await userEvent.keyboard("{Home}{Enter}");
@@ -61,7 +61,7 @@ for (const width of [320, 768, 1280]) for (const theme of ["dark", "light"] as c
     expect(document.activeElement).toBe(page.getByRole("tab", { name: "Devices & agents", exact: true }).element());
     expect(ui.stores.ui.getState().settingsTab).toBe("appearance");
     flushSync(() => ui.stores.principal.setState({ mintPending: true }));
-    expect(page.getByRole("tab").elements().filter(el => (el as HTMLButtonElement).disabled)).toHaveLength(7);
+    expect(page.getByRole("tab").elements().filter(el => (el as HTMLButtonElement).disabled)).toHaveLength(8);
     flushSync(() => ui.stores.principal.setState({ mintPending: false }));
     await page.getByRole("tab", { name: "Accounts", exact: true }).click();
     await import("../../src/components/settings/accounts-tab.js");

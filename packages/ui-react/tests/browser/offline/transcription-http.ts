@@ -17,11 +17,12 @@ export const transcriptionHttp: BrowserCommand<[Operation], unknown> = async (ct
       res.setHeader("Connection", "close");
       res.setHeader("Access-Control-Allow-Origin", req.headers.origin ?? "null");
       res.setHeader("Access-Control-Allow-Credentials", "true");
-      res.setHeader("Access-Control-Allow-Headers", "content-type,content-sha256");
+      res.setHeader("Access-Control-Allow-Headers", "content-type,content-sha256,speech-provider");
       res.setHeader("Access-Control-Allow-Methods", "GET,PUT,DELETE,OPTIONS");
       if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
       const respond = (body: unknown, status = 200) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
       if (req.url?.endsWith("/capabilities")) { respond({ providerId: "deepgram", capabilities: { savedAudio: true } }); return; }
+      if (req.url?.endsWith("/voice/providers")) { respond({ providers: [{ id: "deepgram", label: "Deepgram", capabilities: { streaming: true, interimResults: true, keyterms: true, endpointing: true, savedAudio: true } }], dictation: { saved: null, savedUsable: false, host: "deepgram", effective: "deepgram", source: "host", smart: true, revision: "0" } }); return; }
       if (req.method === "GET") { respond(receipt ?? {}, receipt ? 200 : 404); return; }
       if (req.method !== "PUT") { respond({}); return; }
       state.uploads++;

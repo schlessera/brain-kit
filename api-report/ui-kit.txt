@@ -881,6 +881,7 @@ signatures (every public export and the types it is made of)
         onMic?: () => void;
         mic?: boolean;
         micLabel?: string;
+        micTip?: boolean;
         maxRows?: number;
     }
   ComposerRecall (packages/ui-kit/src/chrome/Composer.tsx)
