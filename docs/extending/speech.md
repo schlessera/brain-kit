@@ -64,6 +64,20 @@ See the [HTTP specification](../http-api.md#selectable-dictation-providers) for
 settings revisions, exact selection errors and the no-fallback rule. Gemini's
 built-in factory is implemented separately in #3708; no placeholder is registered.
 
+The shipped app does exactly that. Settings › Voice lists every registered
+provider by its `label` (an id without one is shown as is) and saves the choice
+brain-wide. The mic names the next take's provider. The first take to a provider
+on a device shows its `destination` text and waits for **Start dictation**
+before requesting a session or the microphone, so write `destination` as the
+sentence a user should read before speaking ("Microphone audio streams from this
+browser to …"). Changing that text asks every device again. A provider without
+`destination` is described generically. The saved-recordings tray uses the
+effective provider when it implements `transcribeRecording`, and otherwise
+offers the registered providers that do. See the
+[ui-react guide](../../packages/ui-react/README.md#choosing-the-dictation-service).
+The [selection Chrome proof](../../packages/ui-react/tests/dictation-selection-runtime.test.ts)
+registers two keyless providers this way and checks which one each take reached.
+
 The four streaming capabilities are boolean. Optional `savedAudio` is derived from a callable `transcribeRecording`; a contradictory explicit declaration is rejected.
 Optional `smartTranscription` is boolean when supplied: it declares that
 `createSession` honours its optional `mode` option, `"smart"` for cleaned-up

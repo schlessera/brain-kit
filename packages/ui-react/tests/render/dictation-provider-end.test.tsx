@@ -22,6 +22,7 @@ import { useVpnStatus } from "../../src/hooks/use-vpn-status.js";
 import type { LocalWork } from "../../src/lib/local-work.js";
 import { useDictation } from "../../src/voice/use-dictation.js";
 import { useServiceWorkerUpdates } from "../../src/index.js";
+import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 afterAll(unregisterDictationProviderEndDom);
 
@@ -195,6 +196,7 @@ function voiceRoot(provider: Provider) {
     if (path === "/api/status") return Response.json({ contentRenderers: [] });
     throw new Error(`Unexpected dictation fixture request: ${path}`);
   } });
+  primeDictation(root, provider.id);
   roots.push(root);
   return root;
 }
@@ -492,6 +494,8 @@ test("another dictation ending on its own neither releases the reload nor commit
 test("auth expiry cancels the client whose Done is still draining and holds update reload",async()=>{
  const root=voiceRoot(deepgram); const {dictation,reloads}=await mount(root);
  root.stores.connection.getState().setVpnStatus("connected","odysseus-key");
+ // The acknowledgement is per account: this account's device has given it.
+ primeDictation(root,"deepgram");
  let ended=0;
  replaceGlobal(navigator,"mediaDevices",{getUserMedia:async()=>({getTracks:()=>[{stop(){ended++;}}]})});
  await listen(root,dictation); act(()=>deepgram.hear("Ask Nestor",true));
@@ -612,6 +616,7 @@ for (const words of [true, false]) test(`an error reported while Done drains sur
     throw new Error(`Unexpected dictation fixture request: ${path}`);
   } });
   roots.push(root);
+  primeDictation(root, "drain-fails");
   let options!: Parameters<Parameters<BrainUiRoot["asr"]["register"]>[1]>[0];
   let settle!: () => void;
   root.asr.register("drain-fails", (opts) => {
