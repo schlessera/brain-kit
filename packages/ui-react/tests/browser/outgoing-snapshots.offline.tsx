@@ -122,6 +122,9 @@ function pickFiles(s: Scene, files: File[]) {
 const crewList = () => new File(["Eurylochus\nPolites\nElpenor\n"], "crew-list.txt", { type: "text/plain" });
 const chart = () => new File(["Scylla to port, Charybdis to starboard\n"], "strait-chart.txt", { type: "text/plain" });
 const typed = async (s: Scene, text: string) => { await userEvent.fill(s.field(), text); };
+/** The host holds the snapshot: the field takes newer words again (a refusal can no longer give text back). */
+const acknowledged = (fixture: SnapshotHost, s: Scene, text: string) =>
+  expect.poll(() => fixture.snapshotsOf(s.draft()!.draftId).some((x) => x.text === text) && !!s.draft()!.host?.snapshots?.some((x) => x.text === text), { timeout: 5_000 }).toBe(true);
 const saved = (s: Scene) => { const d = s.draft(); return !!d && d.host !== null && d.host.edit === d.edit; };
 const FULL = "10 messages in this chat are waiting or need recovery. Send, cancel or delete one, then send this. Your text stays here.";
 
@@ -139,8 +142,15 @@ test("case 22: at ten snapshots Send is refused with nothing sent and the text k
   for (const b of s.bubbles()) expect(indicatorName(b), "no message text in the indicator's name").not.toMatch(/Oar|wind/);
   await typed(s, "Turn the ship for Aeaea.");
   await expect.poll(() => saved(s), { timeout: 5_000 }).toBe(true);
-  const before = document.activeElement;
+  // Typing while the creating save is out cannot reach the field, so a
+  // refusal gives the text back alone: never joined to newer words.
+  const release = fixture.holdSaves();
   s.sendButton().click();
+  await expect.poll(() => s.field().value).toBe("");
+  await userEvent.type(s.field(), "and more");
+  expect(s.field().value, "no edit while the snapshot is unacknowledged").toBe("");
+  const before = document.activeElement;
+  release();
   await expect.poll(() => s.host.querySelector("[data-outgoing-full]")?.textContent ?? "", { timeout: 5_000 }).toContain(FULL);
   expect(s.messages(), "no chat_message").toHaveLength(0);
   expect(fixture.saves.some((x) => x.status === 409), "the creating save was refused").toBe(true);
@@ -208,6 +218,7 @@ test("case 24 and rev 4 case 6: held, returned and a newer draft stay separate; 
   await expect.poll(() => fixture.uploads.length).toBe(2);
   s.sendButton().click();
   await expect.poll(() => s.bubble("Read the crew list aloud.") !== undefined).toBe(true);
+  await acknowledged(fixture, s, "Read the crew list aloud.");
   await typed(s, "Ask Circe about the passage.");
   await expect.poll(() => fixture.rows.get(s.draft()!.draftId)?.text, { timeout: 5_000 }).toBe("Ask Circe about the passage.");
   const id = s.draft()!.draftId;
@@ -270,6 +281,7 @@ test("case 25: a background upload failure while typing keeps focus in the compo
   await expect.poll(() => fixture.uploads.length).toBe(1);
   s.sendButton().click();
   await expect.poll(() => s.bubbles().length).toBe(1);
+  await acknowledged(fixture, s, "Bring the crew list.");
   s.field().focus();
   await userEvent.type(s.field(), "Polites keeps watch");
   fixture.refuseNextUpload();

@@ -215,7 +215,7 @@ describe("the draft client", () => {
     await until(() => socket.messages().length === 1, "the new request is sent");
     const frame = socket.messages()[0]!;
     expect(frame.requestId).not.toBe("r1");
-    expect(host.snapshotsOf("draft-ithaca").map((s) => [s.requestId, s.state])).toEqual([[frame.requestId, "dispatched"]]);
+    expect(host.snapshotsOf("draft-ithaca").map((s) => [s.requestId, s.state])).toEqual([[frame.requestId!, "dispatched"]]);
     expect(host.saves.filter((s) => s.status === 200).map((s) => s.body.snapshots!.map((x) => `${x.requestId}:${x.state}`).join())).toEqual(["r1:returned", `${frame.requestId}:dispatched`]);
   });
 });

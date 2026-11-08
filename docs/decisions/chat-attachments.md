@@ -307,7 +307,10 @@ originals, on a host that advertises `composerFiles`:
     empty composer, and the client saves over that revision instead of
     rotating the draft.
   - **A full chat sends nothing.** `409 DRAFT_OUTGOING_FULL` gives the text
-    and files back to the composer and shows the notice with **Show**. Only
+    and files back to the composer and shows the notice with **Show**. Until
+    the save that creates a snapshot is acknowledged, the field takes no new
+    edits. That window is one save, and it means a refusal gives the text back
+    alone, never joined to newer words (rev 4 correction 3). Only
     Send waits. Drafting and every bubble action stay available, and Cancel
     never asks for a slot. The notice clears when this tab frees one: a
     Delete…, an Edit, or an acceptance. Clearing it live when another device

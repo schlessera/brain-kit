@@ -105,6 +105,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // The draft's content is the revision the host acknowledged, file bindings included.
   const draftClean = !!draft && draft.host !== null && draft.host.edit === draft.edit && draft.conflict === null;
   const draftFailure = draft?.failure ?? null;
+  // A Send whose snapshot the host has not acknowledged yet (#3155): a
+  // refusal gives its text back to the field, so nothing typed meanwhile may
+  // land there to be joined with it. The window is one save.
+  const creatingSnapshot = draftSnapshots(draft).some((x) => !x.replaces && !draft?.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
   /** Write the view's draft. A function reads the draft as it is now, not as rendered. */
   const setInput = (value: string | ((current: string) => string)) => {
     const store = root.stores.drafts.getState();
@@ -1074,7 +1078,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           frameRef={frameRef}
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
-            if (voiceMode === "dictate") return;
+            if (voiceMode === "dictate" || creatingSnapshot) return;
             setInput(value);
             setPaletteDismissed(false);
             setPaletteIndex(0);

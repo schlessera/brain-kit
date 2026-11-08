@@ -46,6 +46,7 @@ export function snapshotHost(options: { limit?: number } = {}) {
   let clock = Date.UTC(2026, 6, 12, 9, 0, 0);
   const now = () => ++clock;
   let uploadGate: Promise<void> | null = null;
+  let saveGate: Promise<void> | null = null;
   let failNext: "refuse" | null = null;
   const json = (body: unknown, status = 200) => Response.json(body, { status });
 
@@ -140,6 +141,7 @@ export function snapshotHost(options: { limit?: number } = {}) {
         if (row) { row.deleted = true; setRefs("draft", id, []); setRefs("outgoing", id, []); }
         return new Response(null, { status: 204 });
       }
+      if (saveGate) await saveGate;
       const body = JSON.parse(String(init.body)) as { sessionId: string | null; text: string; attachmentIds: string[]; fileIds?: string[]; snapshots?: DraftSnapshotWrite[] };
       const record = (status: number) => saves.push({ draftId: id, status, body: { text: body.text, ...(body.fileIds ? { fileIds: body.fileIds } : {}), ...(body.snapshots ? { snapshots: body.snapshots } : {}) } });
       const ownFile = (fileId: string) => files.get(fileId)?.draftId === id;
@@ -220,6 +222,12 @@ export function snapshotHost(options: { limit?: number } = {}) {
       return release;
     },
     refuseNextUpload() { failNext = "refuse"; },
+    /** Hold every draft save's answer until released. */
+    holdSaves(): () => void {
+      let release!: () => void;
+      saveGate = new Promise<void>((resolve) => { release = () => { saveGate = null; resolve(); }; });
+      return release;
+    },
   };
 }
 
