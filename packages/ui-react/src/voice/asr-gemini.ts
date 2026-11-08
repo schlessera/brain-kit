@@ -72,6 +72,8 @@ export class GeminiAsrClient implements AsrClient {
   private filled = 0;
   private reported = false;
   private settleDrain: (() => void) | null = null;
+  /** Done has the worklet's tail and the partial frame; audioStreamEnd may follow. */
+  private tailFlushed = false;
   private inbound: Promise<void> = Promise.resolve();
   private readonly setup: string;
 
@@ -114,10 +116,11 @@ export class GeminiAsrClient implements AsrClient {
     socket.onerror = () => { if (this.socket === socket) this.fail("Gemini socket error", "network"); };
     socket.onclose = (event: CloseEvent) => {
       if (this.socket !== socket) return;
-      if (this.phase === "draining") { this.finishDrain(); return; }
-      // A clean close (Google's session limit, an expired token) ends the
-      // take; anything else is also a connection failure.
+      // A clean close (Google's session limit, an expired token, or the end of
+      // a drained Done) ends the take; anything else is a connection failure,
+      // during Done too, so the kept words carry a notice saying why.
       if (event.code !== 1000) this.report("Gemini session closed", "network");
+      if (this.phase === "draining") { this.finishDrain(); return; }
       this.end();
     };
 
@@ -137,30 +140,46 @@ export class GeminiAsrClient implements AsrClient {
     this.teardown();
   }
 
-  /** Done: end the input, wait up to 3 s for the last final, then close. Heard words are kept. */
+  /**
+   * Done: flush the worklet's partial block, send it and audioStreamEnd, wait
+   * for the last final, then close; all of it within 3 s. Heard words are kept.
+   */
   async drainAndStop(): Promise<void> {
     if (this.phase !== "live") { this.stop(); return; }
     this.phase = "draining";
-    this.microphone?.stop();
     this.opts.onAudioLevel?.(0);
+    const microphone = this.microphone;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => this.finishDrain(), GEMINI_DRAIN_MS);
-      this.settleDrain = () => { clearTimeout(timer); resolve(); };
-      if (this.filled) {
-        this.enqueue(this.frame.slice(0, this.filled));
-        this.filled = 0;
-      }
-      // Before setupComplete the stream end waits with the queued audio.
-      if (this.setupDone) this.endInput();
+      const settle = () => { clearTimeout(timer); resolve(); };
+      this.settleDrain = settle;
+      // Up to one worklet block (~93 ms) of the last words is still in the
+      // worklet; its acknowledged flush delivers it through capture() first.
+      void (microphone?.flush() ?? Promise.resolve()).then(() => {
+        if (this.settleDrain !== settle) return;
+        microphone?.stop();
+        if (this.filled) {
+          this.enqueue(this.frame.slice(0, this.filled));
+          this.filled = 0;
+        }
+        if (this.settleDrain !== settle) return;
+        this.tailFlushed = true;
+        // Before setupComplete the stream end waits with the queued audio.
+        if (this.setupDone) this.endInput();
+      });
     });
     this.stop();
   }
 
   private capture(pcm: Int16Array, rms: number): void {
-    if (this.phase !== "live") return;
-    this.opts.onAudioLevel?.(Math.min(1, rms * 4));
+    // During Done the flush still delivers the worklet's last samples.
+    if (this.phase === "draining" ? this.tailFlushed : this.phase !== "live") return;
+    if (this.phase === "live") this.opts.onAudioLevel?.(Math.min(1, rms * 4));
+    const drain = this.settleDrain;
+    // A failure ends the loop: it closes a live take or settles the drain.
+    const open = () => this.phase === "live" || (this.phase === "draining" && this.settleDrain === drain);
     let offset = 0;
-    while (offset < pcm.length && this.phase === "live") {
+    while (offset < pcm.length && open()) {
       const take = Math.min(GEMINI_FRAME_SAMPLES - this.filled, pcm.length - offset);
       this.frame.set(pcm.subarray(offset, offset + take), this.filled);
       this.filled += take;
@@ -212,7 +231,7 @@ export class GeminiAsrClient implements AsrClient {
     if (message.setupComplete && !this.setupDone) {
       this.setupDone = true;
       if (this.handshake) { clearTimeout(this.handshake); this.handshake = null; }
-      if (this.phase === "draining") this.endInput();
+      if (this.phase === "draining" && this.tailFlushed) this.endInput();
       else for (const frame of this.queue.splice(0)) if (!this.send(frame)) return;
     }
     const content = message.serverContent;

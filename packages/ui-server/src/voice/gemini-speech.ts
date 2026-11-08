@@ -2,11 +2,13 @@
  * Gemini 3.5 Transcribe Live dictation, server side (#3708).
  *
  * The long-lived GEMINI_API_KEY never leaves this closure. Each take mints one
- * single-use ephemeral token through the documented REST endpoint, with
- * `liveConnectConstraints` locking the model, the TEXT modality and the
- * transcription configuration, so a browser holding the token cannot open any
- * other Live session with it. No SDK dependency: the request is the wire shape
- * Google documents, as `gemini-conversation.ts` speaks the Live wire directly.
+ * single-use ephemeral token through the REST `auth_tokens` endpoint, whose
+ * `bidiGenerateContentSetup` and `fieldMask` lock the model, the TEXT modality
+ * and the transcription configuration, so a browser holding the token cannot
+ * open any other Live session with it. No SDK dependency: the body is the REST
+ * AuthToken that @google/genai 2.24.0 serializes for `authTokens.create`
+ * (`liveConnectConstraints` and `lockAdditionalFields` are SDK option names,
+ * not wire fields), as `gemini-conversation.ts` speaks the Live wire directly.
  *
  * Errors never carry the key or Google's response text: every failure is the
  * one message below, which the session route returns in its 500 envelope.
@@ -53,9 +55,19 @@ function geminiVocabulary(keyterms: readonly string[]): string[] {
   return terms;
 }
 
-/** The transcription config the token locks and the browser's setup repeats. */
-function geminiTranscriptionConfig(vocabulary: readonly string[], mode: "SMART" | "VERBATIM") {
-  return { mode, ...(vocabulary.length ? { customVocabulary: [...vocabulary] } : {}) };
+/**
+ * The Live setup the token locks, which the browser's `setup` frame repeats
+ * field for field (`GeminiAsrClient`), and the field mask naming exactly the
+ * fields present: an empty vocabulary is neither set nor locked.
+ */
+function geminiLockedSetup(vocabulary: readonly string[], mode: "SMART" | "VERBATIM") {
+  const setup = {
+    model: GEMINI_TRANSCRIBE_MODEL,
+    generationConfig: { responseModalities: ["TEXT"] },
+    inputAudioTranscription: { mode, ...(vocabulary.length ? { customVocabulary: [...vocabulary] } : {}) },
+  };
+  const fieldMask = ["model", "generationConfig.responseModalities", "inputAudioTranscription.mode", ...(vocabulary.length ? ["inputAudioTranscription.customVocabulary"] : [])].join(",");
+  return { setup, fieldMask };
 }
 
 export function createGeminiSpeechProvider(apiKey: string): SpeechProvider {
@@ -77,18 +89,13 @@ export function createGeminiSpeechProvider(apiKey: string): SpeechProvider {
       const wireMode = mode === "verbatim" ? "VERBATIM" : "SMART";
       const vocabulary = geminiVocabulary(keyterms);
       const now = Date.now();
+      const { setup, fieldMask } = geminiLockedSetup(vocabulary, wireMode);
       const body = {
-        uses: 1,
         expireTime: new Date(now + TOKEN_MS).toISOString(),
         newSessionExpireTime: new Date(now + NEW_SESSION_MS).toISOString(),
-        liveConnectConstraints: {
-          model: GEMINI_TRANSCRIBE_MODEL,
-          config: {
-            responseModalities: ["TEXT"],
-            inputAudioTranscription: geminiTranscriptionConfig(vocabulary, wireMode),
-          },
-        },
-        lockAdditionalFields: [],
+        uses: 1,
+        bidiGenerateContentSetup: setup,
+        fieldMask,
       };
       let response: Response;
       try {

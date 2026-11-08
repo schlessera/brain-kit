@@ -8,6 +8,7 @@ import {
   createGeminiSpeechProvider, GEMINI_AUTH_TOKENS_URL, GEMINI_SESSION_FAILED, GEMINI_TRANSCRIBE_MODEL, GEMINI_TRANSCRIBE_URL,
 } from "../src/voice/gemini-speech";
 import { pickSpeechProvider } from "../src/voice/speech-providers";
+import { AUTH_TOKEN_WITH_VOCABULARY, AUTH_TOKEN_WITHOUT_VOCABULARY, authTokenWireError } from "./fixtures/gemini-auth-token-wire";
 import { httpContractApp } from "./helpers/http-contract-app";
 
 const KEY = "odysseus-fixture-gemini-key";
@@ -20,7 +21,10 @@ type Answer = (seen: Seen) => Response | Promise<Response>;
  * A loopback stand-in for Google's auth_tokens endpoint. The provider's
  * `fetch` to the real URL is redirected here, so the request crosses an
  * actual HTTP hop (method, headers, serialized body) and nothing leaves the
- * machine. Everything else is refused, as the test preload would.
+ * machine. Everything else is refused, as the test preload would. Like
+ * Google's REST surface, it refuses a body that is not the AuthToken shape
+ * captured from @google/genai's own serializer (the fixture), so a request
+ * built from SDK option names fails here before any answer is scripted.
  */
 function authTokensDouble(answer: Answer = () => Response.json({ name: TOKEN })) {
   const seen: Seen[] = [];
@@ -29,6 +33,8 @@ function authTokensDouble(answer: Answer = () => Response.json({ name: TOKEN }))
     async fetch(request) {
       const record = { method: request.method, url: request.url, headers: Object.fromEntries(request.headers), body: JSON.parse(await request.text()) };
       seen.push(record);
+      const invalid = authTokenWireError(record.body);
+      if (invalid) return Response.json({ error: { code: 400, message: `Invalid JSON payload received: ${invalid}` } }, { status: 400 });
       return answer(record);
     },
   });
@@ -48,7 +54,7 @@ function probe(failing: boolean) {
   const d = authTokensDouble(failing ? () => new Response(`API key ${KEY} not valid`, { status: 403 }) : undefined);
   return {
     provider: createGeminiSpeechProvider(KEY),
-    keyterms: () => d.seen.at(-1)?.body.liveConnectConstraints.config.inputAudioTranscription.customVocabulary ?? [],
+    keyterms: () => d.seen.at(-1)?.body.bidiGenerateContentSetup.inputAudioTranscription.customVocabulary ?? [],
     dispose: d.dispose,
   };
 }
@@ -67,14 +73,9 @@ describe("Gemini dictation session", () => {
     expect(request!.headers["x-goog-api-key"]).toBe(KEY);
     expect(request!.headers["content-type"]).toBe("application/json");
     const { expireTime, newSessionExpireTime, ...rest } = request!.body;
-    expect(rest, "GEMINI_CONSTRAINT_LOCK").toEqual({
-      uses: 1,
-      liveConnectConstraints: {
-        model: GEMINI_TRANSCRIBE_MODEL,
-        config: { responseModalities: ["TEXT"], inputAudioTranscription: { mode: "SMART", customVocabulary: ["Ithaca", "Penelope"] } },
-      },
-      lockAdditionalFields: [],
-    });
+    const { expireTime: _e, newSessionExpireTime: _n, ...captured } = AUTH_TOKEN_WITH_VOCABULARY;
+    expect(authTokenWireError(request!.body), "GEMINI_CONSTRAINT_LOCK wire schema").toBeNull();
+    expect(rest, "GEMINI_CONSTRAINT_LOCK").toEqual(captured);
     expect(Date.parse(newSessionExpireTime)).toBeGreaterThanOrEqual(before + 60_000 - 1);
     expect(Date.parse(newSessionExpireTime)).toBeLessThanOrEqual(after + 60_000);
     expect(Date.parse(expireTime)).toBeGreaterThanOrEqual(before + 11 * 60_000 - 1);
@@ -86,13 +87,22 @@ describe("Gemini dictation session", () => {
     expect(JSON.stringify(session)).not.toContain(KEY);
   });
 
+  test("without keyterms the lock neither sets nor masks customVocabulary", async () => {
+    const d = double();
+    await createGeminiSpeechProvider(KEY).createSession({ keyterms: [] });
+    const { expireTime: _e, newSessionExpireTime: _n, ...rest } = d.seen[0]!.body;
+    const { expireTime: _ce, newSessionExpireTime: _cn, ...captured } = AUTH_TOKEN_WITHOUT_VOCABULARY;
+    expect(rest, "GEMINI_CONSTRAINT_LOCK").toEqual(captured);
+  });
+
   test("verbatim is used only when asked for, in the lock and the browser's setup alike", async () => {
     const d = double();
     const provider = createGeminiSpeechProvider(KEY);
     const verbatim = await provider.createSession({ keyterms: [], mode: "verbatim" });
     const smart = await provider.createSession({ keyterms: [], mode: "smart" });
     const unset = await provider.createSession({ keyterms: [] });
-    expect(d.seen.map((seen) => seen.body.liveConnectConstraints.config.inputAudioTranscription)).toEqual([{ mode: "VERBATIM" }, { mode: "SMART" }, { mode: "SMART" }]);
+    expect(d.seen.map((seen) => seen.body.bidiGenerateContentSetup.inputAudioTranscription)).toEqual([{ mode: "VERBATIM" }, { mode: "SMART" }, { mode: "SMART" }]);
+    expect(d.seen.map((seen) => authTokenWireError(seen.body))).toEqual([null, null, null]);
     expect([verbatim, smart, unset].map((session) => [session.params!.mode, session.params!.vocabulary])).toEqual([["VERBATIM", "[]"], ["SMART", "[]"], ["SMART", "[]"]]);
   });
 
@@ -101,7 +111,7 @@ describe("Gemini dictation session", () => {
     const long = "Ω".repeat(33); // 66 UTF-8 bytes, 33 characters
     const terms = ["", "  ", "Telemachus", long, "Telemachus", "x".repeat(64), "x".repeat(65), ...Array.from({ length: 150 }, (_, i) => `Ithaca harbor ${i}`)];
     const session = await createGeminiSpeechProvider(KEY).createSession({ keyterms: terms });
-    const sent: string[] = d.seen[0]!.body.liveConnectConstraints.config.inputAudioTranscription.customVocabulary;
+    const sent: string[] = d.seen[0]!.body.bidiGenerateContentSetup.inputAudioTranscription.customVocabulary;
     expect(sent).toHaveLength(100);
     expect(sent.slice(0, 3)).toEqual(["Telemachus", "x".repeat(64), "Ithaca harbor 0"]);
     expect(sent).not.toContain(long);
@@ -203,7 +213,7 @@ describe("Gemini dictation through the mounted app", () => {
       expect(body).toMatchObject({ providerId: "gemini", url: GEMINI_TRANSCRIBE_URL, token: TOKEN, capabilities: expected });
       expect(body.params.mode).toBe("SMART");
       expect(d.seen).toHaveLength(1);
-      expect(d.seen[0]!.body.liveConnectConstraints.config.inputAudioTranscription).toEqual({ mode: "SMART", customVocabulary: ["Ithaca", "Penelope"] });
+      expect(d.seen[0]!.body.bidiGenerateContentSetup).toEqual(AUTH_TOKEN_WITH_VOCABULARY.bidiGenerateContentSetup);
     } finally { await t.close(); }
   });
 

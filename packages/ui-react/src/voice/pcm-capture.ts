@@ -31,9 +31,45 @@ export function createPcmResampler(from: number, to: number): (block: Float32Arr
 export interface PcmMicrophone {
   /** Resolves once audio flows; rejects when the microphone or worklet cannot open. */
   ready: Promise<void>;
+  /**
+   * Graceful end of input: the worklet posts the samples it holds short of a
+   * full block, `receive` gets them after every block posted before them,
+   * and then this resolves. Capture keeps running; the caller stops it.
+   * Resolves at once when nothing is capturing, and when `stop()` runs first.
+   */
+  flush(): Promise<void>;
   /** Idempotent hard stop: worklet, source, tracks and AudioContext. */
   stop(): void;
 }
+
+/** Samples the worklet gathers before it posts a block. */
+export const PCM_CAPTURE_BLOCK = 4096;
+
+/**
+ * The capture worklet, as the AudioWorkletGlobalScope evaluates it. It posts
+ * each full block as a bare Float32Array, which is all live conversation ever
+ * receives. Only a "flush" request makes it post `{ flushed }`, the partial
+ * block it holds, which also acknowledges the request.
+ */
+const PCM_CAPTURE_WORKLET = `class Capture extends AudioWorkletProcessor {
+  constructor() {
+    super(); this.samples = new Float32Array(${PCM_CAPTURE_BLOCK}); this.used = 0;
+    this.port.onmessage = ({ data }) => {
+      if (data !== "flush") return;
+      this.port.postMessage({ flushed: this.samples.slice(0, this.used) }); this.used = 0;
+    };
+  }
+  process(inputs) {
+    const input = inputs[0]?.[0];
+    if (input) for (const sample of input) {
+      this.samples[this.used++] = sample;
+      if (this.used === this.samples.length) {
+        this.port.postMessage(this.samples.slice()); this.used = 0;
+      }
+    }
+    return true;
+  }
+} registerProcessor("brain-pcm-capture", Capture);`;
 
 /**
  * Open the microphone and deliver resampled PCM16 LE blocks with their RMS
@@ -51,8 +87,11 @@ export function openPcmMicrophone(
   let context: AudioContext | undefined;
   let node: AudioWorkletNode | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
+  const flushes: Array<() => void> = [];
+  const settleFlushes = () => { for (const settle of flushes.splice(0)) settle(); };
   const stop = () => {
     stopped = true;
+    settleFlushes();
     if (node) { node.port.onmessage = null; node.disconnect(); node = undefined; }
     source?.disconnect(); source = undefined;
     stream?.getTracks().forEach((track) => track.stop());
@@ -64,30 +103,23 @@ export function openPcmMicrophone(
       if (stopped) { stop(); return; }
       for (const track of stream.getAudioTracks()) track.addEventListener("ended", () => { if (!stopped) { stop(); interrupted(); } }, { once: true });
       context = new AudioContext();
-      const code = `class Capture extends AudioWorkletProcessor {
-        constructor() { super(); this.samples = new Float32Array(4096); this.used = 0; }
-        process(inputs) {
-          const input = inputs[0]?.[0];
-          if (input) for (const sample of input) {
-            this.samples[this.used++] = sample;
-            if (this.used === this.samples.length) {
-              this.port.postMessage(this.samples.slice()); this.used = 0;
-            }
-          }
-          return true;
-        }
-      } registerProcessor("brain-pcm-capture", Capture);`;
-      const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+      const url = URL.createObjectURL(new Blob([PCM_CAPTURE_WORKLET], { type: "text/javascript" }));
       try { await context.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
       if (stopped) { stop(); return; }
       source = context.createMediaStreamSource(stream);
       node = new AudioWorkletNode(context, "brain-pcm-capture", { numberOfInputs: 1, numberOfOutputs: 0 });
       const resample = createPcmResampler(context.sampleRate, rate);
-      node.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
-        if (stopped) return;
+      const deliver = (block: Float32Array) => {
         let energy = 0;
-        for (const value of data) energy += value * value;
-        receive(resample(data), data.length ? Math.sqrt(energy / data.length) : 0);
+        for (const value of block) energy += value * value;
+        receive(resample(block), block.length ? Math.sqrt(energy / block.length) : 0);
+      };
+      node.port.onmessage = ({ data }: MessageEvent<Float32Array | { flushed: Float32Array }>) => {
+        if (stopped) return;
+        if (data instanceof Float32Array) { deliver(data); return; }
+        if (!(data?.flushed instanceof Float32Array)) return;
+        if (data.flushed.length) deliver(data.flushed);
+        settleFlushes();
       };
       source.connect(node);
       await context.resume();
@@ -95,7 +127,16 @@ export function openPcmMicrophone(
       opened();
     } catch (error) { stop(); throw error; }
   })();
-  return { ready, stop };
+  const flush = () => {
+    if (stopped || !node) return Promise.resolve();
+    const port = node.port;
+    return new Promise<void>((resolve) => {
+      flushes.push(resolve);
+      // The worklet answers after every block it already posted.
+      port.postMessage("flush");
+    });
+  };
+  return { ready, flush, stop };
 }
 
 /** Little-endian bytes of PCM16 samples, independent of platform endianness. */

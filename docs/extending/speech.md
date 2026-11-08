@@ -248,9 +248,13 @@ The key stays on the server. For each take the server sends one
 `POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` with the
 key in `x-goog-api-key` and receives a single-use ephemeral token: `uses: 1`,
 60 seconds to connect (`newSessionExpireTime`, also the session's
-`expiresAt`), 11 minutes overall (`expireTime`). Its `liveConnectConstraints`
-lock the model, the `TEXT` response modality and the transcription config, so
-the token cannot open any other Live session. The transcription config is
+`expiresAt`), 11 minutes overall (`expireTime`). Its `bidiGenerateContentSetup`
+carries the model, the `TEXT` response modality and the transcription config,
+and its `fieldMask` names exactly those fields, so they are locked and the
+token cannot open any other Live session. (`liveConnectConstraints` and
+`lockAdditionalFields` are the `@google/genai` option names; the REST body is
+what that SDK serializes them to.) The browser's `setup` frame repeats the
+locked setup field for field. The transcription config is
 `mode: "SMART"` unless `createSession` receives `mode: "verbatim"`, plus the
 brain's existing keyterms as `customVocabulary`: at most 100 terms of at most
 64 UTF-8 bytes, in order. No chat, history, screen or corpus context is sent.

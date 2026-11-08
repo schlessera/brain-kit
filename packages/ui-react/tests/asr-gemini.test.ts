@@ -4,7 +4,7 @@ import type { AsrEvent, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/cl
 import {
   GEMINI_DRAIN_MS, GEMINI_FRAME_SAMPLES, GEMINI_HANDSHAKE_MS, GEMINI_MAX_BUFFERED_BYTES, GEMINI_PRESETUP_FRAMES, GeminiAsrClient,
 } from "../src/voice/asr-gemini";
-import { createPcmResampler } from "../src/voice/pcm-capture";
+import { createPcmResampler, PCM_CAPTURE_BLOCK } from "../src/voice/pcm-capture";
 
 /**
  * GeminiAsrClient against a scripted microphone, AudioContext/worklet and
@@ -27,23 +27,51 @@ function replaceGlobals(values: Record<string, unknown>): () => void {
 
 interface Timer { id: number; at: number; run: () => void }
 
-/** A scripted browser: microphone, AudioContext + worklet, WebSocket and (optionally) timers. */
+type Port = { onmessage: ((event: { data: any }) => void) | null; postMessage(data: unknown): void };
+/** Two ends of a MessageChannel: each message arrives asynchronously, in order. */
+function channel(): [Port, Port] {
+  const a: Port = { onmessage: null, postMessage: (data) => queueMicrotask(() => b.onmessage?.({ data })) };
+  const b: Port = { onmessage: null, postMessage: (data) => queueMicrotask(() => a.onmessage?.({ data })) };
+  return [a, b];
+}
+interface Processor { port: Port; process(inputs: Float32Array[][]): boolean }
+
+/**
+ * A scripted browser: microphone, AudioContext, WebSocket and (optionally)
+ * timers. The worklet is the real one: `addModule` evaluates the source the
+ * client put in its Blob URL, and each AudioWorkletNode runs that processor
+ * behind an asynchronous port.
+ */
 function scriptedBrowser({ rate = 48_000, timers = false, answerSetup = true } = {}) {
   const tracks: Array<{ readyState: string; stop(): void; ended?: () => void }> = [];
   const contexts: FakeContext[] = [];
   const nodes: FakeNode[] = [];
   const sockets: FakeSocket[] = [];
+  const blobs = new Map<string, Blob>();
+  const processors = new Map<string, new () => Processor>();
+  let nextPort: Port | null = null;
+  class WorkletProcessor { port: Port; constructor() { this.port = nextPort!; nextPort = null; } }
   class FakeNode {
-    port: { onmessage: ((event: { data: Float32Array }) => void) | null } = { onmessage: null };
+    port: Port;
+    processor: Processor;
     connected = true;
-    constructor() { nodes.push(this); }
+    constructor(_context: unknown, name: string) {
+      const [node, worklet] = channel();
+      this.port = node;
+      nextPort = worklet;
+      this.processor = new (processors.get(name)!)();
+      nodes.push(this);
+    }
     disconnect() { this.connected = false; }
   }
   class FakeContext {
     sampleRate = rate;
     state = "running";
     closes = 0;
-    audioWorklet = { addModule: async () => {} };
+    audioWorklet = { addModule: async (url: string) => {
+      const source = await blobs.get(url)!.text();
+      new Function("AudioWorkletProcessor", "registerProcessor", source)(WorkletProcessor, (name: string, processor: new () => Processor) => processors.set(name, processor));
+    } };
     constructor() { contexts.push(this); }
     createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
     async resume() {}
@@ -82,7 +110,15 @@ function scriptedBrowser({ rate = 48_000, timers = false, answerSetup = true } =
     setTimeout: (run: () => void, delay = 0) => { const timer = { id: nextId++, at: now + delay, run }; pending.push(timer); return timer.id; },
     clearTimeout: (id: number) => { const index = pending.findIndex((timer) => timer.id === id); if (index >= 0) pending.splice(index, 1); },
   } : {};
-  const restore = replaceGlobals({
+  const objectUrls = { create: Object.getOwnPropertyDescriptor(URL, "createObjectURL"), revoke: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL") };
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, writable: true, value: (blob: Blob) => { const url = `blob:fixture/${blobs.size}`; blobs.set(url, blob); return url; } });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, writable: true, value: () => {} });
+  const restoreUrls = () => {
+    for (const [name, descriptor] of [["createObjectURL", objectUrls.create], ["revokeObjectURL", objectUrls.revoke]] as const) {
+      if (descriptor) Object.defineProperty(URL, name, descriptor); else Reflect.deleteProperty(URL, name);
+    }
+  };
+  const restoreGlobals = replaceGlobals({
     WebSocket: FakeSocket, AudioContext: FakeContext, AudioWorkletNode: FakeNode, ...timerGlobals,
     navigator: { mediaDevices: { async getUserMedia() {
       const track = { readyState: "live", stop() { this.readyState = "ended"; }, addEventListener(_: string, listener: () => void) { this.ended = listener; } } as (typeof tracks)[number] & { addEventListener(type: string, listener: () => void): void };
@@ -90,6 +126,7 @@ function scriptedBrowser({ rate = 48_000, timers = false, answerSetup = true } =
       return { getTracks: () => [track], getAudioTracks: () => [track] };
     } } },
   });
+  const restore = () => { restoreGlobals(); restoreUrls(); };
   return {
     tracks, contexts, nodes, sockets, restore, pending,
     /** Advance scripted time, running due timers in order. */
@@ -99,6 +136,11 @@ function scriptedBrowser({ rate = 48_000, timers = false, answerSetup = true } =
       const block = new Float32Array(samples);
       for (let i = 0; i < samples; i++) block[i] = Math.sin((2 * Math.PI * frequency * i) / rate) * amplitude;
       nodes.at(-1)!.port.onmessage?.({ data: block });
+    },
+    /** Hardware-rate samples through the real worklet, in 128-sample render quanta. */
+    render(samples: Float32Array) {
+      const processor = nodes.at(-1)!.processor;
+      for (let at = 0; at < samples.length; at += 128) processor.process([[samples.subarray(at, Math.min(at + 128, samples.length))]]);
     },
   };
 }
@@ -307,6 +349,7 @@ describe("GeminiAsrClient wire behaviour", () => {
     h.speak(GEMINI_FRAME_SAMPLES * 3 + 300);
     let settled = false;
     const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick();
     const audio = h.socket().audio();
     expect(audio.map((frame) => atob(frame.data).length)).toEqual([3200, 200]);
     expect(JSON.parse(h.socket().sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } });
@@ -318,6 +361,71 @@ describe("GeminiAsrClient wire behaviour", () => {
     expect(h.events).toEqual([{ type: "final", text: "Departure tomorrow.", endsTurn: true }]);
     expect(h.socket().readyState).toBe(3);
     expect(h.closes(), "Done is not a provider end").toBe(0);
+  });
+
+  test("Done flushes the worklet's partial block: its samples reach the socket before audioStreamEnd", async () => {
+    // A 16 kHz context, so the resampler passes samples through one to one.
+    const h = harness({ rate: 16_000 });
+    await h.client.start();
+    await tick(); await tick();
+    // One full worklet block, then 3,968 samples the worklet holds short of
+    // the next one: about 250 ms of the last words at 16 kHz.
+    const tail = PCM_CAPTURE_BLOCK - 128;
+    const spoken = Float32Array.from({ length: PCM_CAPTURE_BLOCK + tail }, (_, i) => Math.sin((2 * Math.PI * 440 * i) / 16_000) * 0.3);
+    h.render(spoken);
+    await tick();
+    const beforeDone = decode(h.socket().audio()).length;
+    expect(beforeDone, "only whole worklet blocks flow while live").toBe(Math.floor(PCM_CAPTURE_BLOCK / GEMINI_FRAME_SAMPLES) * GEMINI_FRAME_SAMPLES);
+    const draining = h.client.drainAndStop();
+    await tick(); await tick();
+    const sent = h.socket().sent.map((frame) => JSON.parse(frame));
+    const end = sent.findIndex((frame) => frame.realtimeInput?.audioStreamEnd === true);
+    expect(end, "audioStreamEnd is sent").toBeGreaterThan(0);
+    expect(sent.slice(end + 1).some((frame) => frame.realtimeInput?.audio), "no audio after audioStreamEnd").toBe(false);
+    const received = decode(sent.slice(0, end).filter((frame) => frame.realtimeInput?.audio).map((frame) => frame.realtimeInput.audio));
+    const expected = createPcmResampler(16_000, 16_000)(spoken);
+    expect(received.length, "GEMINI_DONE_KEEPS_WORKLET_TAIL").toBe(spoken.length);
+    expect([...received], "GEMINI_DONE_KEEPS_WORKLET_TAIL samples").toEqual([...expected]);
+    expect(h.tracks[0]!.readyState, "the microphone closes once the tail is in").toBe("ended");
+    h.socket().server({ serverContent: { turnComplete: true } });
+    await draining;
+  });
+
+  test("hard stop does not wait for the worklet's tail", async () => {
+    const h = harness({ rate: 16_000 });
+    await h.client.start();
+    await tick(); await tick();
+    h.render(new Float32Array(1_000).fill(0.2));
+    h.client.stop();
+    expect(h.tracks[0]!.readyState).toBe("ended");
+    expect(h.socket().readyState).toBe(3);
+    await tick(); await tick();
+    expect(h.socket().audio(), "nothing of the tail is sent").toHaveLength(0);
+    expect(h.socket().sent.some((frame) => JSON.parse(frame).realtimeInput?.audioStreamEnd), "no graceful end").toBe(false);
+  });
+
+  for (const [name, end, code] of [
+    ["an abnormal close", (s: ReturnType<typeof harness>) => s.socket().end(1011), "network"],
+    ["a socket error", (s: ReturnType<typeof harness>) => s.socket().onerror?.(), "network"],
+    ["a model error", (s: ReturnType<typeof harness>) => s.socket().server({ error: { message: `Token ${TOKEN} rejected` } }), "unknown"],
+    ["Google's clean close", (s: ReturnType<typeof harness>) => s.socket().end(1000), null],
+  ] as const) test(`${name} during Done settles the drain${code ? " and reports a failure" : " as a clean end"}`, async () => {
+    const h = harness();
+    await h.client.start();
+    await tick(); await tick();
+    h.socket().server({ serverContent: { inputTranscription: { text: "Ask Nestor", finished: false } } });
+    await tick();
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick();
+    expect(settled).toBe(false);
+    end(h);
+    await draining;
+    expect(h.errors.map((error) => (error as Error & { code?: string }).code), "GEMINI_DRAIN_CLOSE_CLASSIFIED").toEqual(code ? [code] : []);
+    for (const error of h.errors) expect(error.message).not.toContain(TOKEN);
+    expect(h.events).toEqual([{ type: "final", text: "Ask Nestor", endsTurn: false }]);
+    expect(h.closes(), "Done is not a provider end").toBe(0);
+    expect(h.contexts[0]!.state).toBe("closed");
   });
 
   test("Done is bounded at 3 s when no final arrives", async () => {

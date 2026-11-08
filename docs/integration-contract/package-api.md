@@ -1547,11 +1547,13 @@ without the key is a selection error. Its capabilities are `streaming`,
 false, and `savedAudio` false. Each session is one
 `POST https://generativelanguage.googleapis.com/v1beta/auth_tokens`
 (`x-goog-api-key`) minting a single-use token (`uses: 1`, connect within 60 s,
-expire after 11 min) whose `liveConnectConstraints` lock
-`models/gemini-3.5-transcribe-live`, `responseModalities: ["TEXT"]` and
-`inputAudioTranscription` (`mode` `SMART` unless `verbatim` is requested;
-`customVocabulary` from the keyterms, at most 100 terms of at most 64 UTF-8
-bytes, omitted when empty), with `lockAdditionalFields: []`. The session is
+expire after 11 min) whose `bidiGenerateContentSetup` sets
+`models/gemini-3.5-transcribe-live`, `generationConfig.responseModalities:
+["TEXT"]` and `inputAudioTranscription` (`mode` `SMART` unless `verbatim` is
+requested; `customVocabulary` from the keyterms, at most 100 terms of at most
+64 UTF-8 bytes, omitted when empty), and whose `fieldMask` locks exactly the
+fields set (`model,generationConfig.responseModalities,inputAudioTranscription.mode`,
+plus `inputAudioTranscription.customVocabulary` when present). The session is
 `{ url: <constrained v1alpha Live endpoint>, token: "auth_tokens/…",
 expiresAt: <connect deadline>, params: { model, mode, sampleRate: "16000",
 vocabulary: <JSON array> } }`. Any mint failure is 500

@@ -14,7 +14,13 @@ type VoiceStore = BrainUiRoot["stores"]["voice"];
  * One dictation a `useDictation` hook started, on the root it started it
  * on, with the client capturing it once one exists.
  */
-export type Capture = { root: object; client: AsrClient | null; failure?: DictationFailure };
+export type Capture = {
+  root: object;
+  client: AsrClient | null;
+  failure?: DictationFailure;
+  /** A failure the client reported while a Done drained it: that Done ends with a notice. */
+  drainFailure?: DictationFailure;
+};
 
 /**
  * The dictation each root's voice store is showing, by the capture that

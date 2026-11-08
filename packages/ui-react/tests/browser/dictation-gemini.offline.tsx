@@ -17,6 +17,7 @@ import type { VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
+import { createPcmResampler } from "../../src/voice/pcm-capture.js";
 import { installFaultNetwork, type FaultNetwork, type FaultSocket } from "./offline/fault-network.ts";
 
 const ITHACA = "odysseus-ithaca";
@@ -93,19 +94,34 @@ function hardware(ctx: TestContext, rate: number) {
     constructor(options?: AudioContextOptions) { super({ ...options, sampleRate: options?.sampleRate ?? rate }); contexts.push(this); }
   }
   Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: HardwareContext });
+  // Every message the capture worklet posts, as the client's handler sees it.
+  const OriginalNode = window.AudioWorkletNode;
+  const nodeDescriptor = Object.getOwnPropertyDescriptor(window, "AudioWorkletNode");
+  const worklet: { blocks: Float32Array[]; flushed: Float32Array[] } = { blocks: [], flushed: [] };
+  class RecordingNode extends OriginalNode {
+    constructor(...args: ConstructorParameters<typeof AudioWorkletNode>) {
+      super(...args);
+      this.port.addEventListener("message", ({ data }) => {
+        if (data instanceof Float32Array) worklet.blocks.push(data);
+        else if (data?.flushed instanceof Float32Array) worklet.flushed.push(data.flushed);
+      });
+    }
+  }
+  Object.defineProperty(window, "AudioWorkletNode", { configurable: true, writable: true, value: RecordingNode });
   const media = navigator.mediaDevices;
   const gum = Object.getOwnPropertyDescriptor(media, "getUserMedia");
   const streams: MediaStream[] = [];
   Object.defineProperty(media, "getUserMedia", { configurable: true, writable: true, value: async () => { const stream = destination.stream.clone(); streams.push(stream); return stream; } });
   ctx.onTestFinished(() => {
     if (descriptor) Object.defineProperty(window, "AudioContext", descriptor); else Reflect.deleteProperty(window, "AudioContext");
+    if (nodeDescriptor) Object.defineProperty(window, "AudioWorkletNode", nodeDescriptor); else Reflect.deleteProperty(window, "AudioWorkletNode");
     if (gum) Object.defineProperty(media, "getUserMedia", gum); else Reflect.deleteProperty(media, "getUserMedia");
     oscillator.stop();
     streams.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
     destination.stream.getTracks().forEach((track) => track.stop());
     void source.close();
   });
-  return { contexts, streams };
+  return { contexts, streams, worklet };
 }
 
 const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Dictate"]');
@@ -122,6 +138,12 @@ function json(socket: FaultSocket): Array<Record<string, any>> {
   return socket.sent.filter((frame) => typeof frame.data === "string").map((frame) => JSON.parse(frame.data as string));
 }
 const audioFrames = (socket: FaultSocket) => json(socket).filter((frame) => frame.realtimeInput?.audio).map((frame) => frame.realtimeInput.audio as { data: string; mimeType: string });
+
+function pcm16(frames: Array<{ data: string }>): Int16Array {
+  const bytes = Uint8Array.from(frames.map((frame) => atob(frame.data)).join(""), (char) => char.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  return Int16Array.from({ length: bytes.length / 2 }, (_, i) => view.getInt16(i * 2, true));
+}
 
 function decode(frames: Array<{ data: string }>): Float32Array {
   const bytes = Uint8Array.from(frames.map((frame) => atob(frame.data)).join(""), (char) => char.charCodeAt(0));
@@ -242,4 +264,54 @@ test("unmount hard-stops capture: tracks, AudioContext and socket are released a
   await new Promise((resolve) => setTimeout(resolve, 500));
   expect(speech.sent.length, "no audio after teardown").toBe(sent);
   expect(json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd), "a hard stop sends no graceful end").toBe(false);
+});
+
+test("Done keeps the worklet's partial block: every captured sample reaches Google before audioStreamEnd", { timeout: 30_000 }, async (ctx) => {
+  const rate = 48_000;
+  const audio = hardware(ctx, rate);
+  const s = await mount(ctx);
+  const speech = await startDictating(s);
+  speech.deliver({ setupComplete: {} });
+  await expect.poll(() => audio.worklet.blocks.length, { message: "the worklet posts whole blocks", timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+  // Stop the audio clock part-way into a block (one is ~85 ms at 48 kHz), so
+  // the worklet holds a tail short of a block when Done is pressed.
+  const posted = audio.worklet.blocks.length;
+  await expect.poll(() => audio.worklet.blocks.length, { timeout: 5_000 }).toBeGreaterThan(posted);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  await audio.contexts[0]!.suspend();
+  await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find((el) => el.textContent?.trim() === "Done")!);
+  await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
+  expect(audio.worklet.flushed, "GEMINI_BROWSER_DONE_KEEPS_TAIL: the worklet handed over its partial block").toHaveLength(1);
+  expect(audio.worklet.flushed[0]!.length, "GEMINI_BROWSER_DONE_KEEPS_TAIL: the tail is short of a block and not empty").toBeGreaterThan(0);
+  expect(audio.worklet.flushed[0]!.length).toBeLessThan(4096);
+  const sent = json(speech);
+  const end = sent.findIndex((frame) => frame.realtimeInput?.audioStreamEnd === true);
+  expect(sent.slice(end + 1).some((frame) => frame.realtimeInput?.audio), "no audio after audioStreamEnd").toBe(false);
+  const resample = createPcmResampler(rate, 16_000);
+  const expected = [...audio.worklet.blocks, ...audio.worklet.flushed].flatMap((block) => [...resample(block)]);
+  const received = pcm16(sent.slice(0, end).filter((frame) => frame.realtimeInput?.audio).map((frame) => frame.realtimeInput.audio));
+  expect(received.length, "GEMINI_BROWSER_DONE_KEEPS_TAIL sample count").toBe(expected.length);
+  expect([...received], "GEMINI_BROWSER_DONE_KEEPS_TAIL samples").toEqual(expected);
+  expect(audio.streams[0]!.getTracks().map((track) => track.readyState), "the microphone closes once the tail is in").toEqual(["ended"]);
+  speech.deliver({ serverContent: { turnComplete: true } });
+  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the drain ended the dictation" }).toBe("idle");
+});
+
+test("Google closing with 1011 while Done drains keeps the words and explains the failure", { timeout: 30_000 }, async (ctx) => {
+  const audio = hardware(ctx, 48_000);
+  const s = await mount(ctx);
+  const speech = await startDictating(s);
+  speech.deliver({ setupComplete: {} });
+  speech.deliver({ serverContent: { inputTranscription: { text: "Ask Nestor about the ships.", finished: true } } });
+  await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe("Ask Nestor about the ships.");
+  await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find((el) => el.textContent?.trim() === "Done")!);
+  await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
+  expect(s.ui.stores.voice.getState().mode, "Done waits for the last final").toBe("dictate");
+  // Google's own close frame with an internal-error code: a completed close
+  // handshake (no error event), so only the code says the take failed.
+  speech.finish(1011, "", true);
+  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the close settled the drain" }).toBe("idle");
+  expect(s.ui.stores.voice.getState().reviewText).toBe("Ask Nestor about the ships.");
+  expect(s.ui.stores.voice.getState().dictationNotice, "GEMINI_BROWSER_DRAIN_CLOSE_NOTICE").toEqual({ reason: "network", phase: "ended", retained: true });
+  await expect.poll(() => audio.contexts[0]!.state).toBe("closed");
 });
