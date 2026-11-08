@@ -7,6 +7,9 @@
 const request = JSON.parse(process.argv[2] ?? "{}") as { startPage: number; offset: number };
 for await (const _ of Bun.stdin.stream()) { /* drain the original */ }
 if (request.startPage === 1) {
+  // Fixture hold: a child that stays alive for `offset` ms. The bound cases
+  // measure the extractor against it (its wall-clock kill, its queueing and
+  // its cancellation), so the hold is real time by design.
   await Bun.sleep(request.offset);
   process.stdout.write(`${JSON.stringify({ outcome: "malformed" })}\n`);
 } else if (request.startPage === 2) {
