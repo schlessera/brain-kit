@@ -33,10 +33,12 @@ Object.assign(window, {
       root.stores.connection.getState().setVpnStatus("connected", probe.accountKey ?? null);
       await root.localWork!.restoring();
       const sink = root.recordings!.sink();
-      // The mounted tray's recovery holds the recording lock for a moment.
+      // The mounted tray's recovery, or the previous seed's capture still
+      // releasing, holds the recording lock for a moment. This page is the
+      // only tab, so either refusal names a hold of its own.
       for (let attempt = 0; ; attempt++) {
         try { await sink.begin!({ mimeType: "audio/webm;codecs=opus" }); break; }
-        catch (error) { if (attempt > 50 || !String(error).includes("still being checked")) throw error; await new Promise((resolve) => setTimeout(resolve, 100)); }
+        catch (error) { if (attempt > 50 || !/still being checked|Recording in another Brain tab/.test(String(error))) throw error; await new Promise((resolve) => setTimeout(resolve, 100)); }
       }
       await sink.chunk({ index: 0, startMs: 0, endMs: 1000, data: new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3])]) });
       await sink.end!("user");

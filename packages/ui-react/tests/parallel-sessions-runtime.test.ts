@@ -714,7 +714,10 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         expect((await drawn(run, a.page)).sort(), "both drawn").toEqual([A, B].sort());
         await neverDone(run, a.page, [A, B]);
 
-        // B fails unwatched: failed, and announced once.
+        // B fails unwatched: failed, and announced once. The announcement is
+        // labelled from the session list, so wait until the list has read B's
+        // host title; before that the label falls back to B's first prompt.
+        await until(a.page, `p.listedTitle(${JSON.stringify(B)}) === ${JSON.stringify(titles.get(B))}`);
         await release(pb, "fail");
         await until(a.page, `${state(B)}?.state === "failed"`);
         await until(a.page, "p.spoken().length >= 1");
