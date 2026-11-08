@@ -293,6 +293,19 @@ describe("authority comes before the controls", () => {
     expect(s.probe.count, "the new generation asks again").toBe(2);
   });
 
+  test("a standalone probe's authority ends with an account change", async () => {
+    const s = standalone();
+    const view = pane(s.root);
+    await settle();
+    expect(view.radio("beta").disabled, "the owner probe enables the controls").toBe(false);
+    // Another account comes and goes on the connection; the next probe has not answered.
+    s.probe.hold = true;
+    await act(async () => { s.root.stores.connection.setState({ accountKey: "penelope" }); });
+    await act(async () => { s.root.stores.connection.setState({ accountKey: null }); });
+    await settle();
+    expect(view.radio("beta").disabled, "EARLIER_PROBE_ENDS_WITH_ACCOUNT_CHANGE").toBe(true);
+  });
+
   test("a refused save stays read-only when Settings is opened again", async () => {
     const s = settingsRoot();
     s.state.writeError = new ApiRequestError("owner_required", 403);

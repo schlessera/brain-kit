@@ -33,25 +33,29 @@ export function DictationSettings({ active }: { active: boolean }) {
   const epoch = useSyncExternalStore(root.authLock.state.subscribe, () => root.authLock.epoch());
   const account = useRootStore("connection", (s) => s.accountKey);
   const probed = useRootStore("connection", (s) => s.vpnStatus === "connected");
+  // Every change of the connection's account starts a new account generation;
+  // a probe answer holds only in the generation it was asked in.
+  const [seen, setSeen] = useState({ account, generation: 0 });
+  if (seen.account !== account) setSeen({ account, generation: seen.generation + 1 });
+  const accountGeneration = seen.account === account ? seen.generation : seen.generation + 1;
   // Mounted without the connection gate, nothing has probed yet: ask the
   // same probe the gate would have, and keep its answer, with the account it
-  // named and the generation it was asked in, to this pane.
-  const [ownProbe, setOwnProbe] = useState<{ root: object; epoch: number; account: string | null } | null>(null);
+  // named and the generations it was asked in, to this pane.
+  const [ownProbe, setOwnProbe] = useState<{ root: object; epoch: number; accountGeneration: number; account: string | null } | null>(null);
   useEffect(() => {
-    // An account change ends what an earlier probe established.
-    setOwnProbe(null);
     if (!active || account !== null || probed) return;
     let live = true;
     void root.request(root.backendUrl("/api/vpn-check"), { cache: "no-store" })
       .then((response) => response.ok ? response.json() as Promise<{ accountKey?: unknown }> : null)
       .then((body) => {
         if (!live || !body || root.authLock.epoch() !== epoch) return;
-        setOwnProbe({ root, epoch, account: typeof body.accountKey === "string" && body.accountKey !== "" ? body.accountKey : null });
+        setOwnProbe({ root, epoch, accountGeneration, account: typeof body.accountKey === "string" && body.accountKey !== "" ? body.accountKey : null });
       })
       .catch(() => { /* Unknown authority keeps the controls disabled. */ });
     return () => { live = false; };
-  }, [active, account, probed, root, epoch]);
-  const probe = ownProbe?.root === root && ownProbe.epoch === epoch ? ownProbe : null;
+  }, [active, account, probed, root, epoch, accountGeneration]);
+  // An account change or a new auth generation ends what an earlier probe established.
+  const probe = ownProbe?.root === root && ownProbe.epoch === epoch && ownProbe.accountGeneration === accountGeneration ? ownProbe : null;
   // The account this pane would write for, once authority is established.
   const writerAccount = account ?? (probed ? null : probe?.account ?? null);
   const probedOwner = account !== null ? true : probed ? false : probe ? probe.account !== null : null;

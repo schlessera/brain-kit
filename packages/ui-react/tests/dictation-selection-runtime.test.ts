@@ -197,11 +197,20 @@ let device: BrowserContext | undefined;
 const gum = (page: Page) => page.evaluate(() => (window as unknown as { __gum: number }).__gum);
 const state = (page: Page) => page.evaluate(() => (window as unknown as { __dictation: { state(): { mode: string; connecting: boolean; gate: string | null; target: string | null; providerId: string | null; reviewText: string; clients: Array<{ providerId: string; session: string; tracks: string[] }> } } }).__dictation.state());
 const sessions = () => log.filter((entry) => entry.method === "POST" && entry.path === "/api/voice/session");
+type DiscoveryView = { __dictation: { state(): { save: { refreshFailed: boolean }; discovery: { at: number } | null } } };
+/**
+ * Opens Settings › Voice and waits until the read the pane makes on opening
+ * has answered. A snapshot the composer already holds ends `aria-busy` at
+ * once, while that read is still on its way and can publish a newer revision
+ * after a test has changed the server.
+ */
 async function settings(page: Page) {
+  const before = await page.evaluate(() => (window as unknown as DiscoveryView).__dictation.state().discovery?.at ?? 0);
   await page.evaluate(() => (window as unknown as { __dictation: { openSettings(tab: string): void } }).__dictation.openSettings("voice"));
   const pane = page.locator("[data-dictation-settings]");
   await pane.waitFor();
   await page.waitForFunction(() => !document.querySelector("[data-dictation-settings]")?.getAttribute("aria-busy"));
+  await page.waitForFunction((at) => { const s = (window as unknown as DiscoveryView).__dictation.state(); return s.save.refreshFailed || (s.discovery?.at ?? 0) > at; }, before);
   return pane;
 }
 async function closeSettings(page: Page) {
@@ -476,7 +485,11 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       try {
         const writes = puts();
         const pane = await settings(reader);
-        // Before anything is tried, the controls say who can change them.
+        // Until the pane's own probe answers, unknown authority already keeps every control disabled.
+        for (const radio of await pane.getByRole("radio").all()) expect(await radio.isDisabled(), "DISABLED_WHILE_AUTHORITY_UNKNOWN").toBe(true);
+        // Before anything is tried, the controls say who can change them. The
+        // probe answers on its own schedule, after discovery may have loaded.
+        await pane.locator("[data-dictation-owner]").waitFor({ timeout: 10_000 }).catch(() => {});
         expect(await pane.locator("[data-dictation-owner]").count(), "READ_ONLY_BEFORE_ANY_SAVE").toBe(1);
         expect(await pane.locator("[data-dictation-owner]").textContent()).toBe("Only the owner can change this.");
         const radios = await pane.getByRole("radio").all();
