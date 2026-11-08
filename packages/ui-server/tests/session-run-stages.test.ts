@@ -396,7 +396,9 @@ describe("host admission", () => {
     const controller = new AbortController();
     const handle = armTurnTimeout(host, slot.turn, controller);
     expect(slot.turn.timeoutHandle).toBe(handle);
-    await new Promise(resolve => setTimeout(resolve, 30));
+    // The armed 5 ms timer aborts the turn, then drains it in the same
+    // callback, before this continuation runs.
+    await new Promise(resolve => controller.signal.addEventListener("abort", resolve, { once: true }));
     expect(controller.signal.aborted).toBe(true);
     expect(drained).toEqual(["Turn timed out"]);
   });

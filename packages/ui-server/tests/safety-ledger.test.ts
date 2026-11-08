@@ -262,10 +262,21 @@ test("Claude delivery hooks await real SQLite commits before tool contact and re
  const hold=f.writer.channel(probe,{table:"odysseus_log"});await hold.ready;
  const slow=hold.call("slow","Ithaca",200);let contacted=false;
  const pre=wiring.hooks!.PreToolUse!.find(group=>!group.matcher)!.hooks[0]!;
- const admitting=pre({hook_event_name:"PreToolUse",tool_use_id:"actual-hook",tool_name:"WebFetch",tool_input:{url:origin.url.href}} as never,undefined,{signal:new AbortController().signal}).then(()=>{contacted=true;return fetch(origin.url);});
- await Bun.sleep(20);
- expect(contacted,"SAFETY_BACKEND_CONTACT_WAITS_FOR_DURABLE_ADMISSION").toBe(false);
+ const admitting=pre({hook_event_name:"PreToolUse",tool_use_id:"actual-hook",tool_name:"WebFetch",tool_input:{url:origin.url.href}} as never,undefined,{signal:new AbortController().signal}).then(()=>{contacted=true;
+  // Contact itself checks the order: the admission must have committed first.
+  const pending=f.writes.safety(null,"ithaca").pendingCount;
+  if(pending)throw new Error(`SAFETY_BACKEND_CONTACT_WAITS_FOR_DURABLE_ADMISSION: contacted with ${pending} pending`);
+  return fetch(origin.url);});
+ // The hook's admission write is submitted while the 200 ms hold still runs;
+ // one macrotask then runs every continuation that does not wait for it.
+ for(const deadline=Date.now()+5_000;f.writes.safety(null,"ithaca").pendingCount<1&&Date.now()<deadline;)await Bun.sleep(1);
+ await new Promise(resolve=>setTimeout(resolve,0));
  expect(f.writes.safety(null,"ithaca").pendingCount).toBe(1);
+ expect(contacted,"SAFETY_BACKEND_CONTACT_WAITS_FOR_DURABLE_ADMISSION").toBe(false);
+ // The worker answers in submission order on one port: when the hold answers,
+ // the admission queued behind it has not, so contact must still wait.
+ await slow;
+ expect(contacted,"SAFETY_BACKEND_CONTACT_WAITS_FOR_DURABLE_ADMISSION").toBe(false);
  const response=await admitting;await slow;
  const post=wiring.hooks!.PostToolUse!.find(group=>!group.matcher)!.hooks[0]!;
  await post({hook_event_name:"PostToolUse",tool_use_id:"actual-hook",tool_name:"WebFetch",tool_response:await response.text()} as never,undefined,{signal:new AbortController().signal});
