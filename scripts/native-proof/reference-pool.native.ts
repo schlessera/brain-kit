@@ -799,6 +799,12 @@ const shapes = await create("staging", 32 * MIB);
   manager = await createNativeBrainManager(config);
 }
 
+// SPIKE #3514 (draft feedback only, never merged): the dedupe experiment on the owned pool.
+{
+  const { runDedupeExperiment } = await import("./dedupe-experiment.js");
+  await runDedupeExperiment({ call, run: request => manager.run(request as never), command, note, sync, artifacts: ARTIFACTS });
+}
+
 // 14. Restart reconstruction and the deterministic host projection.
 {
   const kept = await create("source", 4 * MIB);
