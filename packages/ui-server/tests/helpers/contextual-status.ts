@@ -109,10 +109,12 @@ export async function contextualStatus(engine: "gemini" | "gpt", mode: "complete
     : frame.delegation_id && frame.content?.startsWith('{"hostTaskStatus"') ? [{ id: frame.delegation_id, state: JSON.parse(frame.content).hostTaskStatus, content: frame.content, frame }] : []);
   await recognize("Find the mast decision.", 0); request("mast-native");
   await until(() => !!finishAdmission);
-  // Persistence is held, so durable admission never completes here. A status
-  // the host sent on the request travels the same ordered provider socket as
-  // the audio frame it forwards after it: once that frame has arrived, every
+  // Persistence is held, so durable admission never completes here. One
+  // macrotask runs every host continuation that does not wait for it. A status
+  // any of them sent travels the same ordered provider socket as the audio
+  // frame the host forwards after it: once that frame has arrived, every
   // earlier status would have too.
+  await new Promise(resolve => setTimeout(resolve, 0));
   const audioFrames = () => f.sent.filter(frame => frame.realtimeInput?.audio || frame.type === "session.input_audio.append").length;
   const forwarded = audioFrames();
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "capture", sequence: 1, rate: engine === "gemini" ? 16000 : 24000, pcm: "AAA=" });
