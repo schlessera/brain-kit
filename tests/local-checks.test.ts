@@ -3,9 +3,11 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { checkPackages } from "../scripts/check-packages";
-import { localChecks, requireLocalSandbox, requireRuntimeTools } from "../scripts/check-pr";
-import { testArgv } from "../scripts/test";
+import { localChecks, localStages, localUnitInventory, newReceipt, requireLocalSandbox, requireRuntimeTools, runPreflight, type PreflightStep } from "../scripts/check-pr";
+import { DEFAULT_ROOTS, testArgv } from "../scripts/test";
 import { planChecks, workspaces } from "../scripts/ci-plan";
+import { discoverTests } from "../scripts/test-shards";
+import { localUnitWorkerCount } from "../scripts/unit-workers";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -114,12 +116,14 @@ test("focused and full local CLI refuse setup before downstream proof while plan
   // helpers. Planning must inspect this tiny Git root, never the worker checkout.
   cpSync(join(owner, "scripts/check-pr.ts"), entry);
   expect(readFileSync(entry)).toEqual(readFileSync(join(owner, "scripts/check-pr.ts")));
-  for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt"]) {
+  for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt", "test-shards", "test", "unit-workers"]) {
     writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
   }
   writeFileSync(join(dir, "scripts/host-admission.mjs"), `export * from ${JSON.stringify(join(owner, "scripts/host-admission.mjs"))};\n`);
   writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"] }));
   writeFileSync(join(dir, "packages/ithaca/package.json"), JSON.stringify({ name: "@odysseus/ithaca" }));
+  mkdirSync(join(dir, "tests"));
+  writeFileSync(join(dir, "tests/ithaca.test.ts"), "// Odysseus plans the return; full plans discover this file.\n");
   writeFileSync(join(dir, ".gitignore"), "tmp/\n");
   writeFileSync(preload, `import {appendFileSync} from "node:fs";
     import {dirname,resolve} from "node:path";
@@ -183,6 +187,9 @@ test("focused and full local CLI refuse setup before downstream proof while plan
     expect(plan.commandDetails.map((command: { name: string }) => command.name)).toEqual(plan.commands);
     expect(plan.commandDetails.find((command: { name: string }) => command.name === "contribution changeset").argv.slice(1))
       .toEqual(["scripts/check-changeset.ts", base]);
+    const unit = plan.commandDetails.find((command: { name: string }) => command.name === "complete unit and integration suite");
+    if (full) expect(unit.argv.slice(1, 2).concat(unit.argv.slice(3)), "FIXTURE_FULL_UNIT_TIER_DISCOVERS_FIXTURE_ROOT").toEqual(["scripts/unit-workers.ts", "tests/ithaca.test.ts"]);
+    else expect(unit).toBeUndefined();
     const importCommands = plan.commandDetails.filter((command: { name: string }) => command.name.startsWith("import-graph affected tests"));
     expect(importCommands).toHaveLength(feedback ? 1 : 0);
     if (feedback) {
@@ -289,7 +296,8 @@ test("the full local plan retains default discovery, real probes and every pinne
   const plan = planChecks(["package.json"], workspaces(root));
   const commands = localChecks(plan, true);
   const full = commands.find(command => command.name === "complete unit and integration suite")!;
-  expect(full.argv.slice(1)).toEqual(["run", "test"]);
+  expect(full.argv.slice(1, 3), "FULL_UNIT_TIER_USES_EXISTING_WORKERS").toEqual(["scripts/unit-workers.ts", `--workers=${localUnitWorkerCount()}`]);
+  expect(full.argv.slice(3), "FULL_UNIT_TIER_KEEPS_DEFAULT_DISCOVERY").toEqual(discoverTests(root, DEFAULT_ROOTS));
   expect(full.env?.BRAIN_REQUIRE_CHROME).toBe("1");
   const args = commands.map(command => command.argv.join(" ")).join("\n");
   expect(args).toContain("run test:browser"); expect(args).toContain("run test:layout");
@@ -303,6 +311,50 @@ test("the full local plan retains default discovery, real probes and every pinne
   expect(args).toContain("--shard=1/1 packages/ui-react/tests/chat-focus-runtime.test.ts packages/ui-react/tests/external-speech-runtime.test.ts");
 });
 
+
+test("the worker inventory is exactly what the serial run received", () => {
+  const root = join(import.meta.dir, "..");
+  const global = planChecks(["package.json"], workspaces(root));
+  expect(global.unitTests, "GLOBAL_PLAN_NAMES_NO_FILES").toBeUndefined();
+  // A bare `bun run test` runs the default roots, which `discoverTests` walks.
+  expect(testArgv([])).toEqual(DEFAULT_ROOTS.map(dir => `./${dir}`));
+  expect(localUnitInventory(global), "BARE_RUN_INVENTORY").toEqual(discoverTests(root, DEFAULT_ROOTS));
+  const selected = { ...global, unitTests: ["tests/local-checks.test.ts", "tests/unit-workers.test.ts"] };
+  expect(localUnitInventory(selected), "SELECTED_CONSUMER_INVENTORY").toEqual(selected.unitTests);
+  expect(localChecks(selected, true).find(command => command.name === "complete unit and integration suite")!.argv.slice(3)).toEqual(selected.unitTests);
+  // An empty selection made the serial run discover everything; so does the worker run.
+  expect(localUnitInventory({ ...global, unitTests: [] }), "EMPTY_SELECTION_DISCOVERS").toEqual(discoverTests(root, DEFAULT_ROOTS));
+});
+
+test("full local stages overlap only strict types with the unit tier", () => {
+  const plan = planChecks(["package.json"], workspaces(join(import.meta.dir, "..")));
+  const stages = localStages(localChecks(plan, true).slice(3)).map(stage => stage.map(command => command.name));
+  expect(stages[0], "TYPECHECK_BESIDE_UNIT_WORKERS").toEqual(["strict typecheck", "complete unit and integration suite"]);
+  expect(stages.slice(1).every(stage => stage.length === 1), "DOCKER_CHROME_NATIVE_STAGES_SERIALIZED").toBe(true);
+  expect(stages.slice(1).flat()).toEqual(localChecks(plan, true).slice(5).map(command => command.name));
+  // Focused preflight keeps its one serial affected-tests stage.
+  expect(localStages(localChecks(plan).slice(3)).map(stage => stage.length)).toEqual([1]);
+});
+
+test("a failed unit-tier stage fails the run, stops strict types and starts no later stage", async () => {
+  const dir = fixture();
+  const bun = process.execPath;
+  const later = join(dir, "later-stage-ran");
+  const types = join(dir, "types-finished");
+  const steps: PreflightStep[] = localStages([
+    { name: "strict typecheck", argv: [bun, "-e", `await Bun.sleep(20_000); require("fs").writeFileSync(${JSON.stringify(types)}, "")`] },
+    { name: "complete unit and integration suite", argv: [bun, "-e", "process.exit(3)"] },
+    { name: "workspace build for real browser checks", argv: [bun, "-e", `require("fs").writeFileSync(${JSON.stringify(later)}, "")`] },
+  ]);
+  const receipt = newReceipt(steps, "a".repeat(40), "origin/main", "all");
+  const started = performance.now();
+  await expect(runPreflight(steps, receipt, { root: dir, save: () => {} }), "UNIT_TIER_FAILURE_FAILS_RUN").rejects.toThrow("complete unit and integration suite failed (3)");
+  expect(performance.now() - started, "CONCURRENT_STAGE_STOPPED").toBeLessThan(10_000);
+  expect(existsSync(types)).toBe(false);
+  expect(existsSync(later), "NO_LATER_STAGE_AFTER_FAILURE").toBe(false);
+  expect(receipt.checks.map(check => [check.name, check.outcome])).toEqual([["strict typecheck", "skipped"],
+    ["complete unit and integration suite", "failed"], ["workspace build for real browser checks", "skipped"]]);
+});
 
 test("ordinary preflight leaves repeatable environment-heavy proof to CI", () => {
   const plan = planChecks(["package.json"], workspaces(join(import.meta.dir, "..")));

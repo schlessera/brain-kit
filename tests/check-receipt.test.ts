@@ -90,7 +90,7 @@ test("check:pr CLI writes a receipt recording a forced timeout and prints the PR
   const owner = resolve(import.meta.dir, ".."), entry = join(dir, "scripts/check-pr.ts");
   mkdirSync(join(dir, "scripts")); mkdirSync(join(dir, "packages/ithaca"), { recursive: true });
   cpSync(join(owner, "scripts/check-pr.ts"), entry);
-  for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt"]) writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
+  for (const helper of ["ci-plan", "ci-runner", "check-packages", "check-receipt", "test-shards", "test", "unit-workers"]) writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
   writeFileSync(join(dir, "scripts/host-admission.mjs"), `export * from ${JSON.stringify(join(owner, "scripts/host-admission.mjs"))};\n`);
   writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"] }));
   writeFileSync(join(dir, "packages/ithaca/package.json"), JSON.stringify({ name: "@odysseus/ithaca" }));
