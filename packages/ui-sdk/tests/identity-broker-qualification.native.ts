@@ -229,6 +229,22 @@ print(json.dumps(dict(uid=os.getuid(),value=value)))`, {sandbox:{brain,profile:"
       }
     } finally { if (configured !== undefined) process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = configured; }
   });
+  await check("a helper that never acknowledges launch times out naming launch-sent, and its cleanup is confirmed", async () => {
+    const configured = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+    process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = "/usr/local/bin/identity-helper-fault-no-launch-ack";
+    const marker = join(brain, "no-launch-ack-payload");
+    try {
+      let refusal: { requirement?: string; errorClass?: string; message?: string } | undefined;
+      try { launch(`open('${marker}','w').write('unexpected')`); } catch (error) { refusal = error as typeof refusal; }
+      console.log(JSON.stringify({ setupTimeout: { requirement: refusal?.requirement, errorClass: refusal?.errorClass } }));
+      // An unconfirmed cleanup would refuse as WorkerIdentityCleanupError, with no requirement.
+      expect(refusal?.errorClass, "NO_LAUNCH_ACK_REFUSES_AS_HOST_UNSUPPORTED").toBe("worker_host_unsupported");
+      expect(refusal?.requirement, "NO_LAUNCH_ACK_NAMES_LAUNCH_SENT")
+        .toMatch(/^worker_identity_setup_timed_out \(step: launch-sent, ms: \d+, sinceSpawnMs: -?\d+(;|\)$)/);
+      expect(existsSync(marker), "NO_LAUNCH_ACK_KEEPS_GATE_CLOSED").toBe(false);
+      await until(() => workerPids().length === 0, "NO_LAUNCH_ACK_LEFT_WORKER");
+    } finally { if (configured !== undefined) process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = configured; }
+  });
   await check("helper final exec resets inherited ignored signals and pipelines stay quiet", async () => {
     for(const [command,verify] of [
       [["/usr/bin/cat","/proc/self/status"],(output:string)=>expect(output.match(/^SigIgn:\s+([0-9a-f]+)$/m)?.[1]).toBe("0000000000000000")],
