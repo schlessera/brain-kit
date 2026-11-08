@@ -1,5 +1,7 @@
 /** Concrete supported content-index reads. No config, provider or agent initialization. */
-import type { QueryResult, Root, GraphMeta, Subgraph, Maintenance, LinkWalk, ListedDocument, DocumentCandidate, Direction, VoiceVocabulary } from "./types.js";
+import { resolve } from "path";
+import type { QueryResult, Root, GraphMeta, Subgraph, Maintenance, LinkWalk, ListedDocument, DocumentCandidate, Direction, VoiceVocabulary, DocumentPage } from "./types.js";
+import { DocumentPageError, finishDocumentPage, normalizePathPrefix, selectDocumentPage } from "../lib/document-page.js";
 import { QueryFailure, withSnapshot, integer, text, choice, relativePath } from "./snapshot.js";
 import { graphMeta, graphClusters, graphNeighborhood, graphDiscovery, graphMaintenance } from "./graph.js";
 import { vocabulary, EXTRACTOR_VERSION } from "./vocabulary.js";
@@ -126,6 +128,58 @@ export function listIndexDocuments(opts: Root & {
     (SELECT GROUP_CONCAT(t.name, ', ') FROM document_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.document_id = d.id) AS tags
     FROM documents d WHERE ${filters.join(" AND ") || "1=1"} ORDER BY d.updated DESC LIMIT ?`).all(...params, Math.min(100, Math.max(1, opts.limit ?? 20)));
   });
+}
+
+/**
+ * One bounded page of the paged inventory (#3643): rows newest `updated`
+ * first then by path, an opaque `next_cursor`, the scope's `total` and
+ * warnings, within 30,000 UTF-8 bytes of compact JSON. The selection reads
+ * one snapshot; afterwards the source files of the returned markdown rows
+ * are stat-ed (never read) when `overview` is requested, to warn about rows
+ * whose file changed after indexing or is gone. A malformed prefix or
+ * cursor, or a cursor from another listing, is `invalid_input`.
+ */
+export function pageIndexDocuments(opts: Root & {
+  type?: string;
+  tag?: string;
+  status?: string;
+  relevance?: string;
+  pathPrefix?: string;
+  cursor?: string;
+  overview?: boolean;
+  limit?: number;
+}): QueryResult<DocumentPage> {
+  let pathPrefix: string | undefined;
+  const selected = withSnapshot(opts, "page", () => {
+    integer(opts.limit);
+    for (const v of [opts.type, opts.tag, opts.status, opts.relevance, opts.cursor]) text(v);
+    if (opts.overview !== undefined && typeof opts.overview !== "boolean")
+      throw new QueryFailure("invalid_input");
+    try {
+      if (opts.pathPrefix !== undefined) pathPrefix = normalizePathPrefix(opts.pathPrefix);
+    } catch {
+      throw new QueryFailure("invalid_input");
+    }
+  }, (db, _meta, version) => {
+    if (version < 4)
+      throw new QueryFailure("incompatible_index");
+    try {
+      return selectDocumentPage(db, {
+        type: opts.type, tag: opts.tag, status: opts.status, relevance: opts.relevance,
+        pathPrefix, cursor: opts.cursor, overview: opts.overview,
+        limit: Math.min(100, Math.max(1, opts.limit ?? 20)),
+      });
+    } catch (error) {
+      if (error instanceof DocumentPageError) throw new QueryFailure("invalid_input");
+      throw error;
+    }
+  });
+  if (!selected.ok) return selected;
+  try {
+    return { ok: true, value: finishDocumentPage(resolve(opts.brainPath), selected.value), snapshot: selected.snapshot };
+  } catch {
+    return { ok: false, error: { code: "invalid_input", retryable: false } };
+  }
 }
 
 export function findIndexDocuments(opts: Root & {

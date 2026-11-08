@@ -501,6 +501,15 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 100
+      },
+      "path_prefix": {
+        "type": "string"
+      },
+      "overview": {
+        "type": "boolean"
+      },
+      "cursor": {
+        "type": "string"
       }
     },
     "$schema": "http://json-schema.org/draft-07/schema#"

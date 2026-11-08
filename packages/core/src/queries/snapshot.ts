@@ -7,7 +7,7 @@ import type { QueryCode, QueryResult, Root } from "./types.js";
 export class QueryFailure extends Error {
   constructor(readonly code: QueryCode) { super(code); }
 }
-export type Feature = "graph" | "links" | "voice" | "list" | "find" | "storage";
+export type Feature = "graph" | "links" | "voice" | "list" | "find" | "storage" | "page";
 const GRAPH_COLUMNS = {
   graph_metrics: ["document_id", "in_degree", "out_degree", "community", "pagerank"],
   graph_communities: ["community", "size", "label", "top_terms"],
@@ -61,10 +61,17 @@ function compatibility(db: Database, feature: Feature): {
     tables.links = ["target"];
     tables.tags = ["name"];
   }
-  if (feature === "list") {
+  if (feature === "list" || feature === "page") {
     documents.push("id", "status", "relevance", "updated");
     tables.tags = ["id", "name"];
     tables.document_tags = ["document_id", "tag_id"];
+  }
+  // The overview projection; `deadline` arrived in layout 4, which the
+  // operation itself requires.
+  if (feature === "page") {
+    documents.push("summary", "asset_type", "content");
+    if (schemaVersion >= 4)
+      documents.push("deadline");
   }
   requireColumns(db, tables);
   return { meta, schemaVersion };
