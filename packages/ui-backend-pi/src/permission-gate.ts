@@ -36,6 +36,7 @@
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import {
   APIFY_TOOL_NAMES,
+  WEB_TOOL_NAME_LIST,
   checkEditedApproval,
   createToolPermissionRequest,
   decideToolPermission,
@@ -75,6 +76,7 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     brain_compute_status: "compute", brain_compute_cancel: "compute", brain_compute_collect: "compute",
     ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
     read_attachment: "readAttachment",
+    ...Object.fromEntries(WEB_TOOL_NAME_LIST.map(name => [name, "webAccess"])),
   };
   const handler = handlers[name];
   if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")

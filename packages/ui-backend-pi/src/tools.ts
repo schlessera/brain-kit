@@ -1,4 +1,4 @@
-import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE, WEB_TOOL_NAME_LIST } from "@schlessera/brain-ui-sdk/server";
 /**
  * The curated brain tool surface for the pi backend.
  *
@@ -113,6 +113,7 @@ export interface BrainToolDeps {
     compute?: boolean;
     apify?: boolean;
     attachments?: boolean;
+    web?: boolean;
   };
 }
 
@@ -149,6 +150,9 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_apify_run: "mutate", brain_apify_status: "read", brain_apify_results: "read", brain_apify_abort: "mutate",
   // Attachment reads (#3154): the host authorizes each id against the session's own references.
   read_attachment: "read",
+  // Host-owned web tools (#3685): the host's executor reads the web; nothing
+  // the agent owns changes.
+  web_search: "read", fetch_content: "read", get_search_content: "read", source_check: "read",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
@@ -171,10 +175,10 @@ export const TOOL_RISK: Record<string, RiskClass> = {
  * rationale), and destructive bash shapes still confirm via
  * DEFAULT_CONFIRM_BASH_PATTERNS inside the tool_call gate.
  *
- * The well-known extension tools are listed here too so the recommended
- * extensions (pi-web-access) run prompt-free like Claude's WebSearch /
- * WebFetch; any OTHER extension-registered tool (e.g. a third-party MCP
- * server through pi-mcp-adapter) raises an approval card, exactly like a
+ * The host-owned web tools run prompt-free like Claude's WebSearch /
+ * WebFetch. `subagent` stays listed for an operator who turns extension
+ * discovery back on; any OTHER extension-registered tool (e.g. a third-party
+ * MCP server through pi-mcp-adapter) raises an approval card, exactly like a
  * non-allowlisted MCP tool does on the Claude backend.
  */
 export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
@@ -199,10 +203,9 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   // Attachment reads (#3154): the host authorizes each id against the
   // session's own references; a card would ask to read what the user sent.
   "read_attachment",
-  // pi-web-access (recommended web extension) — parity with Claude's
-  // auto-allowed WebSearch/WebFetch.
-  "web_search",
-  "fetch_content",
+  // The host-owned web tools (#3685), parity with Claude's auto-allowed
+  // WebSearch/WebFetch: the host binds and bounds every call.
+  ...WEB_TOOL_NAME_LIST,
   // pi-subagents (recommended fan-out extension) — parity with Claude's
   // auto-allowed Agent tool. NOTE: a child agent's own tool calls run inside
   // pi's child session with that agent's declared tools, NOT through this
