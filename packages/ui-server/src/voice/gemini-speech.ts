@@ -36,6 +36,13 @@ const TOKEN_MS = 11 * 60_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const GEMINI_MAX_VOCABULARY_TERMS = 100;
 const GEMINI_MAX_TERM_BYTES = 64;
+/**
+ * Fixed language hint, matching Deepgram's `language: "en"` and browser
+ * speech's `en-US` default. Without it Google auto-detects, and #3710 measured
+ * a short English segment returned as Spanish (#3769). A hint biases
+ * recognition; it does not restrict it.
+ */
+const GEMINI_LANGUAGE_CODES: readonly string[] = ["en-US"];
 // Google's token resource name; anything else is not connection material.
 const TOKEN_NAME = /^auth_tokens\/[\x21-\x7e]{1,1024}$/;
 
@@ -64,9 +71,9 @@ function geminiLockedSetup(vocabulary: readonly string[], mode: "SMART" | "VERBA
   const setup = {
     model: GEMINI_TRANSCRIBE_MODEL,
     generationConfig: { responseModalities: ["TEXT"] },
-    inputAudioTranscription: { mode, ...(vocabulary.length ? { customVocabulary: [...vocabulary] } : {}) },
+    inputAudioTranscription: { mode, languageCodes: [...GEMINI_LANGUAGE_CODES], ...(vocabulary.length ? { customVocabulary: [...vocabulary] } : {}) },
   };
-  const fieldMask = ["model", "generationConfig.responseModalities", "inputAudioTranscription.mode", ...(vocabulary.length ? ["inputAudioTranscription.customVocabulary"] : [])].join(",");
+  const fieldMask = ["model", "generationConfig.responseModalities", "inputAudioTranscription.mode", "inputAudioTranscription.languageCodes", ...(vocabulary.length ? ["inputAudioTranscription.customVocabulary"] : [])].join(",");
   return { setup, fieldMask };
 }
 
@@ -126,6 +133,7 @@ export function createGeminiSpeechProvider(apiKey: string): SpeechProvider {
           mode: wireMode,
           sampleRate: "16000",
           vocabulary: JSON.stringify(vocabulary),
+          languageCodes: JSON.stringify(GEMINI_LANGUAGE_CODES),
         },
       };
     },
