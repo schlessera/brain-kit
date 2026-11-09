@@ -138,11 +138,12 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
   const repeated = s.notice === MUTED_NOTICE || s.notice === UNCLEAR_NOTICE || s.notice === OUTPUT_MUTED_NOTICE;
   // One message at a time, by priority: draft → refusal → output muted → client notice (#3699).
   const body = draft
-    ? <div data-conversation-review="" style={{ display: "contents" }}><VoiceText text={aboutDraft ? s.notice : s.text} /></div>
-    : refusal ? <VoiceText text={refusal} />
-    : outputMuted ? <VoiceText text={OUTPUT_MUTED_LINE} />
-    : readiness ? <VoiceText text={READINESS_LINE} />
-    : s.notice && !repeated ? <VoiceText text={s.notice} />
+    // Live draft words are `text` (the kit clamps them); every message is `children`, never clamped.
+    ? <div data-conversation-review="" style={{ display: "contents" }}>{aboutDraft ? <VoiceText>{s.notice}</VoiceText> : <VoiceText text={s.text} />}</div>
+    : refusal ? <VoiceText>{refusal}</VoiceText>
+    : outputMuted ? <VoiceText>{OUTPUT_MUTED_LINE}</VoiceText>
+    : readiness ? <VoiceText>{READINESS_LINE}</VoiceText>
+    : s.notice && !repeated ? <VoiceText>{s.notice}</VoiceText>
     : null;
   const meta = draft ? DRAFT_META : outputMuted ? "Reply audio off" : readiness ? "mic off"
     : [service, state === "S5" ? null : clock(seconds)].filter(Boolean).join(" · ") || undefined;
