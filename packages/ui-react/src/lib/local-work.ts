@@ -42,6 +42,11 @@ interface WorkContext {
   tracks: SharedFileMeta[];
   /** Uploaded references in inactive staged views, kept for warm reauthentication only. */
   stagedTracks?: Array<{ key: string; tracks: SharedFileMeta[] }>;
+  /**
+   * Composer files still uploading, by the draft they were for (#3155):
+   * names only, never bytes. A reload cannot finish them, so it names them.
+   */
+  uploading?: Array<{ draftId: string; sessionId: string | null; names: string[] }>;
 }
 
 /** What a view reports at the moment a snapshot is taken. */
@@ -52,6 +57,12 @@ export interface WorkRestore {
   selection: { draftId: string; start: number; end: number } | null;
   focusId: string | null;
   scroll: { sessionId: string | null; anchor: string; offset: number; fingerprint?: string } | null;
+  /**
+   * Files that were still uploading when the page closed, per draft
+   * (#3155): their chips are gone, and the composer of that draft says so
+   * until dismissed. Only after a cold restore; optional for older callers.
+   */
+  uploads?: Array<{ draftId: string; sessionId: string | null; names: string[] }>;
 }
 
 export interface LocalWorkStatus {
@@ -177,6 +188,9 @@ function parseContext(raw: unknown): WorkContext | null {
     reviewText: r.reviewText ?? "",
     tracks: Array.isArray(r.tracks) ? r.tracks : [],
     stagedTracks: Array.isArray(r.stagedTracks) ? r.stagedTracks.filter((v) => v && isStr(v.key) && /^(session|draft):.+/.test(v.key) && Array.isArray(v.tracks)) : undefined,
+    uploading: Array.isArray(r.uploading)
+      ? r.uploading.flatMap((v) => v && isStr(v.draftId) && Array.isArray(v.names) ? [{ draftId: v.draftId, sessionId: isStr(v.sessionId) ? v.sessionId : null, names: v.names.filter(isStr).slice(0, 10) }] : []).filter((v) => v.names.length > 0)
+      : undefined,
   };
 }
 
@@ -216,6 +230,10 @@ interface LocalWorkOptions {
   restoreTracks?: (sessionId: string | null, draftId: string, tracks: SharedFileMeta[]) => void;
   allTracks?: () => NonNullable<WorkContext["stagedTracks"]>;
   restoreAllTracks?: (views: NonNullable<WorkContext["stagedTracks"]>) => void;
+  /** Composer files still uploading, by draft (#3155): names only. */
+  uploading?: () => NonNullable<WorkContext["uploading"]>;
+  /** Calls back on every change to the root's upload queues. */
+  watchUploads?: (fn: () => void) => () => void;
   /**
    * The client holds another account than the one this page restored for:
    * the first account's drafts are in this page's stores, so the page must
@@ -269,7 +287,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       claim();
     }) : Promise.resolve();
   const status = createStore<LocalWorkStatus>(() => ({ failed: false, pending: false }));
-  const restore = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null }));
+  const restore = createStore<WorkRestore>(() => ({ selection: null, focusId: null, scroll: null, uploads: [] }));
   const probes = new Set<WorkProbe>();
   /** The account this page restored for and writes to; another account is never written. */
   let bound: string | null = null;
@@ -324,6 +342,8 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       tracks: options.tracks(sessionId, drafts.originOf(draftId)),
       stagedTracks: options.allTracks?.(),
     };
+    const uploading = options.uploading?.();
+    if (uploading?.length) ctx.uploading = uploading;
     for (const probe of probes) Object.assign(ctx, probe());
     return ctx;
   }
@@ -622,6 +642,12 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
         }
       }
       if (ctx.reviewText && !stores.voice.getState().reviewText) stores.voice.getState().setReviewText(ctx.reviewText);
+      // A cold page has no queue: what was uploading is gone, and the
+      // composer names it (rev 5 §1). A warm restore keeps its queue.
+      if (!warm && ctx.uploading?.length) {
+        const ids = stores.drafts.getState();
+        restore.setState({ uploads: ctx.uploading.map((u) => ({ draftId: ids.resolveId(u.draftId), sessionId: u.sessionId, names: u.names })) });
+      }
     }
     partition = handle;
     bound = key;
@@ -654,6 +680,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
     stores.voice.subscribe((s, prev) => { if (s.reviewText !== prev.reviewText) changed(); }),
     stores.chat.subscribe((s, prev) => { if (s.activeSessionId !== prev.activeSessionId) changed(); }),
     options.watchTracks(changed),
+    ...(options.watchUploads ? [options.watchUploads(changed)] : []),
   ];
   const onDom = () => changed();
   if (typeof document !== "undefined") {
@@ -794,7 +821,7 @@ export function createLocalWork(options: LocalWorkOptions): LocalWork {
       locked = true;
       if (timer !== null) { clearTimeout(timer); timer = null; }
       bound = null; partition = null; written.clear(); committed.clear(); versions.clear(); retained.clear(); writtenContext = "";
-      restore.setState({ selection: null, focusId: null, scroll: null });
+      restore.setState({ selection: null, focusId: null, scroll: null, uploads: [] });
       status.setState({ pending: false });
     },
     async quiesce() {

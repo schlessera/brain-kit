@@ -551,6 +551,25 @@ Nothing is sent and no host session is created.
 Content is always kept locally and is never dropped to fit a limit. Nothing
 claims host durability for an unacknowledged save.
 
+> **2026-11-08 — scoped amendment (#3155, maintainer rulings of 2026-11-02:
+> compact status presentation and E1 A).** In the composer, the save state is
+> no longer a persistent line under the field. It is
+> [D58's `StatusIndicator`](components-and-interactions.md#2026-11-03--d58-compact-operation-status-is-one-presentational-control-3281)
+> beside Attach. The tooltip and details carry the summary and facts, and
+> Compare drafts and Open other version are detail actions. The authority
+> behind the states is unchanged. `saved` still needs the host's
+> acknowledgement of this exact revision, now with every original-file
+> binding and no upload still pending. Every other row above keeps its rule
+> as a distinct indicator state. The amendment adds rev 4 §1's queued,
+> offline, unconfirmed (with a read-only Check again), upload failed or
+> unconfirmed, and space-refused states. An empty draft hides the control
+> and keeps its slot. The `saving…` delay of 600ms no longer applies: an
+> unacknowledged edit shows the active glyph at once. Only that glyph
+> animates (the amendment above), and reduced motion keeps it still. The
+> line itself remains `DraftSaveLine` for the voice conversation strip,
+> which this amendment does not change. The record is
+> [chat attachments](../chat-attachments.md#what-3155-built-so-far).
+
 **Conflict.** `Compare drafts` shows this device's and the other device's
 version with their edit times, and offers `Keep this device's`,
 `Keep other's` and `Keep both`. Keep both turns the other version into an

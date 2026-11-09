@@ -1227,3 +1227,78 @@ describe("registered draft deadlines", () => {
     expect(host.calls, "disposed timers cannot issue later requests").toEqual(calls);
   });
 });
+
+describe("check again (#3155, rev 5 §1)", () => {
+  /** The host stored a save of the second revision, and its answer was lost on the way back. */
+  async function lostSecondSave(host: ReturnType<typeof fakeHost>) {
+    const { ui, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Steer between Scylla and Charybdis." });
+    await until(() => drafts().drafts[id]?.host?.revision === 1);
+    host.loseNextPut();
+    drafts().edit(id, ITHACA, { text: "Steer closer to Scylla." });
+    await until(() => drafts().drafts[id]?.failure?.kind === "unsaved");
+    return { ui, drafts, id };
+  }
+
+  test("a lost answer reads as unconfirmed; Check again is one read and no save, and the host's matching revision is acknowledged", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    expect(drafts().drafts[id]!.failure, "the answer was lost, not refused").toEqual({ kind: "unsaved", lost: true });
+    expect(host.rows.get(id)?.revision, "the host stored the save").toBe(2);
+    const before = host.calls.length;
+    const result = await ui.connection.drafts.checkSave(id);
+    await settle();
+    expect(result).toBe("saved");
+    expect(host.calls.slice(before), "exactly one read, never a save").toEqual([`GET /drafts/${id}`]);
+    const d = drafts().drafts[id]!;
+    expect(d.host?.revision, "the revision that save made").toBe(2);
+    expect(d.host?.edit, "this exact edit").toBe(d.edit);
+    expect(d.failure).toBeNull();
+  });
+
+  test("an edit after the lost save: Check again finds the older revision, which is never this draft's acknowledgement", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    drafts().edit(id, ITHACA, { text: "Steer closer to Scylla, and keep the oars low." });
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("saved");
+    expect(host.calls.slice(before)).toEqual([`GET /drafts/${id}`]);
+    const d = drafts().drafts[id]!;
+    expect(d.host?.revision).toBe(2);
+    expect(d.host?.edit, "the acknowledged edit is the older one").toBe(d.edit - 1);
+  });
+
+  test("an unreachable host: Check again changes nothing and saves nothing", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    host.setDown(true);
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("unreachable");
+    expect(host.calls.slice(before)).toEqual([`GET /drafts/${id}`]);
+    expect(drafts().drafts[id]!.failure).toEqual({ kind: "unsaved", lost: true });
+    expect(drafts().drafts[id]!.host?.revision).toBe(1);
+  });
+
+  test("the host still holds the revision before the save: not saved, and still no save from Check again", async () => {
+    const host = fakeHost();
+    const { ui, drafts, id } = await lostSecondSave(host);
+    // As if the request never reached the host: it holds revision 1 still.
+    host.rows.set(id, { ...host.rows.get(id)!, revision: 1, text: "Steer between Scylla and Charybdis." });
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("not_saved");
+    expect(host.calls.slice(before)).toEqual([`GET /drafts/${id}`]);
+    expect(drafts().drafts[id]!.host?.revision).toBe(1);
+  });
+
+  test("a draft whose save was answered has nothing to check, and no request is made", async () => {
+    const host = fakeHost();
+    const { ui, drafts } = boot(host);
+    const id = drafts().idFor(ITHACA);
+    drafts().edit(id, ITHACA, { text: "Bind me to the mast." });
+    await until(() => drafts().drafts[id]?.host?.revision === 1);
+    const before = host.calls.length;
+    expect(await ui.connection.drafts.checkSave(id)).toBe("none");
+    expect(host.calls.length).toBe(before);
+  });
+});

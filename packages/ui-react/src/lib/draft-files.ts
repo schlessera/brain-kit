@@ -1,7 +1,7 @@
 import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { apiBaseFor } from "./backend.js";
-import { createAttachmentQueue, type AttachmentQueue, type QueuedFile } from "./attachment-queue.js";
+import { createAttachmentQueue, queuedPending, type AttachmentQueue, type QueuedFile } from "./attachment-queue.js";
 
 /**
  * One root's generic upload queues, per composer view (#3155).
@@ -17,14 +17,14 @@ import { createAttachmentQueue, type AttachmentQueue, type QueuedFile } from "./
  * its queue survives the draft id rotating under it; the new-chat view by
  * its draft's first id.
  */
-type Entry = { queue: AttachmentQueue; listeners: Set<() => void> };
-type Registry = { entries: Map<string, Entry>; leaving: ((event: BeforeUnloadEvent) => void) | null };
+type Entry = { queue: AttachmentQueue; listeners: Set<() => void>; sessionId?: string | null };
+type Registry = { entries: Map<string, Entry>; leaving: ((event: BeforeUnloadEvent) => void) | null; watchers: Set<() => void> };
 
 const registries = new WeakMap<object, Registry>();
 
 function registry(root: BrainUiServices): Registry {
   let reg = registries.get(root.stores);
-  if (!reg) { reg = { entries: new Map(), leaving: null }; registries.set(root.stores, reg); }
+  if (!reg) { reg = { entries: new Map(), leaving: null, watchers: new Set() }; registries.set(root.stores, reg); }
   return reg;
 }
 
@@ -73,14 +73,44 @@ export function filesFor(root: BrainUiServices, key: string, sessionId: string |
             { kind: item.state === "refused" ? "refused" : "failed", file: item.name, reason: item.detail ?? item.status ?? "upload failed" });
           return true;
         },
-        changed: () => { for (const l of listeners) l(); guardLeaving(reg); },
+        changed: () => { for (const l of listeners) l(); guardLeaving(reg); for (const w of reg.watchers) w(); },
       }),
       listeners,
+      sessionId,
     };
     entry = created;
     reg.entries.set(key, entry);
   }
   return entry;
+}
+
+/** Calls back on every change to any of the root's upload queues (#3155). */
+export function subscribeAllFiles(root: BrainUiServices, fn: () => void): () => void {
+  const reg = registry(root);
+  reg.watchers.add(fn);
+  return () => { reg.watchers.delete(fn); };
+}
+
+/**
+ * The composer files still uploading, by the draft they are for (#3155):
+ * names only. A held snapshot's uploads are that message's, and a failed
+ * or refused file is not uploading.
+ */
+export function uploadingNames(root: BrainUiServices): Array<{ draftId: string; sessionId: string | null; names: string[] }> {
+  const reg = registries.get(root.stores);
+  if (!reg) return [];
+  const drafts = root.stores.drafts.getState();
+  const byDraft = new Map<string, { sessionId: string | null; names: string[] }>();
+  for (const entry of reg.entries.values()) {
+    for (const item of entry.queue.files) {
+      if (item.snapshotId || !queuedPending(item)) continue;
+      const id = drafts.resolveId(item.draftId);
+      const view = byDraft.get(id) ?? { sessionId: drafts.drafts[id]?.sessionId ?? entry.sessionId ?? null, names: [] };
+      view.names.push(item.name);
+      byDraft.set(id, view);
+    }
+  }
+  return [...byDraft].map(([draftId, view]) => ({ draftId, ...view }));
 }
 
 /** The root is going: every upload is aborted, and none starts another. */
