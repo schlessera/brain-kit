@@ -1979,6 +1979,20 @@ D52's tab-only track path.
   is two saves: the old snapshot moves to `returned`, then is left out in the
   save that creates its successor under a new `snapshotId` and `requestId`.
   A host without the limit field keeps D52's tab-local path.
+- **Images are originals too (additive, #3155).** On a host with
+  `composerFiles`, `@schlessera/brain-ui-react` uploads every image as its
+  exact bytes through `POST /api/drafts/:draftId/files`, never through the
+  legacy draft image route, and binds it as any other file (`fileIds`,
+  snapshot `fileIds`, `attachmentRefs`). For each original the host stored as
+  `kind: "image"` with `reader: "image"`, the client sends the frame it has
+  always prepared, with `ChatImageAttachment.fileId` naming that original, in
+  the same message's `attachments`. Frames go in file order while
+  `MAX_IMAGES_PER_MESSAGE` and `MAX_TOTAL_IMAGE_BYTES` allow; past them, or
+  when no frame can be made, the original is sent without one. After a
+  reload the frame is made again from `GET /api/attachments/:fileId`. The
+  frame's shape and the host's rules are unchanged. Legacy draft images of an
+  existing draft, and a host without `composerFiles`, keep the inline-only
+  path.
 
 The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
 `ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,

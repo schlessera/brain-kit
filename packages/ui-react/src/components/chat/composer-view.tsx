@@ -36,6 +36,17 @@ interface ComposerAttachment {
   name: string;
 }
 
+/**
+ * A stored original in the composer (#3155). `image` is set for an image
+ * original: whether its frame goes inline with the message (design §8.4), and
+ * the frame's thumbnail once it is made.
+ */
+interface ComposerStoredFile {
+  file: AttachmentFile;
+  detached: boolean;
+  image?: { placement: "inline" | "not_inline" | "pending"; previewUrl?: string };
+}
+
 interface ComposerProvider {
   label: string;
   /** The model is fixed for this conversation; effort remains editable. */
@@ -92,7 +103,7 @@ export interface ComposerViewProps {
    * originals the host stored. `detached` marks one this draft's id cannot
    * bind. Shown only with `onPickFiles`.
    */
-  files?: { queued: readonly QueuedFile[]; stored: readonly { file: AttachmentFile; detached: boolean }[] };
+  files?: { queued: readonly QueuedFile[]; stored: readonly ComposerStoredFile[] };
   onRemoveQueuedFile?: (id: string) => void;
   onRetryQueuedFile?: (id: string) => void;
   onRemoveStoredFile?: (fileId: string) => void;
@@ -268,7 +279,7 @@ export function ComposerView(p: ComposerViewProps) {
       {fileCount > 0 && files && <div className="mb-2 grid gap-2" data-file-chips="">
         {files.queued.map((item, i) => <FileChip key={item.id} queued={item}
           onRemove={() => removeAndRefocus(i, () => p.onRemoveQueuedFile?.(item.id))} onRetry={() => p.onRetryQueuedFile?.(item.id)} />)}
-        {files.stored.map((entry, i) => <FileChip key={entry.file.fileId} stored={entry.file} detached={entry.detached}
+        {files.stored.map((entry, i) => <FileChip key={entry.file.fileId} stored={entry.file} detached={entry.detached} image={entry.image}
           onRemove={() => removeAndRefocus(files.queued.length + i, () => p.onRemoveStoredFile?.(entry.file.fileId))} />)}
       </div>}
 

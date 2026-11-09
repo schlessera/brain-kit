@@ -142,6 +142,9 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+On such a host the React package uploads images as originals too and sends
+each frame with `ChatImageAttachment.fileId` naming its original (#3155); a
+legacy draft image and a host without the flag keep the inline-only path.
 
 ## Outgoing snapshot list (additive, 0.45.0, #3588)
 
