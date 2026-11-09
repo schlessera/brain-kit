@@ -28,6 +28,8 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   // Reference pool (#2428). Identities are caller-generated UUIDs; the manager
   // alone chooses paths, qgroups and limits within its configured allowance.
   z.object({ operation: z.literal("poolStatus") }).strict(),
+  // Read-only residual-growth status (#3515) over the same observation and owner charges.
+  z.object({ operation: z.literal("poolGrowth") }).strict(),
   z.object({ operation: z.literal("poolCreate"), id: nativeCheckpointId, purpose: z.enum(["source", "worktree", "staging"]),
     from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive() }).strict(),
   z.object({ operation: z.literal("poolSeal"), id: nativeCheckpointId }).strict(),
@@ -190,6 +192,61 @@ export interface NativePoolStatus {
   } | null;
   counts: Record<NativePoolState, number>;
   identities: number;
+}
+/**
+ * One measured comparison of the residual-growth status (#3515). `basisBytes`
+ * is the charge recorded when the chain's cold acquisition was sealed; null
+ * means the accounting needed for it is missing, never that it is zero.
+ */
+export interface NativePoolGrowthComparison {
+  id: string;
+  /** Sealed source this root was snapshotted from. */
+  from: string;
+  /** Cold acquisition at the root of `from`'s chain: the one with no source. */
+  cold: string | null;
+  ownerBytes: number;
+  basisBytes: number | null;
+  /** `basisBytes` times the ratio threshold; null when the basis is unavailable. */
+  thresholdBytes: number | null;
+  state: "available" | "unavailable";
+  flagged: boolean;
+}
+/** Retained sources published under one name (one repository and revision) across views. */
+export interface NativePoolGrowthSources {
+  name: string;
+  roots: { id: string; view: string; ownerBytes: number }[];
+  ownerBytes: number;
+  flagged: boolean;
+}
+export interface NativePoolGrowthFlag {
+  kind: "worktree" | "refresh" | "retained-sources";
+  /** Root identity, or the publication name for retained sources. */
+  subject: string;
+  observedBytes: number;
+  /** Byte threshold for a ratio flag; null for the count flag. */
+  thresholdBytes: number | null;
+  /** The ruled threshold: a ratio, or the retained-source count. */
+  threshold: number;
+  /** Retained-source count; null for a ratio flag. */
+  observedCount: number | null;
+}
+/**
+ * Read-only residual-growth status (#3515). It reports measured owner charges
+ * and the ruled thresholds only: never forecast savings or freed capacity.
+ */
+export interface NativePoolGrowth {
+  basis: "btrfs-space-info-disk-used+simple-quota-owner";
+  state: "available" | "unavailable";
+  /** Why the whole status is unavailable; comparisons and flags are then empty. */
+  reason: string | null;
+  generation: string | null;
+  thresholds: { worktreeRatio: number; refreshRatio: number; retainedSources: number };
+  worktrees: NativePoolGrowthComparison[];
+  refreshes: NativePoolGrowthComparison[];
+  sources: NativePoolGrowthSources[];
+  flags: NativePoolGrowthFlag[];
+  /** Comparisons and source groups left out to stay within the control bound, unflagged ones first. */
+  omitted: number;
 }
 /** The privileged helper inspects only its bounded upper layer after the worker exits. */
 export interface NativeStageChange { pathHex: string; kind: "entry" | "whiteout" | "opaque" }

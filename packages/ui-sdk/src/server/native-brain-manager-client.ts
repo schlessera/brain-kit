@@ -6,7 +6,7 @@ import { consumeNativeStageAuthority, consumeNativeCheckpointRead, nativeCheckpo
 import { nativeCheckpointId } from "./native-brain-manager-protocol.js";
 import { NativeBrainManagerError, nativeManagerRequest, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
   type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange,
-  type NativePoolAccess, type NativePoolCheckpoint, type NativePoolCreatePurpose, type NativePoolRecord, type NativePoolStatus } from "./native-brain-manager-protocol.js";
+  type NativePoolAccess, type NativePoolCheckpoint, type NativePoolCreatePurpose, type NativePoolGrowth, type NativePoolRecord, type NativePoolStatus } from "./native-brain-manager-protocol.js";
 
 export interface NativeDeltaStream {
   stream: ReadableStream<Uint8Array>;
@@ -289,6 +289,8 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
       };
     },
     poolStatus: async (signal?: AbortSignal): Promise<NativePoolStatus> => control({ operation: "poolStatus" }, signal),
+    /** Read-only residual-growth status (#3515); reports measured charges and thresholds only. */
+    poolGrowth: async (signal?: AbortSignal): Promise<NativePoolGrowth> => control({ operation: "poolGrowth" }, signal),
     poolCreate: async (id: string, purpose: NativePoolCreatePurpose, from: string | null, allowanceBytes: number, signal?: AbortSignal): Promise<NativePoolRecord> =>
       control({ operation: "poolCreate", id, purpose, from, allowanceBytes }, signal),
     poolSeal: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolSeal", id }, signal),

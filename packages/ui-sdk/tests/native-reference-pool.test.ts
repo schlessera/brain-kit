@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { nativeManagerRequest } from "../src/server/native-brain-manager-protocol";
+import { nativeManagerRequest, NATIVE_CONTROL_BYTES } from "../src/server/native-brain-manager-protocol";
 import { validateNativeBrainManagerConfig } from "../src/server/native-brain-manager";
-import { parsePoolObservation, referencePoolAccounting, referencePoolMount, reservePhysical, poolReservationFactor, validateNativeReferencePoolConfig,
-  REFERENCE_POOL_COMBINED_BYTES, REFERENCE_POOL_OPERATION_BYTES, REFERENCE_POOL_QGROUP, type PoolIntent, type PoolObservation, type QualifiedReferencePoolConfig } from "../src/server/native-reference-pool";
+import { parsePoolObservation, referencePoolAccounting, referencePoolGrowth, referencePoolMount, reservePhysical, poolReservationFactor, validateNativeReferencePoolConfig,
+  REFERENCE_POOL_GROWTH_THRESHOLDS, REFERENCE_POOL_COMBINED_BYTES, REFERENCE_POOL_OPERATION_BYTES, REFERENCE_POOL_QGROUP, type PoolIntent, type PoolObservation, type QualifiedReferencePoolConfig } from "../src/server/native-reference-pool";
 
 const MIB = 1024 ** 2;
 const ID = "11111111-1111-4111-8111-111111112428", SECOND = "22222222-2222-4222-8222-222222222428";
@@ -212,4 +212,106 @@ test("the pool mount may present access generations like other managed roots", (
   const top = "51 25 7:2429 / /srv/ithaca-reference rw,nosuid,nodev - btrfs /dev/ithaca-reference rw,discard=async,subvolid=5,subvol=/\n";
   expect(() => referencePoolMount(top + "52 25 0:41 /access/x /run/worktrees rw - btrfs /dev/ithaca-reference rw\n", "/srv/ithaca-reference", "/dev/ithaca-reference")).not.toThrow();
   expect(() => referencePoolMount(top + "52 25 0:41 /accessory /run/worktrees rw - btrfs /dev/ithaca-reference rw\n", "/srv/ithaca-reference", "/dev/ithaca-reference")).toThrow();
+});
+
+// Residual-growth status (#3515): measured owner charges against the ruled thresholds.
+const COLD = "55555555-5555-4555-8555-555555553515", TREE = "66666666-6666-4666-8666-666666663515", REFRESH = "77777777-7777-4777-8777-777777773515";
+const OTHER_VIEW = "88888888-8888-4888-8888-888888883515", THIRD_VIEW = "99999999-9999-4999-8999-999999993515";
+const root = (id: string, purpose: PoolIntent["purpose"], state: PoolIntent["state"], from: string | null, extra: Partial<PoolIntent> = {}): PoolIntent =>
+  ({ ...intent(id, String(300 + Number.parseInt(id.slice(0, 2), 16)), state, from), purpose, ...extra });
+/** A 40 MiB cold acquisition, one worktree and one refresh of it, published in two views. */
+function growthPool(charges: { tree?: number; refresh?: number } = {}) {
+  const intents = [root(COLD, "source", "sealed", null, { sealedBytes: 40 * MIB, view: VIEW }), root(TREE, "worktree", "writable", COLD),
+    root(REFRESH, "source", "sealed", COLD, { sealedBytes: charges.refresh ?? 16 * MIB, view: OTHER_VIEW })];
+  const owner = new Map([[COLD, 40 * MIB], [TREE, charges.tree ?? 4 * MIB], [REFRESH, charges.refresh ?? 16 * MIB]]);
+  const publications = [{ view: VIEW, name: "ithaca@main-0123456789", target: COLD }, { view: OTHER_VIEW, name: "ithaca@main-0123456789", target: REFRESH }];
+  return { intents, owner, publications, refusal: null, generation: "40" };
+}
+
+test("a clean pool reports every measured comparison and no growth flag", () => {
+  const growth = referencePoolGrowth(growthPool());
+  expect(growth.state, "REFERENCE_POOL_GROWTH_AVAILABLE").toBe("available");
+  expect(growth.thresholds, "REFERENCE_POOL_GROWTH_RULED_THRESHOLDS").toEqual({ worktreeRatio: 0.25, refreshRatio: 0.75, retainedSources: 2 });
+  expect(growth.worktrees, "REFERENCE_POOL_GROWTH_WORKTREE_BASIS").toEqual([{ id: TREE, from: COLD, cold: COLD, ownerBytes: 4 * MIB, basisBytes: 40 * MIB,
+    thresholdBytes: 10 * MIB, state: "available", flagged: false }]);
+  expect(growth.refreshes[0], "REFERENCE_POOL_GROWTH_REFRESH_BASIS").toMatchObject({ id: REFRESH, cold: COLD, ownerBytes: 16 * MIB, basisBytes: 40 * MIB, thresholdBytes: 30 * MIB, flagged: false });
+  expect(growth.sources, "REFERENCE_POOL_GROWTH_SOURCES_PER_NAME").toEqual([{ name: "ithaca@main-0123456789", ownerBytes: 56 * MIB, flagged: false,
+    roots: [{ id: COLD, view: VIEW, ownerBytes: 40 * MIB }, { id: REFRESH, view: OTHER_VIEW, ownerBytes: 16 * MIB }] }]);
+  expect(growth.flags, "REFERENCE_POOL_GROWTH_CLEAN").toEqual([]);
+  // Measured bytes only: nothing forecasts savings or freed capacity.
+  expect(JSON.stringify(growth)).not.toMatch(/sav|free|reclaim/i);
+});
+
+test("each growth flag fires only strictly above its ruled threshold and carries observed bytes and threshold", () => {
+  const at = referencePoolGrowth(growthPool({ tree: 10 * MIB, refresh: 30 * MIB }));
+  expect(at.flags, "REFERENCE_POOL_GROWTH_AT_THRESHOLD_IS_CLEAN").toEqual([]);
+  const worktree = referencePoolGrowth(growthPool({ tree: 10 * MIB + 4096 }));
+  expect(worktree.flags, "REFERENCE_POOL_GROWTH_WORKTREE_FLAG").toEqual([{ kind: "worktree", subject: TREE, observedBytes: 10 * MIB + 4096, thresholdBytes: 10 * MIB,
+    threshold: REFERENCE_POOL_GROWTH_THRESHOLDS.worktreeRatio, observedCount: null }]);
+  const refresh = referencePoolGrowth(growthPool({ refresh: 30 * MIB + 4096 }));
+  expect(refresh.flags, "REFERENCE_POOL_GROWTH_REFRESH_FLAG").toEqual([{ kind: "refresh", subject: REFRESH, observedBytes: 30 * MIB + 4096, thresholdBytes: 30 * MIB,
+    threshold: REFERENCE_POOL_GROWTH_THRESHOLDS.refreshRatio, observedCount: null }]);
+  const retained = growthPool(), THIRD = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa3515";
+  retained.intents.push(root(THIRD, "source", "sealed", null, { sealedBytes: 40 * MIB, view: THIRD_VIEW })); retained.owner.set(THIRD, 40 * MIB);
+  retained.publications.push({ view: THIRD_VIEW, name: "ithaca@main-0123456789", target: THIRD });
+  expect(referencePoolGrowth(retained).flags, "REFERENCE_POOL_GROWTH_RETAINED_FLAG").toEqual([{ kind: "retained-sources", subject: "ithaca@main-0123456789",
+    observedBytes: 96 * MIB, thresholdBytes: null, threshold: REFERENCE_POOL_GROWTH_THRESHOLDS.retainedSources, observedCount: 3 }]);
+});
+
+test("missing or unreadable accounting reads as unavailable, never as zero", () => {
+  // A released cold acquisition sealed before the seal-time charge existed: its basis is unknown.
+  const legacy = growthPool({ tree: 39 * MIB });
+  legacy.intents[0] = { ...legacy.intents[0]!, state: "deleted", sealedBytes: null, view: null };
+  legacy.publications.shift();
+  const growth = referencePoolGrowth(legacy);
+  expect(growth.worktrees[0], "REFERENCE_POOL_GROWTH_UNAVAILABLE_NOT_ZERO").toMatchObject({ state: "unavailable", basisBytes: null, thresholdBytes: null, flagged: false });
+  expect(growth.flags, "REFERENCE_POOL_GROWTH_UNAVAILABLE_NEVER_FLAGS").toEqual([]);
+  // A live sealed cold acquisition without the field still has an invariant charge.
+  const sealed = growthPool({ tree: 11 * MIB });
+  sealed.intents[0] = { ...sealed.intents[0]!, sealedBytes: null };
+  expect(referencePoolGrowth(sealed).worktrees[0], "REFERENCE_POOL_GROWTH_LIVE_SEALED_BASIS").toMatchObject({ basisBytes: 40 * MIB, flagged: true });
+  // A broken chain has no cold acquisition to compare with.
+  const orphan = growthPool();
+  orphan.intents.splice(0, 1);
+  expect(referencePoolGrowth({ ...orphan, publications: [] }).refreshes[0], "REFERENCE_POOL_GROWTH_BROKEN_CHAIN").toMatchObject({ cold: null, state: "unavailable" });
+  for (const [label, override] of [["no owner accounting", { owner: null }], ["refused evidence", { refusal: { code: "unknown" as const, message: "Reference pool qgroup 0/999 has no recorded owner." } }],
+    ["changing allocation", { refusal: { code: "changing" as const, message: "changing" } }]] as const) {
+    const refused = referencePoolGrowth({ ...growthPool({ tree: 39 * MIB }), ...override });
+    expect(refused, `REFERENCE_POOL_GROWTH_REFUSED ${label}`).toMatchObject({ state: "unavailable", worktrees: [], refreshes: [], sources: [], flags: [] });
+    expect(refused.reason).toBeTruthy();
+  }
+  // Admission refusal for capacity leaves the measured charges trustworthy.
+  expect(referencePoolGrowth({ ...growthPool(), refusal: { code: "capacity", message: "full" } }).state, "REFERENCE_POOL_GROWTH_CAPACITY_STILL_MEASURES").toBe("available");
+});
+
+test("a published name must resolve to a recorded sealed source in its own view", () => {
+  for (const [label, target, view] of [["symlink escape", "../../../etc", VIEW], ["absolute target", "/srv/ithaca", VIEW], ["unrecorded identity", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb3515", VIEW],
+    ["foreign view", COLD, OTHER_VIEW], ["worktree target", TREE, VIEW]] as const) {
+    const pool = growthPool();
+    pool.publications.push({ view, name: "penelope@loom-0123456789", target });
+    expect(referencePoolGrowth(pool), `REFERENCE_POOL_GROWTH_REFUSES ${label}`).toMatchObject({ state: "unavailable", flags: [] });
+  }
+  const stale = growthPool();
+  stale.intents[0] = { ...stale.intents[0]!, state: "deleted" };
+  expect(referencePoolGrowth(stale), "REFERENCE_POOL_GROWTH_REFUSES stale identity").toMatchObject({ state: "unavailable" });
+});
+
+test("a growth reply stays within one control response and keeps its flags", () => {
+  const pool = growthPool({ tree: 11 * MIB });
+  for (let index = 0; index < 600; index++) {
+    const id = `cccccccc-cccc-4ccc-8ccc-${String(index).padStart(12, "0")}`;
+    pool.intents.push(root(id, "worktree", "writable", COLD)); pool.owner.set(id, MIB);
+  }
+  const growth = referencePoolGrowth(pool);
+  expect(Buffer.byteLength(JSON.stringify(growth)), "REFERENCE_POOL_GROWTH_BOUNDED").toBeLessThan(NATIVE_CONTROL_BYTES);
+  expect(growth.omitted, "REFERENCE_POOL_GROWTH_OMISSION_COUNTED").toBeGreaterThan(0);
+  expect(growth.worktrees.length + growth.omitted).toBe(601);
+  expect(growth.worktrees.some(item => item.id === TREE), "REFERENCE_POOL_GROWTH_FLAGGED_DETAIL_KEPT").toBe(true);
+  expect(growth.flags.map(flag => flag.subject), "REFERENCE_POOL_GROWTH_FLAGS_KEPT").toEqual([TREE]);
+});
+
+test("the growth request takes no identity, path or selector", () => {
+  expect(nativeManagerRequest.safeParse({ operation: "poolGrowth" }).success, "REFERENCE_POOL_GROWTH_REQUEST").toBe(true);
+  for (const extra of [{ path: "/srv/ithaca" }, { id: COLD }, { view: VIEW }])
+    expect(nativeManagerRequest.safeParse({ operation: "poolGrowth", ...extra }).success, `REFERENCE_POOL_GROWTH_NO_SELECTOR ${Object.keys(extra)[0]}`).toBe(false);
 });

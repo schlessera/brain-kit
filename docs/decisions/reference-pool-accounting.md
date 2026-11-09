@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:272-964`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:377-1112`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -224,7 +224,7 @@ directory its intent records. Sealing also makes the root's top directory
 `roots/` and `views/` join the mandatory worker masks. A worker sees reference
 source only through a view bound for it, and other domains' views stay
 invisible. `poolView` (#2432) opens a view's directory before its first
-publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:940-943`),
+publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:1079-1082`),
 so a worker that binds it at its start sees the domain's first publication on a
 later lookup ([agent tools](managed-worktrees.md#agent-tools)).
 
@@ -268,6 +268,48 @@ release's check and its delete. The worker cannot create entries in the generati
 directory itself. `access/` joins the mandatory worker masks. Census accepts a
 writable worktree only in the directory its intent records, and measurement
 adopts a grant or park interrupted between its rename and its record.
+
+## Background deduplication is rejected; residual growth is reported (#3515)
+
+Preventive sharing stays the only mechanism: acquisition snapshots, worktree
+snapshots and reflink copies. No duperemove, bees or other extent-rewriting
+tool runs on the pool. The [measured investigation](../plans/repository-storage-dedupe.md)
+found three reasons, each a conflict with a rule above:
+
+- **Cross-root owner re-attribution.** Deduplicating between two roots moves
+  the destination's data onto the source root's simple-quota charge. A
+  released source then stays `deleted` with that charge and is never
+  reclaimed while the destination lives.
+- **Sealed-root modification.** Deduplicating into a sealed, read-only root
+  succeeds without refusal and leaves its recorded owner charge stale.
+- **False checkpoint deltas.** Deduplicating inside a worktree between two
+  checkpoints makes the checkpoint delta report content edits that never
+  happened, and frees nothing while the older checkpoint lives.
+
+Residual growth is reported instead, by `brain-native-store pool growth`
+(`referencePoolGrowth`, `packages/ui-sdk/src/server/native-reference-pool.ts:265-335`).
+It reads one stable observation and the same owner charges as admission, with
+no reconciliation, so it commits, deletes, resets and reserves nothing. Every
+source chain starts at a cold acquisition, a source with no `from`. The charge
+recorded when that root was sealed is the basis for the worktrees and refreshes
+built on the chain, because a refresh holds only the extents it changed and a
+released root keeps only what is still shared. The ruled thresholds are
+`REFERENCE_POOL_GROWTH_THRESHOLDS`, from the #3513 baseline of +1.6 % for two
+worktrees and 0.39x for a changed refresh. Each flag fires only strictly above
+its threshold:
+
+- a worktree charged above 25 % of its source's cold acquisition;
+- a changed refresh charged above 0.75x its chain's cold acquisition;
+- more than two retained sources published under one name across views. The
+  name hashes the canonical repository and revision (`referenceSourceName`).
+
+A basis that cannot be read reads as `unavailable`, never as zero. That covers
+a broken chain and a released cold acquisition sealed before the seal-time
+charge was recorded. Evidence that admission would refuse, other than
+capacity, makes the whole status unavailable. So does a published name that
+does not resolve to a recorded sealed source in its own view. The status
+reports measured bytes and thresholds only, never forecast savings or freed
+capacity.
 
 ## Native qualification
 

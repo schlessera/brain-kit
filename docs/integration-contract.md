@@ -20,6 +20,17 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Reference pool growth status (additive, 0.45.0, #3515)
+
+The host-only `brain-native-store pool` projection gains a read-only `growth`
+action, the native manager client gains `poolGrowth()`, and the protocol gains
+`NativePoolGrowth`. They report each worktree's and each changed refresh's
+owner charge against its chain's cold acquisition, and retained sources per
+published name across views. Flags apply the ruled thresholds and carry
+measured bytes only. See
+[the package API](integration-contract/package-api.md#reference-pool-growth-status-additive-0450-3515).
+This ships in a minor; no breaking ruling is required.
+
 ## Retained barge-in and conversation end (additive, 0.45.0, #3729)
 
 `DialogueEvidence` gains `voice_interruption`, written when the host forwards

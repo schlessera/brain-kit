@@ -119,6 +119,7 @@ export function createNativeJournalFixture(brain: string, root: string, copy = (
     async inspectStage() { throw Error("Copied native fixture has no output stage to inspect."); },
     async releaseStage(id) { return { id, state: "deleted" }; },
     async poolStatus() { throw Error("Copied native fixture has no reference pool volume."); },
+    async poolGrowth() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolCreate() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolSeal() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolRelease() { throw Error("Copied native fixture has no reference pool volume."); },
