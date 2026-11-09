@@ -102,3 +102,61 @@ export async function meterFillsTheCard(root: HTMLElement) {
   }
   return fields.length;
 }
+
+/**
+ * The tall field under enlarged text (#3773): it grows to hold everything and
+ * hides nothing. In every tall field in `root`:
+ *
+ *   - the text really is doubled (the label at 24px), so the checks below
+ *     could fail;
+ *   - nothing paints below the field (`scrollHeight <= clientHeight`), and
+ *     every control sits inside the field's box, at least 44px;
+ *   - nothing in the label is ellipsised: the word and the meta show whole;
+ *   - the body shows whole lines: words keep at most two (the newest), and a
+ *     message (the refusal line, a notice) shows whole (R1);
+ *   - a field with a body grows past 136px, and one without stays 136px.
+ *
+ * Returns how many fields carried a body, so a story can check the cells it
+ * meant to test were there.
+ */
+export async function enlargedTallFieldHolds(root: HTMLElement) {
+  let bodies = 0;
+  for (const field of root.querySelectorAll<HTMLElement>('.bk-voice-field[data-shape="tall"]')) {
+    const label = field.querySelector<HTMLElement>("[data-voice-label]")!;
+    const name = label.querySelector("[data-voice-word]")?.textContent ?? "field";
+    const box = field.getBoundingClientRect();
+    await expect(getComputedStyle(label).fontSize, `${name}: the label is at 200% text`).toBe("24px");
+    await expect(field.scrollHeight, `${name}: nothing paints below the field`).toBeLessThanOrEqual(field.clientHeight);
+    for (const button of field.querySelectorAll<HTMLElement>(".bk-voice-controls button")) {
+      const r = button.getBoundingClientRect();
+      const what = `${name}: ${button.getAttribute("aria-label")}`;
+      await expect(r.top, `${what} inside the field`).toBeGreaterThanOrEqual(box.top);
+      await expect(r.bottom, `${what} inside the field`).toBeLessThanOrEqual(box.bottom);
+      await expect(r.left, `${what} inside the field`).toBeGreaterThanOrEqual(box.left);
+      await expect(r.right, `${what} inside the field`).toBeLessThanOrEqual(box.right);
+      await expect(Math.round(r.height), `${what} keeps its 44px target`).toBeGreaterThanOrEqual(44);
+    }
+    for (const part of label.children) {
+      await expect(part.scrollWidth, `${name}: "${part.textContent}" is not ellipsised`).toBeLessThanOrEqual(part.clientWidth);
+    }
+    const text = field.querySelector<HTMLElement>(".bk-voice-body [data-voice-text]");
+    if (!text) {
+      await expect(box.height, `${name}: without a body the field stays 136px`).toBe(136);
+      continue;
+    }
+    bodies++;
+    const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
+    const lines = text.getBoundingClientRect().height / lineHeight;
+    await expect(Math.abs(lines - Math.round(lines)), `${name}: the body shows whole lines (${lines.toFixed(2)})`).toBeLessThan(0.05);
+    if (text.dataset.voiceText === "message") {
+      // The box is bottom-aligned, so a clamped message overflows at the top,
+      // which scrollHeight does not count: compare the content's own height.
+      const content = text.firstElementChild!.getBoundingClientRect().height;
+      await expect(content, `${name}: a message shows whole`).toBeLessThanOrEqual(text.getBoundingClientRect().height + 0.5);
+    } else {
+      await expect(Math.round(lines), `${name}: words keep the newest two lines`).toBeLessThanOrEqual(2);
+    }
+    await expect(box.height, `${name}: the field grows for its body`).toBeGreaterThan(136);
+  }
+  return bodies;
+}
