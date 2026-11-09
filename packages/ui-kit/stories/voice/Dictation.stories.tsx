@@ -10,6 +10,11 @@ import { DICTATION_TITLES, Sheet, dictation, type DictationId } from "./_voice.j
  * fills the field amber and the words land in it. Nothing is sent until you
  * choose to; every exit leaves the text in the field for review.
  *
+ * The disclosure forms (#3694, signed off with K1 and K2) name where the words
+ * go before any audio leaves the browser: the first-take acknowledgement (D0),
+ * a grey Connecting field (Dc), the destination as D3–D5's meta, and the two
+ * notices for a missing service (Dx). All use the #3692 components unchanged.
+ *
  * The field keeps the composer's height at rest (D1, D6) and one fixed height
  * while a state label shows (D3–D5), so listening never moves the page:
  * `HeightIsStable` measures it.
@@ -19,7 +24,22 @@ const meta = preview.meta({
   decorators: [stage],
 });
 
-const IDS: DictationId[] = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"];
+const IDS: DictationId[] = ["D0", "D1", "D2", "Dc", "D3", "D3b", "D4", "D5", "D6", "D7", "D8", "Dx1", "Dx2"];
+
+/** The accessible names of every button in `root`, in document order. */
+const buttonNames = (root: HTMLElement) => [...root.querySelectorAll("button")].map((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim());
+
+/** First take only: the destination is named before any session request or mic access. */
+export const D0FirstTake = meta.story({
+  name: "D0 First take · acknowledgement",
+  render: () => <>{dictation("D0")}</>,
+  play: async ({ canvas, canvasElement }) => {
+    await voiceA11y(canvasElement);
+    await expect(canvas.getByRole("status"), "announced politely").toHaveTextContent("Your words are sent to Google Gemini to be written down. The audio isn’t kept.");
+    await expect(buttonNames(canvasElement)).toEqual(["Cancel", "Start dictation"]);
+    await expect(canvas.getByRole("button", { name: "Start dictation" }), "K1: initial focus on Start dictation").toHaveFocus();
+  },
+});
 
 /** The mic sits in the composer, with no labels and no extra buttons. */
 export const D1Ready = meta.story({
@@ -37,12 +57,35 @@ export const D2WaitingForAccess = meta.story({
     await voiceA11y(canvasElement);
   },
 });
+/** Grey while the service connects: nothing is heard yet, so it never says Listening. */
+export const DcConnecting = meta.story({
+  name: "Dc Connecting · mic not open",
+  render: () => <>{dictation("Dc")}</>,
+  play: async ({ canvasElement }) => {
+    await voiceA11y(canvasElement);
+    const field = canvasElement.querySelector<HTMLElement>(".bk-voice-field")!;
+    await expect(field.dataset.tone, "grey").toBe("idle");
+    await expect(field, "never says Listening before the mic is open").not.toHaveTextContent("Listening");
+    await expect(field).toHaveTextContent("Not listening yet");
+    await expect(field.querySelector(".bk-voice-label-meta"), "the destination is named").toHaveTextContent("to Google Gemini");
+    await expect(buttonNames(canvasElement)).toEqual(["Cancel dictation"]);
+  },
+});
 /** The meter follows your voice; unconfirmed words stay muted until they settle. */
 export const D3Listening = meta.story({
   name: "D3 Listening",
   render: () => <>{dictation("D3")}</>,
   play: async ({ canvasElement }) => {
     await voiceA11y(canvasElement);
+  },
+});
+/** Browser speech outside Chrome: the browser decides where audio goes (K2). */
+export const D3BrowserSpeech = meta.story({
+  name: "D3b Listening · browser speech, not Chrome",
+  render: () => <>{dictation("D3b")}</>,
+  play: async ({ canvasElement }) => {
+    await voiceA11y(canvasElement);
+    await expect(canvasElement.querySelector(".bk-voice-label-meta")).toHaveTextContent("browser speech · sent by your browser");
   },
 });
 /** No speech: the meter lies flat and a hint appears. After 30 s of silence it stops by itself (V3). */
@@ -88,28 +131,94 @@ export const D8Stopped = meta.story({
   },
 });
 
+/** No service is chosen: no mic and no meter, only the way to Settings. */
+export const DxNoService = meta.story({
+  name: "Dx1 No dictation service",
+  render: () => <>{dictation("Dx1")}</>,
+  play: async ({ canvasElement }) => {
+    await voiceA11y(canvasElement);
+    await expect(buttonNames(canvasElement)).toEqual(["Cancel", "Open Settings"]);
+    await expect(canvasElement.querySelector(".bk-voice-meter"), "no meter").toBeNull();
+  },
+});
+/** The saved service is no longer offered here. */
+export const DxServiceGone = meta.story({
+  name: "Dx2 Saved service gone",
+  render: () => <>{dictation("Dx2")}</>,
+  play: async ({ canvasElement }) => {
+    await voiceA11y(canvasElement);
+    await expect(buttonNames(canvasElement)).toEqual(["Cancel", "Open Settings"]);
+    await expect(canvasElement.querySelector(".bk-voice-meter"), "no meter").toBeNull();
+  },
+});
+
 /** Every dictation state, for review against the mockup sheet and for the baselines. */
 export const AllStates = meta.story({
   parameters: { stageWidth: "none" },
   render: () => <Sheet ids={IDS} titles={DICTATION_TITLES} render={dictation} />,
   play: async ({ canvasElement }) => {
-    await expect(canvasElement.querySelectorAll("[data-state]")).toHaveLength(8);
+    await expect(canvasElement.querySelectorAll("[data-state]")).toHaveLength(13);
     await voiceA11y(canvasElement);
   },
 });
 
 /**
- * The field is one height across D3, D4 and D5, and the composer's own 52px at
- * rest: a state change never moves the transcript above it.
+ * The field is one height across Dc, D3, D4 and D5, with or without a long
+ * destination, and the composer's own 52px at rest: a state change never moves
+ * the transcript above it.
  */
 export const HeightIsStable = meta.story({
-  render: () => <>{(["D3", "D4", "D5", "D1"] as const).map((id) => <div key={id} style={{ width: "100%" }}>{dictation(id)}</div>)}</>,
+  render: () => <>{(["D3", "D4", "D5", "D1", "Dc", "D3b"] as const).map((id) => <div key={id} style={{ width: "100%" }}>{dictation(id)}</div>)}</>,
   play: async ({ canvasElement }) => {
-    const [d3, d4, d5, d1] = fieldHeights(canvasElement);
+    const [d3, d4, d5, d1, dc, d3b] = fieldHeights(canvasElement);
     await expect(d3, "D3 height").toBe(84);
     await expect(d4, "D4 is D3's height").toBe(d3);
     await expect(d5, "D5 is D3's height").toBe(d3);
     await expect(d1, "rest is the composer's height").toBe(52);
+    await expect(dc, "Dc is D3's height").toBe(d3);
+    await expect(d3b, "a long destination keeps D3's height").toBe(d3);
+  },
+});
+
+/**
+ * At 320px the longest destination stays on one line: the meta ellipsizes
+ * first and the state word never does.
+ */
+export const LongDestinationAt320 = meta.story({
+  parameters: { stageWidth: 320 },
+  render: () => <>{dictation("D3b")}</>,
+  play: async ({ canvasElement }) => {
+    await voiceA11y(canvasElement);
+    const field = canvasElement.querySelector<HTMLElement>(".bk-voice-field")!;
+    await expect(field.getBoundingClientRect().width, "a 320px column").toBeLessThanOrEqual(320);
+    await expect(fieldHeights(canvasElement), "84px kept").toEqual([84]);
+    const metaLine = field.querySelector<HTMLElement>(".bk-voice-label-meta")!;
+    const word = field.querySelector<HTMLElement>("[data-voice-word]")!;
+    await expect(metaLine.scrollWidth, "the meta ellipsizes").toBeGreaterThan(metaLine.clientWidth);
+    await expect(getComputedStyle(metaLine).textOverflow).toBe("ellipsis");
+    await expect(word.scrollWidth, "the word is whole").toBeLessThanOrEqual(word.clientWidth);
+    await expect(metaLine.getBoundingClientRect().height, "one line").toBeLessThanOrEqual(16);
+  },
+});
+
+/**
+ * While listening or finishing, the state label anchors to the top of the card
+ * and the words to the bottom, over a gradient that fades the meter behind
+ * them (#3746).
+ */
+export const LabelTopWordsBottom = meta.story({
+  render: () => <>{(["D3", "D4", "D5"] as const).map((id) => <div key={id} style={{ width: "100%" }}>{dictation(id)}</div>)}</>,
+  play: async ({ canvasElement }) => {
+    for (const field of canvasElement.querySelectorAll<HTMLElement>(".bk-voice-field")) {
+      const box = field.getBoundingClientRect();
+      const label = field.querySelector("[data-voice-label]")!.getBoundingClientRect();
+      const words = field.querySelector(".bk-voice-text")!.getBoundingClientRect();
+      const word = field.querySelector("[data-voice-word]")!.textContent;
+      await expect(Math.round(label.top - box.top), `${word}: label anchored to the top`).toBeLessThanOrEqual(10);
+      await expect(Math.round(box.bottom - words.bottom), `${word}: words attached to the bottom`).toBeLessThanOrEqual(10);
+      const fade = getComputedStyle(field.querySelector(".bk-voice-meter")!, "::after").backgroundImage;
+      await expect(fade, `${word}: gradient behind the words`).toContain("linear-gradient");
+    }
   },
 });
 

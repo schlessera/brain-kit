@@ -80,6 +80,8 @@ Object.assign(window, {
       .map((v) => ({ sessionId: v.sessionId, state: v.state, pendingKind: v.pendingKind, cleared: v.cleared, turnId: v.turnId, settled: v.settled })),
     records: () => root.stores.trackers.getState().records,
     spoken: () => [...spoken],
+    /** The title the session list holds for a session, which labels its announcements. */
+    listedTitle: (sessionId: string) => root.stores.sessions.getState().sessions.find((s) => s.id === sessionId)?.title ?? null,
     draft: () => {
       const drafts = root.stores.drafts.getState();
       const d = drafts.drafts[drafts.idFor(root.stores.chat.getState().activeSessionId)];

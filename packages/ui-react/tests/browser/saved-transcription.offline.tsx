@@ -14,8 +14,9 @@ import { installFaultNetwork } from "./offline/fault-network.ts";
 import { failIndexedDbWrites } from "./offline/indexeddb-faults.ts";
 
 import { openScene } from "./offline/scene.ts";
-import type { RecordingTranscription } from "@schlessera/brain-ui-sdk/protocol";
+import type { RecordingTranscription, VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
 import type { ProgressRequestInit } from "../../src/lib/upload-request.js";
+import { deepgramDiscovery } from "../fixtures/dictation-discovery.js";
 
 const TEXT = "Odysseus asks Penelope about the loom order.";
 const bytes = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]);
@@ -29,22 +30,25 @@ async function tap(el: Element) { el.scrollIntoView({ block: "nearest" }); await
 const button = (host: HTMLElement, label: string) => [...host.querySelectorAll<HTMLElement>('button,[role="button"]')].find(el => el.getClientRects().length && (el.getAttribute("aria-label") ?? el.textContent ?? "").includes(label))!;
 function fixture(ctx: TestContext, backendUrl?: string) {
   let available = true, drop = false, hold = false, fail = false, reject = false;
+  let discovery: VoiceProvidersResponse | null = null;
+  const providers: Array<string | null> = [];
   let release: (() => void) | undefined;
   let stored: RecordingTranscription | null = null;
   const uploads: Blob[] = [];
   const net = installFaultNetwork({ routes: async (url, raw) => {
     const init = raw as ProgressRequestInit;
     if (url.pathname.endsWith("/voice/capabilities")) return Response.json({ providerId: "deepgram", capabilities: { savedAudio: available } });
+    if (url.pathname.endsWith("/voice/providers")) return Response.json(discovery ?? deepgramDiscovery(available));
     if (url.pathname.endsWith("/transcription")) {
       if ((init.method ?? "GET") === "GET") return stored ? Response.json(stored) : new Response("{}", { status: 404 });
       if (init.method === "DELETE") { stored = { ...stored!, status: "consumed", text: undefined }; return Response.json(stored); }
-      const body = init.body as Blob; uploads.push(body);
+      const body = init.body as Blob; uploads.push(body); providers.push(new Headers(init.headers).get("speech-provider"));
       if (reject) return Response.json({ error: "recording_too_large", message: "The recording exceeds the upload byte budget." }, { status: 413 });
       init.onUploadProgress?.(40);
       await new Promise(r => setTimeout(r, 40));
       if (drop) throw new TypeError("Connection lost at 40%");
       init.onUploadProgress?.(100);
-      stored = { recordingId: url.pathname.split("/").at(-2)!, sha256: new Headers(init.headers).get("content-sha256")!, providerId: "deepgram", status: "transcribing", attemptId: crypto.randomUUID(), retryCount: url.searchParams.has("retry") ? (stored?.retryCount ?? 0) + 1 : 0, failures: [] };
+      stored = { recordingId: url.pathname.split("/").at(-2)!, sha256: new Headers(init.headers).get("content-sha256")!, providerId: new Headers(init.headers).get("speech-provider") ?? "deepgram", status: "transcribing", attemptId: crypto.randomUUID(), retryCount: url.searchParams.has("retry") ? (stored?.retryCount ?? 0) + 1 : 0, failures: [] };
       if (hold) await new Promise<void>(r => { release = r; });
       stored = fail ? { ...stored, status: "failed", failure: { reason: "rate_limit", retryable: true }, failures: [{ reason: "rate_limit", retryable: true, attemptId: stored.attemptId }] } : { ...stored, status: "done", text: TEXT };
       return Response.json(stored);
@@ -87,7 +91,7 @@ function fixture(ctx: TestContext, backendUrl?: string) {
     } finally { root.dispose(); net.restore(); vi.restoreAllMocks(); }
   })();
   ctx.onTestFinished(cleanup);
-  return { root, host, net, uploads, seed, mount, cleanup, settleRecovery, available: (v: boolean) => { available = v; }, drop: (v: boolean) => { drop = v; }, hold: () => { hold = true; }, fail: (v: boolean) => { fail = v; }, reject: () => { reject = true; }, release: () => release?.() };
+  return { root, host, net, uploads, providers, discover: (value: VoiceProvidersResponse) => { discovery = value; }, seed, mount, cleanup, settleRecovery, available: (v: boolean) => { available = v; }, drop: (v: boolean) => { drop = v; }, hold: () => { hold = true; }, fail: (v: boolean) => { fail = v; }, reject: () => { reject = true; }, release: () => release?.() };
 }
 async function expand(c: ReturnType<typeof fixture>) { await expect.poll(() => c.host.querySelector("[data-recordings-tray] button")).toBeTruthy(); await tap(c.host.querySelector("[data-recordings-tray] button")!); }
 async function confirm(c: ReturnType<typeof fixture>, retry = false) {
@@ -288,4 +292,60 @@ test("a real other tab keeps recording exclusion through fixture cleanup", async
   const successor = await second.call<{ ok: boolean; owner: string }>("begin");
   expect(successor.ok).toBe(true); expect(successor.owner).not.toBe(owner.owner);
   expect(await second.call("end")).toHaveLength(2);
+});
+
+// #3709: the confirmation names the service the upload goes to, and the upload names it too.
+const streaming = { streaming: true, interimResults: true, keyterms: false, endpointing: false };
+const BETA = { id: "beta", label: "Beta Live", capabilities: { ...streaming, savedAudio: false, smartTranscription: true } };
+const ALPHA = { id: "alpha", label: "Alpha Transcribe", capabilities: { ...streaming, savedAudio: true } };
+const GAMMA = { id: "gamma", label: "Gamma Archive", capabilities: { ...streaming, savedAudio: true } };
+const effectiveBeta = (providers = [BETA, ALPHA]): VoiceProvidersResponse => ({ providers, dictation: { saved: "beta", savedUsable: true, host: null, effective: "beta", source: "saved", smart: true, revision: "3" } });
+
+test("the effective service names itself in the confirmation and in the upload", async ctx => {
+  const c = fixture(ctx); c.discover({ ...effectiveBeta([ALPHA, BETA]), dictation: { ...effectiveBeta().dictation, saved: "alpha", effective: "alpha" } });
+  await c.seed(); c.mount(); await expand(c);
+  await tap(button(c.host, "Transcribe recording"));
+  expect(c.host.textContent).toContain("Your server sends it to Alpha Transcribe.");
+  await tap(button(c.host, "Upload and transcribe"));
+  await expect.poll(() => c.host.querySelector("textarea")?.value).toBe(TEXT);
+  expect(c.providers, "TRAY_UPLOAD_NAMES_CONFIRMED_PROVIDER").toEqual(["alpha"]);
+  expect((await c.root.recordings!.list("account:odysseus"))[0]!.transcription?.providerId, "the receipt names the service that transcribed").toBe("alpha");
+});
+
+for (const width of [320, 1280]) test(`a dictation service without saved audio offers an explicit, unsaved choice at ${width}px`, async ctx => {
+  await commands.formViewport(width, 900); await page.viewport(width, 900);
+  const c = fixture(ctx); c.discover(effectiveBeta([BETA, ALPHA, GAMMA]));
+  await c.seed(); c.mount(); await expand(c);
+  await tap(button(c.host, "Transcribe recording"));
+  const group = c.host.querySelector<HTMLElement>('[role="group"][aria-label^="Upload recording"]')!;
+  expect(group.textContent).toContain("Beta Live can't transcribe saved recordings.");
+  const radios = [...group.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+  expect(radios.map(r => r.closest("label")!.textContent)).toEqual(["Alpha Transcribe", "Gamma Archive"]);
+  expect(radios.some(r => r.checked), "nothing is chosen for the reader among several").toBe(false);
+  for (const radio of radios) expect(radio.closest("label")!.getBoundingClientRect().height, "44px choice targets").toBeGreaterThanOrEqual(44);
+  expect(button(c.host, "Upload and transcribe").getAttribute("aria-disabled") ?? String((button(c.host, "Upload and transcribe") as HTMLButtonElement).disabled), "no upload until a service is chosen").toMatch(/true/);
+  await tap(radios[1]!);
+  await tap(button(c.host, "Upload and transcribe"));
+  await expect.poll(() => c.host.querySelector("textarea")?.value).toBe(TEXT);
+  expect(c.providers, "the chosen service, and only it, receives the recording").toEqual(["gamma"]);
+  expect((await c.root.recordings!.list("account:odysseus"))[0]!.transcription?.providerId, "the receipt names the service that transcribed").toBe("gamma");
+  expect(document.documentElement.scrollWidth, "no horizontal scroll").toBeLessThanOrEqual(width);
+  const violations = (await axe.run(c.host, { rules: { region: { enabled: false } } })).violations;
+  expect(violations.map(v => v.id)).toEqual([]);
+});
+
+test("one capable service is offered pre-selected, and no capable service keeps the unavailable explanation", async ctx => {
+  const c = fixture(ctx); c.discover(effectiveBeta());
+  await c.seed(); c.mount(); await expand(c);
+  await tap(button(c.host, "Transcribe recording"));
+  const radio = c.host.querySelector<HTMLInputElement>('[role="group"] input[type="radio"]')!;
+  expect(radio.checked).toBe(true);
+  expect(radio.closest("label")!.textContent).toBe("Alpha Transcribe");
+  await tap(button(c.host, "Cancel"));
+  expect(c.uploads).toHaveLength(0);
+
+  const d = fixture(ctx); d.discover(effectiveBeta([BETA]));
+  await d.seed(); d.mount(); await expand(d);
+  await expect.poll(() => d.host.textContent).toContain(SAVED_AUDIO_UNAVAILABLE);
+  expect(button(d.host, "Transcribe recording"), "nothing to transcribe with").toBeUndefined();
 });

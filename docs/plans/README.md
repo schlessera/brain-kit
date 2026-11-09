@@ -23,6 +23,7 @@ because the code has become the better answer to "what does this do".
 | [chat-history-deletion.md](chat-history-deletion.md) | Approved local deletion policy with unbuilt lifecycle design, retained-record boundaries and proof obligations. | [#3234](https://github.com/schlessera/brain-kit/issues/3234) |
 | [reviewable-session-safety.md](reviewable-session-safety.md) | Proposed occurrence/coverage/review DTOs, finite limits, human authority and prospective trust publication; no runtime APIs implied. | [#3596](https://github.com/schlessera/brain-kit/issues/3596), [#3597](https://github.com/schlessera/brain-kit/issues/3597), [#3598](https://github.com/schlessera/brain-kit/issues/3598) |
 | [selectable-dictation.md](selectable-dictation.md) | Dictation provider registration, discovery, precedence and per-take/upload binding; the Gemini 3.5 Transcribe Live provider/client transport; Voice-pane dictation states and the #3707–#3710 proof split. | [#3705](https://github.com/schlessera/brain-kit/issues/3705) |
+| [repository-storage-dedupe.md](repository-storage-dedupe.md) | Measured evaluation of duperemove, bees and preventive sharing for the reference pool and brain store; compatibility matrix, options and the proposed growth safeguard. | [#3515](https://github.com/schlessera/brain-kit/issues/3515) |
 
 ## What does not live here
 

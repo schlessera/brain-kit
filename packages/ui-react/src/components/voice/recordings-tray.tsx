@@ -6,8 +6,12 @@ import { Button, RecordingRow, Tray } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { accountPartition } from "../../lib/local-partitions.js";
 import { recordingTime, TRANSCRIPT_CHANGED, RECORDING_UNAVAILABLE, type RecordingStore, type Recording } from "../../lib/recordings.js";
+import type { VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
+import { freshDiscovery, invalidateDiscovery, loadDiscovery, providerLabel, type DictationProvider } from "../../voice/dictation-providers.js";
+import { useVoiceStore } from "../../voice/voice-store.js";
 
 export const SAVED_AUDIO_UNAVAILABLE = "Transcribing saved recordings isn\u0027t available on this server yet. Your recording is kept. Play it back and type, or keep it for later.";
+const RETRY_PROVIDER_UNAVAILABLE = "The service that made the failed attempt isn\u0027t available on this host, so it can\u0027t be retried. Your recording is kept.";
 export const ACCEPT_FAILED = "Couldn\u0027t save your draft on this device. The recording is kept.";
 const EMPTY_ROWS: Recording[] = [];
 const size = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -19,6 +23,30 @@ export function recordingClock(row: Recording): string {
 export function recordingDuration(row: Recording): string {
   const seconds = Math.floor(row.durationMs / 1000);
   return `${Math.floor(seconds / 60)} minutes ${seconds % 60} seconds`;
+}
+
+/**
+ * Which service a saved recording would go to (#3709, plan §5). The
+ * effective dictation provider when it can transcribe saved audio; otherwise
+ * an explicit choice among the registered providers that can, for this
+ * recording only; otherwise nothing. A retry stays with the service its
+ * failed attempt used.
+ */
+type SavedAudioRoute =
+  | { kind: "fixed"; provider: DictationProvider }
+  | { kind: "choose"; lead: string; options: DictationProvider[] }
+  | { kind: "none" };
+
+function savedAudioRoute(snapshot: VoiceProvidersResponse, retryProvider?: string | null): SavedAudioRoute {
+  const capable = snapshot.providers.filter((provider) => provider.capabilities.savedAudio === true);
+  if (retryProvider) {
+    const original = capable.find((provider) => provider.id === retryProvider);
+    return original ? { kind: "fixed", provider: original } : { kind: "none" };
+  }
+  const effective = snapshot.providers.find((provider) => provider.id === snapshot.dictation.effective);
+  if (effective?.capabilities.savedAudio) return { kind: "fixed", provider: effective };
+  if (!capable.length) return { kind: "none" };
+  return { kind: "choose", lead: effective ? `${providerLabel(effective)} can\u0027t transcribe saved recordings.` : "Your dictation service isn\u0027t set.", options: capable };
 }
 
 /** Readable partitions only. Auth changes hide stale async results before paint. */
@@ -118,16 +146,22 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
   const root = useBrainUiRoot();
   const recordings = store ?? root.recordings!;
   const [confirm, setConfirm] = useState(false);
-  const [uploadConfirm, setUploadConfirm] = useState(false);
-  const [provider, setProvider] = useState<string | null>(null);
+  // The root's discovery, as Settings and every take see it: a change of
+  // service or availability reaches every item, collapsed or not.
+  const discovered = useVoiceStore(s => s.discovery?.snapshot ?? null);
+  // An open confirmation keeps the route it disclosed until it uploads or is
+  // cancelled; a later change of service needs a new, explicit confirmation.
+  const [confirmation, setConfirmation] = useState<SavedAudioRoute | null>(null);
+  const uploadConfirm = confirmation !== null;
+  // The per-recording choice when the dictation service can't transcribe saved audio. Never saved.
+  const [chosen, setChosen] = useState<string | null>(null);
   const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
-    setUploadConfirm(false); setProvider(null);
+    setConfirmation(null); setChosen(null);
     if (localOnly || offline || row.partition === "unassigned") return;
-    void root.request(`${root.apiBase()}/voice/capabilities`, { credentials: "include", cache: "no-store" }).then(async response => {
-      const body = response.ok ? await response.json() : null;
-      if (live && body?.capabilities?.savedAudio === true) setProvider(body.providerId);
+    // Read-only discovery: it names the services, it mints and sends nothing.
+    void loadDiscovery(root).then(async () => {
       if (live) await recordings.syncTranscriptions();
     }).catch(() => {});
     return () => { live = false; };
@@ -203,6 +237,21 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
     }).finally(target.dispose);
   };
   const retry = row.transcription?.status === "failed" && row.transcription.failure?.retryable && row.transcription.retryCount < 3 ? row.transcription.attemptId : undefined;
+  const retryProvider = retry ? row.transcription?.providerId : undefined;
+  const available: SavedAudioRoute = discovered ? savedAudioRoute(discovered, retryProvider) : { kind: "none" };
+  const route = confirmation ?? available;
+  const target = route.kind === "fixed" ? route.provider : route.kind === "choose" ? route.options.find((option) => option.id === (chosen ?? (route.options.length === 1 ? route.options[0]!.id : null))) : undefined;
+  const provider = route.kind !== "none";
+  /** A new confirmation names the service current discovery resolves now. */
+  const openConfirmation = () => {
+    setError(""); setChosen(null);
+    const current = freshDiscovery(root);
+    if (current) { setConfirmation(savedAudioRoute(current, retryProvider)); return; }
+    void loadDiscovery(root).then(snapshot => {
+      const next = savedAudioRoute(snapshot, retryProvider);
+      if (mounted.current && next.kind !== "none") setConfirmation(next);
+    }, () => { if (mounted.current) setError("Couldn\u0027t check which service transcribes recordings. The recording is kept."); });
+  };
   const terminal = !!row.transcription && (row.transcription.status === "outcome_unknown" || row.transcription.status === "consumed" || row.transcription.status === "failed" && !retry);
   const working = busy || row.state === "transcribing";
   return <div tabIndex={-1} data-recording-focus={row.id} aria-label={name}>
@@ -224,16 +273,39 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
         <p className="mt-2 text-xs text-muted-foreground">The recording stays on this device until you accept or discard.</p>
       </>}
       {!localOnly && provider && !offline && row.partition !== "unassigned" && !terminal && !["transcript-ready", "accepted", "transcribing"].includes(row.state) && !uploadConfirm && <div className="mt-2">
-        <Button label={retry ? "Retry" : "Transcribe"} ariaLabel={`${retry ? "Retry transcription of" : "Transcribe"} ${name}`} block={false} reach disabled={busy || !row.chunkCount} onClick={() => { setUploadConfirm(true); setError(""); }} />
+        <Button label={retry ? "Retry" : "Transcribe"} ariaLabel={`${retry ? "Retry transcription of" : "Transcribe"} ${name}`} block={false} reach disabled={busy || !row.chunkCount} onClick={openConfirmation} />
       </div>}
       {uploadConfirm && provider && !offline && <div role="group" aria-label={`Upload ${name}`} className="mt-2">
-        <p className="text-xs">Upload this recording ({recordingTime(row.durationMs)} · {size(row.bytes)}) to your server for transcription? Your server sends it to {provider === "deepgram" ? "Deepgram" : provider}.</p>
+        {route.kind === "choose" ? <fieldset className="min-w-0">
+          <legend className="text-xs">{route.lead} Upload this recording ({recordingTime(row.durationMs)} · {size(row.bytes)}) to your server, which sends it to the service you choose. Transcribe with:</legend>
+          <div className="mt-1 flex flex-col">
+            {route.options.map(option => <label key={option.id} className="flex min-h-11 items-center gap-2 text-sm">
+              <input type="radio" name={`transcribe-with-${row.id}`} checked={target?.id === option.id} disabled={busy} onChange={() => setChosen(option.id)} className="h-5 w-5" />
+              {providerLabel(option)}
+            </label>)}
+          </div>
+        </fieldset>
+        : <p className="text-xs">Upload this recording ({recordingTime(row.durationMs)} · {size(row.bytes)}) to your server for transcription? Your server sends it to {target ? providerLabel(target) : "your dictation service"}.</p>}
         <div className="mt-2 flex flex-wrap gap-2 any-pointer-coarse:gap-y-4">
-          <Button label="Upload and transcribe" block={false} reach disabled={busy} onClick={() => {
-            setUploadConfirm(false); setUploadPercent(0);
-            void run(async () => { await recordings.transcribe(row.partition, row.id, setUploadPercent, retry); }).finally(() => { if (mounted.current) setUploadPercent(null); });
+          <Button label="Upload and transcribe" block={false} reach disabled={busy || !target} onClick={() => {
+            if (!target) return;
+            const confirmed = target.id;
+            setConfirmation(null); setChosen(null); setUploadPercent(0);
+            // The upload names the service this confirmation showed; the server uses exactly that one.
+            void run(async () => {
+              try { await recordings.transcribe(row.partition, row.id, setUploadPercent, retry, confirmed); }
+              catch (error) {
+                // The host no longer has that service: learn what it has now.
+                // Nothing is retried; the next upload is confirmed afresh.
+                if ((error as { code?: unknown } | null)?.code === "speech_provider_unavailable") {
+                  invalidateDiscovery(root);
+                  void loadDiscovery(root, { force: true }).catch(() => {});
+                }
+                throw error;
+              }
+            }).finally(() => { if (mounted.current) setUploadPercent(null); });
           }} />
-          <Button label="Cancel" tone="ghost" block={false} reach disabled={busy} onClick={() => setUploadConfirm(false)} />
+          <Button label="Cancel" tone="ghost" block={false} reach disabled={busy} onClick={() => { setConfirmation(null); setChosen(null); }} />
         </div>
       </div>}
       {(busy && uploadPercent !== null || row.state === "transcribing") && <p role="status" className="mt-2 text-xs">{busy && uploadPercent !== null && uploadPercent < 100 ? `Uploading… ${uploadPercent}%` : "Transcribing…"}</p>}
@@ -253,7 +325,7 @@ export function RecordingItem({ row, offline, onDiscard, onAccepted, onAssociate
           <div ref={keep}><Button label="Keep" tone="ghost" block={false} reach disabled={busy} onClick={() => { setConfirm(false); setTimeout(() => actions.current?.querySelector<HTMLElement>('[aria-label^="Discard recording"]')?.focus(), 0); }} /></div>
         </div>
       </div>}
-      {!localOnly && (offline || !provider) && <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : SAVED_AUDIO_UNAVAILABLE}</p>}
+      {!localOnly && (offline || !provider) && <p className="mt-2 text-xs text-muted-foreground">{offline ? "Transcribe · needs the host" : retry && discovered ? RETRY_PROVIDER_UNAVAILABLE : SAVED_AUDIO_UNAVAILABLE}</p>}
       {saveError && <p role="alert" className="mt-2 text-xs text-destructive">{saveError}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
     </RecordingRow>

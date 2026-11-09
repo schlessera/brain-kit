@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../../ui-react/src/root.js";
 import { Composer } from "../../../ui-react/src/components/chat/composer.js";
+import { primeDictation } from "../../../ui-react/tests/fixtures/dictation-discovery.js";
 import type { AsrClient, AsrClientOptions } from "../../../ui-sdk/src/client/asr.js";
 
 // Real composer + useDictation. The provider is a keyless scripted ASR client;
@@ -86,6 +87,8 @@ async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "prec
   vi.stubGlobal("fetch", request);
   ui = createBrainUiRoot({ storage: null, request });
   ui.stores.connection.getState().setWsStatus("connected");
+  // Selection and the one-time acknowledgement (#3709) precede every take.
+  primeDictation(ui, "fixture");
   ui.asr.register("fixture", options => { const client = new FixtureClient(options); clients.push(client); return client; });
   renderer = createRoot(host);
   flushSync(() => renderer!.render(<BrainUiProvider root={ui}>
@@ -95,7 +98,7 @@ async function mount(width = 1280, height = 800, theme = "dark", cssEntry: "prec
   const frame = host.querySelector<HTMLElement>("[data-composer]")!;
   await userEvent.click(frame.querySelector("textarea")!);
   await userEvent.keyboard("Keep the existing draft");
-  const mic = () => frame.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]')!;
+  const mic = () => frame.querySelector<HTMLElement>('[aria-label^="Dictate"], [aria-label="Stop dictation"]')!;
   // Observe the opening commit before yielding to the native click command.
   // A later getAnimations() lookup can miss the shipped 200ms entrance (#1521).
   // Flush styles on the actual surface and pause its own CSSAnimation in this
@@ -342,8 +345,9 @@ for (const cssEntry of ["precompiled", "theme"] as const) for (const theme of ["
 for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
   test(`dictation disclosure ${width} ${theme}: unchanged browser-speech warning precedes transcript`, async () => {
     const { listen } = await mount(width, 800, theme); await listen();
-    flushSync(() => ui!.stores.voice.getState().setProviderId("webspeech"));
-    const note = [...panel().querySelectorAll<HTMLElement>("div")].find(el => el.textContent === "via browser speech · audio goes to Google")!;
+    // The sheet names the take's frozen target (#3709); browser speech keeps its warning ink.
+    flushSync(() => ui!.stores.voice.setState({ dictationTarget: { id: "webspeech", label: "Browser speech", capabilities: { streaming: true, interimResults: true, keyterms: false, endpointing: false, savedAudio: false } } }));
+    const note = [...panel().querySelectorAll<HTMLElement>("div")].find(el => el.textContent === "To Browser speech")!;
     expect(note).not.toBeNull();
     expect(note.compareDocumentPosition(transcript()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const css = getComputedStyle(note);

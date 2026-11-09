@@ -4,7 +4,7 @@
  * lint). Kept in its own module so both consumers share one source of truth.
  */
 export const CORE_COMMAND_NAMES = new Set<string>([
-  "search", "context", "read", "list", "briefing", "add", "index", "validate",
+  "search", "context", "read", "read-many", "list", "briefing", "add", "index", "validate",
   "audit", "process", "archive", "accept-mtime", "maintain", "stats", "storage", "graph", "render", "scratch", "sync",
   "setup", "doctor", "init", "import", "skills", "module", "config", "mcp", "okf", "eval", "tags", "hygiene", "geo", "queue", "schedule", "policy", "compute", "apify",
 ]);

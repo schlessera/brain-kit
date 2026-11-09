@@ -117,6 +117,8 @@ interface Epoch {
   unassignedHandles: Set<string>;
   /** Utterance ids this epoch evicted; one never comes back as new input. */
   retiredUtterances: Set<string>;
+  /** Observed provider interruptions, distinguishing their retained identities. */
+  interruptions: number;
 }
 
 interface Conversation {
@@ -139,6 +141,10 @@ interface Conversation {
   outputs: Map<string, ConversationOutputRecord>;
   /** Once-only permission announcements, `session\0turn\0toolUseId`, for the conversation's lifetime. */
   announced: Set<string>;
+  /** Host clock when this host first opened the conversation; display evidence only. */
+  startedAt?: number;
+  /** The last epoch that actually opened, the only one an end can be retained against. */
+  openedEpoch?: number;
 }
 
 const outputKey = (epoch: number, outputId: string): string => `${epoch}\u0000${outputId}`;
@@ -275,6 +281,7 @@ export class ConversationHost {
       unassignedCount: 0, unassignedHandles: new Set(),
       lastAudioSequence: -1,
       retiredUtterances: new Set(),
+      interruptions: 0,
     };
     conversation.epoch = epoch;
     const scope = { conversationId: conversation.id, epoch: epoch.number };
@@ -333,6 +340,8 @@ export class ConversationHost {
       return;
     }
     epoch.session = session;
+    conversation.startedAt ??= Date.now();
+    conversation.openedEpoch = epoch.number;
     this.send(conversation, {
       type: "conversation_opened",
       ...(session.historyCoverage ? { historyCoverage: session.historyCoverage } : {}),
@@ -527,6 +536,13 @@ export class ConversationHost {
     const conversation = retained && retained.connection === null && retained.principalId === connection.authorization.principalId
       ? retained : this.owned(ws, connection, msg.conversationId);
     if (!conversation) return;
+    // Only an operator's final stop ends the conversation; a resumable pause
+    // continues it. Retain the end before the epoch's journal closes. A failed
+    // or indeterminate store is never written to again, not even for an end.
+    if (!msg.resumable && conversation.startedAt !== undefined && conversation.openedEpoch === conversation.lastEpoch && !conversation.epoch?.storageFailing) {
+      this.host.dialogue.ended(conversation.id, conversation.principalId, { kind: "voice_end", conversationId: conversation.id, epoch: conversation.lastEpoch,
+        providerId: this.provider.id, startedAt: conversation.startedAt, endedAt: Math.max(conversation.startedAt, Date.now()) });
+    }
     this.endEpoch(conversation, "stopped");
     this.detach(conversation);
     if (!msg.resumable) this.conversations.delete(conversation.id);
@@ -655,9 +671,12 @@ export class ConversationHost {
         return;
       }
       case "interrupted": {
+        // Barge-in must reach playback now; its retained evidence never delays it.
         this.send(conversation, { type: "conversation_event", ...scope, event: {
           kind: "interrupted", ...(event.outputId ? { outputId: event.outputId } : {}),
         } });
+        this.host.dialogue.interruption(conversation.id, { kind: "voice_interruption", conversationId: conversation.id, epoch: epoch.number, providerId: this.provider.id,
+          ...(event.outputId ? { outputId: event.outputId } : {}) }, epoch.interruptions++);
         return;
       }
       case "work_requested": {

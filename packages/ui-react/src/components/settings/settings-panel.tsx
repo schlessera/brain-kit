@@ -1,5 +1,5 @@
 import { Fragment, Suspense, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { ChevronRight, HardDrive, KeyRound, Laptop, Puzzle, SlidersHorizontal, UserRound, Workflow } from "lucide-react";
+import { ChevronRight, HardDrive, KeyRound, Laptop, Mic, Puzzle, SlidersHorizontal, UserRound, Workflow } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
@@ -16,6 +16,7 @@ import { lazyChunk } from "../../lib/lazy-chunk.js";
 
 // The frame stays eager; each data-owning pane loads only on activation.
 const ModelsTab = lazyChunk(() => import("./models-tab.js").then((m) => ({ default: m.ModelsTab })));
+const VoiceTab = lazyChunk(() => import("./voice-tab.js").then((m) => ({ default: m.VoiceTab })));
 const AccountsTab = lazyChunk(() => import("./accounts-tab.js").then((m) => ({ default: m.AccountsTab })));
 const PasskeyTab = lazyChunk(() => import("./passkey-tab.js").then((m) => ({ default: m.PasskeyTab })));
 const DevicesAgentsTab = lazyChunk(() => import("./devices-agents-tab.js").then((m) => ({ default: m.DevicesAgentsTab })));
@@ -27,6 +28,7 @@ const StorageTab = lazyChunk(() => import("./storage-tab.js").then((m) => ({ def
 const SECTIONS: Array<{ id: SettingsTab; label: string; meta: string; group: string; icon: IconName; glyph: typeof KeyRound }> = [
   { id: "appearance", label: "Appearance & input", meta: "this device", group: "This device", icon: "settings", glyph: SlidersHorizontal },
   { id: "models", label: "Models", meta: "picker", group: "This brain", icon: "model", glyph: SlidersHorizontal },
+  { id: "voice", label: "Voice", meta: "dictation", group: "This brain", icon: "mic", glyph: Mic },
   { id: "accounts", label: "Accounts", meta: "providers", group: "This brain", icon: "wallet", glyph: UserRound },
   { id: "skills", label: "Skills", meta: "catalog", group: "This brain", icon: "capability", glyph: Puzzle },
   { id: "modules", label: "Modules", meta: "workflows", group: "This brain", icon: "steps", glyph: Workflow },
@@ -235,6 +237,7 @@ function SectionBody({ tab, open, moduleSession }: { tab: SettingsTab; open: boo
   return <Suspense fallback={null}>
     {tab === "appearance" ? <div className="min-h-0 flex-1 overflow-y-auto"><AppearanceSection /></div>
       : tab === "models" ? <ModelsTab active={open} />
+      : tab === "voice" ? <VoiceTab active={open} />
       : tab === "accounts" ? <AccountsTab active={open} />
       : tab === "skills" ? <SkillsTab active={open} />
       : tab === "modules" ? <ModulesTab active={open} session={moduleSession} />

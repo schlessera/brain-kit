@@ -6,6 +6,7 @@ import { REFUSAL_ATTEMPTS } from "../lib/connection-issue.js";
 import { createAnswerDelivery } from "../lib/answer-delivery/manager.js";
 import { createTrackerClient } from "../lib/tracker-client.js";
 import { createDraftClient } from "../lib/draft-client.js";
+import { createAttachmentReadClient } from "../lib/attachment-reads.js";
 
 const authLifecycles = new WeakMap<object, { drop(): void; restore(): void }>();
 /** @internal Called only after the gate removes protected views. */
@@ -59,6 +60,8 @@ export function createAccountServices(
     trackers: createTrackerClient(root),
     /** Every session's own composer draft, kept on the host when it can (D52 §5, #951). */
     drafts: makeDrafts(),
+    /** What the agent read of sent composer originals (#3155, #3589). Reads only. */
+    attachmentReads: createAttachmentReadClient(root),
     /**
      * The first frame of a connection settles what its host supports: a hello,
      * or anything else from a host too old to send one. Only then can queued
@@ -84,13 +87,14 @@ export function createAccountServices(
       services.answers.disconnected();
     },
     dispose(): void {
-      services.answers.dispose(); services.trackers.dispose(); services.drafts.dispose(); services.safety.dispose();
+      services.answers.dispose(); services.trackers.dispose(); services.drafts.dispose(); services.safety.dispose(); services.attachmentReads.dispose();
     },
     restore(): void {
       services.answers = makeAnswers(); void services.answers.start();
       services.safety = createSafetyClient(root,message=>deps.send(message));
       services.trackers = createTrackerClient(root);
       services.drafts = makeDrafts();
+      services.attachmentReads = createAttachmentReadClient(root);
     },
   };
   return services;

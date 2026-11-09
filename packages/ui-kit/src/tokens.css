@@ -1826,14 +1826,14 @@
   gap: 4px;
   border-radius: 4px;
   background: transparent;
-  font: 500 12.5px/20px var(--bk-font-body);
+  font: 500 12.5px/20px "Plus Jakarta Sans", sans-serif;
   color: var(--bk-teal-ink);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
 .bk-text-btn[data-tone="meta"] {
-  font: 400 10.5px/20px var(--bk-font-mono);
+  font: 400 10.5px/20px "JetBrains Mono", ui-monospace, monospace;
   color: var(--bk-color-ink-mute);
   text-decoration: none;
 }
@@ -2640,16 +2640,6 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 
 /* C5: narrow finding cards give Apply the first row, then Later and Dismiss.
  * The existing DispositionBar keeps its own layout everywhere else. */
-@container bk-hygiene (max-width: 360px) {
-  [data-hygiene-card] > [data-disposition-bar] > div:first-child {
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  [data-hygiene-card] > [data-disposition-bar] > div:first-child > :first-child {
-    grid-column: 1 / -1;
-  }
-}
-
 /* A transparent header strip reserves native touch manipulation without
  * changing paint or interfering with the scrolling body. Controls stay above it.
  * Without a BottomSheet header or a drawn close slot, leave the top body hittable. */
@@ -2782,6 +2772,12 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-voice-field[data-outline="true"] { border-width: 1.5px; border-color: var(--bk-color-ink-dim); }
 .bk-voice-field[data-shape="compact"] { height: 52px; padding: 0 6px 0 16px; flex-direction: row; align-items: center; gap: 8px; }
 .bk-voice-field[data-shape="compact"][data-labelled="true"] { height: 84px; }
+/* While a state label shows (D3–D5), the label anchors to the top of the card
+ * and the words to the bottom, with the meter's bars between and around them.
+ * A gradient over the meter fades the bars into the field's ground behind the
+ * words, so the words read clearly (#3746). */
+.bk-voice-field[data-shape="compact"][data-labelled="true"] .bk-voice-body { justify-content: space-between; padding: 9px 0 8px; }
+.bk-voice-field[data-shape="compact"][data-labelled="true"] > .bk-voice-meter::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 58px; background-image: linear-gradient(to bottom, transparent, var(--bk-voice-ground) 18px); }
 .bk-voice-field[data-shape="tall"] { height: 136px; padding: 10px 10px 10px 16px; }
 .bk-voice-field[data-shape="card"] { padding: 14px; gap: 12px; border-radius: 20px; }
 .bk-voice-body { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 1 1 auto; min-width: 0; align-self: stretch; }
@@ -2793,20 +2789,25 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
  * bottom-aligned, so a long dictation scrolls up out of the top. */
 .bk-voice-text { font: 400 13.5px/20px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); max-height: 40px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; overflow-wrap: anywhere; }
 .bk-voice-text-partial { color: var(--bk-color-ink-mute); }
-/* Words and the state label sit on the field's opaque ground, line by line:
- * the meter shows around them, never under a glyph. */
-.bk-voice-text > span, .bk-voice-field[data-shape="compact"] .bk-voice-label > span:not(.bk-voice-label-meta) { background: var(--bk-voice-ground); -webkit-box-decoration-break: clone; box-decoration-break: clone; border-radius: 4px; }
-.bk-voice-text > span { padding: 1px 2px; margin: 0 -2px; }
+/* Text in the field has no background of its own (maintainer direction,
+ * #3746). It reads through the meter's fades (bottom in the compact field,
+ * top in the tall one) and a soft halo in the field's own ground drawn around
+ * each glyph. */
+.bk-voice-text, .bk-voice-label { text-shadow: 0 0 2px var(--bk-voice-ground), 0 0 8px var(--bk-voice-ground); }
 .bk-voice-text-placeholder { color: var(--bk-color-ink-mute); }
 
 .bk-voice-label { display: flex; align-items: center; gap: 6px; min-width: 0; font: 600 12px/16px "Plus Jakarta Sans", sans-serif; color: var(--bk-voice-ink); }
 .bk-voice-label-icon { display: inline-flex; flex: none; }
-.bk-voice-label-meta { margin-left: auto; padding-left: 8px; font: 500 10.5px/16px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-voice-label-meta { margin-left: auto; padding: 0 2px; font: 500 10.5px/16px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* The meter sits BEHIND the words: a band across the field, clipped to its
- * corners, never a target. */
+/* The meter sits BEHIND the words and fills the whole card in every shape and
+ * mode (#3746), clipped to its corners, never a target. */
 .bk-voice-meter { position: absolute; inset: 0; z-index: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
-.bk-voice-field[data-shape="tall"] > .bk-voice-meter { top: 30px; bottom: 6px; border-radius: 0 0 21px 21px; }
+/* The tall field fades its meter into the field's ground across the label
+ * row: solid to 28px, clear by 50px. The label and meta read on the ground
+ * with no chip behind them, and the sweep, hatch and bars show below (#3746).
+ * `::after`, so it paints over the meter's own layers. */
+.bk-voice-field[data-shape="tall"] > .bk-voice-meter::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 50px; background-image: linear-gradient(to bottom, var(--bk-voice-ground) 28px, transparent); }
 .bk-voice-bars { position: absolute; inset: 6px 12px; display: flex; align-items: center; justify-content: space-between; gap: 2px; }
 .bk-voice-bar { flex: 0 0 3px; min-height: 2px; border-radius: 2px; background: var(--bk-voice-bar); transition: height 90ms linear; }
 .bk-voice-level { display: none; position: absolute; left: 12px; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--bk-voice-bar); }
@@ -2875,7 +2876,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-voice-card-notice > .bk-voice-label-icon { padding-top: 1px; }
 .bk-voice-start { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; margin: 0; border: 0; border-radius: 999px; background: var(--bk-teal-fill); color: var(--bk-on-fill); font: 600 15px/1 "Plus Jakarta Sans", sans-serif; cursor: pointer; }
 .bk-voice-start[aria-disabled="true"] { opacity: .45; cursor: default; }
-.bk-voice-shared { align-self: center; }
+/* Its 44px target keeps its size but is pulled into the card gap and padding
+ * (#3746), so the link sits close under Start rather than in a 44px band. */
+.bk-voice-shared { align-self: center; margin: -10px 0 -12px; }
 .bk-voice-shared-list { margin: 0; padding: 0 0 0 18px; font: 400 12px/18px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-dim); }
 
 /* Spoken turns in the chat: small inline marks, never diagnostics. */

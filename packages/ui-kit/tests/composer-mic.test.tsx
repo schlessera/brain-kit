@@ -37,4 +37,19 @@ describe("Composer microphone", () => {
       expect(html.includes("lucide-mic"), `${variant}: no mic icon`).toBe(false);
     }
   });
+
+  test("micUnavailable keeps the mic named and focusable, aria-disabled, and described by its reason", () => {
+    const reason = "Dictation isn't set up on this host.";
+    for (const variant of ["send", "voice"] as const) {
+      const html = renderToStaticMarkup(<Composer variant={variant} onMic={onMic} micUnavailable={reason} />);
+      const mic = html.match(/<span[^>]*role="button"[^>]*aria-disabled="true"[^>]*>/)?.[0] ?? "";
+      expect(mic, `${variant}: an aria-disabled button`).not.toBe("");
+      expect(mic, `${variant}: still reachable by keyboard`).toContain('tabindex="0"');
+      const described = mic.match(/aria-describedby="([^"]+)"/)?.[1];
+      expect(described, `${variant}: described by its reason`).toBeTruthy();
+      expect(html, `${variant}: the reason is the description`).toMatch(new RegExp(`id="${described}"[^>]*>${reason.replace("'", "&#x27;")}<`));
+    }
+    // Without a reason the mic is an ordinary control.
+    expect(renderToStaticMarkup(<Composer onMic={onMic} />)).not.toContain("aria-disabled");
+  });
 });

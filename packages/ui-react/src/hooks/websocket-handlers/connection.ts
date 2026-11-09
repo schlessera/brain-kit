@@ -49,8 +49,8 @@ export const connectionFrameHandlers = {
   // Browser invalidation is #3231's: this client does not declare
   // `chatDeletion`, so the host never sends it this frame.
   chat_retired: () => {},
-  // Sent-row read states are #3155's: this client does not declare
-  // `attachmentReads`, so the host never sends it this frame.
+  // Sent-row read states (#3155): the account's read client takes the frame
+  // beside the demux, so nothing here touches a transcript.
   attachment_read: () => {},
   conversation_opened: () => {},
   conversation_closed: () => {},

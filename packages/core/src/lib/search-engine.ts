@@ -174,6 +174,15 @@ function buildFilters(opts: SearchOptions): FilterResult {
     params.push(opts[key]);
   }
 
+  if (opts.paths?.allow) {
+    clauses.push("d.path IN (SELECT value FROM json_each(?))");
+    params.push(JSON.stringify(opts.paths.allow));
+  }
+  if (opts.paths?.deny && opts.paths.deny.length > 0) {
+    clauses.push("d.path NOT IN (SELECT value FROM json_each(?))");
+    params.push(JSON.stringify(opts.paths.deny));
+  }
+
   return {
     where: clauses.length > 0 ? " AND " + clauses.join(" AND ") : "",
     params,
@@ -623,7 +632,7 @@ async function vectorSearch(
   // assets/date filters run post-KNN, so widen the candidate window when they are
   // present or filtering starves the result set.
   const hasPostFilters = !!(
-    opts.tag || opts.relevance || opts.status || opts.assetsOnly ||
+    opts.tag || opts.relevance || opts.status || opts.assetsOnly || opts.paths ||
     DATE_FILTERS.some(([key]) => opts[key] !== undefined)
   );
   let k = Math.min(Math.max(1, limit * (hasPostFilters ? 10 : 3)), 500);

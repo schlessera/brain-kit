@@ -139,6 +139,8 @@ export "./internal" (./src/internal.ts)
   type ComputeService
   type ComputeServiceOptions
   ComputeStateError
+  type ContextCoverage
+  type ContextScopeInput
   type EffectiveGovernancePolicy
   type FrontmatterValue
   GEMINI_FLASH_MODEL
@@ -151,6 +153,15 @@ export "./internal" (./src/internal.ts)
   type HygieneLogEntry
   type IngestInput
   type IngestOutcome
+  MAX_SCOPE_ENTRIES
+  MAX_SCOPE_ENTRY_LENGTH
+  READ_MANY_DESCRIPTION
+  READ_MANY_MAX_PATH_CHARS
+  READ_MANY_MAX_REQUESTS
+  READ_MANY_MAX_SECTION_CHARS
+  READ_MANY_MAX_TOTAL_CHARS
+  READ_MANY_MIN_ITEM_CHARS
+  READ_MANY_MIN_TOTAL_CHARS
   REVIEW_SEVERITY
   REVIEW_URGENCY
   type ResolvedComputeInstance
@@ -174,9 +185,11 @@ export "./internal" (./src/internal.ts)
   computeJobInput
   computeJobView
   computeRequestInput
+  coverageNote
   createComputeDriver
   createComputeOps
   createComputeService
+  emptyContextCoverage
   estimateTokens
   geminiCompletions
   getContext
@@ -198,6 +211,7 @@ export "./internal" (./src/internal.ts)
   prepareIngest
   pruneScratch
   readDocumentPart
+  readMany
   relevanceOnArchive
   rerankSetup
   resolveCompletionProvider
@@ -284,12 +298,14 @@ export "./queries" (./src/queries/index.ts)
   type ContentIndexQueries
   type Direction
   type DocumentCandidate
+  type DocumentPage
   type Edge
   type GraphMeta
   type LinkWalk
   type ListedDocument
   type Maintenance
   type Node
+  type PagedDocument
   type QueryCode
   type QueryResult
   type Root
@@ -298,6 +314,7 @@ export "./queries" (./src/queries/index.ts)
   type VoiceVocabulary
   findIndexDocuments
   listIndexDocuments
+  pageIndexDocuments
   readGraphClusters
   readGraphDiscovery
   readGraphMaintenance
@@ -735,6 +752,14 @@ signatures (every public export and the types it is made of)
         path: string;
         updated: string | null;
     }
+  DocumentPage (packages/core/src/lib/document-page.ts)
+    export interface DocumentPage {
+        documents: PagedDocument[];
+        next_cursor: string | null;
+        total: number;
+        truncated?: true;
+        warnings: string[];
+    }
   DynamicEnvReadSpec (packages/common/src/env-core.ts)
     export interface DynamicEnvReadSpec {
         source: string;
@@ -1057,6 +1082,21 @@ signatures (every public export and the types it is made of)
         y?: number;
         distance?: number;
         virtual?: boolean;
+    }
+  PagedDocument (packages/core/src/lib/document-page.ts)
+    export interface PagedDocument {
+        path: string;
+        title: string;
+        type: string;
+        relevance: string | null;
+        status: string | null;
+        tags: string | null;
+        summary?: string | null;
+        updated?: string;
+        deadline?: string | null;
+        indexed_at?: string;
+        indexed_body_bytes?: number | null;
+        clipped?: string[];
     }
   PropagationRule (packages/core/src/lib/config.ts)
     export type PropagationRule = z.infer<typeof propagationRuleSchema>;
@@ -1867,6 +1907,17 @@ signatures (every public export and the types it is made of)
     export function moduleStateDir(root: string, moduleName: string): string;
   moduleStatePath (packages/core/src/lib/module-state.ts)
     export function moduleStatePath(moduleName: string): string;
+  pageIndexDocuments (packages/core/src/queries/index.ts)
+    export function pageIndexDocuments(opts: Root & {
+        type?: string;
+        tag?: string;
+        status?: string;
+        relevance?: string;
+        pathPrefix?: string;
+        cursor?: string;
+        overview?: boolean;
+        limit?: number;
+    }): QueryResult<DocumentPage>;
   partitionForRerank (packages/core/src/lib/reranker.ts)
     export function partitionForRerank<T>(candidates: readonly T[], isExcluded: ((candidate: T) => boolean) | undefined): RerankPartition<T>;
   propagationRuleSchema (packages/core/src/lib/config.ts)
