@@ -19,8 +19,9 @@ export interface VoiceFieldProps {
   /**
    * `compact` replaces the composer for dictation and keeps its height at rest;
    * with a `label` it is one fixed height (D3–D5 never move the page). `tall`
-   * is the live panel, one fixed height for L1–L8. `card` grows to its
-   * content, for the Start card and notices.
+   * is the live panel, 136px for L1–L8 at 1× text; under enlarged text it
+   * grows to its content, with the controls pinned to its bottom (#3773).
+   * `card` grows to its content, for the Start card and notices.
    */
   shape?: VoiceFieldShape;
   tone?: VoiceTone;
@@ -97,18 +98,26 @@ export interface VoiceTextProps {
   partial?: string;
   /** Shown when there is nothing yet: `Message`, `Say something…`. */
   placeholder?: string;
-  /** Rich content in place of `text` (a review with an uncertain word). */
+  /**
+   * Rich content in place of `text`: a review with an uncertain word, or a
+   * message (a notice, the refusal line). Given without `text` or `partial`,
+   * it is a message, and the tall field shows it whole (#3773, R1). Rich draft
+   * words also pass their plain form as `text`, so they keep the newest lines.
+   */
   children?: ReactNode;
 }
 
 /**
- * The field's two-line text area, clamped to the newest words: the box is two
- * lines tall and bottom-aligned, so older words scroll up out of view.
+ * The field's text area. Words (`text`, `partial`, a placeholder) are clamped
+ * to the newest two lines: the box is two lines tall and bottom-aligned, so
+ * older words scroll up out of view. A message (`children` alone) is clamped
+ * the same way in the compact field and never in the tall one.
  */
 export function VoiceText(p: VoiceTextProps) {
   const empty = !p.text && !p.partial && p.children === undefined;
+  const message = p.children !== undefined && p.text === undefined && p.partial === undefined;
   return (
-    <div className="bk-voice-text" data-voice-text="">
+    <div className="bk-voice-text" data-voice-text={message ? "message" : "words"}>
       <span>
         {empty ? <span className="bk-voice-text-placeholder">{p.placeholder ?? ""}</span> : null}
         {p.children ?? p.text}

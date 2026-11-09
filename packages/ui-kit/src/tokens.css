@@ -2781,7 +2781,11 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
  * words, so the words read clearly (#3746). */
 .bk-voice-field[data-shape="compact"][data-labelled="true"] .bk-voice-body { justify-content: space-between; padding: 9px 0 8px; }
 .bk-voice-field[data-shape="compact"][data-labelled="true"] > .bk-voice-meter::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 58px; background-image: linear-gradient(to bottom, transparent, var(--bk-voice-ground) 18px); }
-.bk-voice-field[data-shape="tall"] { height: 136px; padding: 10px 10px 10px 16px; }
+/* The tall field is 136px at 1× text (16 + 4 + 40 + 44 + 20 = 124px of
+ * content). Under enlarged text it grows to fit, upward from its anchor, and
+ * hides nothing: the label wraps, a message shows whole and the controls stay
+ * pinned to the bottom by their `margin-top: auto` (#3773). */
+.bk-voice-field[data-shape="tall"] { min-height: 136px; padding: 10px 10px 10px 16px; }
 .bk-voice-field[data-shape="card"] { padding: 14px; gap: 12px; border-radius: 20px; }
 .bk-voice-body { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 1 1 auto; min-width: 0; align-self: stretch; }
 .bk-voice-field[data-shape="tall"] .bk-voice-body { justify-content: flex-start; }
@@ -2792,6 +2796,11 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
  * bottom-aligned, so a long dictation scrolls up out of the top. */
 .bk-voice-text { font: 400 13.5px/20px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); max-height: 40px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; overflow-wrap: anywhere; }
 .bk-voice-text-partial { color: var(--bk-color-ink-mute); }
+/* In the tall field words keep two WHOLE lines at any text size (2lh is the
+ * 40px above at 1×), and a message (the refusal line, a notice) is never
+ * clamped (#3773, R1). */
+.bk-voice-field[data-shape="tall"] .bk-voice-text { max-height: 2lh; }
+.bk-voice-field[data-shape="tall"] .bk-voice-text[data-voice-text="message"] { max-height: none; }
 /* Text in the field has no background of its own (maintainer direction,
  * #3746). It reads through the meter's fades (bottom in the compact field,
  * top in the tall one) and a soft halo in the field's own ground drawn around
@@ -2802,6 +2811,11 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-voice-label { display: flex; align-items: center; gap: 6px; min-width: 0; font: 600 12px/16px "Plus Jakarta Sans", sans-serif; color: var(--bk-voice-ink); }
 .bk-voice-label-icon { display: inline-flex; flex: none; }
 .bk-voice-label-meta { margin-left: auto; padding: 0 2px; font: 500 10.5px/16px "JetBrains Mono", ui-monospace, monospace; color: var(--bk-color-ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The tall label wraps instead of cutting the meta off: the word stays first,
+ * and the meta sits on the right while it fits and moves under the word when
+ * it does not (#3773). */
+.bk-voice-field[data-shape="tall"] .bk-voice-label { flex-wrap: wrap; row-gap: 0; }
+.bk-voice-field[data-shape="tall"] .bk-voice-label-meta { max-width: 100%; white-space: normal; }
 
 /* The meter sits BEHIND the words and fills the whole card in every shape and
  * mode (#3746), clipped to its corners, never a target. */
