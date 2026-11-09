@@ -48,13 +48,9 @@ async function scene(ctx: TestContext, width: number, height: number, theme: "li
   const controls = () => [...strip().querySelectorAll(".bk-voice-field button")].map(node => node.getAttribute("aria-label"));
   /** The connected clock ticks in real time; a baseline masks it, never the other meta. */
   const shot = () => ({ screenshotOptions: { mask: [...strip().querySelectorAll<HTMLElement>(".bk-voice-label-meta")].filter(node => /\d:\d\d$/.test(node.textContent ?? "")) } });
-  /**
-   * The field keeps its body inside at 1× text. The kit's fixed 136px field
-   * does not grow for doubled text with a body (filed for the kit), so there
-   * every control must still take its own taps.
-   */
+  /** The field holds its body and controls at 1× and doubled text (#3773), and every control takes its own taps. */
   const contained = (field: HTMLElement, what: string) => {
-    if (scale === 1) expect(field.scrollHeight, `${what} cannot overlap the controls`).toBeLessThanOrEqual(field.clientHeight + 1);
+    expect(field.scrollHeight, `${what} cannot overlap the controls`).toBeLessThanOrEqual(field.clientHeight + 1);
     for (const control of field.querySelectorAll<HTMLElement>("button")) {
       const box = control.getBoundingClientRect();
       expect(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest("button"), `${what}: ${control.getAttribute("aria-label")} stays reachable`).toBe(control);
@@ -90,8 +86,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     await s.capture(name);
     if (name === "interruption" && width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`interruption-${theme}-${scale}`, s.shot());
     const field = s.strip().querySelector<HTMLElement>(".bk-voice-field")!;
-    if (field.querySelector("[data-voice-text]")) s.contained(field, name);
-    else expect(field.scrollHeight, `${name}: the field's words must not paint outside it`).toBeLessThanOrEqual(field.clientHeight + 1);
+    s.contained(field, name);
     expect(s.strip().scrollWidth, `${name}: no horizontal overflow`).toBeLessThanOrEqual(s.strip().clientWidth);
     for (const control of s.strip().querySelectorAll<HTMLElement>('button,[role=button]')) {
       expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
