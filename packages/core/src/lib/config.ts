@@ -92,6 +92,8 @@ export const propagationRuleSchema = z
     /** Glob for derivative documents that must not lag behind the source. */
     derivatives: repoRelativePathSchema,
     severity: severitySchema.optional(),
+    /** Declared purpose/coverage of these derivatives, unless the document overrides it. */
+    scope: z.string().trim().min(1).max(4000).optional(),
   })
   .strict();
 
@@ -315,6 +317,20 @@ export const brainConfigSchema = z
       .strict()
       .optional(),
     taxonomy: taxonomyConfigSchema.optional(),
+    /** Owner-authorized propagation freshness review; credentials alone never enable it. */
+    hygiene: z.object({
+      propagation: z.object({
+        enabled: z.boolean().optional(),
+        profile: z.enum(["conservative", "balanced", "permissive"]).optional(),
+        minConfidence: z.number().min(0).max(1).optional(),
+        crossChecks: z.boolean().optional(),
+        maxFiles: z.number().int().min(1).max(100).optional(),
+        timeoutMs: z.number().int().min(100).max(30000).optional(),
+        budgetMs: z.number().int().min(100).max(60000).optional(),
+        maxInputChars: z.number().int().min(1000).max(80000).optional(),
+        exclude: z.array(repoRelativePathSchema).optional(),
+      }).strict().optional(),
+    }).strict().optional(),
     /** Concrete OSM operations; absent leaves every new service disabled. */
     geo: geoConfigSchema.extend({ cacheDir: repoRelativePathSchema.optional() }).optional(),
     exclude: excludeConfigSchema.optional(),
