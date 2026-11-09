@@ -97,7 +97,7 @@ for (const width of [320, 1280])
       expect((await view(b)).action.height).toBeGreaterThanOrEqual(44);
       expect((await view(b)).action.width).toBeGreaterThanOrEqual(44);
       expect((await view(b)).notice).toContain(
-        "Another tab changed this draft · Both versions kept"
+        "Another tab changed this draft. Both versions are kept."
       );
       expect((await view(a)).text).toBe(ORIGINAL);
       await b.call("edit", `${INCOMING} Bring the oars.`);

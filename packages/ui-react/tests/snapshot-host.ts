@@ -16,6 +16,9 @@ import type { AttachmentFile, ClientMessage, Draft, DraftSnapshot, DraftSnapshot
  *   `fileId` for a repeated `Idempotency-Key`. References are kept per file
  *   (`draft`, `outgoing`, `message`), and a file whose last reference goes
  *   is stamped `unreferencedSince`; nothing here ever unlinks a file.
+ * - A save repeated under its `Idempotency-Key` gets the first answer
+ *   again, and stores nothing twice (#3153). `loseSaveAnswers` stores each
+ *   save and then drops its answer, as a connection lost on the way back.
  * - Acceptance releases only the accepted request's snapshot, in place and
  *   without a revision; a draft whose named revision is current is
  *   tombstoned, or kept at the next revision with an empty composer when
@@ -35,6 +38,10 @@ export function snapshotHost(options: { limit?: number } = {}) {
   const keys = new Map<string, string>();
   const refs = new Map<string, Set<Ref>>();
   const unreferencedSince = new Map<string, number>();
+  /** Files that ever had a reference: the host's 1-hour versus 7-day choice reads this. */
+  const everReferenced = new Set<string>();
+  const saveAnswers = new Map<string, { revision: number; updatedAt: number }>();
+  let loseSaves = false;
   /** Files the host removed from disk: never, before the 7-day sweep this fixture does not run. */
   const unlinked = new Set<string>();
   const calls: string[] = [];
@@ -53,7 +60,7 @@ export function snapshotHost(options: { limit?: number } = {}) {
   function setRefs(kind: "draft" | "outgoing", draftId: string, ids: readonly string[]) {
     const ref = `${kind}:${draftId}` as Ref;
     for (const [fileId, set] of refs) if (set.delete(ref) && set.size === 0 && !ids.includes(fileId)) unreferencedSince.set(fileId, now());
-    for (const id of ids) { let set = refs.get(id); if (!set) { set = new Set(); refs.set(id, set); } set.add(ref); unreferencedSince.delete(id); }
+    for (const id of ids) { let set = refs.get(id); if (!set) { set = new Set(); refs.set(id, set); } set.add(ref); unreferencedSince.delete(id); everReferenced.add(id); }
   }
   const snapshotFiles = (list: readonly DraftSnapshot[]) => [...new Set(list.flatMap((s) => s.fileIds))];
   const chatSnapshots = (sessionId: string | null, except: string) => sessionId === null ? 0
@@ -142,6 +149,12 @@ export function snapshotHost(options: { limit?: number } = {}) {
         return new Response(null, { status: 204 });
       }
       if (saveGate) await saveGate;
+      const saveKey = `${id}:${headers.get("idempotency-key")}`;
+      const replay = saveAnswers.get(saveKey);
+      if (replay) {
+        if (loseSaves) throw new TypeError("Failed to fetch");
+        return json(replay);
+      }
       const body = JSON.parse(String(init.body)) as { sessionId: string | null; text: string; attachmentIds: string[]; fileIds?: string[]; snapshots?: DraftSnapshotWrite[] };
       const record = (status: number) => saves.push({ draftId: id, status, body: { text: body.text, ...(body.fileIds ? { fileIds: body.fileIds } : {}), ...(body.snapshots ? { snapshots: body.snapshots } : {}) } });
       const ownFile = (fileId: string) => files.get(fileId)?.draftId === id;
@@ -165,6 +178,9 @@ export function snapshotHost(options: { limit?: number } = {}) {
         files: (body.fileIds ?? []).map(fileView), ...(snapshots.length ? { snapshots } : {}) });
       setRefs("draft", id, body.fileIds ?? []);
       setRefs("outgoing", id, snapshotFiles(snapshots));
+      saveAnswers.set(saveKey, { revision, updatedAt: clock });
+      // Stored, and the answer lost on the way back.
+      if (loseSaves) throw new TypeError("Failed to fetch");
       return json({ revision, updatedAt: clock });
     }
     return json({ providers: [], backends: {} });
@@ -173,7 +189,7 @@ export function snapshotHost(options: { limit?: number } = {}) {
   /** The host accepts a chat_message, as ui-server's `accept` does. */
   function accept(frame: Extract<ClientMessage, { type: "chat_message" }>, sessionId = SESSION): "kept" | "consumed" {
     const ref = frame.draftRef;
-    for (const r of frame.attachmentRefs ?? []) { let set = refs.get(r.fileId); if (!set) { set = new Set(); refs.set(r.fileId, set); } set.add(`message:${sessionId}`); unreferencedSince.delete(r.fileId); }
+    for (const r of frame.attachmentRefs ?? []) { let set = refs.get(r.fileId); if (!set) { set = new Set(); refs.set(r.fileId, set); } set.add(`message:${sessionId}`); unreferencedSince.delete(r.fileId); everReferenced.add(r.fileId); }
     if (!ref) return "kept";
     const row = rows.get(ref.draftId);
     if (!row || row.deleted) return "kept";
@@ -222,6 +238,17 @@ export function snapshotHost(options: { limit?: number } = {}) {
       return release;
     },
     refuseNextUpload() { failNext = "refuse"; },
+    /** Store every save, then drop its answer, until set back. */
+    loseSaveAnswers(value = true) { loseSaves = value; },
+    /**
+     * The cleanup rule the host's own references put a stored file under
+     * (#3151 §6.7): `kept` while referenced, `1 hour` when it was never
+     * bound, `7 days` from its last reference otherwise.
+     */
+    cleanupRule(fileId: string): "kept" | "1 hour" | "7 days" {
+      if ((refs.get(fileId)?.size ?? 0) > 0) return "kept";
+      return everReferenced.has(fileId) ? "7 days" : "1 hour";
+    },
     /** Hold every draft save's answer until released. */
     holdSaves(): () => void {
       let release!: () => void;

@@ -34,8 +34,12 @@ import { attachmentFromDraft, mintDraftId } from "../lib/drafts.js";
  */
 
 type DraftSaveFailure =
-  /** Dirty and unreachable, or a transient refusal: retried with backoff. */
-  | { kind: "unsaved" }
+  /**
+   * Dirty and unreachable, or a transient refusal: retried with backoff.
+   * `lost`: the request got no answer at all, so the host may hold it
+   * (#3155); Check again reads the draft to find out.
+   */
+  | { kind: "unsaved"; lost?: true }
   /** 413: `limit` bytes (or images), named by `bound`. */
   | { kind: "too_large"; limit: number; bound: string }
   /** 507: the host keeps `limit` drafts, or bytes, already. */

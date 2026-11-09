@@ -1200,7 +1200,8 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await a.page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "sail.png", mimeType: "image/png", buffer: SAIL });
         await until(a.page, "p.draft().images === 1");
         await a.page.locator('[data-draft-save="saved"]').waitFor();
-        expect(await a.page.locator("[data-draft-save]").textContent()).toBe("draft · saved");
+        // The draft indicator's summary (#3155): this exact text and its image.
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toMatch(/^Draft saved \d\d:\d\d: this text and 1 file\.$/);
         await hostUntil((d) => d.some((x) => x.sessionId === A && x.preview === draftA && x.attachmentCount === 1));
 
         // New chat by the visible control: empty, and the letter is its own draft.
@@ -1262,12 +1263,13 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await b.context.close();
         b = undefined;
 
-        // Offline: kept, and never called saved, until the host answers again.
+        // No answer from the host: kept, and never called saved, until the
+        // host answers again; the indicator couldn't confirm it (#3155).
         await a.context.route("**/api/drafts/**", (route) => route.abort());
         const offline = `${draftA}, and the wind`;
         await composer(a.page).fill(offline);
-        await a.page.locator('[data-draft-save="unsaved"]').waitFor({ timeout: 20_000 });
-        expect(await a.page.locator("[data-draft-save]").textContent()).toBe("draft · not saved yet");
+        await a.page.locator('[data-draft-save="unconfirmed"]').waitFor({ timeout: 20_000 });
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toBe("Couldn't confirm the draft was saved.");
         expect((await hostDrafts()).find((x) => x.sessionId === A)?.preview, "the host still has the last saved words").toBe(draftA);
         await a.context.unroute("**/api/drafts/**");
         await a.page.locator('[data-draft-save="saved"]').waitFor({ timeout: 20_000 });
@@ -1275,7 +1277,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         const huge = `${draftA} ${"wine-dark sea ".repeat(5_000)}`;
         await composer(a.page).fill(huge);
         await a.page.locator('[data-draft-save="too_large"]').waitFor({ timeout: 20_000 });
-        expect(await a.page.locator("[data-draft-save]").textContent()).toBe("draft · too large to save (64 KB max) · kept on this device");
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toBe("Draft not saved: too large to save (64 KB max). Your text is kept on this device.");
         expect(await composer(a.page).inputValue(), "the words stay").toBe(huge);
         expect((await hostDrafts()).find((x) => x.sessionId === A)?.preview).toBe(offline);
         await composer(a.page).fill(draftA);
@@ -1319,7 +1321,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         const overflow = `One more list for the raft ${tag}`;
         await composer(a.page).fill(overflow);
         await a.page.locator('[data-draft-save="full"]').waitFor({ timeout: 20_000 });
-        expect(await a.page.locator("[data-draft-save]").textContent()).toMatch(/100 drafts saved/);
+        expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toMatch(/100 drafts saved/);
         expect(await composer(a.page).inputValue()).toBe(overflow);
         expect((await hostDrafts()).some((x) => x.preview === overflow), "never claimed saved").toBe(false);
         expect(a.dialogs).toEqual([]);
