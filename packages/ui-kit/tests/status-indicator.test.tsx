@@ -68,3 +68,11 @@ test("an empty list reserves the slot without a control and is never success", (
   expect(html).not.toContain("<button");
   expect(html).not.toContain("lucide-circle-check");
 });
+
+test("announce={false} renders no live region, for a consumer that announces the change itself (#3155)", () => {
+  expect(render([op("raft", "failed")])).toContain("data-status-live");
+  const quiet = renderToStaticMarkup(<StatusIndicator label="Message 1 of 1" summary="Not sent" title="Unsent message" announce={false} operations={[op("raft", "failed", "Not sent")]} />);
+  expect(quiet).not.toContain("data-status-live");
+  expect(quiet).not.toContain("aria-live");
+  expect(quiet).toContain('aria-label="Message 1 of 1: Not sent. Details."');
+});
