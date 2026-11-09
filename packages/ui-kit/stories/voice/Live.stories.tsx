@@ -1,9 +1,9 @@
 import preview from "#.storybook/preview";
 import { expect, type within } from "storybook/test";
 
-import { stage } from "../_stage.js";
-import { fieldHeights, meterFillsTheCard, reducedMotion, voiceA11y } from "./_checks.js";
-import { LIVE_TITLES, Sheet, live, type LiveId } from "./_voice.js";
+import { overflowing, stage } from "../_stage.js";
+import { enlargedTallFieldHolds, fieldHeights, meterFillsTheCard, reducedMotion, voiceA11y } from "./_checks.js";
+import { ENLARGED_IDS, EnlargedText, LIVE_TITLES, Sheet, live, type LiveId } from "./_voice.js";
 
 /**
  * Live conversation, L1–L10 (#3692). The tall field always shows who has the
@@ -267,6 +267,41 @@ export const HeightIsStable = meta.story({
     await expect(heights[0], "L1 height").toBe(136);
     for (const [i, h] of heights.entries()) await expect(h, `${TALL[i]} is L1's height`).toBe(heights[0]);
   },
+});
+
+async function enlargedPlay({ canvasElement }: { canvasElement: HTMLElement }) {
+  await expect(canvasElement.querySelectorAll("[data-state]")).toHaveLength(5);
+  await expect(await enlargedTallFieldHolds(canvasElement), "L1d, L4d, L6 and L1o carry a body").toBe(4);
+  await expect(overflowing(canvasElement, "*:not(.bk-voice-sweep)")).toEqual([]);
+}
+
+/**
+ * The tall field under 200% text (#3773, R1 and R2): with a body it grows to
+ * its content, upward, with the controls pinned to its bottom. The label
+ * wraps instead of cutting off its meta, a draft keeps its newest two whole
+ * lines and a message shows whole. Without a body it stays 136px.
+ */
+export const TallFieldEnlargedText = meta.story({
+  name: "Tall field · enlarged text",
+  parameters: { stageWidth: "none" },
+  render: () => (
+    <EnlargedText>
+      <Sheet ids={ENLARGED_IDS} titles={LIVE_TITLES} render={live} />
+    </EnlargedText>
+  ),
+  play: enlargedPlay,
+});
+
+/** The same states in a 320px column, where the label wraps and a message runs past two lines. */
+export const TallFieldEnlargedTextAt320 = meta.story({
+  name: "Tall field · enlarged text · 320",
+  parameters: { stageWidth: 320 },
+  render: () => (
+    <EnlargedText>
+      <Sheet ids={ENLARGED_IDS} titles={LIVE_TITLES} render={live} />
+    </EnlargedText>
+  ),
+  play: enlargedPlay,
 });
 
 /** Reduced motion: static level lines, flat tints, nothing turning. */
