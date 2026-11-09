@@ -24,6 +24,8 @@ const VARIANTS: Record<string, Partial<BrainToolDeps>> = {
   directWorkerData: { directWrites: true, shellCwd: WORKER_DATA_ROOT,
     capabilities: { location: true, activity: true, inbox: true, mask: true, policyChange: true, turnTemp: true, reference: true } },
   scratchShell: { shellCwd: "/worker/scratch", capabilities: { mask: true } },
+  // The host-owned web tools (#3685) join the bridge tools; nothing else moves.
+  web: { capabilities: { web: true } },
 };
 
 function roster(): string {

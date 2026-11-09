@@ -163,6 +163,7 @@ export {
   handleRequestImageMask,
   handleShowBlock,
   handleTurnTemp,
+  handleWebTool,
 } from "./bridge-tools/index.js";
 export type { ImageMaskHandlerOptions, LocationHandlerOptions, InboxToolName, ReferenceToolName, TurnTempPurgeRecord } from "./bridge-tools/index.js";
 export type { TurnTempAccess } from "./worker-turn-temp.js";

@@ -319,6 +319,22 @@ toolkit helpers `handleReadAttachment(input, bridge)` and
 `formatAttachmentRead(result, nonce?)`, and `BackendBridge` the optional
 `readAttachment(input)`. No existing export changes.
 
+## Host-owned web tools (additive, 0.45.0, #3685)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
+gains `WEB_TOOL_NAMES`, `WEB_TOOL_NAME_LIST`, `isWebToolName`,
+`WEB_TOOL_PROVIDERS`, `WEB_TOOL_LIMITS`, `WEB_TOOL_ERROR_CODES`, the four input
+schemas `WEB_SEARCH_INPUT_SCHEMA`, `FETCH_CONTENT_INPUT_SCHEMA`,
+`GET_SEARCH_CONTENT_INPUT_SCHEMA` and `SOURCE_CHECK_INPUT_SCHEMA`,
+`WEB_TOOL_CONTRACTS`, `parseWebToolInput(name, input)`,
+`webToolProviders(input)` and the types `WebToolName`, `WebToolProvider`,
+`WebToolErrorCode`, `WebToolEnvelope`, `WebToolParse`, `WebToolCall`,
+`WebToolInput` and each tool's input type, as
+[the MCP component](mcp.md#host-owned-web-tools-additive-0450-3685) describes.
+`@schlessera/brain-ui-sdk/server` gains the experimental backend toolkit
+helper `handleWebTool(name, input, bridge, toolCallId)`, and `BackendBridge`
+the optional `webAccess(call)`. No existing export changes.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated

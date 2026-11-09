@@ -47,3 +47,5 @@ export type { TurnTempPurgeRecord } from "./turn-temp.js";
 export { handleApifyTool } from "./apify.js";
 
 export { formatAttachmentRead, handleReadAttachment } from "./attachment.js";
+
+export { handleWebTool } from "./web.js";

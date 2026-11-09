@@ -31,6 +31,24 @@ measured bytes only. See
 [the package API](integration-contract/package-api.md#reference-pool-growth-status-additive-0450-3515).
 This ships in a minor; no breaking ruling is required.
 
+## Host-owned web tools for Pi (additive, 0.45.0, #3685)
+
+Pi's ordinary governed and strict interactive sessions gain four
+host-executed bridge tools: `web_search`, `fetch_content`,
+`get_search_content` and `source_check`. Their parameters are the pinned
+upstream pi-web-access tools, narrowed: no field chooses an endpoint, proxy,
+command, local path or credential, and `provider` is limited to the curated
+catalog and to the subset the host admits. Deferred workflows (answer mode,
+summaries, curator review, video) and the excluded credential modes answer
+`unsupported`. Each result is one JSON envelope. A `responseId` is a host
+handle scoped to the calling principal and session. No autonomous roster lists
+the tools, and a host without a web executor refuses them before they run. The
+SDK gains the tool contracts, `WebToolEnvelope`, `parseWebToolInput`,
+`handleWebTool` and `BackendBridge.webAccess`. See
+[the MCP component](integration-contract/mcp.md#host-owned-web-tools-additive-0450-3685)
+and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
+This ships in a minor.
+
 ## Retained barge-in and conversation end (additive, 0.45.0, #3729)
 
 `DialogueEvidence` gains `voice_interruption`, written when the host forwards
