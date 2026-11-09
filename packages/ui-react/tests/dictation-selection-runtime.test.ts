@@ -462,14 +462,16 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       const pane = await settings(page);
       // Changed on another device twice: the value is back to alpha, the revision is not.
       await otherDevice("beta"); await otherDevice("alpha");
-      await pane.getByRole("radio", { name: /^Beta Live/ }).check();
+      // click, not check: the choice is refused and reverts, and `check()`
+      // fails when that revert lands before it reads the radio back (#3759).
+      await pane.getByRole("radio", { name: /^Beta Live/ }).click();
       await page.getByText("Changed on another device. Showing the current choice.").waitFor();
       expect(await pane.getByRole("radio", { name: /^Alpha Transcribe/ }).isChecked(), "the current value is reloaded").toBe(true);
       await shot(page, "stale-1280");
 
       let fail = true;
       await page.route("**/api/voice/dictation/settings", (route) => route.request().method() === "PUT" && fail ? route.fulfill({ status: 500, json: { error: "Fixture failure" } }) : route.continue());
-      await pane.getByRole("radio", { name: /^Beta Live/ }).check();
+      await pane.getByRole("radio", { name: /^Beta Live/ }).click();
       await pane.getByRole("alert").waitFor();
       expect(await pane.getByRole("alert").textContent()).toContain("Couldn't save. Your dictation service is unchanged.");
       expect(await pane.getByRole("radio", { name: /^Alpha Transcribe/ }).isChecked(), "a failed save reverts").toBe(true);
