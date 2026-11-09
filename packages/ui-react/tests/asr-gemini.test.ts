@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { runAsrClientContract } from "@schlessera/brain-ui-sdk/testing";
 import type { AsrEvent, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 import {
-  GEMINI_DRAIN_MS, GEMINI_FRAME_SAMPLES, GEMINI_HANDSHAKE_MS, GEMINI_MAX_BUFFERED_BYTES, GEMINI_PRESETUP_FRAMES, GeminiAsrClient,
+  GEMINI_DRAIN_MS, GEMINI_DRAIN_QUIET_MS, GEMINI_FRAME_SAMPLES, GEMINI_HANDSHAKE_MS, GEMINI_MAX_BUFFERED_BYTES, GEMINI_PRESETUP_FRAMES, GeminiAsrClient,
 } from "../src/voice/asr-gemini";
 import { createPcmResampler, PCM_CAPTURE_BLOCK } from "../src/voice/pcm-capture";
 
@@ -15,7 +15,7 @@ import { createPcmResampler, PCM_CAPTURE_BLOCK } from "../src/voice/pcm-capture"
 
 const URL_ = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained";
 const TOKEN = "auth_tokens/ithaca-fixture";
-const PARAMS = { model: "models/gemini-3.5-transcribe-live", mode: "SMART", sampleRate: "16000", vocabulary: JSON.stringify(["Ithaca", "Penelope"]) };
+const PARAMS = { model: "models/gemini-3.5-transcribe-live", mode: "SMART", sampleRate: "16000", vocabulary: JSON.stringify(["Ithaca", "Penelope"]), languageCodes: JSON.stringify(["en-US"]) };
 const SESSION: VoiceSessionResponse = { providerId: "gemini", url: URL_, token: TOKEN, params: PARAMS, expiresAt: 1000,
   capabilities: { streaming: true, interimResults: true, keyterms: true, endpointing: false, smartTranscription: true, savedAudio: false } };
 
@@ -151,12 +151,12 @@ const tick = () => new Promise<void>((resolve) => realSetTimeout(resolve, 0));
 let cleanup: Array<() => void> = [];
 afterEach(() => { for (const restore of cleanup.splice(0).reverse()) restore(); });
 
-function harness(options: Parameters<typeof scriptedBrowser>[0] = {}) {
+function harness({ params = PARAMS, ...options }: Parameters<typeof scriptedBrowser>[0] & { params?: Record<string, string> } = {}) {
   const browser = scriptedBrowser(options);
   cleanup.push(browser.restore);
   const events: AsrEvent[] = [], errors: Error[] = [];
   let closes = 0;
-  const client = new GeminiAsrClient({ url: URL_, token: TOKEN, params: PARAMS, onEvent: (event) => events.push(event), onError: (error) => errors.push(error), onClose: () => { closes++; } });
+  const client = new GeminiAsrClient({ url: URL_, token: TOKEN, params, onEvent: (event) => events.push(event), onError: (error) => errors.push(error), onClose: () => { closes++; } });
   cleanup.push(() => client.stop());
   return { ...browser, client, events, errors, closes: () => closes, socket: () => browser.sockets[0]! };
 }
@@ -235,8 +235,18 @@ describe("GeminiAsrClient wire behaviour", () => {
     expect(JSON.parse(h.socket().sent[0]!)).toEqual({ setup: {
       model: "models/gemini-3.5-transcribe-live",
       generationConfig: { responseModalities: ["TEXT"] },
-      inputAudioTranscription: { mode: "SMART", customVocabulary: ["Ithaca", "Penelope"] },
-    } });
+      inputAudioTranscription: { mode: "SMART", languageCodes: ["en-US"], customVocabulary: ["Ithaca", "Penelope"] },
+    } }, "GEMINI_SETUP_REPEATS_LANGUAGE");
+  });
+
+  for (const [name, languageCodes] of [
+    ["missing", undefined], ["not JSON", "en-US"], ["empty", "[]"], ["not a language tag", JSON.stringify(["en US"])], ["too many", JSON.stringify(["en-US", "en-GB", "de-DE", "fr-FR", "es-ES"])],
+  ] as const) test(`a ${name} languageCodes param omits the hint; the token still locks it server side`, async () => {
+    const { languageCodes: _, ...rest } = PARAMS;
+    const h = harness({ params: languageCodes === undefined ? rest : { ...rest, languageCodes } });
+    await h.client.start();
+    await tick();
+    expect(JSON.parse(h.socket().sent[0]!).setup.inputAudioTranscription, "GEMINI_LANGUAGE_PARAM_VALIDATED").toEqual({ mode: "SMART", customVocabulary: ["Ithaca", "Penelope"] });
   });
 
   test("a verbatim session without vocabulary sets up verbatim with no customVocabulary", async () => {
@@ -246,7 +256,7 @@ describe("GeminiAsrClient wire behaviour", () => {
     cleanup.push(() => client.stop());
     await client.start();
     await tick();
-    expect(JSON.parse(browser.sockets[0]!.sent[0]!).setup.inputAudioTranscription).toEqual({ mode: "VERBATIM" });
+    expect(JSON.parse(browser.sockets[0]!.sent[0]!).setup.inputAudioTranscription).toEqual({ mode: "VERBATIM", languageCodes: ["en-US"] });
   });
 
   test("streams 100 ms base64 PCM16 frames at 16 kHz from a 48 kHz context", async () => {
@@ -428,12 +438,15 @@ describe("GeminiAsrClient wire behaviour", () => {
     expect(h.contexts[0]!.state).toBe("closed");
   });
 
-  test("Done is bounded at 3 s when no final arrives", async () => {
+  test("Done is bounded at 3 s when speech is pending and no final arrives", async () => {
     const h = harness({ timers: true });
     await h.client.start();
     await tick(); await tick();
+    h.socket().server({ serverContent: { interimInputTranscription: { text: "Ask Nes" } } });
+    await tick();
     let settled = false;
     const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
     h.advance(GEMINI_DRAIN_MS - 1);
     await tick();
     expect(settled).toBe(false);
@@ -441,6 +454,99 @@ describe("GeminiAsrClient wire behaviour", () => {
     await draining;
     expect(h.socket().readyState).toBe(3);
     expect(h.contexts[0]!.state).toBe("closed");
+  });
+
+  // Measured against Google in #3710: after audioStreamEnd the pending final
+  // arrives with generationComplete, and nothing at all arrives when no speech
+  // is pending; finished and turnComplete never came.
+  test("with speech pending, Done resolves on the generationComplete that follows audioStreamEnd", async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    s.server({ serverContent: { speechState: "SPEECH" } });
+    s.server({ serverContent: { interimInputTranscription: { text: "Odysseus leaves the island at" } } });
+    await tick();
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    expect(JSON.parse(s.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } });
+    h.advance(GEMINI_DRAIN_QUIET_MS * 2);
+    await tick();
+    expect(settled, "pending speech is not cut off by the quiet window").toBe(false);
+    s.server({ serverContent: { inputTranscription: { text: "Odysseus leaves the island at dawn." } } });
+    s.server({ serverContent: { generationComplete: true } });
+    await tick();
+    expect(settled, "GEMINI_DRAIN_ON_GENERATION_COMPLETE").toBe(true);
+    await draining;
+    expect(h.events.at(-1)).toEqual({ type: "final", text: "Odysseus leaves the island at dawn.", endsTurn: true });
+    expect(h.socket().readyState).toBe(3);
+    expect(h.contexts[0]!.state).toBe("closed");
+  });
+
+  test("a generationComplete before audioStreamEnd is sent does not end the drain", async () => {
+    // Without setupComplete the stream end waits, so audioStreamEnd is
+    // deterministically unsent while Google's message is handled.
+    const h = harness({ timers: true, answerSetup: false });
+    await h.client.start();
+    await tick();
+    const s = h.socket();
+    h.speak(GEMINI_FRAME_SAMPLES * 3);
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    s.server({ serverContent: { generationComplete: true } });
+    await tick(); await tick();
+    expect(s.sent.some((frame) => JSON.parse(frame).realtimeInput?.audioStreamEnd), "audioStreamEnd not yet sent").toBe(false);
+    expect(settled, "GEMINI_DRAIN_WAITS_FOR_STREAM_END").toBe(false);
+    s.server({ setupComplete: {} });
+    await tick();
+    expect(JSON.parse(s.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } });
+    h.advance(GEMINI_DRAIN_QUIET_MS);
+    await draining;
+  });
+
+  test("with nothing pending, Done resolves after the quiet window instead of the 3 s cap", async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    h.socket().server({ serverContent: { inputTranscription: { text: "Ask Nestor about the ships." } } });
+    h.socket().server({ serverContent: { generationComplete: true } });
+    await tick();
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    expect(JSON.parse(h.socket().sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } });
+    h.advance(GEMINI_DRAIN_QUIET_MS - 1);
+    await tick();
+    expect(settled).toBe(false);
+    h.advance(1);
+    await tick();
+    expect(settled, "GEMINI_DRAIN_QUIET_WITHOUT_PENDING").toBe(true);
+    await draining;
+    expect(h.socket().readyState).toBe(3);
+  });
+
+  for (const [name, message] of [
+    ["speech", { serverContent: { speechState: "SPEECH" } }],
+    ["an interim", { serverContent: { interimInputTranscription: { text: "and the" } } }],
+  ] as const) test(`${name} inside the quiet window extends the drain to generationComplete`, async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    h.advance(GEMINI_DRAIN_QUIET_MS - 100);
+    h.socket().server(message);
+    await tick();
+    h.advance(GEMINI_DRAIN_QUIET_MS * 3);
+    await tick();
+    expect(settled, "GEMINI_DRAIN_QUIET_EXTENDED").toBe(false);
+    h.socket().server({ serverContent: { inputTranscription: { text: "And the harbor." } } });
+    h.socket().server({ serverContent: { generationComplete: true } });
+    await draining;
+    expect(h.events.at(-1)).toEqual({ type: "final", text: "And the harbor.", endsTurn: true });
   });
 
   test("Done before setupComplete sends the waiting audio and the stream end once setup completes", async () => {

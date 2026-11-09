@@ -199,6 +199,10 @@ for (const rate of [44_100, 48_000]) {
     speech.deliver({ serverContent: { inputTranscription: { text: "Ask Nestor about the ships.", finished: true } } });
     await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe("Ask Nestor about the ships.");
     expect(s.ui.stores.voice.getState().partial, "a final clears the partial").toBe("");
+    // Still speaking at Done, as Google reports it (#3710): the drain waits for
+    // this segment's final rather than ending after the quiet window.
+    speech.deliver({ serverContent: { interimInputTranscription: { text: "And the" } } });
+    await expect.poll(() => s.ui.stores.voice.getState().partial).toBe("And the");
 
     await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find((el) => el.textContent?.trim() === "Done")!);
     await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
@@ -307,6 +311,9 @@ test("Google closing with 1011 while Done drains keeps the words and explains th
   speech.deliver({ setupComplete: {} });
   speech.deliver({ serverContent: { inputTranscription: { text: "Ask Nestor about the ships.", finished: true } } });
   await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe("Ask Nestor about the ships.");
+  // Speech still pending at Done, so the drain waits for Google.
+  speech.deliver({ serverContent: { interimInputTranscription: { text: "And the" } } });
+  await expect.poll(() => s.ui.stores.voice.getState().partial).toBe("And the");
   await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find((el) => el.textContent?.trim() === "Done")!);
   await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
   expect(s.ui.stores.voice.getState().mode, "Done waits for the last final").toBe("dictate");
@@ -314,7 +321,7 @@ test("Google closing with 1011 while Done drains keeps the words and explains th
   // handshake (no error event), so only the code says the take failed.
   speech.finish(1011, "", true);
   await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the close settled the drain" }).toBe("idle");
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Ask Nestor about the ships.");
+  expect(s.ui.stores.voice.getState().reviewText, "the words still pending at the close are kept").toBe("Ask Nestor about the ships. And the");
   expect(s.ui.stores.voice.getState().dictationNotice, "GEMINI_BROWSER_DRAIN_CLOSE_NOTICE").toEqual({ reason: "network", phase: "ended", retained: true });
   await expect.poll(() => audio.contexts[0]!.state).toBe("closed");
 });

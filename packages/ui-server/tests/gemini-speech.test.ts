@@ -82,7 +82,7 @@ describe("Gemini dictation session", () => {
     expect(Date.parse(expireTime)).toBeLessThanOrEqual(after + 11 * 60_000);
     expect(session).toEqual({
       url: GEMINI_TRANSCRIBE_URL, token: TOKEN, expiresAt: Date.parse(newSessionExpireTime),
-      params: { model: GEMINI_TRANSCRIBE_MODEL, mode: "SMART", sampleRate: "16000", vocabulary: JSON.stringify(["Ithaca", "Penelope"]) },
+      params: { model: GEMINI_TRANSCRIBE_MODEL, mode: "SMART", sampleRate: "16000", vocabulary: JSON.stringify(["Ithaca", "Penelope"]), languageCodes: JSON.stringify(["en-US"]) },
     });
     expect(JSON.stringify(session)).not.toContain(KEY);
   });
@@ -101,7 +101,7 @@ describe("Gemini dictation session", () => {
     const verbatim = await provider.createSession({ keyterms: [], mode: "verbatim" });
     const smart = await provider.createSession({ keyterms: [], mode: "smart" });
     const unset = await provider.createSession({ keyterms: [] });
-    expect(d.seen.map((seen) => seen.body.bidiGenerateContentSetup.inputAudioTranscription)).toEqual([{ mode: "VERBATIM" }, { mode: "SMART" }, { mode: "SMART" }]);
+    expect(d.seen.map((seen) => seen.body.bidiGenerateContentSetup.inputAudioTranscription)).toEqual([{ mode: "VERBATIM", languageCodes: ["en-US"] }, { mode: "SMART", languageCodes: ["en-US"] }, { mode: "SMART", languageCodes: ["en-US"] }]);
     expect(d.seen.map((seen) => authTokenWireError(seen.body))).toEqual([null, null, null]);
     expect([verbatim, smart, unset].map((session) => [session.params!.mode, session.params!.vocabulary])).toEqual([["VERBATIM", "[]"], ["SMART", "[]"], ["SMART", "[]"]]);
   });
