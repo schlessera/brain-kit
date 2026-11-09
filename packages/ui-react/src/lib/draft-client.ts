@@ -77,6 +77,19 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     timers.set(draftId, setTimeout(() => { timers.delete(draftId); void sync(draftId); }, delay));
   }
 
+  /**
+   * A send's snapshot step (#3155): saved at once, without waiting for a
+   * timer, so pressing Send reaches the host as directly as the frame did
+   * before snapshots. Only send steps use it; typing keeps its pause and
+   * retries keep their backoff.
+   */
+  function soon(draftId: string) {
+    if (!live()) return;
+    clearTimeout(timers.get(draftId));
+    timers.delete(draftId);
+    queueMicrotask(() => { void sync(draftId); });
+  }
+
   function backoff(draftId: string) {
     const n = failures.get(draftId) ?? 0;
     failures.set(draftId, n + 1);
@@ -336,7 +349,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (s.state === "held" && !s.paused && !(s.uploads?.length) && stored?.state === "held"
         && stored.fileIds.length === s.files.length && stored.fileIds.every((id, i) => id === s.files[i]!.fileId)) {
         drafts.getState().patchSnapshot(draftId, s.snapshotId, { state: "dispatched", dispatch: "due" });
-        schedule(draftId, 0);
+        soon(draftId);
       }
     }
     const now = drafts.getState().drafts[draftId]!;
@@ -551,7 +564,10 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (before && before.edit === d.edit && before.conflict === d.conflict && before.bind === d.bind && before.host === d.host) continue;
       // A snapshot change is a send's step: it goes at once, not after a pause in typing.
       const snapshotStep = before?.snapshots !== d.snapshots && d.snapshots !== undefined;
-      if (owed(d)) schedule(id, d.edit !== before?.edit && !snapshotStep ? SAVE_DELAY_MS : 0);
+      if (owed(d)) {
+        if (snapshotStep) soon(id);
+        else schedule(id, d.edit !== before?.edit ? SAVE_DELAY_MS : 0);
+      }
     }
     // A send that settled may release a draft that only it was holding, or
     // one whose saves waited for a snapshot's answer.

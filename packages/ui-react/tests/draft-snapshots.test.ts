@@ -140,6 +140,29 @@ describe("the draft client", () => {
     expect(socket.messages(), "sent once").toHaveLength(1);
   });
 
+  test("Send reaches the host with the page's timers paused: the snapshot step waits on no timer tick", async () => {
+    // A page whose clock is paused (answer delivery's liveness proof installs
+    // one) still sends: before snapshots Send emitted its frame at once, and
+    // the snapshot save that now precedes it must not wait for a timer.
+    const host = snapshotHost();
+    const { drafts, socket, id } = boot(host);
+    const draftId = id();
+    await until(() => drafts().supported === true, "drafts are on");
+    const real = globalThis.setTimeout;
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+    Object.defineProperty(globalThis, "setTimeout", { ...descriptor, value: (() => 0) as unknown as typeof setTimeout });
+    try {
+      drafts().edit(draftId, SESSION, { text: "Hold fast to the mast." });
+      drafts().createSnapshot(draftId, SESSION, snap({ snapshotId: "s1", requestId: "r1", text: "Hold fast to the mast." }), "Hold fast to the mast.");
+      const end = Date.now() + 4_000;
+      while (socket.messages().length === 0 && Date.now() < end) await new Promise((resolve) => real(resolve, 10));
+    } finally {
+      Object.defineProperty(globalThis, "setTimeout", descriptor);
+    }
+    expect(host.saves.some((s) => s.body.snapshots?.some((x) => x.snapshotId === "s1")), "the creating save went out").toBe(true);
+    expect(socket.messages().map((m) => m.requestId), "and the message after it").toEqual(["r1"]);
+  });
+
   test("a held snapshot grows as its uploads store, then dispatches once with all of them", async () => {
     const host = snapshotHost();
     const { drafts, socket, id } = boot(host);

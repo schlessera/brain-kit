@@ -306,6 +306,12 @@ originals, on a host that advertises `composerFiles`:
     snapshots remain, the host keeps the row at the next revision with an
     empty composer, and the client saves over that revision instead of
     rotating the draft.
+  - **Send waits on no timer.** The save that creates a send's snapshot,
+    and a held snapshot's move to `dispatched`, go out in a microtask rather
+    than on the draft client's save timer, and the frame follows the save's
+    acknowledgement directly. Pressing Send therefore reaches the host as
+    directly as it did before snapshots, even in a page whose clock is
+    paused. Typing keeps its save pause, and retries keep their backoff.
   - **A full chat sends nothing.** `409 DRAFT_OUTGOING_FULL` gives the text
     and files back to the composer and shows the notice with **Show**. Until
     the save that creates a snapshot is acknowledged, the field takes no new
