@@ -250,7 +250,8 @@ export const AllStates = meta.story({
   play: async ({ canvasElement }) => {
     await expect(canvasElement.querySelectorAll("[data-state]")).toHaveLength(17);
     await voiceA11y(canvasElement);
-    await expect(await meterFillsTheCard(canvasElement), "every tall state with a meter").toBe(7);
+    // L1–L5, L7, L8 and the five overlay forms from #3738 (drafts, notices, recovery).
+    await expect(await meterFillsTheCard(canvasElement), "every tall state with a meter").toBe(12);
   },
 });
 
