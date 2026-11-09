@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { runAsrClientContract } from "@schlessera/brain-ui-sdk/testing";
 import type { AsrEvent, VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 import {
-  GEMINI_DRAIN_MS, GEMINI_DRAIN_QUIET_MS, GEMINI_FRAME_SAMPLES, GEMINI_HANDSHAKE_MS, GEMINI_MAX_BUFFERED_BYTES, GEMINI_PRESETUP_FRAMES, GeminiAsrClient,
+  GEMINI_DRAIN_MS, GEMINI_DRAIN_QUIET_MS, GEMINI_DRAIN_TAIL_MS, GEMINI_FRAME_SAMPLES, GEMINI_HANDSHAKE_MS, GEMINI_MAX_BUFFERED_BYTES, GEMINI_PRESETUP_FRAMES, GeminiAsrClient,
 } from "../src/voice/asr-gemini";
 import { createPcmResampler, PCM_CAPTURE_BLOCK } from "../src/voice/pcm-capture";
 
@@ -502,7 +502,8 @@ describe("GeminiAsrClient wire behaviour", () => {
     s.server({ setupComplete: {} });
     await tick();
     expect(JSON.parse(s.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } });
-    h.advance(GEMINI_DRAIN_QUIET_MS);
+    // The voiced audio was never placed in a segment, so the tail window applies.
+    h.advance(GEMINI_DRAIN_TAIL_MS);
     await draining;
   });
 
@@ -547,6 +548,196 @@ describe("GeminiAsrClient wire behaviour", () => {
     h.socket().server({ serverContent: { generationComplete: true } });
     await draining;
     expect(h.events.at(-1)).toEqual({ type: "final", text: "And the harbor.", endsTurn: true });
+  });
+
+  // Offsets below are in 16 kHz samples: a 16 kHz context passes them through.
+  const offset = (samples: number) => `${(samples / 16_000).toFixed(3)}s`;
+
+  test("voice the microphone heard but Google has not yet signalled keeps Done open past the short quiet", async () => {
+    const h = harness({ rate: 16_000, timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    // The last word, right before Done: Google has not answered it yet.
+    h.speak(GEMINI_FRAME_SAMPLES * 2);
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    expect(JSON.parse(s.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } });
+    h.advance(GEMINI_DRAIN_QUIET_MS * 2);
+    await tick();
+    expect(settled, "GEMINI_DRAIN_WAITS_FOR_UNSIGNALLED_VOICE").toBe(false);
+    s.server({ serverContent: { speechState: "SPEECH" }, voiceActivity: { type: "ACTIVITY_START", audioOffset: offset(0) } });
+    await tick();
+    h.advance(GEMINI_DRAIN_TAIL_MS);
+    await tick();
+    expect(settled, "an open segment waits for its completion").toBe(false);
+    s.server({ serverContent: { inputTranscription: { text: "Ithaca." } } });
+    s.server({ serverContent: { generationComplete: true } });
+    s.server({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: offset(GEMINI_FRAME_SAMPLES * 2) } });
+    await tick();
+    expect(settled, "GEMINI_DRAIN_ENDS_ON_ACTIVITY_END").toBe(true);
+    await draining;
+    expect(h.events, "GEMINI_DRAIN_WAITS_FOR_UNSIGNALLED_VOICE").toEqual([{ type: "final", text: "Ithaca.", endsTurn: true }]);
+  });
+
+  test("an earlier segment's completion arriving after audioStreamEnd does not end Done before the new speech", async () => {
+    const h = harness({ rate: 16_000, timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    const first = GEMINI_FRAME_SAMPLES * 4;
+    h.speak(first);
+    h.speak(GEMINI_FRAME_SAMPLES * 3, 440, 0);
+    s.server({ serverContent: { speechState: "SPEECH" }, voiceActivity: { type: "ACTIVITY_START", audioOffset: offset(0) } });
+    await tick();
+    // The second sentence starts; Google is still finishing the first.
+    h.speak(GEMINI_FRAME_SAMPLES * 2);
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    // The first segment's answer was already in flight.
+    s.server({ serverContent: { inputTranscription: { text: "Ask Nestor." } } });
+    s.server({ serverContent: { generationComplete: true } });
+    s.server({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: offset(first + GEMINI_FRAME_SAMPLES) } });
+    await tick();
+    h.advance(GEMINI_DRAIN_QUIET_MS * 2);
+    await tick();
+    expect(settled, "GEMINI_DRAIN_IGNORES_EARLIER_COMPLETION").toBe(false);
+    s.server({ serverContent: { speechState: "SPEECH" }, voiceActivity: { type: "ACTIVITY_START", audioOffset: offset(first + GEMINI_FRAME_SAMPLES * 3) } });
+    s.server({ serverContent: { inputTranscription: { text: "Then the ships." } } });
+    s.server({ serverContent: { generationComplete: true } });
+    s.server({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: offset(first + GEMINI_FRAME_SAMPLES * 5) } });
+    await tick();
+    expect(settled, "GEMINI_DRAIN_ENDS_ON_ACTIVITY_END").toBe(true);
+    await draining;
+    expect(h.events.map((event) => event.text), "GEMINI_DRAIN_IGNORES_EARLIER_COMPLETION").toEqual(["Ask Nestor.", "Then the ships."]);
+  });
+
+  test("silence after the last segment Google closed ends Done after the short quiet", async () => {
+    const h = harness({ rate: 16_000, timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    h.speak(GEMINI_FRAME_SAMPLES * 2);
+    s.server({ serverContent: { speechState: "SPEECH" } });
+    s.server({ serverContent: { inputTranscription: { text: "Ithaca." } } });
+    s.server({ serverContent: { generationComplete: true } });
+    s.server({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: offset(GEMINI_FRAME_SAMPLES * 2) } });
+    await tick();
+    h.speak(GEMINI_FRAME_SAMPLES * 4, 440, 0.005);
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    h.advance(GEMINI_DRAIN_QUIET_MS);
+    await tick();
+    expect(settled, "GEMINI_DRAIN_SILENCE_IS_NOT_VOICE").toBe(true);
+    await draining;
+  });
+
+  test("voice Google never calls speech ends Done at the tail window, not the 3 s cap", async () => {
+    const h = harness({ rate: 16_000, timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    h.speak(GEMINI_FRAME_SAMPLES);
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    h.advance(GEMINI_DRAIN_TAIL_MS - 1);
+    await tick();
+    expect(settled).toBe(false);
+    h.advance(1);
+    await tick();
+    expect(settled, "GEMINI_DRAIN_TAIL_BOUNDED").toBe(true);
+    await draining;
+  });
+
+  test("a final that arrived before the quiet lapsed but is still decoding reaches review", async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    let release!: () => void;
+    const decoded = new Promise<void>((resolve) => { release = resolve; });
+    class SlowBlob extends Blob { override async text() { await decoded; return super.text(); } }
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    h.advance(GEMINI_DRAIN_QUIET_MS - 50);
+    s.onmessage?.({ data: new SlowBlob([JSON.stringify({ serverContent: { inputTranscription: { text: "Penelope waits." } } })]) });
+    h.advance(50);
+    await tick();
+    expect(settled, "the quiet waits for messages that already arrived").toBe(false);
+    release();
+    await draining;
+    expect(h.events, "GEMINI_DRAIN_WAITS_FOR_INBOUND").toEqual([{ type: "final", text: "Penelope waits.", endsTurn: true }]);
+  });
+
+  test("speech still decoding when the quiet lapses keeps Done open for its completion", async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    let release!: () => void;
+    const decoded = new Promise<void>((resolve) => { release = resolve; });
+    class SlowBlob extends Blob { override async text() { await decoded; return super.text(); } }
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    h.advance(GEMINI_DRAIN_QUIET_MS - 50);
+    s.onmessage?.({ data: new SlowBlob([JSON.stringify({ serverContent: { interimInputTranscription: { text: "Penelope" } } })]) });
+    h.advance(50);
+    release();
+    await tick(); await tick();
+    expect(settled, "GEMINI_DRAIN_LAPSED_QUIET_YIELDS").toBe(false);
+    s.server({ serverContent: { inputTranscription: { text: "Penelope waits." }, generationComplete: true } });
+    await draining;
+    expect(h.events.at(-1)).toEqual({ type: "final", text: "Penelope waits.", endsTurn: true });
+  });
+
+  test("a final and its completion in one message end Done at once", async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    s.server({ serverContent: { speechState: "SPEECH" } });
+    await tick();
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    s.server({ serverContent: { inputTranscription: { text: "Sail at dawn." }, generationComplete: true } });
+    await tick();
+    expect(settled, "GEMINI_DRAIN_COMBINED_COMPLETION").toBe(true);
+    await draining;
+    expect(h.events).toEqual([{ type: "final", text: "Sail at dawn.", endsTurn: true }]);
+  });
+
+  test("a final without generationComplete after audioStreamEnd ends Done once nothing is left unplaced", async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const s = h.socket();
+    s.server({ serverContent: { interimInputTranscription: { text: "Sail at" } } });
+    await tick();
+    let settled = false;
+    const draining = h.client.drainAndStop().then(() => { settled = true; });
+    await tick(); await tick();
+    s.server({ serverContent: { inputTranscription: { text: "Sail at dawn." } } });
+    await tick();
+    expect(settled, "GEMINI_DRAIN_FINAL_WITHOUT_COMPLETION").toBe(true);
+    await draining;
+  });
+
+  test("hard stop during the quiet window leaves no timer behind", async () => {
+    const h = harness({ timers: true });
+    await h.client.start();
+    await tick(); await tick();
+    const draining = h.client.drainAndStop();
+    await tick(); await tick();
+    expect(h.pending.length, "the cap and the quiet window are armed").toBe(2);
+    h.client.stop();
+    await draining;
+    expect(h.pending, "GEMINI_DRAIN_STOP_CLEARS_QUIET").toHaveLength(0);
   });
 
   test("Done before setupComplete sends the waiting audio and the stream end once setup completes", async () => {

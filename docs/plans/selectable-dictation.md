@@ -95,7 +95,12 @@ synthetic TTS audio, no device):**
 - Interim text is cumulative within a segment and stays verbatim in SMART;
   only the final is cleaned.
 - A final arrives on a pause, as `inputTranscription`, then
-  `generationComplete: true`, then `speechState: NON_SPEECH`.
+  `generationComplete: true`, then `speechState: NON_SPEECH` with a top-level
+  `voiceActivity: { type: "ACTIVITY_END", audioOffset }`. Speech starts with
+  `speechState: SPEECH` and `ACTIVITY_START`, about 75 ms after the audio
+  reached Google. `audioOffset` counts from the first audio of the stream;
+  `ACTIVITY_END` fell 0.7–1.3 s after the last voiced audio, or at the stream
+  end when speech ran into it.
 - After `audioStreamEnd`, Google sends the pending final and `generationComplete`
   (+253 ms measured). When nothing is pending it sends nothing at all.
   `finished` and `turnComplete` never came, so Done waits for
@@ -327,8 +332,9 @@ x-goog-api-key: <server key>
     "model": "models/gemini-3.5-transcribe-live",
     "generationConfig": { "responseModalities": ["TEXT"] },
     "inputAudioTranscription": { "mode": "SMART",
+                                 "languageCodes": ["en-US"],
                                  "customVocabulary": ["Ithaca", "Penelope", "…"] } },
-  "fieldMask": "model,generationConfig.responseModalities,inputAudioTranscription.mode,inputAudioTranscription.customVocabulary" }
+  "fieldMask": "model,generationConfig.responseModalities,inputAudioTranscription.mode,inputAudioTranscription.languageCodes,inputAudioTranscription.customVocabulary" }
 ```
 
   This is the REST AuthToken that `@google/genai` 2.24.0 serializes from
@@ -342,7 +348,8 @@ x-goog-api-key: <server key>
 { "url": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained",
   "token": "auth_tokens/…", "expiresAt": 1783847400000,
   "params": { "model": "models/gemini-3.5-transcribe-live", "mode": "SMART",
-              "sampleRate": "16000", "vocabulary": "[\"Ithaca\",\"Penelope\"]" } }
+              "sampleRate": "16000", "vocabulary": "[\"Ithaca\",\"Penelope\"]",
+              "languageCodes": "[\"en-US\"]" } }
 ```
 
 - Vocabulary is the existing bounded keyterm list, capped at **100 terms** of at
@@ -355,8 +362,9 @@ x-goog-api-key: <server key>
 - The constraint locks model, modality and transcription config, and the
   browser's `setup` repeats them field for field. Any additional field the
   client sends is rejected or overridden by Google, which is the point of the
-  lock. Whether Google enforces the `fieldMask` this way, and which API version
-  (`v1alpha` or `v1beta`) accepts the token, is a #3710 check.
+  lock. #3710 measured it: a client setup asking for another mode or model
+  still got the locked transcription, and both `v1alpha` and `v1beta` accept
+  the token.
 - Token TTL: one use, 60 s to connect, 11 minutes overall (the 10-minute
   session plus margin). **No session resumption** in the first delivery: a take
   ends at Google's 10-minute limit through provider-ended, and its words go to
@@ -391,11 +399,18 @@ x-goog-api-key: <server key>
   `error`, `goAway` and unknown-close reasons map to `speechError` codes
   without exposing their text.
 - **Done (`drainAndStop`).** Stop the tracks, flush the partial chunk and send
-  `audioStreamEnd`. If speech is pending (a `SPEECH` state or an interim that
-  no final or `generationComplete` has closed), wait for the
-  `generationComplete` that follows `audioStreamEnd`. Otherwise end after
-  **300 ms** of quiet, extended to `generationComplete` by any speech or
-  interim that arrives in it. `finished` or `turnComplete` also end it, and
+  `audioStreamEnd`. Then, after every message Google sends:
+  - While a segment is open (a `SPEECH` state or an interim that no final or
+    `generationComplete` has closed), wait.
+  - While the microphone heard voice (block RMS ≥ 0.015) past Google's last
+    `ACTIVITY_END` offset, wait up to **1.5 s** of quiet: Google has not yet
+    signalled that speech, and an earlier segment's completion may still be
+    arriving. If Google never calls it speech, Done ends there.
+  - Otherwise Google's answer is complete and Done ends at once. With no
+    answer at all (nothing was pending), it ends after **300 ms** of quiet.
+
+  A lapsed quiet first processes messages that already arrived, so a final
+  still decoding is kept. `finished` or `turnComplete` also end Done, and
   **3 s** caps all of it (#3768). Close either way. Words already heard are
   kept.
 - **Hard stop, cancel, unmount, superseded start.** Close the socket (1000),
@@ -529,7 +544,9 @@ key-registered built-in over the legacy single selection.
   asserts the setup frame, base64 PCM16 framing at 16 kHz from 44.1 and 48 kHz
   contexts in real Chrome, the pre-setup buffer bound, backpressure failure,
   interim replacement, single final commit, the `audioStreamEnd` drain (on
-  `generationComplete`, after a quiet with nothing pending, capped at 3 s), and complete teardown (tracks ended, context closed, socket closed, no
+  `generationComplete` and `ACTIVITY_END`, waiting for voice Google has not
+  signalled and for messages still decoding, after a quiet with nothing
+  pending, capped at 3 s), and complete teardown (tracks ended, context closed, socket closed, no
   late mutation).
 - Mutations: final mapped as partial, resampler bypassed, constraint lock
   removed, teardown skipping `context.close()`. Each fails its named
