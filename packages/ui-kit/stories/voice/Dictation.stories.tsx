@@ -201,6 +201,27 @@ export const LongDestinationAt320 = meta.story({
   },
 });
 
+/**
+ * While listening or finishing, the state label anchors to the top of the card
+ * and the words to the bottom, over a gradient that fades the meter behind
+ * them (#3746).
+ */
+export const LabelTopWordsBottom = meta.story({
+  render: () => <>{(["D3", "D4", "D5"] as const).map((id) => <div key={id} style={{ width: "100%" }}>{dictation(id)}</div>)}</>,
+  play: async ({ canvasElement }) => {
+    for (const field of canvasElement.querySelectorAll<HTMLElement>(".bk-voice-field")) {
+      const box = field.getBoundingClientRect();
+      const label = field.querySelector("[data-voice-label]")!.getBoundingClientRect();
+      const words = field.querySelector(".bk-voice-text")!.getBoundingClientRect();
+      const word = field.querySelector("[data-voice-word]")!.textContent;
+      await expect(Math.round(label.top - box.top), `${word}: label anchored to the top`).toBeLessThanOrEqual(10);
+      await expect(Math.round(box.bottom - words.bottom), `${word}: words attached to the bottom`).toBeLessThanOrEqual(10);
+      const fade = getComputedStyle(field.querySelector(".bk-voice-meter")!, "::after").backgroundImage;
+      await expect(fade, `${word}: gradient behind the words`).toContain("linear-gradient");
+    }
+  },
+});
+
 /** Reduced motion: one static level line, a flat tint for the sweep, a still ✓. */
 export const ReducedMotion = meta.story({
   parameters: { stageWidth: "none" },

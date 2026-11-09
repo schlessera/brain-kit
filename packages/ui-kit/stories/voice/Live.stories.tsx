@@ -2,7 +2,7 @@ import preview from "#.storybook/preview";
 import { expect, type within } from "storybook/test";
 
 import { stage } from "../_stage.js";
-import { fieldHeights, reducedMotion, voiceA11y } from "./_checks.js";
+import { fieldHeights, meterFillsTheCard, reducedMotion, voiceA11y } from "./_checks.js";
 import { LIVE_TITLES, Sheet, live, type LiveId } from "./_voice.js";
 
 /**
@@ -250,6 +250,8 @@ export const AllStates = meta.story({
   play: async ({ canvasElement }) => {
     await expect(canvasElement.querySelectorAll("[data-state]")).toHaveLength(17);
     await voiceA11y(canvasElement);
+    // L1–L5, L7, L8 and the five overlay forms from #3738 (drafts, notices, recovery).
+    await expect(await meterFillsTheCard(canvasElement), "every tall state with a meter").toBe(12);
   },
 });
 
