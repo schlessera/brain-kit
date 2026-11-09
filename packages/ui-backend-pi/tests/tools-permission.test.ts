@@ -823,7 +823,7 @@ describe("bridge-capability tool registration", () => {
         turn,
         lock: toolLockFromKeyed(createKeyedLock()),
         // Every capability the toolkit accepts: a new one fails to typecheck here until it is enabled.
-        capabilities: { location: true, activity: true, mask: true, inbox: true, policyChange: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
+        capabilities: { location: true, activity: true, mask: true, inbox: true, policyChange: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
       });
       expect(tools.length).toBeGreaterThan(0);
       for (const t of tools) {
