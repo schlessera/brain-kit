@@ -42,7 +42,7 @@ const GEMINI_MAX_TERM_BYTES = 64;
  * a short English segment returned as Spanish (#3769). A hint biases
  * recognition; it does not restrict it.
  */
-export const GEMINI_LANGUAGE_CODES: readonly string[] = ["en-US"];
+const GEMINI_LANGUAGE_CODES: readonly string[] = ["en-US"];
 // Google's token resource name; anything else is not connection material.
 const TOKEN_NAME = /^auth_tokens\/[\x21-\x7e]{1,1024}$/;
 
