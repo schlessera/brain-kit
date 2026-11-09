@@ -1,9 +1,10 @@
 /**
  * The voice surface's visual baselines (#3692).
  *
- * One baseline per state: every dictation (D1–D8), Start (S1–S5, with S2's
- * two forms and S3b–S3d) and live (L1–L10) state, at 320px and at a desktop
- * width, in both themes; the spoken-turn marks and the voice controls the same
+ * One baseline per state: every dictation (D0–D8, with Dc, D3b and the two Dx
+ * notices of #3694), Start (S1–S5, with S2's two forms and S3b–S3d) and live
+ * (L1–L10, with the drafts, recovery, readiness, mic-blocked and coverage
+ * forms of #3699) state, at 320px and at a desktop width, in both themes; the spoken-turn marks and the voice controls the same
  * way; and the three assembled voice screens in both themes.
  *
  * Each state is captured from its cell in the group's `AllStates` story,
@@ -71,9 +72,9 @@ function reducedByTheMediaQuery() {
 }
 
 const GROUPS = [
-  [dictation.AllStates, "voice-dictation", 8],
+  [dictation.AllStates, "voice-dictation", 13],
   [start.AllStates, "voice-start", 9],
-  [live.AllStates, "voice-live", 10],
+  [live.AllStates, "voice-live", 17],
 ] as const;
 
 const WIDTHS = [[320, "320"], [1280, "desktop"]] as const;
