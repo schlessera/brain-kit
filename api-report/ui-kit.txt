@@ -241,6 +241,7 @@ export "." (./src/index.ts)
   SpokenMark
   type SpokenMarkProps
   SpokenTurn
+  type SpokenTurnDetails
   type SpokenTurnProps
   StartCard
   type StartCardNotice
@@ -2179,11 +2180,14 @@ signatures (every public export and the types it is made of)
     }
   SpokenTurn (packages/ui-kit/src/voice/SpokenTurn.tsx)
     export function SpokenTurn(p: SpokenTurnProps): import("react").JSX.Element;
+  SpokenTurnDetails (packages/ui-kit/src/voice/SpokenTurn.tsx)
+    export type SpokenTurnDetails = Omit<TranscriptQualifiersProps, "trigger">;
   SpokenTurnProps (packages/ui-kit/src/voice/SpokenTurn.tsx)
     export interface SpokenTurnProps {
         speaker: Speaker;
         inProgress?: boolean;
         cutOff?: boolean;
+        details?: SpokenTurnDetails;
         children?: ReactNode;
     }
   StartCard (packages/ui-kit/src/voice/StartCard.tsx)
@@ -2500,6 +2504,19 @@ signatures (every public export and the types it is made of)
         expanded?: boolean;
         onExpandedChange?: (expanded: boolean) => void;
         isStatic?: boolean;
+    }
+  TranscriptQualifiersProps (packages/ui-kit/src/conversation/TranscriptQualifiers.tsx)
+    export interface TranscriptQualifiersProps {
+        kind: "recognized" | "generated" | "task-request" | "task-result";
+        source?: string;
+        playback?: "played" | "unknown" | "not-spoken";
+        restored?: boolean;
+        unsaved?: boolean;
+        orderUnknown?: boolean;
+        finish?: "updating" | "some-updating" | "finished" | "unknown";
+        evidenceLabel: string;
+        children: ReactNode;
+        trigger?: "glyphs" | "reveal";
     }
   Tray (packages/ui-kit/src/blocks/Tray.tsx)
     const Tray: import("react").ForwardRefExoticComponent<TrayProps & import("react").RefAttributes<HTMLButtonElement>>;

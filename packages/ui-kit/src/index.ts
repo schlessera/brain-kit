@@ -257,6 +257,7 @@ export {
   VoiceToolChip,
   type Speaker,
   type SpokenMarkProps,
+  type SpokenTurnDetails,
   type SpokenTurnProps,
   type UncertainWordProps,
   type VoiceToolChipProps,
