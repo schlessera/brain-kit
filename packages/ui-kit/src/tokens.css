@@ -1829,14 +1829,14 @@
   gap: 4px;
   border-radius: 4px;
   background: transparent;
-  font: 500 12.5px/20px var(--bk-font-body);
+  font: 500 12.5px/20px "Plus Jakarta Sans", sans-serif;
   color: var(--bk-teal-ink);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
 .bk-text-btn[data-tone="meta"] {
-  font: 400 10.5px/20px var(--bk-font-mono);
+  font: 400 10.5px/20px "JetBrains Mono", ui-monospace, monospace;
   color: var(--bk-color-ink-mute);
   text-decoration: none;
 }
@@ -2643,16 +2643,6 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 
 /* C5: narrow finding cards give Apply the first row, then Later and Dismiss.
  * The existing DispositionBar keeps its own layout everywhere else. */
-@container bk-hygiene (max-width: 360px) {
-  [data-hygiene-card] > [data-disposition-bar] > div:first-child {
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  [data-hygiene-card] > [data-disposition-bar] > div:first-child > :first-child {
-    grid-column: 1 / -1;
-  }
-}
-
 /* A transparent header strip reserves native touch manipulation without
  * changing paint or interfering with the scrolling body. Controls stay above it.
  * Without a BottomSheet header or a drawn close slot, leave the top body hittable. */
