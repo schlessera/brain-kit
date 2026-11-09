@@ -4905,6 +4905,20 @@ an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
 composer's, has neither. Existing props and defaults are otherwise unchanged,
 and no wire schema changes. `api-report/` records the added prop.
 
+<a id="composer-mic-control-additive-0450-3727"></a>
+
+## Composer mic control (additive, 0.45.0, #3727)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`micControl?: ReactNode`, a caller-drawn mic (the kit's `MicButton`) in the
+`send` and `plain` field's mic slot. When it is set, `mic`, `onMic`,
+`micLabel`, `micTip` and `micUnavailable` are ignored, the slot takes the
+control's 44px target with -4px
+block margins (a 54px field), and the field aligns its controls to the last
+line of a multi-line draft. The `voice` variant keeps its own disc. Omitted,
+the composer renders exactly as before. No wire schema changes.
+`api-report/` records the added prop.
+
 
 ## Prospective trust policy data (additive, #3607)
 
