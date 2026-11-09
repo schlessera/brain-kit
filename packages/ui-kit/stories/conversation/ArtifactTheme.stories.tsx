@@ -1,4 +1,6 @@
 import preview from "#.storybook/preview";
+import { standInField } from "../_stand-ins.js";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState, type ReactElement } from "react";
 import { expect, waitFor, within } from "storybook/test";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
@@ -23,7 +25,7 @@ function Scene() {
     <article aria-label="Conversation" style={{ margin: "24px 0" }}>
       <BrainMarkdown content={`The crossing at Scylla is recorded in [the raft overview](${path}).`} fileLinks />
     </article>
-    <textarea data-composer="" aria-label="Message" defaultValue="Ask Penelope about the shroud." style={{ display: "block", maxWidth: "100%" }} />
+    <textarea data-composer="" aria-label="Message" defaultValue="Ask Penelope about the shroud." style={{ ...standInField, display: "block", maxWidth: "100%" }} />
     <FilePanel open={open} onClose={() => close(false)} />
   </>;
 }
@@ -130,6 +132,7 @@ const meta = preview.meta({
   title: "Conversation/Artifact theme", component: ArtifactTheme,
   parameters: { layout: "fullscreen" }, beforeEach: artifactFixture,
   args: { width: 320 },
+  globals: viewportAt(320),
 });
 
 /** `artifact layout <theme> <width>` in artifact-recovery-runtime: a 500 reached
@@ -173,7 +176,7 @@ export const LayoutPhone = meta.story({
     await expect(document.querySelector("[data-file-title]")).toBeNull();
   },
 });
-export const LayoutDesktop = LayoutPhone.extend({ args: { width: 1280 } });
+export const LayoutDesktop = LayoutPhone.extend(atWidth(1280));
 
 /** `artifact full state matrix <theme> <width>`: held loading, then each
  * failure, the PDF and the expired file, in the runtime's order. */
@@ -224,4 +227,4 @@ export const StatesPhone = meta.story({
     // The expired state stays for the unchanged addon accessibility gate.
   },
 });
-export const StatesDesktop = StatesPhone.extend({ args: { width: 1280 } });
+export const StatesDesktop = StatesPhone.extend(atWidth(1280));

@@ -1,4 +1,6 @@
 import preview from "#.storybook/preview";
+import { TextButton } from "../../src/primitives/TextButton.js";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState } from "react";
 import { expect, fn, waitFor, within } from "storybook/test";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
@@ -36,7 +38,7 @@ function AccountTheme({ onAssign, onSignOut }: { width: number; onAssign: (id: s
   });
   useEffect(() => () => root.dispose(), [root]);
   return <ConsumerDocument><BrainUiProvider root={root}>
-    <button onClick={() => setAssociate(true)}>Review unassigned recordings</button>
+    <TextButton label="Review unassigned recordings" onClick={() => setAssociate(true)} />
     {associate && <AssociateRecordings onClose={() => setAssociate(false)} />}
     <PasskeyTab active />
   </BrainUiProvider></ConsumerDocument>;
@@ -46,6 +48,7 @@ const meta = preview.meta({
   title: "Conversation/Account theme", component: AccountTheme,
   parameters: { layout: "fullscreen" }, beforeEach: consumerViewport,
   args: { width: 320, onAssign: fn(async () => {}), onSignOut: fn(async () => {}) },
+  globals: viewportAt(320),
 });
 
 export const Phone320 = meta.story({
@@ -107,6 +110,6 @@ export const Phone320 = meta.story({
     // Leave a real dialog for the unchanged addon accessibility gate.
   },
 });
-export const Phone390 = Phone320.extend({ args: { width: 390 } });
-export const Laptop900 = Phone320.extend({ args: { width: 900 } });
-export const Desktop1280 = Phone320.extend({ args: { width: 1280 } });
+export const Phone390 = Phone320.extend(atWidth(390));
+export const Laptop900 = Phone320.extend(atWidth(900));
+export const Desktop1280 = Phone320.extend(atWidth(1280));
