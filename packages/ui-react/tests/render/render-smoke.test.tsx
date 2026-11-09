@@ -4754,7 +4754,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Voice", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
@@ -5861,11 +5861,11 @@ describe("ComposerView", () => {
 });
 
 describe("transcript turn views", () => {
-  test("the header names who and when, and marks a voice turn", () => {
-    const view = render(<TurnHeader who="You" when="09:41" voice="voice-dictate" tone="user" />);
+  test("the header names who and when; a voice turn's mark is inline, not in the header", () => {
+    const view = render(<TurnHeader who="You" when="09:41" tone="user" />);
     expect(view.getByText("You")).toBeTruthy();
     expect(view.getByText("09:41")).toBeTruthy();
-    expect(view.getByRole("img", { name: "Voice dictation" })).toBeTruthy();
+    expect(view.queryByRole("img")).toBeNull();
     view.unmount();
     const brain = render(<TurnHeader who="Brain" when="09:42" tone="brain" />);
     expect(brain.queryByRole("img")).toBeNull();
@@ -5880,6 +5880,10 @@ describe("transcript turn views", () => {
     expect(bubble?.style.borderBottomRightRadius).toBe("5px");
     expect(bubble?.parentElement?.style.alignItems, "the user bubble aligns right").toBe("flex-end");
     view.unmount();
+    const spoken = render(<UserTurn spoken><span>hello</span></UserTurn>);
+    expect(spoken.getByRole("img", { name: "Spoken by you" }).parentElement?.className, "a spoken turn is the kit's spoken bubble").toBe("bk-spoken-bubble");
+    expect(spoken.getByText("hello").previousElementSibling?.className, "the mic leads the words").toBe("bk-spoken-mark");
+    spoken.unmount();
     const count = render(<AttachmentCount count={2} />);
     expect(count.getByText("2 images")).toBeTruthy();
     count.unmount();

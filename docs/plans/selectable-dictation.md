@@ -71,7 +71,7 @@ dependency: both sides speak the documented wire protocol, as
 | Interim text arrives as `serverContent.interimInputTranscription.text` and may change. Final text arrives as `serverContent.inputTranscription.text` on a pause, turn completion or finalization; in SMART mode the final text is the cleaned text. `Transcription.finished` exists in the SDK type | Live guide; SDK `LiveServerContent`, `Transcription` |
 | `{"realtimeInput":{"audioStreamEnd":true}}` finalizes the turn immediately; the server's VAD is the fallback | Live guide |
 | A live session lasts at most 10 minutes. There is no diarization or word timestamps | Live guide; model page |
-| Ephemeral tokens: `POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` with `x-goog-api-key`; `uses` defaults to 1 (resumption does not count as a use); `expireTime` defaults to 30 minutes and is under 20 hours; `newSessionExpireTime` defaults to 60 s; `liveConnectConstraints` locks model and config; `lockAdditionalFields` locks further fields | Token guide; SDK `CreateAuthTokenConfig` |
+| Ephemeral tokens: `POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` with `x-goog-api-key`; `uses` defaults to 1 (resumption does not count as a use); `expireTime` defaults to 30 minutes and is under 20 hours; `newSessionExpireTime` defaults to 60 s. The SDK's `liveConnectConstraints` and `lockAdditionalFields` options serialize to the REST fields `bidiGenerateContentSetup` (the locked Live setup) and `fieldMask` (the locked field paths; an empty `lockAdditionalFields` masks exactly the setup fields present) | Token guide; SDK `CreateAuthTokenConfig`; @google/genai 2.24.0 `createAuthTokenConfigToMldev`, `convertBidiSetupToTokenSetup` |
 | A browser presents the token as an `access_token` query parameter (or `Authorization: Token …`); tokens work only with the Live API | Token guide |
 | `gemini-3.5-transcribe` (unary, saved files) is a separate model and endpoint | Model page |
 
@@ -148,9 +148,9 @@ The host default is `defaultSpeechProviderId` (new construction option), else
 `VOICE_PROVIDER`, else `deepgram` when Deepgram is registered, else none. The
 Deepgram rule keeps today's auto-detect. A host that already sets
 `GEMINI_API_KEY` for chat models gains Gemini as a choice, but its dictation
-keeps going to Deepgram until the user picks Gemini. A host default naming an
-unregistered id is a construction error, as an unknown `VOICE_PROVIDER` is
-today. A legacy by-value `speechProvider` is the host default and must still
+keeps going to Deepgram until the user picks Gemini. An unregistered
+`defaultSpeechProviderId` fails construction, while legacy `VOICE_PROVIDER`
+misconfiguration keeps its route-time 500 `{ error }`. A legacy by-value `speechProvider` is the host default and must still
 match an explicit `VOICE_PROVIDER`.
 
 ### Effective provider for the next take (first match wins)
@@ -301,16 +301,21 @@ tap mic ─► client reads its cached discovery snapshot (refreshed on Settings
 POST https://generativelanguage.googleapis.com/v1beta/auth_tokens
 x-goog-api-key: <server key>
 
-{ "uses": 1,
-  "expireTime": "<now + 11 min>",
+{ "expireTime": "<now + 11 min>",
   "newSessionExpireTime": "<now + 60 s>",
-  "liveConnectConstraints": {
+  "uses": 1,
+  "bidiGenerateContentSetup": {
     "model": "models/gemini-3.5-transcribe-live",
-    "config": { "responseModalities": ["TEXT"],
-                "inputAudioTranscription": { "mode": "SMART",
-                                             "customVocabulary": ["Ithaca", "Penelope", "…"] } } },
-  "lockAdditionalFields": [] }
+    "generationConfig": { "responseModalities": ["TEXT"] },
+    "inputAudioTranscription": { "mode": "SMART",
+                                 "customVocabulary": ["Ithaca", "Penelope", "…"] } },
+  "fieldMask": "model,generationConfig.responseModalities,inputAudioTranscription.mode,inputAudioTranscription.customVocabulary" }
 ```
+
+  This is the REST AuthToken that `@google/genai` 2.24.0 serializes from
+  `authTokens.create({ config: { liveConnectConstraints, lockAdditionalFields: [] } })`;
+  those two are SDK option names, not wire fields. Without keyterms,
+  `customVocabulary` is omitted from both the setup and the mask.
 
   and returns
 
@@ -325,10 +330,11 @@ x-goog-api-key: <server key>
   most 64 UTF-8 bytes each. No corpus, history, screen or chat context is sent.
   Language uses automatic detection (`languageCodes` omitted). Adding a
   language setting is out of scope for this epic; Deepgram stays `en`.
-- The constraint locks model, modality and transcription config. Any
-  additional field the client sends is rejected or overridden by Google, which
-  is the point of the lock. Whether an empty `lockAdditionalFields` locks
-  exactly the constrained fields is a #3710 check.
+- The constraint locks model, modality and transcription config, and the
+  browser's `setup` repeats them field for field. Any additional field the
+  client sends is rejected or overridden by Google, which is the point of the
+  lock. Whether Google enforces the `fieldMask` this way, and which API version
+  (`v1alpha` or `v1beta`) accepts the token, is a #3710 check.
 - Token TTL: one use, 60 s to connect, 11 minutes overall (the 10-minute
   session plus margin). **No session resumption** in the first delivery: a take
   ends at Google's 10-minute limit through provider-ended, and its words go to

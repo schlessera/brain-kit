@@ -4,8 +4,10 @@ import { basename, dirname, join, resolve } from "node:path";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 
 /** `integrated` runs the app-level proof of #2751 on the same owned volumes, for the named backends. */
-export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }): string[] {
+export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string, integrated?: { backends: string[] }, candidate?: string): string[] {
   return ["docker", "run", "--rm", "--pull=never", "--network=none", "--cap-drop=ALL",
+    // The efficiency report (#3513) names the exact candidate it measured.
+    ...(candidate ? [`--env=BRAIN_PROOF_CANDIDATE=${candidate}`] : []),
     ...(integrated ? [`--env=BRAIN_REFERENCE_INTEGRATION_BACKENDS=${integrated.backends.join(",")}`] : []),
     // SETUID/SETGID/SETFCAP (root maps uid 0) and unconfined system paths let the real transport workers (#2429) map their
     // user namespace and mount their own /proc, as in the native host proof.
@@ -39,7 +41,10 @@ if (import.meta.main) {
     mkdirSync(output, { recursive: true });
     const artifact = mkdtempSync(join(output, integrated ? "run-integrated-" : "run-pool-")); chmodSync(artifact, 0o755);
     console.log(`Reference pool proof artifacts: ${artifact}`);
-    const child = Bun.spawn(referencePoolDockerArgs(root, artifact, apparmor, realpathSync(process.execPath), integrated), { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+    const head = Bun.spawnSync(["git", "-C", root, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+    const dirty = Bun.spawnSync(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() !== "";
+    const candidate = /^[0-9a-f]{40}$/.test(head) ? `${head}${dirty ? "+dirty" : ""}` : undefined;
+    const child = Bun.spawn(referencePoolDockerArgs(root, artifact, apparmor, realpathSync(process.execPath), integrated, candidate), { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
     const forward = (signal: NodeJS.Signals) => child.kill(signal);
     for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
     const code = await child.exited;

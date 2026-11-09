@@ -150,6 +150,17 @@ full inventory and `check:pr --all` runs every category for releases or diagnosi
 Neither is mandatory for an ordinary contribution with complete passing hosted
 proof. They are not substitutes for automatic event/checkout evidence.
 
+Both run their complete unit tier through the existing unit workers
+([#3238](https://github.com/schlessera/brain-kit/issues/3238)): the same files
+a serial `bun run test` would receive (the selected consumers, otherwise its
+default discovery), partitioned by `balanceTests` across
+`localUnitWorkerCount` private-build workers, with every worker report and the
+merged report validated by `validateUnitReports`. A failed worker, or one that
+exits zero without its report, fails the stage. Strict types run beside that
+tier; the workspace build, browser, capture and native stages stay serialized
+because they write the type check's resolved outputs or share Docker, Chrome
+or the native loop and storage fixtures.
+
 > **2026-10-10 — Implementation context (complete default discovery above).**
 > Under the maintainer's 2026-10-09 ruling on
 > [#1386](https://github.com/schlessera/brain-kit/issues/1386), tests that

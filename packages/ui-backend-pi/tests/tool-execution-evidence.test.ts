@@ -78,8 +78,11 @@ test("once a worker admits a call that can run other code, or reuses a running c
 }, 30_000);
 
 test("a worker that loads extensions proves no call, a curated read included", async () => {
-  for (const loadExtensions of [undefined, true]) {
-    const { reported } = await evidence(loadExtensions, ["read", "base"]);
-    expect(reported, `PI_EXTENSION_WORKER_PROVES_NOTHING_${String(loadExtensions)}`).toEqual({ read: { "0_read": [null] }, base: { "0_base": [null] } });
-  }
+  const { reported } = await evidence(true, ["read", "base"]);
+  expect(reported, "PI_EXTENSION_WORKER_PROVES_NOTHING_true").toEqual({ read: { "0_read": [null] }, base: { "0_base": [null] } });
+}, 30_000);
+
+test("the default worker is extension-free and proves its curated calls (#3658)", async () => {
+  const { reported } = await evidence(undefined, ["read", "base"]);
+  expect(reported, "PI_DEFAULT_WORKER_IS_EXTENSION_FREE").toEqual({ read: { "0_read": ["worker_read"] }, base: { "0_base": ["host_bridge"] } });
 }, 30_000);

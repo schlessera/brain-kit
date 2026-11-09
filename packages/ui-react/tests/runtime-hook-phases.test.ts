@@ -196,7 +196,10 @@ test("owned descendant observation distinguishes live identity, reused identity 
 test("an owned process disappearing after procfs open is stopped without hiding unexpected read errors", async () => {
   const root = await mkdtemp(join(tmpdir(), "odysseus-procfs-exit-"));
   const ready = join(root, "ready");
-  const child = Bun.spawn([process.execPath, "-e", 'require("node:fs").writeFileSync(process.argv[1],"Odysseus ready");setInterval(()=>{},1000)', ready], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  // writeFileSync creates the file before it writes the bytes, so a reader
+  // can see it empty. Renaming a complete sibling publishes it atomically:
+  // absent means not ready yet, and present means complete.
+  const child = Bun.spawn([process.execPath, "-e", 'const fs=require("node:fs"),partial=process.argv[1]+".partial";fs.writeFileSync(partial,"Odysseus ready");fs.renameSync(partial,process.argv[1]);setInterval(()=>{},1000)', ready], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   let held: Awaited<ReturnType<typeof open>> | undefined;
   const stdout = new Response(child.stdout).text();
   const stderr = new Response(child.stderr).text();

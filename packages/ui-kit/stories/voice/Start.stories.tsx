@@ -42,6 +42,13 @@ export const S2StartCard = meta.story({
     await expect(canvas.queryByRole("button", { name: /Change service/ }), "no Change with one service").toBeNull();
     await expect(canvas.getByRole("radio", { name: /Ithaca steward/ })).toHaveAttribute("aria-checked", "true");
     const shared = canvas.getByRole("button", { name: /What’s shared/ });
+    // Close under Start, with its full 44px target (#3746).
+    const start = canvas.getByRole("button", { name: "Start" }).getBoundingClientRect();
+    const text = document.createRange();
+    text.selectNodeContents(shared);
+    await expect(Math.round(text.getBoundingClientRect().top - start.bottom), "What’s shared sits close under Start").toBeLessThanOrEqual(16);
+    await expect(shared.getBoundingClientRect().height, "44px target kept").toBeGreaterThanOrEqual(44);
+    await expect(shared.getBoundingClientRect().top, "target clear of Start").toBeGreaterThanOrEqual(start.bottom);
     await userEvent.click(shared);
     await expect(shared).toHaveAttribute("aria-expanded", "true");
     await expect(canvas.getByText(/Audio is not saved/)).toBeVisible();

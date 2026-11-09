@@ -298,9 +298,22 @@ originals, on a host that advertises `composerFiles`:
   prove it (#1112, #1150, #1018) remove that capability from the real host's
   hello so they keep proving it. The drop-and-reconnect suite (#1013) runs
   the generic path against the real host.
-- **Sent rows claim no read.** A sent message lists its originals by name,
-  kind and size. The read records are not delivered to clients yet (#3589),
-  so a row shows neither *read* nor *not read yet*.
+- **Sent rows say what was read, from the records only.** A sent message
+  lists its originals by name, kind and size, and the host's read records
+  (#3589) add the design's §8.4 read state. The client declares
+  `attachmentReads`, reads a session's records when its view opens and after
+  each hello, and appends each `attachment_read` frame. Three choices the
+  records force:
+  - **Scopes combine.** Pages or bytes read across several calls are joined,
+    so a later range never hides an earlier one. A failure shows only when
+    nothing was read, and a changed original always shows.
+  - **What a record cannot say is not said.** A record keeps an outcome and a
+    scope, not `pagesWithoutText` or a failure's reason. A partial PDF read is
+    *partly read p. 1–3* rather than *3 of 12 pages had text*, and a failed
+    one is *couldn't read* rather than *took too long*.
+  - **Unknown is not unread.** Until a session's records arrive, or on a host
+    without `attachmentReads`, a row claims neither *read* nor *not read yet*.
+    An image never reads as *not read yet*: it reaches the agent as a frame.
 
 
 The rejected options were offered in the rulings above:

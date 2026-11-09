@@ -16,6 +16,7 @@ import { watchMicrophone } from "./offline/fake-microphone.ts";
 import { ConnectionGate } from "../../src/components/connectivity/connection-gate.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork, type FaultNetwork } from "./offline/fault-network.ts";
+import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 const ITHACA = "odysseus-ithaca";
 const SPEECH = "wss://speech.invalid/v1/listen";
@@ -63,6 +64,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
   host.style.cssText = "position:fixed;inset:0;width:390px;height:780px";
   document.body.append(host);
   const ui = createBrainUiRoot({ storage: null, request: net.request, localCapture: local ? {sink:()=>({chunk(){},end(){}}),timesliceMs:200} : null });
+  primeDictation(ui, providerId);
   let finish!: () => void;
   const commit = new Promise<void>((yes) => { finish = yes; });
   const snapshot = { entered: false, finish };
@@ -88,7 +90,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
   return { ui, host, net, snapshot };
 }
 
-const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Dictate"]');
+const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label^="Dictate"]');
 
 /** Taps Dictate and waits for the provider's client to be listening. */
 async function startDictating(s: Scene) {

@@ -5,12 +5,14 @@ import { RecordingsTray } from "../../../../src/components/voice/recordings-tray
 import { defineScene } from "../define-scene.ts";
 import { installFaultNetwork } from "../fault-network.ts";
 import type { ProgressRequestInit } from "../../../../src/lib/upload-request.js";
+import { deepgramDiscovery } from "../../../fixtures/dictation-discovery.js";
 
 let queries = 0;
 let ownsUpload = false;
 const net = installFaultNetwork({ routes: async (url, raw) => {
   const init = raw as ProgressRequestInit;
   if (url.pathname.endsWith("/voice/capabilities")) return Response.json({ providerId: "deepgram", capabilities: { savedAudio: true } });
+  if (url.pathname.endsWith("/voice/providers")) return Response.json(deepgramDiscovery());
   if (url.pathname.endsWith("/transcription")) {
     if (init.method === "PUT") {
       ownsUpload = true;

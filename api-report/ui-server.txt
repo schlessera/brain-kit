@@ -183,6 +183,7 @@ signatures (every public export and the types it is made of)
         defaultThinkingLevel?: ThinkingLevel;
         profilesJson: string | null;
         piProfilesJson: string | null;
+        piExtensions?: "curated" | "discover";
         modelDiscovery: boolean;
         modelTtlMs: number;
         workerStateBytes: number;
@@ -545,6 +546,12 @@ signatures (every public export and the types it is made of)
         voice(conversationId: string, evidence: Extract<DialogueEvidence, {
             kind: "voice";
         }>, after: (saved: boolean) => void): boolean;
+        interruption(conversationId: string, evidence: Extract<DialogueEvidence, {
+            kind: "voice_interruption";
+        }>, ordinal: number): boolean;
+        ended(conversationId: string, principalId: string, evidence: Extract<DialogueEvidence, {
+            kind: "voice_end";
+        }>): boolean;
         adoptTurn(turnId: string, ownerId: string, principalId: string): void;
         draftSource(turnId: string): string | undefined;
         retireTurn(turnId: string): void;
@@ -2191,6 +2198,7 @@ signatures (every public export and the types it is made of)
     export interface VoiceConfig {
         provider: string | null;
         deepgramApiKey: string | null;
+        geminiApiKey?: string | null;
         keytermLimit: number;
         cacheDir: string;
     }

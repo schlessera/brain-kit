@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test, vi } from "bun:test";
 import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
 import { createAttachmentQueue, fileNameHeader, queuedFileCopy, storedFileCopy, type QueuedFile } from "../src/lib/attachment-queue.js";
 
@@ -66,8 +66,20 @@ test("a lost answer is unknown, never 'not stored'; the drop's reconnect uploads
   } finally { h.queue.dispose(); }
 });
 
+/** `BUSY_RETRY_MS` in attachment-queue.ts: a busy host is asked again after this pause. */
+const BUSY_RETRY = 2_000;
+/** Promise turns until `predicate` holds; real under the fake clock, unlike `Bun.sleep`. */
+async function turns(predicate: () => boolean) {
+  for (let turn = 0; !predicate(); turn++) {
+    if (turn === 100) throw Error("The queue did not settle.");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
 test("while connected, a lost answer waits for Upload again, which replays the same key; a busy host is asked again with it too", async () => {
-  // No automatic loop while the page is online: only Upload again asks.
+  // No automatic loop while the page is online: only Upload again asks. The
+  // queue's only clock is its busy-host timer, so a fake clock owns it.
+  vi.useFakeTimers();
   const h = harness((call) => {
     if (call === 1) throw new TypeError("Failed to fetch");
     if (call === 2) return Response.json({ error: "busy" }, { status: 503 });
@@ -75,17 +87,21 @@ test("while connected, a lost answer waits for Upload again, which replays the s
   });
   try {
     h.queue.add([permit()], DRAFT, { count: 0, bytes: 0 }, null);
-    await settle(() => h.queue.files[0]?.state === "unknown");
-    await Bun.sleep(20);
+    await turns(() => h.queue.files[0]?.state === "unknown");
+    expect(vi.getTimerCount(), "no timer is armed to ask again").toBe(0);
+    vi.runAllTimers();
     expect(h.calls, "nothing asks again on its own while connected").toHaveLength(1);
     h.queue.retry(h.queue.files[0]!.id);
-    await settle(() => h.calls.length === 2 && h.queue.files[0]?.state === "waiting");
+    await turns(() => h.calls.length === 2 && h.queue.files[0]?.state === "waiting");
     // The busy host is asked again after its pause, not at once.
+    vi.advanceTimersByTime(BUSY_RETRY - 1);
     expect(h.calls).toHaveLength(2);
-    await settle(() => h.done.length === 1, 4_000);
+    vi.advanceTimersByTime(1);
+    await turns(() => h.done.length === 1);
+    expect(h.calls).toHaveLength(3);
     const keys = h.calls.map((c) => new Headers(c.init.headers).get("idempotency-key"));
     expect(new Set(keys).size).toBe(1);
-  } finally { h.queue.dispose(); }
+  } finally { h.queue.dispose(); vi.useRealTimers(); }
 }, 10_000);
 
 test("host refusals are known not stored and say why; a 5xx is a retryable failure", async () => {

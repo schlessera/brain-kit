@@ -8,28 +8,59 @@ function nameOf(el: Element): string {
 }
 
 /**
+ * A control's hit area. An inline text button paints at text size and takes
+ * its 44px target from a `::before` with negative insets, so that pseudo's
+ * computed insets are added to the box.
+ */
+function targetOf(button: HTMLElement): { width: number; height: number } {
+  const box = button.getBoundingClientRect();
+  if (!button.matches(".bk-text-btn[data-inline=true]")) return box;
+  const before = getComputedStyle(button, "::before");
+  const out = (side: string) => Math.max(0, -parseFloat(before.getPropertyValue(side)) || 0);
+  return { width: box.width + out("left") + out("right"), height: box.height + out("top") + out("bottom") };
+}
+
+/**
  * The per-component accessibility the voice surface promises (#3692), measured
  * on the rendered story rather than read off its props:
  *
  *   - every control has an accessible name;
  *   - every state label has an icon AND a word, so no state is colour alone;
  *   - every control's target is at least 44px on both axes (an inline
- *     uncertain word is text, and exempt as inline text is);
+ *     uncertain word is text, and exempt as inline text is; an inline text
+ *     button's target is its box plus the `::before` that extends it);
+ *   - text in the field has no background of its own; it carries a halo in the
+ *     field's ground, and the tall label row sits in the meter's solid top
+ *     fade (#3746);
  *   - nothing escapes the story's column (except the thinking sweep, which
  *     travels across its meter and is clipped by it, and the contents of the
  *     out-of-sight "Talk live…" button, clipped by its own 1px box).
  */
 export async function voiceA11y(root: HTMLElement) {
-  for (const button of root.querySelectorAll("button")) {
+  for (const button of root.querySelectorAll<HTMLElement>("button")) {
     await expect(nameOf(button), `named control ${button.outerHTML.slice(0, 80)}`).not.toBe("");
     if (button.classList.contains("bk-uncertain-btn") || button.classList.contains("bk-voice-talk-live")) continue;
-    const box = button.getBoundingClientRect();
+    const box = targetOf(button);
     await expect(Math.round(box.width), `${nameOf(button)} target width`).toBeGreaterThanOrEqual(44);
     await expect(Math.round(box.height), `${nameOf(button)} target height`).toBeGreaterThanOrEqual(44);
   }
   for (const label of root.querySelectorAll("[data-voice-label]")) {
     await expect(label.querySelector("svg"), "state label has an icon").not.toBeNull();
     await expect(label.querySelector("[data-voice-word]")?.textContent?.trim(), "state label has a word").toBeTruthy();
+  }
+  for (const text of root.querySelectorAll<HTMLElement>("[data-voice-word], .bk-voice-label-meta, .bk-voice-text")) {
+    const field = text.closest<HTMLElement>(".bk-voice-field");
+    if (!field) continue;
+    const name = text.textContent?.trim().slice(0, 24);
+    await expect(getComputedStyle(text).backgroundColor, `${name}: no text background`).toBe("rgba(0, 0, 0, 0)");
+    for (const inner of text.querySelectorAll("span")) await expect(getComputedStyle(inner).backgroundColor, `${name}: no text background`).toBe("rgba(0, 0, 0, 0)");
+    await expect(getComputedStyle(text).textShadow, `${name}: halo in the field's ground`).not.toBe("none");
+    const meter = field.querySelector(":scope > .bk-voice-meter");
+    if (field.dataset.shape === "tall" && meter && !text.matches(".bk-voice-text")) {
+      // The tall label row sits in the meter's solid top fade.
+      await expect(getComputedStyle(meter, "::after").backgroundImage, `${name}: in the top fade`).toContain("linear-gradient");
+      await expect(text.getBoundingClientRect().bottom, `${name}: within the fade's solid band`).toBeLessThanOrEqual(meter.getBoundingClientRect().top + 28);
+    }
   }
   await expect(overflowing(root, "*:not(.bk-voice-sweep):not(.bk-voice-talk-live *)")).toEqual([]);
 }
@@ -52,4 +83,22 @@ export async function reducedMotion(root: HTMLElement) {
   for (const el of root.querySelectorAll(".bk-voice-spin, .bk-voice-ctl-spin, .bk-voice-cursor")) await expect(getComputedStyle(el).animationName, "nothing turns or blinks").toBe("none");
   for (const el of root.querySelectorAll(".bk-voice-ring-fill")) await expect(getComputedStyle(el).transitionDuration, "ring without easing").toBe("0s");
   for (const el of root.querySelectorAll(".bk-voice-field")) await expect(getComputedStyle(el).transitionDuration, "instant shape changes").toBe("0s");
+}
+
+/**
+ * The meter fills the whole card (#3746): in every field with a meter, the
+ * meter layer's box is the field's padding box, so the sweep, hatch, flat
+ * line and bars reach every edge.
+ */
+export async function meterFillsTheCard(root: HTMLElement) {
+  const fields = [...root.querySelectorAll<HTMLElement>(".bk-voice-field")].filter((f) => f.querySelector(":scope > .bk-voice-meter"));
+  for (const field of fields) {
+    const meter = field.querySelector<HTMLElement>(":scope > .bk-voice-meter")!.getBoundingClientRect();
+    const box = field.getBoundingClientRect();
+    const inset = { x: field.clientLeft, y: field.clientTop };
+    const label = field.querySelector("[data-voice-word]")?.textContent ?? field.dataset.shape;
+    await expect([meter.top - box.top, box.bottom - meter.bottom, meter.left - box.left, box.right - meter.right].map((n) => Math.round(n * 10) / 10), `${label} meter fills the card`)
+      .toEqual([inset.y, inset.y, inset.x, inset.x]);
+  }
+  return fields.length;
 }

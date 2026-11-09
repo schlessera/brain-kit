@@ -6,8 +6,12 @@ import type { ConversationClientState, ConversationClientOutput, ConversationRec
 
 export type TranscriptEntry =
   | { key: string; sessionId: string | null; kind: "message"; message: ChatMessage; index: number; section: "whole" | "progress" | "answer"; start?: number; end?: number }
-  | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput; restored: boolean }
-  | { key: string; sessionId: string | null; kind: "voice-boundary"; conversationId: string; epoch: number; label: "Voice ended" | "Voice reconnected" }
+  | { key: string; sessionId: string | null; kind: "speech"; output: ConversationClientOutput; restored: boolean;
+      /** Set only on a reply's last segment, and only from a retained interruption naming its output. */
+      cutOff?: true }
+  | { key: string; sessionId: string | null; kind: "voice-boundary"; conversationId: string; epoch: number; label: "Voice ended" | "Voice reconnected";
+      /** From the retained end's host clock span. "Voice ended" comes only from retained evidence, so live and reloaded chats agree. */
+      durationMs?: number }
   | {key:string;sessionId:string|null;kind:"history-notice";label:string}
   | { key: string; sessionId: string | null; kind: "recognition"; fragments: ConversationRecognition[] };
 
@@ -138,9 +142,16 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     const archivedOutput = new Set<string>();
     const ordered = new Map<string,number>();
     const backendRanges = new Map<string, Array<{sequence:number; start:number; end:number; text:string}>>();
+    // Retained barge-in evidence only: a reply without one is never cut off.
+    const interrupted = new Set<string>();
     for (const {record,sessionId,restored} of archive) {
       const e = record.evidence;
-      if (e.kind === "voice") {
+      if (e.kind === "voice_interruption") { if (e.outputId) interrupted.add(JSON.stringify([e.conversationId,e.epoch,e.outputId])); }
+      else if (e.kind === "voice_end") {
+        const key = `dialogue:${record.sequence}`;
+        ordered.set(key,record.sequence);
+        entries.push({key,sessionId,kind:"voice-boundary",conversationId:e.conversationId,epoch:e.epoch,label:"Voice ended",durationMs:e.endedAt-e.startedAt});
+      } else if (e.kind === "voice") {
         const event = e.event;
         if (event.kind === "output_transcript") {
           archivedOutput.add(JSON.stringify([e.conversationId,e.epoch,event.outputId]));
@@ -255,6 +266,14 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       if (own?.kind === "recognition") own.fragments.push(fragment);
     }
     for (const entry of grouped) if (entry.kind === "recognition") entry.fragments.sort((a, b) => compareKeys(recognitionIdentity(a),recognitionIdentity(b)));
+    // One tag per interrupted reply, on its last drawn segment.
+    const tagged = new Set<string>();
+    for (let i = grouped.length - 1; i >= 0; i--) {
+      const entry = grouped[i]!;
+      if (entry.kind !== "speech") continue;
+      const id = JSON.stringify([entry.output.conversationId,entry.output.epoch,entry.output.outputId]);
+      if (interrupted.has(id) && !tagged.has(id)) { tagged.add(id); entry.cutOff = true; }
+    }
     // A page can prepend members of a contiguous blurb. Keep an existing
     // canonical member as its DOM key while that exact source still survives.
     // Membership comes only from this projection; it creates no extra order.
@@ -284,12 +303,12 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     if (next.buffers !== old.buffers || next.draft !== old.draft || next.detachedDrafts !== old.detachedDrafts) sync();
   });
   const stopVoice = voice.subscribe((next, old) => {
-    if (old.profile && old.active && (!next.active || next.profile && next.profile.conversationId === old.profile.conversationId && next.profile.epoch > old.profile.epoch)) {
-      const reconnect = next.active && next.profile;
-      const profile = reconnect || old.profile;
+    // A local end is not drawn: the host's retained end (#3729) is the divider.
+    if (old.profile && old.active && next.active && next.profile && next.profile.conversationId === old.profile.conversationId && next.profile.epoch > old.profile.epoch) {
+      const profile = next.profile;
       const key = JSON.stringify(["voice-boundary", profile.conversationId, profile.epoch, sequence]);
       position(key); latest.set(next.sessionId, key);
-      boundaries.set(key, { kind: "voice-boundary", key, sessionId: next.sessionId, conversationId: profile.conversationId, epoch: profile.epoch, label: reconnect ? "Voice reconnected" : "Voice ended" });
+      boundaries.set(key, { kind: "voice-boundary", key, sessionId: next.sessionId, conversationId: profile.conversationId, epoch: profile.epoch, label: "Voice reconnected" });
     }
     if (next.profile !== old.profile || next.recognition !== old.recognition || next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId || next.dialogue !== old.dialogue) sync(); });
   sync();

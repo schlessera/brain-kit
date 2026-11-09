@@ -18,6 +18,7 @@ import { createVoiceStore } from "../voice/voice-state.js";
 import { createTrackerStore } from "./tracker-state.js";
 import { createSessionListStore } from "./session-list-state.js";
 import { createDraftStore } from "./draft-state.js";
+import { createAttachmentReadStore, type AttachmentReadState } from "./attachment-read-state.js";
 import type { StoreEnvironment } from "./store-environment.js";
 
 export function createBrainStores(env: StoreEnvironment) {
@@ -42,7 +43,9 @@ export function createBrainStores(env: StoreEnvironment) {
     share: createShareStore(),
     handoff,
     followUp: createFollowUpStore(),
-    voice: createVoiceStore(),
+    /** What the agent read of each sent composer original (#3155, #3589). */
+    attachmentReads: createAttachmentReadStore() satisfies StoreApi<AttachmentReadState>,
+    voice: createVoiceStore(env),
     trackers: createTrackerStore(env),
     // The list is where handoff links live (#61): every answer indexes them.
     sessions: createSessionListStore(env, (sessions) => handoff.getState().setLinks(sessions)),
