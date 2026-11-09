@@ -149,6 +149,10 @@ export function createWebSocketClient(root: BrainUiServices) {
       check: (requestId: string) => services.drafts.check(requestId),
       /** Put the held send's text and images back into its own draft. */
       edit: (requestId: string) => services.drafts.edit(requestId),
+      /** Send again for an outgoing snapshot's send (#3155): a new request replaces it. */
+      resendSnapshot: (requestId: string) => services.drafts.resendSnapshot(requestId),
+      /** Send a held snapshot restored after reload (#3155), only on this explicit call. */
+      sendPaused: (draftId: string, snapshotId: string) => services.drafts.sendPaused(draftId, snapshotId),
     },
     handleServerMessage: inbound.handleServerMessage,
     answers: services.answers,
