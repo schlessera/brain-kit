@@ -43,6 +43,7 @@ import {
   CircleSlash,
   CircleX,
   Contrast,
+  Delete,
   GripVertical,
   AlarmClock,
   ArrowDown,
@@ -230,6 +231,9 @@ export const ICONS = {
   speaker: Volume2,
   "mic-off": MicOff,
   interrupt: Square,
+  /** Discard what is held, as a keyboard's backspace key does: lucide's
+   * `Delete` is the backspace-key glyph (#3762). */
+  backspace: Delete,
 } as const satisfies Record<string, LucideIcon>;
 
 /** Every semantic name the kit knows. The kit's icon vocabulary. */

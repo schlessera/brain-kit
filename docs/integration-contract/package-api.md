@@ -279,6 +279,13 @@ full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
 already uses for Open diagram. The framed diagram renderer's header uses it.
 No existing key, glyph or component changes.
 
+## UI-kit backspace icon (additive, 0.45.0, #3762)
+
+The semantic `IconName` gains `backspace`: discard what is held, as a
+keyboard's backspace key does. It draws lucide's `Delete`, the backspace-key
+glyph. The voice field's Discard draft control uses it. No existing key, glyph
+or component changes. This ships in a minor.
+
 ## UI-kit Button reach (additive #3252)
 
 `ButtonProps.reach?: boolean`, when the Button has `onClick`, adds the kit's
