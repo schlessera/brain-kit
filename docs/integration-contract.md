@@ -20,6 +20,20 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Retained barge-in and conversation end (additive, 0.45.0, #3729)
+
+`DialogueEvidence` gains `voice_interruption`, written when the host forwards
+a provider `interrupted` event (with its `outputId` when the provider named
+one), and `voice_end`, written when the operator's final stop ends a
+conversation (`startedAt`/`endedAt`, host clock milliseconds). Both are display
+evidence on the existing dialogue write path and never enter provider history.
+The React client draws the cut-off tag and the end divider only from them, so a
+live chat and the same chat reloaded show the same marks. An earlier-minor
+client refuses a page that carries the new kinds. See
+[wire](integration-contract/wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
+and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
+This ships in a minor; no breaking ruling is required.
+
 ## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
 
 `openSettings("voice")` opens a new Settings › Voice pane, which holds the

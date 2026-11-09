@@ -759,7 +759,7 @@ export function ChatPage() {
                   <TranscriptReadingScope onRead={beginReading} returnFocus={readingFallback}>
                   {visibleEntries.map((entry) => {
                     if (entry.kind === "history-notice") return <p key={entry.key} className="py-3 text-sm">{entry.label}</p>;
-                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} />;
+                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} cutOff={entry.cutOff} />;
                     if (entry.kind === "voice-boundary") return entry.label === "Voice ended"
                       ? <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationEndDivider label={conversationEndLabel(entry.durationMs)} /></div>
                       : <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;

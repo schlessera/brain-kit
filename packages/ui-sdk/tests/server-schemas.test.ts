@@ -171,6 +171,10 @@ const SAMPLES: ServerMessage[] = [
   { type: "dialogue_history", requestId: "history-mast", ownerId: "ithaca", sessionId: "s1", generation: 1, through: 1, coverage: "complete",
     records: [{sequence:1,identity:"mast-recognition",evidence:{kind:"voice",conversationId:"c1",epoch:1,providerId:"gpt-live",event:{kind:"unassigned_input_fragment",sequence:0,text:"The mast is ready.",timing:{kind:"unavailable"},finalization:"unknown"}}}] },
   { type: "conversation_event", conversationId: "c1", epoch: 1, event: { kind: "interrupted", outputId: "o1" } },
+  // #3729: retained barge-in and the operator's end.
+  { type: "dialogue_history", ownerId: "ithaca", sessionId: "s1", generation: 1, through: 3, coverage: "complete",
+    records: [{sequence:2,identity:"raft-barge-in",evidence:{kind:"voice_interruption",conversationId:"c1",epoch:1,providerId:"gemini-live",outputId:"o1"}},
+      {sequence:3,identity:"raft-end",evidence:{kind:"voice_end",conversationId:"c1",epoch:1,providerId:"gemini-live",startedAt:1_783_846_800_000,endedAt:1_783_846_872_000}}] },
   {
     type: "conversation_work", conversationId: "c1", epoch: 1, utteranceId: "u1", requestId: "r1", state: "queued",
     delivery: "pending", recognized: "count the oxen", submitted: "Count the oxen",
@@ -347,6 +351,12 @@ describe("rejections", () => {
     ).toBe(false);
   });
 
+  test("a retained end cannot precede its start (#3729)", () => {
+    const end = (startedAt: number, endedAt: number) => parse({ type: "dialogue_history", ownerId: "ithaca", generation: 1, through: 1, coverage: "complete",
+      records: [{ sequence: 1, identity: "raft-end", evidence: { kind: "voice_end", conversationId: "c1", epoch: 1, providerId: "gemini-live", startedAt, endedAt } }] });
+    expect(end(1_783_846_800_000, 1_783_846_800_000).ok).toBe(true);
+    expect(end(1_783_846_872_000, 1_783_846_800_000).ok).toBe(false);
+  });
   test("malformed JSON and oversized frames are refused, not thrown", () => {
     expect(parseServerMessage("{not json").ok).toBe(false);
     const huge = "x".repeat(2_000_001);

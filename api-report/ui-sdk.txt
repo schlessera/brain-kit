@@ -7281,6 +7281,19 @@ signatures (every public export and the types it is made of)
             kind: "input_fragment" | "unassigned_input_fragment" | "output_transcript";
         }>;
     } | {
+        kind: "voice_interruption";
+        conversationId: string;
+        epoch: number;
+        providerId: string;
+        outputId?: string;
+    } | {
+        kind: "voice_end";
+        conversationId: string;
+        epoch: number;
+        providerId: string;
+        startedAt: number;
+        endedAt: number;
+    } | {
         kind: "request";
         turnId: string;
         requestId?: string;
