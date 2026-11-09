@@ -218,7 +218,7 @@ test("right-click opens a spoken turn's details; with words selected inside it, 
   const s = await exchange(ctx);
   const words = s.brain.querySelector(".bk-spoken-prose > .whitespace-pre-wrap")!;
   await userEvent.click(words, { button: "right" });
-  await expect.poll(dialogText, "a right-click opens the details").toContain("Generated voice reply.");
+  await expect.poll(dialogText, { message: "a right-click opens the details" }).toContain("Generated voice reply.");
   await close();
   expect(document.activeElement, "focus returns to the turn's Details stop").toBe(stop(s.brain));
 

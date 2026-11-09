@@ -10,6 +10,6 @@ export async function pointDetails(trigger: HTMLButtonElement) {
   const turn = trigger.closest<HTMLElement>(".bk-spoken-turn");
   expect(turn, "the Details stop belongs to a spoken turn").not.toBeNull();
   await userEvent.hover(turn!.firstElementChild!);
-  await expect.poll(() => turn!.dataset.reveal, "hovering the turn shows the pill").toBe("true");
+  await expect.poll(() => turn!.dataset.reveal, { message: "hovering the turn shows the pill" }).toBe("true");
   await userEvent.click(trigger);
 }

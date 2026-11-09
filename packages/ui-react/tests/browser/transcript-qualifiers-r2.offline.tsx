@@ -161,7 +161,7 @@ test("a focused Details stop retains its source before activation", async ctx =>
   const outputs=Array.from({length:40},(_,i)=>({conversationId:"odysseus-voice",epoch:1,sessionId:SESSION,providerId:"gemini-live",outputId:`focus-raft-${i}`,generated:`Report ${i}.`,playback:"unknown" as const}));
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs}));
   const trigger=qualifier(s.host,"generated"); trigger.scrollIntoView(); trigger.focus();
-  await expect.poll(()=>getComputedStyle(trigger).clipPath, "focus shows the Details pill").toBe("none");
+  await expect.poll(()=>getComputedStyle(trigger).clipPath, { message: "focus shows the Details pill" }).toBe("none");
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[...outputs,{...outputs[0]!,outputId:"focus-tail"}]}));
   expect(document.activeElement).toBe(trigger);
   expect(trigger.isConnected, "the focused stop's row stays mounted").toBe(true);
