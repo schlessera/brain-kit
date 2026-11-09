@@ -1,12 +1,12 @@
 /** Real reference-pool qualification on owned Btrfs loop volumes (#2428). Runs only inside reference-pool-fixture.py. */
 import { expect } from "bun:test";
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createNativeBrainManager, serveNativeBrainManager, type NativeBrainManagerConfig } from "../../packages/ui-sdk/src/server/native-brain-manager.js";
 import { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/server/native-brain-manager-client.js";
 import { reservePhysical } from "../../packages/ui-sdk/src/server/native-reference-pool.js";
-import type { NativePoolRecord, NativePoolStatus } from "../../packages/ui-sdk/src/server/native-brain-manager-protocol.js";
+import type { NativePoolGrowth, NativePoolRecord, NativePoolStatus } from "../../packages/ui-sdk/src/server/native-brain-manager-protocol.js";
 
 import { createFixtureWorktrees } from "./reference-worktree-allocation.js";
 import { settledWorktreeRelease } from "./reference-worktree-release.js";
@@ -810,6 +810,91 @@ const shapes = await create("staging", 32 * MIB);
     await runReferenceEfficiency({ client: createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), artifacts: ARTIFACTS, note, command, sync });
   } finally { await served.close(); }
   manager = await createNativeBrainManager(config);
+}
+
+// 20. Residual-growth status (#3515): generated Odysseus repositories acquired
+// cold into two domains, a worktree and a changed refresh within the ruled
+// thresholds report no flag; growth beyond each threshold flags exactly it.
+// Unexplained view entries make the status unavailable; it never mutates.
+{
+  const srv = "/native-runtime/growth-srv", NAME = "ithaca@main-3515a1b2c3";
+  const views = [randomUUID(), randomUUID(), randomUUID()];
+  const git = (cwd: string, ...args: string[]) => command(["git", "-C", cwd, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@ithaca.example", ...args]);
+  mkdirSync(join(srv, "books"), { recursive: true });
+  git(srv, "init", "-q", "-b", "main");
+  for (let book = 1; book <= 24; book++)
+    writeFileSync(join(srv, "books", `book-${book}.md`), Array.from({ length: 40 }, (_, line) => `Book ${book}, line ${line}: Odysseus keeps the ledger of the voyage home to Ithaca.`).join("\n"));
+  fill(join(srv, "chart.bin"), 4 * MIB);
+  git(srv, "add", "-A"); git(srv, "commit", "-q", "-m", "The voyage ledger");
+  /** One cold acquisition: a full clone into a fresh source root, sealed and published in `view`. */
+  /** A refresh instead snapshots `from`, applies `change` to its checkout and commits it. */
+  const acquire = async (view: string, from: string | null = null, change?: (repo: string) => void) => {
+    const root = await create("source", 32 * MIB, from), repo = join(root.path!, "repo");
+    if (from === null) command(["git", "clone", "-q", "--no-hardlinks", srv, repo]);
+    if (change) { change(repo); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "Refreshed ledger"); }
+    sync(); await seal(root.id);
+    if (from === null) await call<NativePoolRecord>({ operation: "poolPublish", id: root.id, view, name: NAME });
+    return root;
+  };
+  const growth = async () => { sync(); return call<NativePoolGrowth>({ operation: "poolGrowth" }); };
+  const records = async () => (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records;
+  const first = await acquire(views[0]!), second = await acquire(views[1]!);
+  const worktree = await create("worktree", 16 * MIB, first.id);
+  writeFileSync(join(worktree.path!, "repo", "books", "book-1.md"), "Penelope rewrites one line of the first book.\n");
+  const refresh = await acquire(views[0]!, first.id, repo => writeFileSync(join(repo, "books", "book-2.md"), "Telemachus corrects the second book.\n"));
+  const clean = await growth();
+  note("growth-clean", clean as unknown as Record<string, unknown>);
+  expect(clean.state, "REFERENCE_POOL_GROWTH_NATIVE_AVAILABLE").toBe("available");
+  expect(clean.flags, "REFERENCE_POOL_GROWTH_NATIVE_CLEAN").toEqual([]);
+  const tree = clean.worktrees.find(item => item.id === worktree.id), changed = clean.refreshes.find(item => item.id === refresh.id);
+  expect(tree, "REFERENCE_POOL_GROWTH_NATIVE_WORKTREE_MEASURED").toMatchObject({ cold: first.id, state: "available", flagged: false });
+  expect(tree!.basisBytes, "REFERENCE_POOL_GROWTH_NATIVE_COLD_BASIS").toBeGreaterThan(4 * MIB);
+  expect(changed, "REFERENCE_POOL_GROWTH_NATIVE_REFRESH_MEASURED").toMatchObject({ cold: first.id, state: "available", flagged: false });
+  expect(clean.sources.find(item => item.name === NAME)?.roots.length, "REFERENCE_POOL_GROWTH_NATIVE_TWO_DOMAINS").toBe(2);
+
+  // Growth beyond each threshold flags exactly that comparison.
+  fill(join(worktree.path!, "repo", "chart-copy.bin"), Math.ceil(tree!.basisBytes! * 0.3 / MIB) * MIB);
+  // New incompressible data: the checkout and its Git object each hold it, well above 0.75x cold.
+  const grown = await acquire(views[0]!, first.id, repo => fill(join(repo, "atlas.bin"), Math.ceil(tree!.basisBytes! * 0.8 / MIB) * MIB));
+  const third = await acquire(views[2]!);
+  sync();
+  const before = await records();
+  const flagged = await growth();
+  note("growth-flagged", flagged as unknown as Record<string, unknown>);
+  // No intent moved: the status commits, releases and reserves nothing.
+  expect(await records(), "REFERENCE_POOL_GROWTH_NATIVE_READ_ONLY").toEqual(before);
+  const kinds = Object.fromEntries(flagged.flags.map(flag => [flag.kind, flag]));
+  expect(flagged.flags.length, "REFERENCE_POOL_GROWTH_NATIVE_EACH_FLAG_ONCE").toBe(3);
+  expect(kinds.worktree, "REFERENCE_POOL_GROWTH_NATIVE_WORKTREE_FLAG").toMatchObject({ subject: worktree.id, threshold: 0.25 });
+  expect(kinds["retained-sources"], "REFERENCE_POOL_GROWTH_NATIVE_RETAINED_FLAG").toMatchObject({ subject: NAME, observedCount: 3, threshold: 2 });
+  expect(kinds.refresh, "REFERENCE_POOL_GROWTH_NATIVE_REFRESH_FLAG").toMatchObject({ subject: grown.id, threshold: 0.75 });
+  for (const flag of [kinds.worktree!, kinds.refresh!]) expect(flag.observedBytes, `REFERENCE_POOL_GROWTH_NATIVE_ABOVE ${flag.kind}`).toBeGreaterThan(flag.thresholdBytes!);
+
+  // Names that escape, or resolve to anything but a recorded sealed source in their view, are refused.
+  const viewDir = join(POOL, "views", views[0]!);
+  for (const [label, target] of [["symlink escape", "../../.reference-native"], ["unpublished root", refresh.id], ["worktree", worktree.id]] as const) {
+    symlinkSync(target, join(viewDir, "penelope@loom-3515"));
+    const refused = await growth();
+    unlinkSync(join(viewDir, "penelope@loom-3515"));
+    expect(refused, `REFERENCE_POOL_GROWTH_NATIVE_REFUSES ${label}`).toMatchObject({ state: "unavailable", flags: [], worktrees: [] });
+  }
+
+  // The operator projection prints the same status, with the CLI's exit code.
+  await manager.close();
+  const served = await serveNativeBrainManager(config);
+  try {
+    writeFileSync("/native-runtime/config.json", JSON.stringify(config)); chmodSync("/native-runtime/config.json", 0o600);
+    const child = Bun.spawn(["/usr/local/bin/bun", "/repo/packages/ui-sdk/src/bin/brain-native-store.ts", "pool", "growth", "/native-runtime/config.json"], { stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    note("growth-cli", { code, stderr });
+    expect(code, `REFERENCE_POOL_GROWTH_CLI_EXIT ${stderr}`).toBe(0);
+    const projected = JSON.parse(stdout);
+    expect(projected, "REFERENCE_POOL_GROWTH_CLI_SHAPE").toMatchObject({ schema_version: 1, ok: true, action: "growth", growth: { state: "available" } });
+    expect(projected.growth.flags.map((flag: { kind: string }) => flag.kind).sort(), "REFERENCE_POOL_GROWTH_CLI_FLAGS").toEqual(["refresh", "retained-sources", "worktree"]);
+  } finally { await served.close(); }
+  manager = await createNativeBrainManager(config);
+  for (const id of [worktree.id, grown.id, refresh.id, third.id, second.id, first.id]) expect((await release(id)).state, `REFERENCE_POOL_GROWTH_NATIVE_RELEASED ${id}`).toBe("reclaimed");
+  rmSync(srv, { recursive: true, force: true });
 }
 
 // 14. Restart reconstruction and the deterministic host projection.

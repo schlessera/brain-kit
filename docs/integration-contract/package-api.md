@@ -4205,6 +4205,57 @@ No call accepts a host path, UID or mount. Worker masks now include the pool's
 The mechanism is recorded in the
 [pool decision](../decisions/reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 
+<a id="reference-pool-growth-status-additive-0450-3515"></a>
+
+### Reference pool growth status (additive, 0.45.0, #3515)
+
+`brain-native-store pool growth <config>` prints the same envelope as `status`,
+with `action: "growth"` and `growth`, and the same exit codes. The native
+manager client gains `poolGrowth()`, which takes no identity, path or selector
+and returns `NativePoolGrowth`:
+
+- `basis` is `btrfs-space-info-disk-used+simple-quota-owner`. `state` is
+  `available` or `unavailable`. `reason` says why the whole status is
+  unavailable; `generation` is the observation's filesystem generation.
+- `thresholds` are `{ worktreeRatio: 0.25, refreshRatio: 0.75, retainedSources: 2 }`,
+  exported as `REFERENCE_POOL_GROWTH_THRESHOLDS`.
+- `worktrees` (writable or sealed) and `refreshes` (sealed sources with a
+  `from`) are `NativePoolGrowthComparison`s:
+  - `id`, `from`, and `cold`, the cold acquisition at the root of the chain;
+  - `ownerBytes`;
+  - `basisBytes`, that acquisition's charge when it was sealed;
+  - `thresholdBytes`, `basisBytes` times the ratio, rounded down;
+  - `state`, and `flagged`, true when `ownerBytes` is strictly above
+    `thresholdBytes`.
+
+  A basis that cannot be read gives `state: "unavailable"` and null bytes,
+  never zero, and is never flagged.
+- `sources` are `NativePoolGrowthSources`, one per published name: `name`,
+  `roots` (`id`, `view`, `ownerBytes`), their summed `ownerBytes`, and
+  `flagged` when more than `retainedSources` views publish the name.
+- `flags` are `NativePoolGrowthFlag`s: `kind` (`worktree`, `refresh` or
+  `retained-sources`), `subject` (root id or name), `observedBytes`,
+  `thresholdBytes` (null for the count), `threshold`, and `observedCount`
+  (null for a ratio).
+- `omitted` counts comparisons, groups or flags left out to keep one reply
+  within the 64 KiB control bound. Unflagged detail goes first.
+
+The status is read-only. It neither reconciles, deletes, resets nor reserves
+anything, and nothing in it forecasts savings or freed capacity. It is
+unavailable in these cases:
+
+- the pool refuses for any reason other than `capacity`;
+- the owner accounting is unreadable;
+- a view holds a non-link entry;
+- a published name resolves to anything but a recorded sealed source in its
+  own view, such as a path, another view or a stale identity.
+
+The manager records each root's charge when it is sealed, so the basis
+survives the root's release. Roots sealed before this release carry none. A
+released one reads as unavailable, while a live sealed one uses its current,
+unchanging charge. The rationale is in
+[the pool decision](../decisions/reference-pool-accounting.md#background-deduplication-is-rejected-residual-growth-is-reported-3515).
+
 <a id="reference-and-worktree-tools-additive-0440-2432"></a>
 
 ### Reference and worktree tools (additive, 0.44.0, #2432)

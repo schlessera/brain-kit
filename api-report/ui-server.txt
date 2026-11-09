@@ -1591,6 +1591,54 @@ signatures (every public export and the types it is made of)
     }
   NativePoolCreatePurpose (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export type NativePoolCreatePurpose = Exclude<NativePoolRecord["purpose"], "checkpoint">;
+  NativePoolGrowth (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowth {
+        basis: "btrfs-space-info-disk-used+simple-quota-owner";
+        state: "available" | "unavailable";
+        reason: string | null;
+        generation: string | null;
+        thresholds: {
+            worktreeRatio: number;
+            refreshRatio: number;
+            retainedSources: number;
+        };
+        worktrees: NativePoolGrowthComparison[];
+        refreshes: NativePoolGrowthComparison[];
+        sources: NativePoolGrowthSources[];
+        flags: NativePoolGrowthFlag[];
+        omitted: number;
+    }
+  NativePoolGrowthComparison (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowthComparison {
+        id: string;
+        from: string;
+        cold: string | null;
+        ownerBytes: number;
+        basisBytes: number | null;
+        thresholdBytes: number | null;
+        state: "available" | "unavailable";
+        flagged: boolean;
+    }
+  NativePoolGrowthFlag (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowthFlag {
+        kind: "worktree" | "refresh" | "retained-sources";
+        subject: string;
+        observedBytes: number;
+        thresholdBytes: number | null;
+        threshold: number;
+        observedCount: number | null;
+    }
+  NativePoolGrowthSources (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolGrowthSources {
+        name: string;
+        roots: {
+            id: string;
+            view: string;
+            ownerBytes: number;
+        }[];
+        ownerBytes: number;
+        flagged: boolean;
+    }
   NativePoolRecord (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolRecord {
         id: string;
@@ -2450,6 +2498,7 @@ signatures (every public export and the types it is made of)
         poolCheckpoint: (id: string, from: string, signal?: AbortSignal) => Promise<NativePoolCheckpoint>;
         poolCreate: (id: string, purpose: NativePoolCreatePurpose, from: null | string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolDelta: (from: string, to: string, signal?: AbortSignal) => Promise<NativeDeltaStream>;
+        poolGrowth: (signal?: AbortSignal) => Promise<NativePoolGrowth>;
         poolListCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
         poolPark: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolPublish: (id: string, view: string, name: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
