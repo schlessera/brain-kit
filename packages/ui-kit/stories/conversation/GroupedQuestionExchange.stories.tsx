@@ -10,15 +10,32 @@ import { groupedQuestions } from "../../fixtures/actions.js";
 import { Composer } from "../../src/chrome/Composer.js";
 import { TextButton } from "../../src/primitives/TextButton.js";
 import { overflowing, stage, wide } from "../_stage.js";
+import { ConsumerDocument, consumerStyled } from "./_consumer-parity.js";
 
 const sent = fn();
 
 /** A deterministic agent frame traverses the production handler, store,
- * transcript binding and composer. No model or server credentials involved. */
+ * transcript binding and composer. No model or server credentials involved.
+ * `MessageBubble` is ui-react's, so it renders in ui-react's compiled
+ * stylesheet: without it the turn header is bare markup (#3753). The outer
+ * box fills the stage, which aligns its children to the start. */
 function ChatFixture() {
   const [root] = useState(() => createBrainUiRoot({ storage: null }));
   useEffect(() => () => root.dispose(), [root]);
-  return <BrainUiProvider root={root}><Transcript /></BrainUiProvider>;
+  return <div style={{ width: "100%" }}><ConsumerDocument>
+    <BrainUiProvider root={root}><Transcript /></BrainUiProvider>
+  </ConsumerDocument></div>;
+}
+
+/** The turn header is drawn as in the app: a wrapping row, the 10px mono time. */
+async function turnHeaderStyled(canvasElement: HTMLElement) {
+  await consumerStyled();
+  const times = [...canvasElement.querySelectorAll<HTMLElement>("[data-turn-time]")];
+  await expect(times.length, "the brain turn has a header time").toBeGreaterThan(0);
+  for (const time of times) {
+    await expect(getComputedStyle(time.parentElement!).display, "the header is a row").toBe("flex");
+    await expect(getComputedStyle(time).fontSize, "the time is set in its own type").toBe("10px");
+  }
 }
 
 function Transcript() {
@@ -57,6 +74,7 @@ export const PhoneChat = meta.story({
     await userEvent.click(canvas.getByRole("button", { name: "Deliver agent request fixture" }));
     await expect(document.activeElement).toBe(composer);
     await expect(canvas.getAllByText(/needs your input/)).toHaveLength(1);
+    await turnHeaderStyled(canvasElement);
     await expect(canvasElement.querySelectorAll("[data-group-actions]")).toHaveLength(1);
     // Sending ordinary composer text does not consume or reset the exchange.
     await userEvent.type(composer, "keep the plan visible{Enter}");
