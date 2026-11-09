@@ -9,7 +9,7 @@ const root = resolve(import.meta.dir, "..");
 test("every runtime package hook has one inventoried actual forward closure and no boolean bypass", async () => {
   const directory = join(root, "packages/ui-react/tests");
   const hooks = readdirSync(directory).filter(name => name.endsWith(".test.ts") && readFileSync(join(directory, name), "utf8").includes("runtimePackageBuild("));
-  expect(hooks).toHaveLength(20);
+  expect(hooks).toHaveLength(21);
   expect(hooks.map(name => `packages/ui-react/tests/${name}`).sort()).toEqual(Object.keys(runtimeBuildInventory).sort());
   for (const file of hooks) {
     const text = readFileSync(join(directory, file), "utf8");
