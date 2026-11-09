@@ -11,6 +11,7 @@ import { TranscriptQualifiers } from "@schlessera/brain-ui-kit/internal";
 import { transcriptTimelineFor } from "../../src/lib/transcript-timeline.js";
 import type { ConversationRecognition } from "../../src/voice/conversation-client.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
+import { pointDetails } from "./spoken-details.js";
 
 const SESSION = "odysseus-raft";
 let styles: HTMLStyleElement;
@@ -83,7 +84,7 @@ test("review: incoming rows preserve open details and focus fallback", async ctx
   const s=await scene(ctx);
   const outputs=Array.from({length:40},(_,i)=>({conversationId:"odysseus-voice",epoch:1,sessionId:SESSION,providerId:"gemini-live",outputId:`raft-${i}`,generated:`Raft report ${i}.`,playback:"unknown" as const}));
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs}));
-  const trigger=qualifier(s.host,"generated"); trigger.scrollIntoView(); await userEvent.click(trigger);
+  const trigger=qualifier(s.host,"generated"); trigger.scrollIntoView(); await pointDetails(trigger);
   expect(document.querySelector("dialog[open]")).not.toBeNull();
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[...outputs,{...outputs[0]!,outputId:"raft-new",generated:"A new report."}]}));
   console.log("REVIEW_WINDOW",JSON.stringify({dialog:!!document.querySelector("dialog[open]"),connected:trigger.isConnected,focus:document.activeElement?.tagName}));
@@ -125,7 +126,7 @@ test("canonical source removal closes details onto a surviving reading anchor", 
   const s = await scene(ctx);
   const output = {conversationId:"odysseus-voice",epoch:1,sessionId:SESSION,providerId:"gemini-live",outputId:"raft-source",generated:"The raft source.",playback:"unknown" as const};
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[output]}));
-  const trigger=qualifier(s.host,"generated"); const readingAnchor = trigger.closest("[data-reading-column]"); await userEvent.click(trigger);
+  const trigger=qualifier(s.host,"generated"); const readingAnchor = trigger.closest("[data-reading-column]"); await pointDetails(trigger);
   expect(document.querySelector("dialog[open]")).not.toBeNull();
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[{...output,outputId:"raft-retained",generated:"Another retained report."}]}));
   await expect.poll(()=>document.querySelector("dialog[open]")).toBeNull();
@@ -155,15 +156,16 @@ for (const kind of ["recognized", "legend"] as const) test(`recognition ${kind} 
   expect(s.host.querySelectorAll("[data-arrival-key]")).toHaveLength(40);
 });
 
-test("focused qualifier explanation retains its source before activation", async ctx => {
+test("a focused Details stop retains its source before activation", async ctx => {
   const s=await scene(ctx);
   const outputs=Array.from({length:40},(_,i)=>({conversationId:"odysseus-voice",epoch:1,sessionId:SESSION,providerId:"gemini-live",outputId:`focus-raft-${i}`,generated:`Report ${i}.`,playback:"unknown" as const}));
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs}));
   const trigger=qualifier(s.host,"generated"); trigger.scrollIntoView(); trigger.focus();
-  await expect.poll(()=>document.querySelector('[role="tooltip"]')).not.toBeNull();
+  await expect.poll(()=>getComputedStyle(trigger).clipPath, "focus shows the Details pill").toBe("none");
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[...outputs,{...outputs[0]!,outputId:"focus-tail"}]}));
   expect(document.activeElement).toBe(trigger);
-  expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+  expect(trigger.isConnected, "the focused stop's row stays mounted").toBe(true);
+  expect(getComputedStyle(trigger).clipPath).toBe("none");
   await userEvent.keyboard("{Escape}{Tab}");
   await expect.poll(()=>s.host.querySelectorAll("[data-arrival-key]").length).toBe(40);
   expect(trigger.isConnected).toBe(false);

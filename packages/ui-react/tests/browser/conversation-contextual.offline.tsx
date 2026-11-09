@@ -12,6 +12,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
+import { pointDetails } from "./spoken-details.js";
 
 const SESSION = "odysseus-ithaca";
 const CAPS: ConversationCapabilities = { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" };
@@ -593,7 +594,7 @@ test("cold restored speech explicitly has unknown original discussion position",
   await expect.poll(() => s.host.querySelector("[data-conversation-output]")?.textContent).toContain("An earlier voyage reply.");
   // #3700: the unknown position is evidence in the details, not a diagnostic line in the chat.
   expect(s.host.querySelector("[data-conversation-output]")!.textContent).not.toContain("Original discussion position unknown");
-  await userEvent.click(s.host.querySelector<HTMLButtonElement>('[data-conversation-output] [data-transcript-qualifiers="generated"]')!);
+  await pointDetails(s.host.querySelector<HTMLButtonElement>('[data-conversation-output] [data-transcript-qualifiers="generated"]')!);
   await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Original discussion position unknown");
   await userEvent.keyboard("{Escape}");
   expect(s.client.state.getState().micOn).toBe(false);
@@ -1027,7 +1028,7 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
   expect(s.client.state.getState().recognition[1]).toMatchObject({ kind: "input_fragment", utteranceId: s.socket.frames("conversation_audio").at(-1)!.utteranceId, sequence: 0 });
   s.event({ kind: "unassigned_input_fragment", sequence: 1, text: "", timing: { kind: "unavailable" }, finalization: "final" });
   const finishTrigger = s.host.querySelector<HTMLButtonElement>("[data-transcript-qualifiers=recognized]")!;
-  await userEvent.click(finishTrigger);
+  await pointDetails(finishTrigger);
   await expect.poll(() => document.querySelector("dialog[open]")?.textContent).toContain("Service finish marker received");
   await userEvent.keyboard("{Escape}");
   expect(s.host.querySelectorAll("[data-conversation-recognition]")).toHaveLength(2);
