@@ -249,7 +249,9 @@ async function mount(ctx: TestContext, width: number, height: number, theme: "da
 const rect = (el: Element) => el.getBoundingClientRect();
 const composer = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
 const chips = (s: Scene) => [...s.host.querySelectorAll<HTMLImageElement>("[data-composer] img")];
+/** The draft indicator beside Attach (#3155): its state key, and the summary its tooltip and details show. */
 const saveLine = (s: Scene) => s.host.querySelector<HTMLElement>("[data-draft-save]");
+const saveSummary = (s: Scene) => saveLine(s)?.dataset.draftSummary;
 
 /** Counts alone also accept a broken image element: inspect what Chromium decoded. */
 async function expectDraftImage(s: Scene) {
@@ -343,7 +345,7 @@ for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme 
     await attach(s, await pngFile("bag-of-winds.png", "#1e5aa0"));
     await expect.poll(() => chips(s).length, { message: "A's image is in A's composer" }).toBe(1);
     await expect.poll(() => saveLine(s)?.dataset.draftSave, { message: "A's draft is saved on the host" }).toBe("saved");
-    expect(saveLine(s)!.textContent).toBe("draft · saved");
+    expect(saveSummary(s)).toMatch(/^Draft saved \d\d:\d\d: this text and 1 file\.$/);
     await expectDraftImage(s);
 
     // New chat: an empty composer, and nothing sent, cancelled or asked.
@@ -355,7 +357,8 @@ for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme 
     await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "the new-chat view" }).toBeNull();
     expect(composer(s).value, "B starts empty").toBe("");
     expect(chips(s), "B shows none of A's images").toHaveLength(0);
-    expect(saveLine(s), "no save line while there is no draft").toBeNull();
+    expect(saveLine(s)?.dataset.draftSave, "no draft state while there is no draft").toBe("none");
+    expect(saveLine(s)!.querySelector("button"), "the indicator is hidden, its slot kept").toBeNull();
     expect(s.socket.frames("chat_message"), "nothing was sent").toHaveLength(0);
     expect(s.socket.frames("cancel"), "nothing was cancelled").toHaveLength(0);
 
@@ -450,7 +453,7 @@ for (const width of [320, 390] as const) for (const theme of THEMES) {
     expect(document.activeElement, "the composer has focus").toBe(composer(s));
     await type(s, "Half a thought about the Phaeacians");
     await expect.poll(() => saveLine(s)?.dataset.draftSave, { message: "saved while typing" }).toBe("saved");
-    expect(rect(saveLine(s)!).bottom, "the save line is on screen above the keyboard").toBeLessThanOrEqual(window.innerHeight);
+    expect(rect(saveLine(s)!.querySelector(".bk-status-indicator")!).bottom, "the draft indicator is on screen above the keyboard").toBeLessThanOrEqual(window.innerHeight);
     // Mid-edit, to another session and back.
     s.ui.stores.chat.getState().clearMessages();
     s.ui.stores.chat.getState().setActiveSession(RAFT.id);
@@ -518,7 +521,7 @@ for (const width of [390, 1440] as const) for (const theme of THEMES) {
     const mode = pointer();
     const local = await mount(ctx, width, 800, theme, { drafts: false });
     await type(local, "Ask Nausicaa about the washing place");
-    await expect.poll(() => saveLine(local)?.textContent, { message: "the unavailable copy" }).toBe("draft · this host doesn't keep drafts · kept on this device");
+    await expect.poll(() => saveSummary(local), { message: "the unavailable copy" }).toBe("Not saved: this host doesn't keep drafts. Your text is kept on this device.");
     flushSync(() => local.host.remove());
 
     const s = await mount(ctx, width, 800, theme);
@@ -527,14 +530,19 @@ for (const width of [390, 1440] as const) for (const theme of THEMES) {
     s.drafts.race("Ask Eumaeus at dawn");
     await type(s, "Ask Eumaeus about the dog");
     await expect.poll(() => saveLine(s)?.dataset.draftSave, { message: "the conflict" }).toBe("conflict");
-    expect(saveLine(s)!.textContent).toBe("draft changed on another device·Compare");
+    expect(saveSummary(s)).toBe("Draft changed on another device. Compare to choose which to keep.");
     expect(composer(s).value, "the visible words stay").toBe("Ask Eumaeus about the dog");
+    // Compare is the indicator's detail action: open details, then Compare.
+    await press(s, await must(s, "Draft: Draft changed on another device. Details."), mode);
     const compare = await must(s, "Compare drafts");
     if (mode !== "fine") {
-      // The button's reach, not its paint: 44px around the word.
+      // The button's reach, not its paint: 44px about the label.
       const r = rect(compare);
-      const reach = document.elementFromPoint(r.left + r.width / 2, r.top - 12);
-      expect(compare.contains(reach), "the reach above the word is the button's").toBe(true);
+      const reach = (44 - r.height) / 2;
+      expect(reach, "a paint under 44px needs reach").toBeGreaterThan(1);
+      for (const y of [r.top - reach + 1, r.bottom + reach - 1]) {
+        expect(compare.contains(document.elementFromPoint(r.left + r.width / 2, y)), "the reach beyond the paint is the button's").toBe(true);
+      }
     }
     await userEvent.keyboard("{Tab}"); compare.focus();
     const compareRing = getComputedStyle(compare);

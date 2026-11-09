@@ -39,7 +39,7 @@ import { bindableFiles, draftFiles as draftFilesOf, draftSnapshots, type Compose
 import { focusOldestSnapshot } from "./outgoing-snapshots.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
-import { DraftSaveLine } from "./draft-save-line.js";
+import { DraftIndicator } from "./draft-indicator.js";
 import { WorkerHostNotice } from "./worker-host-notice.js";
 import { useSessionProfile } from "../../hooks/use-session-profile.js";
 import { useLocalWorkStatus, useWorkRestore } from "../../hooks/use-local-work.js";
@@ -78,6 +78,13 @@ type PendingSend = { requestId: string; key: string | null; effort: DraftEffort 
 
 const NO_ATTACHMENTS: PendingAttachment[] = [];
 const NO_FILES: DraftFile[] = [];
+
+/** The reload notice (rev 5 §1): a fact about the binding, never about what the host stored. */
+function uploadNoticeCopy(names: readonly string[]): string {
+  if (names.length === 1) return `${names[0]} was still uploading when the page closed. It isn't attached. Choose it again to attach it.`;
+  const list = `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${list} were still uploading when the page closed. They aren't attached. Choose them again to attach them.`;
+}
 
 /**
  * What the chat page may ask of the composer without reaching into its DOM:
@@ -121,6 +128,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const localSaveFailed = useLocalWorkStatus((s) => s.failed);
   const restoreSelection = useWorkRestore((s) => s.selection);
   const restoreFocus = useWorkRestore((s) => s.focusId);
+  // Files that were still uploading when the page closed (#3155, rev 5 §1).
+  // A session's view matches by its session too: its draft id may be new after the reload.
+  const closedUploadsFor = (u: { draftId: string; sessionId: string | null }) => u.draftId === draftId || (sessionId !== null && u.sessionId === sessionId);
+  const closedUploads = useWorkRestore((s) => s.uploads?.find(closedUploadsFor)?.names ?? null);
   useEffect(() => root.localWork?.register(() => {
     const field = frameRef.current?.querySelector("textarea");
     return field ? { selectionStart: field.selectionStart, selectionEnd: field.selectionEnd } : {};
@@ -232,8 +243,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const hasSettledTurn = useChatStore((s) => activeChat(s).messages.some((m) => m.role === "assistant" && !m.isStreaming));
   const handoffEntry = useHandoffEntry(sessionId, hasSettledTurn);
   const wsStatus = useConnectionStore((s) => s.wsStatus);
+  // The browser's own word on the network, for the draft indicator's offline state (#3155).
+  const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
   useEffect(() => {
     const changed = () => {
+      setBrowserOnline(navigator.onLine !== false);
       const online = wsStatus === "connected" && navigator.onLine !== false;
       trackUploads.setOnline(online);
       fileQueue.setOnline(online);
@@ -1049,6 +1063,9 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             if (current) root.stores.drafts.getState().edit(draftId, sessionId, { files: draftFilesOf(current).filter((f) => f.file.fileId !== fileId) });
           }}
           fileAnnouncement={fileAnnouncement}
+          status={<DraftIndicator draftId={draftId} queued={queuedFiles} online={browserOnline && wsStatus === "connected"} />}
+          uploadNotice={closedUploads?.length ? uploadNoticeCopy(closedUploads) : undefined}
+          onDismissUploadNotice={() => root.localWork?.restore.setState((s) => ({ uploads: (s.uploads ?? []).filter((u) => !closedUploadsFor(u)) }))}
           attachErrors={attachErrors}
           chatProfile={sessionProfile.chat}
           provider={
@@ -1134,8 +1151,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           }}
         />
         {knownVoiceDraft && <p className="px-2 text-xs text-muted-foreground" data-voice-draft-explanation="">Voice draft · not submitted as a Brain task. The voice service already received audio. These words remain a draft for a separate Brain task. A voice reply does not submit this draft.</p>}
-        {/* What became of this draft's save, under the field (D52 §5). */}
-        <DraftSaveLine draftId={draftId} />
       </div>}
       <ConversationUnassigned onReview={() => queueMicrotask(focusField)} />
     </>

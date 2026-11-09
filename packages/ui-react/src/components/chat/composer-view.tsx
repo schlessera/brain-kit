@@ -98,6 +98,18 @@ export interface ComposerViewProps {
   onRemoveStoredFile?: (fileId: string) => void;
   /** Polite, once: a file's upload reached an end state (stored, failed, refused). */
   fileAnnouncement?: string;
+  /**
+   * The draft's compact status beside Attach (additive, #3155): the draft
+   * indicator, or its reserved empty slot. Absent: no slot is drawn.
+   */
+  status?: ReactNode;
+  /**
+   * Files that were still uploading when the page closed (#3155, rev 5
+   * §1): a dismissible notice that names them. It claims nothing about what
+   * the host stored or will remove.
+   */
+  uploadNotice?: string;
+  onDismissUploadNotice?: () => void;
   attachErrors: string[];
   provider: ComposerProvider | null;
   chatProfile?: ModelPickerProps["chat"];
@@ -225,6 +237,12 @@ export function ComposerView(p: ComposerViewProps) {
           {p.onDismissCaptureNotice && <Button label="Dismiss" ariaLabel="Dismiss capture notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissCaptureNotice} />}
         </div>
       )}
+      {p.uploadNotice && (
+        <div className="mb-2 flex items-start gap-2" role="status" data-upload-notice="">
+          <div className="min-w-0 flex-1" data-upload-notice-text=""><Callout tone="gold" variant="boxed" icon="attention" text={p.uploadNotice} /></div>
+          {p.onDismissUploadNotice && <Button label="Dismiss" ariaLabel="Dismiss upload notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissUploadNotice} />}
+        </div>
+      )}
       {p.attachErrors.length > 0 && (
         <div className="mb-2 flex items-start gap-2" role="alert">
           <div className="min-w-0 flex-1">
@@ -303,6 +321,7 @@ export function ComposerView(p: ComposerViewProps) {
         micLabel={p.micLabel}
         micTip={p.micTip}
         micUnavailable={p.micUnavailable}
+        status={p.status}
       />
     </div>
   );

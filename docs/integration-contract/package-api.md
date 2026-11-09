@@ -277,6 +277,34 @@ The kit's `StatusIndicatorProps.announce` is described with
 [the indicator](#ui-kit-compact-operation-status-additive-3281). No other
 export changes.
 
+## Composer draft indicator (additive, 0.45.0, #3155)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`status?: ReactNode`. It is a compact status placed beside the attach trigger,
+in the order attach · status · field · mic · send/stop. The kit places it in a
+44px box that takes a 28px place in the row, so the field keeps its height,
+and draws nothing for it on a `plain` surface. Omitted, the row is unchanged.
+`@schlessera/brain-ui-react`'s composer passes its draft indicator, a
+`StatusIndicator`, there. The indicator replaces the save line that was under
+the field
+([the D52 amendment](../decisions/design-kit/sessions-and-drafts.md)).
+`DraftSaveLine`'s behaviour is unchanged where it is still used.
+
+`BrainUiConnection.drafts` gains `checkSave(draftId)`. It is Check again for a
+draft save whose answer was lost: one `GET /api/drafts/:draftId`, never a save.
+It resolves to one of these:
+
+- `saved`: the host's revision is the one that save would have made, with the
+  same text, images, original bindings and snapshot list. The draft takes it
+  as acknowledged.
+- `not_saved`: the host still holds the revision before the save.
+- `changed`: the host holds something else.
+- `unreachable`
+- `none`: no save of that draft is unanswered.
+
+No route, wire frame or other export changes. `api-report/` records the added
+prop.
+
 ## Reading composer attachments (additive, 0.45.0, #3154)
 
 `@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
