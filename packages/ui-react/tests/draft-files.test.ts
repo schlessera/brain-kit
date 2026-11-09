@@ -133,3 +133,25 @@ test("a host draft restores its originals with this id's lineage, and a device c
   const kept = parseDraft(JSON.parse(JSON.stringify(storeDraft(d))));
   expect(kept?.files).toEqual([{ file: PERMIT, lineage: hostDraft.draftId }]);
 });
+
+test("a reload names the files still uploading, never their bytes; a held snapshot's and a refused one are not the composer's (#3155)", async () => {
+  const { filesFor, subscribeAllFiles, uploadingNames } = await import("../src/lib/draft-files.ts");
+  // Every upload waits: nothing answers before the "reload".
+  const ui = createBrainUiRoot({ storage: null, request: (url) => String(url).includes("refused") ? Promise.resolve(Response.json({ error: "ATTACHMENT_CAPACITY" }, { status: 507 })) : new Promise<Response>(() => {}) });
+  roots.push(ui);
+  const id = ui.stores.drafts.getState().idFor(SESSION);
+  let changes = 0;
+  const stop = subscribeAllFiles(ui, () => { changes++; });
+  const entry = filesFor(ui, `session:${SESSION}`, SESSION);
+  entry.queue.add([new File(["%PDF-1.4"], "harbor-permit-2026.pdf"), new File(["Eurylochus"], "crew-list.txt")], id, { count: 0, bytes: 0 }, null);
+  expect(changes, "each queue change is seen").toBeGreaterThan(0);
+  expect(uploadingNames(ui)).toEqual([{ draftId: id, sessionId: SESSION, names: ["harbor-permit-2026.pdf", "crew-list.txt"] }]);
+  entry.queue.assign([entry.queue.files[1]!.id], "snapshot-held");
+  expect(uploadingNames(ui), "a held snapshot's upload is that message's").toEqual([{ draftId: id, sessionId: SESSION, names: ["harbor-permit-2026.pdf"] }]);
+  const refused = filesFor(ui, "draft:refused", null);
+  refused.queue.add([new File(["x"], "dock-walk.mov")], "refused", { count: 0, bytes: 0 }, null);
+  await turn();
+  expect(refused.queue.files[0]?.state).toBe("refused");
+  expect(uploadingNames(ui).map((u) => u.names).flat(), "a refused file is not uploading").not.toContain("dock-walk.mov");
+  stop();
+});
