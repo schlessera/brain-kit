@@ -50,6 +50,13 @@ export interface HandoffClock {
   framesAfterFade: number;
   /** Frames rendered after arrival, up to removal. */
   framesAfterArrival: number;
+  /**
+   * Both layers' opacity in the first rendered frame whose `ghost-out` fade
+   * is running and at least a tenth through (#3755). Taken here, on the
+   * page's own frames, because the story's click can resolve after the
+   * whole fade on a loaded runner. Absent if no such frame rendered.
+   */
+  midFade?: { out: number; incoming: number; fadeTime: number };
   /** Resolves on removal, or once the ghost has outlived its fade by more than the allowance. */
   settled: Promise<void>;
   /** Re-checks the frame, for a mutation the observer has not delivered yet. */
@@ -96,8 +103,22 @@ export function watchHandoff(frame: HTMLElement, isArrival: (frame: HTMLElement)
     }
   }
 
+  function sampleMidFade() {
+    const out = frame.querySelector(".bk-ghost-out");
+    const fade = out?.getAnimations().find(a => (a as CSSAnimation).animationName === "ghost-out");
+    const fadeTime = Number(fade?.currentTime ?? 0);
+    if (!out || fade?.playState !== "running" || fadeTime < FADE_MS / 10) return;
+    const incoming = frame.querySelector(".bk-ghost-in");
+    clock.midFade = {
+      out: Number(getComputedStyle(out).opacity),
+      incoming: incoming ? Number(getComputedStyle(incoming).opacity) : NaN,
+      fadeTime,
+    };
+  }
+
   function tick() {
     clock.framesAfterArrival = ++frames;
+    if (!clock.midFade) sampleMidFade();
     if (frames > FRAMES_AFTER_ARRIVAL) return settle();
     if (fadeEndedAt !== undefined) {
       clock.framesAfterFade = frames - fadeEndedAt;
