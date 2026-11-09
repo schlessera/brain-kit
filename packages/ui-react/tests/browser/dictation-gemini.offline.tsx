@@ -212,11 +212,12 @@ for (const rate of [44_100, 48_000]) {
     await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
     expect(audio.streams[0]!.getTracks().map((track) => track.readyState), "Done closes the microphone first").toEqual(["ended"]);
     expect(s.ui.stores.voice.getState().mode, "Done waits for the last final").toBe("dictate");
-    // The tone never stops, so Google's ACTIVITY_END places the whole stream.
+    // The tone never stops, so Google's ACTIVITY_END places the whole stream,
+    // in the 10 ms steps Google reports.
     const streamed = audioFrames(speech).reduce((samples, frame) => samples + atob(frame.data).length / 2, 0);
     speech.deliver({ serverContent: { inputTranscription: { text: "And the harbor." } } });
     speech.deliver({ serverContent: { generationComplete: true } });
-    speech.deliver({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: `${(streamed / 16_000).toFixed(3)}s` } });
+    speech.deliver({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: `${(Math.floor(streamed / 160) / 100).toFixed(2)}s` } });
     // Well inside the 1.5 s tail window and the 3 s cap: Google's answer ended it.
     await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "GEMINI_BROWSER_DRAIN_ON_ANSWER", timeout: 1_000 }).toBe("idle");
     expect(s.ui.stores.voice.getState().reviewText, "each final commits exactly once").toBe("Ask Nestor about the ships. And the harbor.");
@@ -309,7 +310,8 @@ test("Done keeps the worklet's partial block: every captured sample reaches Goog
   expect(received.length, "GEMINI_BROWSER_DONE_KEEPS_TAIL sample count").toBe(expected.length);
   expect([...received], "GEMINI_BROWSER_DONE_KEEPS_TAIL samples").toEqual(expected);
   expect(audio.streams[0]!.getTracks().map((track) => track.readyState), "the microphone closes once the tail is in").toEqual(["ended"]);
-  speech.deliver({ serverContent: { turnComplete: true } });
+  speech.deliver({ serverContent: { generationComplete: true } });
+  speech.deliver({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: `${(Math.floor(received.length / 160) / 100).toFixed(2)}s` } });
   await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the drain ended the dictation" }).toBe("idle");
 });
 

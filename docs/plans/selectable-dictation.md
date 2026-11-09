@@ -103,8 +103,8 @@ synthetic TTS audio, no device):**
   end when speech ran into it.
 - After `audioStreamEnd`, Google sends the pending final and `generationComplete`
   (+253 ms measured). When nothing is pending it sends nothing at all.
-  `finished` and `turnComplete` never came, so Done waits for
-  `generationComplete` (#3768).
+  `finished` and `turnComplete` never came, so Done ends on Google's answer
+  rather than on those flags (#3768).
 - A pause ends a segment, so SMART formats a spoken list only within one
   segment.
 - With automatic language detection, a short English segment was once
@@ -399,20 +399,27 @@ x-goog-api-key: <server key>
   `error`, `goAway` and unknown-close reasons map to `speechError` codes
   without exposing their text.
 - **Done (`drainAndStop`).** Stop the tracks, flush the partial chunk and send
-  `audioStreamEnd`. Then, after every message Google sends:
-  - While a segment is open (a `SPEECH` state or an interim that no final or
-    `generationComplete` has closed), wait.
-  - While the microphone heard voice (block RMS ≥ 0.015) past Google's last
-    `ACTIVITY_END` offset, wait up to **1.5 s** of quiet: Google has not yet
-    signalled that speech, and an earlier segment's completion may still be
-    arriving. If Google never calls it speech, Done ends there.
-  - Otherwise Google's answer is complete and Done ends at once. With no
-    answer at all (nothing was pending), it ends after **300 ms** of quiet.
+  `audioStreamEnd`. Then, at the stream end and after every later message
+  about speech (an interim, a final, `speechState`, `generationComplete`,
+  `turnComplete` or `voiceActivity`; any other message is ignored):
+  - While a segment is open (a `SPEECH` state or an interim that no final,
+    `generationComplete`, `finished` or `turnComplete` has closed), wait.
+  - While the microphone heard voice (block RMS ≥ 0.015) more than one frame
+    past Google's last `ACTIVITY_END` offset, wait a **1.5 s** tail window:
+    Google has not yet signalled that speech, and an earlier segment's answer
+    may still be arriving. Later messages do not restart a running window; if
+    Google never calls the voice speech, Done ends when it lapses.
+  - When a message's `ACTIVITY_END` reaches the stream end (within one frame,
+    since Google reports 10 ms steps), Done ends at once.
+  - Otherwise wait **300 ms** of quiet, restarted by each such message. This
+    covers the stream end with nothing pending, and an earlier segment's
+    answer that stops short of the stream end, where speech too quiet for the
+    RMS bar may still be signalled.
 
-  A lapsed quiet first processes messages that already arrived, so a final
-  still decoding is kept. `finished` or `turnComplete` also end Done, and
-  **3 s** caps all of it (#3768). Close either way. Words already heard are
-  kept.
+  A lapsed window first processes messages that already arrived, so a final
+  still decoding is kept, and one that reopened a segment wins. The RMS bar
+  is a heuristic: speech it misses gets only the 300 ms window. **3 s** caps
+  all of it (#3768). Close either way. Words already heard are kept.
 - **Hard stop, cancel, unmount, superseded start.** Close the socket (1000),
   disconnect the worklet, close the AudioContext, stop the tracks, clear the
   timers and the queue, and ignore every later message, because the existing
