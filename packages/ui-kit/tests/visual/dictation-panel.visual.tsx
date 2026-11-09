@@ -216,7 +216,8 @@ function signature(el: Element): string {
   const text = named ? ` "${el.textContent}"` : "";
   const skip = el.matches(".bk-voice-text, .bk-voice-label-meta, .bk-voice-notice-body");
   const children = skip ? (el.matches(".bk-voice-text") ? `[${[...el.querySelectorAll(".bk-voice-text-placeholder")].map(signature).join(",")}]` : "")
-    : [...el.children].map(signature).join(",");
+    // The draft's save state beside Attach (#3776) is not part of any dictation story.
+    : [...el.children].filter(child => !child.matches("[data-composer-status]")).map(signature).join(",");
   return `<${el.tagName.toLowerCase()} ${attrs}${label}${text}>${children}`;
 }
 
