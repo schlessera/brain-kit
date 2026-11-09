@@ -17,8 +17,8 @@ export function Handoff({ render }: { render: (loading: boolean, width: number) 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, width: "100%" }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <TextButton inline label="Reload" onClick={() => setLoading(true)} />
-        <TextButton inline label="Land" onClick={() => setLoading(false)} />
+        <TextButton label="Reload" onClick={() => setLoading(true)} />
+        <TextButton label="Land" onClick={() => setLoading(false)} />
       </div>
       {[320, 720].map((width) => (
         <div key={width} data-width={width} style={{ width, maxWidth: "100%" }}>
@@ -71,32 +71,42 @@ export async function playHandoff({
   const handoffs = loading.map(frame => ({ frame, clock: watchHandoff(frame, f => !f.hasAttribute("aria-busy") && f.querySelector(".bk-ghost-out") !== null) }));
   try {
     await userEvent.click(await canvas.findByRole("button", { name: "Land" }));
+    // The geometry is read now, in the arrival's own task neighbourhood, and
+    // asserted after the mid-fade sample: an awaited assertion is an
+    // instrumented round trip that costs 40-300ms on a loaded runner.
     const arriving = frames(canvasElement);
+    const arrivedBusy = arriving.map((f) => f.getAttribute("aria-busy"));
     const arrivedRects = arriving.map((f) => f.getBoundingClientRect());
-    for (const [i, f] of arriving.entries()) {
-      await expect(f.getAttribute("aria-busy")).toBeNull();
-      // Same box loading and ready: the line count matched, and nothing moved.
-      await expect(Math.abs(arrivedRects[i]!.height - ghostRects[i]!.height)).toBeLessThanOrEqual(1);
-      await expect(Math.abs(arrivedRects[i]!.top - ghostRects[i]!.top)).toBeLessThanOrEqual(1);
-      await expect(Math.abs(arrivedRects[i]!.height - ready[i]!.height)).toBeLessThanOrEqual(1);
-    }
-    for (const [i, top] of afters(canvasElement).entries()) await expect(Math.abs(top - ghostAfter[i]!)).toBeLessThanOrEqual(1);
+    const arrivedAfter = afters(canvasElement);
 
     // Mid-handoff, both layers are part-way: the ghost going, the text coming.
-    await new Promise((r) => setTimeout(r, 300));
+    // The clock samples this on the page's own frames, from the fade's start
+    // (#3755). A wait counted from the click cannot: on a loaded runner the
+    // click resolves up to ~375ms after the frame commits its arriving layers
+    // (sometimes after the whole fade), so a fixed 300ms wait from there landed
+    // 370-770ms into the 600ms fade, after the ghost was gone. The harness
+    // controls' height only shifted that by luck. A later point in the fade is
+    // no safer: the ghost is removed on a timer started at the commit, and a
+    // saturated browser can start the CSS animation 300ms late, so the window
+    // both clocks agree on opens with the fade itself.
+    const sampledFrame = handoffs[0]!;
+    // React commits the arrival inside the click, so it is observable now;
+    // without an outgoing layer there is no handoff to wait for.
+    sampledFrame.clock.observe();
+    await expect(sampledFrame.clock.arrived, "320px: arriving layers committed over the ghost").toBe(true);
+    await sampledFrame.clock.settled;
     const sampledAt = performance.now();
-    const outgoingElement = canvasElement.querySelector(".bk-ghost-out");
-    const out = opacity(outgoingElement);
-    const incomingElement = canvasElement.querySelector(".bk-ghost-in");
-    const incoming = opacity(incomingElement);
+    const mid = sampledFrame.clock.midFade;
+    const out = mid?.out ?? NaN;
+    const incoming = mid?.incoming ?? NaN;
     try {
       await expect(out).toBeGreaterThan(0);
       await expect(out).toBeLessThan(1);
       await expect(incoming).toBeGreaterThan(0);
       await expect(incoming).toBeLessThan(1);
     } catch (error) {
-      // Read native animation state only AFTER the original oracle fails: an
-      // earlier style read can start pending animations and hide the boundary.
+      // Read native animation state only AFTER the original oracle fails; the
+      // clock's own frame sample is the only read during the fade.
       // Diagnostic failures must never replace the original assertion error.
       try {
         const captureDocument = (view: Window) => ({
@@ -134,8 +144,7 @@ export async function playHandoff({
         };
         const allFrames = frames(canvasElement);
         console.error("Ghost handoff failure: " + JSON.stringify({
-          sampledAt, sampled: { out, incoming },
-          sampledOutgoingPresent: outgoingElement !== null, sampledIncomingPresent: incomingElement !== null,
+          sampledAt, midFade: mid ?? null, framesAfterArrival: sampledFrame.clock.framesAfterArrival, sampled: { out, incoming },
           capturedAt: performance.now(),
           timeline: document.timeline.currentTime, theme: document.documentElement.dataset.theme,
           frameCount: allFrames.length, framesTruncated: allFrames.length > 2,
@@ -149,7 +158,7 @@ export async function playHandoff({
               layers: layers.slice(0, 32).map((el, index) => {
                 const animations = el.getAnimations();
                 return {
-                  index, selectedOutgoing: el === outgoingElement, selectedIncoming: el === incomingElement,
+                  index,
                   classes: String(el.className).slice(0, 128), classesTruncated: String(el.className).length > 128,
                   opacity: opacity(el),
                   animationCount: animations.length, animationsTruncated: animations.length > 4,
@@ -170,6 +179,15 @@ export async function playHandoff({
       } catch { /* Keep the original assertion authoritative if capture fails. */ }
       throw error;
     }
+
+    for (const [i, busy] of arrivedBusy.entries()) {
+      await expect(busy).toBeNull();
+      // Same box loading and ready: the line count matched, and nothing moved.
+      await expect(Math.abs(arrivedRects[i]!.height - ghostRects[i]!.height)).toBeLessThanOrEqual(1);
+      await expect(Math.abs(arrivedRects[i]!.top - ghostRects[i]!.top)).toBeLessThanOrEqual(1);
+      await expect(Math.abs(arrivedRects[i]!.height - ready[i]!.height)).toBeLessThanOrEqual(1);
+    }
+    for (const [i, top] of arrivedAfter.entries()) await expect(Math.abs(top - ghostAfter[i]!)).toBeLessThanOrEqual(1);
 
     await Promise.all(handoffs.map(h => h.clock.settled));
     // Both widths must have entered and completed the real handoff. A missing

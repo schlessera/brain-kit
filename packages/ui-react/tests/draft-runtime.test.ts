@@ -215,13 +215,15 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
       const a = await device(run.options, run.theme);
       let b: Awaited<ReturnType<typeof device>> | undefined;
       const composer = (page: Page) => page.locator("textarea.bk-composer");
+      // The draft indicator beside Attach (#3155): its state key and the summary its tooltip shows.
       const line = (page: Page) => page.locator("[data-draft-save]");
+      const summary = (page: Page) => line(page).getAttribute("data-draft-summary");
       try {
         // An unbound draft, saved, then sent: the message names its revision.
         const first = `Hold: Which harbour on Ithaca is safest? ${tag}`;
         await composer(a.page).fill(first);
         await line(a.page).and(a.page.locator('[data-draft-save="saved"]')).waitFor();
-        expect(await line(a.page).textContent()).toBe("draft · saved");
+        expect(await summary(a.page)).toMatch(/^Draft saved \d\d:\d\d: this text\.$/);
         const unboundId = (await fixture(a.page, (f) => f.view().draftId));
         await hostUntil((d) => d.some((x) => x.draftId === unboundId && x.sessionId === null && x.preview === first));
         await composer(a.page).press("Enter");
@@ -282,7 +284,8 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await a.page.evaluate((s) => (window as unknown as { __drafts: Fixture }).__drafts.resume(s), session);
         await until(a.page, `f.view().text === ${JSON.stringify(later)} && f.view().images === 1`);
         expect(await composer(a.page).inputValue()).toBe(later);
-        expect(await line(a.page).textContent()).toBe("draft · saved");
+        await line(a.page).and(a.page.locator('[data-draft-save="saved"]')).waitFor();
+        expect(await summary(a.page)).toMatch(/^Draft saved \d\d:\d\d: this text and 1 file\.$/);
         await expectHarbourImage(a.page);
 
         // The other device: the same text and image, and the letter's entry.
@@ -301,8 +304,10 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         const mine = `Ask Telemachus about the harbour fees ${tag}`;
         await composer(a.page).fill(mine);
         await a.page.locator('[data-draft-save="conflict"]').waitFor();
-        expect(await line(a.page).textContent()).toBe("draft changed on another device·Compare");
+        expect(await summary(a.page)).toBe("Draft changed on another device. Compare to choose which to keep.");
         expect(await composer(a.page).inputValue()).toBe(mine);
+        // Compare is the indicator's detail action.
+        await press(a.page, run.options, "Draft: Draft changed on another device. Details.");
         await press(a.page, run.options, "Compare drafts");
         const sheet = a.page.locator("[data-compare-drafts]");
         await sheet.waitFor();
@@ -313,12 +318,14 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await hostUntil((d) => d.some((x) => x.sessionId === session && x.preview === mine) && d.some((x) => x.sessionId === null && x.preview === theirs));
         expect(await fixture(a.page, (f) => f.unbound().sort())).toEqual([theirs, letter].sort());
 
-        // Offline: kept, and never called saved, until the host answers again.
+        // No answer from the host: kept, and never called saved, until the
+        // host answers again. A save with no answer may have been stored, so
+        // the indicator says it couldn't confirm it (#3155).
         await a.context.route("**/api/drafts/**", (route) => route.abort());
         const offline = `${mine}, and the wind ${tag}`;
         await composer(a.page).fill(offline);
-        await a.page.locator('[data-draft-save="unsaved"]').waitFor({ timeout: 20_000 });
-        expect(await line(a.page).textContent()).toBe("draft · not saved yet");
+        await a.page.locator('[data-draft-save="unconfirmed"]').waitFor({ timeout: 20_000 });
+        expect(await summary(a.page)).toBe("Couldn't confirm the draft was saved.");
         await a.context.unroute("**/api/drafts/**");
         await a.page.locator('[data-draft-save="saved"]').waitFor({ timeout: 20_000 });
 

@@ -7,24 +7,27 @@
  * with `fetch` stubbed to record the request, config
  * `{ uses: 1, expireTime, newSessionExpireTime, liveConnectConstraints: { model:
  * "gemini-3.5-transcribe-live", config: { responseModalities: [TEXT],
- * inputAudioTranscription } }, lockAdditionalFields: [] }`. The SDK's
+ * inputAudioTranscription } }, lockAdditionalFields: [] }`, where
+ * `inputAudioTranscription` is `{ mode: "SMART", languageCodes: ["en-US"] }`
+ * plus `customVocabulary` when keyterms are present (recaptured for #3769). The SDK's
  * `createAuthTokenConfigToMldev` maps `liveConnectConstraints` to
  * `bidiGenerateContentSetup.setup`, and `convertBidiSetupToTokenSetup` unwraps
  * `setup` and turns `lockAdditionalFields: []` into a `fieldMask` naming exactly
  * the setup fields present. `liveConnectConstraints` and `lockAdditionalFields`
  * are SDK option names; neither is a wire field. The SDK sent these to
- * `/v1alpha/auth_tokens` because it was configured for v1alpha; which version
- * Google accepts is #3710's question, not this fixture's.
+ * `/v1alpha/auth_tokens` because it was configured for v1alpha. #3710 measured
+ * that Google accepts the token on both the v1alpha and v1beta constrained
+ * Live endpoints.
  */
 
-/** Keyterms `["Ithaca", "Penelope"]`, SMART. */
+/** Keyterms `["Ithaca", "Penelope"]`, SMART, `en-US`. */
 export const AUTH_TOKEN_WITH_VOCABULARY = JSON.parse(
-  `{"expireTime":"2026-07-12T00:11:00.000Z","newSessionExpireTime":"2026-07-12T00:01:00.000Z","uses":1,"bidiGenerateContentSetup":{"model":"models/gemini-3.5-transcribe-live","generationConfig":{"responseModalities":["TEXT"]},"inputAudioTranscription":{"mode":"SMART","customVocabulary":["Ithaca","Penelope"]}},"fieldMask":"model,generationConfig.responseModalities,inputAudioTranscription.mode,inputAudioTranscription.customVocabulary"}`,
+  `{"expireTime":"2026-07-12T00:11:00.000Z","newSessionExpireTime":"2026-07-12T00:01:00.000Z","uses":1,"bidiGenerateContentSetup":{"model":"models/gemini-3.5-transcribe-live","generationConfig":{"responseModalities":["TEXT"]},"inputAudioTranscription":{"mode":"SMART","languageCodes":["en-US"],"customVocabulary":["Ithaca","Penelope"]}},"fieldMask":"model,generationConfig.responseModalities,inputAudioTranscription.mode,inputAudioTranscription.languageCodes,inputAudioTranscription.customVocabulary"}`,
 );
 
-/** No keyterms, SMART: `customVocabulary` is neither set nor masked. */
+/** No keyterms, SMART, `en-US`: `customVocabulary` is neither set nor masked. */
 export const AUTH_TOKEN_WITHOUT_VOCABULARY = JSON.parse(
-  `{"expireTime":"2026-07-12T00:11:00.000Z","newSessionExpireTime":"2026-07-12T00:01:00.000Z","uses":1,"bidiGenerateContentSetup":{"model":"models/gemini-3.5-transcribe-live","generationConfig":{"responseModalities":["TEXT"]},"inputAudioTranscription":{"mode":"SMART"}},"fieldMask":"model,generationConfig.responseModalities,inputAudioTranscription.mode"}`,
+  `{"expireTime":"2026-07-12T00:11:00.000Z","newSessionExpireTime":"2026-07-12T00:01:00.000Z","uses":1,"bidiGenerateContentSetup":{"model":"models/gemini-3.5-transcribe-live","generationConfig":{"responseModalities":["TEXT"]},"inputAudioTranscription":{"mode":"SMART","languageCodes":["en-US"]}},"fieldMask":"model,generationConfig.responseModalities,inputAudioTranscription.mode,inputAudioTranscription.languageCodes"}`,
 );
 
 /** Every top-level field the captured AuthToken bodies carry. */
