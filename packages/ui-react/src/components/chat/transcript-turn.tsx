@@ -42,7 +42,7 @@ export function TurnHeader(p: TurnHeaderProps) {
       {p.effort && <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--bk-amber-ink)]">{p.effort}</span>}
       <div className="h-px flex-1 bg-border/40" />
       {p.when !== undefined && (
-        <span data-turn-time="" className="font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground/40">{p.when}</span>
+        <span data-turn-time="" className="shrink-0 font-[family-name:var(--font-mono)] text-[10px] text-muted-foreground">{p.when}</span>
       )}
     </div>
   );
