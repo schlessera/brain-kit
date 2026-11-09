@@ -1364,3 +1364,77 @@ inference in overall budgets. Caps are admission controls over those observed
 and estimated costs, not a guaranteed final invoice. Terminal reports remain
 reserved until a later observation at least ten seconds after first completion;
 missing reports remain unknown. See the [current decision](../decisions/apify-actor-approval.md).
+
+<a id="propagation-freshness-additive-0450-3452"></a>
+
+## Propagation freshness (additive, 0.45.0, #3452)
+
+`brain hygiene propagation [--dry-run] --json` returns one object:
+
+```ts
+{
+  enabled: boolean;
+  dryRun: boolean;
+  settings: {
+    enabled: boolean; profile: "conservative" | "balanced" | "permissive";
+    minConfidence: number; crossChecks: boolean; maxFiles: number;
+    timeoutMs: number; budgetMs: number; maxInputChars: number; exclude: string[];
+  };
+  model: string; questionVersion: string;
+  acknowledged: number; reviewRequired: number; unavailable: number; deferred: number;
+  changedFiles: string[];
+  findings: Array<{
+    path: string;
+    status: "acknowledged" | "would_acknowledge" | "review_required" | "unavailable" | "deferred";
+    reason: string; cached: boolean;
+    fingerprint?: string; reference?: string;
+    referenceKind?: "explicit" | "derivative-commit";
+    answers?: Record<string, {
+      type: "choice"; choice: string; confidence: number; probabilities: Record<string, number>;
+    }>;
+    sensitivity?: Array<{ minConfidence: number; currencyOnly: boolean; crossChecked: boolean | null }>;
+    changesSinceReference?: Array<{ path: string; unifiedDiff: string }>;
+  }>;
+}
+```
+
+Disabled execution is a no-op with empty findings and no provider/index/log
+work. Enabled execution refreshes the disposable index. Dry-run can call JEV
+but writes no Markdown; its acknowledged count includes `would_acknowledge`
+proposals. `acknowledged` with `cached: true` means an existing receipt passes
+the current policy. `review_required` means a valid judgment failed an
+acceptance gate, not a proved content defect. `unavailable` retains review
+(for example `no-key`, `missing-scope`, `uncommitted-derivative`,
+`missing-reference-history`, `historical-source-not-regular`, `input-size-limit`,
+`config-changed`, `context-changed`, or provider errors). `deferred` is a run
+limit, not acknowledgement. Future reason strings may be added.
+
+With no profile configured, settings report `balanced`, `minConfidence: 0.7`
+and `crossChecks: true`; `enabled` still defaults to false. Explicit profile,
+confidence and cross-check settings override these defaults.
+
+The concrete model is `jev-1.13.0`. The currency Choice must say `still_current`;
+when cross-checks are enabled, both assertions and coverage Choices must say
+`yes`. Every required confidence must meet the current floor. A higher floor
+or extra questions can only remove acceptance on the same saved answers; no
+averaging, voting or multiplication establishes a correctness probability.
+`crossChecked: null` in sensitivity means those answers were not asked.
+Fresh judgments carry the actual source diff; cached receipts need not recompute
+or repeat it. No input is clipped to make it fit.
+
+Successful typed judgments, including negative judgments, are stored in the
+separate [Markdown receipt file](frontmatter.md#propagation-freshness-additive-0450-3452).
+Only an accepted matching receipt suppresses propagation. Different source or
+derivative bytes, scope, UTC observation day or model/question version invalidate
+the match. Policy changes re-apply the current gates to cached answers; missing
+additional answers require a new request. Disabling the feature stops honoring
+the automation's receipts. Read-only audits never call the provider.
+
+Ordinary enabled, non-dry-run `hygiene reconcile` and `hygiene next` run the
+prepass when checks are available. Reconcile adds an optional `propagation`
+report of this shape and includes its receipt path in `changedFiles` when
+written. Existing fields and dispositions retain their meanings. Preview-only
+`next --dry-run` starts no provider work, and reconcile dry-run does not run a
+new model pass. Use the explicit `propagation --dry-run` to inspect prospective
+automation. The operation exits 0 after reporting outcomes, including unavailable
+and deferred cases; usage/configuration errors retain exit 1.

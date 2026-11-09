@@ -457,6 +457,16 @@ See the [schedule contract](integration-contract/package-api.md#scheduled-tasks-
 
 ### Preview and confirm a hygiene repair
 
+For opted-in propagation automation, `brain hygiene propagation --dry-run --json`
+shows the actual source diffs, typed JEV answers and threshold sensitivity. It
+may call the provider but writes no Markdown. Without `--dry-run`, it records
+separate freshness judgments; source/derivative content and dates stay unchanged.
+The normal reconcile/next paths use matching receipts automatically. All
+non-current, uncertain, below-floor and unavailable cases remain reviewable.
+See [configuration](configuration.md#hygienepropagation) for owner opt-in,
+confidence presets, extra veto-only questions and hosted scheduling. This is
+separate from applying a bounded content repair below.
+
 Use `brain hygiene next --json` to discover the selected finding's complete
 `handlers` array, including each choice's input schema, effect and post-check.
 Broken links offer a note picker and text-only choice, plus a suggestion only

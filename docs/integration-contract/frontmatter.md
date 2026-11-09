@@ -347,3 +347,49 @@ exported from `@schlessera/brain` — and that test fails when this document, th
   maintain` (the hosting container runs it daily), `brain scratch prune`, and
   the chat server hourly. A file there may vanish at any time; a consumer that
   wants to keep one moves it out.
+
+<a id="propagation-freshness-additive-0450-3452"></a>
+
+## Propagation freshness (additive, 0.45.0, #3452)
+
+- Optional `propagation_scope`: a nonempty string declaring the derivative's
+  purpose and required coverage. It overrides a matching propagation rule's
+  optional `scope`. Automatic review requires an explicit scope of at most
+  4000 characters; absent or ambiguous scope retains human review.
+- Optional `propagation_reference`: a full lowercase 40- or 64-hex Git commit
+  ID identifying a known reference source snapshot. A supplied invalid value
+  is a validation error. Without it, automatic review requires the exact
+  current derivative bytes to be recorded in Git and uses that recorded content
+  commit. It never selects a source version from a frontmatter date. Historical
+  sources must be regular UTF-8 blobs, not links or trees.
+- `context/hygiene/propagation-reviews.md` is machine-owned Markdown, with
+  ordinary frontmatter, heading `Propagation freshness reviews` and one JSON
+  fenced array. It records at most one current judgment per derivative path,
+  including judgments left for the owner. Each record holds `path`,
+  `fingerprint`, `reviewedAt`, `observationDay`, `reference`, `referenceKind`,
+  `model`, `questionVersion`, the request-time `policy` (`minConfidence`,
+  `crossChecks`), `derivativeSha256`, `scope`, `sources` (path, current `sha256`,
+  `beforeSha256`) and typed `answers`. Existing entries may be replaced by a
+  fresh judgment; this is a current-evidence cache, not an append-only journal.
+  The whole receipt file is authoritative Markdown; `brain.db` remains disposable.
+
+The context fingerprint binds complete derivative/source bytes, paths, scope,
+UTC observation day and the pinned model/question version. Audit rechecks these
+and the current configured decision policy before suppressing a finding. The
+request-time policy remains evidence, not authority to bypass stricter current
+settings. Existing typed answers can be reused after a threshold change; all
+requested cross-checks must be present before accepting them. New observation
+days require fresh review for time-dependent statements. Unseen and oldest
+judgments are considered first by bounded passes.
+
+Writing a receipt never edits source/derivative Markdown, `created`, `updated`,
+or other frontmatter. All consulted current bytes and canonical config are
+checked after judgment and immediately before receipt publication. The log is
+also compared before its atomic replacement. Malformed, oversized, symlinked or
+concurrently changed logs are not overwritten. Reads are limited to one MiB
+and 1000 records; hitting a limit retains review. These checks are not a
+cross-file transaction or a lock on concurrent editors.
+
+This extends propagation detection only after persistent owner opt-in. It does
+not redefine content-edit dates, dismiss unrelated findings, infer truth from
+warning clearance, or authorize arbitrary model-generated edits.
