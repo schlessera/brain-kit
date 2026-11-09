@@ -278,6 +278,15 @@ export interface BackendBridge {
    * Every refusal resolves as a result with its outcome.
    */
   readAttachment?(input: import("../tool-contracts/attachment.js").ReadAttachmentInput): Promise<import("../tool-contracts/attachment.js").AttachmentReadResult>;
+  /**
+   * One host-owned web tool call (#3685): `web_search`, `fetch_content`,
+   * `get_search_content` or `source_check`. The host binds principal, session,
+   * turn, profile, policy revision and cancellation from the authenticated
+   * turn, runs the call in its own executor and maps result handles to the
+   * calling session; the call carries the parsed input and the model's call id
+   * only. Every refusal resolves as `{ ok: false, error }`.
+   */
+  webAccess?(call: import("../tool-contracts/web.js").WebToolCall): Promise<import("../tool-contracts/web.js").WebToolEnvelope>;
 }
 
 /** A read over the activity record, shaped for model consumption. */
