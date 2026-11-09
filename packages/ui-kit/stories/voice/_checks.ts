@@ -8,22 +8,36 @@ function nameOf(el: Element): string {
 }
 
 /**
+ * A control's hit area. An inline text button paints at text size and takes
+ * its 44px target from a `::before` with negative insets, so that pseudo's
+ * computed insets are added to the box.
+ */
+function targetOf(button: HTMLElement): { width: number; height: number } {
+  const box = button.getBoundingClientRect();
+  if (!button.matches(".bk-text-btn[data-inline=true]")) return box;
+  const before = getComputedStyle(button, "::before");
+  const out = (side: string) => Math.max(0, -parseFloat(before.getPropertyValue(side)) || 0);
+  return { width: box.width + out("left") + out("right"), height: box.height + out("top") + out("bottom") };
+}
+
+/**
  * The per-component accessibility the voice surface promises (#3692), measured
  * on the rendered story rather than read off its props:
  *
  *   - every control has an accessible name;
  *   - every state label has an icon AND a word, so no state is colour alone;
  *   - every control's target is at least 44px on both axes (an inline
- *     uncertain word is text, and exempt as inline text is);
+ *     uncertain word is text, and exempt as inline text is; an inline text
+ *     button's target is its box plus the `::before` that extends it);
  *   - nothing escapes the story's column (except the thinking sweep, which
  *     travels across its meter and is clipped by it, and the contents of the
  *     out-of-sight "Talk live…" button, clipped by its own 1px box).
  */
 export async function voiceA11y(root: HTMLElement) {
-  for (const button of root.querySelectorAll("button")) {
+  for (const button of root.querySelectorAll<HTMLElement>("button")) {
     await expect(nameOf(button), `named control ${button.outerHTML.slice(0, 80)}`).not.toBe("");
     if (button.classList.contains("bk-uncertain-btn") || button.classList.contains("bk-voice-talk-live")) continue;
-    const box = button.getBoundingClientRect();
+    const box = targetOf(button);
     await expect(Math.round(box.width), `${nameOf(button)} target width`).toBeGreaterThanOrEqual(44);
     await expect(Math.round(box.height), `${nameOf(button)} target height`).toBeGreaterThanOrEqual(44);
   }
