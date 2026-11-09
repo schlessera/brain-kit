@@ -192,7 +192,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (con
     // The take ended with focus in the field: it returns to the composer, never to the notice.
     await expect.poll(() => document.activeElement).toBe(retained ? s.host.querySelector("textarea[data-composer]") : dictate(s));
     expect(notice(s)!.contains(document.activeElement)).toBe(false);
-    if (retained) expect(dictate(s)?.getAttribute("aria-label"), "D6: the mic adds to the kept words").toBe("Dictate more");
+    if (retained) expect(dictate(s)?.getAttribute("aria-label"), "D6: the mic adds to the kept words").toBe(`Dictate more \u00b7 ${provider === "deepgram" ? "Deepgram" : "Browser speech"}`);
     action(s, "Dismiss")!.focus(); await userEvent.keyboard("{Enter}");
     await expect.poll(() => notice(s)).toBeNull();
     expect(document.activeElement).toBe(dictate(s));

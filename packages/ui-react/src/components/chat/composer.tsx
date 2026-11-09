@@ -381,7 +381,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const dictationUnavailable = micMode === "dictate" && voiceMode !== "dictate" && discovery?.providers.length === 0
     ? "Dictation isn\u0027t set up on this host." : undefined;
 
-  const micLabel = micMode !== "local" ? dictated ? "Dictate more" : voiceMode === "dictate" && !gated ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save";
+  // D6's mic is "Dictate more" (#3694); like the resting mic it names the
+  // next take's service when one is known (D4, #3709).
+  const dictateMore = dictateLabel ? dictateLabel.replace(/^Dictate/, "Dictate more") : "Dictate more";
+  const micLabel = micMode !== "local" ? dictated ? dictateMore : voiceMode === "dictate" && !gated ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save";
   // The hold-to-talk mic at rest (#3693, drawn as signed off on #3727): it
   // dictates, or records on the device with no hold (M1). Dictating, a
   // recording in progress and a mic still deciding keep the kit's own mic.

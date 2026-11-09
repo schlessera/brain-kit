@@ -259,15 +259,26 @@ async function socketAfter(count: number) {
   return sockets[count]!;
 }
 const idle = (page: Page) => page.waitForFunction(() => (window as unknown as { __dictation: { state(): { mode: string } } }).__dictation.state().mode === "idle");
+/**
+ * Finish the take (#3694): its words join the draft (D6). The draft is
+ * cleared again, so the mic is back at rest and names the next take's service.
+ */
+async function finish(page: Page) {
+  await page.getByRole("button", { name: "Finish dictation", exact: true }).click();
+  await idle(page);
+  await page.locator("textarea[data-composer]").fill("");
+}
+/** The first-take acknowledgement (D0), and the notice for a take with nowhere to go (Dx). */
+const consent = (page: Page) => page.locator('[data-dictation-notice="D0"]');
+const blockedNotice = (page: Page) => page.locator('[data-dictation-notice^="Dx"]');
 /** One complete take, acknowledging the service on this device first if it asks. */
 async function take(page: Page, name: string) {
   await mic(page, name).click();
-  const card = page.locator('[data-dictation-gate="consent"]');
+  const card = consent(page);
   await Promise.race([card.waitFor(), live(page)]);
   if (await card.count()) await page.getByRole("button", { name: "Start dictation" }).click();
   await live(page);
-  await page.getByRole("button", { name: "Done", exact: true }).click();
-  await idle(page);
+  await finish(page);
 }
 
 describe.skipIf(!executablePath)("Settings › Voice and the next take, against mounted routes", () => {
@@ -319,14 +330,13 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await dictate.waitFor();
       const before = sessions().length;
       await dictate.click();
-      const card = page.locator('[data-dictation-gate="consent"]');
+      const card = consent(page);
       // Whichever comes first: the card, or a session request that must not happen.
       await Promise.race([card.waitFor(), (async () => { while (sessions().length === before) await Bun.sleep(10); })()]);
       expect(sessions().length, "NO_SESSION_BEFORE_START_DICTATION").toBe(before);
-      expect(await card.textContent()).toContain("Dictation goes to Alpha Transcribe");
-      expect(await card.textContent()).toContain("Microphone audio streams from this browser to Alpha, a fixture service.");
+      expect(await card.textContent()).toContain("Your words are sent to Alpha Transcribe to be written down.");
       await page.waitForFunction(() => document.activeElement?.textContent === "Start dictation");
-      await fits(page, width, '[data-dictation-gate] button, [data-dictation-gate] [role="button"]');
+      await fits(page, width, '[data-dictation-notice] button, [data-dictation-notice] [role="button"]');
       await shot(page, `acknowledge-${width}`);
       expect(await gum(page), "NO_MICROPHONE_BEFORE_START_DICTATION").toBe(0);
 
@@ -342,12 +352,13 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await page.waitForFunction(() => { const s = (window as unknown as { __dictation: { state(): { connecting: boolean; clients: Array<{ tracks: string[] }> } } }).__dictation.state(); return !s.connecting && s.clients.at(-1)?.tracks.includes("live"); });
       expect(sessions().slice(before).map((entry) => JSON.parse(entry.body!)), "the disclosed service is requested").toEqual([{ providerId: "alpha", smart: true }]);
       expect(await socketAfter(known), "the server says the take reached alpha").toEqual({ provider: "alpha", open: true });
-      expect(await page.getByText("To Alpha Transcribe", { exact: true }).count()).toBe(1);
+      expect(await page.getByText("to Alpha Transcribe", { exact: true }).count(), "the field names the destination").toBe(1);
       await shot(page, `listening-${width}`);
-      // Start dictation left the page; the keyboard carries on to Done.
-      expect(await page.evaluate(() => document.activeElement?.textContent?.trim()), "FOCUS_CONTINUES_ON_DONE").toBe("Done");
+      // Start dictation left the page; the keyboard carries on to Finish dictation.
+      expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "FOCUS_CONTINUES_ON_FINISH").toBe("Finish dictation");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => (window as unknown as { __dictation: { state(): { reviewText: string } } }).__dictation.state().reviewText === "Heard by alpha");
+      await page.waitForFunction(() => (document.querySelector("textarea[data-composer]") as HTMLTextAreaElement | null)?.value === "Heard by alpha");
+      await page.locator("textarea[data-composer]").fill("");
 
       // Reload: the acknowledgement is device-local and persists.
       await page.reload();
@@ -358,7 +369,7 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await page.waitForFunction(() => !(window as unknown as { __dictation: { state(): { connecting: boolean } } }).__dictation.state().connecting);
       expect((await state(page)).gate, "no card for an acknowledged service").toBeNull();
       expect(sessions().length).toBe(count + 1);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await finish(page);
     } finally { await closeAll(); }
   }, 90_000);
 
@@ -370,7 +381,7 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await page.reload();
       await page.waitForFunction("window.__dictation?.ready()");
       await mic(page, "Dictate · Alpha Transcribe").click();
-      await page.locator('[data-dictation-gate="consent"]').waitFor();
+      await consent(page).waitFor();
       // Another device chooses Beta while this card names Alpha.
       await otherDevice("beta");
       const before = { sessions: sessions().length, alpha: minted.alpha, beta: minted.beta, sockets: sockets.length };
@@ -381,7 +392,7 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       expect([minted.alpha - before.alpha, minted.beta - before.beta], "only alpha minted").toEqual([1, 0]);
       expect(await socketAfter(before.sockets)).toEqual({ provider: "alpha", open: true });
       expect((await state(page)).target).toBe("alpha");
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await finish(page);
 
       // A held mint crosses another change; the response still names alpha.
       await otherDevice("alpha");
@@ -396,7 +407,7 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await page.waitForFunction(() => (window as unknown as { __dictation: { state(): { clients: Array<{ tracks: string[] }> } } }).__dictation.state().clients.at(-1)?.tracks.includes("live"));
       expect([minted.alpha - mintedBefore.alpha, minted.beta - mintedBefore.beta], "the held take stays with alpha").toEqual([1, 0]);
       expect((await state(page)).providerId).toBe("alpha");
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await finish(page);
     } finally { await closeAll(); }
   }, 90_000);
 
@@ -424,16 +435,16 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       expect(during.target).toBe("alpha");
       expect(sessions().length, "no new session").toBe(before.sessions);
       await closeSettings(page);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await finish(page);
       await page.waitForFunction(() => (window as unknown as { __dictation: { state(): { mode: string } } }).__dictation.state().mode === "idle");
       // The next take goes to Beta, which this device has not acknowledged.
       await mic(page, "Dictate · Beta Live").click();
-      await page.locator('[data-dictation-gate="consent"]').waitFor();
-      expect(await page.locator('[data-dictation-gate="consent"]').textContent()).toContain("Dictation goes to Beta Live");
+      await consent(page).waitFor();
+      expect(await consent(page).textContent()).toContain("Your words are sent to Beta Live to be written down.");
       await page.getByRole("button", { name: "Start dictation" }).click();
       await page.waitForFunction(() => (window as unknown as { __dictation: { state(): { clients: Array<{ tracks: string[] }> } } }).__dictation.state().clients.at(-1)?.tracks.includes("live"));
       expect(JSON.parse(sessions().at(-1)!.body!), "SMART travels with a SMART service").toEqual({ providerId: "beta", smart: true });
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await finish(page);
     } finally { await closeAll(); }
   }, 90_000);
 
@@ -523,11 +534,11 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       try {
         const before = { sessions: sessions().length, alpha: minted.alpha };
         await mic(page, "Dictate").click();
-        const blocked = page.locator('[data-dictation-gate="blocked"]');
+        const blocked = blockedNotice(page);
         await blocked.waitFor();
-        expect(await blocked.textContent()).toContain("Your dictation service isn't available");
-        expect(await blocked.textContent()).toContain("beta isn't available on this host.");
-        await fits(page, width, '[data-dictation-gate] button, [data-dictation-gate] [role="button"]');
+        expect(await blocked.textContent()).toContain("Your dictation service isn\u2019t available");
+        expect(await blocked.textContent()).toContain("beta isn\u2019t offered here any more. Choose another in Settings.");
+        await fits(page, width, '[data-dictation-notice] button, [data-dictation-notice] [role="button"]');
         await shot(page, `blocked-unavailable-${width}`);
         await page.getByRole("button", { name: "Open Settings" }).click();
         const pane = page.locator("[data-dictation-settings]");
@@ -552,7 +563,7 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await mic(page, "Dictate · Alpha Transcribe").click();
       await live(page);
       expect((await state(page)).gate, "the device's earlier acknowledgement survived the restart").toBeNull();
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await finish(page);
     } finally { await device.close(); device = undefined; }
 
     await restart([]);
@@ -575,7 +586,7 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
         await page.keyboard.press("Enter");
         await page.waitForTimeout(200);
         expect((await state(page)).mode, "a disabled mic opens nothing").toBe("idle");
-        expect(await page.locator("[data-dictation-gate]").count()).toBe(0);
+        expect(await page.locator("[data-dictation-notice]").count()).toBe(0);
       } finally { await closeAll(); }
     }
 
@@ -642,10 +653,10 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       failReads = false;
       const before = sessions().length;
       await page.getByRole("button", { name: /^Dictate/ }).click();
-      const card = page.locator('[data-dictation-gate="consent"]');
+      const card = consent(page);
       await Promise.race([card.waitFor(), (async () => { while (sessions().length === before) await Bun.sleep(10); })()]);
       expect(sessions().slice(before).map((entry) => JSON.parse(entry.body!).providerId), "TAKE_AFTER_SAVE_USES_CONFIRMED_PROVIDER: nothing goes to the older choice").toEqual([]);
-      expect(await card.textContent()).toContain("Dictation goes to Beta Live");
+      expect(await card.textContent()).toContain("Your words are sent to Beta Live to be written down.");
       await page.getByRole("button", { name: "Cancel", exact: true }).click();
       await idle(page);
     } finally { await closeAll(); }

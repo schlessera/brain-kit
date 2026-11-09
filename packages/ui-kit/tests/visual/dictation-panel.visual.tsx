@@ -472,7 +472,7 @@ for (const heard of [true, false]) {
     await expect.poll(() => ui!.stores.voice.getState().mode).toBe("idle");
     await expect.poll(() => s.field()?.value).toBe(heard ? "Ask Calypso about the axe" : "");
     expect(s.send, "nothing is sent").not.toHaveBeenCalled();
-    expect(s.mic()?.getAttribute("aria-label")).toBe(heard ? "Dictate more" : "Dictate \u00b7 Gemini");
+    expect(s.mic()?.getAttribute("aria-label")).toBe(heard ? "Dictate more \u00b7 Gemini" : "Dictate \u00b7 Gemini");
   });
 }
 
@@ -491,7 +491,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) {
     expect([field.selectionStart, field.selectionEnd], "caret at the end").toEqual([field.value.length, field.value.length]);
     expect(field.readOnly, "editable").toBe(false);
     expect(host!.querySelector(".bk-voice-uncertain, [data-uncertain]"), "no uncertain-word mark is invented").toBeNull();
-    expect(s.mic()!.getAttribute("aria-label")).toBe("Dictate more");
+    expect(s.mic()!.getAttribute("aria-label"), "D6 names the next take's service too").toBe("Dictate more \u00b7 Gemini");
     expect(s.send).not.toHaveBeenCalled();
     expect(signature(s.frame.querySelector(".bk-field")!), "the composer draws the D6 story")
       .toBe(story(composerWithMic("D6", field.value)));
@@ -508,7 +508,7 @@ test("D6 Dictate more: the next take's words follow the first", async () => {
   const first = await s.listen();
   first.hear("Ask Calypso");
   await userEvent.click(button("Finish dictation")!); first.finish();
-  await expect.poll(() => s.mic()?.getAttribute("aria-label")).toBe("Dictate more");
+  await expect.poll(() => s.mic()?.getAttribute("aria-label")).toBe("Dictate more \u00b7 Gemini");
   await userEvent.click(s.mic()!);
   await expect.poll(() => s.clients.length).toBe(2);
   s.client().open();

@@ -1045,7 +1045,8 @@ test("recognition namespaces, finish evidence, duplicates, transfer and epoch fe
   expect(s.client.reviewUnassigned()).toBe(false);
   await expect.poll(() => s.host.textContent).toContain("Moved to voice review");
   expect(s.client.state.getState().recognition.every(f => !f.text)).toBe(true);
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Which note?Which note?");
+  // Reviewed in the composer (#3694, D6): the moved words are the draft.
+  await expect.poll(() => { const d = s.ui.stores.drafts.getState(); return d.drafts[d.idFor(SESSION)]?.text; }).toBe("Which note?Which note?");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   s.event({ ...fragment, sequence: 4, text: "After Leave." });
