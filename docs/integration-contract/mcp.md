@@ -1349,6 +1349,61 @@ message, tool or system text changes, and the host's read records are UI data
 that never reach the provider. The bounds and reasons are in
 [the attachment decision](../decisions/chat-attachments.md#what-3154-built).
 
+## Host-owned web tools (additive, 0.45.0, #3685)
+
+The pi backend's ordinary governed and strict interactive sessions list four
+host-executed bridge tools: `web_search`, `fetch_content`,
+`get_search_content` and `source_check`. Their names and parameters follow the
+pinned upstream pi-web-access tools, narrowed to what the host admits. They
+are in every interactive session's fixed roster, whether or not the host can
+run them. On a host without a web executor, the gate refuses each call before
+it runs, with no card. No autonomous roster lists them, restricted or not. The
+Claude backend is unchanged and keeps its own `WebSearch` and `WebFetch`.
+They are auto-allowed like Claude's: the host binds and bounds every call.
+
+Inputs are strict objects (`WEB_SEARCH_INPUT_SCHEMA`,
+`FETCH_CONTENT_INPUT_SCHEMA`, `GET_SEARCH_CONTENT_INPUT_SCHEMA`,
+`SOURCE_CHECK_INPUT_SCHEMA`):
+
+| Tool | Fields |
+| --- | --- |
+| `web_search` | exactly one of `query` or `queries` (at most 4), plus optional `numResults` (1–20), `includeContent`, `recencyFilter` (`day`, `week`, `month`, `year`), `domainFilter` (at most 10), `category` and `provider` |
+| `fetch_content` | exactly one of `url` or `urls` (at most 5 absolute `http(s)` URLs), plus optional `mode` (`readable` or `raw`) |
+| `get_search_content` | `responseId`, plus optional `query`, `queryIndex`, `url`, `urlIndex`, `offset`, `limit` (at most 30,000 characters), `findText` (one string or at most 10) and `findMode` (`exact`, `case-insensitive`, `fuzzy`) |
+| `source_check` | `claim`, plus optional `queries`, `numResults`, `fetchContent`, `recencyFilter`, `domainFilter` and `provider` |
+
+Each text field holds at most 500 characters and each URL at most 2,048, and a
+serialized input is at most 16,384 bytes (`WEB_TOOL_LIMITS`). `provider` names
+one id from the curated catalog (`WEB_TOOL_PROVIDERS`, the same ten ids as
+`WEB_SEARCH_PROVIDERS`) or a list of at most 3, or `auto`. The host
+additionally refuses any provider it does not admit, and always refuses `all`.
+No field selects an endpoint, proxy, command, local path, credential or
+browser profile: `proxy`, `forceClone` and `redirects`, like any other unknown
+field, are `invalid_input`. Upstream parameters for deferred workflows and
+excluded credential modes are recognised and answered `unsupported` with the
+`feature` they name: `workflow` other than `none` on `web_search`, and `mode:
+"answer"`, `prompt`, `answerModel`, `timestamp`, `frames`, `model` and `auth`
+on `fetch_content`.
+
+The result is one JSON envelope (`WebToolEnvelope`) as the tool output:
+`{ ok: true, tool, text, responseId? }`, or `{ ok: false, tool, error: { code,
+message, feature? } }` as a tool error. `text` is external content. The codes
+(`WEB_TOOL_ERROR_CODES`) are `invalid_input`, `unsupported`,
+`provider_not_admitted`, `unavailable`, `unknown_handle`, `replayed_call`,
+`busy`, `request_too_large`, `response_too_large`, `cancelled`, `deadline`,
+`executor_died` and `failed`.
+
+A `responseId` is an opaque handle the host issues. It is scoped to the
+calling principal and session and to the executor session that stored the
+content, and it ends when that executor ends. An executor's own result id
+never reaches the model. A guessed, foreign or expired handle is
+`unknown_handle`, with nothing saying which. Principal, session, turn,
+tool-call id, worker profile, policy revision and cancellation come from the
+authenticated turn and are never inputs. A tool-call id runs once per turn.
+Each call taints the session (`web_search` or `web_fetch`) before it runs, and
+its result is recorded before the model receives it. A call appends an
+ordinary tool result; no earlier message, tool or system text changes.
+
 ## Hosted policy proposal (additive, #1662)
 
 `propose_policy_change` (Claude: `mcp__brain-ui__propose_policy_change`)
