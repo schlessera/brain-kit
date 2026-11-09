@@ -150,7 +150,7 @@ test("a reload names the files still uploading, never their bytes; a held snapsh
   expect(uploadingNames(ui), "a held snapshot's upload is that message's").toEqual([{ draftId: id, sessionId: SESSION, names: ["harbor-permit-2026.pdf"] }]);
   const refused = filesFor(ui, "draft:refused", null);
   refused.queue.add([new File(["x"], "dock-walk.mov")], "refused", { count: 0, bytes: 0 }, null);
-  await Bun.sleep(10);
+  await turn();
   expect(refused.queue.files[0]?.state).toBe("refused");
   expect(uploadingNames(ui).map((u) => u.names).flat(), "a refused file is not uploading").not.toContain("dock-walk.mov");
   stop();
