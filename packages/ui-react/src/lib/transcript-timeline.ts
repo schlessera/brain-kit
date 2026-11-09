@@ -13,7 +13,7 @@ export type TranscriptEntry =
       /** From the retained end's host clock span. "Voice ended" comes only from retained evidence, so live and reloaded chats agree. */
       durationMs?: number }
   | {key:string;sessionId:string|null;kind:"history-notice";label:string}
-  /** R2 (#3699): the startup-context coverage of one live conversation, at the start of its live section. Only incomplete coverage is drawn. */
+  /** R2 (#3699): the startup-context coverage of one live conversation, at the start of its live section, when it names a sent count or is incomplete. */
   | { key: string; sessionId: string | null; kind: "voice-coverage"; conversationId: string; coverage: NonNullable<NonNullable<ConversationClientState["profile"]>["historyCoverage"]> }
   | { key: string; sessionId: string | null; kind: "recognition"; fragments: ConversationRecognition[] };
 
@@ -322,7 +322,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     }
     // The coverage notice opens the live section once its conversation reports it.
     const coverage = next.active ? next.profile?.historyCoverage : undefined;
-    if (next.profile && coverage && coverage.state !== "complete" && !coverages.has(JSON.stringify(["voice-coverage", next.profile.conversationId]))) {
+    if (next.profile && coverage && ((coverage.includedMessages ?? 0) > 0 || coverage.state !== "complete") && !coverages.has(JSON.stringify(["voice-coverage", next.profile.conversationId]))) {
       const key = JSON.stringify(["voice-coverage", next.profile.conversationId]);
       position(key); latest.set(next.sessionId, key);
       coverages.set(key, { kind: "voice-coverage", key, sessionId: next.sessionId, conversationId: next.profile.conversationId, coverage });

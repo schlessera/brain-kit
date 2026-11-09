@@ -8428,6 +8428,7 @@ signatures (every public export and the types it is made of)
         historyCoverage?: {
             state: "complete" | "bounded" | "partial" | "unavailable";
             tailOmitted: boolean;
+            includedMessages?: number;
         };
         events: AsyncIterable<LiveConversationEvent>;
         appendAudio(chunk: LiveConversationAudioChunk): void;
@@ -10924,6 +10925,7 @@ signatures (every public export and the types it is made of)
         historyCoverage?: {
             state: "complete" | "bounded" | "partial" | "unavailable";
             tailOmitted: boolean;
+            includedMessages?: number;
         };
         historyGeneration?: number;
         historyOwnerId?: string;
@@ -19568,6 +19570,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>;
         epoch: z.ZodNumber;
         historyCoverage: z.ZodOptional<z.ZodObject<{
+            includedMessages: z.ZodOptional<z.ZodNumber>;
             state: z.ZodEnum<{
                 bounded: "bounded";
                 complete: "complete";
@@ -23654,6 +23657,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>;
         epoch: z.ZodNumber;
         historyCoverage: z.ZodOptional<z.ZodObject<{
+            includedMessages: z.ZodOptional<z.ZodNumber>;
             state: z.ZodEnum<{
                 bounded: "bounded";
                 complete: "complete";

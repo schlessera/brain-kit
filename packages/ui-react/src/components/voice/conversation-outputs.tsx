@@ -24,13 +24,16 @@ function RecognizedWords({ fragment }: { fragment: ConversationRecognition }) {
 
 /**
  * R2 (#3699): a live conversation's startup-context coverage, inline at the
- * start of its live section. It says only what `historyCoverage` reports;
- * Details opens the disclosure sheet while that conversation is live.
+ * start of its live section. It says only what `historyCoverage` reports:
+ * the host's count of messages sent, or, from an older host without one, the
+ * coverage state. Details opens the disclosure sheet while that conversation is live.
  */
-export function ConversationCoverageNotice({ conversationId, coverage }: { conversationId: string; coverage: { state: string; tailOmitted: boolean } }) {
+export function ConversationCoverageNotice({ conversationId, coverage }: { conversationId: string; coverage: { state: string; tailOmitted: boolean; includedMessages?: number } }) {
   const client = useBrainUiRoot().connection.conversation;
   const live = useStore(client.state, s => s.active && s.profile?.conversationId === conversationId);
-  const text = coverage.tailOmitted ? coverage.state === "partial" ? "Newest prior context may be missing." : "Newest prior context was not sent." : "Prior context is incomplete.";
+  const n = coverage.includedMessages ?? 0;
+  const text = n > 0 ? `Started with the last ${n} ${n === 1 ? "message" : "messages"}`
+    : coverage.tailOmitted ? coverage.state === "partial" ? "Newest prior context may be missing." : "Newest prior context was not sent." : "Prior context is incomplete.";
   return <div data-voice-coverage=""><Callout variant="plain" tone="neutral" icon="history">
     {text}{live && <> · <TextButton label="Details" ariaLabel="Prior context details" inline onClick={client.details} /></>}
   </Callout></div>;

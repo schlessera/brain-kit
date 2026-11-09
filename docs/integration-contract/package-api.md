@@ -4824,7 +4824,11 @@ recency is unknown. Partial coverage uses “may be missing” copy rather than 
 claim about the exact newest item. These bounds never delete the display archive.
 
 `LiveConversationSession.historyCoverage?` exposes the adapter's actual bounded
-historical selection as `{state, tailOmitted}`. Third-party providers may ignore
+historical selection as `{state, tailOmitted, includedMessages?}`. The optional
+`includedMessages` (additive, #3699) is the number of prior chat and spoken
+messages the startup context actually carried; completed results and gap markers
+are not counted, and it is 0 when no history block was sent. It is host-only
+display data: it is never part of any provider-facing text. Third-party providers may ignore
 the additive history input but cannot thereby claim existing-chat continuity.
 The frozen provider prefix/tools/instructions are never rewritten within an epoch.
 

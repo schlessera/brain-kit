@@ -2045,6 +2045,20 @@ test("live field: a held draft takes the body and Interrupt's place unless brain
   expect(s.socket.frames("conversation_commit")[0]?.text).toBe("Tally the cask");
 });
 
+for (const [count, copy] of [[12, "Started with the last 12 messages"], [1, "Started with the last 1 message"]] as const) test(`coverage (R2): the host's count of ${count} sent messages opens the live section in the chat`, async (ctx) => {
+  controlledMicrophone(ctx);
+  const s = await scene(ctx, 320, true);
+  s.client.enter(); s.client.start();
+  s.opened(1, CAPS, { historyCoverage: { state: "complete", tailOmitted: false, includedMessages: count } });
+  await expect.poll(() => s.client.state.getState().profile?.historyCoverage?.includedMessages, { message: "the wire field survives validation" }).toBe(count);
+  const notice = () => s.host.querySelector<HTMLElement>("[data-voice-coverage]");
+  await expect.poll(() => notice()?.textContent, { message: "VOICE_COVERAGE_COUNT_COPY" }).toBe(`${copy} · Details`);
+  expect(notice()!.closest("[data-conversation-field]"), "a chat notice, not a row above the field").toBe(null);
+  expect(notice()!.closest("[data-arrival-key]")).not.toBe(null);
+  await userEvent.click(s.button("Prior context details"));
+  await expect.poll(() => s.client.state.getState().disclosureOpen, { message: "Details opens the existing sheet" }).toBe(true);
+});
+
 test("live field: Reconnecting while recovery runs, Stopped only when it fails, Start again reopens Start", async (ctx) => {
   controlledMicrophone(ctx, true);
   const s = await scene(ctx); const f = field(s);

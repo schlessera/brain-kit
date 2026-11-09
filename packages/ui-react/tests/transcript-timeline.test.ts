@@ -394,3 +394,19 @@ test("incomplete live coverage is one chat entry after the earlier turns; comple
     expect(timeline.getState().entries.some(e => e.kind === "voice-coverage"), "it leaves with the live section that has no retained evidence").toBe(false);
   } finally { root.dispose(); }
 });
+
+// #3699 ruling: a host-reported count opens the section even when coverage is complete.
+test("a sent-message count draws the coverage notice; an empty complete history draws none", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const timeline = transcriptTimelineFor(root.stores.chat).state;
+    root.stores.chat.getState().addUserMessage("ithaca", "Which harbour first?");
+    const voice = root.connection.conversation.state;
+    const profile = (conversationId: string, includedMessages: number) => ({ conversationId, epoch: 1, providerId: "gpt-live", capabilities: {}, historyCoverage: { state: "complete", tailOmitted: false, includedMessages } }) as unknown as NonNullable<ReturnType<typeof voice.getState>["profile"]>;
+    voice.setState({ active: true, sessionId: "ithaca", profile: profile("empty", 0) });
+    expect(timeline.getState().entries.some(e => e.kind === "voice-coverage"), "nothing sent, nothing to say").toBe(false);
+    voice.setState({ active: true, sessionId: "ithaca", profile: profile("counted", 12) });
+    const notice = timeline.getState().entries.find(e => e.kind === "voice-coverage");
+    expect(notice?.kind === "voice-coverage" && notice.coverage.includedMessages, "VOICE_COVERAGE_CARRIES_COUNT").toBe(12);
+  } finally { root.dispose(); }
+});
