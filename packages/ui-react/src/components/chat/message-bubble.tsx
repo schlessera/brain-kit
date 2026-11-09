@@ -4,7 +4,7 @@ import { AttachmentRow } from "@schlessera/brain-ui-kit";
 import { attachmentRowProps, trackRowProps } from "../../lib/track-attachment.js";
 import { HandoffCard } from "./handoff-links.js";
 import { AskUserFormExchangeCard } from "./ask-user-form-card.js";
-import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
+import type { AskUserFormAnswers, AttachmentFile, AttachmentReadEntry } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
@@ -63,6 +63,27 @@ import { useChatStore } from "../../stores/chat-store.js";
  * user bubble, thinking disclosure, the streaming dot — is
  * `transcript-turn.tsx`, on the kit.
  */
+const NO_READS: Record<string, AttachmentReadEntry[]> = {};
+const NO_FILE_READS: AttachmentReadEntry[] = [];
+
+/**
+ * A sent message's composer originals (#3155), each with what the agent read
+ * of it. Reads are the host's records for the session in view (#3589); until
+ * they arrive, or on a host without them, the rows claim nothing about
+ * reading. Its own subscription, so a read re-renders only these rows.
+ */
+function SentFiles({ files }: { files: AttachmentFile[] }) {
+  const root = useBrainUiRoot();
+  const sessionId = useStore(root.stores.chat, (s) => s.activeSessionId);
+  const reads = useStore(root.stores.attachmentReads, (s) =>
+    s.supported && sessionId && s.loaded[sessionId] ? s.reads[sessionId] ?? NO_READS : null);
+  return (
+    <div className="grid gap-2" data-sent-files="">
+      {files.map((file) => <AttachmentRow key={file.fileId} {...attachmentRowProps(file, reads ? reads[file.fileId] ?? NO_FILE_READS : undefined)} />)}
+    </div>
+  );
+}
+
 export const MessageBubble = memo(function MessageBubble({
   message,
   onToolApproval,
@@ -148,7 +169,7 @@ export const MessageBubble = memo(function MessageBubble({
           {spoken && message.content && <span className="chat-message-body whitespace-pre-wrap">{linkifyPaths(message.content)}</span>}
           <UserAttachments message={message} />
           {!!message.files?.length && <div className="grid gap-2">{message.files.map(file => <AttachmentRow key={file.path} {...trackRowProps(file)} />)}</div>}
-          {!!message.attachmentFiles?.length && <div className="grid gap-2" data-sent-files="">{message.attachmentFiles.map(file => <AttachmentRow key={file.fileId} {...attachmentRowProps(file)} />)}</div>}
+          {!!message.attachmentFiles?.length && <SentFiles files={message.attachmentFiles} />}
           {!spoken && message.content && (
             <div className="chat-message-body text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {linkifyPaths(message.content)}
