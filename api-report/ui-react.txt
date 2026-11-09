@@ -1423,6 +1423,8 @@ signatures (every public export and the types it is made of)
             check: (requestId: string) => Promise<void>;
             edit: (requestId: string) => void;
             resend: (requestId: string) => boolean;
+            resendSnapshot: (requestId: string) => boolean;
+            sendPaused: (draftId: string, snapshotId: string) => void;
         };
         flushChatDeltas: () => void;
         handleServerMessage: (msg: import("@schlessera/brain-ui-sdk").ServerMessage) => void;

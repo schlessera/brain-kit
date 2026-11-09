@@ -191,6 +191,19 @@ and [the HTTP API](http-api.md#attachment-reads-additive-0450-3589). This
 ships in a minor. The SDK's `BrainUiClient` now declares the flag in its
 `client_hello`, and the React package shows the records on sent rows (#3155).
 
+## Outgoing snapshot bubbles (additive, 0.45.0, #3155)
+
+`@schlessera/brain-ui-react` keeps each send as a durable outgoing snapshot
+on a host with #3588's list, and draws held, returned and unconfirmed ones as
+bubbles in the transcript. `BrainUiConnection.drafts` gains
+`resendSnapshot(requestId)` and `sendPaused(draftId, snapshotId)`.
+`@schlessera/brain-ui-kit`'s `StatusIndicatorProps` gains optional
+`announce`; `false` drops the indicator's own live region. The `chat_message`
+frame and every host route keep their shapes. See
+[the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153)
+and [the package component](integration-contract/package-api.md#outgoing-snapshot-bubbles-additive-0450-3155).
+This ships in a minor.
+
 ## Reading a chat deletion's outcome (additive, #3455)
 
 `GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))

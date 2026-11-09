@@ -290,7 +290,7 @@ stores (`context`, `packages/ui-react/src/lib/local-work.ts:305-319`;
 `flush`, `packages/ui-react/src/lib/local-work.ts:322-333`;
 `adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:513-519`). The real
 scroll listener schedules that work (`handleScroll`,
-`packages/ui-react/src/components/chat/chat-page.tsx:318-328`), as do draft,
+`packages/ui-react/src/components/chat/chat-page.tsx:319-329`), as do draft,
 track, selection and focus subscriptions (`stores.drafts.subscribe`,
 `packages/ui-react/src/lib/local-work.ts:643-654`). A protocol receipt or the
 first moved wheel frame can precede this native write and its React reaction;
@@ -317,8 +317,8 @@ requires it; host/network failure maxima and retry intervals are not sleeps to
 be added to these windows.
 
 For real IME start and commit, input also arms the **800 ms host debounce**
-(`SAVE_DELAY_MS`, `packages/ui-react/src/lib/draft-client.ts:33-35`;
-`schedule`, `packages/ui-react/src/lib/draft-client.ts:66-70`). The native horizon
+(`SAVE_DELAY_MS`, `packages/ui-react/src/lib/draft-client.ts:35-37`;
+`schedule`, `packages/ui-react/src/lib/draft-client.ts:74-78`). The native horizon
 is 1000 ms: that 800 ms opportunity plus 200 ms (25%) dispatch/IO/render headroom
 and the original two frames. The parallel 250 ms device debounce is inside this
 horizon. The final exact committed draft still has to reach the host. Returning

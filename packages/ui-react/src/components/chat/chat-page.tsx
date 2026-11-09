@@ -48,6 +48,7 @@ import { Overlay, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import { useRootStore } from "../../root-context.js";
 import { SessionsPane } from "./sessions-pane.js";
 import { UnconfirmedSends } from "./unconfirmed-sends.js";
+import { OutgoingSnapshots } from "./outgoing-snapshots.js";
 import { trackerLabel, useWorkingSessions } from "../../hooks/use-working-sessions.js";
 import { announcementText } from "../../lib/tracker-announcer.js";
 import type { TrackerState } from "../../lib/trackers.js";
@@ -709,7 +710,7 @@ export function ChatPage() {
             )}
             {messages.length === 0 && !hasVoiceOutput && !hasVoicePermission && restoring ? (
               <div className="h-full overflow-y-auto">
-                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><OutgoingSnapshots /><UnconfirmedSends /></div></div>
                 <RestorationState onNewChat={clearMessages} />
               </div>
             ) : messages.length === 0 && !hasVoiceOutput && !hasVoicePermission ? (
@@ -719,7 +720,7 @@ export function ChatPage() {
                 </div>
                 {/* A tracked session whose history came back empty can still be acknowledged. */}
                 {unlinked && <MarkAsSeen onMark={markSeen} />}
-                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><OutgoingSnapshots /><UnconfirmedSends /></div></div>
                 <WelcomeState onAction={runCommand} briefingWhy={briefingWhy} />
               </div>
             ) : (
@@ -802,7 +803,7 @@ export function ChatPage() {
                   {/* Live frames drawn before the history arrived (#1328). */}
                   {restoring && <RestorationState onNewChat={clearMessages} />}
                   {/* A send the host never confirmed, held where it was sent (D52 §5). */}
-                  <UnconfirmedSends />
+                  <OutgoingSnapshots /><UnconfirmedSends />
                 </div>
               </div>
             )}
