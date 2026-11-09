@@ -15,12 +15,10 @@ import { ThemeToggle } from "../../src/components/layout/theme.js";
 import { SlidePanel } from "../../src/components/layout/slide-panel.js";
 import { SearchPanel } from "../../src/components/quick-actions/search-modal.js";
 import { ZoomViewer } from "../../src/components/viewer/zoom-viewer.js";
-import { DictationSheet } from "../../src/components/voice/dictation-sheet.js";
-import { ReviewCard } from "../../src/components/voice/review-card.js";
 import { OWNED, edgeOwners } from "./hit-reach.js";
 
 const noop = () => {};
-const galleryNames = ["Reveal in tree", "Copy path", "Discard", "Edit", "Append more voice", "Send", "Clear search", "Reset to default root", "Return to Ithaca voyage/return.md"];
+const galleryNames = ["Reveal in tree", "Copy path", "Clear search", "Reset to default root", "Return to Ithaca voyage/return.md"];
 async function mount(ctx: TestContext, width: number, theme: string) {
   const viewport = { width: innerWidth, height: innerHeight };
   const beforeTheme = document.documentElement.dataset.theme;
@@ -49,16 +47,15 @@ async function mount(ctx: TestContext, width: number, theme: string) {
     await page.viewport(viewport.width, viewport.height); await commands.formViewport(outer.width - 100, outer.height - 120);
   });
   const find = (name: string) => page.getByRole("button", { name, exact: true });
-  const actions = { reveal: vi.fn(), copy: vi.fn(), discard: vi.fn(), edit: vi.fn(), append: vi.fn(), send: vi.fn(), close: vi.fn() };
-  const review = <ReviewCard text="Odysseus reviews the return to Ithaca." onDiscard={actions.discard} onEdit={actions.edit} onAppend={actions.append} onSend={actions.send} />;
+  const actions = { reveal: vi.fn(), copy: vi.fn(), close: vi.fn() };
   const gallery = async () => {
     draw(<>
       <ViewerToolbar fileName="return.md" fullPath="voyage/return.md" mode="preview" previewAvailable={false} copied={false} share={null} onMode={noop} onCopyPath={actions.copy} onReveal={actions.reveal} />
-      {review}<ControlsBody /><ThemeToggle /><div style={{ position: "relative" }}><DiscoveryStart /></div>
+      <ControlsBody /><ThemeToggle /><div style={{ position: "relative" }}><DiscoveryStart /></div>
     </>);
     await expect.poll(() => host.textContent?.includes("Return to Ithaca")).toBe(true);
   };
-  return { host, ui, draw, find, actions, review, gallery };
+  return { host, ui, draw, find, actions, gallery };
 }
 async function ring(el: HTMLElement) {
   el.scrollIntoView({ block: "center" }); el.focus();
@@ -87,11 +84,11 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
     const prefix = `batch5 ${width} ${theme}`;
     test(`${prefix} names`, async ctx => {
       pointer(); const s = await mount(ctx, width, theme); await s.gallery();
-      expect(galleryNames.map(name => s.find(name).query() !== null), "batch5 stable accessible names").toEqual(Array(9).fill(true));
+      expect(galleryNames.map(name => s.find(name).query() !== null), "batch5 stable accessible names").toEqual(Array(5).fill(true));
     });
     test(`${prefix} target reach`, async ctx => {
       const mode = pointer(); const s = await mount(ctx, width, theme); await s.gallery();
-      expect(galleryNames.map(name => target(s.find(name).element() as HTMLElement, mode)), "batch5 controls meet pointer target and side reach").toEqual(Array(9).fill(true));
+      expect(galleryNames.map(name => target(s.find(name).element() as HTMLElement, mode)), "batch5 controls meet pointer target and side reach").toEqual(Array(5).fill(true));
     });
     test(`${prefix} focus rings`, async ctx => {
       pointer(); const s = await mount(ctx, width, theme); await s.gallery();
@@ -99,26 +96,7 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
       for (const name of galleryNames) rings.push(await ring(s.find(name).element() as HTMLElement));
       // Include the raw selection controls, whose row focus interaction is new.
       for (const el of page.getByRole("radio").elements()) rings.push(await ring(el as HTMLElement));
-      expect(rings, "batch5 controls and raw selections have visible keyboard rings").toEqual(Array(12).fill(true));
-    });
-    test(`${prefix} review decision bar fits and activates`, async ctx => {
-      pointer(); const s = await mount(ctx, width, theme); s.draw(s.review);
-      const names = galleryNames.slice(2, 6);
-      const buttons = names.map(name => s.find(name).element() as HTMLElement);
-      const boxes = buttons.map(el => el.getBoundingClientRect());
-      const fit = buttons.map((el, i) => boxes[i]!.left >= 0 && boxes[i]!.right <= width && reaches(el, pointer()) && el.scrollWidth <= el.clientWidth);
-      const send = boxes[3]!;
-      const reference = buttons[3]!.cloneNode(true) as HTMLElement;
-      reference.style.cssText += ";position:fixed;visibility:hidden;width:max-content";
-      document.body.append(reference);
-      fit.push(send.width === reference.getBoundingClientRect().width);
-      reference.remove();
-      fit.push(boxes.slice(0, 3).every(r => r.right <= send.left));
-      fit.push(width !== 320 || boxes[2]!.top > boxes[0]!.top);
-      expect(fit, "review quiet actions wrap before Send shrinks and remain contained").toEqual(Array(7).fill(true));
-      for (const el of buttons) { el.focus(); await userEvent.keyboard("{Enter}"); await userEvent.keyboard(" "); }
-      expect([s.actions.discard, s.actions.edit, s.actions.append, s.actions.send].map(fn => fn.mock.calls.length), "review Enter and Space each activate once").toEqual([2, 2, 2, 2]);
-      if (width === 320) await page.screenshot({ element: s.host, path: `../../.vitest-attachments/batch5/review-${theme}-${pointer()}.png` });
+      expect(rings, "batch5 controls and raw selections have visible keyboard rings").toEqual(Array(8).fill(true));
     });
     test(`${prefix} gallery actions`, async ctx => {
       pointer(); const s = await mount(ctx, width, theme); await s.gallery();
@@ -155,9 +133,7 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
       if (width < 900) { s.draw(<FilePanel open onClose={s.actions.close} />); await inspect("Close Files"); }
       s.draw(<ZoomViewer onClose={s.actions.close}><div style={{ width: 240, height: 160 }}>Raft plan</div></ZoomViewer>);
       await inspect("Close");
-      s.draw(<div style={{ position: "fixed", bottom: 20, width: Math.min(width, 720) }}><DictationSheet open onCancel={s.actions.close} onStop={noop} /></div>);
-      await inspect("Cancel dictation");
-      const count = width < 900 ? 4 : 3;
+      const count = width < 900 ? 3 : 2;
       expect(targets, "overlay close slots retain 44px targets and reach").toEqual(Array(count).fill(true));
       expect(rings, "overlay close slots show keyboard focus rings").toEqual(Array(count).fill(true));
       expect(native, "overlay close slots are native md mute IconButtons").toEqual(Array(count).fill(true));
@@ -281,7 +257,7 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
     expect(rows, "graph composite rows and mode segments have inset focus rings").toEqual(Array(5).fill(true));
     expect(actions, "graph filter and list close have targets and focus rings").toEqual(Array(4).fill(true));
   });
-  for (const theme of ["dark", "light"]) test(`batch5 320 ${theme} graph sheet and dictation focus`, async ctx => {
+  for (const theme of ["dark", "light"]) test(`batch5 320 ${theme} graph sheet`, async ctx => {
     pointer(); const s = await mount(ctx, 320, theme);
     s.draw(<div style={{ position: "relative", height: 500 }}><GraphControls /></div>);
     await s.find("Graph options").click();
@@ -289,8 +265,5 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
     expect([target(close, pointer()), await ring(close), close.tagName === "BUTTON"], "graph close slot target, ring and native semantics").toEqual([true, true, true]);
     await s.find("Close graph options").click();
     expect(page.getByRole("dialog").query(), "graph close dismisses the sheet").toBeNull();
-    s.draw(<DictationSheet open onStop={noop} onCancel={noop} />);
-    const done = s.find("Done").element();
-    expect(document.activeElement, "phone dictation initial-focus slot opens on Done").toBe(done);
   });
 }

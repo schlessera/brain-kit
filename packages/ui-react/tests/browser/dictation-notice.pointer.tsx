@@ -1,14 +1,16 @@
 /// <reference types="@vitest/browser-playwright" />
 /**
- * A dictation the speech provider ends on its own (#1189), in real Chromium.
+ * A dictation that fails (#1189, #1222), in real Chromium, as the voice
+ * field's notices draw it (#3694): D7 when the microphone is the reason, D8
+ * otherwise, quoting the words kept.
  *
  * The real ChatPage dictates through the shipped clients. For Deepgram:
  * Chromium's fake microphone, the real recorder, and #1016's fault network
  * standing in for both the host and the speech socket, which the test closes
  * the ways a provider and a network do. For Web Speech: a scripted recognizer
  * in place of the browser's, which would need Google's servers. Either way
- * the words heard must be on the review card once the dictation sheet is
- * gone, not lost with it.
+ * the words heard must be in the draft once the voice field is gone, not
+ * lost with it, and nothing is sent.
  *
  * Every test owns its root, mount and network, removed when it ends.
  */
@@ -22,7 +24,6 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork, type FaultNetwork } from "./offline/fault-network.ts";
-import { OWNED, edgeOwners } from "./hit-reach.js";
 import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 const ITHACA = "odysseus-ithaca";
@@ -94,7 +95,7 @@ const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer]
 async function startDictating(s: Scene) {
   await expect.poll(() => dictate(s), { message: "the composer has a mic" }).not.toBe(null);
   await userEvent.click(dictate(s)!);
-  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the dictation sheet is open" }).toBe("dictate");
+  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the voice field is open" }).toBe("dictate");
   await expect.poll(() => s.ui.stores.voice.getState().connecting, { message: "the microphone is live", timeout: 5_000 }).toBe(false);
 }
 
@@ -117,8 +118,10 @@ class ScriptedRecognition {
 
 
 const words = "Ask Nestor about the ships";
-const notice = (s: Scene) => s.host.querySelector<HTMLElement>('[data-capture-notice="dictation"]');
-const dismiss = (s: Scene) => s.host.querySelector<HTMLElement>('[aria-label="Dismiss dictation notice"]')!;
+/** The failure notice (D7 or D8) above the composer. */
+const notice = (s: Scene) => s.host.querySelector<HTMLElement>("[data-dictation-notice]");
+const action = (s: Scene, label: string) => [...notice(s)?.querySelectorAll<HTMLElement>("button") ?? []].find(el => el.textContent?.trim() === label) ?? null;
+const draft = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")?.value ?? null;
 const frame = () => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
 
 async function viewport(ctx: TestContext, width: number, theme: string) {
@@ -135,27 +138,28 @@ async function viewport(ctx: TestContext, width: number, theme: string) {
 
 async function failedCapture(s: Scene, provider: "deepgram" | "webspeech", retained: boolean, code = "network") {
   await startDictating(s);
-  // Sheet entrance has settled before any interaction with its controls.
-  await new Promise(done => setTimeout(done, 350));
   if (provider === "deepgram") {
     await expect.poll(() => s.net.socket(SPEECH)?.readyState).toBe(1);
     await expect.poll(() => s.net.frames.filter(f => f.url.startsWith(SPEECH) && f.data instanceof Blob).length).toBeGreaterThan(0);
     if (retained) s.net.socket(SPEECH)!.deliver({ type: "Results", is_final: true, channel: { alternatives: [{ transcript: words }] } });
   } else if (retained) ScriptedRecognition.last!.hear(words, true);
-  const field = s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
-  field.focus();
-  if (innerWidth < 900) expect(document.activeElement, "modal capture keeps background field inert").not.toBe(field);
+  if (retained) await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe(words);
   if (provider === "deepgram") s.net.socket(SPEECH)!.finish(1006, "odysseus-untrusted", false);
   else { ScriptedRecognition.last!.onerror?.({ error: code }); ScriptedRecognition.last!.onend?.(); }
-  await expect.poll(() => notice(s)?.textContent ?? "", { message: "visible explanation survives the sheet closing" }).toContain("Dictation stopped");
+  await expect.poll(() => notice(s), { message: "the failure notice replaces the voice field" }).not.toBe(null);
   await frame();
-  // Both capture surfaces return to the mic. The modal phone sheet prevents
-  // the old background-field focus attempt; the notice never takes focus.
-  expect(document.activeElement, "capture close returns to the mic, not the notice").toBe(dictate(s));
+}
+
+function readable(element: HTMLElement) {
+  const ancestors: HTMLElement[] = [];
+  for (let at: HTMLElement | null = element; at; at = at.parentElement) ancestors.unshift(at);
+  let background: Rgb = [255, 255, 255];
+  for (const at of ancestors) background = over(parse(getComputedStyle(at).backgroundColor), background);
+  return contrast(over(parse(getComputedStyle(element).color), background), background);
 }
 
 for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (const provider of ["deepgram", "webspeech"] as const) for (const retained of [true, false]) {
-  test(`${width} ${theme} ${provider} ${retained ? "kept" : "empty"}: one visible polite explanation, reachable Dismiss, no focus theft`, async ctx => {
+  test(`${width} ${theme} ${provider} ${retained ? "kept" : "empty"}: D8 quotes the kept words, which are in the draft; one polite announcement; no focus theft`, async ctx => {
     expect(matchMedia("(any-pointer: fine)").matches).toBe(inject("railPointer") !== "coarse");
     expect(matchMedia("(any-pointer: coarse)").matches).toBe(inject("railPointer") !== "fine");
     await viewport(ctx, width, theme);
@@ -173,68 +177,47 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (con
     observer.observe(s.host, { subtree: true, childList: true, characterData: true });
     ctx.onTestFinished(() => observer.disconnect());
     await failedCapture(s, provider, retained);
-    const expected = "Dictation stopped: a connection problem occurred. " + (retained ? "Your words are kept for review." : "Nothing was captured.");
-    expect(notice(s)!.textContent).toBe(expected + "Dismiss");
-    expect(s.ui.stores.voice.getState().reviewText).toBe(retained ? words : "");
-    expect(s.host.querySelector('[aria-label="Dictation"]')).toBeNull();
-    expect(announced, "one explanation insertion in a polite status, without a mirrored region").toEqual([expected + "Dismiss"]);
-    expect(s.host.querySelectorAll('[role="status"], [aria-live="polite"]').length).toBeGreaterThan(0);
-    expect([...s.host.querySelectorAll('[role="status"], [aria-live="polite"]')].filter(el => el.textContent?.includes("Dictation stopped"))).toHaveLength(1);
+    expect(notice(s)!.dataset.dictationNotice).toBe("D8");
+    const body = retained ? `Kept so far: \u201c${words}\u201d` : "Dictation stopped: a connection problem occurred.";
+    expect(notice(s)!.querySelector(".bk-voice-notice-title")!.textContent).toBe("Dictation stopped");
+    expect(notice(s)!.querySelector(".bk-voice-notice-body")!.textContent).toBe(body);
+    expect([...notice(s)!.querySelectorAll("button")].map(b => b.textContent), "D8's actions").toEqual(["Dismiss", "Try again"]);
+    expect(draft(s), "the words heard are in the draft, never lost").toBe(retained ? words : "");
+    expect(announced, "one polite announcement, without a mirrored region").toEqual([`Dictation stopped${body}`]);
     const box = notice(s)!.getBoundingClientRect();
-    const target = dismiss(s).getBoundingClientRect();
     expect(box.left).toBeGreaterThanOrEqual(0); expect(box.right).toBeLessThanOrEqual(width);
     expect(s.host.scrollWidth).toBeLessThanOrEqual(width);
-    const text = notice(s)!.querySelector<HTMLElement>('div > div > span:last-child')!;
-    expect(text.textContent, "visible Callout text exists").toContain("Dictation stopped");
-    function readable(element: HTMLElement) {
-      const ancestors: HTMLElement[] = [];
-      for (let at: HTMLElement | null = element; at; at = at.parentElement) ancestors.unshift(at);
-      let background: Rgb = [255, 255, 255];
-      for (const at of ancestors) background = over(parse(getComputedStyle(at).backgroundColor), background);
-      return contrast(over(parse(getComputedStyle(element).color), background), background);
-    }
-    expect(readable(text), "computed explanation contrast reaches 4.5:1").toBeGreaterThanOrEqual(4.5);
-    expect(readable(dismiss(s)), "computed Dismiss contrast reaches 4.5:1").toBeGreaterThanOrEqual(4.5);
-    // #3252: Dismiss keeps its kit paint and reaches 44px past it under a
-    // coarse pointer; every edge of that target is its own.
-    expect(target.height, "Dismiss keeps its sm paint rather than drawing 44px").toBeLessThan(44);
-    expect(edgeOwners(dismiss(s), matchMedia("(any-pointer: coarse)").matches ? 44 : 0), "Dismiss owns each edge of its target").toEqual(OWNED);
-    expect(getComputedStyle(notice(s)!).animationName).toBe("none");
-    expect(getComputedStyle(notice(s)!).transitionDuration).toBe("0s");
-    const focusable = [...s.host.querySelectorAll<HTMLElement>('button, [role="button"], textarea')].filter(el => el.tabIndex >= 0);
-    if (retained) {
-      const discard = page.elementLocator(s.host).getByRole("button", { name: "Discard", exact: true }).query() as HTMLElement;
-      expect(discard, "review action is nonempty").toBeTruthy();
-      expect(focusable.indexOf(discard)).toBeGreaterThanOrEqual(0);
-      expect(focusable.indexOf(discard)).toBeLessThan(focusable.indexOf(dismiss(s)));
-    }
-    dismiss(s).focus(); await userEvent.keyboard("{Enter}");
+    expect(readable(notice(s)!.querySelector<HTMLElement>(".bk-voice-notice-body")!), "computed explanation contrast reaches 4.5:1").toBeGreaterThanOrEqual(4.5);
+    expect(readable(action(s, "Dismiss")!), "computed Dismiss contrast reaches 4.5:1").toBeGreaterThanOrEqual(4.5);
+    // The take ended with focus in the field: it returns to the composer, never to the notice.
+    await expect.poll(() => document.activeElement).toBe(retained ? s.host.querySelector("textarea[data-composer]") : dictate(s));
+    expect(notice(s)!.contains(document.activeElement)).toBe(false);
+    if (retained) expect(dictate(s)?.getAttribute("aria-label"), "D6: the mic adds to the kept words").toBe("Dictate more");
+    action(s, "Dismiss")!.focus(); await userEvent.keyboard("{Enter}");
     await expect.poll(() => notice(s)).toBeNull();
     expect(document.activeElement).toBe(dictate(s));
-    expect(s.ui.stores.voice.getState().reviewText, "dismiss keeps captured words in review").toBe(retained ? words : "");
+    expect(draft(s), "Dismiss keeps the words in the draft").toBe(retained ? words : "");
+    expect(s.net.frames.filter(f => !f.url.startsWith(SPEECH) && typeof f.data === "string" && f.data.includes("chat_message")), "nothing is sent").toEqual([]);
   });
 }
 
-for (const action of ["Discard", "Edit", "Send", "Add", "Dictate", "local"] as const) {
-  test(`${action} clears the dictation notice through the actual composer action`, async ctx => {
-    await viewport(ctx, 1280, "dark");
-    vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
-    const s = await mount(ctx, "webspeech");
-    await failedCapture(s, "webspeech", true);
-    if (action === "local") {
-      s.net.drop({ announce: true });
-      await expect.poll(() => s.host.querySelector('[aria-label="Record on this device"]')).not.toBeNull();
-      await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Record on this device"]')!);
-    } else {
-      const control = action === "Dictate" ? dictate(s)! : [...s.host.querySelectorAll<HTMLElement>('button, [role="button"]')].find(el => el.textContent?.trim() === action)!;
-      expect(control, "real review or microphone action is present").toBeTruthy();
-      await userEvent.click(control);
-    }
-    await expect.poll(() => notice(s), { message: `${action} clears the explanation` }).toBeNull();
-  });
-}
+test("Try again starts a new take whose words follow the kept ones", async ctx => {
+  await viewport(ctx, 1280, "dark");
+  vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
+  const s = await mount(ctx, "webspeech");
+  await failedCapture(s, "webspeech", true);
+  const first = ScriptedRecognition.last;
+  await userEvent.click(action(s, "Try again")!);
+  await expect.poll(() => notice(s), { message: "Try again clears the notice" }).toBeNull();
+  await expect.poll(() => ScriptedRecognition.last !== first && ScriptedRecognition.last?.started, { message: "a new take started" }).toBe(true);
+  ScriptedRecognition.last!.hear("and the harbour", true);
+  await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe("and the harbour");
+  await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Finish dictation"]')!);
+  ScriptedRecognition.last!.onend?.();
+  await expect.poll(() => draft(s)).toBe(`${words} and the harbour`);
+});
 
-test("typing and switching sessions retain the notice; stacked local refusal has independent dismissal and pointer dismissal preserves unrelated focus", async ctx => {
+test("typing and switching sessions retain the notice; a stacked local refusal has its own dismissal", async ctx => {
   await viewport(ctx, 320, "light");
   vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
   const s = await mount(ctx, "webspeech");
@@ -248,39 +231,37 @@ test("typing and switching sessions retain the notice; stacked local refusal has
   s.net.drop({ announce: true });
   flushSync(() => s.ui.stores.voice.getState().setLocalNotice("denied"));
   await expect.poll(() => s.host.querySelector('[data-capture-notice="local"]')).not.toBeNull();
-  const all = [...s.host.querySelectorAll('[data-capture-notice]')];
-  expect(all.map(el => el.getAttribute("data-capture-notice"))).toEqual(["dictation", "local"]);
-  expect(all.every(el => el.getBoundingClientRect().right <= 320)).toBe(true);
+  expect(notice(s)!.getBoundingClientRect().right).toBeLessThanOrEqual(320);
   const localDismiss = s.host.querySelector<HTMLElement>('[aria-label="Dismiss capture notice"]')!;
-  field.focus(); await userEvent.click(localDismiss);
+  await userEvent.click(localDismiss);
   await expect.poll(() => s.host.querySelector('[data-capture-notice="local"]')).toBeNull();
-  expect(notice(s), "clearing local cause keeps dictation cause").not.toBeNull();
-  flushSync(() => s.ui.stores.voice.getState().setLocalNotice("denied"));
-  await expect.poll(() => s.host.querySelector('[data-capture-notice="local"]')).not.toBeNull();
-  field.focus(); await userEvent.click(dismiss(s));
+  expect(notice(s), "clearing the local cause keeps the dictation cause").not.toBeNull();
+  await userEvent.click(action(s, "Dismiss")!);
   await expect.poll(() => notice(s)).toBeNull();
-  expect(document.activeElement, "pointer dismiss does not steal unrelated field focus").toBe(field);
-  expect(s.host.querySelector('[data-capture-notice="local"]')).not.toBeNull();
-  expect(s.ui.stores.voice.getState().reviewText).toBe(words);
+  flushSync(() => s.ui.stores.chat.getState().setActiveSession(ITHACA));
+  await expect.poll(() => draft(s), { message: "the kept words, edited, stay in their session's draft" }).toBe("Ask Penelope about the loom");
 });
 
 for (const code of ["not-allowed", "no-speech", "https://speech.invalid/?token=odysseus-untrusted"]) {
-  test(`Web Speech ${code}: exact safe ended copy in Chromium`, async ctx => {
+  test(`Web Speech ${code}: exact safe copy in Chromium`, async ctx => {
     await viewport(ctx, 320, "light"); vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
     const s = await mount(ctx, "webspeech");
     await failedCapture(s, "webspeech", false, code);
-    const expected = code === "not-allowed" ? "Dictation stopped: the microphone isn't available. Nothing was captured."
-      : code === "no-speech" ? "Dictation stopped: no speech heard." : "Dictation stopped unexpectedly. Nothing was captured.";
-    expect(notice(s)!.textContent).toBe(expected + "Dismiss");
-    expect(notice(s)!.textContent).not.toContain("odysseus-untrusted");
+    const [form, title, body] = code === "not-allowed" ? ["D7", "Microphone is blocked", "Allow it in this site\u2019s browser settings, then tap the mic again."]
+      : code === "no-speech" ? ["D8", "Dictation stopped", "Dictation stopped: no speech heard."] : ["D8", "Dictation stopped", "Dictation stopped unexpectedly."];
+    expect(notice(s)!.dataset.dictationNotice).toBe(form);
+    expect(notice(s)!.querySelector(".bk-voice-notice-title")!.textContent).toBe(title);
+    expect(notice(s)!.querySelector(".bk-voice-notice-body")!.textContent).toBe(body);
+    expect(s.host.textContent).not.toContain("odysseus-untrusted");
   });
 }
 
 for (const failure of ["fetch", "mic"] as const) {
-  test(`${failure} startup fails through the actual path with earlier review intact and no restart`, async ctx => {
+  test(`${failure} startup fails through the actual path with the draft intact and no restart`, async ctx => {
     await viewport(ctx, 1280, "dark");
     const s = await mount(ctx, "deepgram", failure === "fetch");
-    flushSync(() => s.ui.stores.voice.getState().setReviewText("Ask Penelope about the loom"));
+    const field = s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
+    await userEvent.fill(field, "Ask Penelope about the loom");
     let activations = 0;
     const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     vi.spyOn(navigator.mediaDevices, "getUserMedia").mockImplementation(async constraints => {
@@ -290,54 +271,48 @@ for (const failure of ["fetch", "mic"] as const) {
     });
     ctx.onTestFinished(() => { vi.restoreAllMocks(); });
     await userEvent.click(dictate(s)!);
-    const expected = failure === "fetch" ? "Dictation couldn't start: a connection problem occurred. Nothing was captured."
-      : "Dictation couldn't start: the microphone isn't available. Nothing was captured.";
-    await expect.poll(() => notice(s)?.textContent).toBe(expected + "Dismiss");
-    expect(s.ui.stores.voice.getState().reviewText).toBe("Ask Penelope about the loom");
+    await expect.poll(() => notice(s)?.dataset.dictationNotice).toBe(failure === "fetch" ? "D8" : "D7");
+    expect(notice(s)!.querySelector(".bk-voice-notice-body")!.textContent).toBe(failure === "fetch"
+      ? "Dictation couldn't start: a connection problem occurred." : "Allow it in this site\u2019s browser settings, then tap the mic again.");
+    expect(s.host.textContent).not.toContain("odysseus-untrusted");
+    expect(draft(s)).toBe("Ask Penelope about the loom");
     expect(s.ui.stores.voice.getState().mode).toBe("idle");
     expect(activations).toBe(failure === "mic" ? 1 : 0);
     await new Promise(done => setTimeout(done, 400));
     expect(activations, "no automatic microphone retry").toBe(failure === "mic" ? 1 : 0);
+    if (failure === "mic") {
+      await userEvent.click(action(s, "OK")!);
+      await expect.poll(() => notice(s)).toBeNull();
+      expect(document.activeElement).toBe(dictate(s));
+    }
   });
 }
 
-for (const ending of ["Done", "Cancel", "clean", "malformed-Done"] as const) {
-  test(`${ending} creates no terminal failure notice in Chromium`, async ctx => {
+for (const ending of ["Finish", "clean", "malformed-Finish"] as const) {
+  test(`${ending} creates no failure notice in Chromium`, async ctx => {
     await viewport(ctx, 1280, "dark");
-    const s = await mount(ctx, "deepgram"); await startDictating(s); await new Promise(done => setTimeout(done, 350));
+    const s = await mount(ctx, "deepgram"); await startDictating(s);
     const socket = s.net.socket(SPEECH)!;
     await expect.poll(() => socket.readyState).toBe(1);
     socket.deliver({ type: "Results", is_final: true, channel: { alternatives: [{ transcript: words }] } });
-    if (ending === "malformed-Done") {
+    if (ending === "malformed-Finish") {
       socket.deliver("https://speech.invalid/?token=odysseus-untrusted");
       await expect.poll(() => s.ui.stores.voice.getState().error).toBe("A dictation problem occurred.");
-      expect(s.host.textContent).toContain("A dictation problem occurred.");
       expect(s.host.textContent).not.toContain("odysseus-untrusted");
       expect(notice(s)).toBeNull();
     }
     if (ending === "clean") socket.finish(1000, "", true);
-    else if (ending === "Cancel") await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Cancel dictation"]')!);
     else {
-      // The provider flushes and closes in response to Done.
+      // The provider flushes and closes in response to Finish.
       const original = socket.send.bind(socket);
       socket.send = data => { original(data); if (data === '{"type":"CloseStream"}') { socket.deliver({ type: "Metadata" }); socket.finish(1000, "", true); } };
-      await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find(el => el.textContent?.trim() === "Done")!);
+      await userEvent.click(s.host.querySelector<HTMLElement>('[aria-label="Finish dictation"]')!);
     }
     await expect.poll(() => s.ui.stores.voice.getState().mode).toBe("idle");
-    expect(notice(s), "user actions and non-ending errors are not terminal failures").toBeNull();
-    expect(s.ui.stores.voice.getState().reviewText).toBe(ending === "Cancel" ? "" : words);
+    expect(notice(s), "user actions and non-ending errors are not failures").toBeNull();
+    await expect.poll(() => draft(s)).toBe(words);
   });
 }
-
-test("default motion also has no notice entrance transition", async ctx => {
-  await viewport(ctx, 320, "dark"); await commands.dictationMotion("no-preference");
-  ctx.onTestFinished(() => commands.dictationMotion("reduce"));
-  expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(false);
-  vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
-  const s = await mount(ctx, "webspeech"); await failedCapture(s, "webspeech", false);
-  expect(getComputedStyle(notice(s)!).animationName).toBe("none");
-  expect(getComputedStyle(notice(s)!).transitionDuration).toBe("0s");
-});
 
 test("keyboard Dismiss falls back to the field when the microphone is unavailable", async ctx => {
   await viewport(ctx, 320, "light");
@@ -345,30 +320,35 @@ test("keyboard Dismiss falls back to the field when the microphone is unavailabl
   vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
   vi.stubGlobal("MediaRecorder", undefined);
   const s = await mount(ctx, "webspeech"); await failedCapture(s, "webspeech", true);
+  // The take's end has handed focus to the field before the keyboard moves it.
+  await expect.poll(() => document.activeElement).toBe(s.host.querySelector("textarea[data-composer]"));
   s.net.drop({ announce: true });
   await expect.poll(() => dictate(s)).toBeNull();
   await expect.poll(() => s.host.querySelector('[data-capture-notice="local"]')).not.toBeNull();
-  dismiss(s).focus(); await userEvent.keyboard("{Enter}");
+  action(s, "Dismiss")!.focus();
+  expect(document.activeElement, "Dismiss holds focus").toBe(action(s, "Dismiss"));
+  await userEvent.keyboard("{Enter}");
   await expect.poll(() => notice(s)).toBeNull();
-  expect(document.activeElement).toBe(s.host.querySelector("textarea[data-composer]"));
+  await expect.poll(() => document.activeElement).toBe(s.host.querySelector("textarea[data-composer]"));
   expect(s.host.querySelector('[data-capture-notice="local"]')).not.toBeNull();
-  expect(s.ui.stores.voice.getState().reviewText).toBe(words);
+  expect(draft(s)).toBe(words);
 });
 
-test("desktop Escape from the composer cancels dictation, while draining refuses it", async ctx => {
-  // Mutation: scope Escape to the popover instead of the document.
+test("Escape cancels a listening take, while a finishing one refuses it", async ctx => {
   await viewport(ctx, 1280, "dark");
   vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
   const s = await mount(ctx, "webspeech");
   await startDictating(s);
-  const composer = s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!;
-  expect(composer, "real composer exists").not.toBeNull();
+  ScriptedRecognition.last!.hear(words, true);
+  await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe(words);
   flushSync(() => s.ui.stores.voice.setState({ draining: true }));
-  composer.focus(); await userEvent.keyboard("{Escape}");
-  expect(s.ui.stores.voice.getState().mode, "draining refuses composer Escape").toBe("dictate");
+  await userEvent.keyboard("{Escape}");
+  await frame();
+  expect(s.ui.stores.voice.getState().mode, "finishing refuses Escape").toBe("dictate");
   flushSync(() => s.ui.stores.voice.setState({ draining: false }));
-  composer.focus(); await userEvent.keyboard("{Escape}");
-  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "composer Escape cancels desktop dictation" }).toBe("idle");
-  expect(s.host.querySelector('[aria-label="Dictation"]')).toBeNull();
-  expect(s.ui.stores.voice.getState().reviewText).toBe("");
+  await frame();
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "Escape cancels the take" }).toBe("idle");
+  expect(draft(s), "a cancelled take adds nothing").toBe("");
+  await expect.poll(() => document.activeElement).toBe(dictate(s));
 });
