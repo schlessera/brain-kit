@@ -36,8 +36,11 @@ let styles: HTMLStyleElement;
 let viewport: { width: number; height: number };
 let themeBefore: string | undefined;
 let outer: { width: number; height: number } | undefined;
+/** The page's motion preference as this file found it: later files in the shard rely on it. */
+let motionBefore: "reduce" | "no-preference";
 beforeAll(async () => {
   viewport = { width: window.innerWidth, height: window.innerHeight };
+  motionBefore = matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduce" : "no-preference";
   themeBefore = document.documentElement.dataset.theme;
   styles = document.createElement("style");
   styles.textContent = await commands.formConsumerStyles();
@@ -60,7 +63,9 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   restoreOnline();
   document.documentElement.dataset.theme = themeBefore;
-  await commands.dictationMotion("no-preference");
+  // Put back the preference this file found, not a fixed one: the pinned runner
+  // starts with reduced motion, and later files measure layouts with it.
+  await commands.dictationMotion(motionBefore);
   if (outer) { await commands.formViewport(outer.width - 100, outer.height - 120); outer = undefined; }
 });
 afterAll(async () => { styles.remove(); await page.viewport(viewport.width, viewport.height); });
@@ -229,6 +234,8 @@ test("case 18: opening details makes no request; Check again makes one read; foc
   await expect.poll(() => document.activeElement, { message: "focus returns to the indicator" }).toBe(s.trigger());
 
   // Motion: only active work moves, and reduced motion keeps it still with the same glyph and name.
+  // The pinned runner may start with reduced motion; this case sets each preference itself.
+  await commands.dictationMotion("no-preference");
   const glyph = () => s.host.querySelector("[data-draft-indicator] .bk-status-glyph")!;
   expect(glyph().getAnimations(), "success is static").toEqual([]);
   const release = fixture.holdSaves();
