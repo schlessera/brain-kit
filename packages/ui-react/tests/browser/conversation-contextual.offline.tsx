@@ -580,7 +580,8 @@ test("mixed transcript window, reading anchor, history resync and session isolat
   await expect.poll(() => s.host.querySelectorAll("[data-conversation-output]").length).toBeGreaterThan(0);
   const returned = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries;
   expect(returned.filter(e => e.kind !== "voice-boundary").map(e => e.key)).toEqual(keys);
-  expect(returned.filter(e => e.kind === "voice-boundary").map(e => e.label)).toEqual(["Voice ended"]);
+  // Switching away ends the conversation; its divider comes only from the host's retained end (#3729), which this fixture has none of.
+  expect(returned.filter(e => e.kind === "voice-boundary").map(e => e.label)).toEqual([]);
 });
 
 
@@ -1069,7 +1070,9 @@ test("bounded recognition eviction and replacement never fabricate cold-reload d
   await expect.poll(() => s.host.textContent).toContain("Voice reconnected");
   expect(s.client.state.getState().recognition.at(-1)).toMatchObject({ epoch: 2, sequence: 0, text: "A new voyage." });
   s.client.leave();
-  await expect.poll(() => s.host.querySelector('[role="separator"]')?.getAttribute("aria-label")).toMatch(/^Live conversation ended: Live/);
+  // #3729: the end divider is drawn only from the host's retained end, never a local observation.
+  expect(s.socket.frames("conversation_stop").at(-1), "Leave is the operator's final stop").not.toHaveProperty("resumable");
+  expect(s.host.querySelector('[role="separator"]'), "no retained end, so no divider").toBeNull();
   s.ui.stores.chat.getState().setActiveSession("pylos-watch");
   s.client.enter();
   expect(s.client.state.getState().recognition).toEqual([]);

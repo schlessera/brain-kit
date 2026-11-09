@@ -37,10 +37,11 @@ export function ConversationPermissionOutcomes({ sessionId }: { sessionId: strin
  * It reads as brain's spoken turn: the teal speaker mark, never a heard claim.
  * No text is dimmed as unplayed: the client knows which chunks drained, not
  * which words they carried (`playedSamples` does not align text to audio).
+ * `cutOff` comes only from a retained interruption naming this output.
  */
-export function ConversationOutput({ output, restored = false, arrivalKey }: { output: ConversationClientOutput; restored?: boolean; arrivalKey?: string }) {
+export function ConversationOutput({ output, restored = false, arrivalKey, cutOff = false }: { output: ConversationClientOutput; restored?: boolean; arrivalKey?: string; cutOff?: boolean }) {
   return <div className="py-4" data-arrival-key={arrivalKey} tabIndex={-1} data-conversation-output="" data-output-id={output.outputId}>
-    <SpokenTurn speaker="brain"><span className="whitespace-pre-wrap">{output.generated}</span></SpokenTurn>
+    <SpokenTurn speaker="brain" cutOff={cutOff}><span className="whitespace-pre-wrap">{output.generated}</span></SpokenTurn>
     <div className="flex"><TranscriptQualifiers kind="generated" source={output.providerId ? conversationService(output.providerId) : undefined}
       playback={output.playback === "discarded" ? "not-spoken" : output.playback} restored={restored} unsaved={output.unsaved} orderUnknown={output.orderUnknown ?? restored} evidenceLabel="Technical evidence (generated reply)">
       <p>Conversation {output.conversationId} · epoch {output.epoch} · output {output.outputId}</p>
@@ -105,7 +106,7 @@ export function ConversationRecognitionRow({ fragments, introduction = false }: 
 }
 
 /**
- * The end divider's label: `Live`, then the locally observed duration. The
+ * The end divider's label: `Live`, then the retained duration (#3729). The
  * persona joins it once a conversation carries one (#3617); none is guessed.
  */
 export function conversationEndLabel(durationMs?: number) {

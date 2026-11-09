@@ -250,13 +250,15 @@ export function appendDialogue(
       assertLive(db, [["dialogue_owner", input.ownerId]]);
       const owner = dialogueOwner(db, input, input.principalId);
       if (!owner) throw new Error("Dialogue owner unavailable");
-      assertLive(db, [["dialogue_owner", owner.id], ["session", owner.session_id], ["conversation", evidence.kind === "voice" ? evidence.conversationId : undefined]]);
-      if (evidence.kind === "voice") {
+      // Every voice-sourced kind carries the same conversation scope.
+      const sourced = evidence.kind === "voice" || evidence.kind === "voice_interruption" || evidence.kind === "voice_end" ? evidence : undefined;
+      assertLive(db, [["dialogue_owner", owner.id], ["session", owner.session_id], ["conversation", sourced?.conversationId]]);
+      if (sourced) {
         const c = db
           .query(
             "SELECT owner_id,epoch,provider_id FROM dialogue_conversations WHERE id=?"
           )
-          .get(evidence.conversationId) as {
+          .get(sourced.conversationId) as {
           owner_id: string;
           epoch: number;
           provider_id: string;
@@ -264,8 +266,8 @@ export function appendDialogue(
         if (
           !c ||
           c.owner_id !== owner.id ||
-          c.epoch !== evidence.epoch ||
-          c.provider_id !== evidence.providerId
+          c.epoch !== sourced.epoch ||
+          c.provider_id !== sourced.providerId
         )
           throw new Error("Dialogue source scope mismatch");
       }

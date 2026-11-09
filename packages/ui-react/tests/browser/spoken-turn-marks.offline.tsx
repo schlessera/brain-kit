@@ -35,7 +35,7 @@ async function scene(ctx: TestContext, history: SessionHistoryMessage[] = [], wi
   const release = ui.connection.connect();
   ctx.onTestFinished(async () => { flushSync(() => root.unmount()); release(); ui.dispose(); network.restore(); host.remove(); await page.viewport(previous.width, previous.height); await commands.formViewport(outer.width - 100, outer.height - 120); });
   await expect.poll(() => ui.stores.connection.getState().wsStatus).toBe("connected");
-  return { ui, host };
+  return { ui, host, socket: network.socket()! };
 }
 
 /** Captured input with exactly the confidence evidence given; nothing is filled in. */
@@ -62,7 +62,7 @@ test("a live spoken exchange carries the mic and speaker marks; only a low calib
   expect(row.querySelector(".bk-spoken-bubble")!.getAttribute("data-in-progress"), "an interim fragment is still being recognized").toBe("true");
   expect(row.querySelector(".bk-voice-cursor")).not.toBeNull();
   expect(s.host.querySelector(".bk-unplayed"), "no text position is known, so nothing is dimmed as unplayed").toBeNull();
-  expect(s.host.querySelector(".bk-cut-off"), "a cut-off claim needs barge-in evidence the transcript does not carry").toBeNull();
+  expect(s.host.querySelector(".bk-cut-off"), "a cut-off claim needs retained barge-in evidence, which this chat has none of").toBeNull();
   expect(s.host.textContent, "the old turn labels are gone").not.toMatch(/Recognized speech|Voice reply/);
   // The spoken turns only: the header time stamp is outside this change.
   for (const turn of s.host.querySelectorAll("[data-conversation-recognition], [data-conversation-output]")) expect((await axe.run(turn)).violations.flatMap(v => v.nodes.map(n => `${v.id} ${n.target.join(" ")}: ${n.failureSummary}`))).toEqual([]);
@@ -74,16 +74,67 @@ test("a live spoken exchange carries the mic and speaker marks; only a low calib
   expect(row.querySelector(".bk-voice-cursor")).toBeNull();
 });
 
-test("a settled conversation ends with the divider and its locally observed duration", async ctx => {
+// #3729: one retained barge-in on one reply, and one retained end. The live
+// and reloaded scenes below receive the same evidence and draw the same marks.
+const STARTED = Date.parse("2026-07-12T09:00:00Z");
+const voiceRecord = (sequence: number, event: Extract<DialogueRecord["evidence"], { kind: "voice" }>["event"]): DialogueRecord =>
+  ({ sequence, identity: `record-${sequence}`, evidence: { kind: "voice", conversationId: "odysseus-voice", epoch: 1, providerId: "gemini-live", event } });
+const MARKS: DialogueRecord[] = [
+  { sequence: 10, identity: "barge-in", evidence: { kind: "voice_interruption", conversationId: "odysseus-voice", epoch: 1, providerId: "gemini-live", outputId: "axe-reply" } },
+  { sequence: 11, identity: "ended", evidence: { kind: "voice_end", conversationId: "odysseus-voice", epoch: 1, providerId: "gemini-live", startedAt: STARTED, endedAt: STARTED + 72_000 } },
+];
+const retained = (records: DialogueRecord[]) => ({ ownerId: "odysseus-voice", sessionId: SESSION, generation: 1, coverage: "complete" as const, through: records.at(-1)!.sequence, records });
+const drawn = (root: ParentNode) => ({
+  cutOff: [...root.querySelectorAll(".bk-cut-off")].map(tag => tag.closest<HTMLElement>("[data-conversation-output]")?.dataset.outputId),
+  dividers: [...root.querySelectorAll(".bk-voice-divider")].map(d => d.getAttribute("aria-label")),
+});
+const EXPECTED = { cutOff: ["axe-reply"], dividers: ["Live conversation ended: Live · 1:12"] };
+
+test("live: the cut-off tag and the end divider come from retained evidence as it arrives", async ctx => {
   const s = await scene(ctx);
-  flushSync(() => s.ui.connection.conversation.state.setState({ active: true, sessionId: SESSION, profile: PROFILE, recognition: [captured(1, "Is the raft ready?")] }));
-  vi.setSystemTime(Date.now() + 72_000);
+  flushSync(() => s.ui.connection.conversation.state.setState({ active: true, sessionId: SESSION, profile: PROFILE, recognition: [captured(1, "Is the raft ready?")],
+    outputs: [
+      { conversationId: "odysseus-voice", epoch: 1, sessionId: SESSION, providerId: "gemini-live", outputId: "axe-reply", generated: "Calypso returns the bronze axe at", playback: "played" },
+      { conversationId: "odysseus-voice", epoch: 1, sessionId: SESSION, providerId: "gemini-live", outputId: "raft-reply", generated: "The raft is lashed and ready.", playback: "played" },
+    ] }));
+  await vi.waitFor(() => expect(s.host.querySelectorAll("[data-conversation-output]").length).toBe(2));
+  // Seventy-two seconds of local time pass, then the operator leaves.
+  vi.setSystemTime(STARTED + 72_000);
   flushSync(() => s.ui.connection.conversation.state.setState({ active: false }));
-  const divider = await vi.waitFor(() => s.host.querySelector<HTMLElement>(".bk-voice-divider")!);
-  expect(divider.getAttribute("role")).toBe("separator");
-  expect(divider.getAttribute("aria-label"), "duration only: no persona is recorded, so none is named").toBe("Live conversation ended: Live · 1:12");
+  expect(drawn(s.host), "nothing is retained yet, so no mark is drawn from local observation").toEqual({ cutOff: [], dividers: [] });
+  s.socket.deliver({ type: "dialogue_history", ...retained(MARKS) });
+  await vi.waitFor(() => expect(drawn(s.host)).toEqual(EXPECTED));
+  expect(s.host.querySelector('[data-output-id="raft-reply"] .bk-cut-off'), "a reply with no recorded interruption is never cut off").toBeNull();
   expect(s.host.textContent).not.toContain("Voice ended");
+  for (const node of s.host.querySelectorAll(".bk-voice-divider, [data-output-id=\"axe-reply\"]")) expect((await axe.run(node)).violations.flatMap(v => v.nodes.map(n => `${v.id} ${n.target.join(" ")}: ${n.failureSummary}`))).toEqual([]);
   await page.screenshot({ element: s.host, path: "../../.vitest-attachments/spoken-turn-marks/ended-320.png" });
+});
+
+test("reloaded: the same retained evidence draws the same cut-off tag and end divider", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.connection.conversation.state.setState({ sessionId: SESSION, dialogueRestoredThrough: { [SESSION]: 11 }, dialogue: { [SESSION]: retained([
+    voiceRecord(1, { kind: "input_fragment", utteranceId: "calypso-axe", sequence: 1, text: "Is the raft ready?", finalization: "final", certainty: "unknown", origin: "user" }),
+    voiceRecord(2, { kind: "output_transcript", outputId: "axe-reply", sequence: 0, text: "Calypso returns the bronze axe at" }),
+    voiceRecord(3, { kind: "output_transcript", outputId: "raft-reply", sequence: 0, text: "The raft is lashed and ready." }),
+    ...MARKS,
+  ]) } }));
+  await vi.waitFor(() => expect(drawn(s.host)).toEqual(EXPECTED));
+  expect(s.host.querySelector('[data-output-id="raft-reply"] .bk-cut-off'), "a reply with no recorded interruption is never cut off").toBeNull();
+  const order = [...s.host.querySelectorAll("[data-conversation-output], .bk-voice-divider")].map(n => n.getAttribute("data-output-id") ?? "divider");
+  expect(order, "the end follows the conversation it ends").toEqual(["axe-reply", "raft-reply", "divider"]);
+  await page.screenshot({ element: s.host, path: "../../.vitest-attachments/spoken-turn-marks/reloaded-marks-320.png" });
+});
+
+test("an interruption naming no output, or another output, cuts off no reply", async ctx => {
+  const s = await scene(ctx);
+  flushSync(() => s.ui.connection.conversation.state.setState({ sessionId: SESSION, dialogueRestoredThrough: { [SESSION]: 4 }, dialogue: { [SESSION]: retained([
+    voiceRecord(1, { kind: "output_transcript", outputId: "axe-reply", sequence: 0, text: "Calypso returns the bronze axe at dusk." }),
+    { sequence: 2, identity: "unnamed", evidence: { kind: "voice_interruption", conversationId: "odysseus-voice", epoch: 1, providerId: "gemini-live" } },
+    { sequence: 3, identity: "other-epoch", evidence: { kind: "voice_interruption", conversationId: "odysseus-voice", epoch: 2, providerId: "gemini-live", outputId: "axe-reply" } },
+    { sequence: 4, identity: "other-output", evidence: { kind: "voice_interruption", conversationId: "odysseus-voice", epoch: 1, providerId: "gemini-live", outputId: "sail-reply" } },
+  ]) } }));
+  await vi.waitFor(() => expect(s.host.querySelector("[data-output-id=\"axe-reply\"]")).not.toBeNull());
+  expect(drawn(s.host)).toEqual({ cutOff: [], dividers: [] });
 });
 
 test("a reloaded chat renders the same marks from retained evidence; a legacy turn stays plain", async ctx => {
