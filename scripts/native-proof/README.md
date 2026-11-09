@@ -309,6 +309,15 @@ edits a writable snapshot of sealed source, diffs two of its read-only
 checkpoints and grants it to a running non-root bubblewrap worker through an
 access generation, then parks it, adopts an interrupted grant on restart and
 closes the generation.
+A growth case ([#3515](https://github.com/schlessera/brain-kit/issues/3515))
+acquires a generated Odysseus repository cold into two views. It adds a
+worktree and a changed refresh, both within the ruled thresholds, and expects
+`poolGrowth` to report no flag. Then it grows the worktree past 25 % of its
+cold acquisition, refreshes with new data past 0.75x, and publishes a third
+copy. It expects exactly those three flags, unchanged recovery records and the
+same result from `brain-native-store pool growth`. Names planted in a view
+that escape it or resolve to an unpublished root or a worktree make the status
+unavailable.
 
 Case 18's S7 allocations use `createFixtureWorktrees`: at most three allocation
 attempts (the initial allocation plus two fresh identities). Only an
