@@ -783,6 +783,15 @@ describe.skipIf(!executablePath)("draft reconciliation kept on this device (#121
         if (message.type === "chat_message" && !releaseMessage) releaseMessage = () => server.send(frame);
         else server.send(frame);
       });
+      // D52's path: a host without outgoing snapshots. On one with them a
+      // save waits while a snapshot's send is out (#3155, #3733), so no newer
+      // save can race the acceptance; the case below proves that host.
+      server.onMessage((frame) => {
+        const message = JSON.parse(String(frame)) as { type: string; sessionDraftLimits?: { maxOutgoingSnapshots?: number } };
+        if (message.type !== "server_hello" || !message.sessionDraftLimits) { socket.send(frame); return; }
+        delete message.sessionDraftLimits.maxOutgoingSnapshots;
+        socket.send(JSON.stringify(message));
+      });
     });
     const page = await context.newPage();
     try {
@@ -829,6 +838,46 @@ describe.skipIf(!executablePath)("draft reconciliation kept on this device (#121
       await settle(async () => (await hostDrafts(page)).find((d) => d.draftId === id)?.sessionId === session);
       expect((await hostDrafts(page)).find((d) => d.draftId === id)?.sessionId, "the pending bind completes after the reload").toBe(session);
       expect(await draftOf(page, id)).toMatchObject({ text: newer, sessionId: session, bind: null });
+    } finally {
+      await fixture(page, (f) => f.clearHostDrafts()).catch(() => {});
+      await context.close();
+    }
+  }, 120_000);
+
+  test("on a host that keeps outgoing snapshots, words typed while the first message is out wait for its acceptance, then save under its session", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 700 } });
+    let releaseMessage: (() => void) | null = null;
+    await context.routeWebSocket(() => true, (socket) => {
+      const server = socket.connectToServer();
+      socket.onMessage((frame) => {
+        const message = JSON.parse(String(frame)) as { type: string };
+        if (message.type === "chat_message" && !releaseMessage) releaseMessage = () => server.send(frame);
+        else server.send(frame);
+      });
+    });
+    const page = await context.newPage();
+    try {
+      await newChat(page);
+      const first = "Which harbour shelters the fleet?";
+      await field(page).fill(first);
+      const id = await fixture(page, (f) => f.draftId());
+      await until(page, `f.draft(${JSON.stringify(id)})?.revision === 1`);
+      await field(page).press("Enter");
+      await settle(async () => releaseMessage !== null, 5_000);
+      expect(releaseMessage, "the message goes once the save that holds its snapshot is acknowledged").not.toBeNull();
+      expect((await hostDrafts(page)).find((d) => d.draftId === id), "that save cleared the composer").toMatchObject({ revision: 2, sessionId: null, preview: "" });
+      const newer = "And the harbour fees";
+      await field(page).fill(newer);
+      // A negative window: the newer words would save within SAVE_DELAY_MS
+      // (well under 2s) if anything let them. Nothing may until the answer.
+      await settle(async () => (await hostDrafts(page)).some((d) => d.draftId === id && d.revision > 2), 2_000);
+      expect((await hostDrafts(page)).find((d) => d.draftId === id), "no save lists the snapshot again while its send is out (#3733)").toMatchObject({ revision: 2, preview: "" });
+      expect((await draftOf(page, id))?.text, "the words stay in the field").toBe(newer);
+      releaseMessage!();
+      await until(page, "f.activeSessionId() !== null");
+      const session = (await fixture(page, (f) => f.activeSessionId()))!;
+      await settle(async () => (await hostDrafts(page)).some((d) => d.sessionId === session && d.preview === newer));
+      expect((await hostDrafts(page)).filter((d) => d.preview === newer).map((d) => d.sessionId), "the newer words are that session's draft").toEqual([session]);
     } finally {
       await fixture(page, (f) => f.clearHostDrafts()).catch(() => {});
       await context.close();

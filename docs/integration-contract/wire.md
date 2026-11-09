@@ -1968,6 +1968,17 @@ D52's tab-only track path.
   unconfirmed snapshot; the single-slot write still works. `DELETE` of a draft
   holding a held or unconfirmed snapshot is 409 `DRAFT_OUTGOING_PENDING`. The
   rules are in the [HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588).
+- **The React client writes the list (additive, #3155).** On a host that
+  advertises `composerFiles`, `chatRequestAck` and
+  `sessionDraftLimits.maxOutgoingSnapshots`, `@schlessera/brain-ui-react`
+  sends every message through a snapshot: Send writes it, `held` or
+  `dispatched`, in the same `PUT` that clears the composer, and the
+  `chat_message` follows only once the host acknowledges a revision that
+  holds it dispatched, with that revision as `draftRef` and the snapshot's
+  `fileIds` as `attachmentRefs`. The frame's shape is unchanged. Send again
+  is two saves: the old snapshot moves to `returned`, then is left out in the
+  save that creates its successor under a new `snapshotId` and `requestId`.
+  A host without the limit field keeps D52's tab-local path.
 
 The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
 `ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,

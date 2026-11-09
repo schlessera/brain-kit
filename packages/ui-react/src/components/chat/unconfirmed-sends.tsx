@@ -25,7 +25,8 @@ export function UnconfirmedSends() {
   const held = useMemo(() => Object.values(sends)
     // Every new chat's unconfirmed first message is held in the new-chat
     // view, whichever new chat is open: it has no session to be found in.
-    .filter((s) => s.state === "unconfirmed" && s.sessionId === sessionId)
+    // A snapshot's send is its own bubble (#3155): it is never held here too.
+    .filter((s) => s.state === "unconfirmed" && s.sessionId === sessionId && !s.snapshotId)
     .sort((a, b) => a.sentAt - b.sentAt), [sends, sessionId]);
   if (held.length === 0) return null;
   return (

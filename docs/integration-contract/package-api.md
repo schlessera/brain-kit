@@ -258,6 +258,25 @@ and `SessionCatalog.recordMessageSource`'s optional effort argument gains
 `attachmentFiles?: MessageAttachment[]` (an `AttachmentFile` with an optional
 `inline` flag), which the host records so replay can reproduce the block.
 
+## Outgoing snapshot bubbles (additive, 0.45.0, #3155)
+
+`BrainUiConnection.drafts` (the `connection` of a `createBrainUiRoot` root)
+gains two methods beside `resend`, `check` and `edit`:
+
+- `resendSnapshot(requestId)`: Send again for a send that an outgoing
+  snapshot carries and no answer settled. A new request replaces it, and the
+  old snapshot is returned and left out as its successor is created. It
+  returns false when that send is not unconfirmed.
+- `sendPaused(draftId, snapshotId)`: Send for a held snapshot restored after a
+  reload, which never sends without this call.
+
+`check(requestId)` also accepts a snapshot's send. A recovery envelope with no
+accepted work (`revision` 0) returns that snapshot unsent. `UnconfirmedSends`
+skips sends that a snapshot carries, because their bubble stands for them.
+The kit's `StatusIndicatorProps.announce` is described with
+[the indicator](#ui-kit-compact-operation-status-additive-3281). No other
+export changes.
+
 ## Reading composer attachments (additive, 0.45.0, #3154)
 
 `@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
@@ -349,6 +368,10 @@ records the state matrix and the interaction.
   `actions` (a `ReactNode` of consumer buttons, rendered in details only).
 - `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
   `unknown`, `failed`, `refused` or `idle`.
+
+An optional `announce` (additive, #3155) defaults to `true`. With `false` the
+indicator renders no live region, for a consumer that announces the same
+change itself, so it is never spoken twice.
 
 The component is presentational. It derives only the displayed state and the
 count. The display state is the worst operation's state, in the order refused,
@@ -4904,6 +4927,20 @@ it is "Attach — photo, camera, files" (previously the fixed
 an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
 composer's, has neither. Existing props and defaults are otherwise unchanged,
 and no wire schema changes. `api-report/` records the added prop.
+
+<a id="composer-mic-control-additive-0450-3727"></a>
+
+## Composer mic control (additive, 0.45.0, #3727)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`micControl?: ReactNode`, a caller-drawn mic (the kit's `MicButton`) in the
+`send` and `plain` field's mic slot. When it is set, `mic`, `onMic`,
+`micLabel`, `micTip` and `micUnavailable` are ignored, the slot takes the
+control's 44px target with -4px
+block margins (a 54px field), and the field aligns its controls to the last
+line of a multi-line draft. The `voice` variant keeps its own disc. Omitted,
+the composer renders exactly as before. No wire schema changes.
+`api-report/` records the added prop.
 
 
 ## Prospective trust policy data (additive, #3607)
