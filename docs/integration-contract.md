@@ -188,7 +188,8 @@ declared the same flag as one new `attachment_read` frame. `ServerMessage`
 gains that variant; a client without the flag never receives it. Nothing of
 either reaches a provider. See [the wire component](integration-contract/wire.md#attachment-reads-additive-0450-3589)
 and [the HTTP API](http-api.md#attachment-reads-additive-0450-3589). This
-ships in a minor.
+ships in a minor. The SDK's `BrainUiClient` now declares the flag in its
+`client_hello`, and the React package shows the records on sent rows (#3155).
 
 ## Reading a chat deletion's outcome (additive, #3455)
 
