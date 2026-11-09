@@ -425,6 +425,20 @@ originals, on a host that advertises `composerFiles`:
     dismissed. The notice says nothing about storage or cleanup. The host's
     own references decide that: 1 hour for a file never bound, 7 days from the
     last reference otherwise.
+- **One end-to-end proof of an on-demand read.**
+  `packages/ui-react/tests/attachment-read-runtime.test.ts` runs the public
+  ChatPage in real Chrome against the real host, keyless and offline. The
+  Files input uploads an Odysseus permit PDF. The test checks that the host
+  stores the original byte for byte under `.brain-ui/attachments/<fileId>/`
+  and that the saved revision binds it. Send carries `attachmentRefs` and the
+  `draftRef`, and the first message names the file without its contents. A
+  scripted turn, registered as `pi` because the bridge offers reads only to
+  the first-party backends, calls the SDK's `handleReadAttachment` through
+  the host bridge. The production reader and PDF extractor return page 2.
+  The reply quotes a sentence found only in the file, the host records the
+  read and sends its `attachment_read` frame, and the sent row shows
+  *read p. 2*. The native tool loops and their provider-history stability
+  stay with each backend's `read-attachment` guard.
 
 
 The rejected options were offered in the rulings above:
