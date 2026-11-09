@@ -153,6 +153,12 @@ export function createWebSocketClient(root: BrainUiServices) {
       resendSnapshot: (requestId: string) => services.drafts.resendSnapshot(requestId),
       /** Send a held snapshot restored after reload (#3155), only on this explicit call. */
       sendPaused: (draftId: string, snapshotId: string) => services.drafts.sendPaused(draftId, snapshotId),
+      /**
+       * Check again for a draft save whose answer was lost (#3155): one
+       * read of the draft, never a save. `saved` when the host holds exactly
+       * what that save sent.
+       */
+      checkSave: (draftId: string) => services.drafts.checkSave(draftId),
     },
     handleServerMessage: inbound.handleServerMessage,
     answers: services.answers,

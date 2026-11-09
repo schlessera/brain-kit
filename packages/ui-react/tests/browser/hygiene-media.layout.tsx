@@ -358,9 +358,18 @@ test("dark 320: a scratch MP4 makes no request until Load; over the raw cap ther
   expect(card().textContent).toContain("1920 × 1080 · 1:23");
   await settle(400);
   expect(await requests(sirens)).toBe(0);
-  await page.getByRole("button", { name: "Load preview of sirens-passage.mp4", exact: true }).click();
-  await expect.poll(() => card().querySelector("video")?.getAttribute("preload")).toBe("metadata");
-  expect(card().querySelector("video")!.autoplay).toBe(false);
+  // The fixture's bytes are not a playable MP4, so the element errors within
+  // tens of milliseconds and the frame reads "Couldn't load preview". Catch
+  // the video Load mounts, rather than polling for it after it may be gone.
+  let mounted: HTMLVideoElement | null = null;
+  const watch = new MutationObserver(() => { mounted ??= card().querySelector("video"); });
+  watch.observe(card(), { subtree: true, childList: true });
+  try {
+    await page.getByRole("button", { name: "Load preview of sirens-passage.mp4", exact: true }).click();
+    await expect.poll(() => mounted, { message: "Load mounts the video" }).not.toBeNull();
+  } finally { watch.disconnect(); }
+  expect(mounted!.getAttribute("preload")).toBe("metadata");
+  expect(mounted!.autoplay).toBe(false);
   await expect.poll(() => requests(sirens)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Leave pending", exact: true }).click();
   await expect.poll(() => title()?.textContent).toBe("storm-off-scheria.mp4");

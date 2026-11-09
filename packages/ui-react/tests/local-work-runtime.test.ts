@@ -532,7 +532,8 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await b.reload();
       await ready(b);
       expect(await field(b).inputValue(), "the authenticated tab resumes its own branch").toBe("Telemachus keeps his own voyage");
-      expect(await b.locator("[data-device-conflict]").innerText()).toContain("Both versions kept");
+      // The draft indicator says so (#3155); Open other version is its detail action.
+      expect(await b.locator("[data-device-conflict]").getAttribute("data-draft-summary")).toBe("Another tab changed this draft. Both versions are kept.");
     } finally {
       try {
         if (restoreHold) {
@@ -621,10 +622,12 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await signIn(page);
       await page.goto(origin);
       await until(page, "f.connected() && f.accountKey() !== null");
+      // The draft indicator's summary (#3155), as its tooltip and details show it.
       const line = page.locator("[data-draft-save]");
+      const summary = () => line.getAttribute("data-draft-summary");
       await field(page).fill("Scylla on one side");
       await committed(page);
-      expect(await line.textContent(), "kept, and said so").toBe("draft · this host doesn't keep drafts · kept on this device");
+      expect(await summary(), "kept, and said so").toBe("Not saved: this host doesn't keep drafts. Your text is kept on this device.");
 
       await page.evaluate(() => {
         IDBObjectStore.prototype.put = function () { throw new DOMException("The quota has been exceeded.", "QuotaExceededError"); };
@@ -635,12 +638,12 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect(said, "the failure copy in the hint").toBe(true);
       expect(await fixture(page, (f) => f.status()?.failed)).toBe(true);
       expect(await fixture(page, (f) => f.snapshotNow())).toEqual({ ok: false, error: "QuotaExceededError" });
-      expect(await line.textContent(), "no claim that it is kept").toBe("draft · this host doesn't keep drafts");
+      expect(await summary(), "no claim that it is kept").toBe("Not saved: this host doesn't keep drafts.");
 
       await field(page).press("End");
       await field(page).pressSequentially(" · six men lost");
       expect(await field(page).inputValue(), "still editable").toBe("Scylla on one side, Charybdis on the other · six men lost");
-      expect(await line.textContent(), "still no claim").toBe("draft · this host doesn't keep drafts");
+      expect(await summary(), "still no claim").toBe("Not saved: this host doesn't keep drafts.");
       const stored = await fixture(page, (f) => f.list(f.accountKey()!));
       expect(stored.ok && stored.value.some((r) => JSON.stringify(r.value).includes("Charybdis")), "nothing of it was kept").toBe(false);
     } finally {

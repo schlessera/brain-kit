@@ -61,6 +61,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const failures = new Map<string, number>();
   /** Idempotency keys per draft for the save in flight: a retry of the same body reuses it. */
   const saveKeys = new Map<string, { body: string; key: string }>();
+  /**
+   * The save this tab last sent per draft and got no answer for (#3155):
+   * what Check again compares the host's draft with. Cleared by any answer.
+   */
+  const unanswered = new Map<string, { ifMatch: number; edit: number; complete: boolean; body: { sessionId: string | null; text: string; attachmentIds: string[]; fileIds?: string[]; snapshots?: ReturnType<typeof snapshotSaveList>["writes"] }; uploads: Map<PendingAttachment, string> }>();
   const uploadKeys = new WeakMap<PendingAttachment, Map<string, string>>();
   /** Bumped whenever a draft's host copy changes, so a list read before it cannot judge it. */
   const hostSeq = new Map<string, number>();
@@ -124,7 +129,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    * call carried: a size or capacity refusal of an older edit says nothing
    * about the content now, which is tried again instead.
    */
-  function failed(draftId: string, result: Exclude<DraftCallResult<unknown>, { ok: true }>, edit?: number): void {
+  function failed(draftId: string, result: Exclude<DraftCallResult<unknown>, { ok: true }>, edit?: number, save = false): void {
     const body = result.body;
     const store = drafts.getState();
     if ((result.status === 413 || result.status === 507) && edit !== undefined && store.drafts[draftId]?.edit !== edit) {
@@ -171,7 +176,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     // No answer at all: the host may have stored it. That is settled before
     // an emptied draft is forgotten (`step`).
-    store.saveFailed(draftId, { kind: "unsaved" }, result.status === 0);
+    // A save that got no answer may have been stored (#3155): the indicator
+    // says it couldn't confirm, and Check again reads what the host holds.
+    store.saveFailed(draftId, save && result.status === 0 ? { kind: "unsaved", lost: true } : { kind: "unsaved" }, result.status === 0);
     backoff(draftId);
   }
 
@@ -270,6 +277,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     saveKeys.set(d.draftId, { body: fingerprint, key: idempotencyKey });
     const result = await api.save(d.draftId, ifMatch, idempotencyKey, body);
     if (!current()) return;
+    if (!result.ok && result.status === 0) unanswered.set(d.draftId, { ifMatch, edit: d.edit, complete: !list || list.complete, body, uploads });
+    else unanswered.delete(d.draftId);
     if (result.ok) {
       saveKeys.delete(d.draftId);
       failures.delete(d.draftId);
@@ -291,7 +300,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       backoff(d.draftId);
       return;
     }
-    failed(d.draftId, result, d.edit);
+    failed(d.draftId, result, d.edit, true);
   }
 
   /**
@@ -837,6 +846,48 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       drafts.setState((st) => { const sends = { ...st.sends }; delete sends[requestId]; return { sends }; });
       schedule(draftId, 0);
       return true;
+    },
+
+    /**
+     * Check again for a draft save whose answer was lost (#3155, rev 5 §1):
+     * one read of the draft, never a save. When the host's revision is the
+     * one that save would have made, with the same text, images, original
+     * bindings and snapshot list, the host stored it, and the draft takes it
+     * as acknowledged. Anything else changes nothing here; the save's own
+     * retries go on as before.
+     */
+    async checkSave(draftId: string): Promise<"saved" | "not_saved" | "changed" | "unreachable" | "none"> {
+      const attempt = unanswered.get(draftId);
+      if (!attempt || disposed) return "none";
+      const seq = hostSeq.get(draftId) ?? 0;
+      const read = await api.get(draftId);
+      if (disposed) return "none";
+      // Another answer arrived while the read was out: it is the newer evidence.
+      if (unanswered.get(draftId) !== attempt || (hostSeq.get(draftId) ?? 0) !== seq) return "changed";
+      if (!read.ok) return read.status === 404 || read.status === 410 ? (attempt.ifMatch === 0 ? "not_saved" : "changed") : "unreachable";
+      const host = read.value;
+      if (host.revision === attempt.ifMatch) return "not_saved";
+      const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+      const snapshots = (host.snapshots ?? []).map((x) => `${x.snapshotId}:${x.state}:${x.fileIds.join(",")}`);
+      const sent = (attempt.body.snapshots ?? []).map((x) => `${x.snapshotId}:${x.state}:${x.fileIds.join(",")}`);
+      const stored = host.revision === attempt.ifMatch + 1 && host.text === attempt.body.text
+        && same(host.attachments.map((a) => a.attachmentId), attempt.body.attachmentIds)
+        && same((host.files ?? []).map((f) => f.fileId), attempt.body.fileIds ?? [])
+        && (attempt.body.snapshots === undefined || same(snapshots, sent));
+      if (!stored) return "changed";
+      const d = drafts.getState().drafts[draftId];
+      if (!d) return "none";
+      unanswered.delete(draftId);
+      saveKeys.delete(draftId);
+      failures.delete(draftId);
+      bumpHost(draftId);
+      drafts.getState().saved(draftId, {
+        revision: host.revision, edit: attempt.complete ? attempt.edit : -1, sessionId: attempt.body.sessionId,
+        attachmentIds: attempt.body.attachmentIds, ...(attempt.body.fileIds ? { fileIds: attempt.body.fileIds } : {}),
+        ...(attempt.body.snapshots ? { snapshots: attempt.body.snapshots } : {}), updatedAt: host.updatedAt,
+      }, attempt.uploads);
+      if (attempt.body.snapshots) advanceSnapshots(draftId);
+      return "saved";
     },
 
     /** Send on a paused snapshot (a hold restored after reload): only now, and only by this tap. */

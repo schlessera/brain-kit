@@ -204,6 +204,17 @@ frame and every host route keep their shapes. See
 and [the package component](integration-contract/package-api.md#outgoing-snapshot-bubbles-additive-0450-3155).
 This ships in a minor.
 
+## Composer draft indicator (additive, 0.45.0, #3155)
+
+`@schlessera/brain-ui-kit`'s `ComposerProps` gains optional `status`, a
+compact status beside the attach trigger. `@schlessera/brain-ui-react`'s
+composer passes its draft indicator there, in place of the save line under
+the field. `BrainUiConnection.drafts` gains `checkSave(draftId)`, a read-only
+Check again for a draft save whose answer was lost. Every route and wire
+frame keeps its shape. See
+[the package component](integration-contract/package-api.md#composer-draft-indicator-additive-0450-3155).
+This ships in a minor.
+
 ## Reading a chat deletion's outcome (additive, #3455)
 
 `GET /api/chat-deletions/:operationId` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))
