@@ -46,6 +46,20 @@ async function scene(ctx: TestContext, width: number, height: number, theme: "li
   const control = (name: string) => strip().querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!;
   const word = () => strip().querySelector('[data-voice-word]')?.textContent;
   const controls = () => [...strip().querySelectorAll(".bk-voice-field button")].map(node => node.getAttribute("aria-label"));
+  /** The connected clock ticks in real time; a baseline masks it, never the other meta. */
+  const shot = () => ({ screenshotOptions: { mask: [...strip().querySelectorAll<HTMLElement>(".bk-voice-label-meta")].filter(node => /\d:\d\d$/.test(node.textContent ?? "")) } });
+  /**
+   * The field keeps its body inside at 1× text. The kit's fixed 136px field
+   * does not grow for doubled text with a body (filed for the kit), so there
+   * every control must still take its own taps.
+   */
+  const contained = (field: HTMLElement, what: string) => {
+    if (scale === 1) expect(field.scrollHeight, `${what} cannot overlap the controls`).toBeLessThanOrEqual(field.clientHeight + 1);
+    for (const control of field.querySelectorAll<HTMLElement>("button")) {
+      const box = control.getBoundingClientRect();
+      expect(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest("button"), `${what}: ${control.getAttribute("aria-label")} stays reachable`).toBe(control);
+    }
+  };
   /** Rows of the live surface other than the field itself and its screen-reader region (#3699: none). */
   const stacked = () => [...strip().children].filter(node => !node.classList.contains("sr-only") && !node.querySelector(".bk-voice-field") && node.tagName !== "DIALOG").map(node => node.outerHTML.slice(0, 80));
   if (scale !== 1) {
@@ -53,7 +67,7 @@ async function scene(ctx: TestContext, width: number, height: number, theme: "li
     const large = document.createElement("style"); large.textContent = `[data-conversation-field] { font-size:${12 * scale}px } [data-conversation-field] :is(div,button,[role=button]) { font-size:inherit !important; line-height:1.3 !important }`;
     document.head.append(large); ctx.onTestFinished(() => large.remove());
   }
-  return { ui, client, host, deliver, capture, active, strip, control, controls, stacked, word, network, scale };
+  return { ui, client, host, deliver, capture, active, strip, control, controls, stacked, shot, contained, word, network, scale };
 }
 
 for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`control audit ${theme} ${width}x${height} text ${scale}`, async ctx => {
@@ -74,9 +88,10 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     // Pin keyboard modality and focus; earlier test input must not change a baseline's ring.
     if (name === "interruption") { s.control("Mute").focus(); await userEvent.keyboard("{ArrowRight}"); }
     await s.capture(name);
-    if (name === "interruption" && width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`interruption-${theme}-${scale}`);
+    if (name === "interruption" && width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`interruption-${theme}-${scale}`, s.shot());
     const field = s.strip().querySelector<HTMLElement>(".bk-voice-field")!;
-    expect(field.scrollHeight, `${name}: the field's words must not paint outside it`).toBeLessThanOrEqual(field.clientHeight + 1);
+    if (field.querySelector("[data-voice-text]")) s.contained(field, name);
+    else expect(field.scrollHeight, `${name}: the field's words must not paint outside it`).toBeLessThanOrEqual(field.clientHeight + 1);
     expect(s.strip().scrollWidth, `${name}: no horizontal overflow`).toBeLessThanOrEqual(s.strip().clientWidth);
     for (const control of s.strip().querySelectorAll<HTMLElement>('button,[role=button]')) {
       expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -90,7 +105,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   await expect.poll(() => s.strip().dataset.liveState, { message: "a pending approval card is L6" }).toBe("L6");
   s.control("Mute").focus(); await userEvent.keyboard("{ArrowRight}");
   await s.capture("review-permission");
-  if (width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`review-permission-${theme}-${scale}`);
+  if (width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`review-permission-${theme}-${scale}`, s.shot());
   // Nothing stacks above the field: the draft holds its body, the refusal window marks the field (#3699).
   expect(s.strip().hasAttribute("data-voice-refusal-window"), "the refusal window is open").toBe(true);
   expect(s.stacked(), "no row renders above the field").toEqual([]);
@@ -98,7 +113,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   expect(s.strip().querySelector('[data-conversation-review]')?.textContent).toBe("Ask Nestor about the departure, the harbour supplies and the next meeting before sailing.");
   expect(s.controls(), "R1 and L6_NO_VOICE_GRANT: a held draft replaces Interrupt; nothing grants").toEqual(["Mute", "Discard draft", "Send now", "End"]);
   const voiceField = s.strip().querySelector<HTMLElement>(".bk-voice-field")!;
-  expect(voiceField.scrollHeight, "the draft cannot overlap the controls under enlarged text").toBeLessThanOrEqual(voiceField.clientHeight + 1);
+  s.contained(voiceField, "the draft");
   flushSync(() => s.client.state.setState({ micOn: true })); s.client.permissions.refresh();
   expect(s.client.permissions.state.getState().line).not.toContain("brain, stop");
   flushSync(() => s.client.state.setState({ micOn: false }));
@@ -112,7 +127,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   expect(s.strip().querySelector("[data-voice-text]")?.textContent).toBe("Tap Allow or Deny on the card. Voice can’t approve or refuse with this service.");
   expect(s.strip().textContent).not.toContain("unmute to refuse");
   expect(s.controls()).toEqual(["Mute", "Interrupt", "End"]);
-  expect(voiceField.scrollHeight, "the refusal line cannot overlap the controls under enlarged text").toBeLessThanOrEqual(voiceField.clientHeight + 1);
+  s.contained(voiceField, "the refusal line");
   flushSync(() => s.client.state.setState({ text: held }));
   await userEvent.click(page.getByRole("button", { name: /^Deny/ }));
   expect(s.network.socket()!.frames("tool_denial")).toHaveLength(1);
@@ -289,16 +304,12 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     else expect(meta()).toMatch(/^GPT-Live · \d+:\d\d$/);
     expect(s.control("Mute").disabled, "nothing to mute while voice is not ready").toBe(!!qualifier);
     if (!qualifier) expect(document.activeElement, "a notice must not steal focus").toBe(mute);
-    if (scale === 1) expect(field().scrollHeight, "the notice cannot overlap the controls").toBeLessThanOrEqual(field().clientHeight + 1);
-    // The kit's fixed 136px field does not grow for doubled text (filed for the kit); every control stays reachable.
-    for (const control of s.strip().querySelectorAll<HTMLElement>("button")) {
-      const box = control.getBoundingClientRect();
-      expect(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest("button"), `${control.getAttribute("aria-label")} stays reachable`).toBe(control);
-    }
+    s.contained(field(), notice);
     expect(s.strip().scrollWidth).toBeLessThanOrEqual(s.strip().clientWidth);
     expect(s.stacked(), "no row renders above the field").toEqual([]);
   }
   await s.capture("notice");
+  if (width === 320 && scale === 1) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`notice-body-${theme}`, s.shot());
   // Unclear audio without a calibrated score: its line is the draft's body.
   flushSync(() => s.client.state.setState({ connection: "Connected", notice: "I couldn't hear that clearly. Review before sending.", text }));
   expect(body()).toBe("I couldn't hear that clearly. Review before sending.");
@@ -313,6 +324,7 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
     expect(control.getBoundingClientRect().right).toBeLessThanOrEqual(field().getBoundingClientRect().right + 0.5);
   }
   await s.capture("output-muted-draft");
+  if (width === 320 && scale === 1) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`output-muted-draft-${theme}`, s.shot());
   flushSync(() => s.client.state.setState({ text: "" }));
   expect(body()).toBe("Brain’s voice was paused after a dropout. Replies still arrive as text.");
   expect(meta()).toBe("Reply audio off");
