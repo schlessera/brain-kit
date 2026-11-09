@@ -2407,7 +2407,7 @@ request. Host terminal state reconciles unanswered requests without depending on
 
 Neither built-in adapter has a proven deterministic exact-copy permission audio
 path. The approved fallback therefore uses a local earcon, the existing card and
-a 40px strip line. Permission scripts and confirmed outcome wording are visual
+the live field's refusal line. Permission scripts and confirmed outcome wording are visual
 only: they are never submitted as model commentary or to a separate TTS service.
 Labels come only from bounded static registry labels (four words at most), with
 `An action` as the generic fallback. Payloads and unproven effect descriptions

@@ -396,7 +396,13 @@ may finish its current sentence. End returns to the composer with retained
 review text in its original draft. Interrupt, enabled only while a reply
 plays, cuts local audio while capture and host work continue. A failure that
 withdraws capture shows "Live conversation stopped" with its reason; Start
-again reopens the disclosure. Ordinary interruption retains initiating PCM and
+again reopens the disclosure. Nothing stacks above the field: its body holds
+one message at a time, in the order draft, refusal ("Tap Allow or Deny on the
+card"), reply audio off, then the client's notice. A held draft reads "Draft ·
+not sent yet" with **Send now** and **Discard draft** in the controls row, where
+it takes Interrupt's place unless brain is speaking. Incomplete startup context
+is an inline notice in the chat at the start of the live section, with Details.
+Ordinary interruption retains initiating PCM and
 uses bounded local output recovery; timeout exposes Recover reply audio without
 muting the microphone. Delayed old audio can occasionally play after recovery.
 Recoverable hide/disconnect/resync retain consent in the same disclosed scope and

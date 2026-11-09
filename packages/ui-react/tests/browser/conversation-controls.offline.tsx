@@ -45,12 +45,15 @@ async function scene(ctx: TestContext, width: number, height: number, theme: "li
   const strip = () => host.querySelector<HTMLElement>('[data-conversation-field]')!;
   const control = (name: string) => strip().querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!;
   const word = () => strip().querySelector('[data-voice-word]')?.textContent;
+  const controls = () => [...strip().querySelectorAll(".bk-voice-field button")].map(node => node.getAttribute("aria-label"));
+  /** Rows of the live surface other than the field itself and its screen-reader region (#3699: none). */
+  const stacked = () => [...strip().children].filter(node => !node.classList.contains("sr-only") && !node.querySelector(".bk-voice-field") && node.tagName !== "DIALOG").map(node => node.outerHTML.slice(0, 80));
   if (scale !== 1) {
     // Text-only enlargement exercises wrapping independently of viewport zoom.
     const large = document.createElement("style"); large.textContent = `[data-conversation-field] { font-size:${12 * scale}px } [data-conversation-field] :is(div,button,[role=button]) { font-size:inherit !important; line-height:1.3 !important }`;
     document.head.append(large); ctx.onTestFinished(() => large.remove());
   }
-  return { ui, client, host, deliver, capture, active, strip, control, word, network };
+  return { ui, client, host, deliver, capture, active, strip, control, controls, stacked, word, network, scale };
 }
 
 for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`control audit ${theme} ${width}x${height} text ${scale}`, async ctx => {
@@ -88,24 +91,29 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   s.control("Mute").focus(); await userEvent.keyboard("{ArrowRight}");
   await s.capture("review-permission");
   if (width === 320) await expect(page.elementLocator(s.strip())).toMatchScreenshot(`review-permission-${theme}-${scale}`);
-  const line = s.strip().querySelector<HTMLElement>('[data-voice-refusal-window]')!;
-  expect(line.scrollHeight, "permission guidance cannot overlap controls under enlarged text").toBeLessThanOrEqual(line.clientHeight + 1);
-  expect(line.textContent).toContain("Use Deny on screen");
-  expect(line.textContent).not.toContain("unmute to refuse");
+  // Nothing stacks above the field: the draft holds its body, the refusal window marks the field (#3699).
+  expect(s.strip().hasAttribute("data-voice-refusal-window"), "the refusal window is open").toBe(true);
+  expect(s.stacked(), "no row renders above the field").toEqual([]);
+  expect(s.strip().querySelector(".bk-voice-label-meta")?.textContent).toBe("Draft · not sent yet");
+  expect(s.strip().querySelector('[data-conversation-review]')?.textContent).toBe("Ask Nestor about the departure, the harbour supplies and the next meeting before sailing.");
+  expect(s.controls(), "R1 and L6_NO_VOICE_GRANT: a held draft replaces Interrupt; nothing grants").toEqual(["Mute", "Discard draft", "Send now", "End"]);
+  const voiceField = s.strip().querySelector<HTMLElement>(".bk-voice-field")!;
+  expect(voiceField.scrollHeight, "the draft cannot overlap the controls under enlarged text").toBeLessThanOrEqual(voiceField.clientHeight + 1);
   flushSync(() => s.client.state.setState({ micOn: true })); s.client.permissions.refresh();
   expect(s.client.permissions.state.getState().line).not.toContain("brain, stop");
   flushSync(() => s.client.state.setState({ micOn: false }));
   expect(s.client.permissions.state.getState().records[0]?.script).not.toContain("unmute to refuse");
-  const review = s.strip().querySelector<HTMLElement>('[data-conversation-review]')!;
-  expect(page.getByRole("region", { name: "Unsent voice transcript" }).element()).toBe(review);
   page.getByRole("button", { name: "Send now", exact: true }).element().focus();
   await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-  expect(document.activeElement, "the keyboard reaches the review before its Send now").toBe(review);
-  const beforeScroll = review.scrollTop;
-  await userEvent.keyboard("{ArrowDown}");
-  if (review.scrollHeight > review.clientHeight) await expect.poll(() => review.scrollTop).toBeGreaterThan(beforeScroll);
-  expect(document.activeElement).toBe(review);
-  expect(getComputedStyle(review).outlineStyle).not.toBe("none");
+  expect(document.activeElement, "the keyboard reaches Discard draft before Send now").toBe(s.control("Discard draft"));
+  // Without a draft, the refusal line is the body (L6), with nothing to say to approve.
+  const held = s.client.state.getState().text;
+  flushSync(() => s.client.state.setState({ text: "" }));
+  expect(s.strip().querySelector("[data-voice-text]")?.textContent).toBe("Tap Allow or Deny on the card. Voice can’t approve or refuse with this service.");
+  expect(s.strip().textContent).not.toContain("unmute to refuse");
+  expect(s.controls()).toEqual(["Mute", "Interrupt", "End"]);
+  expect(voiceField.scrollHeight, "the refusal line cannot overlap the controls under enlarged text").toBeLessThanOrEqual(voiceField.clientHeight + 1);
+  flushSync(() => s.client.state.setState({ text: held }));
   await userEvent.click(page.getByRole("button", { name: /^Deny/ }));
   expect(s.network.socket()!.frames("tool_denial")).toHaveLength(1);
   expect(s.network.socket()!.frames("tool_denial")[0]?.channel).toBe("card");
@@ -251,68 +259,67 @@ for (const theme of ["light", "dark"] as const) for (const [width, height] of [[
 });
 
 // Capture/readiness diagnostics remain actionable alongside an unsent draft.
+// The body holds one message: draft → refusal → output muted → client notice (#3699).
 for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`notice with review ${theme} ${width}x${height} text ${scale}`, async ctx => {
   const s = await scene(ctx, width, height, theme, scale);
   s.active();
   const text = "Ask Nestor to review the harbour supplies before sailing.";
   flushSync(() => s.client.state.setState({ micOn: false, text, interaction: "Review before sending" }));
-  s.deliver({ type: "text_delta", sessionId: SESSION, turnId: "notice-turn", text: "The supplies need review." });
-  s.deliver({ type: "tool_approval_request", sessionId: SESSION, turnId: "notice-turn", toolUseId: "notice-write", toolName: "Write", kind: "tool", input: { file_path: "voyage/raft.md", content: "Review supplies" } });
-  await expect.poll(() => s.host.querySelector('[data-approval-card]')).not.toBe(null);
   flushSync(() => s.client.state.setState({ connection: "Speech lost" }));
-  const details = s.control("Mute");
-  details.focus();
-  for (const notice of [
-    "Microphone input ended. Check the device, then resume.",
-    "Waiting for voice readiness. Microphone off.",
-    "Synchronizing voice. Microphone off.",
-    "Microphone off while checking the reply stop. Resume when voice is ready.",
-    "Microphone permission denied. Allow it in the browser, then unmute.",
-    "Speech input could not be matched to captured audio. Microphone off; review before resuming.",
-    "I couldn't hear that clearly. Review before sending.",
-  ]) {
-    flushSync(() => s.client.state.setState({ connection: "Speech lost", notice }));
-    expect(s.strip().textContent, "capture-off reason remains present beside review text").toContain(notice);
-    const diagnostic = page.getByRole("status", { name: "Voice notice" });
-    await expect.element(diagnostic).toHaveTextContent(notice);
-    const node = diagnostic.element() as HTMLElement;
-    expect(node.textContent).toBe(notice);
-    expect(s.strip().textContent?.split(notice)).toHaveLength(2);
-    expect(s.strip().querySelector('[data-conversation-review]')?.textContent).toContain(text);
-    expect(document.activeElement, "a diagnostic must not steal focus").toBe(details);
+  const mute = s.control("Mute");
+  const body = () => s.strip().querySelector("[data-voice-text]")?.textContent;
+  const meta = () => s.strip().querySelector(".bk-voice-label-meta")?.textContent;
+  const field = () => s.strip().querySelector<HTMLElement>(".bk-voice-field")!;
+  for (const [notice, line, qualifier] of [
+    ["Microphone input ended. Check the device, then resume.", "Microphone input ended. Check the device, then resume.", undefined],
+    ["Waiting for voice readiness. Microphone off.", "Waiting for voice to be ready. Nothing is heard until then.", "mic off"],
+    ["Synchronizing voice. Microphone off.", "Waiting for voice to be ready. Nothing is heard until then.", "mic off"],
+    ["Microphone off while checking the reply stop. Resume when voice is ready.", "Microphone off while checking the reply stop. Resume when voice is ready.", undefined],
+    ["Speech input could not be matched to captured audio. Microphone off; review before resuming.", "Speech input could not be matched to captured audio. Microphone off; review before resuming.", undefined],
+  ] as const) {
+    flushSync(() => s.client.state.setState({ connection: "Speech lost", notice, text }));
+    mute.focus();
     expect(s.strip().dataset.liveState, "a recoverable loss with retained consent is Reconnecting").toBe("L8");
-    expect(node.scrollWidth).toBeLessThanOrEqual(node.clientWidth + 1);
-    expect(node.scrollHeight).toBeLessThanOrEqual(node.clientHeight + 1);
+    expect(body(), "the held draft outranks a client notice").toBe(text);
+    expect(meta()).toBe("Draft · not sent yet");
+    expect(s.strip().textContent?.includes(notice), "one message at a time").toBe(false);
+    flushSync(() => s.client.state.setState({ text: "" }));
+    expect(body(), notice).toBe(line);
+    if (qualifier) expect(meta(), "readiness says the microphone is off").toBe(qualifier);
+    else expect(meta()).toMatch(/^GPT-Live · \d+:\d\d$/);
+    expect(s.control("Mute").disabled, "nothing to mute while voice is not ready").toBe(!!qualifier);
+    if (!qualifier) expect(document.activeElement, "a notice must not steal focus").toBe(mute);
+    if (scale === 1) expect(field().scrollHeight, "the notice cannot overlap the controls").toBeLessThanOrEqual(field().clientHeight + 1);
+    // The kit's fixed 136px field does not grow for doubled text (filed for the kit); every control stays reachable.
+    for (const control of s.strip().querySelectorAll<HTMLElement>("button")) {
+      const box = control.getBoundingClientRect();
+      expect(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest("button"), `${control.getAttribute("aria-label")} stays reachable`).toBe(control);
+    }
     expect(s.strip().scrollWidth).toBeLessThanOrEqual(s.strip().clientWidth);
+    expect(s.stacked(), "no row renders above the field").toEqual([]);
   }
-  const review = s.strip().querySelector<HTMLElement>('[data-conversation-review]')!;
-  page.getByRole("button", { name: "Discard", exact: true }).element().focus();
-  for (let step = 0; step < 3 && document.activeElement !== review; step++) await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-  expect(document.activeElement, "the keyboard reaches the review").toBe(review);
-  expect(getComputedStyle(review).outlineStyle).not.toBe("none");
-  expect(page.getByRole("button", { name: "Send now", exact: true }).element().getAttribute("aria-disabled")).toBe("true");
-  // A long diagnostic must not remove access to the host-owned permission card.
-  flushSync(() => s.client.state.setState({ notice: "Microphone input ended. Check the device, then resume.", connection: "Speech lost" }));
-  details.focus(); await userEvent.keyboard("{ArrowRight}");
-  const diagnosticBounds = page.getByRole("status", { name: "Voice notice" }).element().getBoundingClientRect();
-  const controls = s.strip().querySelector<HTMLElement>(".bk-voice-field")!.getBoundingClientRect();
-  expect(diagnosticBounds.top).toBeGreaterThanOrEqual(s.strip().getBoundingClientRect().top);
-  expect(diagnosticBounds.bottom, "the complete device notice fits above the voice field").toBeLessThanOrEqual(controls.top);
-  if (scale === 2) {
-    // The reference captures hover plus keyboard focus. Pin both inputs:
-    // earlier permission-card clicks move when transcript arrival layout changes.
-    await userEvent.hover(details);
-    expect(details.matches(":hover")).toBe(true);
-    await expect(page.elementLocator(s.strip())).toMatchScreenshot(`notice-review-${theme}`);
+  await s.capture("notice");
+  // Unclear audio without a calibrated score: its line is the draft's body.
+  flushSync(() => s.client.state.setState({ connection: "Connected", notice: "I couldn't hear that clearly. Review before sending.", text }));
+  expect(body()).toBe("I couldn't hear that clearly. Review before sending.");
+  expect(meta()).toBe("Draft · not sent yet");
+  expect(s.controls()).toEqual(["Mute", "Discard draft", "Send now", "End"]);
+  // Reply audio off outranks a client notice and keeps Recover in the row, even under a draft.
+  flushSync(() => s.client.state.setState({ outputRecovery: "muted", notice: "Reply audio is muted. Recover reply audio to listen; the microphone is unchanged." }));
+  expect(body(), "the draft still outranks it").toBe(text);
+  expect(s.controls(), "Recover stays while reply audio is off").toEqual(["Mute", "Recover reply audio", "Discard draft", "Send now", "End"]);
+  for (const control of s.strip().querySelectorAll<HTMLElement>("button")) {
+    expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(control.getBoundingClientRect().right).toBeLessThanOrEqual(field().getBoundingClientRect().right + 0.5);
   }
-  await s.capture("notice-review-permission");
-  await userEvent.click(page.getByRole("button", { name: /^Deny/ }));
-  expect(s.network.socket()!.frames("tool_denial")).toHaveLength(1);
-  expect(s.network.socket()!.frames("tool_denial")[0]?.channel).toBe("card");
-  expect(s.network.socket()!.frames("conversation_commit")).toHaveLength(0);
+  await s.capture("output-muted-draft");
   flushSync(() => s.client.state.setState({ text: "" }));
-  await expect.element(page.getByRole("status", { name: "Voice notice" })).toHaveTextContent("Microphone input ended.");
-  flushSync(() => s.client.state.setState({ notice: "" }));
+  expect(body()).toBe("Brain’s voice was paused after a dropout. Replies still arrive as text.");
+  expect(meta()).toBe("Reply audio off");
+  expect(s.controls()).toEqual(["Mute", "Recover reply audio", "End"]);
+  await s.capture("output-muted");
+  flushSync(() => s.client.state.setState({ outputRecovery: "audible", notice: "" }));
+  expect(s.strip().querySelector("[data-voice-text]"), "no message, no body").toBe(null);
   expect(s.strip().querySelector('[role="status"]')).toBe(null);
 });
 
@@ -320,7 +327,8 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
 for (const theme of ["light", "dark"] as const) for (const [width, height, scale] of [[1280, 720, 1], [320, 568, 1], [320, 480, 2]] as const) test(`reply windows keep controls stable ${theme} ${width}x${height} text ${scale}`, async ctx => {
   const s = await scene(ctx, width, height, theme, scale);
   s.active();
-  flushSync(() => s.client.state.setState({ text: "Ask Nestor about the supplies.", interaction: "Review before sending", micOn: true, notice: "spoken portion unknown" }));
+  // No draft: R1 moves Interrupt out of a draft's row outside L4, which the field tests cover.
+  flushSync(() => s.client.state.setState({ text: "", interaction: "Review before sending", micOn: true, notice: "spoken portion unknown" }));
   const names = ["Mute", "Interrupt", "End"];
   const controls = () => names.map(name => s.control(name));
   expect(s.control("Interrupt"), "Interrupt keeps its place before playback starts").not.toBe(null);

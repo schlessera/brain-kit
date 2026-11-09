@@ -89,6 +89,23 @@ export interface ConversationClientState {
   dialogueRestoredThrough: Record<string,number>;
 }
 
+/** The notice for recognition that is uncertain or of unproven origin; the live field draws it as the draft's body (#3699). */
+export const UNCLEAR_NOTICE = "I couldn't hear that clearly. Review before sending.";
+/**
+ * Notices about the held draft itself: the client cannot send it as heard.
+ * The live field draws them in place of the draft's words (#3699).
+ */
+export const REVIEW_BOUNDED_NOTICE = "Only bounded recognition context remains. Review retained dialogue and send typed text instead.";
+export const REVIEW_TRIMMED_NOTICE = "Only recent recognition remains in the review buffer. Review retained dialogue before sending typed text.";
+/** Capture is waiting for voice to become ready: the live field says "mic off" for these (#3699). */
+export const READINESS_NOTICES = {
+  connection: "Waiting for the voice connection. Microphone off.",
+  ready: "Waiting for voice readiness. Microphone off.",
+  resync: "Synchronizing voice. Microphone off.",
+} as const;
+/** Said by the field's own Muted word and pressed Mute (L7). */
+export const MUTED_NOTICE = "Microphone muted. Unmute to speak.";
+
 // Local presentation metadata is neither wire state nor a public output field.
 const restoredOutputs = new WeakSet<ConversationClientOutput>();
 export const isRestoredConversationOutput = (output: ConversationClientOutput) => restoredOutputs.has(output);
@@ -487,9 +504,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (!state.getState().active || !consent || !profile || mic || (typeof document !== "undefined" && document.hidden)) return;
     const reason = storageFailedScope === liveScopeKey() ? dialogueDiagnostic(storageFailureCode ?? "DIALOGUE_STORAGE")
       : state.getState().disclosureOpen ? "Review the voice service disclosure. Microphone off."
-      : state.getState().connection !== "Connected" ? "Waiting for the voice connection. Microphone off."
-      : !ready ? "Waiting for voice readiness. Microphone off."
-      : resync !== 0 ? "Synchronizing voice. Microphone off." : "";
+      : state.getState().connection !== "Connected" ? READINESS_NOTICES.connection
+      : !ready ? READINESS_NOTICES.ready
+      : resync !== 0 ? READINESS_NOTICES.resync : "";
     if (reason) { state.setState({ notice: reason }); return; }
     const own = generation;
     const input = inputFormat;
@@ -522,9 +539,10 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     catch (error) { if (current(own) && mic === captureSession) {
       stopMic(); setConsent(false, "stopped");
       const name = error instanceof DOMException ? error.name : "";
-      state.setState({ notice: name === "NotAllowedError" ? "Microphone permission denied. Allow it in the browser, then unmute."
-        : name === "NotFoundError" ? "No microphone found. Connect one, then unmute."
-        : "Microphone could not be opened. Check the device and browser, then unmute." });
+      // Capture has stopped (L9), whose action is Start again (#3699).
+      state.setState({ notice: name === "NotAllowedError" ? "Microphone is blocked. Allow it in this site’s browser settings, then Start again."
+        : name === "NotFoundError" ? "No microphone found. Connect one, then Start again."
+        : "Microphone could not be opened. Check the device and browser, then Start again." });
     } }
   }
   function endpoint(own: number) {
@@ -558,7 +576,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   function commit(own: number) {
     if (reviewIsIncomplete()) {
-      state.setState({notice:"Only bounded recognition context remains. Review retained dialogue and send typed text instead."}); return false;
+      state.setState({notice:REVIEW_BOUNDED_NOTICE}); return false;
     }
     const s = state.getState();
     const profile = scope();
@@ -879,7 +897,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       while (unassigned.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance || reviewChars > CONVERSATION_LIMITS.maxUtteranceChars) {
         reviewChars-=unassigned.shift()!.text.length; trimmed=true;
       }
-      state.setState({unassigned:[...retained.filter(f => f.taskContext),...unassigned],...(trimmed ? {notice:"Only recent recognition remains in the review buffer. Review retained dialogue before sending typed text."} : {})});
+      state.setState({unassigned:[...retained.filter(f => f.taskContext),...unassigned],...(trimmed ? {notice:REVIEW_TRIMMED_NOTICE} : {})});
       return null;
     }
     if (event.kind === "unassigned_delegation") {
@@ -918,10 +936,10 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         incompleteReview.add(event.utteranceId); manualReview.add(event.utteranceId);
       }
       const text = [...fragments.values()].flatMap((f) => [...f.values()].sort((a, b) => a.sequence - b.sequence).map((f) => f.text)).join(" ").trim();
-      state.setState({ text, notice: event.certainty === "unknown" || event.origin !== "user" ? "I couldn't hear that clearly. Review before sending." : s.notice });
+      state.setState({ text, notice: event.certainty === "unknown" || event.origin !== "user" ? UNCLEAR_NOTICE : s.notice });
       if (reviewIsIncomplete()) {
         removeSavedDraft(); clearTimeout(hold); hold=undefined;
-        state.setState({notice:"Only bounded recognition context remains. Review retained dialogue and send typed text instead."});
+        state.setState({notice:REVIEW_BOUNDED_NOTICE});
         refresh(); return null;
       }
       saveDraft();
@@ -1027,7 +1045,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     },
     details() { state.setState({ disclosureOpen: true }); },
     resume() { if (state.getState().disclosureOpen) return; setConsent(true); if (!ready) startEpoch(); void capture(); },
-    mute() { setConsent(false, "muted"); if (ready && mic) endpoint(generation); clearTimers(); stopMic(); state.setState({ notice: "Microphone muted. Unmute to speak." }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
+    mute() { setConsent(false, "muted"); if (ready && mic) endpoint(generation); clearTimers(); stopMic(); state.setState({ notice: MUTED_NOTICE }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
     commit,
     reviewUnassigned() {
       const s = state.getState();

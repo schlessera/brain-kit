@@ -1,9 +1,9 @@
-import { DraftSaveLine } from "../chat/draft-save-line.js";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { Button, Disclosure, Overlay, TextButton, VoiceControlButton, VoiceField, VoiceNotice, type IconName } from "@schlessera/brain-ui-kit";
+import { Button, Overlay, VoiceControlButton, VoiceField, VoiceNotice, VoiceText, type IconName } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
-import { conversationService, type ConversationClientState } from "../../voice/conversation-client.js";
+import { conversationService, MUTED_NOTICE, READINESS_NOTICES, REVIEW_BOUNDED_NOTICE, REVIEW_TRIMMED_NOTICE, UNCLEAR_NOTICE, type ConversationClientState } from "../../voice/conversation-client.js";
+import { PERMISSION_PENDING_LINE } from "../../voice/conversation-permissions.js";
 
 /** The live states the tall voice field draws (#3690); S5 is the Start sequence's Connecting. */
 type LiveFieldState = "S5" | "L1" | "L2" | "L3" | "L4" | "L5" | "L6" | "L7" | "L8" | "L9";
@@ -43,6 +43,15 @@ const LOOKS: Record<Exclude<LiveFieldState, "L9">, Look> = {
   L8: { tone: "idle", icon: "loading", word: "Reconnecting…", meter: "hatch" },
 };
 
+/* The signed-off copy for the field's body and meta (#3699). */
+const DRAFT_META = "Draft · not sent yet";
+const REFUSAL_LINE = "Tap Allow or Deny on the card. Voice can’t approve or refuse with this service.";
+const OUTPUT_MUTED_LINE = "Brain’s voice was paused after a dropout. Replies still arrive as text.";
+const OUTPUT_MUTED_NOTICE = "Reply audio is muted. Recover reply audio to listen; the microphone is unchanged.";
+const READINESS_LINE = "Waiting for voice to be ready. Nothing is heard until then.";
+/** Discard draft's glyph, as the #3738 stories draw it. */
+const DISCARD_ICON: IconName = "withdrawn";
+
 function clock(seconds: number) {
   const h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, sec = seconds % 60;
   return `${h ? `${h}:${String(m).padStart(2, "0")}` : m}:${String(sec).padStart(2, "0")}`;
@@ -70,17 +79,16 @@ function useLevel(read: (() => number) | null) {
   return level;
 }
 
-/** The live conversation surface: the tall voice field, with the review and recovery controls above it. */
+/**
+ * The live conversation surface: the tall voice field and nothing above it.
+ * Its body holds one message, its controls row every action (#3699).
+ */
 export function ConversationField({ backend, onLeave }: { backend: string; onLeave: () => void }) {
   const root = useBrainUiRoot();
   const client = root.connection.conversation;
   const s = useStore(client.state);
   const permission = useStore(client.permissions.state);
   const chat = useStore(root.stores.connection, (state) => state.wsStatus);
-  const needsScreen = useStore(root.stores.chat, (state) => {
-    const exchange = (s.sessionId === null ? state.draft : state.buffers[s.sessionId])?.askUser;
-    return !!exchange && !exchange.cancelled && !exchange.answers && !exchange.order && !exchange.formAnswers && (exchange.questions.length !== 1 || !!exchange.list || !!exchange.rank || !!exchange.form);
-  });
   const streaming = useStore(root.stores.chat, (state) => !!(s.sessionId === null ? state.draft : state.buffers[s.sessionId])?.isStreaming);
   // A pending approval is the tool card's to answer, by tap only (L6).
   const approval = useStore(root.stores.chat, (state) => !!(s.sessionId === null ? state.draft : state.buffers[s.sessionId])?.messages.some(m => m.toolCalls.some(t => t.status === "pending_approval")));
@@ -117,49 +125,51 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
   const coverage = s.connection === "Connected" ? profile?.historyCoverage : undefined;
   const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
   const leave = () => { client.leave(); onLeave(); };
-  const contextual = Object.values(s.work).filter(w => w.provenance === "contextual");
   const service = profile ? conversationService(profile.providerId) : disclosed ? conversationService(disclosed.providerId) : null;
   const muted = s.capture === "muted";
-  return <div ref={frame} data-conversation-field="" data-live-state={state ?? undefined} className="mx-auto max-w-3xl bg-background text-foreground" style={{ overflowWrap: "anywhere", maxHeight: "60dvh", overflowY: "auto" }}>
+  const draft = !!s.text;
+  const outputMuted = s.outputRecovery === "muted";
+  const readiness = (state === "S5" || state === "L8") && (Object.values(READINESS_NOTICES) as string[]).includes(s.notice);
+  // The pending line is the field's own refusal copy; any other line (the request limit) is the client's.
+  const refusal = permission.line === PERMISSION_PENDING_LINE ? REFUSAL_LINE : permission.line;
+  // A line about the draft itself takes its words' place, as unclear audio does.
+  const aboutDraft = s.notice === UNCLEAR_NOTICE || s.notice === REVIEW_BOUNDED_NOTICE || s.notice === REVIEW_TRIMMED_NOTICE;
+  // Notices the field's word, meta or body already say.
+  const repeated = s.notice === MUTED_NOTICE || s.notice === UNCLEAR_NOTICE || s.notice === OUTPUT_MUTED_NOTICE;
+  // One message at a time, by priority: draft → refusal → output muted → client notice (#3699).
+  const body = draft
+    ? <div data-conversation-review="" style={{ display: "contents" }}><VoiceText text={aboutDraft ? s.notice : s.text} /></div>
+    : refusal ? <VoiceText text={refusal} />
+    : outputMuted ? <VoiceText text={OUTPUT_MUTED_LINE} />
+    : readiness ? <VoiceText text={READINESS_LINE} />
+    : s.notice && !repeated ? <VoiceText text={s.notice} />
+    : null;
+  const meta = draft ? DRAFT_META : outputMuted ? "Reply audio off" : readiness ? "mic off"
+    : [service, state === "S5" ? null : clock(seconds)].filter(Boolean).join(" · ") || undefined;
+  return <div ref={frame} data-conversation-field="" data-live-state={state ?? undefined} data-voice-refusal-window={permission.line ? "" : undefined} className="mx-auto max-w-3xl bg-background text-foreground" style={{ overflowWrap: "anywhere" }}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{s.announcement}</div>
-    {coverage && coverage.state !== "complete" && <div className="text-xs" role="status">{coverage.tailOmitted ? coverage.state === "partial" ? "Newest prior context may be missing." : "Newest prior context was not sent." : "Prior context is incomplete."} <TextButton label="Details" ariaLabel="Prior context details" inline onClick={client.details} /></div>}
-    {s.outputRecovery === "muted" && <Button label="Recover reply audio" tone="ghost" style={button} onClick={client.recoverOutput} />}
-    {s.notice && state !== "L9" && <div role="status" aria-label="Voice notice" style={{ fontSize: 12, lineHeight: 1.3 }}>{s.notice}</div>}
-    {s.text && <div className="min-[900px]:flex min-[900px]:items-center min-[900px]:gap-3">
-      <div style={{ height: 64, overflowY: "auto", fontSize: 12, flex: "1 1 0", minWidth: 0 }} data-conversation-review="" tabIndex={0} role="region" aria-label="Unsent voice transcript" className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bk-focus-ring)]">
-        <div className="font-mono text-[10px]">VOICE DRAFT · NOT SUBMITTED AS A BRAIN TASK</div>
-        {s.voiceDraft && <DraftSaveLine draftId={s.voiceDraft.id} />}
-        <div>{s.text}</div>
-        <div>The voice service already received audio. A voice reply does not submit this draft.</div>
-        <div>{needsScreen ? "This question needs the screen" : s.interaction === "Sending soon" ? "Sending soon" : "Review before sending"}</div>
-      </div>
-      <div className="w-full min-[900px]:w-[220px]" style={{ minHeight: 46, display: "flex", gap: 4 }}>
-        <Button label="Send now" tone="primary" style={button} onClick={() => client.commit(s.token)} disabled={s.connection !== "Connected" || s.interaction === "Checking whether the reply stopped"} />
-        <Button label="Discard" tone="ghost" style={button} onClick={client.discard} />
-      </div>
-    </div>}
-    {contextual.length > 0 && <section aria-label="Conversation tasks" data-evidence-disclosure="" className="py-2 text-xs">
-      <Disclosure icon="steps" label={`Background tasks · ${contextual.length} contextual ${contextual.length === 1 ? "request" : "requests"}`}>
-      <ul>{contextual.slice(-8).map(w => <li key={w.requestId} className="py-1">
-        <p>Context: {w.recognized.slice(-160)}</p>
-        Conversation task · {w.state} · {w.delivery === "returned" ? "result accepted by voice service; playback unknown" : w.delivery === "unknown" ? "result acceptance unknown; no automatic replay" : w.delivery === "pending" ? "result pending" : "result withheld"}
-        {w.reason && <p>{w.reason}</p>}
-      </li>)}</ul>
-      </Disclosure>
-    </section>}
-    {permission.line && <div data-voice-refusal-window="" className="text-destructive" style={{ minHeight: 40, fontSize: 12 }}>{permission.line}</div>}
     {state === "L9"
       ? <div className="pb-2"><VoiceNotice tone="fail" icon="attention" title="Live conversation stopped" body={s.notice || undefined}
           actions={[{ label: "Close", onClick: leave }, { label: "Start again", tone: "brain", onClick: client.details }]} /></div>
-      : state && <div className="sticky bottom-0 bg-background pb-2">
+      : state && <div className="pb-2">
         <VoiceField shape="tall" name="Live conversation" tone={LOOKS[state].tone} outline={LOOKS[state].outline}
-          label={{ icon: LOOKS[state].icon, word: LOOKS[state].word, spin: LOOKS[state].spin, meta: [service, state === "S5" ? null : clock(seconds)].filter(Boolean).join(" · ") || undefined }}
+          label={{ icon: LOOKS[state].icon, word: LOOKS[state].word, spin: LOOKS[state].spin, meta }}
           meter={meter} level={meter === "level" ? level : undefined}
           controls={<>
-            <VoiceControlButton name={muted ? "Unmute" : "Mute"} icon={muted ? "mic-off" : "mic"} pressed={muted} disabled={state === "S5"} onClick={muted ? client.resume : client.mute} />
-            <VoiceControlButton name="Interrupt" icon="interrupt" disabled={state !== "L4"} onClick={client.stopReply} />
+            <VoiceControlButton name={muted ? "Unmute" : "Mute"} icon={muted ? "mic-off" : "mic"} pressed={muted} disabled={state === "S5" || readiness} onClick={muted ? client.resume : client.mute} />
+            {/* Recovery stays manual and visible for as long as reply audio is off, even under a draft. */}
+            {outputMuted
+              ? <VoiceControlButton name="Recover reply audio" icon="speaker" tone="brain" onClick={client.recoverOutput} />
+              // R1: a held draft takes Interrupt's place unless brain is speaking.
+              : (!draft || state === "L4") && <VoiceControlButton name="Interrupt" icon="interrupt" disabled={state !== "L4"} onClick={client.stopReply} />}
+            {draft && <>
+              <VoiceControlButton name="Discard draft" icon={DISCARD_ICON} onClick={client.discard} />
+              <VoiceControlButton name="Send now" icon="send" tone="you" disabled={s.connection !== "Connected" || s.interaction === "Checking whether the reply stopped"} onClick={() => client.commit(s.token)} />
+            </>}
             <VoiceControlButton name="End" icon="dismiss" tone="end" onClick={leave} />
-          </>} />
+          </>}>
+          {body}
+        </VoiceField>
       </div>}
     <Overlay open={s.disclosureOpen} variant="sheet" title="Live conversation" onClose={leave} data-overlay-site="conversation-disclosure">
       <div className="space-y-3 p-4 text-sm">

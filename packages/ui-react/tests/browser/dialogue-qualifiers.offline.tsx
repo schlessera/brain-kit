@@ -138,7 +138,10 @@ for(const providerId of ["gemini-live","gpt-live"])for(const theme of ["light","
  flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",conversationProfile:profile(providerId),durableAvailable:true,profile:{...profile(providerId),historyCoverage:{state:"partial",tailOmitted:true}},disclosureOpen:false}));
  expect(s.host.textContent).toContain("Newest prior context may be missing.");
  const trigger=s.host.querySelector<HTMLButtonElement>('[aria-label="Prior context details"]')!;
- expect(trigger).not.toBeNull();trigger.focus();expect(document.activeElement).toBe(trigger);
+ expect(trigger).not.toBeNull();
+ expect(trigger.closest("[data-conversation-field]"),"R2: coverage is a chat notice, not a row above the field").toBeNull();
+ expect(trigger.closest("[data-voice-coverage]")?.closest("[data-arrival-key]"),"R2: it sits in the transcript").not.toBeNull();
+ trigger.focus();expect(document.activeElement).toBe(trigger);
  if(width===320)await userEvent.click(trigger);else await userEvent.keyboard("{Enter}");
  const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;
  expect(dialog).not.toBeNull();expect(dialog.textContent).toContain("The newest prior item may be missing.");

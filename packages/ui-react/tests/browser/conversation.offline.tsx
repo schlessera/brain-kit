@@ -88,7 +88,7 @@ test("commit only: GPT-Live fragments remain NOT SENT while ordinary progress an
   await s.start();
   s.input("Find the departure note");
   expect(s.socket.frames("conversation_commit"), "unknown fragments cannot commit themselves").toHaveLength(0);
-  await expect.poll(() => s.host.textContent).toContain("NOT SUBMITTED AS A BRAIN TASK");
+  await expect.poll(() => s.host.querySelector("[data-conversation-field] .bk-voice-label-meta")?.textContent, { message: "the field says the draft is not sent" }).toBe("Draft · not sent yet");
   s.deliver({ type: "text_delta", sessionId: SESSION, text: "Looking through the voyage notes" });
   s.deliver({ type: "tool_use_start", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search" });
   s.deliver({ type: "tool_use_complete", sessionId: SESSION, toolUseId: "ithaca-search", toolName: "brain_search", input: { query: "departure" } });
@@ -790,9 +790,11 @@ test("microphone permission denial is visible and a late ready cannot undo expli
   ctx.onTestFinished(() => { if (descriptor) Object.defineProperty(media, "getUserMedia", descriptor); else Reflect.deleteProperty(media, "getUserMedia"); });
   const s = await scene(ctx); await s.enter();
   await userEvent.click(s.button("Start"));
-  await expect.poll(() => s.client.state.getState().notice).toContain("Microphone permission denied");
+  await expect.poll(() => s.client.state.getState().notice).toContain("Microphone is blocked");
   expect(s.client.state.getState().micOn).toBe(false);
-  await expect.poll(() => s.host.textContent).toContain("Microphone permission denied");
+  await expect.poll(() => s.host.textContent).toContain("Microphone is blocked. Allow it in this site’s browser settings, then Start again.");
+  expect(s.host.querySelector<HTMLElement>("[data-conversation-field]")?.dataset.liveState, "a blocked microphone stops the conversation (L9)").toBe("L9");
+  expect(s.button("Start again"), "the copy names the action L9 offers").not.toBeUndefined();
   s.client.mute();
   s.event({ kind: "ready", input: { encoding: "pcm16", channels: 1, sampleRate: 24000 }, output: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
   expect(calls).toBe(1);
@@ -1490,6 +1492,10 @@ test("output recovery timeout never mutes capture; manual output recovery and Le
   clearInterval(timer);
   expect(s.client.state.getState().micOn).toBe(true);
   expect(s.client.state.getState().playing).toBe(false);
+  const f = field(s);
+  expect(s.host.querySelector("[data-conversation-field] .bk-voice-label-meta")?.textContent).toBe("Reply audio off");
+  expect(s.host.querySelector("[data-conversation-field] [data-voice-text]")?.textContent).toBe("Brain’s voice was paused after a dropout. Replies still arrive as text.");
+  expect(f.controls(), "recovery stays manual and in the row").toEqual(["Mute", "Recover reply audio", "End"]);
   await page.screenshot({ element: s.host, path: "../../.vitest-attachments/conversation/output-recovery-320.png" });
   await userEvent.click(s.button("Recover reply audio"));
   s.event({ kind: "audio", outputId: "output-1", sequence: 1, pcm: outputPcm(0.2), format: { encoding: "pcm16", channels: 1, sampleRate: 24000 } });
@@ -1980,7 +1986,7 @@ test("live field: Connecting, Working and Needs your tap; an approval stays tap-
   await expect.poll(f.state).toBe("L6");
   expect(f.word()).toBe("Needs your tap");
   expect(f.controls(), "L6_NO_VOICE_GRANT: the field offers no way to approve").toEqual(["Mute", "Interrupt", "End"]);
-  expect(f.text(), "L6_NO_VOICE_GRANT").not.toMatch(/allow|approve|grant|say/i);
+  expect(f.text(), "L6_NO_VOICE_GRANT: the body directs to the card and offers nothing to say").toMatch(/^Needs your tapGPT-Live · \d+:\d\dTap Allow or Deny on the card\. Voice can’t approve or refuse with this service\.$/);
   interruptOnlyInL4(f);
   recognition(s, "yes, allow it");
   expect(s.socket.frames("tool_approval"), "speech never approves").toHaveLength(0);
@@ -1988,6 +1994,55 @@ test("live field: Connecting, Working and Needs your tap; an approval stays tap-
   expect(s.socket.frames("tool_approval")).toHaveLength(1);
   expect(s.socket.frames("tool_approval")[0]?.channel ?? "card").toBe("card");
   await expect.poll(f.state, { message: "the tap answers it; the field leaves L6" }).not.toBe("L6");
+});
+
+test("live field: a held draft takes the body and Interrupt's place unless brain speaks (R1)", async (ctx) => {
+  const mic = controlledMicrophone(ctx, true);
+  const s = await scene(ctx, 320); const f = field(s);
+  await s.start();
+  const meta = () => s.host.querySelector("[data-conversation-field] .bk-voice-label-meta")?.textContent;
+  const body = () => s.host.querySelector("[data-conversation-field] [data-voice-text]")?.textContent;
+  const audio = s.socket.frames("conversation_audio").at(-1)!;
+  // A calibrated low score holds the words for review; they are the draft.
+  s.event({ kind: "input_fragment", utteranceId: String(audio.utteranceId), sequence: 0, text: "Ask Calypso when the axe is back", finalization: "final", certainty: "known", origin: "user", confidence: 0.5 });
+  await expect.poll(body).toBe("Ask Calypso when the axe is back");
+  expect(meta()).toBe("Draft · not sent yet");
+  expect(f.state()).toBe("L1");
+  expect(f.controls(), "DRAFT_HIDES_INTERRUPT").toEqual(["Mute", "Discard draft", "Send now", "End"]);
+  // V5: muted, brain may still finish its sentence.
+  await userEvent.click(f.control("Mute")!);
+  speech(s, "ithaca-axe");
+  await expect.poll(f.state).toBe("L4");
+  expect(f.controls(), "L4 with a draft carries five controls").toEqual(["Unmute", "Interrupt", "Discard draft", "Send now", "End"]);
+  interruptOnlyInL4(f);
+  const frame = s.host.querySelector<HTMLElement>(".bk-voice-field")!.getBoundingClientRect();
+  for (const name of f.controls()) {
+    const box = f.control(name!)!.getBoundingClientRect();
+    expect(box.width, `${name} keeps a 44px target`).toBeGreaterThanOrEqual(44);
+    expect(box.right, `${name} fits the 320px row`).toBeLessThanOrEqual(frame.right + 0.5);
+  }
+  expect(body(), "brain speaking does not hide the draft").toBe("Ask Calypso when the axe is back");
+  await page.screenshot({ element: s.host, path: "../../.vitest-attachments/conversation/draft-speaking-320.png" });
+  await userEvent.click(f.control("Interrupt")!);
+  await expect.poll(f.state).toBe("L7");
+  expect(f.controls(), "DRAFT_HIDES_INTERRUPT").toEqual(["Unmute", "Discard draft", "Send now", "End"]);
+  await userEvent.click(f.control("Unmute")!);
+  await expect.poll(() => s.client.state.getState().micOn).toBe(true);
+  await userEvent.click(f.control("Discard draft")!);
+  expect(s.client.state.getState().text).toBe("");
+  expect(s.socket.frames("conversation_commit"), "Discard sends nothing").toHaveLength(0);
+  await expect.poll(f.controls).toEqual(["Mute", "Interrupt", "End"]);
+  expect(meta()).toMatch(/^GPT-Live · \d+:\d\d$/);
+  // Unproven origin: the draft's body says it was unclear, and Send now stays explicit.
+  await expect.poll(() => s.socket.frames("conversation_audio").length).toBeGreaterThan(0);
+  mic.quiet();
+  await expect.poll(() => s.client.state.getState().outputRecovery, { message: "the local quiet check ends", timeout: 6000 }).toBe("audible");
+  s.input("Tally the cask");
+  await expect.poll(body).toBe("I couldn't hear that clearly. Review before sending.");
+  expect(meta()).toBe("Draft · not sent yet");
+  await userEvent.click(f.control("Send now")!);
+  await expect.poll(() => s.socket.frames("conversation_commit").length).toBe(1);
+  expect(s.socket.frames("conversation_commit")[0]?.text).toBe("Tally the cask");
 });
 
 test("live field: Reconnecting while recovery runs, Stopped only when it fails, Start again reopens Start", async (ctx) => {
