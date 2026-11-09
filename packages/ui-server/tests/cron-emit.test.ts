@@ -221,6 +221,18 @@ describe("the weekly hygiene job", () => {
   });
 });
 
+describe("the separate propagation prepass", () => {
+  test("requires operator opt-in and remains a wrapped, untrusted job", () => {
+    expect(resolveCronConfig({}).propagation).toBe(false);
+    expect(resolveCronConfig({ BRAIN_UI_CRON_PROPAGATION: "on" }).propagation).toBe(true);
+    expect(render(jsonFixture("empty.json"))).not.toContain("hygiene-propagation");
+    const output = render(jsonFixture("empty.json"), { propagation: true });
+    expect(output).toContain("45 5 * * * root cd / && bun /opt/brain-ui/server/scripts/cron-run.ts hygiene-propagation -- brain hygiene propagation --json");
+    expect(output).toContain(" hygiene -- brain hygiene reconcile");
+    expect(TRUSTED_JOB_NAMES.has("hygiene-propagation")).toBe(false);
+  });
+});
+
 describe("emitEnvironment", () => {
   test("derives the scheduled-job names, in fixed order, from the cron audience", () => {
     expect(CRON_ENV_NAMES).toEqual([...CRON_ENV_ORDER]);
