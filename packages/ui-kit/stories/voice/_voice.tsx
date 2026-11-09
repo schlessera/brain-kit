@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import type { IconName } from "../../src/primitives/Icon.js";
 import { fn } from "storybook/test";
 
@@ -8,6 +8,8 @@ import { VoiceControlButton } from "../../src/voice/VoiceControlButton.js";
 import { VoiceField, VoiceText } from "../../src/voice/VoiceField.js";
 import { VoiceNotice } from "../../src/voice/VoiceNotice.js";
 import { UncertainWord } from "../../src/voice/SpokenTurn.js";
+import { Callout } from "../../src/primitives/Callout.js";
+import { TextButton } from "../../src/primitives/TextButton.js";
 import type { VoiceMotion } from "../../src/voice/tone.js";
 
 /**
@@ -58,42 +60,105 @@ export function liveControls(o: { muted?: boolean; interrupt?: boolean; connecti
   );
 }
 
-/* ── Dictation, D1–D8 ─────────────────────────────────────────────────── */
+/**
+ * Moves focus to the named button when the form appears, as the integrated
+ * app does (#3694, K1). The kit's notice takes no focus itself.
+ */
+function FocusOnMount({ name, children }: { name: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const target = [...(ref.current?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === name);
+    target?.focus();
+  }, [name]);
+  return <div ref={ref} style={{ display: "contents" }}>{children}</div>;
+}
 
-export type DictationId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8";
+/* ── Dictation, D0–D8, Dc and Dx ──────────────────────────────────────── */
+
+export type DictationId = "D0" | "D1" | "D2" | "Dc" | "D3" | "D3b" | "D4" | "D5" | "D6" | "D7" | "D8" | "Dx1" | "Dx2";
 
 export const DICTATION_TITLES: Record<DictationId, string> = {
+  D0: "First take · acknowledgement",
   D1: "Ready",
   D2: "First use · waiting for access",
+  Dc: "Connecting · mic not open",
   D3: "Listening",
+  D3b: "Listening · browser speech, not Chrome",
   D4: "Listening · quiet",
   D5: "Finishing",
   D6: "Review",
   D7: "Mic blocked",
   D8: "Dictation stopped",
+  Dx1: "No dictation service",
+  Dx2: "Saved service gone",
 };
+
+/**
+ * Where the words go, as the destination meta names it (#3694, K2): a
+ * dictation service, or the browser's own speech service.
+ */
+export const DESTINATION = {
+  gemini: "to Google Gemini",
+  deepgram: "via Deepgram",
+  chrome: "browser speech · audio goes to Google",
+  browser: "browser speech · sent by your browser",
+} as const;
 
 export function dictation(id: DictationId, motion?: VoiceMotion): ReactNode {
   switch (id) {
+    case "D0":
+      return (
+        <FocusOnMount name="Start dictation">
+          <VoiceNotice
+            tone="you"
+            icon="mic"
+            live="polite"
+            title="Start dictation"
+            body="Your words are sent to Google Gemini to be written down. The audio isn’t kept."
+            actions={[{ label: "Cancel", onClick: fn() }, { label: "Start dictation", tone: "you", onClick: fn() }]}
+            motion={motion}
+          />
+        </FocusOnMount>
+      );
     case "D1":
       return <VoiceField shape="compact" tone="idle" name="Message" trailing={mic(motion)} motion={motion}><VoiceText placeholder="Message" /></VoiceField>;
+    case "Dc":
+      return (
+        <VoiceField
+          shape="compact"
+          tone="idle"
+          label={{ icon: "loading", word: "Connecting", meta: DESTINATION.gemini, spin: true }}
+          meter="none"
+          trailing={<VoiceControlButton name="Cancel dictation" icon="dismiss" onClick={fn()} />}
+          motion={motion}
+        >
+          <VoiceText placeholder="Not listening yet" />
+        </VoiceField>
+      );
     case "D2":
       return <VoiceNotice tone="you" icon="mic" title="Allow the microphone" body="Your browser is asking. You only need to do this once." actions={[{ label: "Cancel", onClick: fn() }]} motion={motion} />;
     case "D3":
       return (
-        <VoiceField shape="compact" tone="you" label={{ icon: "mic", word: "Listening" }} meter="level" level={0.8} trailing={finish()} motion={motion}>
+        <VoiceField shape="compact" tone="you" label={{ icon: "mic", word: "Listening", meta: DESTINATION.gemini }} meter="level" level={0.8} trailing={finish()} motion={motion}>
+          <VoiceText text="Ask Calypso about the axe" partial="and the sail" />
+        </VoiceField>
+      );
+    case "D3b":
+      // The longest meta: at 320px it ellipsizes and the word never does.
+      return (
+        <VoiceField shape="compact" tone="you" label={{ icon: "mic", word: "Listening", meta: DESTINATION.browser }} meter="level" level={0.8} trailing={finish()} motion={motion}>
           <VoiceText text="Ask Calypso about the axe" partial="and the sail" />
         </VoiceField>
       );
     case "D4":
       return (
-        <VoiceField shape="compact" tone="you" label={{ icon: "mic", word: "Listening" }} meter="flat" trailing={finish()} motion={motion}>
+        <VoiceField shape="compact" tone="you" label={{ icon: "mic", word: "Listening", meta: DESTINATION.deepgram }} meter="flat" trailing={finish()} motion={motion}>
           <VoiceText placeholder="Say something…" />
         </VoiceField>
       );
     case "D5":
       return (
-        <VoiceField shape="compact" tone="you" label={{ icon: "mic", word: "Finishing" }} meter="sweep" trailing={finish(true)} motion={motion}>
+        <VoiceField shape="compact" tone="you" label={{ icon: "mic", word: "Finishing", meta: DESTINATION.chrome }} meter="sweep" trailing={finish(true)} motion={motion}>
           <VoiceText text="Ask Calypso about the axe and the sail cloth." />
         </VoiceField>
       );
@@ -118,6 +183,10 @@ export function dictation(id: DictationId, motion?: VoiceMotion): ReactNode {
           motion={motion}
         />
       );
+    case "Dx1":
+      return <VoiceNotice tone="idle" icon="attention" title="Choose a dictation service" body="Dictation needs a service. Pick one in Settings." actions={[{ label: "Cancel", onClick: fn() }, { label: "Open Settings", onClick: fn() }]} motion={motion} />;
+    case "Dx2":
+      return <VoiceNotice tone="idle" icon="attention" title="Your dictation service isn’t available" body="Deepgram isn’t offered here any more. Choose another in Settings." actions={[{ label: "Cancel", onClick: fn() }, { label: "Open Settings", onClick: fn() }]} motion={motion} />;
   }
 }
 
@@ -201,53 +270,119 @@ export function start(id: StartId, motion?: VoiceMotion): ReactNode {
   }
 }
 
-/* ── Live, L1–L10 ─────────────────────────────────────────────────────── */
+/* ── Live, L1–L10, with drafts, recovery and the chat's coverage line ───── */
 
-export type LiveId = "L1" | "L2" | "L3" | "L4" | "L5" | "L6" | "L7" | "L8" | "L9" | "L10";
+export type LiveId = "Lc" | "L1" | "L1d" | "L1u" | "L1o" | "L2" | "L3" | "L4" | "L4d" | "L5" | "L6" | "L7" | "L8" | "L8r" | "L9" | "L9m" | "L10";
 
 export const LIVE_TITLES: Record<LiveId, string> = {
+  Lc: "Coverage · inline in the chat",
   L1: "Listening",
+  L1d: "Listening · with a draft",
+  L1u: "Listening · unclear draft",
+  L1o: "Listening · reply audio off",
   L2: "Thinking",
   L3: "Working",
   L4: "Speaking",
+  L4d: "Speaking · with a draft",
   L5: "Talked over",
   L6: "Needs your tap",
   L7: "Muted",
   L8: "Reconnecting",
+  L8r: "Reconnecting · readiness",
   L9: "Stopped",
+  L9m: "Stopped · mic blocked",
   L10: "Ended",
 };
 
+/** The meta while a manual-review draft is held (#3699). */
+export const DRAFT_META = "Draft · not sent yet";
+
+/**
+ * The controls while a draft is held (#3699, R1): Interrupt leaves the row
+ * unless brain is speaking, so L4 with a draft carries five.
+ */
+export function draftControls(o: { speaking?: boolean } = {}) {
+  return (
+    <>
+      <VoiceControlButton name="Mute" icon="mic" pressed={false} onClick={fn()} />
+      {o.speaking ? <VoiceControlButton name="Interrupt" icon="interrupt" onClick={fn()} /> : null}
+      <VoiceControlButton name="Discard draft" icon="withdrawn" onClick={fn()} />
+      <VoiceControlButton name="Send now" icon="send" tone="you" onClick={fn()} />
+      <VoiceControlButton name="End" icon="dismiss" tone="end" onClick={fn()} />
+    </>
+  );
+}
+
+const draftWords = (
+  <VoiceText>
+    <>Ask Calypso when the axe is back and add it to the <UncertainWord onClick={fn()}>tally</UncertainWord>.</>
+  </VoiceText>
+);
+
 export function live(id: LiveId, motion?: VoiceMotion): ReactNode {
-  const tall = (o: { tone: "you" | "brain" | "idle"; icon: IconName; word: string; time: string; meter: "level" | "sweep" | "flat" | "hatch" | "none"; level?: number; spin?: boolean; outline?: boolean; muted?: boolean; interrupt?: boolean }) => (
+  const tall = (o: { tone: "you" | "brain" | "idle"; icon: IconName; word: string; time?: string; meta?: string; meter: "level" | "sweep" | "flat" | "hatch" | "none"; level?: number; spin?: boolean; outline?: boolean; muted?: boolean; interrupt?: boolean; connecting?: boolean; controls?: ReactNode; body?: ReactNode }) => (
     <VoiceField
       shape="tall"
       tone={o.tone}
       outline={o.outline}
-      label={{ icon: o.icon, word: o.word, meta: `${PERSONA_META} · ${o.time}`, spin: o.spin }}
+      label={{ icon: o.icon, word: o.word, meta: o.meta ?? `${PERSONA_META} · ${o.time}`, spin: o.spin }}
       meter={o.meter}
       level={o.level}
-      controls={liveControls({ muted: o.muted, interrupt: o.interrupt })}
+      controls={o.controls ?? liveControls({ muted: o.muted, interrupt: o.interrupt, connecting: o.connecting })}
       motion={motion}
-    />
+    >
+      {o.body}
+    </VoiceField>
   );
   switch (id) {
+    case "Lc":
+      // R2: an inline notice at the start of the live section; Details opens the existing sheet.
+      return (
+        <Callout variant="plain" tone="neutral" icon="history">
+          Started with the last 12 messages · <TextButton label="Details" ariaLabel="Prior context details" inline onClick={fn()} />
+        </Callout>
+      );
     case "L1":
       return tall({ tone: "you", icon: "mic", word: "Listening", time: "0:12", meter: "level", level: 0.85 });
+    case "L1d":
+      return tall({ tone: "you", icon: "mic", word: "Listening", meta: DRAFT_META, meter: "level", level: 0.85, controls: draftControls(), body: draftWords });
+    case "L1u":
+      return tall({ tone: "you", icon: "mic", word: "Listening", meta: DRAFT_META, meter: "level", level: 0.6, controls: draftControls(), body: <VoiceText text="I couldn’t hear that clearly. Review before sending." /> });
+    case "L1o":
+      return tall({
+        tone: "you",
+        icon: "mic",
+        word: "Listening",
+        meta: "Reply audio off",
+        meter: "level",
+        level: 0.85,
+        controls: (
+          <>
+            <VoiceControlButton name="Mute" icon="mic" pressed={false} onClick={fn()} />
+            <VoiceControlButton name="Recover reply audio" icon="speaker" tone="brain" onClick={fn()} />
+            <VoiceControlButton name="End" icon="dismiss" tone="end" onClick={fn()} />
+          </>
+        ),
+        body: <VoiceText text="Brain’s voice was paused after a dropout. Replies still arrive as text." />,
+      });
     case "L2":
       return tall({ tone: "brain", icon: "loading", word: "Thinking", time: "0:15", meter: "sweep", spin: true });
     case "L3":
       return tall({ tone: "brain", icon: "working", word: "Working", time: "0:19", meter: "sweep" });
     case "L4":
       return tall({ tone: "brain", icon: "speaker", word: "Speaking", time: "0:24", meter: "level", level: 0.9, interrupt: true });
+    case "L4d":
+      return tall({ tone: "brain", icon: "speaker", word: "Speaking", meta: DRAFT_META, meter: "level", level: 0.9, controls: draftControls({ speaking: true }), body: draftWords });
     case "L5":
       return tall({ tone: "you", icon: "mic", word: "Listening", time: "0:27", meter: "level", level: 0.75 });
     case "L6":
-      return tall({ tone: "idle", icon: "hand", word: "Needs your tap", time: "0:41", meter: "none", outline: true });
+      return tall({ tone: "idle", icon: "hand", word: "Needs your tap", time: "0:41", meter: "none", outline: true, body: <VoiceText text="Tap Allow or Deny on the card. Voice can’t approve or refuse with this service." /> });
     case "L7":
       return tall({ tone: "idle", icon: "mic-off", word: "Muted", time: "0:52", meter: "flat", muted: true });
     case "L8":
       return tall({ tone: "idle", icon: "loading", word: "Reconnecting…", time: "1:03", meter: "hatch" });
+    case "L8r":
+      return tall({ tone: "idle", icon: "loading", word: "Reconnecting…", meta: "mic off", meter: "hatch", connecting: true, body: <VoiceText text="Waiting for voice to be ready. Nothing is heard until then." /> });
     case "L9":
       return (
         <VoiceNotice
@@ -255,6 +390,17 @@ export function live(id: LiveId, motion?: VoiceMotion): ReactNode {
           icon="attention"
           title="Live conversation stopped"
           body="The connection dropped. Everything said so far is in the chat."
+          actions={[{ label: "Close", onClick: fn() }, { label: "Start again", tone: "brain", onClick: fn() }]}
+          motion={motion}
+        />
+      );
+    case "L9m":
+      return (
+        <VoiceNotice
+          tone="fail"
+          icon="attention"
+          title="Live conversation stopped"
+          body="Microphone is blocked. Allow it in this site’s browser settings, then Start again."
           actions={[{ label: "Close", onClick: fn() }, { label: "Start again", tone: "brain", onClick: fn() }]}
           motion={motion}
         />
