@@ -118,6 +118,29 @@ export class DialogueJournal {
     this.append(owner, identity, evidence, after);
     return true;
   }
+  /**
+   * An observed provider interruption. Display evidence only: it is never
+   * read into provider history, and the live frame never waits for it.
+   * `ordinal` distinguishes repeated interruptions within one epoch.
+   */
+  interruption(conversationId: string, evidence: Extract<DialogueEvidence, { kind: "voice_interruption" }>, ordinal: number): boolean {
+    const owner = this.conversations.get(conversationId);
+    if (!owner) return false;
+    this.append(owner, JSON.stringify([conversationId, evidence.epoch, "interrupted", evidence.outputId ?? null, ordinal]), evidence);
+    return true;
+  }
+  /**
+   * The operator ended the conversation. Its last epoch may already be closed
+   * (a resumable pause came first), so the owner is also found by the
+   * conversation's retained routing; storage still checks its scope.
+   */
+  ended(conversationId: string, principalId: string, evidence: Extract<DialogueEvidence, { kind: "voice_end" }>): boolean {
+    const owner = this.conversations.get(conversationId) ?? this.catalog.dialogueOwnerForConversation?.(conversationId, principalId);
+    // An owner whose writes failed since it opened is not written to again.
+    if (!owner || owner.principal_id !== principalId || this.failedOwners.has(owner.id)) return false;
+    this.append(owner, JSON.stringify([conversationId, "ended", evidence.startedAt]), evidence);
+    return true;
+  }
   adoptTurn(turnId: string, ownerId: string, principalId: string): void {
     const owner = this.catalog.dialogueOwnerForId?.(ownerId, principalId);
     if (

@@ -4404,6 +4404,18 @@ export type { StorageHistoryTier, StorageSeverity, StorageEvidenceReason, Storag
 export type DialogueEvidence =
   | { kind: "voice"; conversationId: string; epoch: number; providerId: string; model?:string; api?:string;
       event: Extract<ConversationWireEvent, { kind: "input_fragment" | "unassigned_input_fragment" | "output_transcript" }> }
+  /**
+   * The voice service reported that it stopped this output (barge-in).
+   * Retained only when observed; its absence is never evidence of a
+   * completed reply. `outputId` is present when the provider named one.
+   */
+  | { kind: "voice_interruption"; conversationId: string; epoch: number; providerId: string; outputId?: string }
+  /**
+   * The operator ended the live conversation. Host clock milliseconds since
+   * the Unix epoch: `startedAt` is when this host first opened the
+   * conversation's current run, `endedAt` when it was ended.
+   */
+  | { kind: "voice_end"; conversationId: string; epoch: number; providerId: string; startedAt: number; endedAt: number }
   | { kind: "request"; turnId: string; requestId?: string }
   | { kind: "backend"; turnId: string; start: number; end: number; digest: string; text: string };
 export interface DialogueRecord {

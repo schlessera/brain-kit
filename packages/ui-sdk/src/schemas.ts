@@ -1884,6 +1884,9 @@ export const dialogueEvidenceSchema = z.discriminatedUnion("kind", [
       z.object({kind:z.literal("unassigned_input_fragment"),sequence:conversationSequence,text:z.string().max(2000),sessionInterval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional(),timing:z.object({kind:z.literal("unavailable")}).optional(),finalization:z.enum(["final","unknown"]).optional()}),
       z.object({kind:z.literal("output_transcript"),outputId:id,sequence:conversationSequence,text:z.string().max(2000),interval:conversationIntervalSchema.transform(i=>({startMs:i.startMs,endMs:i.endMs})).optional()}),
     ]) }),
+  z.object({ kind: z.literal("voice_interruption"), conversationId: id, epoch: conversationEpoch, providerId: id, outputId: id.optional() }),
+  z.object({ kind: z.literal("voice_end"), conversationId: id, epoch: conversationEpoch, providerId: id, startedAt: z.number().int().nonnegative(), endedAt: z.number().int().nonnegative() })
+    .refine(e => e.endedAt >= e.startedAt, "A conversation cannot end before it started"),
   z.object({ kind: z.literal("request"), turnId: id, requestId: id.optional() }),
   z.object({ kind: z.literal("backend"), turnId: id, start: conversationSequence, end: conversationSequence, digest: z.string().regex(/^[a-f0-9]{64}$/), text: z.string().max(2000) }),
 ]).refine(e => e.kind !== "voice" || (e.event.kind === "input_fragment" ? (e.event.certainty === "known") === (e.event.confidence !== undefined)
