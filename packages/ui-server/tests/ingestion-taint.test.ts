@@ -11,6 +11,8 @@ test("web, external MCP and untrusted-area reads are taint sources on both backe
   for (const [tool, input, source] of [
     ["WebFetch", { url: "https://ithaca.invalid" }, "web_fetch"], ["WebSearch", { query: "Ithaca" }, "web_search"],
     ["fetch_content", { url: "https://ithaca.invalid" }, "web_fetch"], ["web_search", { query: "Ithaca" }, "web_search"],
+    // Pi's host-owned stored-content read and source check return external pages too (#3685).
+    ["get_search_content", { responseId: "wr_ithaca" }, "web_fetch"], ["source_check", { claim: "The raft reached Ithaca" }, "web_search"],
     ["mcp__mail__read_message", { id: "7" }, "mcp_document"], ["mcp__brain-uix__get", {}, "mcp_document"],
     ["Read", { file_path: `${brain}/.brain-ui/inbox/share-1/notice.md` }, "staged_share"],
     ["read_file", { path: ".brain-ui/inbox/share-1/notice.md" }, "staged_share"],
