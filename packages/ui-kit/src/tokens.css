@@ -1530,6 +1530,9 @@
   .bk-voice-meter[data-mode="sweep"] { background: var(--bk-voice-tint); }
   .bk-voice-ring .bk-voice-ring-fill { transition: none; }
   span.bk-voice-cursor, span.bk-voice-ctl-spin, span.bk-voice-spin { animation: none; }
+  /* A spoken turn's Details pill appears without fading (#3728). Its shown
+   * rules carry two classes or a class and a pseudo-class, so this carries three. */
+  .bk-spoken-turn[data-details] .bk-transcript-reveal { transition: none; }
 }
 
 /* ── Interaction states ────────────────────────────────────────────────────
@@ -2904,6 +2907,29 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-spoken-bubble { max-width: 82%; box-sizing: border-box; padding: 10px 13px; border: 1px solid var(--bk-color-edge); border-radius: 16px 16px 5px 16px; background: var(--bk-color-raised); font: 400 13.5px/1.55 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
 .bk-spoken-bubble[data-in-progress="true"] { border-color: var(--bk-amber-ink); background: transparent; }
 .bk-spoken-prose { font: 400 13.5px/1.7 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow-wrap: anywhere; }
+/* A spoken turn's Details stop (#3728). One per turn, in place of the evidence
+ * glyph: clipped at rest (not `display: none`, so browse mode finds it), shown
+ * on keyboard focus, while its dialog is open, or when the turn sets
+ * `data-reveal` after a 300ms hover. The 24px pill sits on a 44px hit area
+ * absolutely placed on the turn's outer bottom corner, right for yours and
+ * left for brain's, so showing it never moves the chat. A long-press shows the
+ * pressed veil and edge (`data-pressed`): no ring, no scale. On `(hover: none)`
+ * the turn's words are not selectable, so a long-press never selects text;
+ * they stay selectable in the dialog's evidence. */
+.bk-spoken-turn[data-details] > .bk-spoken-bubble, .bk-spoken-turn[data-details] > .bk-spoken-prose { position: relative; }
+.bk-transcript-reveal { position: absolute; z-index: 1; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 44px; min-height: 44px; margin: 0; padding: 0 2px; border: 0; background: transparent; color: var(--bk-color-ink-dim); font: inherit; cursor: pointer; user-select: none; -webkit-user-select: none; clip-path: inset(50%); opacity: 0; }
+.bk-spoken-bubble > .bk-transcript-reveal { right: 8px; top: calc(100% - 22px); }
+.bk-spoken-prose > .bk-transcript-reveal { left: 0; top: calc(100% - 14px); }
+.bk-transcript-pill { display: inline-flex; align-items: center; box-sizing: border-box; height: 24px; padding: 0 10px; border-radius: 999px; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); font: 600 11px/1 "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink-dim); white-space: nowrap; }
+.bk-transcript-reveal:focus-visible, .bk-transcript-reveal[aria-expanded="true"], [data-reveal="true"] .bk-transcript-reveal { clip-path: none; opacity: 1; transition: opacity 120ms linear; }
+.bk-transcript-reveal:focus-visible { outline: none; }
+.bk-transcript-reveal:focus-visible > .bk-transcript-pill { outline: 2px solid var(--bk-focus-ring); outline-offset: 2px; }
+.bk-transcript-reveal:hover > .bk-transcript-pill { box-shadow: inset 0 0 0 1px var(--bk-hover-border); color: var(--bk-color-ink); }
+.bk-spoken-turn[data-pressed="true"] > .bk-spoken-bubble { border-color: var(--bk-hover-border); background-image: linear-gradient(var(--bk-hover-veil-strong), var(--bk-hover-veil-strong)); }
+.bk-spoken-turn[data-pressed="true"] > .bk-spoken-prose { border-radius: 8px; background: var(--bk-hover-veil-strong); box-shadow: 0 0 0 4px var(--bk-hover-veil-strong), 0 0 0 5px var(--bk-hover-border); }
+@media (hover: none) {
+  .bk-spoken-turn[data-details] { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+}
 .bk-voice-cursor { display: inline-block; width: 7px; height: 1.05em; margin-left: 2px; vertical-align: -2px; background: var(--bk-amber-fill); animation: bk-voice-blink 1s steps(1, end) infinite; }
 @keyframes bk-voice-blink { 50% { opacity: 0; } }
 .bk-uncertain { text-decoration-line: underline; text-decoration-style: dotted; text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-color: currentColor; }
@@ -2924,3 +2950,4 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 [data-motion="reduce"] .bk-voice-meter[data-mode="sweep"] { background: var(--bk-voice-tint); }
 [data-motion="reduce"] .bk-voice-ring-fill { transition: none; }
 [data-motion="reduce"] .bk-voice-cursor, [data-motion="reduce"] .bk-voice-ctl-spin, [data-motion="reduce"] .bk-voice-spin { animation: none; }
+[data-motion="reduce"] .bk-spoken-turn[data-details] .bk-transcript-reveal { transition: none; }
