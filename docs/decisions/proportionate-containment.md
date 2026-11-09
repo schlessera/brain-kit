@@ -14,7 +14,8 @@ write had failed, and the guard reacted by setting one durable flag for the
 whole brain (`latchSafety`,
 `packages/ui-server/src/governance/safety-store.ts:37-44`). From then on, turn
 admission threw for every chat, including new chats that had never seen
-untrusted input (`beginSafetyCollection`, `safety-store.ts:76`). The error that
+untrusted input (`beginSafetyCollection`,
+`packages/ui-server/src/governance/safety-store.ts:70-76`). The error that
 set the flag was recorded as "capacity" while the store was at a fraction of a
 percent of its limits, and its real cause was never stored. The only way back
 was to stop the server and run `recoverSafetyRecording` from a script, a
@@ -54,7 +55,8 @@ design, not an afterthought.
    - Proportionate: an uncertain worker cleanup stays charged and is retried
      until a close is confirmed.
    - Disproportionate: after five refused closes, the allowance stays charged
-     until the server restarts (`packages/ui-backend-claude/src/cleanup-reconciler.ts:78-90`).
+     until the server restarts (`const attempt`,
+     `packages/ui-backend-claude/src/cleanup-reconciler.ts:78-90`).
 4. **Boot.** A recoverable historical record (a corrupt object, a malformed
    intent, an interrupted cleanup) is quarantined and marked, and the host
    boots. If it must, it boots restricted, with the unsafe operation still
@@ -63,7 +65,8 @@ design, not an afterthought.
    - Proportionate: one corrupt undo object makes the entries that reference it
      non-restorable.
    - Disproportionate: one corrupt undo object stops the server from starting
-     (`packages/ui-server/src/brain/journal-accounting.ts:239`).
+     (`recover(objects)`,
+     `packages/ui-server/src/brain/journal-accounting.ts:225-239`).
 5. **Diagnosable.** Every latch, give-up, quarantine or restricted boot records
    its cause durably (error class, message, call site, scope, time), writes one
    structured log line, and is visible to the owner. A cause that is only in a
