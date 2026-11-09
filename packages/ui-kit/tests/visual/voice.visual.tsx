@@ -4,7 +4,8 @@
  * One baseline per state: every dictation (D0–D8, with Dc, D3b and the two Dx
  * notices of #3694), Start (S1–S5, with S2's two forms and S3b–S3d) and live
  * (L1–L10, with the drafts, recovery, readiness, mic-blocked and coverage
- * forms of #3699) state, at 320px and at a desktop width, in both themes; the spoken-turn marks and the voice controls the same
+ * forms of #3699) state, at 320px and at a desktop width, in both themes; the
+ * tall field's states with a body under 200% text (#3773) the same way; the spoken-turn marks and the voice controls the same
  * way; and the three assembled voice screens in both themes.
  *
  * Each state is captured from its cell in the group's `AllStates` story,
@@ -33,6 +34,7 @@ import * as live from "../../stories/voice/Live.stories.js";
 import * as marks from "../../stories/voice/ChatMarks.stories.js";
 import * as controls from "../../stories/voice/Controls.stories.js";
 import * as screens from "../../stories/screens/Voice.stories.js";
+import { enlargedTallFieldHolds } from "../../stories/voice/_checks.js";
 
 interface ComposedStory {
   run: (context?: { globals?: Record<string, unknown> }) => Promise<void>;
@@ -75,6 +77,7 @@ const GROUPS = [
   [dictation.AllStates, "voice-dictation", 13],
   [start.AllStates, "voice-start", 9],
   [live.AllStates, "voice-live", 17],
+  [live.TallFieldEnlargedText, "voice-live-enlarged", 5],
 ] as const;
 
 const WIDTHS = [[320, "320"], [1280, "desktop"]] as const;
@@ -86,6 +89,8 @@ for (const theme of ["dark", "light"] as const) {
         await render(story, theme, width);
         const cells = [...document.querySelectorAll<HTMLElement>("[data-state]")];
         expect(cells).toHaveLength(count);
+        // Under 200% text the tall field holds its body at both widths (#3773).
+        if (group === "voice-live-enlarged") expect(await enlargedTallFieldHolds(document.body)).toBe(4);
         for (const cell of cells) {
           const id = cell.dataset.state!.replace("+", "-several").toLowerCase();
           expect(cell.getBoundingClientRect().height, `${id} fits the viewport`).toBeLessThan(720);

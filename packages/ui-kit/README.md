@@ -374,8 +374,15 @@ state onto them and owns every timer, permission and connection.
 
 - `VoiceField` is the surface that replaces the composer. `compact` keeps the
   composer's 52px at rest and one fixed 84px while a state label shows (D3–D5).
-  `tall` is one fixed 136px for live states L1–L8. `card` grows to its content,
-  for the Start card and notices.
+  `tall` is 136px for live states L1–L8 at 1× text. Under enlarged text it
+  grows to its content, upward, with the controls pinned to its bottom: the
+  label wraps instead of cutting off its meta, and nothing is hidden. `card`
+  grows to its content, for the Start card and notices.
+- `VoiceText` holds the field's words or one message. Words (`text`,
+  `partial`) keep the newest two whole lines. A message is `children` alone
+  (the refusal line, a notice), and the tall field shows it whole. Rich draft
+  words, such as a review with an uncertain word, pass their plain form as
+  `text` as well, so they stay words.
 - `tone` picks from one colour language: `you` (amber, you and your mic),
   `brain` (teal, brain and its voice), `idle` (grey, nothing is heard) and
   `fail` (red, only End and failures). `VOICE_SKINS` names the
