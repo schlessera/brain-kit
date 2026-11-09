@@ -211,6 +211,81 @@ taxonomy: {
 | `source`      | `string`                         | Exact path of the canonical source document.       |
 | `derivatives` | `string` (glob)                  | Glob for documents that derive from the source.    |
 | `severity`    | `"error" \| "warning" \| "info"` | Optional finding severity.                          |
+| `scope`       | nonempty `string`, up to 4000 characters | Declared purpose and required coverage of the derivatives, used by opted-in freshness review. A document's `propagation_scope` overrides it. |
+
+### `hygiene.propagation`
+
+Optional automatic propagation review, **off until `enabled: true`**. It keeps
+complete current/reference source texts and an explicit source diff. Only a
+positive currency judgment meeting the owner's policy can acknowledge freshness.
+Source and derivative content, `created` and `updated` stay byte-identical; the
+receipt lives in `context/hygiene/propagation-reviews.md`. Missing context,
+provider failure and every other judgment remain for the owner.
+
+```ts
+hygiene: {
+  propagation: { enabled: true, profile: "balanced" },
+},
+taxonomy: {
+  propagation: [{
+    source: "notes/voyage-plan.md",
+    derivatives: "notes/command-summary.md",
+    scope: "Current ship commander only; omit provisions.",
+  }],
+},
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | Persistent owner authorization for this automation. A key or CLI flag cannot turn it on. |
+| `profile` | `"balanced"` | `conservative`: floor 0.9 plus cross-checks; `balanced`: 0.7 plus cross-checks; `permissive`: floor 0, currency question only. |
+| `minConfidence` | From profile | Optional 0–1 override; every required answer must meet it. This is answer concentration, **not** a probability of correctness. |
+| `crossChecks` | From profile | Also require positive answers on support for all included assertions and sufficient in-scope coverage. They can only veto the currency answer; confidence is never averaged or multiplied. |
+| `maxFiles` | `10` | At most 1–100 uncached model judgments per invocation. Cached negatives do not consume the quota. |
+| `timeoutMs` | `5000` | Per-request deadline, 100–30000 ms, bounded by the remaining run budget. |
+| `budgetMs` | `10000` | Run dispatch budget, 100–60000 ms, shared by history/diff preparation and provider calls. |
+| `maxInputChars` | `40000` | Complete request character bound, 1000–80000. Oversize inputs are left for review, never clipped. Provider context limits can still refuse a request. |
+| `exclude` | `[]` | Additional contained paths/prefixes/globs never sent to the provider. Taxonomy exclusions also apply, including canonical symlink targets. |
+
+The presets are policy choices, not calibrated correctness guarantees. Start
+with `brain hygiene propagation --dry-run --json`: it reports individual
+judgments and acceptance at several floors, both currency-only and cross-checked,
+without extra calls for that sensitivity table. It replays the saved answers;
+changing the question bundle on a fresh request may also change the primary
+answer. The [measured tradeoff](decisions/propagation-triage.md#user-selected-confidence-and-cross-checks)
+is from short authored examples, not an expected production error rate.
+The distinction follows [TypeSafe's confidence definition](https://docs.typesafe.ai/confidence):
+it summarizes the answer distribution, not independently verified correctness.
+
+Scope must be explicit, in a matching propagation rule or the derivative's
+nonempty `propagation_scope` frontmatter. `propagation_reference` may name the
+full Git commit ID of a known reference source snapshot. Otherwise review uses
+the commit recording the exact current derivative bytes. That is a recorded
+content version, **not** an inferred generation time. An uncommitted derivative
+without an explicit reference, missing historical source, historical symlink,
+unclear scope or unavailable source stays for review. Dates alone never select
+history. All configured sources plus a Markdown `generated_from` are consulted.
+
+The concrete model is pinned to the evaluated `jev-1.13.0`; `TYPESAFE_API_KEY`
+authenticates it. Successful typed judgments, including those left for humans,
+are cached by source/derivative bytes, scope and model/question version. Changing
+a threshold re-applies the policy locally to those answers. The UTC observation
+day is part of the evidence: time-dependent judgments expire on a new day, even
+when files did not change. Unseen/oldest-reviewed paths go first so bounded runs
+can advance through a backlog. Enabling additional
+checks asks again only if their answers are missing. Source, derivative or
+scope changes invalidate the evidence; model/question upgrades require review
+again. Disabling the feature stops using its acknowledgements. Deleting the
+disposable index does not lose the Markdown receipts.
+
+Ordinary `hygiene reconcile` and non-preview `hygiene next` run the prepass when
+enabled and credentials are available. `audit` only reads receipts and never
+calls a model; `next --dry-run` never starts provider work. Hosted interactive
+review remains credential-free. For hosted scheduling, opt into
+`BRAIN_UI_CRON_PROPAGATION=on` as well: the generated daily 05:45
+`hygiene-propagation` job runs through credentialed, exclusive maintenance,
+separately from the credential-free weekly hygiene job. It also requires core
+0.45.0+ and the brain's persistent opt-in; it is never an unwrapped trusted job.
 
 ### `taxonomy.facts`
 

@@ -596,7 +596,8 @@ What runs there, and how it meets the brain's **writer gate**:
 | Work | Credentials and network | Writer gate |
 | --- | --- | --- |
 | Application route planning (`brain_add`) and its index refresh | None | Shared |
-| `brain hygiene`, `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
+| Interactive `brain hygiene` (excluding the explicit propagation prepass), `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
+| Explicit `brain hygiene propagation` and opted-in `hygiene-propagation` cron job | Yes | Exclusive |
 | `brain briefing`, `stats`, `list`, `read`, `validate`, `module list`, `--version` | None | Shared |
 | `brain search` | Yes (the query embedding) | Shared |
 | Hosted `brain sync` (client, streamed route and generated sync cron job) | None in the brain; Git credentials only in the host mirror transport | Exclusive |

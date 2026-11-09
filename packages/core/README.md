@@ -46,7 +46,7 @@ to touch `process.env`.
 | `CLAUDE_CODE_PATH` | Claude Code binary the Claude agent runner spawns, as for the chat server. | the Agent SDK's built-in binary when the SDK is installed, else `claude` on PATH |
 | `GEMINI_API_KEY` | Default API key for the built-in Gemini embedding/completion providers (default name only — a config `apiKeyEnv` can point elsewhere). Absent key degrades vector search to FTS. | — |
 | `NO_COLOR` | Any non-empty value suppresses ANSI color in CLI output. | — |
-| `TYPESAFE_API_KEY` | Default TypeSafe AI key for Jev: the built-in jev search reranker (default name only — a config `apiKeyEnv` can point elsewhere) and the judgments `brain sync` asks. Search also requires reranker.enabled: true. Absent key keeps the lifecycle (heuristic) search ordering, and every sync judgment takes its conservative default. | — |
+| `TYPESAFE_API_KEY` | Default TypeSafe AI key for Jev: the built-in jev search reranker (default name only — a config `apiKeyEnv` can point elsewhere) and the judgments `brain sync` asks, plus opted-in hygiene propagation review. Search also requires reranker.enabled: true; propagation requires hygiene.propagation.enabled: true. Absent key keeps the lifecycle (heuristic) search ordering, and every sync judgment takes its conservative default. | — |
 | `XDG_BIN_HOME` | Directory the `brain` CLI symlink is installed into. | ~/.local/bin |
 | `XDG_STATE_HOME` | Base directory for the default external compute state directory. | ~/.local/state |
 
