@@ -4987,6 +4987,23 @@ the composer renders exactly as before. No wire schema changes.
 `api-report/` records the added prop.
 
 
+<a id="spoken-turn-details-additive-0450-3728"></a>
+
+## Spoken-turn details (additive, 0.45.0, #3728)
+
+`SpokenTurnProps` in `@schlessera/brain-ui-kit` gains optional
+`details?: SpokenTurnDetails`, and the package exports the new type
+`SpokenTurnDetails` (`Omit<TranscriptQualifiersProps, "trigger">`). With it, a
+spoken turn renders one visually hidden "Details" stop, named by the existing
+transcript-qualifier string and marked `aria-haspopup="dialog"`, that shows as a
+pill on keyboard focus or after a 300ms pointer hover. Enter, Space, Shift+F10,
+the ContextMenu key, a right-click (unless text inside the turn is selected) and
+a 500ms touch long-press open the existing transcript details dialog, and focus
+returns to the stop on close. No glyph renders. `TranscriptQualifiersProps`,
+now reachable through that type, gains optional `trigger?: "glyphs" | "reveal"`;
+omitted or `"glyphs"`, the trigger renders exactly as before. A turn without
+`details` is unchanged. `api-report/` records the added props and type.
+
 ## Prospective trust policy data (additive, #3607)
 
 The governance policy types reachable through ui-server's public signatures
