@@ -108,6 +108,8 @@ test("closing abandons an idle pass instead of waiting for its native work", asy
     }); });
     void f.journal.maintain();
     await blocked;
+    // Failure maximum: a correct close settles first; the 5 s branch is only
+    // reached if close waits for the blocked native work.
     const closed = await Promise.race([f.journal.close().then(() => "closed"), Bun.sleep(5_000).then(() => "waiting")]);
     expect(closed, "CLOSE_ABANDONS_THE_IDLE_PASS").toBe("closed");
   } finally { f.blockCheckpoints(undefined); unblock(); await f.close().catch(() => {}); }

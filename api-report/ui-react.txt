@@ -714,7 +714,7 @@ signatures (every public export and the types it is made of)
         saveTranscript(partition: PartitionId, id: string, text: string): Promise<void>;
         accept(partition: PartitionId, id: string, draftId: string, sessionId: string | null, expectedTranscript?: string): Promise<void>;
         assign(id: string): Promise<void>;
-        transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string): Promise<void>;
+        transcribe(partition: PartitionId, id: string, progress: (percent: number) => void, retry?: string, provider?: string): Promise<void>;
         syncTranscriptions(): Promise<void>;
         busy(): boolean;
         subscribe(listener: () => void): () => void;
@@ -1418,6 +1418,8 @@ signatures (every public export and the types it is made of)
             check: (requestId: string) => Promise<void>;
             edit: (requestId: string) => void;
             resend: (requestId: string) => boolean;
+            resendSnapshot: (requestId: string) => boolean;
+            sendPaused: (draftId: string, snapshotId: string) => void;
         };
         flushChatDeltas: () => void;
         handleServerMessage: (msg: import("@schlessera/brain-ui-sdk").ServerMessage) => void;

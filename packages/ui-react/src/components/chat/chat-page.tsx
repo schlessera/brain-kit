@@ -1,12 +1,12 @@
 import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
-import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext } from "../voice/conversation-outputs.js";
+import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { TranscriptReadingScope } from "@schlessera/brain-ui-kit/internal";
-import { Button } from "@schlessera/brain-ui-kit";
+import { Button, ConversationEndDivider } from "@schlessera/brain-ui-kit";
 import { useChatStore, activeChat, restorationOf } from "../../stores/chat-store.js";
 import type { AskUserAnnotation } from "@schlessera/brain-ui-sdk/protocol";
 import type { AnswerPayload } from "../../lib/answer-delivery/types.js";
@@ -48,6 +48,7 @@ import { Overlay, DiscButton, DiscRow } from "@schlessera/brain-ui-kit";
 import { useRootStore } from "../../root-context.js";
 import { SessionsPane } from "./sessions-pane.js";
 import { UnconfirmedSends } from "./unconfirmed-sends.js";
+import { OutgoingSnapshots } from "./outgoing-snapshots.js";
 import { trackerLabel, useWorkingSessions } from "../../hooks/use-working-sessions.js";
 import { announcementText } from "../../lib/tracker-announcer.js";
 import type { TrackerState } from "../../lib/trackers.js";
@@ -709,7 +710,7 @@ export function ChatPage() {
             )}
             {messages.length === 0 && !hasVoiceOutput && !hasVoicePermission && restoring ? (
               <div className="h-full overflow-y-auto">
-                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><OutgoingSnapshots /><UnconfirmedSends /></div></div>
                 <RestorationState onNewChat={clearMessages} />
               </div>
             ) : messages.length === 0 && !hasVoiceOutput && !hasVoicePermission ? (
@@ -719,7 +720,7 @@ export function ChatPage() {
                 </div>
                 {/* A tracked session whose history came back empty can still be acknowledged. */}
                 {unlinked && <MarkAsSeen onMark={markSeen} />}
-                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
+                <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><OutgoingSnapshots /><UnconfirmedSends /></div></div>
                 <WelcomeState onAction={runCommand} briefingWhy={briefingWhy} />
               </div>
             ) : (
@@ -759,8 +760,10 @@ export function ChatPage() {
                   <TranscriptReadingScope onRead={beginReading} returnFocus={readingFallback}>
                   {visibleEntries.map((entry) => {
                     if (entry.kind === "history-notice") return <p key={entry.key} className="py-3 text-sm">{entry.label}</p>;
-                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} />;
-                    if (entry.kind === "voice-boundary") return <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
+                    if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} cutOff={entry.cutOff} />;
+                    if (entry.kind === "voice-boundary") return entry.label === "Voice ended"
+                      ? <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationEndDivider label={conversationEndLabel(entry.durationMs)} /></div>
+                      : <p key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3 text-xs text-muted-foreground">{entry.label}</p>;
                     if (entry.kind === "recognition") {
                       const first = entry.fragments[0]!;
                       const preceding = entries.slice(0, entries.indexOf(entry)).filter(e => e.kind === "recognition").flatMap(e => e.kind === "recognition" ? e.fragments : []);
@@ -799,7 +802,7 @@ export function ChatPage() {
                   {/* Live frames drawn before the history arrived (#1328). */}
                   {restoring && <RestorationState onNewChat={clearMessages} />}
                   {/* A send the host never confirmed, held where it was sent (D52 §5). */}
-                  <UnconfirmedSends />
+                  <OutgoingSnapshots /><UnconfirmedSends />
                 </div>
               </div>
             )}

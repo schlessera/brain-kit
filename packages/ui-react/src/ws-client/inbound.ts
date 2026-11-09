@@ -197,14 +197,14 @@ export function createInbound(root: BrainUiServices, deps: InboundDeps) {
     // After the demux, so a draft that just became this session is already
     // the session in view and is not mistaken for unwatched work.
     if (msg.type === "server_hello") {
-      deps.services.trackers.hello(msg); deps.services.drafts.hello(msg);
+      deps.services.trackers.hello(msg); deps.services.drafts.hello(msg); deps.services.attachmentReads.hello(msg);
       // Resume reports even an empty queue. Revalidate retained background
       // pills too; the selected session already reattaches on connection.
       for (const sessionId of Object.keys(root.stores.followUp.getState().pending)) {
         if (sessionId !== root.stores.chat.getState().activeSessionId) deps.send({ type: "session_resume", sessionId });
       }
     }
-    else deps.services.trackers.frame(msg);
+    else { deps.services.trackers.frame(msg); deps.services.attachmentReads.frame(msg); }
     deps.services.frameSeen();
   }
 

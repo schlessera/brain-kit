@@ -1,7 +1,7 @@
 import { useStore } from "zustand";
 import { ConversationUnassigned } from "../voice/conversation-unassigned.js";
 import { ConversationStrip } from "../voice/conversation-strip.js";
-import { InlineToast } from "@schlessera/brain-ui-kit";
+import { Button, Callout, InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
@@ -24,6 +24,7 @@ import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
 import { dictationNoticeText } from "../../voice/dictation-failure.js";
 import { useDictation } from "../../voice/use-dictation.js";
+import { dictationTarget, loadDiscovery, providerShortLabel } from "../../voice/dictation-providers.js";
 import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
@@ -34,7 +35,8 @@ import { trackPending, trackReady } from "../../lib/track-uploads.js";
 import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { filesFor } from "../../lib/draft-files.js";
 import { queuedBlocking, queuedPending } from "../../lib/attachment-queue.js";
-import { bindableFiles, draftFiles as draftFilesOf, type DraftFile } from "../../stores/draft-state.js";
+import { bindableFiles, draftFiles as draftFilesOf, draftSnapshots, type ComposerSnapshot, type DraftFile } from "../../stores/draft-state.js";
+import { focusOldestSnapshot } from "./outgoing-snapshots.js";
 import { insertSuggestion } from "../../lib/answer-suggestions.js";
 import { HANDOFF_ENTRY_LABEL, useHandoffEntry } from "../../hooks/use-handoff-entry.js";
 import { DraftSaveLine } from "./draft-save-line.js";
@@ -103,6 +105,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // The draft's content is the revision the host acknowledged, file bindings included.
   const draftClean = !!draft && draft.host !== null && draft.host.edit === draft.edit && draft.conflict === null;
   const draftFailure = draft?.failure ?? null;
+  // A Send whose snapshot the host has not acknowledged yet (#3155): a
+  // refusal gives its text back to the field, so nothing typed meanwhile may
+  // land there to be joined with it. The window is one save.
+  const creatingSnapshot = draftSnapshots(draft).some((x) => !x.replaces && !draft?.host?.snapshots?.some((h) => h.snapshotId === x.snapshotId));
   /** Write the view's draft. A function reads the draft as it is now, not as rendered. */
   const setInput = (value: string | ((current: string) => string)) => {
     const store = root.stores.drafts.getState();
@@ -184,7 +190,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     fileEntry.listeners.add(updateFileView);
     return () => { fileEntry.listeners.delete(updateFileView); };
   }, [fileEntry]);
-  const queuedFiles = fileQueue.files;
+  // A held snapshot's uploads are that message's (#3155): the composer neither shows nor waits for them.
+  const queuedFiles = fileQueue.files.filter((item) => !item.snapshotId);
+  // The host keeps outgoing snapshots: Send is one durable snapshot (rev 5 §2).
+  const snapshotsOn = useRootStore("drafts", (s) => s.snapshotsOn);
+  const outgoingFull = useRootStore("drafts", (s) => s.outgoingFull !== null && (s.outgoingFull.draftId === draftId || (sessionId !== null && s.outgoingFull.sessionId === sessionId)) ? s.outgoingFull : null);
   // Terminal transitions only, once each (§8.4): progress is never announced.
   const [fileAnnouncement, setFileAnnouncement] = useState("");
   const lastFileStates = useRef(new Map<string, string>());
@@ -276,8 +286,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   // id): its errors are not this one's. Effort follows the session, not the id.
   // A send held for its tracks belongs to the draft it was pressed in.
   useEffect(() => { setAttachErrors([]); }, [draftId]);
+  const draftStore = root.stores.drafts;
   useEffect(() => {
     if (!pendingSend) return;
+    // A snapshot still held, or not yet sent: the choice waits with it.
+    if (!sendState && Object.values(draftStore.getState().drafts).some((d) => draftSnapshots(d).some((x) => x.requestId === pendingSend.requestId && x.state !== "returned"))) return;
     // Taken back by Edit: nothing was sent, so nothing is consumed.
     if (!sendState) { setPendingSend(null); return; }
     // Still waiting, or held for review: the choice stays until the host answers.
@@ -288,7 +301,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       setEffort((current) => current === pendingSend.effort ? { key: sessionId } : current);
     }
     setPendingSend(null);
-  }, [sendState, pendingSend, sessionId]);
+  }, [sendState, pendingSend, sessionId, draftStore]);
 
   const voiceDraft = useStore(root.connection.conversation.state, s => s.voiceDraft);
   const knownVoiceDraft = useStore(root.stores.drafts, s => {
@@ -305,6 +318,15 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const dictationNotice = useVoiceStore((s) => s.dictationNotice);
   const dismissDictationNotice = useVoiceStore((s) => s.dismissDictationNotice);
   const dictation = useDictation();
+  // The mic names the service the next take goes to (D4), from the read-only
+  // discovery snapshot. Reading it mints nothing and opens no microphone.
+  // A stale snapshot may no longer be the server's, so it names nothing.
+  const discovery = useVoiceStore((s) => s.discovery && !s.discovery.stale ? s.discovery.snapshot : null);
+  const discoveryStale = useVoiceStore((s) => s.discovery?.stale === true);
+  // Before the microphone opens (the acknowledgement or a blocked take), nothing is being dictated yet.
+  const gated = useVoiceStore((s) => s.dictationGate !== null);
+  const nextTarget = discovery ? dictationTarget(discovery) : null;
+  const dictateLabel = nextTarget?.kind === "ready" ? `Dictate · ${providerShortLabel(nextTarget.provider)}` : undefined;
   const localCapture = useLocalCapture();
   const localSupported = useLocalCaptureSupport();
   const localPhase = useVoiceStore((s) => s.local);
@@ -320,6 +342,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       : localSupported === null ? "pending"
       : localSupported ? "local" : "unsupported";
 
+  useEffect(() => {
+    if (micMode === "dictate") void loadDiscovery(root).catch(() => {});
+  }, [root, micMode, discoveryStale]);
+  // Plan §7: with no dictation service registered, the mic is disabled and
+  // says why. Recording on the device does not depend on one.
+  const dictationUnavailable = micMode === "dictate" && voiceMode !== "dictate" && discovery?.providers.length === 0
+    ? "Dictation isn\u0027t set up on this host." : undefined;
+
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
     ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
@@ -333,7 +363,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (kind === "dictation") dismissDictationNotice();
     else { setDismissedLocalNotice(captureNotice ?? null); root.stores.voice.getState().setLocalNotice(null); }
     if (heldFocus) {
-      const mic = frame?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Record on this device"]');
+      const mic = frame?.querySelector<HTMLElement>('[aria-label^="Dictate"], [aria-label="Record on this device"]');
       if (mic) mic.focus(); else focusField();
     }
   }
@@ -361,6 +391,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const composerInsert = useChatStore((s) => s.composerInsert);
   const [insertNotice, setInsertNotice] = useState("");
   const [effortNotice, setEffortNotice] = useState("");
+  /** Bumped when Send is pressed in a full chat: the notice is spoken again. */
+  const [fullNotice, setFullNotice] = useState(0);
   useEffect(() => {
     if (!composerInsert) return;
     root.stores.chat.getState().clearComposerInsert(composerInsert.seq);
@@ -511,6 +543,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if ((!text && !hasAttachments) || wsStatus !== "connected" || waiting || sessionProfile.saving || sessionProfile.awaitingDraftFacts) return;
     if (restorationOf(root.stores.chat.getState())) return;
 
+    // A host that keeps outgoing snapshots (#3155): Send writes one, durably,
+    // in the save that clears the composer. A draft with legacy inline
+    // images keeps the tab-local path below: a snapshot cannot hold them.
+    if (snapshotsOn && chatRequestAck && attachments.length === 0 && currentTracks.length === 0) {
+      submitSnapshot(text, hasAttachments);
+      return;
+    }
+
     if (currentTracks.some(track => track.state === "failed")) {
       setHeldSend(false);
       setEffortNotice("Your draft is kept. Retry or remove the failed track before sending.");
@@ -658,6 +698,59 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }
 
   /**
+   * Send on a host that keeps snapshots (rev 5 §1–§2). The snapshot binds
+   * the stored originals at once and owns the uploads still running; it is
+   * `held` while any runs, else `dispatched`. Nothing is sent before the
+   * host acknowledges the save that creates it: that save is the slot's
+   * reservation, and a full chat refuses it with nothing sent.
+   */
+  function submitSnapshot(text: string, hasAttachments: boolean) {
+    const store = root.stores.drafts.getState();
+    if (outgoingFull) {
+      setEffortNotice("");
+      setFullNotice((n) => n + 1);
+      return;
+    }
+    const own = fileQueue.files.filter((item) => !item.snapshotId);
+    if (own.some(queuedBlocking)) { setEffortNotice("Your draft is kept. Retry or remove the file that wasn't stored before sending."); return; }
+    const current = store.drafts[draftId];
+    if (current && draftFilesOf(current).some((f) => f.lineage !== current.draftId)) { setEffortNotice("Your draft is kept. Remove the files marked not attached, or choose them again, before sending."); return; }
+    if (current?.conflict) { setEffortNotice("Your draft is kept. Choose which version to keep before sending."); return; }
+    if (current?.failure && current.failure.kind !== "unsaved") { setEffortNotice("Your draft is kept. Its files couldn't be saved with it; remove one and try again."); return; }
+    // A typed answer to a pending question is still an answer, never a message (D38 §1).
+    if (text && !hasAttachments && takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
+      void root.answers.submit(answer).then((result) => { if (result === "refused") root.stores.chat.getState().requestComposerInsert(text); }))) {
+      setInput(""); clearReview(); return;
+    }
+    if (text) setLastPrompt(text);
+    const requestId = crypto.randomUUID();
+    const pending = own.filter(queuedPending);
+    const files = current ? bindableFiles(current) : [];
+    const message: Extract<ClientMessage, { type: "chat_message" }> = {
+      type: "chat_message", text,
+      ...(sessionId ? { sessionId } : {}),
+      ...(sessionProfile.profileDraftId ? { profileDraftId: sessionProfile.profileDraftId } : {}),
+      requestId,
+      ...(selectedEffort !== undefined ? { thinkingLevel: selectedEffort } : {}),
+      providerId: sessionId || !providers.some((p) => p.id === selectedProviderId) ? undefined : selectedProviderId,
+      client: detectClientEnvironment(),
+      source: reviewText.trim() ? "voice-dictate" : "typed",
+    };
+    const snapshot: ComposerSnapshot = {
+      snapshotId: crypto.randomUUID(), requestId, text,
+      files: files.map((f) => ({ fileId: f.file.fileId, file: f.file })),
+      state: pending.length > 0 ? "held" : "dispatched", createdAt: null, message,
+      ...(pending.length > 0 ? { uploads: pending.map((item) => item.id) } : { dispatch: "due" as const }),
+    };
+    if (pending.length > 0) fileQueue.assign(pending.map((item) => item.id), snapshot.snapshotId);
+    store.createSnapshot(draftId, sessionId, snapshot, input);
+    setPendingSend({ requestId, key: sessionId, effort });
+    clearReview();
+    setAttachErrors([]);
+    setEffortNotice("");
+  }
+
+  /**
    * Whether composer files let this draft send now (#3155). Required uploads
    * and the save that binds their originals hold it; a file the host refused,
    * a failed upload or one carried from another draft id blocks it until
@@ -665,7 +758,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
    */
   function composerFilesHold(): { blocked?: string; pending?: boolean } {
     const d = root.stores.drafts.getState().drafts[draftIdRef.current];
-    const queued = fileQueue.files;
+    const queued = fileQueue.files.filter((item) => !item.snapshotId);
     if (queued.some(queuedBlocking)) return { blocked: "Your draft is kept. Retry or remove the file that wasn't stored before sending." };
     if (d && draftFilesOf(d).some((f) => f.lineage !== d.draftId)) return { blocked: "Your draft is kept. Remove the files marked not attached, or choose them again, before sending." };
     if (queued.some(queuedPending)) return { pending: true };
@@ -715,7 +808,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const [recordingNotice, setRecordingNotice] = useState("");
   useEffect(() => root.recordings?.onEvent(event => { if (event.message) setRecordingNotice(event.message); }), [root]);
   const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
-    '[aria-label="Record on this device"], [aria-label="Dictate"], [aria-label="Stop and save"]'
+    '[aria-label="Record on this device"], [aria-label^="Dictate"], [aria-label="Stop and save"]'
   )?.focus({ preventScroll: true }), 0);
   useEffect(() => root.stores.voice.subscribe((state, previous) => {
     // Observe the end before React removes the sheet's focused control.
@@ -805,7 +898,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0 || queuedFiles.length > 0 || draftFiles.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
-  const canSend = hasDraft && wsStatus === "connected" && !waiting && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts;
+  const canSend = hasDraft && wsStatus === "connected" && !waiting && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts && !outgoingFull;
 
   // Provider picker: locked to the pinned combo once a session is live.
   // Lock while streaming too: the first send of a new conversation pins the
@@ -849,6 +942,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
               send, without blocking one. */}
           <WorkerHostNotice />
           {effortNotice && <div className="mb-2"><InlineToast text={effortNotice} target="" effect="" undoLabel="" tone="amber" /></div>}
+          {/* The chat holds its limit of outgoing snapshots (rev 5 §2): drafting
+              and every bubble action stay available; only Send waits. */}
+          {outgoingFull && <div className="mb-2 flex items-start gap-2" data-outgoing-full="">
+            <div className="min-w-0 flex-1" role="status" key={fullNotice}>
+              <Callout tone="amber" variant="boxed" icon="attention" text={`${outgoingFull.limit} messages in this chat are waiting or need recovery. Send, cancel or delete one, then send this. Your text stays here.`} />
+            </div>
+            <Button label="Show" tone="ghost" size="md" block={false} reach onClick={() => { focusOldestSnapshot(); }} />
+          </div>}
           {/* Anything shared from the OS waits here for a tap. Above the
               composer, so it reads as something to act on rather than a
               notification that has already happened. */}
@@ -876,14 +977,17 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         <ComposerView
           onConversation={conversation.available && micMode !== "local" && voiceMode !== "dictate" ? () => { setAttachMenuOpen(false); root.connection.conversation.enter(); } : undefined}
           dictation={<><DictationSheet open={voiceMode === "dictate"}
-            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />
+            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} onConfirm={dictation.confirm}
+            onOpenSettings={() => { dictation.cancel(); root.stores.ui.getState().openSettings("voice"); }} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
           dictationNotice={dictationNotice ? dictationNoticeText(dictationNotice) : undefined}
           onDismissDictationNotice={() => dismissNotice("dictation")}
           captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
           onDismissCaptureNotice={() => dismissNotice("local")}
           mic={micMode !== "unsupported"}
-          micLabel={micMode !== "local" ? undefined : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
+          micLabel={micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
+          micTip={micMode === "dictate" && voiceMode !== "dictate" && dictateLabel !== undefined}
+          micUnavailable={dictationUnavailable}
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
@@ -892,7 +996,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           state={
             voiceMode === "dictate"
               ? "dictating"
-              : wsStatus === "connected" && (restorePhase !== null || sessionProfile.saving || sessionProfile.awaitingDraftFacts)
+              : wsStatus === "connected" && (restorePhase !== null || sessionProfile.saving || sessionProfile.awaitingDraftFacts || (outgoingFull !== null && !isStreaming))
               // The kit's disabled send, with its own reason (#1328).
               ? "offline"
               : wsStatus === "connected"
@@ -904,7 +1008,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                 : "offline"
           }
           placeholder={
-            voiceMode === "dictate" ? "Dictating…" : wsStatus === "connected" && restorePhase !== null
+            voiceMode === "dictate" && !gated ? "Dictating…" : voiceMode === "dictate" ? root.config.composerPlaceholder : wsStatus === "connected" && restorePhase !== null
               ? "Sending waits until this conversation is restored"
               : wsStatus !== "connected"
               ? connectionIssue === "capacity"
@@ -914,9 +1018,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : voiceMode === "dictate" && !gated ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
           blockedWhy={
-            wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
+            wsStatus === "connected" && outgoingFull !== null && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts ? `${outgoingFull.limit} messages waiting · your text stays here`
+              : wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
               : wsStatus === "connected" && sessionProfile.awaitingDraftFacts ? "waiting for this chat profile · reopen the model picker to retry"
               : wsStatus === "connected" && restorePhase !== null
               ? `${restorePhase === "failed" ? "this conversation could not be restored" : "restoring this conversation"} · your draft is kept`
@@ -973,7 +1078,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           frameRef={frameRef}
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
-            if (voiceMode === "dictate") return;
+            if (voiceMode === "dictate" || creatingSnapshot) return;
             setInput(value);
             setPaletteDismissed(false);
             setPaletteIndex(0);

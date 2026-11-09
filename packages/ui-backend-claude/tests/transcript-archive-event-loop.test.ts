@@ -22,7 +22,10 @@ beforeEach(async () => {
     listSessionsFn: async () => metadata, log: (_message, error) => errors.push(error), activeSessionIds: () => active };
   ({ live, archive } = transcriptPaths(brain, options.env)); mkdirSync(live, { recursive: true });
   // Every asynchronous fsync is delayed, as on a host under write load; a
-  // hook can act as another caller at a chosen sync.
+  // hook can act as another caller at a chosen sync. Kept real time: the delay
+  // is the stimulus. Each awaited sync then takes wall time on any host (a
+  // tmpfs fsync returns at once), so the liveness case's 1 ms interval has a
+  // chance to run; a fake clock does not slow native IO.
   const probe = await open(tmpdir(), "r"), handle = Object.getPrototypeOf(probe) as { sync(): Promise<void> };
   await probe.close();
   const sync = handle.sync; syncs = 0; onSync = undefined;

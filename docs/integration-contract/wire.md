@@ -1201,7 +1201,7 @@ A backend may report profiles it is configured with but cannot run now
 (ruled 2026-10-06 on #1044: a separate optional roster, closed reason enum).
 
 ```
-PROFILE_UNAVAILABLE_REASONS = ["needs-credentials"]
+PROFILE_UNAVAILABLE_REASONS = ["needs-credentials", "unsupported-configuration"]
 AgentBackend.listUnavailableProfiles?(): { id, label, reason }[] | Promise<…>
 GET /api/providers → { providers, backends, unavailable?: { id, label, reason, backendId }[] }
 ```
@@ -1211,8 +1211,11 @@ GET /api/providers → { providers, backends, unavailable?: { id, label, reason,
   are unchanged. An unavailable id is never a valid `providerId`. The member
   is optional on the existing `AgentBackend` interface, not a new seam; a
   backend without it reports none. Claude reports a profile whose required
-  environment key is missing as `needs-credentials`; pi lists every configured
-  profile and omits the member.
+  environment key is missing as `needs-credentials`. pi lists every configured
+  profile, except when its configuration would fail every managed turn
+  (#3658, additive): with extension discovery opted in and any extension or
+  loading error, or with a configured package that is not installed, the
+  hosted module lists none and reports each as `unsupported-configuration`.
 - **Closed reason.** The host keeps only `id`, `label` and a `reason` in
   `PROFILE_UNAVAILABLE_REASONS`, adds the reporting `backendId`, drops any
   other entry and filters hidden profiles. No backend free text, such as a key
@@ -1965,6 +1968,17 @@ D52's tab-only track path.
   unconfirmed snapshot; the single-slot write still works. `DELETE` of a draft
   holding a held or unconfirmed snapshot is 409 `DRAFT_OUTGOING_PENDING`. The
   rules are in the [HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588).
+- **The React client writes the list (additive, #3155).** On a host that
+  advertises `composerFiles`, `chatRequestAck` and
+  `sessionDraftLimits.maxOutgoingSnapshots`, `@schlessera/brain-ui-react`
+  sends every message through a snapshot: Send writes it, `held` or
+  `dispatched`, in the same `PUT` that clears the composer, and the
+  `chat_message` follows only once the host acknowledges a revision that
+  holds it dispatched, with that revision as `draftRef` and the snapshot's
+  `fileIds` as `attachmentRefs`. The frame's shape is unchanged. Send again
+  is two saves: the old snapshot moves to `returned`, then is left out in the
+  save that creates its successor under a new `snapshotId` and `requestId`.
+  A host without the limit field keeps D52's tab-local path.
 
 The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
 `ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,
@@ -2001,6 +2015,15 @@ The SDK publishes `ATTACHMENT_READS_CAPABILITY`, `AttachmentReadEntry`,
 `SessionAttachmentReadsResponse` and `ServerAttachmentRead`, and the
 `serverAttachmentReadSchema` and `sessionAttachmentReadsResponseSchema`
 schemas; `serverMessageSchema` accepts the new frame.
+
+**The first-party client declares it (0.45.0, #3155).** `BrainUiClient`'s
+`client_hello` declares `attachmentReads: true`, so a consumer of the SDK
+client can receive `attachment_read` frames; `serverMessageSchema` already
+parses them, and a consumer that ignores unknown frame types is unaffected.
+`@schlessera/brain-ui-react` reads a session's records when its view opens and
+after each hello, appends each frame, and derives a sent row's read state only
+from those records. Until a session's records arrive, a sent row claims neither
+"read" nor "not read yet".
 
 <a id="explicit-chat-deletion-additive-3230"></a>
 
@@ -2667,6 +2690,38 @@ An incomplete or mismatched backend position witness never truncates the native
 answer. Its complete semantic source group remains readable with unknown
 cross-stream position until the missing history page or evidence is available.
 
+
+### Retained barge-in and conversation end (additive, 0.45.0, #3729)
+
+`DialogueEvidence` gains two kinds. Both are display evidence, retained on the
+existing dialogue write path under the same owner, scope, bound and coverage
+rules as text records:
+
+- `voice_interruption` (`conversationId`, `epoch`, `providerId`, optional
+  `outputId`) is written when the host forwards a provider `interrupted`
+  event. `outputId` is present only when the provider named one. The live
+  `interrupted` frame is sent first and never waits for the write. Its absence
+  is never evidence that a reply completed or was heard.
+- `voice_end` (`conversationId`, `epoch`, `providerId`, `startedAt`,
+  `endedAt`) is written when the operator's final, non-resumable
+  `conversation_stop` ends a conversation whose last epoch opened.
+  `startedAt` is the host clock (Unix milliseconds) when this host first opened
+  the conversation's current run; `endedAt` is the stop, never earlier than
+  `startedAt`. A resumable pause, a disconnect, a provider close or a refused
+  or failed open ends nothing and writes none. Nor does a stop after that
+  epoch's dialogue storage failed or became indeterminate: the host never
+  writes to such a store again, so that chat draws no divider. A persona may be added later as
+  an optional field once conversations carry one (#3617).
+
+Neither kind enters provider history (`readLiveHistory` reads only `voice`
+text records), tasks, review, permission speech or playback. The React client
+draws the cut-off tag only on the reply whose exact conversation, epoch and
+`outputId` a retained `voice_interruption` names, and the end divider only from
+a retained `voice_end`, with its duration taken from `endedAt - startedAt`. A
+live chat and the same chat reloaded therefore show the same marks; a client
+observation alone draws neither. A client from an earlier minor validates
+`DialogueEvidence` exhaustively and refuses a page that carries one of these
+kinds; the first-party client ships with the host in lockstep.
 
 ### Failed-write text and contextual capture (additive, #3177)
 

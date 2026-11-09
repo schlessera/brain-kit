@@ -1,4 +1,4 @@
-import type { CSSProperties, ChangeEvent, KeyboardEvent } from "react";
+import type { CSSProperties, ChangeEvent, KeyboardEvent, ReactNode } from "react";
 import { useId } from "react";
 
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -142,8 +142,24 @@ export interface ComposerProps {
    * so no mic is drawn as if it worked.
    */
   mic?: boolean;
-  /** The mic's accessible name, when the app's capture is not dictation ("Record on this device"). */
+  /** The mic's accessible name, when the app's capture is not dictation ("Record on this device"), or names its service ("Dictate · Deepgram"). */
   micLabel?: string;
+  /** Shows `micLabel` as the pointer tooltip too, as the attach trigger does. Off while dictating. */
+  micTip?: boolean;
+  /**
+   * Why the mic cannot be used now ("Dictation isn't set up on this host.").
+   * The mic stays focusable and named but is `aria-disabled`, takes this as
+   * its accessible description and tooltip, and a tap or key does nothing.
+   */
+  micUnavailable?: string;
+  /**
+   * A caller-drawn mic (`MicButton`) in the mic slot (#3727). When set,
+   * `mic`, `onMic`, `micLabel`, `micTip` and `micUnavailable` are ignored;
+   * the slot gets margin-block -4px and the field aligns its controls to the
+   * last line. Absent = today, pixel for pixel. Drawn in the `send` and
+   * `plain` field; the `voice` variant keeps its own hold-to-talk disc.
+   */
+  micControl?: ReactNode;
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
 }
@@ -175,6 +191,16 @@ const LINE_RATIO = 1.45;
 const LINE = FONT_SIZE * LINE_RATIO;
 const CEILING = 96;
 
+/**
+ * Beside a caller's mic (#3727) the field's controls sit on its last line,
+ * centred on the mic. The mic slot is 36px tall (its 44px target with -4px
+ * block margins), so a 28px control rises 4px and the last line of text rises
+ * by half of what the slot has over one line.
+ */
+const MIC_SLOT = 36;
+const LIFT = (MIC_SLOT - 28) / 2;
+const TEXT_LIFT = (MIC_SLOT - LINE) / 2;
+
 /** Each state's placeholder and hint; `why` is the offline reason. */
 const STATE: Record<ComposerState, { ph: string; hint: string; why?: string }> = {
   ready: { ph: "Ask your brain anything…", hint: "⌘K for commands · ⏎ to send · ⇧⏎ for a new line" },
@@ -199,7 +225,13 @@ export function Composer(p: ComposerProps) {
   const recall = p.recall ?? [];
 
   const showAttach = p.attach !== false && v !== "plain";
-  const showMic = p.mic !== false && (v === "send" || v === "plain");
+  const inField = v === "send" || v === "plain";
+  // A caller's mic replaces the kit's, and every prop of the kit's mic stops applying.
+  const micControl = inField && p.micControl != null && p.micControl !== false;
+  const showMic = !micControl && p.mic !== false && inField;
+  const voiceReasonId = useId();
+  const voiceUnavailable = p.micUnavailable !== undefined;
+  const voiceAct = Boolean(p.onMic) || voiceUnavailable;
   const showSend = v === "send" && !streaming;
   const showStop = v === "send" && streaming;
   const editable = Boolean(p.onChange) && !dictating;
@@ -233,7 +265,9 @@ export function Composer(p: ComposerProps) {
     flex: 1,
     minWidth: 0,
     display: "flex",
-    alignItems: "center",
+    // A caller's 44px mic makes the field 54px tall; its controls then sit on
+    // the last line of a multi-line draft, as Send does in any chat.
+    alignItems: micControl ? "flex-end" : "center",
     gap: 8,
     background: color.surface,
     // The edge lifts a step while a run is live: the field is busy, not idle.
@@ -263,6 +297,7 @@ export function Composer(p: ComposerProps) {
     // `auto`, not the source's `hidden`: a clipped single-line SPAN is fine,
     // a clipped input takes the caret off-screen as you type.
     overflow: "auto",
+    ...(micControl ? { marginBottom: TEXT_LIFT } : null),
   };
 
   const disc = (size: number, fill: string, glow: boolean): CSSProperties => ({
@@ -289,6 +324,10 @@ export function Composer(p: ComposerProps) {
 
   const stopAct = Boolean(p.onStop);
 
+  // Beside a caller's mic, the 28px controls sit on the last line, centred on
+  // the mic. Spread only then, so the default field is unchanged.
+  const lastLine: CSSProperties | undefined = micControl ? { marginBottom: LIFT } : undefined;
+
   const mono = (weight: number, size: number): string => `${weight} ${size}px/1.5 ${font.mono}`;
   const oneLine: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" };
 
@@ -314,7 +353,7 @@ export function Composer(p: ComposerProps) {
       <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
         <div style={field} className="bk-field">
           {showAttach ? (
-            <IconButton icon="attach" label={p.attachLabel || ATTACH_LABEL} haspopup="menu" tip onClick={dictating ? undefined : p.onAttach} />
+            <IconButton icon="attach" label={p.attachLabel || ATTACH_LABEL} haspopup="menu" tip lift={lastLine} onClick={dictating ? undefined : p.onAttach} />
           ) : null}
           <textarea
             data-composer=""
@@ -329,10 +368,17 @@ export function Composer(p: ComposerProps) {
             onChange={editable ? (e: ChangeEvent<HTMLTextAreaElement>) => p.onChange?.(e.target.value) : undefined}
             onKeyDown={onKeyDown}
           />
-          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
+          {micControl ? (
+            // The 44px target, drawn 36px tall: -4px above and below keep the
+            // field at 54px with the whole target still inside its border.
+            <span data-composer-mic="" style={{ display: "flex", flex: "none", marginBlock: -4 }}>
+              {p.micControl}
+            </span>
+          ) : null}
+          {showMic ? <IconButton icon="mic" label={p.micLabel ?? (dictating ? "Stop dictation" : "Dictate")} tip={p.micTip === true && !dictating} unavailable={dictating ? undefined : p.micUnavailable} targetSize={dictating ? 44 : 28} onClick={p.onMic} /> : null}
           {showStop ? (
             <span
-              style={{ ...disc(28, accent.red.fill, false), cursor: stopAct ? "pointer" : "default" }}
+              style={{ ...disc(28, accent.red.fill, false), cursor: stopAct ? "pointer" : "default", ...lastLine }}
               className={stopAct ? "bk-control" : undefined}
               role={stopAct ? "button" : undefined}
               aria-label={stopAct ? "Stop generating" : undefined}
@@ -345,7 +391,7 @@ export function Composer(p: ComposerProps) {
           ) : null}
           {showSend ? (
             <span
-              style={sendStyle}
+              style={lastLine ? { ...sendStyle, ...lastLine } : sendStyle}
               className={sendAct && !sendDisabled ? "bk-control" : undefined}
               role={sendAct ? "button" : undefined}
               aria-label={sendAct ? (sendDisabled ? "Send — unavailable" : "Send") : undefined}
@@ -360,15 +406,19 @@ export function Composer(p: ComposerProps) {
         </div>
         {v === "voice" && p.mic !== false ? (
           <span
-            style={disc(54, accent.amber.fill, true)}
-            className={p.onMic ? "bk-control" : undefined}
-            role={p.onMic ? "button" : undefined}
-            aria-label={p.onMic ? (p.micLabel ?? "Hold to talk") : undefined}
-            tabIndex={p.onMic ? 0 : undefined}
-            onClick={p.onMic}
-            onKeyDown={p.onMic ? pressable(() => p.onMic?.()) : undefined}
+            style={{ ...disc(54, accent.amber.fill, true), ...(voiceUnavailable ? { opacity: 0.45, cursor: "not-allowed" } : {}) }}
+            className={voiceAct ? "bk-control" : undefined}
+            role={voiceAct ? "button" : undefined}
+            aria-label={voiceAct ? (p.micLabel ?? "Hold to talk") : undefined}
+            aria-disabled={voiceUnavailable ? true : undefined}
+            aria-describedby={voiceUnavailable ? voiceReasonId : undefined}
+            title={p.micUnavailable}
+            tabIndex={voiceAct ? 0 : undefined}
+            onClick={voiceUnavailable ? undefined : p.onMic}
+            onKeyDown={p.onMic && !voiceUnavailable ? pressable(() => p.onMic?.()) : undefined}
           >
             <Icon icon="mic" size={24} color={color.onFill} />
+            {voiceUnavailable ? <span id={voiceReasonId} hidden>{p.micUnavailable}</span> : null}
           </span>
         ) : null}
       </div>
@@ -485,12 +535,15 @@ function resetTip(trigger: HTMLElement, left: boolean) {
  * keystroke: Escape, or opening the menu, hides it until the pointer leaves or
  * focus moves away. An inert trigger — a dictating composer — has no tooltip.
  */
-function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; tip?: boolean; targetSize?: number; onClick?: () => void }) {
-  const act = Boolean(props.onClick);
-  const tip = act && props.tip === true;
+function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "menu"; tip?: boolean; unavailable?: string; targetSize?: number; lift?: CSSProperties; onClick?: () => void }) {
+  const reasonId = useId();
+  const unavailable = props.unavailable;
+  // Unavailable still names itself and explains why, so it stays reachable.
+  const act = Boolean(props.onClick) || unavailable !== undefined;
+  const tip = act && (props.tip === true || unavailable !== undefined);
   const activate = (target: HTMLElement) => {
     if (tip) dismissTip(target);
-    props.onClick?.();
+    if (unavailable === undefined) props.onClick?.();
   };
   return (
     <span
@@ -503,13 +556,17 @@ function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: act ? "pointer" : "default",
+          cursor: unavailable !== undefined ? "not-allowed" : act ? "pointer" : "default",
+          opacity: unavailable !== undefined ? 0.45 : undefined,
           "--hv-bg": token("hover-veil-strong"),
+          ...props.lift,
         } as CSSProperties
       }
       className={act ? (tip ? "bk-control bk-tip-host" : "bk-control") : undefined}
       role={act ? "button" : undefined}
       aria-label={act ? props.label : undefined}
+      aria-disabled={unavailable !== undefined ? true : undefined}
+      aria-describedby={unavailable !== undefined ? reasonId : undefined}
       aria-haspopup={act ? props.haspopup : undefined}
       tabIndex={act ? 0 : undefined}
       onClick={act ? (event) => activate(event.currentTarget) : undefined}
@@ -523,7 +580,7 @@ function IconButton(props: { icon: "attach" | "mic"; label: string; haspopup?: "
       onBlur={tip ? (event) => resetTip(event.currentTarget, false) : undefined}
     >
       <Icon icon={props.icon} size={17} color={color.inkMute} />
-      {tip ? <span className="bk-tip" data-composer-tip="" aria-hidden="true">{props.label}</span> : null}
+      {tip ? <span id={unavailable !== undefined ? reasonId : undefined} className="bk-tip" data-composer-tip="" aria-hidden="true">{unavailable ?? props.label}</span> : null}
     </span>
   );
 }

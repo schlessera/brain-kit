@@ -258,6 +258,25 @@ and `SessionCatalog.recordMessageSource`'s optional effort argument gains
 `attachmentFiles?: MessageAttachment[]` (an `AttachmentFile` with an optional
 `inline` flag), which the host records so replay can reproduce the block.
 
+## Outgoing snapshot bubbles (additive, 0.45.0, #3155)
+
+`BrainUiConnection.drafts` (the `connection` of a `createBrainUiRoot` root)
+gains two methods beside `resend`, `check` and `edit`:
+
+- `resendSnapshot(requestId)`: Send again for a send that an outgoing
+  snapshot carries and no answer settled. A new request replaces it, and the
+  old snapshot is returned and left out as its successor is created. It
+  returns false when that send is not unconfirmed.
+- `sendPaused(draftId, snapshotId)`: Send for a held snapshot restored after a
+  reload, which never sends without this call.
+
+`check(requestId)` also accepts a snapshot's send. A recovery envelope with no
+accepted work (`revision` 0) returns that snapshot unsent. `UnconfirmedSends`
+skips sends that a snapshot carries, because their bubble stands for them.
+The kit's `StatusIndicatorProps.announce` is described with
+[the indicator](#ui-kit-compact-operation-status-additive-3281). No other
+export changes.
+
 ## Reading composer attachments (additive, 0.45.0, #3154)
 
 `@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
@@ -349,6 +368,10 @@ records the state matrix and the interaction.
   `actions` (a `ReactNode` of consumer buttons, rendered in details only).
 - `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
   `unknown`, `failed`, `refused` or `idle`.
+
+An optional `announce` (additive, #3155) defaults to `true`. With `false` the
+indicator renders no live region, for a consumer that announces the same
+change itself, so it is never spoken twice.
 
 The component is presentational. It derives only the displayed state and the
 count. The display state is the worst operation's state, in the order refused,
@@ -1521,9 +1544,9 @@ ids, invalid list entries or an unregistered `defaultSpeechProviderId` fails con
 Legacy `speechProvider` replaces all built-ins and must match `VOICE_PROVIDER`.
 `defaultSpeechProviderId?: string` sets the host default ahead of `VOICE_PROVIDER`,
 then registered Deepgram; a legacy supplied value is its own default. Deepgram
-registers when its key is configured; browser speech registers only through
-`VOICE_PROVIDER=webspeech`. The Gemini built-in registration point is reserved for
-#3708's factory; this change does not advertise a placeholder Gemini implementation.
+and Gemini each register when their key is configured (a key adds a choice and
+never makes Gemini the host default); browser speech registers only through
+`VOICE_PROVIDER=webspeech`.
 A saved brain-wide choice overrides the host default. Removed saved choices block
 selection; with neither saved nor host choice only a sole provider is selected.
 
@@ -1537,6 +1560,27 @@ protocol types for the [HTTP shapes](../http-api.md#selectable-dictation-provide
 `saveDictationSettings(settings: DictationSettings)` (sends the revision as
 If-Match). `voiceSession(signal?, selection?: VoiceSessionRequest)` sends no body
 when selection is omitted. Explicit selection never substitutes another provider.
+
+**Additive (0.45.0, #3709): choosing the dictation provider in the app.** The
+ui-react Settings selection accepts `voice`; `openSettings("voice")` opens the
+lazy Voice pane between Models and Accounts, and Models remains the default.
+The pane reads discovery and writes the dictation settings only; it requests no
+session, microphone or provider. The shipped composer sends
+`voiceSession(signal, { providerId, smart })` with the provider it disclosed and
+refuses a response naming another. The first take to a provider on a device
+waits for an explicit acknowledgement of its `destination` (device-local, per
+account, keyed by provider id and destination text) before either request.
+`RecordingStore.transcribe(partition, id, progress, retry?, provider?)` gains an
+optional fifth argument, sent as `Speech-Provider`; without it the upload
+behaves as before. A retry refused with `transcription_provider_mismatch`
+applies the returned receipt and rejects, keeping the recording. `@schlessera/brain-ui-kit`'s `Composer` adds `micTip?: boolean`, which
+shows `micLabel` as the mic's pointer tooltip outside dictation, and
+`micUnavailable?: string`, which keeps the mic named and focusable but
+`aria-disabled`, uses the string as its accessible description and tooltip, and
+ignores taps and keys; the shipped composer sets it when discovery reports no
+registered dictation service. `RecordingStore.transcribe` rejections for a
+pre-claim refusal carry the server's error code as `code`. No wire, HTTP or
+protocol shape changes.
 
 The route builds keyterms only when supported, snapshots provider identity and
 capabilities, and publishes `VoiceSessionResponse` with connection material.
@@ -1559,6 +1603,49 @@ closes. These suites are the conformance floor; an adapter must also cover
 its protocol-specific authentication, capture and failure behavior. The
 [authoring guide](../extending/speech.md) supplies complete public server/client
 examples and points to executable harnesses and real route/Chrome integration.
+
+Additive (#3708): `SpeechProvider` gains optional `label?: string` and
+`destination?: string`, and `createSession` options gain optional
+`mode?: "smart" | "verbatim"`. `SpeechCapabilities` gains optional
+`smartTranscription?: boolean`, which declares that the provider honours
+`mode`; providers without it ignore the option, and an absent mode means the
+provider's default. The server rejects a supplied label or destination that is
+not a nonempty string, and a non-boolean `smartTranscription`, with the
+existing 500 envelope. The published provider suite checks the same types and,
+for a SMART provider, that both modes mint a serializable session. The mounted
+session route sends no mode yet, so SMART providers use their default.
+
+The built-in `gemini` provider (`gemini-3.5-transcribe-live`) is selected by
+`VOICE_PROVIDER=gemini` and, without `VOICE_PROVIDER`, only when
+`GEMINI_API_KEY` is set and `DEEPGRAM_API_KEY` is not. `VOICE_PROVIDER=gemini`
+without the key is a selection error. Its capabilities are `streaming`,
+`interimResults`, `keyterms` and `smartTranscription` true, `endpointing`
+false, and `savedAudio` false. Each session is one
+`POST https://generativelanguage.googleapis.com/v1beta/auth_tokens`
+(`x-goog-api-key`) minting a single-use token (`uses: 1`, connect within 60 s,
+expire after 11 min) whose `bidiGenerateContentSetup` sets
+`models/gemini-3.5-transcribe-live`, `generationConfig.responseModalities:
+["TEXT"]` and `inputAudioTranscription` (`mode` `SMART` unless `verbatim` is
+requested; `customVocabulary` from the keyterms, at most 100 terms of at most
+64 UTF-8 bytes, omitted when empty), and whose `fieldMask` locks exactly the
+fields set (`model,generationConfig.responseModalities,inputAudioTranscription.mode`,
+plus `inputAudioTranscription.customVocabulary` when present). The session is
+`{ url: <constrained v1alpha Live endpoint>, token: "auth_tokens/…",
+expiresAt: <connect deadline>, params: { model, mode, sampleRate: "16000",
+vocabulary: <JSON array> } }`. Any mint failure is 500
+`{ error: "Gemini dictation session failed" }` without the key or Google's
+text, and no other provider is tried. There is no session resumption: Google's
+10-minute session limit ends the take through the client's provider-ended
+path. The root-registered `gemini` `AsrClient` appends `access_token`, repeats
+the locked setup, and streams mono PCM16 LE at 16 kHz in 100 ms base64
+`realtimeInput.audio` frames, resampled from the hardware rate. Its bounds are
+5 s of audio before `setupComplete`, a 10 s handshake, a 256 KiB upload
+backlog (each failing the take as a network error), and a 3 s wait for the
+final after `audioStreamEnd` on Done. Interim text is a replacing partial;
+each final transcription is one final, `endsTurn` from `finished` (true when
+absent). Keyless proofs establish protocol and resource behaviour, not
+Google's acceptance, accuracy or latency
+([#3710](https://github.com/schlessera/brain-kit/issues/3710)).
 
 <a id="saved-audio-transcription-additive-1021"></a>
 
@@ -4691,6 +4778,12 @@ is additive; legacy backend session IDs and native provider guards keep their
 meaning. No provider history-selection API is delivered by this slice.
 
 
+`DialogueEvidence` additionally includes `voice_interruption` and `voice_end`
+(#3729, additive in 0.45.0), with their runtime schemas in the same entry.
+`DialogueJournal` gains `interruption()` and `ended()` for the host's existing
+write path. The [wire amendment](wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
+defines when each is written and how the client draws them.
+
 Failed-write live text exposes optional `ServerConversationEvent.retention` and
 `ServerError.historyOwnerId`, plus the existing client projection's explicit
 unsaved recognition/output fields (#3177). These are additive evidence and
@@ -4834,6 +4927,20 @@ it is "Attach — photo, camera, files" (previously the fixed
 an `aria-hidden` pointer tooltip; an inert trigger, including a dictating
 composer's, has neither. Existing props and defaults are otherwise unchanged,
 and no wire schema changes. `api-report/` records the added prop.
+
+<a id="composer-mic-control-additive-0450-3727"></a>
+
+## Composer mic control (additive, 0.45.0, #3727)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`micControl?: ReactNode`, a caller-drawn mic (the kit's `MicButton`) in the
+`send` and `plain` field's mic slot. When it is set, `mic`, `onMic`,
+`micLabel`, `micTip` and `micUnavailable` are ignored, the slot takes the
+control's 44px target with -4px
+block margins (a 54px field), and the field aligns its controls to the last
+line of a multi-line draft. The `voice` variant keeps its own disc. Omitted,
+the composer renders exactly as before. No wire schema changes.
+`api-report/` records the added prop.
 
 
 ## Prospective trust policy data (additive, #3607)

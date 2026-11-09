@@ -25,7 +25,11 @@ async function withCard(theme: string, run: (host: HTMLElement) => Promise<void>
   }
 }
 
-/** Block the main thread, as a loaded runner does, without touching the component. */
+/**
+ * Block the main thread, as a loaded runner does, without touching the
+ * component. Kept real time: the stall is the stimulus. It must also delay the
+ * browser's own animation ends and frames, which a fake clock cannot hold back.
+ */
 function stallAfter(delay: number, ms: number) {
   setTimeout(() => {
     const start = performance.now();

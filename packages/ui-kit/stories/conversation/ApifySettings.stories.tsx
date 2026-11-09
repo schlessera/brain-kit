@@ -1,4 +1,5 @@
 import preview from "#.storybook/preview";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState } from "react";
 import { expect, waitFor, within } from "storybook/test";
 import type { ApifyPolicyChange, ApifySettingsRead } from "../../../ui-sdk/src/protocol.js";
@@ -112,6 +113,7 @@ const meta = preview.meta({
   title: "Conversation/Apify settings", component: Settings,
   parameters: { layout: "fullscreen" }, beforeEach: consumerViewport,
   args: { width: 320, read: fixture(), plan: { decide: "apply" } as Plan, onHost: (log: typeof hostLog) => { hostLog = log; } },
+  globals: viewportAt(320),
 });
 
 /** Phones drill in from Accounts; desktop shows the section inline. Returns the section. */
@@ -165,7 +167,7 @@ export const OffKeepsGrants320 = meta.story({
     await waitFor(() => expect(document.activeElement).toBe(section.querySelector("#apify-grants-heading")));
   },
 });
-export const OffKeepsGrants1280 = OffKeepsGrants320.extend({ args: { width: 1280 } });
+export const OffKeepsGrants1280 = OffKeepsGrants320.extend(atWidth(1280));
 
 /** Cases 11 + 13: token needed keeps policy editable; a declined review leaves the value. */
 export const TokenNeededRefusedEdit320 = meta.story({
@@ -199,7 +201,7 @@ export const TokenNeededRefusedEdit320 = meta.story({
     await expect(hostLog.decisions).toEqual([false]);
   },
 });
-export const TokenNeededRefusedEdit1280 = TokenNeededRefusedEdit320.extend({ args: { width: 1280 } });
+export const TokenNeededRefusedEdit1280 = TokenNeededRefusedEdit320.extend(atWidth(1280));
 
 /** A lost answer is unconfirmed, reconciled by reading, and never sent twice. */
 export const LostAnswer320 = meta.story({
@@ -223,7 +225,7 @@ export const LostAnswer320 = meta.story({
     await expect(hostLog.receipts).toBe(2);
   },
 });
-export const LostAnswer1280 = LostAnswer320.extend({ args: { width: 1280 } });
+export const LostAnswer1280 = LostAnswer320.extend(atWidth(1280));
 
 /** Case 10 + C4: an account change marks old grants and Review focuses the grants heading. */
 export const AccountChanged320 = meta.story({
@@ -242,7 +244,7 @@ export const AccountChanged320 = meta.story({
     await bounds(section, "account changed"); await targets(section, "account changed"); await accessible(section);
   },
 });
-export const AccountChanged1280 = AccountChanged320.extend({ args: { width: 1280 } });
+export const AccountChanged1280 = AccountChanged320.extend(atWidth(1280));
 
 /** Phones: Back returns to Accounts and focus to the Apify row. */
 export const PhoneBack320 = meta.story({
@@ -259,6 +261,7 @@ export const PhoneBack320 = meta.story({
 /** An owner change clears the old owner's private display, and a late reply never renders. */
 export const OwnerSwitch1280 = meta.story({
   args: { width: 1280 },
+  globals: viewportAt(1280),
   play: async ({ args, userEvent, globals }) => {
     await painted(args.width, globals.theme);
     const section = await openApify(args.width, userEvent);

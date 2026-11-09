@@ -20,6 +20,32 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Retained barge-in and conversation end (additive, 0.45.0, #3729)
+
+`DialogueEvidence` gains `voice_interruption`, written when the host forwards
+a provider `interrupted` event (with its `outputId` when the provider named
+one), and `voice_end`, written when the operator's final stop ends a
+conversation (`startedAt`/`endedAt`, host clock milliseconds). Both are display
+evidence on the existing dialogue write path and never enter provider history.
+The React client draws the cut-off tag and the end divider only from them, so a
+live chat and the same chat reloaded show the same marks. An earlier-minor
+client refuses a page that carries the new kinds. See
+[wire](integration-contract/wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
+and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
+This ships in a minor; no breaking ruling is required.
+
+## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
+
+`openSettings("voice")` opens a new Settings › Voice pane, which holds the
+brain-wide dictation default. `RecordingStore.transcribe` accepts an optional
+provider id, sent as `Speech-Provider`; a retry refused for naming another
+provider applies the returned receipt and rejects; a pre-claim refusal
+carries the server's code as `code`. The kit `Composer` adds
+`micTip?: boolean` and `micUnavailable?: string`. Existing calls behave as before, and no HTTP or protocol
+shape changes. See
+[the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
+This ships in a minor.
+
 ## Bounded multi-read (additive, 0.45.0, #3642)
 
 A new read tool, `brain_read_many`, on the MCP server and the pi backend, and a
@@ -162,7 +188,21 @@ declared the same flag as one new `attachment_read` frame. `ServerMessage`
 gains that variant; a client without the flag never receives it. Nothing of
 either reaches a provider. See [the wire component](integration-contract/wire.md#attachment-reads-additive-0450-3589)
 and [the HTTP API](http-api.md#attachment-reads-additive-0450-3589). This
-ships in a minor.
+ships in a minor. The SDK's `BrainUiClient` now declares the flag in its
+`client_hello`, and the React package shows the records on sent rows (#3155).
+
+## Outgoing snapshot bubbles (additive, 0.45.0, #3155)
+
+`@schlessera/brain-ui-react` keeps each send as a durable outgoing snapshot
+on a host with #3588's list, and draws held, returned and unconfirmed ones as
+bubbles in the transcript. `BrainUiConnection.drafts` gains
+`resendSnapshot(requestId)` and `sendPaused(draftId, snapshotId)`.
+`@schlessera/brain-ui-kit`'s `StatusIndicatorProps` gains optional
+`announce`; `false` drops the indicator's own live region. The `chat_message`
+frame and every host route keep their shapes. See
+[the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153)
+and [the package component](integration-contract/package-api.md#outgoing-snapshot-bubbles-additive-0450-3155).
+This ships in a minor.
 
 ## Reading a chat deletion's outcome (additive, #3455)
 

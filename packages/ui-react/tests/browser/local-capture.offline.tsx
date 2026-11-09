@@ -23,6 +23,7 @@ import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { detectLocalCaptureSupport, startLocalCapture, type LocalCaptureChunk, type LocalCaptureSink } from "../../src/voice/local-capture.js";
+import { primeDictation } from "../fixtures/dictation-discovery.js";
 
 declare module "vitest/browser" {
   interface BrowserCommands {
@@ -158,6 +159,7 @@ async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevi
   document.body.append(host);
   const sink = new TestSink();
   const ui = createBrainUiRoot({ storage: null, localCapture: { sink: () => sink, timesliceMs: 200 }, request: net.request });
+  primeDictation(ui, "fixture");
   ui.asr.register("fixture", () => new FixtureAsr());
   const renderer: Root = createRoot(host);
   let closed = false;
@@ -182,7 +184,7 @@ async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevi
   return s;
 }
 
-const mic = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Record on this device"], [data-composer] [role="button"][aria-label="Stop and save"], [data-composer] [role="button"][aria-label="Dictate"], [data-composer] [role="button"][aria-label="Stop dictation"]');
+const mic = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Record on this device"], [data-composer] [role="button"][aria-label="Stop and save"], [data-composer] [role="button"][aria-label^="Dictate"], [data-composer] [role="button"][aria-label="Stop dictation"]');
 const field = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
 const notice = (s: Scene) => s.host.querySelector<HTMLElement>("[data-capture-notice]");
 const phase = (s: Scene) => s.ui.stores.voice.getState().local;
@@ -286,7 +288,7 @@ test("a recording on the device survives losing and regaining the host, and a di
 
   // A dictation, online: losing the host and getting it back records nothing.
   await reconnect(s);
-  await expect.poll(() => mic(s)?.getAttribute("aria-label")).toBe("Dictate");
+  await expect.poll(() => mic(s)?.getAttribute("aria-label")).toBe("Dictate · fixture");
   await userEvent.click(mic(s)!);
   await expect.poll(() => FixtureAsr.started).toBe(1);
   await drop(s);

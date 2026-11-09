@@ -287,9 +287,80 @@ originals, on a host that advertises `composerFiles`:
   that binds the originals is pending, and then sends `attachmentRefs` with
   the acknowledged `draftRef`. A refused or failed upload, or a detached
   file, blocks Send with a reason. Unread contents, and kinds with no
-  reader, never block it. The hold uses the composer's existing tab-local
-  hold. The durable held snapshot, recovery bubbles and queue-full notice of
-  design brief rev 5 wait for the snapshot list (#3588).
+  reader, never block it. On a host without the snapshot list this is the
+  composer's tab-local hold; with it, it is a held snapshot (below).
+- **Every send is a snapshot (#3588's list).** On a host that advertises
+  `composerFiles`, `chatRequestAck` and
+  `sessionDraftLimits.maxOutgoingSnapshots`, Send writes one snapshot in the
+  save that clears the composer. It is `held` while any of its uploads runs,
+  else `dispatched`. Its uploads leave the composer with it, and each stored
+  one joins the snapshot's files in a save. Once all are stored it moves to
+  `dispatched`, and the `chat_message` goes once, with its own text and
+  files, under a revision that holds it. A draft with legacy inline images,
+  or a host without the limit, keeps the tab-local path, because a snapshot
+  cannot hold an inline image.
+  - **Acceptance drops it here at once.** The host releases an accepted
+    snapshot in place, without a revision (#3733). So the client removes it
+    from both its list and its copy of the host's before the next save, and
+    holds a draft's saves while one of its sends is pending. When other
+    snapshots remain, the host keeps the row at the next revision with an
+    empty composer, and the client saves over that revision instead of
+    rotating the draft.
+  - **Send waits on no timer.** The save that creates a send's snapshot,
+    and a held snapshot's move to `dispatched`, go out in a microtask rather
+    than on the draft client's save timer, and the frame follows the save's
+    acknowledgement directly. Pressing Send therefore reaches the host as
+    directly as it did before snapshots, even in a page whose clock is
+    paused. Typing keeps its save pause, and retries keep their backoff.
+  - **A full chat sends nothing.** `409 DRAFT_OUTGOING_FULL` gives the text
+    and files back to the composer and shows the notice with **Show**. Until
+    the save that creates a snapshot is acknowledged, the field takes no new
+    edits. That window is one save, and it means a refusal gives the text back
+    alone, never joined to newer words (rev 4 correction 3). Only
+    Send waits. Drafting and every bubble action stay available, and Cancel
+    never asks for a slot. The notice clears when this tab frees one: a
+    Delete…, an Edit, or an acceptance. When another tab or device frees a
+    slot, a bounded re-read clears it (maintainer ruling A, 2026-11-08; there
+    is no draft change frame). While the notice shows and the tab is visible,
+    the draft client lists the host's drafts every 15 s, reads each one of
+    that chat, and counts their snapshots. It also re-reads at once on focus,
+    `online` and hello. These are reads only; the notice clears when the
+    count is below the limit
+    ([decision request](https://github.com/schlessera/brain-kit/issues/3155#issuecomment-6723796317)).
+  - **Bubbles in the transcript (G2 A).** Held, returned and unconfirmed
+    snapshots render after the last accepted message in creation order. Each
+    has its own `StatusIndicator` and actions keyed by `snapshotId`, and its
+    copy and actions follow rev 5 §2. A dispatched snapshot whose answer this
+    tab is waiting for is the transcript's own optimistic row. It is not
+    drawn a second time, so the rev 5 *Sending…* state shows only in the
+    moment before its frame leaves. On this host the bubble replaces D52's
+    review block for that send. With no bubble to draw the list adds nothing
+    to the transcript, not even an empty row and its divider: the last
+    message stays the reading column's last node, as #1013 measures, and the
+    polite region that speaks background changes sits outside the column.
+  - **Reload.** A held snapshot comes back *Paused after reload*, and only
+    its Send sends it. A dispatched one comes back unconfirmed, with
+    **Check** (one recovery read) and **Send again**. A returned one comes
+    back *Not sent*. The reason it returned lives in the tab only, so after a
+    reload it says no more than that.
+  - **Check proves little.** The recovery envelope names only a session's
+    latest accepted request. Check shows acceptance when that request is
+    this one. It shows non-acceptance only when the envelope holds no
+    accepted work at all (`revision` 0), and then moves the snapshot to
+    `returned`. Anything else stays *Couldn't confirm*, with the reason.
+  - **Send again is two saves.** Only a returned snapshot may be left out.
+    So the old one moves to `returned` in place, and the next save drops it
+    while it creates the successor under a new `snapshotId` and
+    `requestId`. The slot passes straight across, even at 10 of 10.
+  - **A session switch sends nothing elsewhere.** A snapshot stays with its
+    draft. A session's held snapshot still sends once its files are stored,
+    into its own chat. A new chat's snapshot sends only while that new chat
+    is in view.
+  - **Focus and speech.** Cancel, Edit and Delete… move focus as rev 5 §3
+    says. A background change, such as an upload not stored or a send left
+    unconfirmed, is announced once in one polite region, and focus stays
+    where it is. The indicators pass `announce={false}`, so nothing is spoken
+    twice.
 - **Tracks follow the host.** On a host with `composerFiles` a picked track
   is a generic original: the host detects it, the draft binds it and a reload
   restores it, so it is not a tab-only staged track and the #1150 leave guard
@@ -298,9 +369,22 @@ originals, on a host that advertises `composerFiles`:
   prove it (#1112, #1150, #1018) remove that capability from the real host's
   hello so they keep proving it. The drop-and-reconnect suite (#1013) runs
   the generic path against the real host.
-- **Sent rows claim no read.** A sent message lists its originals by name,
-  kind and size. The read records are not delivered to clients yet (#3589),
-  so a row shows neither *read* nor *not read yet*.
+- **Sent rows say what was read, from the records only.** A sent message
+  lists its originals by name, kind and size, and the host's read records
+  (#3589) add the design's §8.4 read state. The client declares
+  `attachmentReads`, reads a session's records when its view opens and after
+  each hello, and appends each `attachment_read` frame. Three choices the
+  records force:
+  - **Scopes combine.** Pages or bytes read across several calls are joined,
+    so a later range never hides an earlier one. A failure shows only when
+    nothing was read, and a changed original always shows.
+  - **What a record cannot say is not said.** A record keeps an outcome and a
+    scope, not `pagesWithoutText` or a failure's reason. A partial PDF read is
+    *partly read p. 1–3* rather than *3 of 12 pages had text*, and a failed
+    one is *couldn't read* rather than *took too long*.
+  - **Unknown is not unread.** Until a session's records arrive, or on a host
+    without `attachmentReads`, a row claims neither *read* nor *not read yet*.
+    An image never reads as *not read yet*: it reaches the agent as a frame.
 
 
 The rejected options were offered in the rulings above:
