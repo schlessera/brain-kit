@@ -8,6 +8,7 @@ import { MessageBubble } from "../../../ui-react/src/components/chat/message-bub
 import { takeComposerTextAsAnswer } from "../../../ui-react/src/components/chat/ask-user-typed.js";
 import { groupedQuestions } from "../../fixtures/actions.js";
 import { Composer } from "../../src/chrome/Composer.js";
+import { TextButton } from "../../src/primitives/TextButton.js";
 import { overflowing, stage, wide } from "../_stage.js";
 
 const sent = fn();
@@ -25,10 +26,13 @@ function Transcript() {
   const messages = useChatStore((s) => s.draft?.messages);
   const [text, setText] = useState("");
   return <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
-    <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => {
-      root.stores.chat.getState().startAssistantMessage(null);
-      root.connection.handleServerMessage({ type: "ask_user_request", requestId: "group-fixture", questions: groupedQuestions.slice(0, 2) });
-    }}>Deliver agent request fixture</button>
+    {/* Keeps focus in the composer: the play asserts it never moves. */}
+    <div onMouseDown={(event) => event.preventDefault()} style={{ alignSelf: "flex-start" }}>
+      <TextButton label="Deliver agent request fixture" onClick={() => {
+        root.stores.chat.getState().startAssistantMessage(null);
+        root.connection.handleServerMessage({ type: "ask_user_request", requestId: "group-fixture", questions: groupedQuestions.slice(0, 2) });
+      }} />
+    </div>
     <div data-chat-transcript style={{ maxHeight: 400, overflowY: "auto" }}>
       {messages?.map((message) => <MessageBubble key={message.id} message={message} onToolApproval={() => {}} onAskUserListSubmit={() => {}}
         onAskUserSubmit={(requestId, answers, annotations) => {

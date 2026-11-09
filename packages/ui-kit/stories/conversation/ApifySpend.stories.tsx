@@ -1,4 +1,5 @@
 import preview from "#.storybook/preview";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState } from "react";
 import { expect, waitFor, within } from "storybook/test";
 import type { ApifySettingsRead, TurnJournalSummary } from "../../../ui-sdk/src/protocol.js";
@@ -57,6 +58,7 @@ const meta = preview.meta({
   title: "Conversation/Apify spend", component: Spend,
   parameters: { layout: "fullscreen" }, beforeEach: [consumerViewport, () => { reads = []; }],
   args: { width: 320, coverage: "known" as "known" | "unknown" },
+  globals: viewportAt(320),
 });
 
 /** Case 9: an unconfirmed abort keeps its notice and bound until the host settles it. */
@@ -84,7 +86,7 @@ export const StoppedUnconfirmed320 = meta.story({
     await expect(reads.some(query => query.includes("refresh=1"))).toBe(true);
   },
 });
-export const StoppedUnconfirmed1280 = StoppedUnconfirmed320.extend({ args: { width: 1280 } });
+export const StoppedUnconfirmed1280 = StoppedUnconfirmed320.extend(atWidth(1280));
 
 /** An unread ledger is unknown in the receipt, never zero. */
 export const LedgerUnavailable320 = meta.story({
