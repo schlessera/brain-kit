@@ -1,4 +1,5 @@
 import preview from "#.storybook/preview";
+import { viewportAt } from "../_viewports.js";
 import { useEffect, useState } from "react";
 import { expect, waitFor, within } from "storybook/test";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
@@ -49,6 +50,7 @@ const meta = preview.meta({
   parameters: { layout: "fullscreen" },
   beforeEach: consumerViewport,
   args: { width: 320, scene: "dense" as StorageScene, guidance: false },
+  globals: viewportAt(320),
 });
 const overview = async ({
   args,
@@ -63,7 +65,7 @@ const overview = async ({
   await accessible(document.querySelector<HTMLElement>("[data-storage-pane]")!);
 };
 export const Phone = meta.story({ play: overview });
-export const Desktop = meta.story({ args: { width: 1280 }, play: overview });
+export const Desktop = meta.story({ args: { width: 1280 }, globals: viewportAt(1280), play: overview });
 export const SeparateTemporary = meta.story({
   args: { scene: "separate" },
   play: overview,
@@ -118,4 +120,4 @@ export const RemovalAndUndo = meta.story({
 });
 
 export const GuidancePhone = meta.story({ args: { guidance: true }, play: overview });
-export const GuidanceDesktop = meta.story({ args: { width: 1280, guidance: true }, play: overview });
+export const GuidanceDesktop = meta.story({ args: { width: 1280, guidance: true }, globals: viewportAt(1280), play: overview });

@@ -1,4 +1,5 @@
 import preview from "#.storybook/preview";
+import { atWidth, viewportAt } from "../_viewports.js";
 import { useEffect, useState } from "react";
 import { expect, fn, waitFor, within } from "storybook/test";
 import { BrainUiProvider } from "../../../ui-react/src/root-context.js";
@@ -53,6 +54,7 @@ const approvalMeta = preview.meta({
   title: "Conversation/Apify run approval", component: Approval,
   parameters: { layout: "fullscreen" }, beforeEach: consumerViewport,
   args: { width: 320, onApproval: fn() },
+  globals: viewportAt(320),
 });
 
 /** The exact-run card: rows, bounded untrusted input, Allow once, Always allow and Deny; refusals name the limit. */
@@ -97,4 +99,4 @@ export const RunApproval320 = approvalMeta.story({
     await expect(args.onApproval).toHaveBeenCalledWith("apify-run-1", false, undefined);
   },
 });
-export const RunApproval1280 = RunApproval320.extend({ args: { width: 1280 } });
+export const RunApproval1280 = RunApproval320.extend(atWidth(1280));
