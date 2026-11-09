@@ -127,7 +127,7 @@ function hardware(ctx: TestContext, rate: number) {
   return { contexts, streams, worklet };
 }
 
-const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label^="Dictate"]');
+const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label^="Dictate"]');
 
 async function startDictating(s: Scene): Promise<FaultSocket> {
   await expect.poll(() => dictate(s), { message: "the composer has a mic" }).not.toBe(null);
