@@ -34,7 +34,7 @@ export function TurnHeader(p: TurnHeaderProps) {
       <span
         className={cn(
           "select-none font-[family-name:var(--font-mono)] text-xs font-semibold uppercase tracking-widest",
-          p.tone === "neutral" ? "text-muted-foreground" : p.tone === "user" ? "text-primary/80" : "text-accent/80",
+          p.tone === "neutral" ? "text-muted-foreground" : p.tone === "user" ? "text-primary" : "text-accent",
         )}
       >
         {p.who}

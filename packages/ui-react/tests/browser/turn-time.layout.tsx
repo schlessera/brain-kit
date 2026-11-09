@@ -52,18 +52,30 @@ function times(host: HTMLElement) {
   return spans;
 }
 
+/** axe `color-contrast` on exactly these elements; every one is measured and passes 4.5:1. */
+async function textContrast(ctx: TestContext, elements: HTMLElement[], label: string) {
+  const result = await axe.run(elements, { runOnly: { type: "rule", values: ["color-contrast"] } });
+  expect(result.violations.flatMap(v => v.nodes.map(n => n.failureSummary)), `axe color-contrast: ${label}`).toEqual([]);
+  expect(result.incomplete.flatMap(v => v.nodes.map(n => n.target.join(" "))), `axe could measure every ${label}`).toEqual([]);
+  const measured = result.passes.flatMap(v => v.nodes).map(n => n.any[0]!.data as { fgColor: string; bgColor: string; contrastRatio: number });
+  expect(measured, `every ${label} was measured`).toHaveLength(elements.length);
+  for (const { contrastRatio } of measured) expect(contrastRatio, JSON.stringify(measured)).toBeGreaterThanOrEqual(4.5);
+  for (const element of elements) expect(getComputedStyle(element).opacity, `no opacity on the ${label} itself`).toBe("1");
+  ctx.annotate(`${label}: ${measured.map(m => `${m.fgColor} on ${m.bgColor} = ${m.contrastRatio}:1`).join("; ")}`);
+}
+
 for (const theme of ["dark", "light"] as const) for (const width of [320, 1280]) {
   test(`turn header time meets text contrast (${theme}, ${width})`, async ctx => {
     const host = await scene(ctx, width, theme, transcript);
-    const spans = times(host);
-    const result = await axe.run(spans, { runOnly: { type: "rule", values: ["color-contrast"] } });
-    expect(result.violations.flatMap(v => v.nodes.map(n => n.failureSummary)), "axe color-contrast").toEqual([]);
-    expect(result.incomplete.flatMap(v => v.nodes.map(n => n.target.join(" "))), "axe could measure every time stamp").toEqual([]);
-    const measured = result.passes.flatMap(v => v.nodes).map(n => n.any[0]!.data as { fgColor: string; bgColor: string; contrastRatio: number });
-    expect(measured, "both time stamps were measured").toHaveLength(2);
-    for (const { contrastRatio } of measured) expect(contrastRatio, JSON.stringify(measured)).toBeGreaterThanOrEqual(4.5);
-    for (const span of spans) expect(getComputedStyle(span).opacity, "no opacity on the time itself").toBe("1");
-    ctx.annotate(`${theme} ${width}: ${measured.map(m => `${m.fgColor} on ${m.bgColor} = ${m.contrastRatio}:1`).join("; ")}`);
+    await textContrast(ctx, times(host), `time stamp (${theme}, ${width})`);
+  });
+
+  // #3765: the speaker name leads the header in the speaker's tone, at full strength.
+  test(`turn header speaker name meets text contrast (${theme}, ${width})`, async ctx => {
+    const host = await scene(ctx, width, theme, transcript);
+    const names = times(host).map(time => time.parentElement!.querySelector<HTMLElement>(":scope > span")!);
+    expect(names.map(name => name.textContent), "the user and the brain turn's names").toEqual(["You", "Brain"]);
+    await textContrast(ctx, names, `speaker name (${theme}, ${width})`);
   });
 
   test(`turn time is visible and exposed (${theme}, ${width})`, async ctx => {
