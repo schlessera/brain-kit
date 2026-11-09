@@ -147,3 +147,34 @@ test("the file-name hint is percent-encoded and bounded to 1,024 encoded bytes",
   expect(long.length).toBeLessThanOrEqual(1024);
   expect(() => decodeURIComponent(long)).not.toThrow();
 });
+
+test("an upload Send moved into a held snapshot reports to that snapshot, and a refused one leaves the queue for it (#3155)", async () => {
+  const answers: ((r: Response) => void)[] = [];
+  const settled: QueuedFile[] = [];
+  const done: QueuedFile[] = [];
+  const queue = createAttachmentQueue({
+    request: () => new Promise<Response>((resolve) => { answers.push(resolve); }),
+    apiBase: "/api",
+    stored: (item) => done.push(item),
+    settled: (item) => { settled.push(item); return item.snapshotId !== undefined; },
+    changed: () => {},
+  });
+  try {
+    queue.add([permit()], DRAFT, { count: 0, bytes: 0 }, null);
+    await settle(() => queue.files[0]?.state === "uploading");
+    // Send happens while the bytes are on the wire.
+    queue.assign([queue.files[0]!.id], "snapshot-aeolus");
+    answers[0]!(Response.json(stored(FILE_ID), { status: 201 }));
+    await settle(() => done.length === 1);
+    expect(done[0]!.snapshotId, "the result goes to the snapshot it was moved into").toBe("snapshot-aeolus");
+    queue.add([permit()], DRAFT, { count: 0, bytes: 0 }, null);
+    await settle(() => queue.files[0]?.state === "uploading");
+    queue.assign([queue.files[0]!.id], "snapshot-sirens");
+    expect(queue.add([permit()], DRAFT, { count: 9, bytes: 0 }, { maxFiles: 10, maxFileBytes: 25_000_000, maxTotalBytes: 50_000_000, poolBytes: 1 }), "a snapshot's upload does not count against the composer's ten").toEqual([]);
+    queue.remove(queue.files.find((item) => !item.snapshotId)!.id);
+    answers[1]!(Response.json({ error: "ATTACHMENT_CAPACITY", limit: 1, bound: "pool" }, { status: 507 }));
+    await settle(() => settled.length === 1);
+    expect(settled[0]!.state).toBe("refused");
+    expect(queue.files, "its snapshot recorded the refusal").toEqual([]);
+  } finally { queue.dispose(); }
+});

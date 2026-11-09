@@ -258,6 +258,25 @@ and `SessionCatalog.recordMessageSource`'s optional effort argument gains
 `attachmentFiles?: MessageAttachment[]` (an `AttachmentFile` with an optional
 `inline` flag), which the host records so replay can reproduce the block.
 
+## Outgoing snapshot bubbles (additive, 0.45.0, #3155)
+
+`BrainUiConnection.drafts` (the `connection` of a `createBrainUiRoot` root)
+gains two methods beside `resend`, `check` and `edit`:
+
+- `resendSnapshot(requestId)`: Send again for a send that an outgoing
+  snapshot carries and no answer settled. A new request replaces it, and the
+  old snapshot is returned and left out as its successor is created. It
+  returns false when that send is not unconfirmed.
+- `sendPaused(draftId, snapshotId)`: Send for a held snapshot restored after a
+  reload, which never sends without this call.
+
+`check(requestId)` also accepts a snapshot's send. A recovery envelope with no
+accepted work (`revision` 0) returns that snapshot unsent. `UnconfirmedSends`
+skips sends that a snapshot carries, because their bubble stands for them.
+The kit's `StatusIndicatorProps.announce` is described with
+[the indicator](#ui-kit-compact-operation-status-additive-3281). No other
+export changes.
+
 ## Reading composer attachments (additive, 0.45.0, #3154)
 
 `@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
@@ -356,6 +375,10 @@ records the state matrix and the interaction.
   `actions` (a `ReactNode` of consumer buttons, rendered in details only).
 - `StatusIndicatorState`: `active`, `queued`, `success`, `attention`,
   `unknown`, `failed`, `refused` or `idle`.
+
+An optional `announce` (additive, #3155) defaults to `true`. With `false` the
+indicator renders no live region, for a consumer that announces the same
+change itself, so it is never spoken twice.
 
 The component is presentational. It derives only the displayed state and the
 count. The display state is the worst operation's state, in the order refused,
