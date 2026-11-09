@@ -14,6 +14,11 @@ import type { ComposerVariant, Tone } from "../types.js";
  *
  * ## Row order is fixed: attach · field · mic · send/stop
  *
+ * An optional `status` (#3155) sits beside attach: attach · status · field ·
+ * mic · send/stop. It is the app's compact `StatusIndicator` for the draft;
+ * the kit only places its 44px box so it touches its neighbours' boxes
+ * without overlapping them and without growing the field.
+ *
  * Capture (camera, photo, file, paste) is a MENU behind the attach button, not
  * three more icons — a 390px row has one field and at most two flanking glyphs
  * before the field stops being the subject. The provider picker is not in the
@@ -162,6 +167,12 @@ export interface ComposerProps {
   micControl?: ReactNode;
   /** Rows the field may grow to, on ⇧⏎ or on soft wrap, before it scrolls. Five when omitted. */
   maxRows?: number;
+  /**
+   * A compact status beside the attach trigger (additive, #3155): the app's
+   * `StatusIndicator`, or its reserved empty slot. Placed in a 44px box
+   * that takes a 28px place in the row, so the field keeps its height.
+   */
+  status?: ReactNode;
 }
 
 /** The attach trigger's default name: the capture menu with no live conversation in it. */
@@ -356,6 +367,13 @@ export function Composer(p: ComposerProps) {
         <div style={field} className="bk-field">
           {showAttach ? (
             <IconButton icon="attach" label={p.attachLabel || ATTACH_LABEL} haspopup="menu" tip lift={lastLine} onClick={dictating ? undefined : p.onAttach} />
+          ) : null}
+          {p.status !== undefined && v !== "plain" ? (
+            // 44px, with -8px margins: 28px in the row like the icons beside
+            // it, its target filling the field's padding and the gaps.
+            <span data-composer-status="" style={{ display: "flex", flex: "none", width: 44, height: 44, margin: -8, alignItems: "center", justifyContent: "center" }}>
+              {p.status}
+            </span>
           ) : null}
           <textarea
             data-composer=""
