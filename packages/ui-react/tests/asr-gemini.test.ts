@@ -232,11 +232,11 @@ describe("GeminiAsrClient wire behaviour", () => {
     expect(url.origin + url.pathname).toBe(URL_);
     expect(url.searchParams.get("access_token")).toBe(TOKEN);
     expect(h.socket().binaryType).toBe("arraybuffer");
-    expect(JSON.parse(h.socket().sent[0]!)).toEqual({ setup: {
+    expect(JSON.parse(h.socket().sent[0]!), "GEMINI_SETUP_REPEATS_LANGUAGE").toEqual({ setup: {
       model: "models/gemini-3.5-transcribe-live",
       generationConfig: { responseModalities: ["TEXT"] },
       inputAudioTranscription: { mode: "SMART", languageCodes: ["en-US"], customVocabulary: ["Ithaca", "Penelope"] },
-    } }, "GEMINI_SETUP_REPEATS_LANGUAGE");
+    } });
   });
 
   for (const [name, languageCodes] of [
