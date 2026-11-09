@@ -131,8 +131,12 @@ export function brainCommandClass(args: readonly string[]): { credentials: boole
   const [command] = args;
   switch (command) {
     case "--version": case "briefing": case "stats": case "list": case "read": case "validate":
-    case "hygiene": case "skills": case "scratch":
+    case "skills": case "scratch":
       return { credentials: false, gate: "shared" };
+    case "hygiene": {
+      const sub = args[1] === "--json" || args[1] === "--human" ? args[2] : args[1];
+      return sub === "propagation" ? { credentials: true, gate: "exclusive" } : { credentials: false, gate: "shared" };
+    }
     // Automatic plain index is keyword-only. Provider/flagged operations keep
     // the conservative credentialed exclusive envelope.
     case "index": return args.length === 1 ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };

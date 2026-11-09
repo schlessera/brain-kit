@@ -151,6 +151,12 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_CRON_PROPAGATION",
+    description: "Opt into the daily 05:45 credentialed hygiene-propagation prepass. It runs brain hygiene propagation through the exclusive maintenance boundary; core also requires hygiene.propagation.enabled. Interactive hygiene remains credential-free.",
+    default: "off",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_SUBPROCESS_ENV_EXTRA",
     description:
       "Comma-separated environment variable names to admit to every child " +
@@ -979,6 +985,8 @@ export interface CronConfig {
   subprocessEnvExtraNames: string[];
   /** Whether the crontab schedules the weekly `hygiene` job (BRAIN_UI_CRON_HYGIENE). */
   hygiene: boolean;
+  /** Daily credentialed source-freshness prepass, BRAIN_UI_CRON_PROPAGATION; absent is off. */
+  propagation?: boolean;
   /**
    * Control configuration the cron RUNNER itself reads — the exec wrapper and
    * its cancellation helper. Kept apart from `childEnv` on purpose: that one
@@ -1348,6 +1356,7 @@ export function resolveCronConfig(
     ),
     subprocessEnvExtraNames,
     hygiene: envFlag(env.BRAIN_UI_CRON_HYGIENE, true),
+    propagation: envFlag(env.BRAIN_UI_CRON_PROPAGATION, false),
     controlEnv: Object.fromEntries(
       CRON_CONTROL_ENV_NAMES.filter((name) => env[name]).map((name) => [name, env[name]])
     ),

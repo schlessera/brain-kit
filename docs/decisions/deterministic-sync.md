@@ -231,7 +231,7 @@ version.
 - **The container cron wrapper reads a result only from its own sync job.**
   It parses stdout when the job is `sync` and its argv is exactly what the
   crontab emitter writes (`isSyncJob`,
-  `packages/ui-server/src/cron/emit.ts:79-85`), and passes every other job's
+  `packages/ui-server/src/cron/emit.ts:81-87`), and passes every other job's
   stdout through untouched. A new wrapper flag would have done the same, but
   the wrapper command is deployment configuration, and a wrapper that did not
   know the flag would have broken the nightly sync.
