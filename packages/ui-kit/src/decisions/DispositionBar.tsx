@@ -10,8 +10,14 @@ import { color, font } from "../tokens.js";
  * The commit — Approve, or Choose's "Apply: …" — takes the remaining width,
  * and Later and Dismiss are content-sized with the 96 x 44 floor the live
  * approval card uses, so no answer becomes a sliver and no even split claims
- * the answers are equally likely. The row wraps at 320px rather than
- * shrinking a control below its floor.
+ * the answers are equally likely.
+ *
+ * When the three do not fit on one line, the commit takes the first row whole
+ * and Later and Dismiss share the second, side by side at equal width. They
+ * wrap as a pair: a row that wrapped each control on its own left Dismiss
+ * alone under the commit at every phone width (#3750), because 160 + 96 + 96
+ * plus two gaps is wider than the 360px column. The commit's basis is its own
+ * label, so a long "Apply: …" moves to its own row before it breaks a line.
  *
  * Every control can be absent (`undefined`), present, or disabled. A disabled
  * bar prints its reason once, as text under the row: a dim button with no
@@ -40,8 +46,12 @@ export interface DispositionBarProps {
   reason?: string;
 }
 
-const COMMIT_MOUNT: CSSProperties = { flex: "1 1 160px", minWidth: 0, minHeight: 44, width: "auto" };
-const SIDE_MOUNT: CSSProperties = { flex: "0 0 auto", minWidth: 96, minHeight: 44, width: "auto" };
+// The commit's grow dwarfs the pair's, so on one line it takes the slack; on
+// a line of its own the pair takes all of it. `min()` keeps the 160px floor
+// from overflowing a container narrower than the floor itself.
+const COMMIT_MOUNT: CSSProperties = { flex: "999 1 auto", minWidth: "min(160px, 100%)", minHeight: 44, width: "auto" };
+const SIDES: CSSProperties = { display: "flex", flex: "1 1 auto", gap: 8, minWidth: 0 };
+const SIDE_MOUNT: CSSProperties = { flex: "1 0 96px", minWidth: 96, minHeight: 44, width: "auto" };
 
 type Slot = "commit" | "later" | "dismiss";
 
@@ -54,7 +64,7 @@ export function DispositionBar(p: DispositionBarProps) {
   const name = (slot: Slot, control: DispositionControl) => (p.busy === slot ? undefined : control.name);
 
   return (
-    <div data-disposition-bar="" aria-busy={busy ? true : undefined}>
+    <div data-disposition-bar="" aria-busy={busy ? true : undefined} style={{ width: "100%" }}>
       <div style={row}>
         {p.commit ? (
           <Button
@@ -71,31 +81,35 @@ export function DispositionBar(p: DispositionBarProps) {
             onClick={p.commit.onClick}
           />
         ) : null}
-        {p.later ? (
-          <Button
-            label={label("later", p.later)}
-            ariaLabel={name("later", p.later)}
-            tone="ghost"
-            size="sm"
-            center
-            block={false}
-            style={SIDE_MOUNT}
-            disabled={busy || p.later.disabled === true}
-            onClick={p.later.onClick}
-          />
-        ) : null}
-        {p.dismiss ? (
-          <Button
-            label={label("dismiss", p.dismiss)}
-            ariaLabel={name("dismiss", p.dismiss)}
-            tone="quiet"
-            size="sm"
-            center
-            block={false}
-            style={SIDE_MOUNT}
-            disabled={busy || p.dismiss.disabled === true}
-            onClick={p.dismiss.onClick}
-          />
+        {p.later || p.dismiss ? (
+          <div style={SIDES}>
+            {p.later ? (
+              <Button
+                label={label("later", p.later)}
+                ariaLabel={name("later", p.later)}
+                tone="ghost"
+                size="sm"
+                center
+                block={false}
+                style={SIDE_MOUNT}
+                disabled={busy || p.later.disabled === true}
+                onClick={p.later.onClick}
+              />
+            ) : null}
+            {p.dismiss ? (
+              <Button
+                label={label("dismiss", p.dismiss)}
+                ariaLabel={name("dismiss", p.dismiss)}
+                tone="quiet"
+                size="sm"
+                center
+                block={false}
+                style={SIDE_MOUNT}
+                disabled={busy || p.dismiss.disabled === true}
+                onClick={p.dismiss.onClick}
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
       {p.reason ? <div style={reason}>{p.reason}</div> : null}

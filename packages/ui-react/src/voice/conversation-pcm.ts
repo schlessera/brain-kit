@@ -1,4 +1,5 @@
 import type { ConversationAudioFormat, ConversationPlayback } from "@schlessera/brain-ui-sdk/protocol";
+import { openPcmMicrophone, pcm16Bytes } from "./pcm-capture.js";
 
 /**
  * A 0–1 meter reading from a block's RMS amplitude. Display only: it never
@@ -10,68 +11,7 @@ function meterLevel(rms: number) {
 
 /** Concrete browser PCM transport. No recorder codec or independent speech service. */
 export function openConversationMicrophone(rate: number, receive: (pcm: Uint8Array, speaking: boolean, level: number) => void, opened: () => void, interrupted: () => void) {
-  let stopped = false;
-  let stream: MediaStream | undefined;
-  let context: AudioContext | undefined;
-  let node: AudioWorkletNode | undefined;
-  let source: MediaStreamAudioSourceNode | undefined;
-  const stop = () => {
-    stopped = true;
-    if (node) { node.port.onmessage = null; node.disconnect(); }
-    source?.disconnect();
-    stream?.getTracks().forEach((track) => track.stop());
-    if (context && context.state !== "closed") void context.close();
-  };
-  const ready = (async () => {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
-      if (stopped) { stop(); return; }
-      for (const track of stream.getAudioTracks()) track.addEventListener("ended", () => { if (!stopped) { stop(); interrupted(); } }, { once: true });
-      context = new AudioContext();
-      const code = `class Capture extends AudioWorkletProcessor {
-        constructor() { super(); this.samples = new Float32Array(4096); this.used = 0; }
-        process(inputs) {
-          const input = inputs[0]?.[0];
-          if (input) for (const sample of input) {
-            this.samples[this.used++] = sample;
-            if (this.used === this.samples.length) {
-              this.port.postMessage(this.samples.slice()); this.used = 0;
-            }
-          }
-          return true;
-        }
-      } registerProcessor("brain-conversation-capture", Capture);`;
-      const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-      try { await context.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
-      if (stopped) { stop(); return; }
-      source = context.createMediaStreamSource(stream);
-      node = new AudioWorkletNode(context, "brain-conversation-capture", { numberOfInputs: 1, numberOfOutputs: 0 });
-      const ratio = context.sampleRate / rate;
-      let cursor = 0;
-      node.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
-        if (stopped) return;
-        const samples: number[] = [];
-        let energy = 0;
-        for (const value of data) energy += value * value;
-        for (; cursor < data.length; cursor += ratio) {
-          const at = Math.floor(cursor);
-          const value = data[at]! + ((data[Math.min(at + 1, data.length - 1)] ?? 0) - data[at]!) * (cursor - at);
-          samples.push(Math.round(Math.max(-1, Math.min(1, value)) * (value < 0 ? 32768 : 32767)));
-        }
-        cursor -= data.length;
-        const bytes = new Uint8Array(samples.length * 2);
-        const view = new DataView(bytes.buffer);
-        samples.forEach((sample, index) => view.setInt16(index * 2, sample, true));
-        const rms = Math.sqrt(energy / data.length);
-        receive(bytes, rms > 0.015, meterLevel(rms));
-      };
-      source.connect(node);
-      await context.resume();
-      if (stopped) { stop(); return; }
-      opened();
-    } catch (error) { stop(); throw error; }
-  })();
-  return { ready, stop };
+  return openPcmMicrophone(rate, (pcm, rms) => receive(pcm16Bytes(pcm), rms > 0.015, meterLevel(rms)), opened, interrupted);
 }
 
 /** One queue owns all local output, including chunks waiting for a quiet boundary. */

@@ -16,6 +16,7 @@ import { admitPiWorker, launchPiWorker, savedModel, superviseWorker } from "./wo
 import { readPiWorkerProtocol, type PiWorkerTurnState } from "./worker-reader.js";
 import { createPiWorkerReceipts } from "./worker-receipts.js";
 import { createPiWorkerRpcDispatcher, type PiWorkerRpc } from "./worker-rpc.js";
+import { discoversPiExtensions } from "./extension-inspection.js";
 
 export { savedModel } from "./worker-launch.js";
 
@@ -136,7 +137,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   // other code (bash, grep, brain-owned configuration through an index tool,
   // an application tool) or starts a call under a running call's identity:
   // from then on the worker's own reports are no evidence.
-  const extensionFree = envelope !== undefined || backend.loadExtensions === false;
+  const extensionFree = envelope !== undefined || !discoversPiExtensions(backend);
   const proof = createExecutionProof(extensionFree, new Set(["read_file", "write_file", "edit_file", "brain_read_base", ...bridgeTools.map(tool => tool.name)]));
   const dispatch = createPiWorkerRpcDispatcher({ brainPath: backend.brainPath, turn: turnContext, live, grants, releases, workerLock,
     executed: proof.executed, admitTool: proof.admit, canFinalizeSafety: proof.canFinalize, autonomous: Boolean(env.autonomous), sandbox, workerSandbox,

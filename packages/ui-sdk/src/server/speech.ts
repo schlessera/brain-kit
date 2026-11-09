@@ -25,13 +25,17 @@ export interface SpeechSession {
  */
 export interface SpeechProvider {
   id: string;
+  /** Optional human-readable service name, e.g. for a settings row or the dictation sheet. */
   label?: string;
+  /** Optional plain-language disclosure of where microphone audio goes while dictating. */
   destination?: string;
   capabilities: SpeechCapabilities;
   /**
    * Mint one dictation session. `keyterms` are domain terms from the brain's
    * keyterm builder — providers without keyterm support ignore them
-   * (capabilities.keyterms = false).
+   * (capabilities.keyterms = false). `mode` selects SMART (cleaned-up) or
+   * verbatim transcription; providers ignore it unless they declare
+   * `capabilities.smartTranscription`, and an absent mode means their default.
    */
   createSession(opts: { keyterms: string[]; mode?: "smart" | "verbatim" }): Promise<SpeechSession>;
   /** Optional saved-audio path. Call only the provider from the server with its

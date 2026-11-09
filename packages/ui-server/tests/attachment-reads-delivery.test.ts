@@ -67,7 +67,15 @@ async function harness() {
         if (frame.type === "server_hello") resolve();
       }));
       ws.send(JSON.stringify({ type: "client_hello", protocolRev: 5, capabilities }));
-      await Bun.sleep(20);
+      // The socket's messages are handled in order, so the pong follows the
+      // hello's handler: the declared capabilities are recorded by then.
+      const probeId = `hello-${crypto.randomUUID()}`;
+      const ponged = new Promise<void>((resolve) => ws.addEventListener("message", (event) => {
+        const frame = JSON.parse(String(event.data)) as ServerMessage;
+        if (frame.type === "pong" && frame.probeId === probeId) resolve();
+      }));
+      ws.send(JSON.stringify({ type: "ping", probeId }));
+      await ponged;
       return { frames, send: (frame: object) => ws.send(JSON.stringify(frame)) };
     };
     return { principal, call, connect };

@@ -135,7 +135,7 @@ on the provider's credentials and model availability.
 | `model` | — | Fallback model, `"vendor/modelId"` or `"modelId"`, when no profiles are set. |
 | `profiles` | — | Selectable `{id,label,vendor?,model,thinkingLevel?}` profiles; first is the default for new sessions. |
 | `sessionDir` | `~/.local/state/brain-kit/pi/<SHA-256 of canonical brain path>/sessions` | Server-owned session JSONL trees outside the brain and its ancestors; aliases into the brain refuse. |
-| `loadExtensions` | `true` | Discovery remains enabled, but a loaded extension or loading error refuses a managed turn and reports incomplete collection. Set `false` to use the curated tools. Skills and both cwd `AGENTS.md`/`CLAUDE.md` files still load. |
+| `loadExtensions` | `false` | Curated tools only; installed extensions stay installed and inactive. Skills and both cwd `AGENTS.md`/`CLAUDE.md` files still load. `true` opts into discovery, but a loaded extension or loading error refuses a managed turn and reports incomplete collection. Before 0.45 the default was `true` (#3658). |
 | `confirmBashPatterns` | shared `DEFAULT_CONFIRM_BASH_PATTERNS` | Regex sources, or `{ pattern, effect }`; a matching `bash` command raises a confirmation card even though bash is auto-allowed, and the card shows the pattern's `effect` (a bare source gets a generic sentence). `[]` disables confirmation. A nonempty list with no valid regex rejects construction; mixed lists report invalid entries and retain valid patterns and effects. |
 | `allowedTools` | `DEFAULT_PI_ALLOWED_TOOLS` | Tool names that run without an approval card. Every executed tool NOT in the list raises one. |
 | `writeLock` | fresh keyed lock | Legacy whole-lock serialization for authoritative server applications. Inject one to share a lock with another server writer. Worker scratch is separate per turn. |
@@ -280,6 +280,7 @@ output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marke
 | `brain_read` | read | auto-allow | `safeResolve` inside repo |
 | `brain_list` | read | auto-allow | in-process `filterSearch` (read-only db) |
 | `brain_graph` | read | auto-allow | in-process link-graph walk (read-only db) |
+| `brain_read_many` | read | auto-allow | each request through `safeResolve`, as `brain_read`; core's bounded multi-read |
 | `ask_user` | read | auto-allow | routes to `bridge.askUser` |
 | `ask_user_list` | read | auto-allow | routes to `bridge.askUserList`; refuses a turn declaring `noGrantSurface` |
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |
@@ -313,9 +314,26 @@ Managed turns currently refuse every loaded external extension, including
 final `tool_result` observer cannot qualify these packages: Pi also exposes live
 messages/results after that observer, independent custom-message injection and
 provider-payload hooks. There is no trusted extension path, name or package
-exception. Use `loadExtensions: false` for the host's curated tools.
+exception. The curated tools are therefore the default (`loadExtensions: false`;
+hosted: `BRAIN_UI_PI_EXTENSIONS=curated`), and startup names any installed
+extension it is leaving inactive.
 
-The runtime checks the complete loaded extension set and loading errors before
+Opting into discovery (`BRAIN_UI_PI_EXTENSIONS=discover`) does not make an
+extension usable. The hosted module inspects Pi's extension configuration
+(settings package lists and the global/project extension directories, read
+through Pi's package manager without importing or installing anything) before
+each roster read and each non-restricted turn. It blocks Pi when that
+configuration would fail every managed turn: with discovery on, any extension
+or loading error; in the curated default, a configured package that is not
+installed (managed workers require prepared packages even when they load no
+extension); in either mode, an inspection failure. Blocked, Pi lists its profiles as unavailable
+with reason `unsupported-configuration` and refuses the turn before a worker
+starts, with an actionable message. The input-safety collector's failure path
+is not engaged and other backends keep running. Restricted autonomous turns
+load neither and are unaffected. A direct `createPiBackend()` has no such gate
+and relies on the refusal below.
+
+As a backstop, the runtime checks the complete loaded extension set and loading errors before
 session creation and again before Agent provider dispatch, including changed
 configuration and resume. Refusal awaits the existing host failure notice and
 stops the worker. The host also reports initialization loss before acquisition

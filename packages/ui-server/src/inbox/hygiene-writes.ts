@@ -237,6 +237,20 @@ export function setup(db: Database, { timeZone }: { timeZone?: string }): WriteP
         }
       }).immediate();
     },
+    /**
+     * The counts a selection stores, read again without selecting (#2783): an
+     * Undo while a card is pending, or after the pass ended, puts a finding
+     * back to awaiting review, so the stored count must say so too.
+     */
+    counts(time: number, principalId: string, next: z.infer<typeof nextSchema>) {
+      at = time;
+      authority(principalId);
+      return db.transaction(() => {
+        if ("blocker" in next) return;
+        const review = state();
+        save({ ...review, counts: next.counts, media: mediaOf(next) ?? review.media });
+      }).immediate();
+    },
     admit(time: number, principalId: string, request: ClientInboxResolve) {
       at = time;
       return db.transaction(() => {

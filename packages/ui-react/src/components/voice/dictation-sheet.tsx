@@ -1,20 +1,30 @@
-import { IconButton, Overlay } from "@schlessera/brain-ui-kit";
-import { useEffect, useRef, type RefObject } from "react";
+import { Button, IconButton, Overlay } from "@schlessera/brain-ui-kit";
+import { useEffect, useId, useRef, type RefObject } from "react";
+import { providerDestination, providerLabel } from "../../voice/dictation-providers.js";
+import type { DictationGate } from "../../voice/voice-state.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { Mic, X } from "lucide-react";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { cn } from "../../lib/utils.js";
 
+const MIC = '[aria-label^="Dictate"], [aria-label="Stop dictation"]';
+
 export function DictationSheet({
   open,
   onStop,
   onCancel,
+  onConfirm,
+  onOpenSettings,
   composerRef,
 }: {
   open: boolean;
   onStop: () => void;
   onCancel: () => void;
+  /** Start dictation on the acknowledgement card. */
+  onConfirm?: () => void;
+  /** Settings › Voice, from a take that has nowhere to go. */
+  onOpenSettings?: () => void;
   composerRef?: RefObject<HTMLDivElement | null>;
 }) {
   const desktop = useMediaQuery("(min-width: 900px)");
@@ -28,20 +38,26 @@ export function DictationSheet({
   // Mic still opening — the session is being fetched, so capture isn't live
   // yet. Drives the honest "Connecting…" state instead of claiming "Listening".
   const connecting = useVoiceStore((s) => s.connecting);
-  const providerId = useVoiceStore((s) => s.providerId);
+  const target = useVoiceStore((s) => s.dictationTarget);
+  const gate = useVoiceStore((s) => s.dictationGate);
+  const gateRef = useRef<HTMLButtonElement>(null);
   // Text already under review — the current capture appends to it on stop,
   // so show it dimmed as the lead-in.
   const reviewText = useVoiceStore((s) => s.reviewText);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
-  const statusLabel = connecting
+  const statusLabel = gate?.kind === "consent"
+    ? "Before you dictate"
+    : gate
+      ? "Dictation unavailable"
+      : connecting
     ? "Connecting…"
     : draining
       ? "Finalizing…"
       : "Listening";
-  // Surface the active provider so a silent fallback to browser speech (which
-  // streams mic audio to Google on Chrome) isn't invisible.
-  const providerNote = providerNoteFor(providerId);
+  // The service this take was sent to, frozen with it (#3709). A provider
+  // that names a third-party destination, or browser speech, is called out.
+  const providerNote = target ? { text: `To ${providerLabel(target)}`, warn: Boolean(target.destination) || target.id === "webspeech" } : null;
 
   // Keep the newest words in view — the live transcript grows past the
   // sheet's height quickly when dictating longer prompts.
@@ -55,9 +71,29 @@ export function DictationSheet({
     const composer = composerRef?.current;
     doneRef.current?.focus();
     return () => {
-      composer?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]')?.focus();
+      composer?.querySelector<HTMLElement>(MIC)?.focus();
     };
   }, [open, desktop, composerRef]);
+
+  // The acknowledgement focuses Start dictation; a blocked take, Open Settings.
+  useEffect(() => {
+    if (open && gate) gateRef.current?.focus();
+  }, [open, gate]);
+
+  // Start dictation removes the control that held focus. When focus was in
+  // the card, it continues on Done, so the keyboard can finish the take; the
+  // phone sheet's initial focus has already run and does not run again.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const continueFocus = useRef(false);
+  const confirm = onConfirm && (() => {
+    continueFocus.current = Boolean(cardRef.current?.contains(document.activeElement));
+    onConfirm();
+  });
+  useEffect(() => {
+    if (gate || !continueFocus.current) return;
+    continueFocus.current = false;
+    if (open) doneRef.current?.focus();
+  }, [open, gate]);
 
   useEffect(() => {
     if (!open || !desktop || draining) return;
@@ -77,13 +113,13 @@ export function DictationSheet({
             <span className="relative inline-flex h-2 w-2">
               {/* Pulse only once capture is actually live — a "connecting" dot
                   must not imply the mic is already open. */}
-              {!connecting && (
+              {!connecting && !gate && (
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary-mark opacity-75" />
               )}
               <span
                 className={cn(
                   "relative inline-flex h-2 w-2 rounded-full",
-                  connecting ? "bg-muted-foreground/50" : "bg-primary-mark"
+                  connecting || gate ? "bg-muted-foreground/50" : "bg-primary-mark"
                 )}
               />
             </span>
@@ -91,7 +127,7 @@ export function DictationSheet({
               {statusLabel}
             </span>
           </div>
-          {desktop && <div className="ml-auto flex items-center"><Waveform level={audioLevel} compact /></div>}
+          {desktop && !gate && <div className="ml-auto flex items-center"><Waveform level={audioLevel} compact /></div>}
           {desktop ? <IconButton size="md" name="Cancel dictation" glyph={<X className="h-4 w-4" />} onClick={onCancel} disabled={draining} /> : <span aria-hidden="true" style={{ width: 44, height: 44 }} />}
         </div>
 
@@ -110,6 +146,7 @@ export function DictationSheet({
           </div>
         )}
 
+        {gate ? <DictationGateCard gate={gate} cardRef={cardRef} actionRef={gateRef} onCancel={onCancel} onConfirm={confirm} onOpenSettings={onOpenSettings} /> : <>
         {/* Waveform */}
         {!desktop && <div className="flex items-center justify-center px-6 py-4">
           <Waveform level={audioLevel} />
@@ -160,6 +197,7 @@ export function DictationSheet({
                 : "Tap anywhere outside to stop"}
           </p>
         </div>
+        </>}
       </div>
   );
   if (desktop) return open ? (
@@ -169,31 +207,53 @@ export function DictationSheet({
     </div>
   ) : null;
   return (
-    <Overlay open={open} variant="sheet" label="Dictation" data-dictation="" closeLabel="Cancel dictation" initialFocus={doneRef} closedBy={draining ? "none" : "any"}
-      onClose={reason => (reason === "scrim" || reason === "swipe") ? onStop() : onCancel()}
+    <Overlay open={open} variant="sheet" label="Dictation" data-dictation="" closeLabel="Cancel dictation" initialFocus={gate ? gateRef : doneRef} closedBy={draining ? "none" : "any"}
+      // Outside a gate, a tap outside stops and keeps the words; on a gate it opens nothing.
+      onClose={reason => !gate && (reason === "scrim" || reason === "swipe") ? onStop() : onCancel()}
       // A breakpoint move unmounts the modal after the desktop has focused
       // its replacement Done. Preserve that focus; a real close returns to mic.
-      returnFocus={() => doneRef.current ?? composerRef?.current?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Stop dictation"]') ?? null}>
+      returnFocus={() => doneRef.current ?? gateRef.current ?? composerRef?.current?.querySelector<HTMLElement>(MIC) ?? null}>
       {content}
     </Overlay>
   );
 }
 
-/** Human-readable note for the active speech provider, or null if unknown. */
-function providerNoteFor(
-  providerId: string | null
-): { text: string; warn: boolean } | null {
-  switch (providerId) {
-    case "deepgram":
-      return { text: "via Deepgram", warn: false };
-    case "webspeech":
-      // Browser speech (Chrome) streams mic audio to Google — call it out.
-      return { text: "via browser speech · audio goes to Google", warn: true };
-    case null:
-      return null;
-    default:
-      return { text: `via ${providerId}`, warn: false };
-  }
+/**
+ * Before any session request or microphone access: the one-time
+ * acknowledgement of where audio goes (D4), or why there is nowhere to send
+ * it. Neither offers a per-take change of service (D2).
+ */
+function DictationGateCard({ gate, cardRef, actionRef, onCancel, onConfirm, onOpenSettings }: {
+  gate: DictationGate;
+  cardRef: RefObject<HTMLDivElement | null>;
+  actionRef: RefObject<HTMLButtonElement | null>;
+  onCancel: () => void;
+  onConfirm?: () => void;
+  onOpenSettings?: () => void;
+}) {
+  const id = useId();
+  const consent = gate.kind === "consent";
+  const title = consent ? `Dictation goes to ${providerLabel(gate.provider)}`
+    : gate.reason === "none" ? "Dictation isn\u0027t set up on this host"
+    : gate.reason === "unavailable" ? "Your dictation service isn\u0027t available"
+    : "Choose a dictation service";
+  const text = consent ? `${providerDestination(gate.provider)} Words land in your draft; nothing is sent until you send it.`
+    : gate.reason === "none" ? "Nothing was captured."
+    : gate.reason === "unavailable" ? `${gate.saved ? `${gate.saved} isn\u0027t available on this host. ` : ""}Choose a dictation service in Settings › Voice. Nothing was captured.`
+    : "Choose a dictation service in Settings › Voice. Nothing was captured.";
+  const action = consent ? { label: "Start dictation", run: onConfirm } : gate.reason === "none" ? null : { label: "Open Settings", run: onOpenSettings };
+  return <div ref={cardRef} role="group" aria-labelledby={`${id}-title`} aria-describedby={`${id}-text`} data-dictation-gate={gate.kind} className="flex flex-col gap-3 px-5 py-4">
+    <p id={`${id}-title`} className="text-base font-semibold text-foreground">{title}</p>
+    <p id={`${id}-text`} className="text-sm leading-relaxed text-muted-foreground">{text}</p>
+    <div className="flex flex-wrap justify-end gap-2">
+      <Button label={action ? "Cancel" : "Close"} tone="ghost" block={false} reach onClick={onCancel} />
+      {action && <button /* raw-button: api — Opening focus needs a ref that kit Button does not accept. */
+        type="button" ref={actionRef} onClick={action.run}
+        className="flex min-h-11 items-center justify-center rounded-xl bg-primary-fill px-4 text-sm font-semibold text-primary-foreground transition-all duration-150 hover:brightness-110 active:scale-[0.99]">
+        {action.label}
+      </button>}
+    </div>
+  </div>;
 }
 
 function Waveform({ level, compact = false }: { level: number; compact?: boolean }) {

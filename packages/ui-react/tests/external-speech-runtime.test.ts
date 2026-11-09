@@ -91,6 +91,7 @@ if (worker) {
 }
 
 async function open(proveBackend = false): Promise<Page> {
+  const sessionsBefore = sessionRequests;
   const context = await browser!.newContext();
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const page = await context.newPage();
@@ -107,7 +108,11 @@ async function open(proveBackend = false): Promise<Page> {
     await page.waitForFunction("window.__speechFixture.turnIdle()");
     expect(turns, "EXTERNAL_SPEECH_TYPED_CONTROL_REACHES_BACKEND").toBe(before + 1);
   }
-  await page.getByRole("button", { name: "Dictate", exact: true }).click();
+  // The mic names the supplied service; the first take on a device names
+  // where its audio goes and starts only on Start dictation (#3709, D4).
+  await page.getByRole("button", { name: "Dictate · fixture-speech", exact: true }).click();
+  expect(sessionRequests, "EXTERNAL_SPEECH_NO_SESSION_BEFORE_ACKNOWLEDGEMENT").toBe(sessionsBefore);
+  await page.getByRole("button", { name: "Start dictation", exact: true }).click();
   await page.waitForFunction("window.__speechFixture.state().clients[0]?.tracks.includes('live') && !window.__speechFixture.state().connecting");
   return page;
 }

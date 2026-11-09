@@ -1,6 +1,48 @@
 import type { DictationNotice } from "./dictation-failure.js";
 import { createStore } from "zustand/vanilla";
-import type { VoiceMode } from "@schlessera/brain-ui-sdk/protocol";
+import type { VoiceMode, VoiceProvidersResponse } from "@schlessera/brain-ui-sdk/protocol";
+import type { StoreEnvironment } from "../stores/store-environment.js";
+
+type DiscoveredProvider = VoiceProvidersResponse["providers"][number];
+
+/**
+ * What stands between a tap and a session request (#3709): the one-time
+ * acknowledgement of where audio goes (D4), or a reason there is nowhere to
+ * send it. Either is shown in the dictation sheet before anything is minted
+ * and before the microphone opens.
+ */
+export type DictationGate =
+  | { kind: "consent"; provider: DiscoveredProvider }
+  | { kind: "blocked"; reason: "none" | "choose" | "unavailable"; saved: string | null };
+
+/** A brain-wide dictation choice as Settings › Voice writes it. */
+export type DictationChoice = { defaultProvider: string | null; smart: boolean };
+
+/**
+ * Who a Settings write is made for: the account the pane established as the
+ * writer and the auth generation (`root.authLock.epoch()`) it was established in.
+ */
+export type DictationWriter = { account: string; epoch: number };
+
+/**
+ * Settings › Voice writes, kept on the root rather than in the pane (#3709):
+ * an accepted choice is written even after the pane closes, and reopening it
+ * shows where the writes stand.
+ */
+export interface DictationSaveState {
+  /** The newest accepted choice the server has not confirmed yet. */
+  pending: DictationChoice | null;
+  status:
+    | { kind: "saving" }
+    | { kind: "failed"; retry: DictationChoice; text: string }
+    /** Changed on another device; `current` once the server's value was read again. */
+    | { kind: "stale"; current: boolean }
+    | null;
+  /** The last discovery read failed: what is shown may be out of date. */
+  refreshFailed: boolean;
+  /** The writer a save was refused for as not the owner; it holds for that identity only. */
+  refused: DictationWriter | null;
+}
 
 export interface VoiceState {
   mode: VoiceMode;
@@ -11,6 +53,19 @@ export interface VoiceState {
   audioLevel: number;       // 0..1 RMS level for waveform
   reviewText: string;       // text waiting in the review card (post-stop)
   providerId: string | null; // active speech provider (from the session response)
+  /** The provider this take disclosed and was sent to; frozen for the take. */
+  dictationTarget: DiscoveredProvider | null;
+  dictationGate: DictationGate | null;
+  /**
+   * The last discovery snapshot and when it was read (`GET /voice/providers`).
+   * `stale` marks one that may no longer be the server's: a take reads
+   * discovery again before it discloses anything from it.
+   */
+  discovery: { snapshot: VoiceProvidersResponse; at: number; stale?: boolean } | null;
+  dictationSave: DictationSaveState;
+  /** Device-local acknowledgement storage; a read that fails returns null. */
+  readAcknowledgement: (key: string) => string | null;
+  writeAcknowledgement: (key: string, value: string) => void;
   error: string | null;
   /** Capture-scoped explanation, independent of an open-sheet error. */
   dictationNotice: DictationNotice | null;
@@ -38,7 +93,10 @@ export interface VoiceState {
 /** opening: waiting on the microphone; stopping: the final chunk is on its way. */
 type LocalCapturePhase = "idle" | "opening" | "recording" | "stopping";
 
-export function createVoiceStore() {
+export function createVoiceStore(env?: Pick<StoreEnvironment, "storage" | "storageKey">) {
+  // Without persistence (tests, stories, SSR) an acknowledgement lasts for
+  // the root's life. Persistence that throws is never treated as consent.
+  const memory = new Map<string, string>();
   return createStore<VoiceState>((set) => ({
     mode: "idle",
     connecting: false,
@@ -48,6 +106,23 @@ export function createVoiceStore() {
     audioLevel: 0,
     reviewText: "",
     providerId: null,
+    dictationTarget: null,
+    dictationGate: null,
+    discovery: null,
+    dictationSave: { pending: null, status: null, refreshFailed: false, refused: null },
+    readAcknowledgement: (key) => {
+      try {
+        const storage = env?.storage() ?? null;
+        return storage === null ? memory.get(key) ?? null : storage.getItem(env!.storageKey(key));
+      } catch { return null; }
+    },
+    writeAcknowledgement: (key, value) => {
+      try {
+        const storage = env?.storage() ?? null;
+        if (storage === null) memory.set(key, value);
+        else storage.setItem(env!.storageKey(key), value);
+      } catch { /* Not stored: the next take asks again. */ }
+    },
     error: null,
     dictationNotice: null,
     dismissDictationNotice: () => set({ dictationNotice: null }),

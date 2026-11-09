@@ -24,6 +24,7 @@ import { DictationSheet } from "../voice/dictation-sheet.js";
 import { ReviewCard } from "../voice/review-card.js";
 import { dictationNoticeText } from "../../voice/dictation-failure.js";
 import { useDictation } from "../../voice/use-dictation.js";
+import { dictationTarget, loadDiscovery, providerShortLabel } from "../../voice/dictation-providers.js";
 import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 import { detectClientEnvironment } from "../../lib/client-environment.js";
@@ -305,6 +306,15 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const dictationNotice = useVoiceStore((s) => s.dictationNotice);
   const dismissDictationNotice = useVoiceStore((s) => s.dismissDictationNotice);
   const dictation = useDictation();
+  // The mic names the service the next take goes to (D4), from the read-only
+  // discovery snapshot. Reading it mints nothing and opens no microphone.
+  // A stale snapshot may no longer be the server's, so it names nothing.
+  const discovery = useVoiceStore((s) => s.discovery && !s.discovery.stale ? s.discovery.snapshot : null);
+  const discoveryStale = useVoiceStore((s) => s.discovery?.stale === true);
+  // Before the microphone opens (the acknowledgement or a blocked take), nothing is being dictated yet.
+  const gated = useVoiceStore((s) => s.dictationGate !== null);
+  const nextTarget = discovery ? dictationTarget(discovery) : null;
+  const dictateLabel = nextTarget?.kind === "ready" ? `Dictate · ${providerShortLabel(nextTarget.provider)}` : undefined;
   const localCapture = useLocalCapture();
   const localSupported = useLocalCaptureSupport();
   const localPhase = useVoiceStore((s) => s.local);
@@ -320,6 +330,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       : localSupported === null ? "pending"
       : localSupported ? "local" : "unsupported";
 
+  useEffect(() => {
+    if (micMode === "dictate") void loadDiscovery(root).catch(() => {});
+  }, [root, micMode, discoveryStale]);
+  // Plan §7: with no dictation service registered, the mic is disabled and
+  // says why. Recording on the device does not depend on one.
+  const dictationUnavailable = micMode === "dictate" && voiceMode !== "dictate" && discovery?.providers.length === 0
+    ? "Dictation isn\u0027t set up on this host." : undefined;
+
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
     ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
@@ -333,7 +351,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (kind === "dictation") dismissDictationNotice();
     else { setDismissedLocalNotice(captureNotice ?? null); root.stores.voice.getState().setLocalNotice(null); }
     if (heldFocus) {
-      const mic = frame?.querySelector<HTMLElement>('[aria-label="Dictate"], [aria-label="Record on this device"]');
+      const mic = frame?.querySelector<HTMLElement>('[aria-label^="Dictate"], [aria-label="Record on this device"]');
       if (mic) mic.focus(); else focusField();
     }
   }
@@ -715,7 +733,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const [recordingNotice, setRecordingNotice] = useState("");
   useEffect(() => root.recordings?.onEvent(event => { if (event.message) setRecordingNotice(event.message); }), [root]);
   const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
-    '[aria-label="Record on this device"], [aria-label="Dictate"], [aria-label="Stop and save"]'
+    '[aria-label="Record on this device"], [aria-label^="Dictate"], [aria-label="Stop and save"]'
   )?.focus({ preventScroll: true }), 0);
   useEffect(() => root.stores.voice.subscribe((state, previous) => {
     // Observe the end before React removes the sheet's focused control.
@@ -876,14 +894,17 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         <ComposerView
           onConversation={conversation.available && micMode !== "local" && voiceMode !== "dictate" ? () => { setAttachMenuOpen(false); root.connection.conversation.enter(); } : undefined}
           dictation={<><DictationSheet open={voiceMode === "dictate"}
-            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />
+            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} onConfirm={dictation.confirm}
+            onOpenSettings={() => { dictation.cancel(); root.stores.ui.getState().openSettings("voice"); }} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
           dictationNotice={dictationNotice ? dictationNoticeText(dictationNotice) : undefined}
           onDismissDictationNotice={() => dismissNotice("dictation")}
           captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
           onDismissCaptureNotice={() => dismissNotice("local")}
           mic={micMode !== "unsupported"}
-          micLabel={micMode !== "local" ? undefined : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
+          micLabel={micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
+          micTip={micMode === "dictate" && voiceMode !== "dictate" && dictateLabel !== undefined}
+          micUnavailable={dictationUnavailable}
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
@@ -904,7 +925,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                 : "offline"
           }
           placeholder={
-            voiceMode === "dictate" ? "Dictating…" : wsStatus === "connected" && restorePhase !== null
+            voiceMode === "dictate" && !gated ? "Dictating…" : voiceMode === "dictate" ? root.config.composerPlaceholder : wsStatus === "connected" && restorePhase !== null
               ? "Sending waits until this conversation is restored"
               : wsStatus !== "connected"
               ? connectionIssue === "capacity"
@@ -914,7 +935,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : voiceMode === "dictate" ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : voiceMode === "dictate" && !gated ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
               : wsStatus === "connected" && sessionProfile.awaitingDraftFacts ? "waiting for this chat profile · reopen the model picker to retry"

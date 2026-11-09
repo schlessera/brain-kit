@@ -1,5 +1,8 @@
 /** Offline C5 fixture: real routes/coordinator/SQLite/stream, deterministic CLI boundary.
- * C6 owns the separate full browser → CLI → Markdown proof. */
+ * C6 owns the separate full browser → CLI → Markdown proof. With `mediaFlow`,
+ * the hygiene routes forward instead to the real media review flow (#2783):
+ * an Odysseus brain, the real CLI and the real review server, as its own
+ * process (`ui-server/tests/helpers/media-flow.ts`). */
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +18,7 @@ import { createInboxStream } from "../../../ui-server/src/inbox/stream.js";
 import type { AppEnv } from "../../../ui-server/src/app-env.js";
 import type { BrainClient } from "../../../ui-server/src/brain/client.js";
 import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
+import type { MediaFlow } from "../../../ui-server/tests/helpers/media-flow.js";
 
 const scratch = mkdtempSync(join(tmpdir(), "c5-server-"));
 const db = createUiDb(join(scratch, "ui.sqlite"));
@@ -194,6 +198,10 @@ let mediaKept = 0;
 let planRefusals: Record<string, Array<Record<string, unknown>>> = {};
 let holdPlans = false;
 const planHolds: Array<() => void> = [];
+/** Told when a plan parks in a hold. */
+let parked: (() => void) | undefined;
+/** Another device's preview, started by `foreignPreview`. */
+let foreign: Promise<unknown> | undefined;
 let applyMode = "";
 let undoMode = "";
 const mediaJournal = new Map<string, { action: string; plan: Record<string, unknown> }>();
@@ -226,6 +234,7 @@ async function mediaPlan(args: string[], signal?: AbortSignal) {
   if (holdPlans)
     await new Promise<void>((resolve, reject) => {
       planHolds.push(resolve);
+      parked?.();
       signal?.addEventListener("abort", () => reject(new Error("aborted")));
     });
   const linked = m.links.conversations > 0 ? "linked" : m.source === "scratch" && m.links.state !== "complete" ? "unknown" : "unlinked";
@@ -461,6 +470,14 @@ const auth = {
   release() {},
 };
 const app = new Hono<AppEnv>();
+/** The real media review flow, when a scene asked for it: its JSON routes answer for this fixture's. */
+let flow: MediaFlow | undefined;
+app.use("/api/hygiene/*", async (c, next) => {
+  if (!flow) return next();
+  const body = c.req.method === "GET" ? undefined : await c.req.text();
+  const r = await fetch(`${flow.url}${c.req.path}`, { method: c.req.method, headers: { "content-type": "application/json", "x-media-flow-principal": "owner" }, ...(body ? { body } : {}) });
+  return new Response(await r.text(), { status: r.status, headers: { "content-type": "application/json" } });
+});
 app.use("*", async (c, next) => {
   c.set("principal", (as === "agent" ? agent : principal) as never);
   if (c.req.method === "GET" && c.req.path === "/api/hygiene/review") {
@@ -543,17 +560,39 @@ app.post("/fixture", async (c) => {
   if (p.mediaFiles) { mediaFiles = p.mediaFiles === "default" ? MEDIA_DEFAULT : p.mediaFiles; mediaDone.clear(); mediaKept = 0; }
   if (p.planRefusals) planRefusals = p.planRefusals;
   if (p.holdPlans !== undefined) holdPlans = p.holdPlans;
-  if (p.releasePlans) { holdPlans = false; for (const release of planHolds.splice(0)) release(); }
+  if (p.releasePlans) {
+    holdPlans = false; for (const release of planHolds.splice(0)) release();
+    // The other device's preview has finished, and freed the scan, when this answers.
+    await foreign; foreign = undefined;
+  }
   if (p.applyMode !== undefined) applyMode = p.applyMode;
   if (p.undoMode !== undefined) undoMode = p.undoMode;
   if (p.foreignPreview) {
     const current = review.read().action!;
     holdPlans = true;
-    void review.preview(penelope.id, { itemId: current.id, optionId: "media-delete", expectedVersion: current.version, input: null }).catch(() => {});
-    await new Promise((r) => setTimeout(r, 50));
+    const inPlan = new Promise<void>((resolve) => { parked = resolve; });
+    foreign = review.preview(penelope.id, { itemId: current.id, optionId: "media-delete", expectedVersion: current.version, input: null }).catch(() => {});
+    // Its scan is running once its plan parks in the hold (or it ended without one).
+    await Promise.race([inPlan, foreign]);
+    parked = undefined;
   }
   if (p.start) await review.command(principal.id, "start");
-  return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext, files });
+  // The real media flow (#2783): boot it, then read its bytes, counts and remote, or kill and boot it again.
+  const result: Record<string, unknown> = {};
+  if (p.mediaFlow) {
+    if (flow) throw new Error("media flow already running");
+    // Loaded only for a flow scene: every other scene starts and stops as before.
+    const { createMediaFlow } = await import("../../../ui-server/tests/helpers/media-flow.js");
+    flow = createMediaFlow(p.mediaFlow);
+    await flow.boot();
+    if (p.mediaFlow.start !== false) await flow.command("start");
+  }
+  if (flow && p.flowRestart) { const port = Number(new URL(flow.url).port); await flow.kill(); await flow.boot({ port }); }
+  if (flow && p.flowParity) result.parity = await flow.parity({ sync: p.flowParity === "sync", eligibility: !!p.flowEligibility });
+  if (flow && p.flowBytes) { result.bytes = flow.bytes(); result.texts = Object.fromEntries((p.flowBytes === true ? [] : p.flowBytes as string[]).map(path => [path, flow!.text(path)])); }
+  if (flow && p.flowRemote) result.remote = flow.remoteFiles();
+  if (flow && p.flowRead) result.flowRead = await flow.read();
+  return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext, files, flow: flow ? { url: flow.url, ...result } : null });
 });
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -588,5 +627,6 @@ process.on("SIGTERM", () => {
   server.stop(true);
   db.close();
   rmSync(scratch, { recursive: true, force: true });
-  process.exit(0);
+  if (!flow) process.exit(0);
+  void flow.close().finally(() => process.exit(0));
 });
