@@ -2267,6 +2267,7 @@ signatures (every public export and the types it is made of)
         title: string;
         operations: StatusIndicatorOperation[];
         returnFocus?: () => HTMLElement | null;
+        announce?: boolean;
     }
   StatusIndicatorState (packages/ui-kit/src/chrome/StatusIndicator.tsx)
     export type StatusIndicatorState = "active" | "queued" | "success" | "attention" | "unknown" | "failed" | "refused" | "idle";
