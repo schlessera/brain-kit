@@ -1,7 +1,7 @@
 import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { apiBaseFor } from "./backend.js";
-import { createAttachmentQueue, type AttachmentQueue } from "./attachment-queue.js";
+import { createAttachmentQueue, type AttachmentQueue, type QueuedFile } from "./attachment-queue.js";
 
 /**
  * One root's generic upload queues, per composer view (#3155).
@@ -40,9 +40,14 @@ function guardLeaving(reg: Registry) {
   }
 }
 
-/** The stored original joins its draft: the draft's next save binds it. */
-function storedInto(root: BrainUiServices, sessionId: string | null, draftId: string, file: AttachmentFile) {
+/** The stored original joins its draft, or the held snapshot it belongs to: the next save binds it. */
+function storedInto(root: BrainUiServices, sessionId: string | null, item: QueuedFile, file: AttachmentFile) {
+  const draftId = item.draftId;
   const drafts = root.stores.drafts.getState();
+  if (item.snapshotId) {
+    drafts.snapshotStored(drafts.resolveId(draftId), item.snapshotId, item.id, file);
+    return;
+  }
   const { draftId: target } = drafts.resolveTarget(draftId, sessionId);
   const current = drafts.drafts[target]?.files ?? [];
   if (current.some((f) => f.file.fileId === file.fileId)) return;
@@ -59,7 +64,15 @@ export function filesFor(root: BrainUiServices, key: string, sessionId: string |
         request: root.request,
         apiBase: apiBaseFor(root.config),
         resolveDraft: (draftId) => root.stores.drafts.getState().resolveId(draftId),
-        stored: (item, file) => storedInto(root, sessionId, item.draftId, file),
+        stored: (item, file) => storedInto(root, sessionId, item, file),
+        // A held snapshot's upload that was not stored returns that message (rev 5 §2).
+        settled: (item) => {
+          if (!item.snapshotId) return false;
+          const drafts = root.stores.drafts.getState();
+          drafts.snapshotUploadFailed(drafts.resolveId(item.draftId), item.snapshotId, item.id,
+            { kind: item.state === "refused" ? "refused" : "failed", file: item.name, reason: item.detail ?? item.status ?? "upload failed" });
+          return true;
+        },
         changed: () => { for (const l of listeners) l(); guardLeaving(reg); },
       }),
       listeners,
@@ -77,4 +90,11 @@ export function disposeFiles(root: BrainUiServices): void {
   for (const entry of reg.entries.values()) entry.queue.dispose();
   reg.entries.clear();
   guardLeaving(reg);
+}
+
+/** A held snapshot was cancelled: its uploads stop, in whichever view's queue they wait. */
+export function dropSnapshotUploads(root: BrainUiServices, snapshotId: string): void {
+  const reg = registries.get(root.stores);
+  if (!reg) return;
+  for (const entry of reg.entries.values()) entry.queue.dropSnapshot(snapshotId);
 }
