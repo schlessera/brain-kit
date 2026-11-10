@@ -242,3 +242,22 @@ test("a refused diagnostic write still reports unresolved recovery without block
     expect(JSON.parse((db.query("SELECT recovery_failure FROM turn_journal_reservations").get() as {recovery_failure:string}).recovery_failure)).toMatchObject({hash:bad,message:"EACCES"});
   } finally {db.close();rmSync(root,{recursive:true,force:true});}
 });
+
+test("a damaged stored recovery cause is replaced by the current cause instead of refusing recovery", () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-damaged-cause-odysseus-")), path = join(root, "ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db,path);
+  const bad = "c".repeat(64);
+  try {
+    for (const stored of ["{not json", "null"]) {
+      ledger.write(() => {
+        db.query("DELETE FROM turn_journal_reservations").run(); db.query("DELETE FROM turn_journal_objects").run();
+        db.query("INSERT INTO turn_journal_objects VALUES (?,8,'pending')").run(bad);
+        db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash,recovery_failure) VALUES ('ithaca',8,?,'gone',0,?,?)").run(process.pid,bad,stored);
+      });
+      const objects = {has() {throw Error("EIO");},verify() {return true;},discardPending() {}};
+      const report = ledger.recover(objects);
+      expect(report, `JOURNAL_DAMAGED_CAUSE_DOES_NOT_REFUSE_BOOT_${stored}`).toMatchObject({unresolvedRecords:1,firstCause:{hash:bad,message:"EIO"}});
+      expect(db.query("SELECT bytes FROM turn_journal_reservations").get(), "JOURNAL_DAMAGED_CAUSE_KEEPS_CHARGE").toEqual({bytes:8});
+    }
+  } finally {db.close();rmSync(root,{recursive:true,force:true});}
+});

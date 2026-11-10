@@ -184,9 +184,11 @@ charge is unknown or when quarantine alone leaves too little budget for the
 configured per-stage allowance. In either case `healthy` is false. Individual
 stage requests use their actual requested allowance: a smaller request may fit;
 only pressure that can clear when active stages finish returns temporary busy.
-The refusal tells the owner to inspect private diagnostics, repair the original
-allowance or authoritative receipt, and restart the native manager. No unknown
-or surviving storage charge is released.
+The refusal tells the owner to inspect private diagnostics, then either repair
+the stage's receipt or confirm its storage is removed (bounded quarantine) or
+restore the allowance record from proof of the original size (unknown bound),
+and to restart the native manager and the server: `nativeRecovery` is read when
+the server boots. No unknown or surviving storage charge is released.
 
 The response also adds optional `journalRecovery`, declared by `SystemStatus`:
 `{ unresolvedRecords: number, firstCause: null | { reservationId: string,

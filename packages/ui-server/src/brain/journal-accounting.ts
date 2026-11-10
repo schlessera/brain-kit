@@ -251,9 +251,14 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         } catch (error) {
           // An I/O refusal proves neither existence nor corruption. Keep the
           // reservation and its state untouched for the next recovery pass.
-          const cause: NonNullable<JournalRecoveryStatus["firstCause"]> = row.recovery_failure ? JSON.parse(row.recovery_failure) : {
+          const fresh: NonNullable<JournalRecoveryStatus["firstCause"]> = {
             reservationId: row.id, hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
             errorClass: error instanceof Error ? error.name : "Error", message: (error instanceof Error ? error.message : String(error)).slice(0, 2000) };
+          // A damaged stored cause is a diagnostic, never a boot refusal.
+          let stored: unknown;
+          try { stored = row.recovery_failure ? JSON.parse(row.recovery_failure) : undefined; } catch { stored = undefined; }
+          const cause: NonNullable<JournalRecoveryStatus["firstCause"]> = stored && typeof stored === "object" && typeof (stored as { at?: unknown }).at === "number"
+            ? stored as NonNullable<JournalRecoveryStatus["firstCause"]> : fresh;
           let diagnosticError: string | undefined;
           try {
             // The cause belongs to the existing reservation: it disappears only
@@ -265,7 +270,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           // into a boot refusal. Return the cause to the owner even in that case.
           report.unresolvedRecords++;
           if (!report.firstCause || cause.at < report.firstCause.at) report.firstCause = cause;
-          process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", ...cause, ...(diagnosticError ? { diagnosticError } : {}) }) + "\n");
+          process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", ...cause,
+            ...(cause !== fresh ? { currentErrorClass: fresh.errorClass, currentError: fresh.message } : {}), ...(diagnosticError ? { diagnosticError } : {}) }) + "\n");
           continue;
         }
         if (!published && db.query("SELECT 1 FROM turn_journal_object_refs WHERE hash=? LIMIT 1").get(row.hash))

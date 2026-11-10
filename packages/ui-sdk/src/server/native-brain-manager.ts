@@ -407,11 +407,14 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     return intent;
   }
   function stagingRecoveryRefusal(allowance: number): string | undefined {
-    const cause = !Number.isFinite(quarantinedStageBytes)
-      ? "cannot establish a quarantined stage's storage bound"
-      : quarantinedStageBytes > 0 && fixed.stageBudgetBytes !== undefined && quarantinedStageBytes + allowance > fixed.stageBudgetBytes
-        ? "cannot fit the requested allowance beside quarantined stage storage" : undefined;
-    return cause ? `Native staging recovery ${cause}. Inspect the host-private recovery diagnostics, repair the allowance or authoritative receipt, and restart the native manager. Waiting for another conversation will not resolve it.` : undefined;
+    // Status is read at server boot, so the owner restarts both after a repair.
+    const restart = "then restart the native manager and the server. Waiting for another conversation will not resolve it.";
+    if (!Number.isFinite(quarantinedStageBytes)) return "Native output staging is blocked: a quarantined stage's storage size is unknown. "
+      + `Inspect the host-private recovery diagnostics and restore that stage's allowance record from proof of its original size, ${restart}`;
+    if (quarantinedStageBytes > 0 && fixed.stageBudgetBytes !== undefined && quarantinedStageBytes + allowance > fixed.stageBudgetBytes)
+      return "Native output staging is blocked: quarantined stage storage leaves too little budget for this request. "
+        + `Inspect the host-private recovery diagnostics and repair the stage's receipt or confirm its storage is removed, ${restart}`;
+    return undefined;
   }
   async function ready(signal?: AbortSignal): Promise<NativeManagerReady> {
     const identity = await qualify(signal); await ensureReserve(signal);
