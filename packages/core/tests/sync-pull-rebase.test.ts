@@ -90,7 +90,7 @@ describe("rebase-first sync pull", () => {
     const recorder = recordingGit(root);
     const { body, result } = await pull(root, recorder.env);
     expect(readFileSync(join(root, CACHE), "utf-8")).toBe(ours);
-    expect(recorder.calls().some((line) => line.includes("rebase --abort"))).toBe(true);
+    expect(recorder.calls()).toContainEqual(expect.stringContaining("rebase --abort"));
     expect(body.mergedCaches).toContain(CACHE);
     expect(body.status).toBe("conflicted");
     expect(result.code).toBe(0);
