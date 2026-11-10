@@ -128,7 +128,7 @@ test("claude: real admission and worker state copy refuse pre-policy history, co
     expect(readFileSync(transcript(PRE_POLICY), "utf8"), "CLAUDE_DENIED_RESUME_NEVER_RECEIVES_SENTINEL").not.toContain('"sentinel":"found"');
     expect({ dispatched, spawned }, "CLAUDE_PRE_POLICY_NO_COPY_NO_DISPATCH").toEqual({ dispatched: 0, spawned: 0 });
     expect(refused, "CLAUDE_PRE_POLICY_REFUSAL_ACTIONABLE").toContain("Start a new conversation; the saved one is kept unchanged");
-    expect(readFileSync(transcript(PRE_POLICY)).equals(savedPrePolicy), "CLAUDE_SAVED_TRANSCRIPT_BYTE_IDENTICAL").toBe(true);
+    expect(readFileSync(transcript(PRE_POLICY), "utf8"), "CLAUDE_SAVED_TRANSCRIPT_BYTE_IDENTICAL").toBe(savedPrePolicy.toString("utf8"));
 
     expect(await h.send("A fresh voyage under the rule."), "CLAUDE_FRESH_DENIED_ADMITTED").toBe("");
     expect(await Promise.all(exits), "CLAUDE_WORKER_EXITS_CLEANLY").toEqual([0]);
@@ -138,14 +138,14 @@ test("claude: real admission and worker state copy refuse pre-policy history, co
     expect(await h.send("The next leg.", born), "CLAUDE_BORN_MASKED_CONTINUES").toBe("");
     await Promise.all(exits);
     expect(report(born), "CLAUDE_BORN_MASKED_PRIOR_HISTORY_BYTE_IDENTICAL").toEqual({ prior: sha(before), memory: "absent", sentinel: "unseen" });
-    expect(readFileSync(transcript(born)).subarray(0, before.length).equals(before), "CLAUDE_HISTORY_APPEND_ONLY").toBe(true);
+    expect(readFileSync(transcript(born)).subarray(0, before.length).toString("utf8"), "CLAUDE_HISTORY_APPEND_ONLY").toBe(before.toString("utf8"));
 
     // Paired control: without provider rules the old conversation resumes with memory.
     writePolicy(b.brain, null);
     expect(await h.send("Continue the old voyage.", PRE_POLICY), "CLAUDE_UNMASKED_RESUME_ADMITTED").toBe("");
     await Promise.all(exits);
     expect(report(PRE_POLICY), "CLAUDE_UNMASKED_RESUMES_WITH_HISTORY_AND_MEMORY").toEqual({ prior: sha(savedPrePolicy), memory: "present", sentinel: "found" });
-    expect(readFileSync(join(config, project, "memory/MEMORY.md")).equals(savedMemory), "CLAUDE_SAVED_MEMORY_BYTE_IDENTICAL").toBe(true);
+    expect(readFileSync(join(config, project, "memory/MEMORY.md"), "utf8"), "CLAUDE_SAVED_MEMORY_BYTE_IDENTICAL").toBe(savedMemory.toString("utf8"));
   } finally { route.mockRestore(); h.host.close(); b.db.close(); rmSync(b.root, { recursive: true, force: true }); }
 });
 
@@ -200,7 +200,7 @@ test("pi: real admission and session open refuse pre-policy entries and continue
     expect(JSON.stringify(inits), "PI_DENIED_RESUME_NEVER_RECEIVES_SENTINEL").not.toContain(TRANSCRIPT_SENTINEL);
     expect(inits, "PI_PRE_POLICY_NO_COPY_NO_DISPATCH").toEqual([]);
     expect(refused, "PI_PRE_POLICY_REFUSAL_ACTIONABLE").toContain("Start a new conversation; the saved one is kept unchanged");
-    expect(readFileSync(join(sessionDir, `${PRE_POLICY}.jsonl`)).equals(savedPrePolicy), "PI_SAVED_TRANSCRIPT_BYTE_IDENTICAL").toBe(true);
+    expect(readFileSync(join(sessionDir, `${PRE_POLICY}.jsonl`), "utf8"), "PI_SAVED_TRANSCRIPT_BYTE_IDENTICAL").toBe(savedPrePolicy.toString("utf8"));
 
     expect(await h.send("A fresh voyage under the rule."), "PI_FRESH_DENIED_ADMITTED").toBe("");
     const born = inits.at(-1)!.sessionId;
