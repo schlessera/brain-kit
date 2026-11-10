@@ -145,7 +145,9 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
     const meta = getGraphMeta(graph, { brainPath });
     expect(meta.available, DRIFT).toBe(true);
     expect(meta.schemaVersion).toBe(writtenSchemaVersion);
-    expect(meta.computedAt, DRIFT).toBeTruthy();
+    // Core stamps the precompute with an ISO-8601 UTC instant; staleness is
+    // judged by parsing it, so any other shape is drift.
+    expect(meta.computedAt, DRIFT).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(meta.stale).toBe(false);
     expect(meta.nodeCount, DRIFT).toBeGreaterThan(10);
     expect(meta.edgeCount, DRIFT).toBeGreaterThan(10);
@@ -168,7 +170,9 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
     // Precomputed analytics made it through the join.
     const plan = clusters.nodes.find((n) => n.path === "projects/active/raft/plan.md");
     expect(plan?.pagerank, DRIFT).toBeGreaterThan(0);
-    expect(plan?.community, DRIFT).toBeDefined();
+    // The node's community is one the meta lists, not merely present.
+    const communities = getGraphMeta(graph, { brainPath }).communities.map((c) => c.community);
+    expect(communities, DRIFT).toContain(plan?.community);
     expect((plan?.inDegree ?? 0) + (plan?.outDegree ?? 0), DRIFT).toBeGreaterThan(0);
     expect(clusters.edges.length, DRIFT).toBeGreaterThan(10);
   });
