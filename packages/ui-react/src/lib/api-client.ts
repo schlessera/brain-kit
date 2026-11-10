@@ -19,6 +19,8 @@ import type {
   VoiceSessionRequest,
   VoiceProvidersResponse,
   DictationSettings,
+  VoiceLiveSettings,
+  VoiceLiveSettingsUpdate,
   PronunciationOverride,
   ProviderInfo,
   UnavailableProfileInfo,
@@ -516,6 +518,11 @@ export function createBrainApi(
     saveDictationSettings: (settings: DictationSettings) =>
       fetchJson<DictationSettings>("/voice/dictation/settings", { method: "PUT", headers: { "If-Match": `"${settings.revision}"` },
         body: JSON.stringify({ defaultProvider: settings.defaultProvider, smart: settings.smart }) }),
+
+    /** The saved default live-conversation service and its revision (#3616). Never opens a provider. */
+    liveSettings: () => fetchJson<VoiceLiveSettings>("/settings/voice", { cache: "no-store" }),
+    saveLiveSettings: (update: VoiceLiveSettingsUpdate) =>
+      fetchJson<VoiceLiveSettings>("/settings/voice", { method: "PUT", body: JSON.stringify({ defaultProvider: update.defaultProvider, revision: update.revision }) }),
 
     /** @deprecated use voiceSession(); kept during client transition. */
     voiceToken: () =>

@@ -2,7 +2,7 @@ import { createConversationRecovery } from "./conversation-recovery.js";
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
-import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationProfile, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationProfile, LiveDefault, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
@@ -69,7 +69,18 @@ export interface ConversationClientState {
   interaction: "Listening" | "Sending soon" | "Review before sending" | "Working" | "Speaking" | "Checking whether the reply stopped" | "Answering question";
   disclosureOpen: boolean;
   profile: ServerConversationOpened | null;
+  /**
+   * What explicit Start discloses and opens: the service this entry started
+   * with while it runs, else the one-time pick, else the effective service
+   * (#3616). Null when a pick is required or the host has none.
+   */
   conversationProfile: ConversationProfile | null;
+  /** Every registered live service (#3616); empty on a host that predates the roster. */
+  conversationProfiles: ConversationProfile[];
+  /** How a new Start resolves its service (#3616); null on a host that predates it. */
+  liveDefault: LiveDefault | null;
+  /** The one-time pick for this entry's Start (#3616 L1/L2). Never saved. */
+  serviceChoice: string | null;
   durableAvailable: boolean;
   sessionId: string | null;
   agentProviderId: string | null;
@@ -117,7 +128,7 @@ function outputInSession(output: ConversationClientOutput, sessionId: string) {
 
 /** Concrete root-owned orchestration; ordinary chat frames keep their existing path. */
 export function createConversationClient(root: BrainUiServices, send: (message: ClientMessage) => boolean, answer: (sessionId: string | null, text: string) => boolean) {
-  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, capture: "idle", interaction: "Listening", disclosureOpen: false, profile: null, conversationProfile: null, durableAvailable: false, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
+  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, capture: "idle", interaction: "Listening", disclosureOpen: false, profile: null, conversationProfile: null, conversationProfiles: [], liveDefault: null, serviceChoice: null, durableAvailable: false, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
   let durableAvailable = false;
   let dialoguePrincipalKey:string|undefined;
   const dialogueReads = new Map<string, { key: string; ownerId?: string; older: boolean }>();
@@ -159,6 +170,22 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   let inputLevel = 0;
   let agreedDisclosure: string | undefined;
   let agreedEntry: number | undefined;
+  // The legacy hello profile, for a host without a service roster (#3616).
+  let advertisedProfile: ConversationProfile | null = null;
+  // The service an explicit Start agreed to; it holds until Leave, so a saved
+  // default changed meanwhile never retargets this entry or its reconnects.
+  let startedService: string | null = null;
+  function liveProfile(): ConversationProfile | null {
+    const s = state.getState();
+    if (!s.conversationProfiles.length || !s.liveDefault) return advertisedProfile;
+    const id = (s.active ? startedService : null) ?? (s.active ? s.serviceChoice : null) ?? s.liveDefault.effective;
+    return s.conversationProfiles.find((p) => p.providerId === id) ?? null;
+  }
+  function applyLiveProfile() {
+    const profile = liveProfile();
+    if (profile !== state.getState().conversationProfile) state.setState({ conversationProfile: profile });
+    return profile;
+  }
   let draftId: string | null = null;
   let draftOrigin: string | null = null;
   let savedVoice = "";
@@ -469,7 +496,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     entryLifetime++; agreedEntry = undefined; agreedDisclosure = undefined;
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
-    state.setState(s => ({ active: false, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.unsaved || f.finalization !== "interim") }));
+    startedService = null;
+    state.setState(s => ({ active: false, serviceChoice: null, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.unsaved || f.finalization !== "interim") }));
+    applyLiveProfile();
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
     if (retainedOwner && leaving && !state.getState().sessionId) {
       const key = `dialogue:${retainedOwner}`;
@@ -496,7 +525,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     sequence = 0; utterance = null; ended = false; clearTimers(); resetRecovery();
     const s = state.getState();
     openingId = crypto.randomUUID(); openingEntry = entryLifetime;
-    send({ type: "conversation_start", disclosed: advertised, contextualTasks: true, requestId: openingId, ...((!s.sessionId || historyOwnerFor(s.sessionId)) && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId && historyOwnerFor(s.sessionId) ? {historyOwnerId:historyOwnerFor(s.sessionId)} : s.sessionId ? { sessionId: s.sessionId } : {}) });
+    send({ type: "conversation_start", disclosed: advertised, ...(s.conversationProfiles.length ? { providerId: advertised.providerId } : {}), contextualTasks: true, requestId: openingId, ...((!s.sessionId || historyOwnerFor(s.sessionId)) && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId && historyOwnerFor(s.sessionId) ? {historyOwnerId:historyOwnerFor(s.sessionId)} : s.sessionId ? { sessionId: s.sessionId } : {}) });
   }
   async function capture() {
     const profile = scope();
@@ -638,7 +667,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     permissions.clear(); localTones.clear(); fragments.clear(); capturedInputs.clear(); retiredInputs.clear();
     manualReview.clear(); incompleteReview.clear(); unassignedThrough=-1; seenRecognition.clear();
     lastInput=undefined; utterance=null; draftId=null; draftOrigin=null; savedVoice="";
-    state.setState({active:false,token:generation,profile:null,conversationProfile:null,voiceDraft:null,dialogue:{},dialogueRestoredThrough:{},dialogueNotice:"",work:{},outputs:[],unassigned:[],recognition:[],unassignedWork:0,available:false});
+    advertisedProfile=null; startedService=null;
+    state.setState({active:false,token:generation,profile:null,conversationProfile:null,conversationProfiles:[],liveDefault:null,serviceChoice:null,voiceDraft:null,dialogue:{},dialogueRestoredThrough:{},dialogueNotice:"",work:{},outputs:[],unassigned:[],recognition:[],unassignedWork:0,available:false});
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
   }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
@@ -738,12 +768,25 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       }
       if (!unsavedOverflow) state.setState({dialogueNotice: dialogueDiagnostic(message.code)}); return null;
     }
+    if (message.type === "live_settings") {
+      // A saved default changed (#3616). The next Start uses it; a running
+      // entry keeps the service it started with.
+      state.setState({ conversationProfiles: message.conversationProfiles, liveDefault: message.liveDefault });
+      applyLiveProfile();
+      return null;
+    }
     if (message.type === "server_hello") {
-      const profile = message.conversationProfile ?? null;
-      state.setState({ conversationProfile: profile, available: !!profile && message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true });
+      advertisedProfile = message.conversationProfile ?? null;
+      const roster = message.conversationProfiles && message.liveDefault ? message.conversationProfiles : [];
+      const live = message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true;
+      state.setState({ conversationProfiles: roster, liveDefault: roster.length ? message.liveDefault! : null });
+      const profile = liveProfile();
+      // With a roster, a host whose Start needs a pick is still available: the pick comes first.
+      state.setState({ conversationProfile: profile, available: live && (!!profile || roster.length > 0) });
       if (state.getState().active) {
         if (profile && !requireCurrentDisclosure()) startEpoch();
-        else if (!profile) { agreedEntry=undefined; entryLifetime++; pause(false,true); state.setState({disclosureOpen:true,notice:"Voice is unavailable until this host supplies its disclosure."}); }
+        // A pick still to be made before Start is not a missing disclosure (#3616).
+        else if (!profile && (startedService !== null || !roster.length)) { agreedEntry=undefined; entryLifetime++; pause(false,true); state.setState({disclosureOpen:true,notice:"Voice is unavailable until this host supplies its disclosure."}); }
       }
     }
     if (message.type === "session_info" && message.requestId) {
@@ -984,7 +1027,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   });
   const unwatchProvider = root.stores.provider.subscribe(() => { requireCurrentDisclosure(); });
   const unwatchConnection = root.stores.connection.subscribe((next, previous) => {
-    if(next.wsStatus !== previous.wsStatus && next.wsStatus !== "connected") {dialogueReads.clear(); state.setState({conversationProfile:null,available:false});}
+    if(next.wsStatus !== previous.wsStatus && next.wsStatus !== "connected") {dialogueReads.clear(); advertisedProfile=null; state.setState({conversationProfile:null,conversationProfiles:[],liveDefault:null,available:false});}
     if (!state.getState().active || next.wsStatus === previous.wsStatus) return;
     if (next.wsStatus !== "connected") suspend();
     else { state.setState({ connection: "Reconnecting" }); startEpoch(); announce(consent ? "Reconnected. Restoring listening." : "Reconnected. Microphone off."); }
@@ -1031,19 +1074,38 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       const agentProviderId = providers.available.some((provider) => provider.id === providers.selectedId) ? providers.selectedId : null;
       entryLifetime++;
       entryProfileId = providers.pinnedId ?? agentProviderId;
+      startedService = null;
+      state.setState({ serviceChoice: null });
       state.setState({ active: true, sessionId, agentProviderId, recognition: state.getState().recognition.filter(f => !f.contextual || f.sessionId === sessionId), unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
       // A new entry needs Start even when the service matches the last visit.
       agreedDisclosure = undefined;
+      applyLiveProfile();
       root.stores.voice.getState().setMode("conversation");
       agreedEntry = undefined; setConsent(false, "idle"); permissions.refresh();
     },
     start() {
-      const profile = state.getState().conversationProfile;
+      const profile = applyLiveProfile();
       if (!state.getState().active || !profile || (typeof document !== "undefined" && document.hidden) || root.stores.connection.getState().wsStatus !== "connected") return;
+      // The service is fixed for this entry from here, whatever is saved later.
+      if (state.getState().conversationProfiles.length) startedService = profile.providerId;
       agreedDisclosure = disclosureKey(profile); agreedEntry = entryLifetime; setConsent(true);
       state.setState({ disclosureOpen: false }); startEpoch(); void capture();
     },
     details() { state.setState({ disclosureOpen: true }); },
+    /**
+     * The one-time service pick before Start (#3616 L1/L2): Change when
+     * several services are usable, or the explicit pick a missing default
+     * requires. It applies to this entry's Start only and is never saved;
+     * `null` returns to the effective service. Ignored once Start was agreed,
+     * and for an id the host does not register.
+     */
+    chooseService(providerId: string | null) {
+      const s = state.getState();
+      if (!s.active || startedService !== null || agreedEntry === entryLifetime) return;
+      if (providerId !== null && !s.conversationProfiles.some((p) => p.providerId === providerId)) return;
+      state.setState({ serviceChoice: providerId });
+      applyLiveProfile();
+    },
     resume() { if (state.getState().disclosureOpen) return; setConsent(true); if (!ready) startEpoch(); void capture(); },
     mute() { setConsent(false, "muted"); if (ready && mic) endpoint(generation); clearTimers(); stopMic(); state.setState({ notice: MUTED_NOTICE }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
     commit,

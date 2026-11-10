@@ -126,6 +126,29 @@ changes keep it; a new take or a send clears it. It is announced once politely,
 never takes focus, and offers no automatic restart. Distinct local microphone
 notices remain visible afterward.
 
+### Choosing the live-conversation service
+
+The Live service group of Settings › Voice, below Dictation, holds the
+brain-wide default live-conversation service (#3616). It lists the services
+the host registered, from the connection's `server_hello`, and reads and
+writes `GET`/`PUT /api/settings/voice` against its revision; a pick saves at
+once. Rows are marked "saved default", "host default" (while nothing is saved)
+and "in use now"; a saved default the host no longer registers is a dashed
+"saved default · not available" row that cannot be chosen. With one service the
+group is a read-only row; with none it says live conversation isn't set up.
+Only the owner can change it: the route refuses anyone else, and the group then
+says so. A save applies from the next Start and never retargets a running
+conversation; opening or saving the group opens no provider, no microphone and
+reads no history. A save another device overtook says "Changed on another
+device. Showing the latest." and reloads; a failed save reverts and offers
+**Try again**.
+
+Before Start, the conversation client exposes the pick through
+`chooseService(providerId | null)`, which applies to that Start only and is
+never saved, and `conversationProfile` is the service Start would disclose and
+open: the pick, else the effective service, else `null` when a pick is required.
+The disclosure sheet offers that pick when several services are usable or the
+saved default is unavailable; the Start card (#3698) replaces it.
 ### Recording on the device
 
 Set `localCapture: true` and a stable `storagePrefix` on a persistent root to

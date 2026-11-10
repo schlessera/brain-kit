@@ -358,6 +358,9 @@ signatures (every public export and the types it is made of)
         disclosureOpen: boolean;
         profile: ServerConversationOpened | null;
         conversationProfile: ConversationProfile | null;
+        conversationProfiles: ConversationProfile[];
+        liveDefault: LiveDefault | null;
+        serviceChoice: string | null;
         durableAvailable: boolean;
         sessionId: string | null;
         agentProviderId: string | null;
@@ -1129,6 +1132,7 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<HygieneReviewRead>;
         hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => Promise<HygienePreviewResponse>;
         hygieneReview: () => Promise<HygieneReviewRead>;
+        liveSettings: () => Promise<VoiceLiveSettings>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1231,6 +1235,7 @@ signatures (every public export and the types it is made of)
         }>;
         refreshModels: () => Promise<ModelCatalogResponse>;
         saveDictationSettings: (settings: DictationSettings) => Promise<DictationSettings>;
+        saveLiveSettings: (update: VoiceLiveSettingsUpdate) => Promise<VoiceLiveSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<SessionRecoveryResult>;
@@ -1382,6 +1387,7 @@ signatures (every public export and the types it is made of)
         connect: () => () => void;
         conversation: {
             attachControls(): () => void;
+            chooseService(providerId: null | string): void;
             commit: (own: number) => boolean;
             details(): void;
             discard(): void;
@@ -1633,6 +1639,7 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").HygienePreviewResponse>;
         hygieneReview: () => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        liveSettings: () => Promise<import("@schlessera/brain-ui-sdk").VoiceLiveSettings>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1735,6 +1742,7 @@ signatures (every public export and the types it is made of)
         }>;
         refreshModels: () => Promise<import("@schlessera/brain-ui-sdk").ModelCatalogResponse>;
         saveDictationSettings: (settings: import("@schlessera/brain-ui-sdk").DictationSettings) => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
+        saveLiveSettings: (update: import("@schlessera/brain-ui-sdk").VoiceLiveSettingsUpdate) => Promise<import("@schlessera/brain-ui-sdk").VoiceLiveSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<import("@schlessera/brain-ui-sdk").SessionRecoveryResult>;
