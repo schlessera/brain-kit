@@ -35,6 +35,13 @@ import { makeMockBridge } from "./mock-bridge";
 
 const CTX = {} as never;
 const settle = () => new Promise((r) => setTimeout(r, 15));
+/** Wait until each session's turn has reached its prompt: it has acquired, subscribed and emitted session_info. */
+async function prompted(...controls: Array<{ promptCalls: unknown[] }>) {
+  for (const deadline = Date.now() + 3_000; controls.some((c) => c.promptCalls.length === 0) && Date.now() < deadline;) {
+    await new Promise((r) => setTimeout(r, 1));
+  }
+  expect(controls.map((c) => c.promptCalls.length)).toEqual(controls.map(() => 1));
+}
 
 /** A bridge whose frames land in a shared array (so tests demux by sessionId). */
 function sharedBridge(frames: ServerMessage[]): BackendBridge {
@@ -130,7 +137,7 @@ describe("pi backend — parallel sessions", () => {
         signal: new AbortController().signal,
         bridge: sharedBridge(frames),
       });
-      await settle(); // both acquire, subscribe, emit session_info, park on prompt
+      await prompted(a.control, b.control); // both acquire, subscribe, emit session_info, park on prompt
 
       // Interleave emissions across the two live sessions.
       a.control.emitText("a1");
@@ -148,8 +155,8 @@ describe("pi backend — parallel sessions", () => {
       expect(combined).toEqual(["A:a1", "B:b1", "A:a2", "B:b2"]);
 
       for (const id of ["A", "B"]) {
-        expect(frames.some((f) => f.type === "session_info" && f.sessionId === id)).toBe(true);
-        expect(frames.some((f) => f.type === "result" && f.sessionId === id)).toBe(true);
+        expect(frames.filter((f) => f.type === "session_info").map((f) => f.sessionId)).toContain(id);
+        expect(frames.filter((f) => f.type === "result").map((f) => f.sessionId)).toContain(id);
       }
     } finally {
       brain.cleanup();
@@ -172,7 +179,7 @@ describe("pi backend — parallel sessions", () => {
       const c1 = new AbortController();
       const mock1 = makeMockBridge();
       const turn1 = backend.startTurn({ prompt: "1", signal: c1.signal, bridge: mock1.bridge });
-      await settle();
+      await prompted(s.control);
       expect(mock1.emitted.find((f) => f.type === "session_info")?.sessionId).toBe("S");
 
       const mock2 = makeMockBridge();
@@ -199,7 +206,7 @@ describe("pi backend — parallel sessions", () => {
         signal: new AbortController().signal,
         bridge: mock3.bridge,
       });
-      expect(mock3.emitted.some((f) => f.type === "result" && f.sessionId === "S")).toBe(true);
+      expect(mock3.emitted.filter((f) => f.type === "result").map((f) => f.sessionId)).toEqual(["S"]);
     } finally {
       brain.cleanup();
     }
@@ -221,7 +228,7 @@ describe("pi backend — parallel sessions", () => {
       const c = new AbortController();
       const mock = makeMockBridge();
       const turn = backend.startTurn({ prompt: "start", signal: c.signal, bridge: mock.bridge });
-      await settle();
+      await prompted(f.control);
       expect(mock.emitted.find((m) => m.type === "session_info")?.sessionId).toBe("F");
 
       // Follow-up lands in the running turn via streamingBehavior "followUp".
