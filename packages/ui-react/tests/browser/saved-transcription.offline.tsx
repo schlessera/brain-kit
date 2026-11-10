@@ -100,6 +100,8 @@ async function confirm(c: ReturnType<typeof fixture>, retry = false) {
   expect(c.host.textContent).toContain("to your server for transcription? Your server sends it to Deepgram.");
 }
 for (const theme of ["dark", "light"]) for (const width of [320, 1280]) test(`consent, progress, durable review and account boundary at ${width}px ${theme}`, async ctx => {
+  const previousTheme = document.documentElement.dataset.theme;
+  ctx.onTestFinished(() => { if (previousTheme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previousTheme; });
   await commands.formViewport(width, 900); await page.viewport(width, 900); document.documentElement.dataset.theme = theme;
   const c = fixture(ctx); const row = await c.seed(); c.mount(); await expand(c); await confirm(c);
   await new Promise(resolve => setTimeout(resolve, 100));
@@ -321,7 +323,7 @@ for (const width of [320, 1280]) test(`a dictation service without saved audio o
   expect(group.textContent).toContain("Beta Live can't transcribe saved recordings.");
   const radios = [...group.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
   expect(radios.map(r => r.closest("label")!.textContent)).toEqual(["Alpha Transcribe", "Gamma Archive"]);
-  expect(radios.some(r => r.checked), "nothing is chosen for the reader among several").toBe(false);
+  expect(radios.map(r => r.checked), "nothing is chosen for the reader among several").toEqual([false, false]);
   for (const radio of radios) expect(radio.closest("label")!.getBoundingClientRect().height, "44px choice targets").toBeGreaterThanOrEqual(44);
   expect(button(c.host, "Upload and transcribe").getAttribute("aria-disabled") ?? String((button(c.host, "Upload and transcribe") as HTMLButtonElement).disabled), "no upload until a service is chosen").toMatch(/true/);
   await tap(radios[1]!);
