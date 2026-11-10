@@ -1469,7 +1469,7 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:272`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:246-267`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:279-300`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
@@ -1481,7 +1481,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:551-558`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:584-591`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1602,11 +1602,11 @@ with retained bytes.
 **What the journal records.** Observation and before-version capture classify
 these versions as metadata-only and never open them for retention
 (`const retained = (entry`,
-`packages/ui-server/src/brain/native-journal-capture.ts:40`). A version keeps
+`packages/ui-server/src/brain/native-journal-capture.ts:41`). A version keeps
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
-(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:81`),
+(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:83`),
 so every observed refresh remains a recorded change. A metadata-only version is an intentional
 observation state: it adds no `missing` entry and does not make the turn
 partial. Removal coverage never treats the family as eligible, and history
@@ -1618,7 +1618,7 @@ stays now counts its largest size once too, rather than each version.
 **History.** History presents every index-family version as metadata-only
 however it was recorded, so a version an earlier release retained is no
 longer read
-(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:74-79`).
+(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:76-81`).
 The reader groups these entries as the search index, recorded by size and
 timestamps only, with no review action. Preview reports `metadata_only` and
 download has nothing to serve. History revert and Undo read that same
@@ -1675,11 +1675,11 @@ keeps its bytes.
 
 **The purge.** It runs once, on the journal's write worker, when the journal
 opens, after interrupted turns have been ended
-(`while (await ledger.call`, `packages/ui-server/src/brain/turn-journal.ts:121`),
+(`while (await ledger.call`, `packages/ui-server/src/brain/turn-journal.ts:129`),
 in at most two accounted commits whose progress is recorded in
 `turn_journal_allocation.index_purge`
 (`purgeIndexVersions(): IndexPurgeResult`,
-`packages/ui-server/src/brain/journal-store.ts:184-223`):
+`packages/ui-server/src/brain/journal-store.ts:186-225`):
 
 1. Every recorded index-family version, in history and in revert records, is
    rewritten to the metadata-only form a new one has: kind, mode, size and the
@@ -1743,7 +1743,7 @@ migrations before accounting can admit them.
 **Admission before storage.** The upgrade runs on the journal write worker,
 through the same `BEGIN IMMEDIATE`, `synchronous=FULL` accounting as its data
 writes (`function ensureObjectRefIndex`,
-`packages/ui-server/src/brain/journal-accounting.ts:164-193`). Under that lock,
+`packages/ui-server/src/brain/journal-accounting.ts:170-199`). Under that lock,
 it reserves a conservative allowance for index records, b-tree fill/interior
 pages and schema/pointer-map overhead, plus the WAL capacity over the enlarged
 file and all existing WAL debt, objects and reservations. It assumes no reuse
@@ -1773,7 +1773,7 @@ attempts it without making recovery depend on success. Ordinary collection
 tries before deleting, runs the existing integrity-checked path if it was
 refused, and retries after the freed object bytes make room
 (`collectObjects(): void`,
-`packages/ui-server/src/brain/journal-store.ts:157-163`). Freeing rows alone
+`packages/ui-server/src/brain/journal-store.ts:159-165`). Freeing rows alone
 does not credit persistent pages: they remain charged until reclamation is
 observed. Every pin and reservation keeps its object throughout success,
 refusal, failure and restart, and foreign keys remain enabled on every ordinary
@@ -1816,7 +1816,7 @@ fresh globals per request, with the path as its only argument, and answers
 with the program's output, its exit status and the traceback a fresh launch
 printed, without the loop's own frame. The manager turns a failure into the
 same refusal a failed launch produced (`async function inspection`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:186-190`). Every
+`packages/ui-sdk/src/server/native-brain-manager.ts:189-193`). Every
 `qualify` and `verifyOwned` still inspects the live path on every operation;
 nothing is cached between requests. An interrupted, timed-out, oversized or
 malformed exchange, or one with an interpreter that died, kills the
@@ -1853,7 +1853,7 @@ brain and every managed worktree, has its own owner, and each owner keeps at
 most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
 queued or failed. An observation makes room before it takes its own
 checkpoint (`async function reserveRelease`,
-`packages/ui-server/src/brain/native-journal-observer.ts:349-355`): it waits
+`packages/ui-server/src/brain/native-journal-observer.ts:356-362`): it waits
 inside the hold for the oldest queued release, or, when failed releases fill
 the bound, retries the oldest one inside the hold, as every release ran
 before. If that retry fails, the observation is refused before it takes a
@@ -1861,7 +1861,7 @@ checkpoint, so the bound is never exceeded. Each retained checkpoint is charged 
 it holds that the live root no longer has: the bytes of every file version
 replaced or removed since it was taken
 (`releases(): NativeJournalReleaseAccounting`,
-`packages/ui-server/src/brain/native-journal-observer.ts:505-509`).
+`packages/ui-server/src/brain/native-journal-observer.ts:512-516`).
 Directory and other metadata extents are not counted. The store's free space,
 which the `free_space_floor` scope limit reads, counts the actual extents until
 each release completes. Shutdown waits for every queued release, retries
@@ -1870,15 +1870,25 @@ checkpoint still retained; startup recovery releases those. A release that
 never settles is bounded by the manager client's transport deadline, not by
 the owner.
 
-**A failed release (revised by #3815).** The superseded checkpoint stays
+**A failed release (revised by #3815 and #3825).** The superseded checkpoint stays
 retained and charged, and its owner retries every thirty seconds without a new
 observation. Its replacement observation already committed, so the failure
 neither stops active turns nor makes their records partial, and admissions
 continue while the retained-checkpoint bound has room. The cause and checkpoint
 identity are logged and recorded in the affected turns' authenticated Activity.
 Only a full backlog that cannot make room refuses the next safe observation.
-Failures taking a checkpoint, reading its delta, capturing its versions or
-committing the observation retain their existing containment.
+When a managed worktree leaves observation at turn end or after capture fails,
+the journal retains any capture whose close still fails. It retries that close
+every thirty seconds until every release is confirmed. Retired captures remain
+in `cleanupStatus()` and authenticated `/api/status`, with their existing
+retained-byte accounting and durable last failure. The timer is unref'ed;
+shutdown cancels it and drains an in-flight retry before closing the journal's
+storage. Unconfirmed leases stay charged for startup recovery. A final or
+uncommitted checkpoint whose first release fails during close is reported too;
+its replaced-byte estimate is zero because it has no measured replacements,
+while the pool still charges its actual extents. Failures taking a checkpoint,
+reading its delta, capturing its versions or committing the observation retain
+their existing containment.
 
 **Tests.** A fresh launch and the shared interpreter answer each refused
 inspection with the same exit status, output and traceback; every request sees
@@ -2535,7 +2545,7 @@ A peer whose plan only lacks a root is waited for, up to
 are planned only once a turn has translated it under the current policy hash,
 so writers admitted before that translation predate them, and every later
 writer inherits them from the held plan
-(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:342-353`).
+(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:381-392`).
 The translation is recorded in the UI database, so after the first one under a
 policy hash, writers in every process, the cron runner's and a restarted
 server's included, plan its folders without waiting (#2836).
@@ -3170,7 +3180,7 @@ index refresh or a cron job, retains them and the next turn's peer check
 passes. Admission records that translation in the UI database, one row per
 canonical brain holding the exact policy hash and its folders, so it reaches
 the cron runner's process and survives a restart (#2836;
-`function recordedTypeFolders`, `packages/ui-server/src/brain/writer-gate.ts:173-182`).
+`function recordedTypeFolders`, `packages/ui-server/src/brain/writer-gate.ts:175-184`).
 The host never translates it itself: only admission does, under its worker
 boundary. A missing, unreadable or other-hash record plans no type folder, and
 a stale one only retains an extra folder. Admission still refuses a peer
@@ -4319,7 +4329,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:380-445`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:413-478`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -4342,7 +4352,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:657-687`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:698-728`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
 
 ### Concurrent edits

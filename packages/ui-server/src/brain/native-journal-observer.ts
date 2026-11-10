@@ -32,7 +32,7 @@ interface NativeJournalChange {
 }
 export interface NativeJournalUnreadable {
   path: string; bytes: number | null; mode?: number; kind?: NativeJournalMetadata["kind"];
-  reason: "worker_reader_unavailable";
+  reason: "worker_reader_unavailable" | "retained_object_corrupt";
   ms: number;
 }
 export class NativeJournalObservationError extends Error {
@@ -321,18 +321,25 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   }
   const settledWaiters = new Set<() => void>();
   const queued = () => [...outstanding.values()].filter(entry => entry.state === "pending").length;
+  function failedRelease(id: string, error: unknown): void {
+    // A final or uncommitted root can first fail during close. It has no
+    // measured replaced bytes, but its lease must stay visible and owned too.
+    if (!outstanding.has(id)) outstanding.set(id, { bytes: 0, state: "failed" });
+    const entry = outstanding.get(id)!;
+    entry.state = "failed"; entry.error = error;
+    if (!entry.reported) {
+      entry.reported = true;
+      try { releaseFailed?.(error, id); } catch { /* Reporting never blocks the next release. */ }
+    }
+  }
   function releaseNext(): void {
     if (releasing) return;
     const next = [...outstanding].find(([, entry]) => entry.state === "pending");
     if (!next) { for (const settled of settledWaiters) settled(); settledWaiters.clear(); return; }
-    const [id, entry] = next;
+    const [id] = next;
     releasing = release(id).then(() => { outstanding.delete(id); }, error => {
       // The checkpoint stays retained and charged until a retry releases it.
-      entry.state = "failed"; entry.error = error;
-      if (!entry.reported) {
-        entry.reported = true;
-        try { releaseFailed?.(error, id); } catch { /* Reporting never blocks the next release. */ }
-      }
+      failedRelease(id, error);
       retryLater();
     }).finally(() => { releasing = undefined; releaseNext(); });
   }
@@ -516,7 +523,7 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
       if (pending) await pending.abort().catch(() => {});
       await releasesSettled();
       const errors: unknown[] = [];
-      for (const id of retained) { try { await release(id); outstanding.delete(id); } catch (error) { errors.push(error); } }
+      for (const id of retained) { try { await release(id); outstanding.delete(id); } catch (error) { failedRelease(id, error); errors.push(error); } }
       root = undefined; index = new MetadataIndex(); missingInventory.clear();
       if (errors.length) throw new NativeJournalObservationError(`${retained.size} native checkpoint(s) remain retained after shutdown: ${[...retained].join(", ")}. ${String(errors[0])}`);
     },

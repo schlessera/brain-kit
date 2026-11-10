@@ -1892,7 +1892,17 @@ export type GovernedStatus = {
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
+/** Unresolved object verification at journal boot; charges remain reserved. */
+export interface JournalRecoveryStatus {
+  unresolvedRecords: number;
+  firstCause: { reservationId: string; hash: string; at: number; errorClass: string; message: string; site: string } | null;
+}
+
 export interface SystemStatus {
+  /** Journal I/O recovery at server boot; only on authenticated status. */
+  journalRecovery?: JournalRecoveryStatus;
+  /** Native quarantine reported at server boot; only on authenticated status. */
+  nativeRecovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; stagingRefusal?: string; diagnosticsPath: string };
   healthy: boolean;
   uptime: number;
   /** The configured source commit (`"dev"` by default), never a release. */
@@ -2373,8 +2383,13 @@ export interface ClientConversationStop {
  * a single snapshot frame could outgrow the per-frame cap and be clipped.
  */
 export interface ServerConversationOpened {
-  /** Actual bounded startup text coverage; no semantic recall guarantee. */
-  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
+  /**
+   * Actual bounded startup text coverage; no semantic recall guarantee.
+   * `includedMessages` (#3699) is how many prior chat and spoken messages the
+   * startup context actually carried; completed results and gap markers are
+   * not counted. Absent from older hosts.
+   */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean; includedMessages?: number };
   historyGeneration?: number;
   historyOwnerId?: string;
   type: "conversation_opened";

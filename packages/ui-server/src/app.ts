@@ -1062,9 +1062,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route(
     "/api",
     createStatusRoutes({
+      getJournalRecovery: () => journal.recoveryStatus(),
       getJournalCleanup: () => journal.cleanupStatus(),
       sourceCommit: config.sourceCommit,
       getBackendAvailability: () => backendAvailability,
+      getNativeRecovery: () => nativeReady.recovery,
       getContentRenderers: async signal => brain.modules ? declaredContentRenderers((await brain.modules({ signal })).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),

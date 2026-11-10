@@ -113,6 +113,7 @@ test("journal open purges the index bytes earlier releases retained, keeping the
   const f = fixture();
   try {
     await seedLegacyHistory(f);
+    f.raw(db => db.query("INSERT INTO turn_journal_object_quarantine VALUES (?,0,'Error','Odysseus interrupted publication','fixture')").run(INDEX_HASHES[0]!));
     const before = f.raw(dump);
     expect(INDEX_HASHES.every(hash => f.files().has(hash)), "LEGACY_INDEX_OBJECTS_RETAINED_BEFORE_PURGE").toBe(true);
     const accountedBefore = f.raw(objectBytes);
@@ -128,6 +129,7 @@ test("journal open purges the index bytes earlier releases retained, keeping the
     }
     expect(accountedBefore - objectBytes(f.db), "PURGE_RECLAIMS_ACCOUNTED_BYTES").toBe(INDEX_BYTES);
     expect(after.state, "PURGE_COMPLETE").toBe(2);
+    expect(f.db.query("SELECT hash FROM turn_journal_object_quarantine").all(), "PURGE_REMOVES_QUARANTINE_WITH_FOREIGN_KEYS_DISABLED").toEqual([]);
 
     // Every index row stays, with its size evidence, as the metadata-only entry history already showed.
     const index = after.changes.filter(row => indexPaths.has((row as { path: string }).path)) as { path: string; sequence: number; before_json: string | null; after_json: string }[];

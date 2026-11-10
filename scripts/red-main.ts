@@ -12,6 +12,17 @@ const SHA = /^[a-f0-9]{40}$/;
 /** `changeset` is the metadata/lint gate; it always runs and widens no selection. */
 export const CATEGORIES = ["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"] as const;
 export type Category = typeof CATEGORIES[number];
+/**
+ * Heavy categories proved after merge (the 2026-11-10 hybrid ruling): ready
+ * confirmation runs only the fast categories, and every main squash runs these
+ * in full. A red failure confined to them therefore dooms no pre-merge proof.
+ */
+export const POST_MERGE_CATEGORIES: readonly Category[] = ["runtime", "runtime_host", "browser", "layout", "captures", "endurance"];
+export const isPostMerge = (category: Category): boolean => POST_MERGE_CATEGORIES.includes(category);
+/** True only for a nonempty failure set wholly in post-merge categories; an empty or unknown set stays global. */
+export function postMergeOnly(failures: readonly { category: Category }[]): boolean {
+  return failures.length > 0 && failures.every(failure => isPostMerge(failure.category));
+}
 export type Signature = "timeout" | "assertion" | "setup" | "unknown";
 export type Verdict = "real" | "suspected-flake";
 
@@ -219,13 +230,16 @@ export function classifyFailure(failure: FailureEvidence, record: RedMainRecord,
 export const failureKey = key;
 
 export interface GateInput { record: RedMainRecord; pr: number; contains: (sha: string) => boolean; }
-/** The hosted gate: refuse doomed proof, admit declared fixes and unaffected merge refs. */
+/** The hosted gate: refuse doomed proof, admit declared fixes, unaffected merge refs and post-merge-only red. */
 export function gateDecision({ record, pr, contains }: GateInput): { refuse: boolean; message: string } {
   const open = record.open;
   if (!open) return { refuse: false, message: "main green: no open red-main record" };
   const incident = open.incident ? `incident #${open.incident}` : "incident pending";
   if (open.fixes.includes(pr)) return { refuse: false, message: `main red at ${open.firstBad}, ${incident}; PR #${pr} is a declared fix` };
   if (!contains(open.firstBad)) return { refuse: false, message: `main red at ${open.firstBad}, ${incident}; this merge ref does not contain it` };
+  // Per-family red: pre-merge confirmation never runs a post-merge category, so
+  // its proof is not doomed. The next main run still includes the open red set.
+  if (postMergeOnly(open.failures)) return { refuse: false, message: `main red at ${open.firstBad}, ${incident}; every red failure is post-merge proof (${[...new Set(open.failures.map(f => f.category))].join(", ")}), which ready confirmation does not run` };
   return { refuse: true, message: `main red at ${open.firstBad}, ${incident}` };
 }
 

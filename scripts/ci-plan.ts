@@ -5,7 +5,7 @@ import ts from "typescript";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
 import { addUnitImportConsumers, type UnitImportGraph } from "./unit-test-consumers";
 import { coordinationFiles, RESERVATION_REF } from "./integration-reservation";
-import { includeRedSet, type IncludedRedSet, type RedMainRecord } from "./red-main";
+import { includeRedSet, isPostMerge, type Category, type IncludedRedSet, type RedMainRecord } from "./red-main";
 
 export interface Workspace {
   dir: string;
@@ -417,15 +417,19 @@ export function proofCadence(env: NodeJS.ProcessEnv, event: any): ProofCadence {
   throw new Error("Unknown proof event: confirmation cannot be inferred");
 }
 
-/** Explicit false outputs distinguish intentional exclusions from missing proof. */
+/** Explicit false outputs distinguish intentional exclusions from missing proof.
+ * Ready confirmation runs only the fast categories; post-merge categories run on
+ * every main squash (integrated), on exhaustive runs and on requested draft
+ * heavy feedback (the 2026-11-10 hybrid ruling). */
 export function proofSelections(plan: CheckPlan, draft = false): Record<string, boolean> {
   const feedback = plan.cadence === "feedback";
+  const confirmation = plan.cadence === "confirmation";
   draft ||= plan.cadence === "draft";
   return Object.fromEntries(Object.entries({
     verify: plan.typecheck || ((feedback || !plan.local.fullTests) && plan.tests.length > 0), pack: !feedback && plan.pack,
     unit: !feedback && plan.local.fullTests, browser: !feedback && plan.local.browser, layout: !feedback && plan.local.layout,
     captures: !feedback && plan.local.captures, runtime: !feedback && plan.local.runtime, runtime_host: !feedback && plan.local.runtime, endurance: !feedback && plan.local.endurance,
-  }).map(([name, selected]) => [name, !draft && selected]));
+  }).map(([name, selected]) => [name, !draft && !(confirmation && isPostMerge(name as Category)) && selected]));
 }
 
 function git(root: string, args: string[]): string {

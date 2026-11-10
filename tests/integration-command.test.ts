@@ -172,7 +172,7 @@ fi`); chmodSync(shim, 0o755);
       else if(/actions\\/jobs\\/2[123]\\/logs$/.test(path))value=checkout;
       else if(path.endsWith("git/commits/"+actual.sha))value={sha:actual.sha,tree:{sha:actual.tree},parents:actual.parents.map(sha=>({sha}))};
       else if(path.endsWith("git/commits/"+squash))value={sha:squash,tree:{sha:actual.tree},parents:[{sha:base}]};
-      else if(/issues\\/\\d+$/.test(path)){s.reads.push(path);value={milestone:{title:s.mode==="wrong-milestone"||(s.mode.endsWith("-mismatch")&&path.endsWith("issues/30"))?"0.43.1":"0.44.0"}};}
+      else if(/issues\\/\\d+$/.test(path)){s.reads.push(path);value={milestone:{title:s.mode==="wrong-milestone"||s.mode==="confirm-wrong-milestone"||(s.mode.endsWith("-mismatch")&&path.endsWith("issues/30"))?"0.43.1":"0.44.0"}};}
       else throw new Error("Unexpected offline API "+path);
     } else throw new Error("Unexpected offline gh "+JSON.stringify(args));
     writeFileSync(file,JSON.stringify(s));console.log(typeof value==="string"?value:JSON.stringify(value));`); chmodSync(gh, 0o755);
@@ -189,7 +189,7 @@ fi`); chmodSync(shim, 0o755);
   if (mode === "renew-push-fail") writeFileSync(failPush, "1");
   const command = mode === "acquire" ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
     : [mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id,
-      ...presented(mode === "no-token" ? "none" : mode === "wrong-token" ? "wrong" : "holder")]), "--issues", delivered.join(","),
+      ...presented(mode === "no-token" ? "none" : mode === "wrong-token" ? "wrong" : "holder")]), ...(delivered.length ? ["--issues", delivered.join(",")] : []),
     ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])];
   const child = invocationChild([process.execPath, ...(mode.startsWith("confirm-") ? ["--preload", preload] : []), resolve(import.meta.dir, "../scripts/integrate.ts"), ...command], {
     cwd: root, env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
@@ -426,6 +426,21 @@ test("delivered issues refuses malformed oversized missing closing and final mil
   }
 });
 
+test("confirm refuses missing delivered issues and a milestone mismatch before it takes the reservation (#3850)", async () => {
+  for (const [mode, message] of [
+    ["confirm-issues-missing", "must include every closing issue"],
+    ["confirm-wrong-milestone", "Release milestone mismatch: odysseus/brain-kit#9"],
+  ] as const) {
+    const result = await scenario(mode);
+    expect(result.code, result.err).toBe(1);
+    expect(result.err).toContain(message);
+    expect(result.out, `NOTHING_ACQUIRED:${mode}`).not.toContain('"acquired":');
+    expect(result.state.last, `NO_RESERVATION_TAKEN:${mode}`).toBeNull();
+    expect(result.requested, `NO_CANDIDATE_CI_SPENT:${mode}`).toBe(false);
+    expect(result.dispatched).toBe(false);
+  }
+});
+
 test("while main is red the shared merge refuses non-fix candidates and still merges a declared fix (#2942)", async () => {
   const refused = await scenario("red-main");
   expect(refused.dispatched, "NO_NON_FIX_MERGE_WHILE_RED").toBe(false);
@@ -447,7 +462,8 @@ test("the merge path refuses uncovered local skips and a missing receipt, and ac
   const uncovered = await scenario("receipt-uncovered");
   expect(uncovered.dispatched, "NO_MERGE_WITH_UNCOVERED_LOCAL_SKIPS").toBe(false);
   expect(uncovered.code, uncovered.err).toBe(1);
-  expect(uncovered.err).toContain("complete pinned visual/accessibility/pointer suite (timed-out; needs browser)");
+  // A post-merge-only browser check is proved by the squash's main run, so only the unit gap refuses (hybrid ruling).
+  expect(uncovered.err).not.toContain("complete pinned visual/accessibility/pointer suite");
   expect(uncovered.err).toContain("complete unit and integration suite (preempted; needs unit)");
   expect(uncovered.state.active, "REFUSAL_RELEASES_THE_LEASE").toBeNull();
   const missing = await scenario("receipt-absent");

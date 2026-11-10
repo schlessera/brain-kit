@@ -1590,6 +1590,12 @@ signatures (every public export and the types it is made of)
         availableBytes: number;
         recoveryReserveBytes: number;
         reserveAllocatedBytes: number;
+        recovery?: {
+            quarantinedIntents: number;
+            stagingChargedBytes: number | null;
+            stagingRefusal?: string;
+            diagnosticsPath: string;
+        };
     }
   NativePoolAccess (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolAccess {
@@ -2574,6 +2580,7 @@ signatures (every public export and the types it is made of)
             inode: string;
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
+        recoveryStatus(): JournalRecoveryStatus;
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;

@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
 import type { ContentRendererDeclaration } from "@schlessera/brain-ui-sdk";
-import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
 import type { BackendBootFailure } from "../agent/backend.js";
@@ -44,6 +44,8 @@ interface StatusDeps {
   /** Retained checkpoint cleanup and its durable historical cause. */
   getJournalCleanup?(): unknown;
   getBackendAvailability?(): { unavailable: BackendBootFailure[]; lastFailures: BackendBootFailure[] };
+  getJournalRecovery?(): SystemStatus["journalRecovery"];
+  getNativeRecovery?(): SystemStatus["nativeRecovery"];
   /** Trusted metadata from configured modules; absent with an older CLI. */
   getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
@@ -66,11 +68,15 @@ interface StatusDeps {
 export function createStatusRoutes(deps: StatusDeps): Hono {
   return new Hono().get("/status", async (c) => {
     const backendAvailability = deps.getBackendAvailability?.();
+    const journalRecovery = deps.getJournalRecovery?.();
+    const nativeRecovery = deps.getNativeRecovery?.();
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
     const contentRenderers = await deps.getContentRenderers?.(c.req.raw.signal).catch(() => undefined);
     return c.json({
+      ...(journalRecovery ? { journalRecovery } : {}),
+      ...(nativeRecovery ? { nativeRecovery } : {}),
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
-      healthy: !backendAvailability?.unavailable.length,
+      healthy: !backendAvailability?.unavailable.length && nativeRecovery?.stagingChargedBytes !== null && !nativeRecovery?.stagingRefusal && !journalRecovery?.unresolvedRecords,
       ...(backendAvailability ? { backendAvailability } : {}),
       ...(deps.getJournalCleanup ? { journalCleanup: deps.getJournalCleanup() } : {}),
       uptime: Date.now() - startTime,

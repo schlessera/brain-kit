@@ -9,8 +9,8 @@ One invocation handles **one claimed issue** in `schlessera/brain-kit`. Finish
 when its PR is merged and reconciled, or its blocker is documented and its
 claim released. Do not take the next issue after that handoff.
 
-Requires this checkout, authenticated `gh` with issue/PR write access, git,
-Bun and `jq`. GitHub Actions is the CI provider. GitHub Project access
+Requires this checkout, authenticated `gh` with issue/PR write access, git
+and Bun. GitHub Actions is the CI provider. GitHub Project access
 is optional.
 
 An end-to-end request authorizes assignment, tracker updates, scoped
@@ -24,6 +24,36 @@ binding decisions and `docs/process/github.md`. Use the GitHub skill for
 public text screening, label taxonomy, design prompts, dependencies,
 follow-ups and human handoffs. Read [the release skill](../release/SKILL.md)
 when changing what packages ship, dependencies, versions or publishing.
+
+## The run at a glance
+
+1. `bun scripts/issue-queue.ts candidates`; take the first that passes the
+   checks in [Select and claim](#select-and-claim).
+2. `bun scripts/issue-queue.ts claim <n> --branch <type>/<n>-<slug>`.
+3. Read the issue and decide readiness ([Establish readiness](#establish-readiness)).
+   Not ready: label, comment, then step 8.
+4. Create the issue checkout ([Prepare the issue checkout](#prepare-the-issue-checkout)).
+5. Implement, with failing-first and mutation receipts
+   ([Implement the scoped issue](#implement-the-scoped-issue)).
+6. `bun run check:pr`, open the pull request, read its state with
+   `bun scripts/pr-status.ts <pr>` ([PR, CI and merge](#pr-ci-and-merge)).
+7. Confirm and merge through `bun scripts/integrate.ts`.
+8. Report the outcome on the issue and `bun scripts/issue-queue.ts release <n>`
+   ([Finish or hand off](#finish-or-hand-off)).
+
+### Spending few tokens
+
+- `bun scripts/issue-queue.ts` and `bun scripts/pr-status.ts` print one line of
+  JSON each and replace the `gh ... | jq` pipelines an agent would otherwise
+  write and read. `pr-status <pr> --failures --logs <dir>` saves a failed job's
+  log and prints only its failing lines.
+- Read an issue once: `bun scripts/issue-queue.ts show <n> --thread <file>`,
+  then read the file.
+- Send long output to a file and read its end:
+  `bun run check:pr --base origin/main > <file> 2>&1; echo "exit $?"; tail -n 30 <file>`.
+- Write `gh` and `git` commands plainly. Where `rtk` is installed, its hook
+  compresses their output without being asked; never prefix a command with
+  `rtk proxy` or `rtk bypass`, which switch that off.
 
 ## Select and claim
 
@@ -46,30 +76,16 @@ creation time, then lowest issue number. Missing/multiple/unknown priorities
 are unsorted: report them without inventing a priority. If no eligible
 candidate remains, stop without tracker mutations.
 
-A read-only query using `gh` pagination and standalone `jq` (`gh` cannot
-combine `--slurp` with `--jq`). Pipe failure must propagate:
+The read-only selection, with those rules applied in code:
 
 ```sh
-rtk proxy bash -o pipefail <<'SH'
-rtk proxy gh api --paginate --slurp \
-  'repos/schlessera/brain-kit/issues?state=open&labels=agent-ready&per_page=100' \
-  | rtk proxy jq '
-    [.[][]
-     | select(.pull_request == null and .state == "open")
-     | select((.assignees | length) == 0)
-     | [.labels[].name] as $labels
-     | select(($labels | index("agent-ready")) != null)
-     | select(($labels | index("epic")) == null)
-     | select(all($labels[]; startswith("needs:") | not))
-     | [$labels[] | select(startswith("priority:"))] as $priorities
-     | select(($priorities | length) == 1)
-     | select($priorities[0] | test("^priority: p[0-3]$"))
-     | {number, title, url: .html_url, created_at,
-        requires_stack_review: (($labels | index("blocked")) != null),
-        priority: $priorities[0], rank: ($priorities[0][-1:] | tonumber)}]
-    | sort_by(.rank, .created_at, .number)'
-SH
+bun scripts/issue-queue.ts candidates
 ```
+
+It prints one line: `candidates` in pick-up order, each with
+`requiresStackReview` (it carries `blocked`) and `activeWork` (open pull
+requests on a branch carrying its number, or naming it), and `unsorted` with
+the reason each could not be ranked.
 
 The query returns ordinary candidates and **unqualified stack-review leads**.
 In priority order, validate each `requires_stack_review` lead under the rules
@@ -78,28 +94,37 @@ is not authorization to claim a blocked issue. Reconcile an all-closed blocker
 list through ordinary satisfied-dependency handling instead.
 
 Before claiming the first eligible candidate, check open PRs/recent comments for
-active work, including `Refs` links and issue-number branches. An unassigned
-issue with a live implementation PR is not free work. Skip it before
+active work, including `Refs` links and issue-number branches: a candidate's
+`activeWork` lists the open pull requests found that way, and recent comments
+are yours to read. An unassigned issue with a live implementation PR is not
+free work. Skip it before
 claiming; do not duplicate/resume another worker's PR without authorization.
 Run `bun scripts/collisions.ts --json --paths <cited files...>` for the
 candidate's cited files. Among candidates of the same priority, prefer one with no
 `path`/`closure`/`unknown` report. A report is detection, not a lock or a
 reason to skip priority order; name any collision in the claim comment.
 
-Re-read the candidate's state, labels and assignees. Claim only while it
-still qualifies:
+Choose the branch name, then claim:
 
 ```sh
-rtk proxy gh issue edit <number> --repo schlessera/brain-kit --add-assignee @me
+bun scripts/issue-queue.ts claim <number> --branch <type>/<number>-<slug> [--note "<collisions, or none>"] [--stack-reviewed]
 ```
 
-Read back the assignment. If another owner appeared, stop before coding.
-Post a short claim comment with a unique claim token and intended branch,
-without local/private paths. Record whether this invocation owns the claim.
-Assignments are not an atomic lock: serialize workers sharing one GitHub
-login. A competing claim requires ownership reconciliation, not erasing
-someone else's assignment. Once claimed, a readiness rejection ends this
-invocation rather than starting another issue.
+The command re-reads the issue and claims only while it still qualifies. It
+assigns this account, reads the assignment back, and posts the claim comment
+with a unique token and the branch; the note is screened by the leakage gate
+before anything is posted. `--stack-reviewed` is for a blocked issue whose
+[stack selection review](#stack-selection-exception) you completed, and for
+nothing else.
+
+`claimed: false` means stop before coding: the issue no longer qualified, or
+another owner appeared while claiming, in which case their assignment is left
+alone. Record the token and whether this invocation owns the claim, without
+local or private paths in any tracker text. Assignments are not an atomic
+lock: serialize workers sharing one GitHub login. A competing claim requires
+ownership reconciliation, not erasing someone else's assignment. Once
+claimed, a readiness rejection ends this invocation rather than starting
+another issue.
 
 ## Stack selection exception
 
@@ -196,7 +221,7 @@ creation; a collision does not authorize taking over another worker's tree.
 With `source_checkout`, `issue_branch` and `issue_worktree` set accordingly:
 
 ```sh
-rtk proxy git -C "$source_checkout" worktree add \
+git -C "$source_checkout" worktree add \
   -b "$issue_branch" "$issue_worktree" origin/main
 ```
 
@@ -288,7 +313,9 @@ coverage. A declared red-main fix may use `--fixes-main-run <run-id>`. Hold comp
 main merges while another lease is live. See the CI reference for explicit
 acquire/renew/release/revoke, expiry, hard cap and unsupported native candidates.
 After the last push, convert to draft and mark ready under that reservation to
-request complete candidate confirmation; opening/reopening ready also requests it. After cheap gates independent categories run concurrently; per-PR
+request candidate confirmation of the fast categories; opening/reopening ready also requests it. Heavy
+runtime/browser/layout/capture/endurance proof runs on your squash's main run, and a red result there is
+yours to fix through the incident workflow ([hybrid ruling](../../../docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)). After cheap gates independent categories run concurrently; per-PR
 cancellation cannot cancel another PR. Measure queue/elapsed time and wasted
 cancellations before adding shards. Follow docs/decisions/ci-utility.md.
 
@@ -309,8 +336,11 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   honest scope; an incomplete/blocked implementation stays draft.
 - Include behavior, rationale, validation/mutation receipts, changesets or
   justified absence, and material gaps.
-- Follow [CI and merge](references/ci-and-merge.md). Inspect the active CI
-  provider's results and logs for the **current head SHA**, fix relevant
+- Follow [CI and merge](references/ci-and-merge.md). Read
+  `bun scripts/pr-status.ts <pr>` for the **current head SHA**: its checks,
+  the `proof` result, the receipt and whether the merge commit is current;
+  `--failures --logs <dir>` names what failed. Inspect the provider's results
+  and logs behind it, fix relevant
   failures, commit/push logical corrections and repeat. Review new issue/PR comments and reviews
   and resolve actionable findings without inventing a required approval.
 - A confirmed external/access/design/decision blocker ends the loop with a
@@ -332,7 +362,9 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
 When any command prints `main red at <sha>` (the hosted gate, a cancelled
 proof run or an `integrate.ts` refusal), or `bun scripts/integrate.ts
 main-status --json` reports `"red": true`, follow
-[the red-main incident steps](references/red-main.md). In short: stop
+[the red-main incident steps](references/red-main.md). A record whose
+failures are all post-merge categories blocks nothing: the gate admits proof
+and merges, and you only work the incident if you own it. Otherwise, in short: stop
 requesting proof for non-fix PRs; find the one incident issue named in the
 record and link duplicates there; try `bun scripts/red-main-incident.ts claim`
 — exactly one orchestrator wins it; the claimant assesses the cause, records
@@ -372,7 +404,8 @@ a blocked open item to `Backlog` when project access is available.
 **Cleanup runs on every exit after claiming**, including readiness rejection,
 implementation/CI/merge blockers and an explicit stop. Re-read the issue; if
 it is still open and this invocation still owns the claim, remove only its
-own assignment with `--remove-assignee @me` and verify it is gone. Do not
+own assignment with `bun scripts/issue-queue.ts release <number>`, which
+verifies it is gone and leaves a closed issue's assignment as history. Do not
 remove another worker's assignment or release a contested shared-account
 claim. Keep resumable code/PRs and links. If an API failure prevents comments,
 labels or unassignment, report the exact unfinished tracker action; do not
