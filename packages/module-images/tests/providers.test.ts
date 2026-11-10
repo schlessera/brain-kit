@@ -30,8 +30,8 @@ function stub(response: unknown, init: { status?: number } = {}) {
   return calls;
 }
 
-const SUNBURST = "gpt-image-2.5-sunburst";
-const FLARE = "gpt-image-2.5-flare";
+const SUNBURST = "gpt-image-2.6-sunburst";
+const FLARE = "gpt-image-2.6-flare";
 const PNG_B64 = Buffer.from("fake-png-bytes").toString("base64");
 const ref = (): ImageInput => ({ data: new Uint8Array([1, 2, 3]), mime: "image/png", label: "a.png" });
 
@@ -60,7 +60,7 @@ describe("capability tables agree with the evidence", () => {
 
   test("no model inherits the text-rendering lead measured on retired gpt-image-2", () => {
     // The arena lead was measured on gpt-image-2. A successor's name is not a
-    // measurement, so no 2.5 model — and no Gemini model — claims it.
+    // measurement, so no 2.5 or 2.6 model — and no Gemini model — claims it.
     expect(ALL.filter((m) => m.strongTextRendering).map((m) => m.id)).toEqual([]);
   });
 
@@ -68,9 +68,8 @@ describe("capability tables agree with the evidence", () => {
     for (const m of ALL) expect(m.summary).not.toMatch(/gpt-image-1\.5|gpt-image-2\b(?!\.)/);
   });
 
-  test("the 2.5 models carry no borrowed per-image price", () => {
-    // Billed per token, and OpenAI's calculator does not estimate 2.5 token
-    // use: the retired per-image table must not stand in for them.
+  test("the 2.5 and 2.6 models carry no borrowed per-image price", () => {
+    // Billed per token: the retired per-image table must not stand in for them.
     for (const m of openaiProvider.models) expect(m.approxCostUsd1K).toBeNull();
   });
 });
@@ -248,12 +247,29 @@ describe("openai provider", () => {
   });
 });
 
-describe("GPT Image 2.5 output-token estimate", () => {
-  const SUNBURST = "gpt-image-2.5-sunburst";
-  const FLARE = "gpt-image-2.5-flare";
+describe("openai provider — 2.6 quality and complexity defaults (#3782)", () => {
+  test("a direct generation without quality or complexity sends max and high to 2.6", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await openaiProvider.generate("gpt-image-2.6-flare", { prompt: "x" }, "k");
+    expect(JSON.parse(calls[0].init.body as string)).toMatchObject({ quality: "max", complexity: "high" });
+  });
 
-  test("reproduces the guide's calculator example for both models: low at 1024x1024 is $0.00588", () => {
-    for (const model of [SUNBURST, FLARE]) expect(estimateOpenAiOutputCost(model, "low", "1024x1024")).toBeCloseTo(0.00588, 10);
+  test("a direct call with complexity on a 2.5 model refuses before fetch", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await expect(
+      openaiProvider.generate("gpt-image-2.5-sunburst", { prompt: "x", complexity: "low" }, "k")
+    ).rejects.toThrow(/complexity/);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("GPT Image 2.5 and 2.6 output-token estimate", () => {
+  // The guide's one calculator covers both generations (checked 2026-11-09).
+  const SUNBURST = "gpt-image-2.6-sunburst";
+  const EVERY = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"];
+
+  test("reproduces the guide's calculator example for every model: low at 1024x1024 is $0.00588", () => {
+    for (const model of EVERY) expect(estimateOpenAiOutputCost(model, "low", "1024x1024")).toBeCloseTo(0.00588, 10);
   });
 
   test("follows quality and shape by the published formula", () => {
