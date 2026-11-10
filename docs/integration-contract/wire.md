@@ -2432,7 +2432,7 @@ request. Host terminal state reconciles unanswered requests without depending on
 
 Neither built-in adapter has a proven deterministic exact-copy permission audio
 path. The approved fallback therefore uses a local earcon, the existing card and
-a 40px strip line. Permission scripts and confirmed outcome wording are visual
+the live field's refusal line. Permission scripts and confirmed outcome wording are visual
 only: they are never submitted as model commentary or to a separate TTS service.
 Labels come only from bounded static registry labels (four words at most), with
 `An action` as the generic fallback. Payloads and unproven effect descriptions
@@ -2864,8 +2864,14 @@ stops capture and exposes the unavailable tail honestly.
 
 ## Existing-chat live context (#3178)
 
-`conversation_opened` optionally carries `historyCoverage: {state, tailOmitted}`,
-with state `complete`, `bounded`, `partial` or `unavailable`. It describes selected
+`conversation_opened` optionally carries `historyCoverage: {state, tailOmitted,
+includedMessages?}`, with state `complete`, `bounded`, `partial` or `unavailable`.
+`includedMessages` (additive, #3699) is a non-negative integer: exactly how many
+prior chat and spoken messages the startup context carried, excluding completed
+results and gap markers. The shipped client names it in the chat's coverage
+notice ("Started with the last {n} messages") and falls back to the coverage
+state when an older host omits it. It is display data for the client and never
+enters the provider-facing conversation. It describes selected
 historical text at startup, independently of retained display history, generated
 speech and playback. Details disclose partial sources/order, context omissions
 and an omitted newest item without claiming the model understood the text.

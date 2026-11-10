@@ -663,7 +663,8 @@ carry an optional authorized, frozen chat snapshot, separately from native
 same-conversation resync. `LiveConversationSession.historyCoverage` and
 `conversation_opened.historyCoverage` optionally report the actual startup
 selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
-`tailOmitted`. This is data receipt/selection evidence, never a guarantee of
+`tailOmitted`, plus, additively (#3699), `includedMessages`: the number of
+prior chat and spoken messages actually sent. This is data receipt/selection evidence, never a guarantee of
 semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
 and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
 

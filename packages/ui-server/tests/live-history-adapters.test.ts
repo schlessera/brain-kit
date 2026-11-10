@@ -291,7 +291,11 @@ for(const engine of ["gemini","gpt"] as const)test(`${engine}: preowner native p
  const rendered=historyTexts(engine,sockets[0]!).join("\n");
  expect(rendered,"SOCKET_PRESERVES_NEWEST_SPOKEN_QUESTION_OVER_OLD_NATIVE_PREFIX").toContain(text[2]!);
  expect(rendered).not.toContain(huge);expect(rendered).toContain("ambiguous_order");
- expect(session.historyCoverage,"SOCKET_RECENCY_UNCERTAINTY_CANNOT_REPORT_FULL_NEWEST_COVERAGE").toEqual({state:"partial",tailOmitted:true});
+ expect(session.historyCoverage,"SOCKET_RECENCY_UNCERTAINTY_CANNOT_REPORT_FULL_NEWEST_COVERAGE").toMatchObject({state:"partial",tailOmitted:true});
+ // #3699: the count is exactly the messages the provider socket received.
+ const sent=rendered.match(/\\?"from\\?":\\?"(typed_user|typed_assistant|submitted_voice_request|dictated_chat_text|recognized_speech_unverified|generated_voice_reply)/g)?.length??0;
+ expect(sent).toBeGreaterThan(0);
+ expect(session.historyCoverage?.includedMessages,"COVERAGE_COUNT_IS_WHAT_THE_PROVIDER_RECEIVED").toBe(sent);
  expect(Buffer.byteLength(rendered)).toBeLessThanOrEqual(engine==="gpt"?7500:24000);await session.close();
 });
 
