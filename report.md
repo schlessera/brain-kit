@@ -1,6 +1,6 @@
 # Test health
 
-Generated 2026-11-10T21:34:29.503Z at `0129244ad078`.
+Generated 2026-11-10T21:34:47.867Z at `047e3e8468b0`.
 
 ## Coverage of the rotation
 
@@ -8,22 +8,22 @@ Generated 2026-11-10T21:34:29.503Z at `0129244ad078`.
 | --- | --- |
 | Test files | 1835 |
 | Audited at their current content | 1628 (88.7%) |
-| Changed since their audit | 0 |
-| Never audited | 207 |
+| Changed since their audit | 1 |
+| Never audited | 206 |
 | Median audit age in days | 0.1 |
 
 ## What the audits found
 
 | Measure | Value |
 | --- | --- |
-| Runs | 38 (completed 32, nothing-to-do 6) |
-| Runs by agent | claude-opus-5-5 38 |
-| Files audited | 1645 |
+| Runs | 39 (completed 33, nothing-to-do 6) |
+| Runs by agent | claude-opus-5-5 39 |
+| Files audited | 1646 |
 | Files changed | 453 |
-| Findings | 2758 (1.68 per audited file) |
-| By lens | cannot-fail 1000, nondeterminism 806, hygiene 405, cost 191, overlap 163, failure-issues 130, not-running 51, tier-and-doubles 12 |
-| By action | none 2059, cleanup 279, strengthen 181, deflake 99, file-issue 47, remove 41, rewrite 23, speed-up 21, move-tier 3, unskip 2, split 2, merge 1 |
-| By status | accepted 2059, fixed 560, deferred 105, filed 34 |
+| Findings | 2759 (1.68 per audited file) |
+| By lens | cannot-fail 1001, nondeterminism 806, hygiene 405, cost 191, overlap 163, failure-issues 130, not-running 51, tier-and-doubles 12 |
+| By action | none 2060, cleanup 279, strengthen 181, deflake 99, file-issue 47, remove 41, rewrite 23, speed-up 21, move-tier 3, unskip 2, split 2, merge 1 |
+| By status | accepted 2060, fixed 560, deferred 105, filed 34 |
 
 ## Proof and efficacy
 
@@ -57,8 +57,8 @@ Generated 2026-11-10T21:34:29.503Z at `0129244ad078`.
 | Measured cost of one full pass, in seconds | 10388.2 to 10388.2 |
 | Share of that cost in the 50 slowest files | 0.639 to 0.639 |
 | Open failure issues | 69 to 114 |
-| Sleep-shaped call sites | 888 to 888 |
-| Weak matchers | 1295 to 1295 |
+| Sleep-shaped call sites | 888 to 885 |
+| Weak matchers | 1295 to 1292 |
 | Conditionally skipped tests | 139 to 139 |
 
 Signal counts are scanner leads, not defects. Timings saved are local medians of the changed files, not a hosted benchmark.
