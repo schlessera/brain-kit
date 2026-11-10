@@ -199,6 +199,7 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 - `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:66-83`)
 - `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:160-176`)
 - `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:178-187`)
+- `the status route shows the recorder to the owner only, and recovery requires the owner` ([source](../packages/ui-server/tests/safety-containment.test.ts)), (`the status route shows the recorder to the owner only, and recovery requires the owner`, `packages/ui-server/tests/safety-containment.test.ts:273-288`)
 - `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:214-231`)
 
 **A — Password access and revocation.**
