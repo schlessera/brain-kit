@@ -279,6 +279,15 @@ interface Issue {
   repo: string;
 }
 
+/**
+ * How many open issues one repository may list. `gh issue list` returns the
+ * newest first and stops at `--limit` without saying so, so a cap below the
+ * real count silently drops the oldest issues from every sweep: no Track, no
+ * Status, no `blocked` cleanup. A list that reaches the cap may be truncated,
+ * and the sweep refuses it rather than treat the missing issues as synced.
+ */
+export const OPEN_ISSUE_LIMIT = 5000;
+
 async function openIssues(): Promise<Issue[]> {
   const all: Issue[] = [];
   for (const repo of REPOS) {
@@ -290,11 +299,17 @@ async function openIssues(): Promise<Issue[]> {
       "--state",
       "open",
       "--limit",
-      "200",
+      String(OPEN_ISSUE_LIMIT),
       "--json",
       "number,title,url,labels,body",
     ]);
-    for (const issue of JSON.parse(raw) as Omit<Issue, "repo">[]) all.push({ ...issue, repo });
+    const issues = JSON.parse(raw) as Omit<Issue, "repo">[];
+    if (issues.length >= OPEN_ISSUE_LIMIT) {
+      throw new Error(
+        `${repo} listed ${issues.length} open issues, the OPEN_ISSUE_LIMIT cap; the list may be truncated, so the sweep stops before any write. Raise OPEN_ISSUE_LIMIT.`,
+      );
+    }
+    for (const issue of issues) all.push({ ...issue, repo });
   }
   return all;
 }
