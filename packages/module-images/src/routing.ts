@@ -153,6 +153,24 @@ export function route(input: RoutingInput): RoutingDecision {
     pool = masked;
   }
 
+  // Complexity is a GPT Image 2.6 parameter. A stated one on any other model
+  // would be dropped or rejected by the API, so it narrows or refuses here.
+  if (req.complexity) {
+    const capable = byCapability(pool, (m) => m.complexityControl);
+    if (capable.length === 0) {
+      const named = available.filter((m) => m.complexityControl).map((m) => m.id);
+      return {
+        kind: "impossible",
+        reason:
+          `--complexity is a GPT Image 2.6 setting, and no model in this request takes it` +
+          `${input.pinnedModel ? ` (${input.pinnedModel} does not)` : ""}. Use ` +
+          `${named.length ? named.join(" or ") : "gpt-image-2.6-sunburst or gpt-image-2.6-flare (set OPENAI_API_KEY)"}, ` +
+          `or drop --complexity.`,
+      };
+    }
+    pool = capable;
+  }
+
   if (req.transparent && req.format === "jpeg") {
     return {
       kind: "impossible",
@@ -166,7 +184,7 @@ export function route(input: RoutingInput): RoutingDecision {
       return {
         kind: "impossible",
         reason:
-          "A transparent background needs an OpenAI GPT Image 2.5 model (Sunburst or Flare) — " +
+          "A transparent background needs an OpenAI GPT Image 2.6 or 2.5 model (Sunburst or Flare) — " +
           "Gemini does not document transparency at all. Set OPENAI_API_KEY, or render on a " +
           "solid background and cut it out afterwards.",
       };
@@ -219,7 +237,7 @@ export function route(input: RoutingInput): RoutingDecision {
           kind: "impossible",
           reason:
             `No available model takes an exact ${req.size}. Gemini only offers fixed aspect ` +
-            `ratios and 1K/2K/4K buckets; OpenAI's GPT Image 2.5 models take custom sizes ` +
+            `ratios and 1K/2K/4K buckets; OpenAI's GPT Image 2.6 and 2.5 models take custom sizes ` +
             `with both edges multiples of 16, neither over 3840px, a ratio no wider than 3:1, ` +
             `and 0.65-8.3MP in total.`,
         };

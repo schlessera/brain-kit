@@ -14,7 +14,6 @@
 import { expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import type { ReactNode } from "react";
-import { ReviewCard } from "../../src/components/voice/review-card.js";
 import { WorkerHostNotice } from "../../src/components/chat/worker-host-notice.js";
 import { NodeCard } from "../../src/components/graph/node-card.js";
 import { ViewerFailure } from "../../src/components/files/file-viewer-frame.js";
@@ -39,12 +38,6 @@ function rawReach(el: HTMLElement, label: string) {
 function Broken(): ReactNode { throw new TypeError("The raft came apart"); }
 
 for (const width of [320, 1280]) {
-  test(`voice review card at ${width}`, async ctx => {
-    const s = await mount(ctx, width, offline);
-    s.draw(<div style={{ padding: 16 }}><ReviewCard text="Odysseus reviews the return to Ithaca." onDiscard={noop} onEdit={noop} onAppend={noop} onSend={noop} /></div>);
-    await expect.poll(() => button("Send").elements().length).toBe(1);
-    reach(s.host, "review card");
-  });
   test(`worker host notice at ${width}`, async ctx => {
     const s = await mount(ctx, width, async url => url.endsWith("/api/status")
       ? Response.json({ healthy: true, runtime: { boot: [], workerHost: { ordinary: { available: false, requirement: "bubblewrap", checkedAt: "2026-07-12T08:00:00.000Z", trigger: "boot" } } } })

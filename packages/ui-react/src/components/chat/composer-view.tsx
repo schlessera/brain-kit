@@ -36,6 +36,17 @@ interface ComposerAttachment {
   name: string;
 }
 
+/**
+ * A stored original in the composer (#3155). `image` is set for an image
+ * original: whether its frame goes inline with the message (design §8.4), and
+ * the frame's thumbnail once it is made.
+ */
+interface ComposerStoredFile {
+  file: AttachmentFile;
+  detached: boolean;
+  image?: { placement: "inline" | "not_inline" | "pending"; previewUrl?: string };
+}
+
 interface ComposerProvider {
   label: string;
   /** The model is fixed for this conversation; effort remains editable. */
@@ -52,16 +63,18 @@ interface ComposerProvider {
 }
 
 export interface ComposerViewProps {
-  /** Capture panel, kept inside the existing bounded composer frame. */
+  /** Voice notices (dictation's D0, D7, D8 and Dx; live's S4) and capture panels, above the field. */
   dictation?: ReactNode;
-  onConversation?: () => void;
+  /**
+   * The voice field while dictation captures (Dc, D2, D3–D5, #3694). It
+   * replaces the kit composer; the draft stays in the store meanwhile.
+   */
+  voiceField?: ReactNode;
   /**
    * Why the mic cannot record, in place of the capture panel: a refused
    * microphone, or a browser that cannot record on the device (#1012).
    */
   captureNotice?: string;
-  dictationNotice?: string;
-  onDismissDictationNotice?: () => void;
   onDismissCaptureNotice?: () => void;
   /** The mic's accessible name when it does not dictate, or names the dictation service. */
   micLabel?: string;
@@ -71,6 +84,11 @@ export interface ComposerViewProps {
   micUnavailable?: string;
   /** Off: no mic is drawn, because there is no capture to offer. */
   mic?: boolean;
+  /**
+   * The composer's hold-to-talk mic (#3693), drawn in the kit's mic slot.
+   * When set, `mic`, `onMic`, `micLabel`, `micTip` and `micUnavailable` do not apply.
+   */
+  micControl?: ReactNode;
   value: string;
   state: ComposerState;
   /** Overrides the state's own placeholder (a connection reason, the host's copy). */
@@ -92,7 +110,7 @@ export interface ComposerViewProps {
    * originals the host stored. `detached` marks one this draft's id cannot
    * bind. Shown only with `onPickFiles`.
    */
-  files?: { queued: readonly QueuedFile[]; stored: readonly { file: AttachmentFile; detached: boolean }[] };
+  files?: { queued: readonly QueuedFile[]; stored: readonly ComposerStoredFile[] };
   onRemoveQueuedFile?: (id: string) => void;
   onRetryQueuedFile?: (id: string) => void;
   onRemoveStoredFile?: (fileId: string) => void;
@@ -192,20 +210,17 @@ export function ComposerView(p: ComposerViewProps) {
   const pointer = useMediaQuery("(min-width: 900px)");
   const files = p.onPickFiles ? p.files : undefined;
   const fileCount = (files?.queued.length ?? 0) + (files?.stored.length ?? 0);
-  // The trigger's name lists what its menu offers, in menu order (#3045):
-  // live conversation is reached through the paperclip, so the paperclip says
-  // so whenever the row is there. The kit paints the same string as the
-  // pointer tooltip; a phone's sheet names the actions in its subtitle.
+  // The trigger's name lists what its menu offers, in menu order (#3045).
+  // Live conversation is no longer in it: the mic's hold opens it (#3693).
   // Desktop with composer files: one unrestricted Files action (desktop
   // menu A, #3155); phones keep Photo library and Camera beside it.
   const desktopFiles = pointer && !!p.onPickFiles;
-  const attachLabel = p.onConversation ? `Attach — live conversation, ${desktopFiles ? "files" : "photo, camera, files"}` : desktopFiles ? "Attach — files" : undefined;
+  const attachLabel = desktopFiles ? "Attach — files" : undefined;
   const attachSubtitle = p.onPickFiles
-    ? `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, files or paste.`
-    : `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, ${p.onPickTracks ? "track files, " : ""}or paste.`;
+    ? "Photo, camera, files or paste."
+    : `Photo, camera, ${p.onPickTracks ? "track files, " : ""}or paste.`;
   const attachMenu = (
     <div className={pointer ? "bk-focus-clip flex flex-col rounded-[inherit]" : "flex flex-col"}>
-      {p.onConversation && <ListRow variant="group" icon="mic" iconTone="teal" title="Live conversation" subtitle="Talk while your agent works" onClick={p.onConversation} />}
       {!desktopFiles && <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />}
       {!desktopFiles && <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />}
       {p.onPickFiles
@@ -219,16 +234,7 @@ export function ComposerView(p: ComposerViewProps) {
   return (
     <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver}>
       {p.dictation}
-      {p.dictationNotice && (
-        <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="dictation" onPointerDown={(event) => {
-          const button = (event.target as HTMLElement).closest('[role="button"]');
-          if (button && button !== document.activeElement) event.preventDefault();
-        }}>
-          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
-          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissDictationNotice} />
-        </div>
-      )}
-      {p.captureNotice && p.captureNotice !== p.dictationNotice && (
+      {p.captureNotice && (
         <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="local" onPointerDown={(event) => {
           const button = (event.target as HTMLElement).closest('[role="button"]');
           if (button && button !== document.activeElement) event.preventDefault();
@@ -268,7 +274,7 @@ export function ComposerView(p: ComposerViewProps) {
       {fileCount > 0 && files && <div className="mb-2 grid gap-2" data-file-chips="">
         {files.queued.map((item, i) => <FileChip key={item.id} queued={item}
           onRemove={() => removeAndRefocus(i, () => p.onRemoveQueuedFile?.(item.id))} onRetry={() => p.onRetryQueuedFile?.(item.id)} />)}
-        {files.stored.map((entry, i) => <FileChip key={entry.file.fileId} stored={entry.file} detached={entry.detached}
+        {files.stored.map((entry, i) => <FileChip key={entry.file.fileId} stored={entry.file} detached={entry.detached} image={entry.image}
           onRemove={() => removeAndRefocus(files.queued.length + i, () => p.onRemoveStoredFile?.(entry.file.fileId))} />)}
       </div>}
 
@@ -298,7 +304,7 @@ export function ComposerView(p: ComposerViewProps) {
         {attachMenu}
       </Overlay>
 
-      <KitComposer
+      {p.voiceField ?? <KitComposer
         variant="send"
         state={p.state}
         placeholder={p.placeholder}
@@ -321,8 +327,9 @@ export function ComposerView(p: ComposerViewProps) {
         micLabel={p.micLabel}
         micTip={p.micTip}
         micUnavailable={p.micUnavailable}
+        micControl={p.micControl}
         status={p.status}
-      />
+      />}
     </div>
   );
 }

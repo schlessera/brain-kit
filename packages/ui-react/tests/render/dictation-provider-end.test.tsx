@@ -534,7 +534,7 @@ for (const provider of [deepgram, webspeech]) for (const words of [false, true])
     await listen(root, dictation);
     if (words) act(() => { provider.hear("Ask Nestor", true); provider.hear("about the ships", false); });
     act(() => provider.endings.find(e => e.name === (provider.id === "deepgram" ? "the socket drops" : "the recognizer fails"))!.end());
-    expect(voice(root).dictationNotice, "capture-specific terminal explanation").toEqual({ reason: "network", phase: "ended", retained: words });
+    expect(voice(root).dictationNotice, "capture-specific terminal explanation").toEqual({ reason: "network", phase: "ended", retained: words, ...(words ? { kept: "Ask Nestor about the ships" } : {}) });
     expect(voice(root).reviewText).toBe("Ask Penelope about the loom" + (words ? " Ask Nestor about the ships" : ""));
     const notice = voice(root).dictationNotice;
     act(() => { if (provider.id === "deepgram") socket().onerror?.(); else recognition().onerror?.({ error: "audio-capture" }); });
@@ -636,5 +636,5 @@ for (const words of [true, false]) test(`an error reported while Done drains sur
   });
   expect(voice(root).mode).toBe("idle");
   expect(voice(root).reviewText).toBe(words ? "Ask Nestor" : "");
-  expect(voice(root).dictationNotice, "DONE_DRAIN_FAILURE_NOTICE").toEqual({ reason: "network", phase: "ended", retained: words });
+  expect(voice(root).dictationNotice, "DONE_DRAIN_FAILURE_NOTICE").toEqual({ reason: "network", phase: "ended", retained: words, ...(words ? { kept: "Ask Nestor" } : {}) });
 });
