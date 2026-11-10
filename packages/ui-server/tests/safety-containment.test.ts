@@ -11,6 +11,8 @@ import { createSafetyCollector } from "../src/governance/safety-collector";
 import { latchSafety, safetyCatalogCreated, safetyFailureCause, SafetyCapacityExhausted, safetyFailureReason,
   SafetyRecordingUnavailable, SafetyUnavailable } from "../src/governance/safety-store";
 import { emitTurnError } from "../src/ws/bridge-capabilities/turn-error";
+import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
+import { failurePresentation, refusalReason } from "../../ui-react/src/lib/turn-failure";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -146,7 +148,7 @@ test("a durable brain latch keeps its first cause, counts later ones and clears 
     expect(first.since).toBeGreaterThan(0);
     // The worker's latch logs on its own thread; this one runs here.
     const before = log.lines().length;
-    latchSafety(f.db, null, "capacity", safetyFailureCause(new SafetyCapacityExhausted("Safety ledger capacity exhausted"), "record", null));
+    latchSafety(f.db, null, "capacity", safetyFailureCause(new SafetyCapacityExhausted("Safety ledger capacity exhausted", "brain"), "record", null));
     expect(f.db.query("SELECT site,turn_id,error_class,count FROM safety_latch").get(), "SAFETY_LATER_LATCH_ONLY_COUNTS")
       .toEqual({ site: "safetyFail", turn_id: "voyage", error_class: "TypeError", count: 2 });
     const latches = log.lines().slice(before);
@@ -154,7 +156,7 @@ test("a durable brain latch keeps its first cause, counts later ones and clears 
     expect(latches[0]).toMatchObject({ body: "safety recording latched for the brain",
       attributes: { "safety.site": "record", "safety.reason": "capacity", "error.message": "Safety ledger capacity exhausted" } });
     const status = f.writes.recordingStatus();
-    expect(status, "SAFETY_STATUS_REPORTS_THE_LATCH").toMatchObject({ latched: true, reason: "capacity", cause: { site: "safetyFail", turnId: "voyage", count: 2 } });
+    expect(status, "SAFETY_STATUS_REPORTS_THE_LATCH").toMatchObject({ latched: true, reason: "capacity", cause: { site: "safetyFail", turnId: "voyage", count: 2, durable: true } });
     expect(status.since).toBe(first.since as number);
     // New turns run restricted while the brain is latched.
     await next(f, "siege", null);
@@ -236,7 +238,7 @@ test("owner recovery clears an idle latch, refuses while a producer is open, and
 });
 
 test("only a capacity check classifies a failure as capacity", () => {
-  expect(safetyFailureReason(new SafetyCapacityExhausted("Safety pending capacity exhausted"))).toBe("capacity");
+  expect(safetyFailureReason(new SafetyCapacityExhausted("Safety pending capacity exhausted", "turn"))).toBe("capacity");
   for (const error of [new Error("SQLITE_IOERR"), new TypeError("bug"), new SafetyUnavailable("Invalid bounded safety identity")])
     expect(safetyFailureReason(error), "SAFETY_NON_CAPACITY_ERRORS_ARE_RECORDING_FAILED").toBe("recording_failed");
 });
@@ -340,7 +342,100 @@ test("a loss with no collection is kept on its named chat, or gaps every chat wh
 test("a capacity cause passed through the write worker stays capacity", async () => {
   const f = fixture(); try {
     await chat(f, "voyage", "ithaca");
-    await f.writes.safetyFail("voyage", new SafetyCapacityExhausted("Safety occurrence write capacity exceeded"));
+    await f.writes.safetyFail("voyage", new SafetyCapacityExhausted("Safety occurrence write capacity exceeded", "turn"));
     expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get(), "SAFETY_CAPACITY_SURVIVES_THE_WORKER").toEqual({ failure: "capacity" });
   } finally { await f.close(); }
+});
+
+/** Neither the chat fact nor the brain latch can commit: only this process holds the loss. */
+function refuseLossNotices(f: F) {
+  f.db.exec(`CREATE TRIGGER no_chat_fact BEFORE UPDATE OF failure ON safety_collections BEGIN SELECT RAISE(ABORT,'disk I/O error'); END;
+    CREATE TRIGGER no_brain_fact BEFORE UPDATE OF failed ON safety_meta WHEN NEW.failed=1 BEGIN SELECT RAISE(ABORT,'disk I/O error'); END;`);
+}
+
+for (const loss of ["retained", "durable"] as const) test(`automatic recovery waits for every producer that predates the latch, even a failed one: ${loss}`, async () => {
+  const f = fixture(); try {
+    await chat(f, "voyage", "ithaca");
+    holdSafetyRecovery(f.db);
+    if (loss === "retained") {
+      // Only this process holds the producer's loss; writes then work again.
+      refuseLossNotices(f);
+      await f.writes.safetyFail("voyage", new Error("exposure transition lost")).catch(() => {});
+      f.db.exec("DROP TRIGGER no_chat_fact; DROP TRIGGER no_brain_fact");
+    } else {
+      // Its chat holds the loss durably, and something else latched the brain.
+      await f.writes.safetyFail("voyage", new Error("exposure transition lost"));
+      latchSafety(f.db, null, "recording_failed", safetyFailureCause(new Error("disk I/O error"), "record", null));
+    }
+    // The failed producer is still running.
+    expect(f.db.query("SELECT ended FROM safety_collections WHERE turn_id='voyage'").get()).toEqual({ ended: 0 });
+    expect(attemptSafetyRecovery(f.db), "SAFETY_AUTOMATIC_RECOVERY_DRAINS_FAILED_PRODUCERS").toBe(false);
+    expect(f.writes.recordingStatus().latched, "SAFETY_UNDRAINED_RECOVERY_KEEPS_THE_LATCH").toBe(true);
+    // A turn begun under the latch never holds recovery back.
+    await next(f, "siege", null);
+    await f.writes.safetyEnd("voyage");
+    expect(attemptSafetyRecovery(f.db), "SAFETY_AUTOMATIC_RECOVERY_RUNS_BESIDE_RESTRICTED_TURNS").toBe(true);
+    expect(f.writes.recordingStatus().latched).toBe(false);
+    expect(f.writes.safety(null, "ithaca").restriction, "SAFETY_DRAINED_RECOVERY_KEEPS_THE_GAP").toBe("restricted");
+  } finally { await f.close(); }
+});
+
+test("status shows the cause this process holds while its loss notice cannot commit", async () => {
+  const f = fixture(); try {
+    await chat(f, "voyage", "ithaca");
+    holdSafetyRecovery(f.db);
+    refuseLossNotices(f);
+    await f.writes.safetyFail("voyage", new TypeError("exposure transition lost")).catch(() => {});
+    const status = f.writes.recordingStatus();
+    expect(status).toMatchObject({ latched: true, retained: true });
+    expect(status.cause, "SAFETY_STATUS_SHOWS_THE_RETAINED_CAUSE").toMatchObject({ errorClass: "TypeError", message: "exposure transition lost",
+      turnId: "voyage", count: 1, durable: false });
+    expect(status.since, "SAFETY_STATUS_DATES_THE_RETAINED_CAUSE").toBe(status.cause!.since);
+    expect(status.since).toBeGreaterThan(0);
+  } finally { await f.close(); }
+});
+
+test("spent safety room says what to do instead of asking for a retry", async () => {
+  const f = fixture(); try {
+    const { bindingId } = await chat(f, "voyage", "ithaca"); await f.writes.safetyEnd("voyage");
+    // The chat has used all 128 of its coverage epochs; nothing frees them.
+    f.db.query(`WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<127)
+      INSERT INTO safety_collections(id,turn_id,session_id,history_owner_id,generation,backend_id,started_at,ended,acknowledged,start_revision,end_revision)
+      SELECT 'epoch_'||x,'turn_'||x,session_id,history_owner_id,generation,'pi',0,1,acknowledged,'0','0' FROM n,safety_collections WHERE id=?`).run(bindingId);
+    const refuse = async (turnId: string, sessionId: string | null) => {
+      const refused = await f.writes.safetyBegin({ turnId, bindingId: crypto.randomUUID(), sessionId, principalId: "odysseus", backendId: "pi", at: 1 })
+        .then(() => null, error => error) as SafetyRecordingUnavailable;
+      const frames: { code: string; failure: { errorClass: string; message: string } }[] = [];
+      emitTurnError({ sendToClients: (frame: never) => frames.push(frame), reportTurnFailed() {} } as never, { turnId, requestId: `request-${turnId}` } as never, refused);
+      return { refused, frame: frames[0]! };
+    };
+    for (const turnId of ["homecoming", "homecoming-again"]) {
+      const { refused, frame } = await refuse(turnId, "ithaca");
+      expect(refused.full, "SAFETY_EPOCH_CEILING_IS_A_FULL_CHAT").toBe("chat");
+      expect(frame.failure.errorClass).toBe("safety_recording_chat_full");
+      expect(refusalReason(frame), "SAFETY_FULL_CHAT_SAYS_START_A_NEW_CHAT").toBe("This chat has no room left for safety records. Nothing was sent; start a new chat to continue.");
+      expect(failurePresentation(frame.failure as never), "SAFETY_FULL_CHAT_IS_NOT_RETRYABLE").toMatchObject({ retry: false, explanation: "Nothing was sent. Start a new chat to continue." });
+    }
+    // A new chat still starts.
+    await next(f, "siege", null);
+    expect(f.writes.recordingAvailable("siege", null), "SAFETY_FULL_CHAT_LEAVES_NEW_CHATS").toBe(true);
+    await f.writes.safetyEnd("siege");
+    // The brain's room for first turns not yet in a chat is spent: a new chat cannot help.
+    f.db.query(`WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1024)
+      INSERT INTO safety_collections(id,turn_id,session_id,history_owner_id,generation,backend_id,started_at,ended,acknowledged,start_revision,end_revision)
+      SELECT 'unbound_'||x,'unbound_turn_'||x,NULL,NULL,'1','pi',0,1,'[]','0','0' FROM n`).run();
+    const { refused, frame } = await refuse("wooden-horse", null);
+    expect(refused.full, "SAFETY_UNBOUND_CEILING_IS_A_FULL_BRAIN").toBe("brain");
+    expect(frame.failure.errorClass).toBe("safety_recording_brain_full");
+    expect(refusalReason(frame), "SAFETY_FULL_BRAIN_SAYS_RETRY_WONT_HELP").toBe("This server has no room left for safety records. Nothing was sent, and retrying won't help.");
+    expect(failurePresentation(frame.failure as never), "SAFETY_FULL_BRAIN_IS_NOT_RETRYABLE").toMatchObject({ retry: false, report: true });
+  } finally { await f.close(); }
+});
+
+test("room held only by pending writes stays a retryable refusal", () => {
+  const refused = new SafetyRecordingUnavailable(false, new SafetyCapacityExhausted("Safety pending capacity exhausted", "turn"));
+  expect(refused, "SAFETY_PENDING_ROOM_IS_RETRYABLE").toMatchObject({ capacity: true, full: null });
+  // Across the write worker the class arrives as a name and its own fields.
+  const revived = Object.assign(new Error("Safety coverage capacity exhausted"), { name: "SafetyCapacityExhausted", scope: "chat" });
+  expect(new SafetyRecordingUnavailable(true, revived).full, "SAFETY_FULL_OUTRANKS_PAUSED").toBe("chat");
 });

@@ -78,9 +78,15 @@ Ruled by the maintainer on 2026-11-09, under
 [proportionate containment](proportionate-containment.md). "Restricted" means
 running under the tainted policy, not refusing.
 
-- **Before delivery** (a failed collection begin, or a refused reservation
-  whose producer holds its input until the event commits): the one turn is
-  refused with a retryable `SAFETY_RECORDING_UNAVAILABLE`. Nothing latches.
+- **Before delivery** (a failed collection begin, or a refused record of a
+  tool's input, which the backend awaits before the tool runs): the one turn
+  is refused with `SAFETY_RECORDING_UNAVAILABLE`. Nothing latches. A tool's
+  result is never before delivery: its bytes exist when it is recorded, and a
+  runtime may keep them in its own session (the Claude runtime replays them
+  on resume), so a result that cannot be recorded is lost after delivery.
+  A refusal for spent room says what frees it: a full chat needs a new chat
+  (`safety_recording_chat_full`), and a full brain cannot be helped by a
+  retry (`safety_recording_brain_full`).
 - **Lost after delivery**: the turn's own collection takes the failure and its
   first cause, so its chat keeps a permanent gap projected as
   `recording_failed` and that producer stops. Other chats are unaffected. A
@@ -92,14 +98,14 @@ running under the tainted policy, not refusing.
   is refused only when that restricted begin itself cannot commit
   (`safety_recording_paused`). The host keeps retrying, backing off to once a
   minute, and clears the latch itself with `recoverSafetyRecording` semantics
-  once the producers that predate it have drained.
+  once every producer that predates it has ended, failed or not.
 - **Boot** resolves a set latch and pending reservations after restart
   classification, gaps first. A legacy row that cannot migrate gaps its own
   turn. The server never boots into refusing every turn.
 
 Every latch keeps its first cause (class, message, bounded stack, call site,
 turn, time) and a count, logs one structured line, and is visible to the owner
-on `/api/status`. Every recovery is recorded with its trigger, actor, time and
+on `/api/status`, also while only the host process holds it. Every recovery is recorded with its trigger, actor, time and
 cleared cause. The owner route (#3810) is a fallback with the strict
 quiescence precondition. Only a capacity check classifies a failure as
 `capacity`. No gap ever clears, and nothing here lets an unrecorded input

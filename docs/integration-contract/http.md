@@ -262,9 +262,10 @@ For an owner principal, authenticated `GET /api/status` gains optional
 the Unix-millisecond time of the first latch; `reason` is `recording_failed`
 or `capacity`, and `capacity` only when a capacity check refused the write.
 `cause` is the first latch's `{ reason, site, turnId, errorClass, message,
-stack, since, count }`: identifiers and error text only, never message
-content; later latches only increase `count`. `retained` is true when only
-this process holds the loss because its durable notice could not commit.
+stack, since, count, durable }`: identifiers and error text only, never
+message content; later latches only increase `count`. `retained` is true when
+only this process holds the loss because its durable notice could not commit;
+`cause` is then the cause this process holds, with `durable: false`.
 `lastRecovery` is the latest `{ trigger, actor, at, gapped, cause }`, where
 `trigger` is `boot`, `automatic` or `owner`. Other principals never receive
 the field.
@@ -274,7 +275,8 @@ refuses its one turn; lost evidence after delivery restricts its chat with a
 permanent gap; only an evidence store that cannot take a scoped fact latches
 the brain. While latched, new turns run under their tainted policy with a
 permanent pre-delivery gap, and the host clears the latch by itself once the
-gap facts are durable and the producers that predate it have drained
+gap facts are durable and every producer that predates it has ended, failed or
+not
 ([proportionate containment](../decisions/proportionate-containment.md)).
 
 Owner-only `POST /api/status/safety-recording/recover` takes a JSON body

@@ -20,9 +20,13 @@ const HEADLINES: Record<string, string> = {
  */
 export function refusalReason(frame: { code?: string; failure?: { errorClass?: string } }): string | undefined {
   if (frame.code !== "SAFETY_RECORDING_UNAVAILABLE") return undefined;
-  return frame.failure?.errorClass === "safety_recording_paused"
-    ? "Safety recording is paused on this server. Nothing was sent; try again in a minute."
-    : "Safety recording failed before this was sent. Nothing ran; try again.";
+  switch (frame.failure?.errorClass) {
+    case "safety_recording_paused": return "Safety recording is paused on this server. Nothing was sent; try again in a minute.";
+    // Spent room: retrying cannot free it (#3812).
+    case "safety_recording_chat_full": return "This chat has no room left for safety records. Nothing was sent; start a new chat to continue.";
+    case "safety_recording_brain_full": return "This server has no room left for safety records. Nothing was sent, and retrying won't help.";
+    default: return "Safety recording failed before this was sent. Nothing ran; try again.";
+  }
 }
 
 /** Class-driven copy; a class never establishes whether tools already ran. */
@@ -32,6 +36,17 @@ export function failurePresentation(failure: TurnFailure) {
     headline: "Safety recording failed before this message was sent.",
     explanation: "Nothing ran. Try again.",
     operator: false, tone: "gold" as const, retry: true, report: false,
+  };
+  // Spent room is not retryable: recovery cannot free it either.
+  if (failure.errorClass === "safety_recording_chat_full") return {
+    headline: "This chat has no room left for safety records.",
+    explanation: "Nothing was sent. Start a new chat to continue.",
+    operator: false, tone: "gold" as const, retry: false, report: false,
+  };
+  if (failure.errorClass === "safety_recording_brain_full") return {
+    headline: "This server has no room left for safety records.",
+    explanation: "Nothing was sent. Retrying or starting a new chat won't help. Report this so the limit can be raised.",
+    operator: true, tone: "red" as const, retry: false, report: true,
   };
   if (failure.errorClass === "safety_recording_paused") return {
     headline: "Safety recording is paused on this server.",

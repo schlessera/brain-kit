@@ -27,8 +27,14 @@ interface Collection { id: string; turn_id: string; session_id: string | null; p
 interface Session { session_id: string; history_owner_id: string; generation: string; principal_id: string | null;
   classification: string; origin_turn: string | null; backend_id: string | null }
 export class SafetyUnavailable extends Error { constructor(message: string) { super(message); } }
+/** What a capacity refusal spent, so a refusal can say what frees it: `turn`
+ * room frees itself (pending writes settle, or only this one record is too
+ * big); `chat` room is that chat's for good; `brain` room is the server's. */
+export type SafetyCapacityScope = "turn"|"chat"|"brain";
 /** A capacity check refused the write. Only this class latches as `capacity`. */
-export class SafetyCapacityExhausted extends SafetyUnavailable {}
+export class SafetyCapacityExhausted extends SafetyUnavailable {
+  constructor(message: string, readonly scope: SafetyCapacityScope) { super(message); }
+}
 /**
  * A turn refused before any of its input reached the model, because its
  * safety record could not be written. Nothing ran and nothing is latched, so
@@ -41,13 +47,21 @@ export class SafetyRecordingUnavailable extends Error {
   readonly beforeDelivery = true;
   /** A capacity check refused it: retrying waits for room, not for luck. */
   readonly capacity: boolean;
+  /** Room retrying can never free: this chat's, or the whole brain's. It
+   * outranks `paused`: recovery cannot make room either. */
+  readonly full: "chat"|"brain"|null;
   constructor(readonly paused: boolean, cause?: unknown) {
     const capacity = cause instanceof SafetyCapacityExhausted || (cause as { name?: string } | null)?.name === "SafetyCapacityExhausted";
-    super(paused
-      ? "Safety recording is paused on this server, so this turn could not start. Nothing was sent. The server recovers it automatically."
-      : capacity ? `Safety recording has no room left (${(cause as Error).message}). Nothing was sent.`
+    // The scope is an own field, so it survives the write worker's boundary.
+    const scope = capacity ? (cause as { scope?: unknown }).scope : undefined;
+    const full = scope === "chat" || scope === "brain" ? scope : null;
+    super(full === "chat" ? `This chat has no room left for safety records (${(cause as Error).message}), so this turn could not start. Nothing was sent. Start a new chat to continue.`
+      : full === "brain" ? `This server has no room left for safety records (${(cause as Error).message}), so this turn could not start. Nothing was sent, and retrying or a new chat won't help.`
+      : paused ? "Safety recording is paused on this server, so this turn could not start. Nothing was sent. The server recovers it automatically."
+      : capacity ? `Safety recording has no room left (${(cause as Error).message}). Nothing was sent; try again shortly.`
       : "Safety recording failed before anything was sent. Nothing ran; try again.", { cause });
     this.capacity = capacity;
+    this.full = full;
   }
 }
 const one = <T>(db: Database, sql: string, ...args: (string | number | null)[]) => db.query(sql).get(...args) as T;
@@ -55,7 +69,7 @@ const collection = (db: Database, turn: string) => one<Collection | null>(db,"SE
 const meta = (db: Database) => one<{revision:string;failed:number;reason:string|null;used_rows:number;used_bytes:number;scope_rows:number;scope_bytes:number}>(db,"SELECT * FROM safety_meta WHERE singleton=1");
 export function advance(db: Database): string {
   const old=BigInt(meta(db).revision);
-  if(old>=MAX_REVISION) throw new SafetyCapacityExhausted("Safety revision exhausted");
+  if(old>=MAX_REVISION) throw new SafetyCapacityExhausted("Safety revision exhausted","brain");
   const next=String(old+1n); db.query("UPDATE safety_meta SET revision=? WHERE singleton=1").run(next); return next;
 }
 
@@ -151,13 +165,18 @@ function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
   const pending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p`);
   const localPending=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes
     FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args);
+  // Room held only by pending writes frees itself as they settle.
+  if(all.used_rows+all.scope_rows+rows>SAFETY_LIMITS.brainRows||all.used_bytes+all.scope_bytes+bytes>SAFETY_LIMITS.brainBytes)
+    throw new SafetyCapacityExhausted("Safety ledger capacity exhausted","brain");
+  if(used.rows+rows>SAFETY_LIMITS.sessionRows||used.bytes+bytes>SAFETY_LIMITS.sessionBytes)
+    throw new SafetyCapacityExhausted("Safety ledger capacity exhausted","chat");
   if(all.used_rows+all.scope_rows+pending.rows+rows>SAFETY_LIMITS.brainRows||all.used_bytes+all.scope_bytes+pending.bytes+bytes>SAFETY_LIMITS.brainBytes
     ||used.rows+localPending.rows+rows>SAFETY_LIMITS.sessionRows||used.bytes+localPending.bytes+bytes>SAFETY_LIMITS.sessionBytes)
-    throw new SafetyCapacityExhausted("Safety ledger capacity exhausted");
+    throw new SafetyCapacityExhausted("Safety ledger capacity exhausted","turn");
   if(c.session_id===null){
     const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
       JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
-    if(unbound.bytes+pending.bytes+bytes+one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL").n*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted");
+    if(unbound.bytes+pending.bytes+bytes+one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL").n*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted","brain");
   }
 }
 /** Must commit before any first-turn bytes or tool execution. Callbacks cannot create a session. */
@@ -188,15 +207,16 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   assertLive(db,[["dialogue_owner",owner]]);
   if(session?.principal_id&&session.principal_id!==input.principalId)throw new SafetyUnavailable("Safety principal mismatch");
   const n=one<{n:number}>(db, input.sessionId?"SELECT COUNT(*) n FROM safety_collections WHERE session_id=?":"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL",...(input.sessionId?[input.sessionId]:[]));
-  if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyCapacityExhausted("Safety coverage capacity exhausted");
+  if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyCapacityExhausted("Safety coverage capacity exhausted",input.sessionId?"chat":"brain");
   if(input.sessionId===null){
     const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
     const pending=one<{bytes:number}>(db,`SELECT COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE c.session_id IS NULL`);
-    if(unbound.bytes+pending.bytes+(n.n+1)*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted");
+    if(unbound.bytes+pending.bytes+(n.n+1)*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted","brain");
   }
   const ledger=meta(db),pending=one<{rows:number;bytes:number}>(db,"SELECT COALESCE(SUM(rows),0) rows,COALESCE(SUM(reserved_bytes),0) bytes FROM safety_pending");
-  if(ledger.used_rows+ledger.scope_rows+pending.rows+1>SAFETY_LIMITS.brainRows||ledger.used_bytes+ledger.scope_bytes+pending.bytes+2048>SAFETY_LIMITS.brainBytes)throw new SafetyCapacityExhausted("Safety identity capacity exhausted");
-  if(owner&&one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE history_owner_id=? AND generation=?",owner,generation).n>=128)throw new SafetyCapacityExhausted("Safety coverage capacity exhausted");
+  if(ledger.used_rows+ledger.scope_rows+pending.rows+1>SAFETY_LIMITS.brainRows||ledger.used_bytes+ledger.scope_bytes+pending.bytes+2048>SAFETY_LIMITS.brainBytes)
+    throw new SafetyCapacityExhausted("Safety identity capacity exhausted",ledger.used_rows+ledger.scope_rows+1>SAFETY_LIMITS.brainRows||ledger.used_bytes+ledger.scope_bytes+2048>SAFETY_LIMITS.brainBytes?"brain":"turn");
+  if(owner&&one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE history_owner_id=? AND generation=?",owner,generation).n>=128)throw new SafetyCapacityExhausted("Safety coverage capacity exhausted","chat");
   if(input.policyHash!==undefined&&input.policyHash!==null&&!/^[a-f0-9]{64}$/.test(input.policyHash))throw new SafetyUnavailable("Invalid safety policy hash");
   const gap=restricted?"recording_failed":uncollectedOwner?"missing_history_owner_collection":input.sessionId&&!session?.principal_id?"unknown_history_owner":session?.backend_id&&session.backend_id!==input.backendId?"backend_history_not_reconstructed":null;
   db.query(`INSERT INTO safety_collections(id,turn_id,session_id,principal_id,history_owner_id,generation,backend_id,started_at,gap,start_revision)
@@ -248,14 +268,15 @@ export function bindSafetyCollection(db:Database,turnId:string,sessionId:string)
  assertLive(db,[["session",sessionId],["dialogue_owner",owner]]);
  const {scope,args}=safetyScope(db,turnId,sessionId);
  const epochs=one<{n:number}>(db,`SELECT COUNT(*) n FROM safety_collections c WHERE ${scope}`,...args);
- if(epochs.n>128)throw new SafetyCapacityExhausted("Safety binding coverage capacity exhausted");
+ if(epochs.n>128)throw new SafetyCapacityExhausted("Safety binding coverage capacity exhausted","chat");
  const totals=one<{rows:number;bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_rows),0) rows,COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
   JOIN safety_collections c ON c.id=r.collection_id WHERE ${scope}`,...args);
  const pending=one<{rows:number;bytes:number;count:number;serializedBytes:number}>(db,`SELECT COALESCE(SUM(p.rows),0) rows,COALESCE(SUM(p.reserved_bytes),0) bytes,
   COUNT(*) count,COALESCE(SUM(p.bytes),0) serializedBytes FROM safety_pending p
   JOIN safety_collections c ON c.id=p.collection_id WHERE ${scope}`,...args);
- if(totals.rows+pending.rows>SAFETY_LIMITS.sessionRows||totals.bytes+pending.bytes>SAFETY_LIMITS.sessionBytes)throw new SafetyCapacityExhausted("Safety binding capacity exhausted");
- if(pending.count>SAFETY_LIMITS.sessionPending||pending.serializedBytes>SAFETY_LIMITS.sessionPendingBytes)throw new SafetyCapacityExhausted("Safety binding pending capacity exhausted");
+ if(totals.rows+pending.rows>SAFETY_LIMITS.sessionRows||totals.bytes+pending.bytes>SAFETY_LIMITS.sessionBytes)
+  throw new SafetyCapacityExhausted("Safety binding capacity exhausted",totals.rows>SAFETY_LIMITS.sessionRows||totals.bytes>SAFETY_LIMITS.sessionBytes?"chat":"turn");
+ if(pending.count>SAFETY_LIMITS.sessionPending||pending.serializedBytes>SAFETY_LIMITS.sessionPendingBytes)throw new SafetyCapacityExhausted("Safety binding pending capacity exhausted","turn");
  const previous=one<{session_id:string;history_owner_id:string;generation:string}|null>(db,"SELECT * FROM safety_bindings WHERE turn_id=?",turnId);
  if(previous&&(previous.session_id!==sessionId||previous.history_owner_id!==owner||previous.generation!==gen))throw new SafetyUnavailable("Safety SessionKey binding changed");
  db.query("INSERT INTO safety_bindings VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING").run(c.id,turnId,sessionId,owner,gen,advance(db));
@@ -275,12 +296,12 @@ function appendRecord(db:Database,c:Collection,id:string,kind:"occurrence"|"expo
  const json=JSON.stringify(payload),bytes=Buffer.byteLength(JSON.stringify({id,collectionId:c.id,turnId:c.turn_id,
    session:{sessionId:c.session_id,historyOwnerId:c.history_owner_id,historyGeneration:c.generation},sequence:"18446744073709551615",observedAt:at,
    kind,occurrenceId,source,detector,state,payload}));
- if(bytes>SAFETY_LIMITS.occurrenceBytes)throw new SafetyCapacityExhausted("Safety occurrence byte limit exceeded");
+ if(bytes>SAFETY_LIMITS.occurrenceBytes)throw new SafetyCapacityExhausted("Safety occurrence byte limit exceeded","turn");
  const previous=one<RecordRow|null>(db,"SELECT * FROM safety_records WHERE id=?",id);
  if(previous){if(previous.collection_id!==c.id||(previous.detail_pruned ? previous.payload!==JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(json).digest("hex")}) : previous.payload!==json))throw new SafetyUnavailable("Conflicting safety occurrence identity");return;}
  const rows=kind==="occurrence"?(state==="finalized"?2:4):0,
    reserved=kind==="occurrence"?bytes+VERDICT_BYTES+(state==="finalized"?0:2*TERMINAL_BYTES):0;
- if(kind==="exposure"&&bytes>TERMINAL_BYTES)throw new SafetyCapacityExhausted("Safety terminal reserve exceeded");
+ if(kind==="exposure"&&bytes>TERMINAL_BYTES)throw new SafetyCapacityExhausted("Safety terminal reserve exceeded","turn");
  capacity(db,c,rows,reserved);
  db.query("INSERT INTO safety_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0)").run(id,c.id,advance(db),at,kind,occurrenceId,source,detector,state,json,bytes,rows,reserved);
  db.query("UPDATE safety_meta SET used_rows=used_rows+?,used_bytes=used_bytes+? WHERE singleton=1").run(rows,reserved);
@@ -429,7 +450,7 @@ export function reserveSafetyWrite(db:Database,turnId:string,requestId:string,by
  const local=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE(SUM(p.bytes),0) bytes FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id
   WHERE ${scope}`,...args);
  if(global.n>=SAFETY_LIMITS.brainPending||global.bytes+bytes>SAFETY_LIMITS.brainPendingBytes||local.n>=SAFETY_LIMITS.sessionPending||local.bytes+bytes>SAFETY_LIMITS.sessionPendingBytes)
-  throw new SafetyCapacityExhausted("Safety pending capacity exhausted");
+  throw new SafetyCapacityExhausted("Safety pending capacity exhausted","turn");
  const rows=terminalOccurrenceId?0:4,reserved=terminalOccurrenceId?0:bytes+VERDICT_BYTES+2*TERMINAL_BYTES;
  capacity(db,c,rows,reserved);
  db.query("INSERT INTO safety_pending VALUES(?,?,?,?,?)").run(requestId,c.id,bytes,rows,reserved);advance(db);
@@ -503,11 +524,14 @@ const latchCause=(db:Database):SafetyLatchCause|null=>{
  const row=one<{since:number;reason:string;site:string;turn_id:string|null;error_class:string;message:string;stack:string|null;count:number}|null>(db,"SELECT * FROM safety_latch WHERE singleton=1");
  return row?{reason:row.reason,site:row.site,turnId:row.turn_id,errorClass:row.error_class,message:row.message,stack:row.stack,since:row.since,count:row.count}:null;
 };
-/** What the owner sees about the brain-wide recorder (#3810). */
-export interface SafetyRecordingStatus { latched:boolean; since:number|null; reason:string|null; cause:SafetyLatchCause|null; retained:boolean; lastRecovery:Omit<SafetyRecovery,"recovered">|null }
+/** What the owner sees about the brain-wide recorder (#3810). `cause.durable`
+ * is false while only this process holds it, its notice not yet committed. */
+export interface SafetyRecordingStatus { latched:boolean; since:number|null; reason:string|null; cause:(SafetyLatchCause&{durable:boolean})|null; retained:boolean; lastRecovery:Omit<SafetyRecovery,"recovered">|null }
 export function safetyRecordingStatus(db:Database):SafetyRecordingStatus {
  return Database.prototype.transaction.call(db,()=>{
-  const m=meta(db),local=safetyQueue(db),cause=latchCause(db);
+  const m=meta(db),local=safetyQueue(db),durable=latchCause(db),lost=local.lossCause;
+  const cause=durable?{...durable,durable:true}:local.failed&&lost?{reason:"recording_failed",site:lost.site,turnId:lost.turnId,
+   errorClass:lost.errorClass,message:lost.message,stack:null,since:lost.at,count:lost.count,durable:false}:null;
   const last=one<{at:number;trigger:SafetyRecoveryTrigger;actor:string;cause:string|null;gapped:number}|null>(db,"SELECT * FROM safety_recoveries ORDER BY id DESC LIMIT 1");
   return {latched:!!m.failed||local.failed,since:cause?.since??null,reason:m.failed?(m.reason??"recording_failed"):local.failed?"recording_failed":null,cause,
    retained:local.failed&&!m.failed,
@@ -522,24 +546,24 @@ export function safetyRecordingStatus(db:Database):SafetyRecordingStatus {
  * gap, so its chat stays restricted until reviewed.
  *
  * `owner` and `boot` recovery require every producer to have stopped.
- * `automatic` recovery runs beside turns begun restricted: their collections
- * already carry a permanent gap, so it waits only for producers whose
- * evidence could still be in flight (#3812).
+ * `automatic` recovery runs beside turns begun restricted: they began after
+ * the latch, each with a permanent gap. Every other producer was in flight
+ * when the latch was set, failed or not, and must end first (#3812).
  */
 export function recoverSafetyRecording(db:Database,options:{trigger?:SafetyRecoveryTrigger;actor?:string}={}):SafetyRecovery {
  const local=safetyQueue(db),trigger=options.trigger??"owner",actor=options.actor??"host",at=Date.now();
  const automatic=trigger==="automatic";
- const covered=(turnId:string|null)=>turnId!==null&&!!db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND (restricted_begin=1 OR failure IS NOT NULL)").get(turnId);
- if(automatic?[...local.pending].some(p=>!local.unscopedLoss&&!covered(p.turnId)&&!(p.turnId!==null&&local.lostTurns.has(p.turnId))):(local.pending.size||local.inflight))
+ const begunRestricted=(turnId:string|null)=>turnId!==null&&!!db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(turnId);
+ if(automatic?[...local.pending].some(p=>!begunRestricted(p.turnId)):(local.pending.size||local.inflight))
   throw new SafetyUnavailable("Stop all safety producers before recovery");
  let cause:SafetyLatchCause|null=null,gapped=0,recovered=false;
  db.transaction(()=>{
-  const open=db.query<{turn_id:string;restricted_begin:number;failure:string|null},[]>("SELECT turn_id,restricted_begin,failure FROM safety_collections WHERE ended=0").all();
-  if(automatic?open.some(c=>!local.unscopedLoss&&!c.restricted_begin&&!c.failure&&!local.lostTurns.has(c.turn_id)):open.length)
+  const open=db.query<{restricted_begin:number},[]>("SELECT restricted_begin FROM safety_collections WHERE ended=0").all();
+  if(automatic?open.some(c=>!c.restricted_begin):open.length)
    throw new SafetyUnavailable("Stop all safety producers before recovery");
   const totals=meta(db);
   if(!totals.failed&&!local.failed&&!one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_pending").n)return;
-  if(totals.used_rows+totals.scope_rows>=SAFETY_LIMITS.brainRows||totals.used_bytes+totals.scope_bytes>=SAFETY_LIMITS.brainBytes)throw new SafetyCapacityExhausted("Safety capacity must be recovered first");
+  if(totals.used_rows+totals.scope_rows>=SAFETY_LIMITS.brainRows||totals.used_bytes+totals.scope_bytes>=SAFETY_LIMITS.brainBytes)throw new SafetyCapacityExhausted("Safety capacity must be recovered first","brain");
   const lost=local.lossCause;
   cause=latchCause(db)??(local.failed?{reason:"recording_failed",site:lost?.site??"retained",turnId:lost?.turnId??null,errorClass:lost?.errorClass??"SafetyUnavailable",
    message:lost?`${lost.message} (retained in process; its durable notice could not commit)`:"Only this process retained the loss; its durable notice could not commit.",

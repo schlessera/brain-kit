@@ -92,8 +92,10 @@ export interface GovernanceWrites {
    */
   record(input: GovernanceEventInput): Promise<{ id: number; recorded: boolean }>;
   /** Stores every distinct occurrence; only the exact host key deduplicates. Historical internal method name. */
-  /** `beforeDelivery`: the producer holds the input until this settles, so a
-   * refused reservation delivered nothing and refuses only the turn. */
+  /** `beforeDelivery`: a tool's input, recorded before the tool runs, which
+   * the producer holds until this settles; a refused reservation delivered
+   * nothing and refuses only the turn. Never for a result: its bytes already
+   * exist and a runtime may keep them in its session (#3812). */
   firstTaint(input: GovernanceEventInput<"taint">, options?: { beforeDelivery?: boolean }): Promise<boolean>;
   /** The brain-wide recorder state the owner sees on `/api/status` (#3810). */
   recordingStatus(): SafetyRecordingStatus;
@@ -194,7 +196,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       ? [...pendingTaints].filter(p=>p.turnId===null&&p.sessionId===null) : pendingInScope(row.turnId,row.sessionId));
     if (pendingTaints.size >= 4096 || shared.bytes + bytes > 16777216 || session.length >= 256
       || session.reduce((sum, p) => sum + p.bytes, 0) + bytes > 1048576) {
-      void safetyFail(row.turnId,new SafetyCapacityExhausted("Safety occurrence write capacity exceeded")).catch(()=>{});
+      void safetyFail(row.turnId,new SafetyCapacityExhausted("Safety occurrence write capacity exceeded","turn")).catch(()=>{});
       throw new Error("Safety occurrence write capacity exceeded; ingestion must stop");
     }
     const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };

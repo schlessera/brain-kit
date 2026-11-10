@@ -31,9 +31,12 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
     host.sendToClients(withTurnScope({ type: "error", code: errorClass.toUpperCase(), message,
       failure: { errorClass, message }, ...correlation }, turn));
   } else if (err instanceof SafetyRecordingUnavailable) {
-    // Refused before delivery (#3812): retryable, and distinct from a refusal
-    // by the brain, so the client can say what happened (#3810).
-    const errorClass = err.paused ? "safety_recording_paused" : "safety_recording_unavailable";
+    // Refused before delivery (#3812), and distinct from a refusal by the
+    // brain, so the client can say what happened and what to do (#3810).
+    // Spent room is not retryable: a full chat needs a new chat, a full
+    // brain needs its limit raised; recovery frees neither.
+    const errorClass = err.full === "chat" ? "safety_recording_chat_full" : err.full === "brain" ? "safety_recording_brain_full"
+      : err.paused ? "safety_recording_paused" : "safety_recording_unavailable";
     host.reportTurnFailed("SAFETY_RECORDING_UNAVAILABLE", turn, err.message);
     host.sendToClients(withTurnScope({ type: "error", code: "SAFETY_RECORDING_UNAVAILABLE", message: err.message,
       failure: { errorClass, message: err.message }, ...correlation }, turn));
