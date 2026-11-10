@@ -2204,6 +2204,7 @@ signatures (every public export and the types it is made of)
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
         idleObservationMs?: number;
+        log?: Logger;
     }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
