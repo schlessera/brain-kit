@@ -265,11 +265,36 @@ originals, on a host that advertises `composerFiles`:
   Photo library or Camera. A phone keeps both beside Files. The Files input
   has no `accept`, and paste and drop feed the same pipeline. A host without
   `composerFiles` keeps the old menu and D52's tab-only track queue.
-- **One route for everything but images.** Every file that is not an image
+- **One route for everything, images included.** Every file, an image too,
   goes to `POST /api/drafts/:draftId/files` as its raw bytes. The client
-  never routes by MIME type or extension; detection is the host's. Images
-  keep their existing frame processing. They do not upload an original yet,
-  so the image half of "a real file for every attachment" is still open.
+  never routes by MIME type or extension; detection is the host's.
+- **An image is an original plus a derived frame.** Once the host stores a
+  file as `kind: "image"` with `reader: "image"`, the composer prepares the
+  frame it always did (`fileToAttachment`) from the bytes just uploaded, or,
+  after a reload, from the original read back (`GET
+  /api/attachments/:fileId`). The frame is page state: drafts, snapshots and
+  saves name only the original, so a draft with images sends through a
+  snapshot and survives reload like any other. The message carries the
+  original in `attachmentRefs` and the frame with `fileId` naming it, and the
+  host charges the pair once. Choices this forces:
+  - **The frame budget is per message, in file order.** Frames go inline
+    while `MAX_IMAGES_PER_MESSAGE` and `MAX_TOTAL_IMAGE_BYTES` allow, after
+    any legacy inline image. Past them, or when no frame can be made (too
+    small, undecodable, still too large after downscaling), the original goes
+    alone and its chip says *not shown inline*, with *Your agent gets the file
+    but not a preview.* An image whose frame is still being made holds Send,
+    and those after it wait with it, so the placement never changes under a
+    send.
+  - **An image chip waits for storage.** Until the host has stored it, an
+    image is a queued file with the queue's honest states (uploading,
+    checking, failed, refused). Its thumbnail appears only once it is stored.
+  - **Legacy images stay readable.** A saved draft that already holds legacy
+    draft images keeps them as inline frames and keeps the tab-local send,
+    because a snapshot cannot hold one. A host without composer files keeps
+    the inline-only path.
+  - **A sent image claims no reading.** Its row is the original's kind and
+    size; a read record for an image is not shown. The transcript draws the
+    frame it sent.
 - **A queue item keeps one key for its whole life.** The idempotency key is
   minted once per item. A lost answer becomes `unknown`, never "not stored".
   It is uploaded again with the same key once on reconnect, or through
@@ -296,9 +321,10 @@ originals, on a host that advertises `composerFiles`:
   else `dispatched`. Its uploads leave the composer with it, and each stored
   one joins the snapshot's files in a save. Once all are stored it moves to
   `dispatched`, and the `chat_message` goes once, with its own text and
-  files, under a revision that holds it. A draft with legacy inline images,
-  or a host without the limit, keeps the tab-local path, because a snapshot
-  cannot hold an inline image.
+  files, under a revision that holds it, and the frames of its image
+  originals once they are made. A draft with legacy inline images, or a host
+  without the limit, keeps the tab-local path, because a snapshot cannot hold
+  an inline image.
   - **Acceptance drops it here at once.** The host releases an accepted
     snapshot in place, without a revision (#3733). So the client removes it
     from both its list and its copy of the host's before the next save, and
