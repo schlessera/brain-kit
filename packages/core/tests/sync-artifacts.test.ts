@@ -5,7 +5,7 @@
  * commit carries `.gitignore` alone.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,11 +18,27 @@ import {
   type AssessedFile,
   type IgnorePlan,
 } from "../src/lib/sync/artifacts.js";
+import { withoutSigning } from "./git-fixture";
 
 const ARTIFACT = [".DS_Store", "*.swp", "*~", "*.log", "tmp/*"];
 const dirs: string[] = [];
 
+// applyIgnores commits through git children that inherit process.env, and an
+// env-scoped `GIT_CONFIG_COUNT` signing setting outranks the fixture's
+// repository-local `commit.gpgsign false` (#3485). Append the overrides for
+// each test and put the environment back exactly as it was.
+let savedEnv: Record<string, string | undefined> = {};
+beforeEach(() => {
+  const isolated = withoutSigning({ ...process.env } as Record<string, string>);
+  savedEnv = Object.fromEntries(Object.keys(isolated).filter((key) => key.startsWith("GIT_CONFIG_")).map((key) => [key, process.env[key]]));
+  for (const key of Object.keys(savedEnv)) process.env[key] = isolated[key];
+});
+
 afterEach(() => {
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 

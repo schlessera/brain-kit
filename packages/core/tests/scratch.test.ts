@@ -305,22 +305,24 @@ describe("a prune beside another process", () => {
    * becomes a symlink to a directory outside the brain that holds a file of
    * the listed name. The old path now names the outside file.
    */
-  function swapNestedAfterListing(): { file: string } {
+  function swapNestedAfterListing(): { file: string; swapped: () => boolean } {
     file("nested/victim.pdf", 7, SCRATCH_TTL_MS + 1000);
     const outside = outsideDir();
     outsides.push(outside.dir);
     const nested = join(root, SCRATCH_DIR, "nested");
+    let swapped = false;
     const real = fs.readdirSync;
     const spy = spyOn(fs, "readdirSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
       const result = real(path, options as never);
       if (String(path) === nested && !isSymlinkNow(nested)) {
         rmSync(nested, { recursive: true, force: true });
         symlinkSync(outside.dir, nested);
+        swapped = true;
       }
       return result;
     }) as typeof fs.readdirSync);
     spies.push(spy);
-    return { file: outside.file };
+    return { file: outside.file, swapped: () => swapped };
   }
   const isSymlinkNow = (p: string) => fs.lstatSync(p, { throwIfNoEntry: false })?.isSymbolicLink() === true;
   const spies: { mockRestore(): void }[] = [];
@@ -331,6 +333,7 @@ describe("a prune beside another process", () => {
   test("prune: an ancestor swapped for a link between the listing and the unlink is skipped, the outside file survives", () => {
     const outside = swapNestedAfterListing();
     const report = pruneScratch(root, NOW);
+    expect(outside.swapped(), "SWAP_HAPPENED").toBe(true);
     expect(existsSync(outside.file)).toBe(true);
     expect(readFileSync(outside.file, "utf8")).toBe("keep me");
     expect(report.removed).toEqual([]);
@@ -339,6 +342,7 @@ describe("a prune beside another process", () => {
   test("clean: the same swap, the same outcome", () => {
     const outside = swapNestedAfterListing();
     const report = cleanScratch(root);
+    expect(outside.swapped(), "SWAP_HAPPENED").toBe(true);
     expect(existsSync(outside.file)).toBe(true);
     expect(report.removed).toEqual([]);
   });
@@ -378,7 +382,7 @@ describe("a prune beside another process", () => {
    * descends, `nested` becomes a link to an outside directory holding an
    * empty `deep` of the listed name.
    */
-  function swapNestedAfterCleanupListing(ageMs: number): { deep: string } {
+  function swapNestedAfterCleanupListing(ageMs: number): { deep: string; swapped: () => boolean } {
     file("nested/deep/x.bin", 5, ageMs);
     const outside = mkdtempSync(join(tmpdir(), "brain-outside-"));
     outsides.push(outside);
@@ -397,12 +401,13 @@ describe("a prune beside another process", () => {
       return result;
     }) as typeof fs.readdirSync);
     spies.push(spy);
-    return { deep };
+    return { deep, swapped: () => reads >= 2 };
   }
 
   test("prune: a directory swapped for a link after the cleanup listed it is not descended into, the outside directory survives", () => {
     const outside = swapNestedAfterCleanupListing(SCRATCH_TTL_MS + 1000);
     pruneScratch(root, NOW);
+    expect(outside.swapped(), "SWAP_HAPPENED").toBe(true);
     expect(existsSync(outside.deep)).toBe(true);
     expect(lstatSync(outside.deep).isDirectory()).toBe(true);
   });
@@ -410,6 +415,7 @@ describe("a prune beside another process", () => {
   test("clean: the same swap, the outside directory survives", () => {
     const outside = swapNestedAfterCleanupListing(0);
     cleanScratch(root);
+    expect(outside.swapped(), "SWAP_HAPPENED").toBe(true);
     expect(existsSync(outside.deep)).toBe(true);
   });
 
