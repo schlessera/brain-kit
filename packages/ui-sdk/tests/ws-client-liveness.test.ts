@@ -221,7 +221,7 @@ describe("idle probes", () => {
     await clock.advance(5_000);
     expect(sockets).toHaveLength(1);
     expect(events.find((e) => e.type === "pong")).toMatchObject({ type: "pong", probeId: ping.probeId });
-    expect(events.some((e) => e.type === "stale")).toBe(false);
+    expect(events.map((e) => e.type)).not.toContain("stale");
     client.close();
   });
 
@@ -230,7 +230,7 @@ describe("idle probes", () => {
     client.checkLiveness();
     sockets[0]!.deliver({ type: "pong", probeId: "probe-someone-else" });
     await clock.advance(5_000);
-    expect(events.some((e) => e.type === "stale")).toBe(true);
+    expect(events.map((e) => e.type)).toContain("stale");
     expect(sockets).toHaveLength(2);
     client.close();
   });

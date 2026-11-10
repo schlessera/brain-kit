@@ -113,8 +113,8 @@ test("restricted workers preserve executable aliases already supplied by their r
     // Keep the portable construction invariant explicit even on hosts that
     // accept a redundant mount onto this existing alias, independently of
     // the real launch below (#2211).
-    expect(argv.some((option, index) => ["--bind", "--ro-bind"].includes(option) && argv[index + 2] === executable),
-      "EXISTING_EXECUTABLE_ALIAS_HAS_NO_REDUNDANT_BIND").toBe(false);
+    expect(argv.flatMap((option, index) => ["--bind", "--ro-bind"].includes(option) && argv[index + 2] === executable ? [argv.slice(index, index + 3)] : []),
+      "EXISTING_EXECUTABLE_ALIAS_HAS_NO_REDUNDANT_BIND").toEqual([]);
     const result = Bun.spawnSync(argv, { stdin: Buffer.from("go\n"), stdout: "pipe", stderr: "pipe", timeout: 10_000 });
     expect(result.exitCode, `RESTORED_EXECUTABLE_ALIAS_LAUNCH: ${result.stderr}`).toBe(0);
     expect(result.stdout.toString()).toBe("Odysseus");

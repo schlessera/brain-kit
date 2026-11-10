@@ -44,7 +44,7 @@ test("stderr larger than pipe capacity drains and retains only a bounded tail", 
   const evidence = await failure(child);
   expect(evidence.exitCode).toBe(31);
   expect(Buffer.byteLength(evidence.stderr)).toBe(8192);
-  expect(evidence.stderr.endsWith("diagnostic-tail")).toBe(true);
+  expect(evidence.stderr).toEndWith("diagnostic-tail");
   expect(await child.exited).toBe(31);
 });
 
