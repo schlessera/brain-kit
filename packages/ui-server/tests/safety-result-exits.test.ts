@@ -280,7 +280,8 @@ test("a Pi call the in-process gate let through stays owed when a later admissio
     turn.bridge = { inputSafety: f.collector, emit() {}, requestPermission: async () => ({ behavior: "allow" }) } as never;
     turn.signal = f.controller.signal;
     let admit: ((event: { toolName: string; toolCallId: string; input: unknown }) => Promise<{ block: boolean; reason?: string } | undefined>) | undefined;
-    createPermissionGate({ turn, allowedTools: new Set(["grep"]), confirmPatterns: [] }).factory({ on: (event: string, handler: unknown) => { if (event === "tool_call") admit = handler as typeof admit; } } as never);
+    const gate = createPermissionGate({ turn, allowedTools: new Set(["grep"]), confirmPatterns: [] });
+    (typeof gate === "function" ? gate : gate.factory)({ on: (event: string, handler: unknown) => { if (event === "tool_call") admit = handler as typeof admit; } } as never);
     const call = { toolName: "grep", toolCallId: "call_raft", input: { pattern: "sirens" } };
     expect(await admit!(call), "SAFETY_PI_GATE_LETS_THE_CALL_RUN").toBeUndefined();
     expect(await searchRuns(f, call.toolCallId, call.input), "SAFETY_PI_GATE_SEARCH_RAN").toContain("Sail past the sirens");
