@@ -160,7 +160,7 @@ describe("reachability: the prototype preserves each root's own walk", () => {
       ["duplicate", 0, 0], ["missing", undefined, 0], ["found", undefined, 0],
       ["found", undefined, walkLinks(db, { path: "notes/loom.md", depth: 1, direction: "both" }).edges.length],
     ]);
-    expect(result.edges.every((e) => !e.roots.some((i) => i === 1 || i === 2))).toBe(true);
+    expect(result.edges.filter((e) => e.roots.some((i) => i === 1 || i === 2))).toEqual([]);
     // The shipped single-root tools cannot tell the last two cases apart.
     const pi = piTools(root);
     for (const path of ["notes/absent.md", "notes/driftwood.md"]) {
