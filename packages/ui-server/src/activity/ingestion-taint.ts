@@ -10,8 +10,9 @@ type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "chat_attac
 /** Whether a brain-relative path carries the user's untrusted mark (#2673). */
 export type MarkedLookup = (path: string) => boolean;
 
-/** Claude's and pi-web-access's web tools. */
-const WEB_TOOLS: Record<string, IngestionSource> = { WebFetch: "web_fetch", WebSearch: "web_search", fetch_content: "web_fetch", web_search: "web_search" };
+/** Claude's web tools and Pi's host-owned ones (#3685): stored-content reads and source checks return external pages too. */
+const WEB_TOOLS: Record<string, IngestionSource> = { WebFetch: "web_fetch", WebSearch: "web_search", fetch_content: "web_fetch", web_search: "web_search",
+  get_search_content: "web_fetch", source_check: "web_search" };
 /** brain-kit's own MCP servers serve brain content; every other server's result is an external document. */
 const BRAIN_MCP_SERVERS = new Set(["brain", "brain-ui"]);
 /** File tools and the input key naming the path they read. Edit results quote the file. */
@@ -129,7 +130,7 @@ export interface IngestionSignal {
 /** Versioned installed-tool inventory. Completeness still needs delivery hooks and epoch acknowledgement. */
 export const INGESTION_DETECTOR_MANIFEST = {
   version: 1,
-  web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
+  web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"],get_search_content:["url"],source_check:["claim","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
   compute: [...COMPUTE_OUTPUT_TOOLS], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
   shell: ["Bash", "bash"],
   exclusions: ["proxied_shell_local_read", "opaque_tunnel_inner_protocol", "uninstrumented_backend_input", "missing_historical_signals"],
@@ -156,7 +157,7 @@ export function inputTaintSignals(tool: string, input: unknown, brainPath?: stri
   if (!source) return [];
   if(source==="web_fetch"||source==="web_search"){
     const object=input&&typeof input==="object"?input as Record<string,unknown>:{};
-    const keys=source==="web_fetch"?["url","urls"]:["query","queries"];
+    const keys=source==="web_fetch"?["url","urls"]:["query","queries","claim"];
     const values=keys.flatMap(key=>typeof object[key]==="string"?[object[key] as string]:Array.isArray(object[key])?(object[key] as unknown[]).filter((v):v is string=>typeof v==="string"):[]);
     if(values.length>256||values.some(value=>Buffer.byteLength(value)>2048))throw new Error("Safety web input capacity exceeded");
     return [...new Set(values.length?values:["unknown_input"])].map(key=>({source,detector:"tool_web_input" as const,key}));

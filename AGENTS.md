@@ -85,6 +85,14 @@ on, links to or describes them.
   repo ([why](docs/plans/README.md#what-does-not-live-here)).
   `docs/decisions/` records why; `docs/plans/` holds design for work that is
   not built; GitHub holds everything that is open.
+- **Fail closed, proportionately.** A security or integrity guard restricts the
+  narrowest thing whose state is uncertain (a turn, a chat, a record, one
+  backend), runs restricted before it refuses, recovers by itself whenever
+  recovery needs no judgment, boots past a recoverable historical record, and
+  records its cause durably where the owner can see it. An unknown never
+  becomes clean; one local failure never makes the whole host unusable until a
+  restart or a hand-run script. A PR that adds or changes a guard answers the
+  checklist in [the rule](docs/decisions/proportionate-containment.md#checklist-for-a-new-or-changed-guard).
 - **Nothing that describes a real deployment goes in this repo.** Image layout,
   hosts, proxies, operator runbooks and production incidents belong in the
   private `brain-ui` repo, which is one person's running installation rather

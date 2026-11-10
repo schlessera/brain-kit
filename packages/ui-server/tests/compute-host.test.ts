@@ -458,7 +458,7 @@ describe("ledger settlement", () => {
     } } as never } });
     await f.begin("t-1");
     const started = ok(await f.host.forTurn(f.turn("t-1"))(run()));
-    for (let i = 0; i < 3; i++) await f.host.drive();
+    for (let i = 0; i < 8; i++) await f.host.drive();
     expect({ released: f.fake.liveSandboxes(), reservation: reservation(f, started.job.id), row: hostRow(f, started.job.id), outcome: f.store.getSpan(`compute:${started.job.id}`)!.outcome },
       "FAILED_SETTLE_KEEPS_JOB_OPEN").toEqual({ released: 0, reservation: { status: "active", actual_usd: null }, row: null, outcome: null });
     failing = false;
@@ -526,4 +526,27 @@ describe("boot", () => {
     await f.host.recover();
     expect(warnings).toEqual([expect.stringContaining("hosted external compute is off: the host compute state directory is not masked from workers")]);
   });
+});
+
+test("failed compute visits reconcile beyond maxFailures without a restart or new turn", async () => {
+  let failing = false, visits = 0;
+  const f = fixture({ config: summary({ "boat-small": { hourlyCeilingUsd: 0.6 } }), host: {
+    driver: { initialDelayMs: 2, maxDelayMs: 10, maxFailures: 2 },
+    credential() { if (failing) { visits++; throw new Error("Odysseus credential store unavailable"); } return SENTINEL; },
+  } });
+  await f.begin("t-1");
+  const started = ok(await f.host.forTurn(f.turn("t-1"))(run()));
+  failing = true;
+  try {
+    await until(() => visits >= 8, "COMPUTE_RETRIES_BEYOND_FOREGROUND_LIMIT", 1000);
+    expect(f.db.query("SELECT status FROM compute_budget_reservations WHERE job_id=?").get(started.job.id), "COMPUTE_UNCERTAIN_RESERVATION_HELD").toEqual({ status: "active" });
+    expect(f.budgets.receipt("t-1").scopes[0]!.costUsd, "COMPUTE_UNCERTAIN_CHARGE_RETAINED").toBeCloseTo(0.6);
+    const span = f.store.getSpan(`compute:${started.job.id}`)!;
+    expect(span.attrs["brain.compute.stuck"]).toBe(true);
+    expect(span.attrs["brain.compute.uncertain"]).toContain("Odysseus credential store unavailable");
+    failing = false;
+    await until(() => f.store.getSpan(`compute:${started.job.id}`)!.outcome === "success", "COMPUTE_AUTOMATIC_LATE_SETTLEMENT");
+    expect(f.db.query("SELECT status FROM compute_budget_reservations WHERE job_id=?").get(started.job.id)).toEqual({ status: "settled" });
+    expect(f.store.getSpan(`compute:${started.job.id}`)!.attrs["brain.compute.stuck"]).toBe(false);
+  } finally { failing = false; }
 });

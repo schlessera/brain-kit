@@ -74,6 +74,7 @@ export function createSessionResources(options: {
         compute: caps.compute,
         apify: caps.apify,
         attachments: caps.attachments,
+        web: caps.web,
       },
     });
     return { tools, turnContext };

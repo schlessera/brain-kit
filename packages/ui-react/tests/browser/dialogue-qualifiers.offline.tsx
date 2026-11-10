@@ -9,6 +9,7 @@ import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { CONVERSATION_LIMITS, type ServerConversationOpened } from "@schlessera/brain-ui-sdk/protocol";
 import type { ConversationRecognition } from "../../src/voice/conversation-client.js";
 import { installFaultNetwork } from "./offline/fault-network.js";
+import { pointDetails } from "./spoken-details.js";
 
 const SESSION = "odysseus-raft";
 let styles: HTMLStyleElement;
@@ -62,24 +63,24 @@ for(const theme of ["light","dark"] as const)for(const width of [320,1280])for(c
  await page.screenshot({element:s.host,path:`../../.vitest-attachments/durable-dialogue/rows-${theme}-${width}-${zoom}.png`});
  scroll.scrollTop=scroll.scrollHeight;
  await page.screenshot({element:s.host,path:`../../.vitest-attachments/durable-dialogue/tail-${theme}-${width}-${zoom}.png`});
- const trigger=unsaved.find(q=>q.dataset.transcriptQualifiers==="recognized")!;trigger.scrollIntoView({block:"center"});await userEvent.hover(trigger);
- await expect.poll(()=>document.querySelector('[role="tooltip"]')?.textContent).toContain("Unsaved text evidence");
+ const trigger=unsaved.find(q=>q.dataset.transcriptQualifiers==="recognized")!;trigger.scrollIntoView({block:"center"});
+ expect(trigger.closest(".bk-spoken-turn")!.querySelector(".bk-transcript-glyphs"),"no glyph on a spoken turn (#3700)").toBeNull();
  trigger.focus();await userEvent.keyboard("{Enter}");
  const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;
- expect(dialog.textContent).toContain("These words are not saved and are unavailable after reload.");
+ expect(dialog.textContent).toContain("Unsaved text evidence. These words are not saved and are unavailable after reload.");
  expect(dialog.textContent).toContain("Words may be uncertain; speaker unverified.");
  expect(dialog.querySelector("details")!.open).toBe(false);expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth+1);
  [...dialog.querySelectorAll("p")].find(p=>p.textContent?.startsWith("Unsaved text evidence"))!.scrollIntoView({block:"center"});
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/durable-dialogue/unsaved-details-${theme}-${width}-${zoom}.png`});
  await closeDetails();expect(document.activeElement).toBe(trigger);
- await userEvent.click(unsaved.find(q=>q.dataset.transcriptQualifiers==="generated")!);expect(document.querySelector("dialog[open]")!.textContent).toContain("Playback unknown");await closeDetails();
+ await pointDetails(unsaved.find(q=>q.dataset.transcriptQualifiers==="generated")!);expect(document.querySelector("dialog[open]")!.textContent).toContain("Playback unknown");await closeDetails();
 });
 for(const unsaved of [true,false])for(const kind of ["recognition","speech"] as const)test(`paging and live-tail windowing preserve the ${kind} unsaved=${unsaved} reader until real source removal`,async ctx=>{
  const s=await scene(ctx);evidence(s);
  const voice=s.ui.connection.conversation.state;
  const trigger=[...s.host.querySelectorAll<HTMLButtonElement>(`[data-transcript-qualifiers="${kind==="recognition"?"recognized":"generated"}"]`)].find(q=>q.getAttribute("aria-label")!.includes("unsaved")===unsaved)!;
  const key=trigger.closest<HTMLElement>("[data-arrival-key]")!.dataset.arrivalKey;
- await userEvent.click(trigger);expect(document.querySelector("dialog[open]")).not.toBeNull();
+ await pointDetails(trigger);expect(document.querySelector("dialog[open]")).not.toBeNull();
  flushSync(()=>voice.setState(current=>({dialogue:{[SESSION]:{...current.dialogue[SESSION]!,records:[retained(0,"Earlier mast note. "),...current.dialogue[SESSION]!.records]}},recognition:[...current.recognition,{...fragments("gemini-live",1)[0]!,sequence:4,text:" Keep the sail within reach.",unsaved:true}],outputs:[...current.outputs.map(o=>o.unsavedGenerated ? {...o,unsavedGenerated:o.unsavedGenerated+" Keep the rigging clear."} : o),...Array.from({length:41},(_,i)=>({conversationId:"tail",epoch:1,sessionId:SESSION,providerId:"gpt-live",outputId:`tail-${i}`,generated:`Later report ${i}.`,playback:"unknown" as const}))]})));
  expect(trigger.isConnected).toBe(true);expect(trigger.closest<HTMLElement>("[data-arrival-key]")!.dataset.arrivalKey).toBe(key);
  expect(s.host.querySelectorAll("[data-arrival-key]").length).toBeLessThanOrEqual(41);expect(document.querySelector("dialog[open]")).not.toBeNull();await closeDetails();expect(document.activeElement).toBe(trigger);
@@ -87,7 +88,7 @@ for(const unsaved of [true,false])for(const kind of ["recognition","speech"] as 
  // Reveal earlier history with the actual existing window control.
  const earlier=[...s.host.querySelectorAll<HTMLElement>('button,[role="button"]')].find(b=>b.textContent?.includes("earlier message"))!;await userEvent.click(earlier);
  const restored=[...s.host.querySelectorAll<HTMLButtonElement>(`[data-transcript-qualifiers="${kind==="recognition"?"recognized":"generated"}"]`)].find(q=>q.getAttribute("aria-label")!.includes("unsaved")===unsaved)!;
- await userEvent.click(restored);const anchor=s.host.querySelector("[data-reading-column]");
+ await pointDetails(restored);const anchor=s.host.querySelector("[data-reading-column]");
  flushSync(()=>voice.setState(current=>unsaved ? kind==="recognition"?{recognition:[]}:{outputs:current.outputs.filter(o=>!o.unsavedGenerated)} : {dialogue:{[SESSION]:{...current.dialogue[SESSION]!,records:current.dialogue[SESSION]!.records.filter(r=>r.evidence.kind!=="voice" || (kind==="recognition" ? r.evidence.event.kind==="output_transcript" : r.evidence.event.kind!=="output_transcript"))}}}));
  await expect.poll(()=>document.querySelector("dialog[open]")).toBeNull();expect(document.activeElement).toBe(anchor);
 });
