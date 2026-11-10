@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:52-55`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:53-56`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct

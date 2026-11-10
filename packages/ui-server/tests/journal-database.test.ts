@@ -226,9 +226,11 @@ test("the derived journal index name cannot hide an incompatible backup schema",
 test("migrations after the split keep the journal file and the UI database apart", () => {
   const migrations = join(import.meta.dir, "../migrations");
   for (const file of readdirSync(migrations).filter(name => name.endsWith(".sql") && name.slice(0, 3) > JOURNAL_SPLIT_MIGRATION)) {
-    // Comments are not statements, and a trigger's `UPDATE [OF columns] ON t`
-    // event names only the table after ON.
+    // Comments are not statements, a trigger's `UPDATE [OF columns] ON t`
+    // event names only the table after ON, and a foreign key's
+    // `ON DELETE|UPDATE <action>` names no object at all.
     const sql = readFileSync(join(migrations, file), "utf8").replace(/--[^\n]*/g, "")
+      .replace(/\bON\s+(?:DELETE|UPDATE)\s+(?:CASCADE|RESTRICT|NO\s+ACTION|SET\s+NULL|SET\s+DEFAULT)\b/gi, "")
       .replace(/\bUPDATE\s+(?:OF\s+\w+(?:\s*,\s*\w+)*\s+)?(?=ON\s)/gi, "");
     const named = [...sql.matchAll(/\b(?:TABLE|INTO|UPDATE|FROM|ON|INDEX|TRIGGER|REFERENCES)\s+(?:IF (?:NOT )?EXISTS\s+)?(?:\w+\.)?"?(\w+)"?/gi)].map(match => match[1]!);
     // A journal migration commits with its receipt only if it touches the journal file alone:

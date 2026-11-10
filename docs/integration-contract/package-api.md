@@ -5218,6 +5218,23 @@ loss, explicit unavailable/retired reads and deletion purge retained details.
 Late updates from a disconnected socket cannot loosen the retained facts, and
 recovery never resumes a prepared decision.
 
+## Native recovery quarantine status (#3816)
+
+`NativeManagerReady` gains optional `recovery` with `quarantinedIntents`,
+`stagingChargedBytes` (null when no safe stage bound is known) and
+`diagnosticsPath`. It is present when historical native
+intents cannot be read. Those identities remain fenced; staging capacity and
+unknown checkpoint dependencies remain charged. The manager serves readiness
+and unrelated checkpoint operations. A recovery page containing a quarantined
+identity refuses explicitly rather than reporting an incomplete inventory as
+complete. Causes remain in the host-private diagnostics directory. Authenticated
+`GET /api/status` exposes the boot report as optional `nativeRecovery`, also
+added to `SystemStatus`. A null staging charge makes `healthy` false and new
+staging returns a recovery refusal, not a retryable capacity error. A confirmed
+absent stage directory or invalid UUID charges zero; a surviving stage retains
+its independently persisted historical tmpfs cap. Public `/api/health` remains
+unchanged.
+
 ## Journal cleanup diagnostics (additive, #3815)
 
 The journal host's additive `cleanupStatus()` method (#3815) returns
