@@ -66,7 +66,7 @@ test("worker transcript export refuses symlinks and concurrent saved-state overw
     mkdirSync(join(tmpfs, project), { recursive: true });
     writeFileSync(join(brain, "policy.md"), "Athena policy");
     symlinkSync(join(brain, "policy.md"), join(tmpfs, project, "alias.jsonl"));
-    expect(() => state.persist(tmpfs)).toThrow(); expect(readFileSync(join(brain, "policy.md"), "utf8")).toBe("Athena policy");
+    expect(() => state.persist(tmpfs)).toThrow("runtime state contains an alias or special file"); expect(readFileSync(join(brain, "policy.md"), "utf8")).toBe("Athena policy");
     rmSync(join(tmpfs, project, "alias.jsonl"));
     mkdirSync(join(saved, project), { recursive: true });
     writeFileSync(join(saved, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Concurrent transcript"); writeFileSync(join(tmpfs, project, "11111111-1111-4111-8111-111111111111.jsonl"), "Worker transcript");
