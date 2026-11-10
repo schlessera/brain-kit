@@ -87,8 +87,8 @@ describe("discoverSkills precedence", () => {
   test("invalid/missing frontmatter is warned and skipped", () => {
     expect(map.broken).toBeUndefined();
     expect(map.nodesc).toBeUndefined();
-    expect(warnings.some((w) => w.includes("broken/SKILL.md"))).toBe(true);
-    expect(warnings.some((w) => w.includes("nodesc/SKILL.md"))).toBe(true);
+    expect(warnings).toContainEqual(expect.stringContaining("broken/SKILL.md"));
+    expect(warnings).toContainEqual(expect.stringContaining("nodesc/SKILL.md"));
   });
 });
 
@@ -105,7 +105,7 @@ describe("discoverSkills edge cases", () => {
       { coreSkillsDir: mkTmp("bf-emptycore-") }
     );
     expect(byName(skills).dup.description).toBe("from A");
-    expect(warnings.some((w) => w.includes("more than one module"))).toBe(true);
+    expect(warnings).toContainEqual(expect.stringContaining("more than one module"));
   });
 
   test("symlinked entries under .agents/skills are not read as local skills", () => {
