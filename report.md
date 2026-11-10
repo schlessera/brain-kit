@@ -1,6 +1,6 @@
 # Test health
 
-Generated 2026-11-10T21:15:48.458Z at `2cd3f387a064`.
+Generated 2026-11-10T21:15:57.363Z at `4b9f5d02790b`.
 
 ## Coverage of the rotation
 
@@ -16,8 +16,8 @@ Generated 2026-11-10T21:15:48.458Z at `2cd3f387a064`.
 
 | Measure | Value |
 | --- | --- |
-| Runs | 27 (completed 23, nothing-to-do 4) |
-| Runs by agent | claude-opus-5-5 27 |
+| Runs | 28 (completed 24, nothing-to-do 4) |
+| Runs by agent | claude-opus-5-5 28 |
 | Files audited | 1579 |
 | Files changed | 413 |
 | Findings | 2588 (1.64 per audited file) |
@@ -58,7 +58,7 @@ Generated 2026-11-10T21:15:48.458Z at `2cd3f387a064`.
 | Share of that cost in the 50 slowest files | 0.639 to 0.639 |
 | Open failure issues | 69 to 103 |
 | Sleep-shaped call sites | 888 to 887 |
-| Weak matchers | 1295 to 1291 |
+| Weak matchers | 1295 to 1292 |
 | Conditionally skipped tests | 139 to 139 |
 
 Signal counts are scanner leads, not defects. Timings saved are local medians of the changed files, not a hosted benchmark.
