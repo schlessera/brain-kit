@@ -317,6 +317,9 @@ interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
 }
 
 export type BackendActivityEvent =
+  | { /** Host cleanup facts may arrive after the turn ended; no provider-facing content. */
+      kind: "worker_cleanup"; state: "retrying" | "resolved"; bytes: number; turnTempBytes: number;
+      errorClass?: string; message?: string }
   | { kind: "prompt_prefix"; prefix: import("../protocol.js").PromptPrefixFingerprint; resumed: boolean }
   | { kind: "first_request_cache"; usage: import("../protocol.js").FirstRequestCacheUsage }
 

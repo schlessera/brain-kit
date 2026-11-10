@@ -1706,6 +1706,23 @@ signatures (every public export and the types it is made of)
         hooks: z.ZodOptional<z.ZodObject<{
             embedOnCommit: z.ZodOptional<z.ZodBoolean>;
         }, z.core.$strict>>;
+        hygiene: z.ZodOptional<z.ZodObject<{
+            propagation: z.ZodOptional<z.ZodObject<{
+                budgetMs: z.ZodOptional<z.ZodNumber>;
+                crossChecks: z.ZodOptional<z.ZodBoolean>;
+                enabled: z.ZodOptional<z.ZodBoolean>;
+                exclude: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                maxFiles: z.ZodOptional<z.ZodNumber>;
+                maxInputChars: z.ZodOptional<z.ZodNumber>;
+                minConfidence: z.ZodOptional<z.ZodNumber>;
+                profile: z.ZodOptional<z.ZodEnum<{
+                    balanced: "balanced";
+                    conservative: "conservative";
+                    permissive: "permissive";
+                }>>;
+                timeoutMs: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
         instructions: z.ZodOptional<z.ZodObject<{
             maxTokens: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strict>>;
@@ -1782,6 +1799,7 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>>>;
             propagation: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 derivatives: z.ZodString;
+                scope: z.ZodOptional<z.ZodString>;
                 severity: z.ZodOptional<z.ZodEnum<{
                     error: "error";
                     info: "info";
@@ -1923,6 +1941,7 @@ signatures (every public export and the types it is made of)
   propagationRuleSchema (packages/core/src/lib/config.ts)
     const propagationRuleSchema: z.ZodObject<{
         derivatives: z.ZodString;
+        scope: z.ZodOptional<z.ZodString>;
         severity: z.ZodOptional<z.ZodEnum<{
             error: "error";
             info: "info";
@@ -2082,6 +2101,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>>>;
         propagation: z.ZodOptional<z.ZodArray<z.ZodObject<{
             derivatives: z.ZodString;
+            scope: z.ZodOptional<z.ZodString>;
             severity: z.ZodOptional<z.ZodEnum<{
                 error: "error";
                 info: "info";

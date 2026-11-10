@@ -184,7 +184,7 @@ describe("asynchronous startup resource ordering", () => {
     });
   }
 
-  test("invalid subscription configuration refuses before invoking a runtime probe", async () => {
+  test("invalid subscription configuration boots and still invokes the required runtime probe", async () => {
     const dir = mkdtempSync(join(tmpdir(), "async-validation-"));
     scratch.push(dir);
     mkdirSync(join(dir, "brain"));
@@ -194,9 +194,13 @@ describe("asynchronous startup resource ordering", () => {
     chmodSync(path, 0o755);
     const dbPath = join(dir, "ui.db");
     const config = resolveServerConfig({ AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_PATH: join(dir, "brain"), DB_PATH: dbPath, BRAIN_UI_PRICING_DISCOVERY: "0", CLAUDE_CODE_PATH: path, BRAIN_UI_CLAUDE_TOKEN_MINTED_AT: "last spring" });
-    await expect(createApp({ config })).rejects.toThrow("BRAIN_UI_CLAUDE_TOKEN_MINTED_AT");
-    expect(existsSync(marker)).toBe(false);
-    expect(existsSync(dbPath)).toBe(false);
+    const app = await createApp({ config });
+    try {
+      expect(existsSync(marker)).toBe(true);
+      expect(existsSync(dbPath)).toBe(true);
+      const status = await (await app.fetch(new Request("http://localhost/api/status"))).json();
+      expect(status).toHaveProperty("subscription.expiryWarning.reason", "invalid_mint_date");
+    } finally { await app.close(); }
   });
 });
 

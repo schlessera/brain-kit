@@ -10,7 +10,7 @@ import {
   runJob,
 } from "../src/cron/run-job";
 import { createUiDb } from "../src/db/client";
-import type { HostBoundary } from "../src/brain/host-boundary";
+import { brainCommandClass, type HostBoundary } from "../src/brain/host-boundary";
 import { emitCrontab, TRUSTED_JOB_NAMES } from "../src/cron/emit";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain } from "../../core/tests/cli-harness";
 import { git, initRepo } from "../../core/tests/git-fixture";
@@ -611,6 +611,27 @@ test("a job through the host boundary ends only once its launch has settled", as
     settlement.resolve();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("propagation runs as exclusive credentialed maintenance while interactive hygiene stays credential-free", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-cron-propagation-"));
+  const seen: { credentials: boolean; gate: string; argv: readonly string[] }[] = [];
+  const boundary = { isolated: () => true, launch: async (request: { credentials: boolean; gate: string; argv: readonly string[] }) => {
+    seen.push(request);
+    return { stdout: stream(), stderr: stream(), exited: Promise.resolve(0), settled: Promise.resolve(), signalCode: null, kill() {} };
+  } } as unknown as HostBoundary;
+  try {
+    for (const [jobName, command] of [["hygiene", ["brain", "hygiene", "reconcile"]], ["hygiene-propagation", ["brain", "hygiene", "propagation", "--json"]]] as const) {
+      expect(await runJob({ jobName, command: [...command], dbPath: join(dir, "brain-ui.db"), childEnv: { TYPESAFE_API_KEY: "fixture-key" }, exec: {}, boundary,
+        stdout: textSink().sink, stderr: textSink().sink }, { sinkPath: join(dir, "sink.jsonl") })).toBe(0);
+    }
+    expect(seen.map(r => ({ credentials: r.credentials, gate: r.gate }))).toEqual([
+      { credentials: false, gate: "shared" }, { credentials: true, gate: "exclusive" },
+    ]);
+    expect(brainCommandClass(["hygiene", "--json", "next"])).toEqual({ credentials: false, gate: "shared" });
+    expect(brainCommandClass(["hygiene", "--json", "propagation"])).toEqual({ credentials: true, gate: "exclusive" });
+    expect(brainCommandClass(["hygiene", "propagation", "--dry-run"])).toEqual({ credentials: true, gate: "exclusive" });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // #3380: a module job's own subprocess that writes a read-only host path in a

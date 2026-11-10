@@ -133,11 +133,13 @@ Recovery copies reserve the existing aggregate output-staging budget in
 addition to retained source storage. Closing a handle aborts its pending copy;
 the copy reservation remains until that work drains and owned cleanup is
 confirmed. An unconfirmed cleanup retains ownership and reservations for
-reconciliation rather than reporting successful reclamation. For a Claude
-turn's end-of-turn cleanup, the server retries the close a few times with
-growing delays and releases the reservation once a retry is confirmed. If
-every retry is refused, the server log names the allowance that stays charged
-until the server restarts.
+reconciliation rather than reporting successful reclamation. For
+end-of-turn cleanup, both backends keep retrying with capped backoff
+and release the reservation only once a close is confirmed. Pi initialization
+failures retain the same retry owner. The original turn's Activity events
+record the cleanup cause, retained allowances and eventual confirmation,
+including confirmation after the turn has ended. After five failed retries a
+host diagnostic reports slow reconciliation; retries continue without a restart.
 
 Files made private are read by fixed, uncredentialed worker-UID code through
 authorized retained roots: no repository imports/evaluation, path escapes,
@@ -596,7 +598,8 @@ What runs there, and how it meets the brain's **writer gate**:
 | Work | Credentials and network | Writer gate |
 | --- | --- | --- |
 | Application route planning (`brain_add`) and its index refresh | None | Shared |
-| `brain hygiene`, `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
+| Interactive `brain hygiene` (excluding the explicit propagation prepass), `skills sync`, `scratch prune`, module settings, enable and disable | None | Shared |
+| Explicit `brain hygiene propagation` and opted-in `hygiene-propagation` cron job | Yes | Exclusive |
 | `brain briefing`, `stats`, `list`, `read`, `validate`, `module list`, `--version` | None | Shared |
 | `brain search` | Yes (the query embedding) | Shared |
 | Hosted `brain sync` (client, streamed route and generated sync cron job) | None in the brain; Git credentials only in the host mirror transport | Exclusive |
@@ -1035,7 +1038,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:50-72`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:53-75`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the

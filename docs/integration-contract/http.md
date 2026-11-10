@@ -160,6 +160,73 @@ conflicts, unavailable detail, unknown outcomes and partial work remain explicit
 voice, agent and autonomous execution do not gain a history action. This is
 additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
+<a id="native-intent-recovery-additive-3816"></a>
+
+### Native intent recovery (additive, #3816)
+
+Authenticated `GET /api/status` adds optional `nativeRecovery`:
+`{ quarantinedIntents: number, stagingChargedBytes: number | null,
+diagnosticsPath: string }`, also declared by `SystemStatus`. It reports the
+manager's boot quarantine and conservative staging charge. Invalid UUIDs and
+confirmed absent stage directories charge zero; surviving stages retain their
+independently recorded historical tmpfs allowance. The charge includes known
+stage reservations at boot. `null` means no safe bound is proven, never zero:
+`healthy` is false and staging refuses with a recovery diagnostic rather than
+claiming a temporary busy slot. Other operations remain available. The private
+diagnostics path and causes are never exposed by unauthenticated `/api/health`.
+This optional reporting is additive in 0.45.0; no CLI/MCP shape changes.
+
+### Staging refusal and unresolved journal recovery (additive, #3826)
+
+Authenticated `GET /api/status` extends `nativeRecovery` with optional
+`stagingRefusal: string`. It describes the recovery needed when a quarantined
+charge is unknown or when quarantine alone leaves too little budget for the
+configured per-stage allowance. In either case `healthy` is false. Individual
+stage requests use their actual requested allowance: a smaller request may fit;
+only pressure that can clear when active stages finish returns temporary busy.
+The refusal tells the owner to inspect private diagnostics, then either repair
+the stage's receipt or confirm its storage is removed (bounded quarantine) or
+restore the allowance record from proof of the original size (unknown bound),
+and to restart the native manager and the server: `nativeRecovery` is read when
+the server boots. No unknown or surviving storage charge is released.
+
+The response also adds optional `journalRecovery`, declared by `SystemStatus`:
+`{ unresolvedRecords: number, firstCause: null | { reservationId: string,
+hash: string, at: number, errorClass: string, message: string, site: string } }`.
+This is the journal worker's boot recovery summary: the count is unresolved
+object reservations, including multiple reservations of the same hash, and
+`firstCause` is the earliest recorded I/O refusal among them (`at` is Unix
+milliseconds). The first cause stays on its charged reservation across restarts;
+a successful later recovery removes both. Zero unresolved records means
+`firstCause: null`. Any unresolved records make `healthy` false without refusing
+boot or unrelated work. If persisting a cause fails, the current boot still
+reports it and logs the diagnostic-write failure; the existing reservation
+remains durable and charged. Neither summary is exposed by unauthenticated
+`/api/status` or public `/api/health`. Additive in 0.45.0.
+
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+### Degraded backend availability and unknown expiry (additive, #3817)
+
+A failed secondary backend leaves public `GET /api/health` live (HTTP 200),
+with `status: "degraded"` and `reasons: ["backend_unavailable"]`; uptime and
+timestamp stay present. Raw causes and backend identities remain protected.
+Authenticated `GET /api/status` adds `backendAvailability` with this boot's
+`unavailable` array and durable `lastFailures` (latest per backend). Records
+carry `backendId`, `phase`, `site`, `errorClass`, `message`, and ISO `at` as specified
+in [the HTTP reference](../http-api.md#liveness-and-operational-status).
+`healthy` is false while any secondary backend is excluded. The default
+backend still must pass; no version-incompatible backend executes.
+
+An invalid subscription mint date adds `subscription.expiryWarning` with
+`reason: "invalid_mint_date"`, `message`, `errorClass`, and ISO `at` while
+`mintedAt` and `expiresAt` remain null. Serving and authentication continue.
+The missing-date and valid-date shapes are unchanged. These additions ship
+in 0.45.0; no CLI/MCP envelope or provider history changes. The exported
+`assertBackendResolvable` now returns the excluded secondary backends as
+`BackendBootFailure[]`; callers that ignored its former void return continue
+to work. Primary-backend and shared profile-configuration errors still throw.
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 ### Published React health and sync helpers (breaking health correction)
@@ -1065,3 +1132,14 @@ Saved-audio PUT binds `Speech-Provider` before claim/body consumption; absent
 headers preserve effective-provider resolution. Retry provider changes return
 409 `transcription_provider_mismatch` with the receipt. Settings revisions,
 error codes, response schemas and operation binding are supported HTTP promises.
+
+
+### Checkpoint cleanup diagnostics (additive, #3815)
+
+Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
+`pending`, `failed` and `retainedBytes` for this process's superseded checkpoints;
+`lastFailure` is null or the durable historical failure with `kind`,
+`checkpointId`, `at` (epoch milliseconds), `scope`, `errorClass`, `cause` and
+`retrying: true` at the time it was recorded. The historical cause survives
+recovery and restart; it does not assert a currently blocked turn. Current
+charges remain separate in `retained`. No field changes public `/health`.

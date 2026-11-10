@@ -82,7 +82,7 @@ the [testing guidance](../process/testing.md#deliberate-offline-commands-on-linu
 documents prerequisites and the `--keep-caps`/bubblewrap trap. Generic test,
 hosted-worker and existing preflight-probe launch paths are unchanged.
 
-CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
+CI supplies authoritative complete repeatable proof: fast categories on explicit ready-candidate requests, and heavy categories on the squash's own main run under the [hybrid ruling](#hybrid-post-merge-heavy-proof). Complete
 unit/integration discovery normally includes affected workspaces and every reverse
 manifest dependant, plus root tooling tests. Under the maintainer's
 [2026-10-20 option B ruling](https://github.com/schlessera/brain-kit/issues/2404#issuecomment-6286701867),
@@ -1803,6 +1803,70 @@ This is a policy direction, not a finding that any gate is met. Until a
 qualified rollout, the exact-base confirmation and the single exact-candidate
 reservation above still apply. Before any implementation, this record and the
 concrete child task briefs on #2934 are updated.
+
+## Hybrid post-merge heavy proof
+
+The [2026-11-10 maintainer ruling on #2934](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6763098096)
+splits proof by cost and determinism
+([#3831](https://github.com/schlessera/brain-kit/issues/3831)). Fast categories
+stay pre-merge; heavy categories move to the squash's own main run.
+
+- **Ready confirmation** runs the `changeset` gates, `verify`, `pack` and
+  `unit` (complete affected unit/integration discovery, unchanged). It no
+  longer runs `runtime`, `runtime_host`, `browser`, `layout`, `captures` or
+  `endurance`. The exclusion lives in one place:
+  `proofSelections` (`scripts/ci-plan.ts:424-433`) applies
+  `POST_MERGE_CATEGORIES` (`scripts/red-main.ts:20-25`). Candidate admission,
+  the aggregate and the merge path validate that same selection, so none of
+  them can require a post-merge category.
+- **Main squashes** keep complete affected proof in every category, never
+  cancel each other and include the open red set. Scheduled and manual runs
+  stay exhaustive. A draft may still request the post-merge categories as
+  [hosted heavy feedback](#hosted-heavy-feedback-on-draft-heads); it remains
+  feedback, never proof.
+- **Red main is held per family.** A record whose failures all sit in
+  post-merge categories dooms no pre-merge proof. The hosted gate, doomed-run
+  cancellation and `integrate.ts` admit candidates
+  (`gateDecision`, `scripts/red-main.ts:234-244`), and the coordinator does not
+  report such a landing as a bypass (`detectLanded`,
+  `scripts/red-main-coordinator.ts:185-189`). A failure in any fast category
+  keeps the global refusal described under
+  [red-main record](#red-main-record-and-coordinator), and so does an empty
+  set. Recovery is unchanged: one incident, an assessed fix or revert PR
+  through normal proof, and a record cleared only by a green main run that
+  included the set.
+- **Local receipts.** A skipped, timed-out or preempted local check mapped only
+  to post-merge categories is not a merge refusal, because the squash's main
+  run proves it (`uncoveredChecks`, `scripts/check-receipt.ts:118-122`).
+  Fast-category and unmapped checks still refuse.
+
+**Why.** The #2937 escape audit found no selection misses: the selected fast
+proof covered every real regression in the October cohort. The red main that
+remains is mostly latent timing, browser and runtime failures, which pre-merge
+proof rarely prevents and which made heavy confirmation the slowest step.
+
+**What does not change.** No test, assertion, offline boundary, pinned image or
+category is removed. Main proves every selected category on the combined tree,
+and a faster merge with unfinished main proof is still not a successful
+delivery. The exact-candidate reservation, exact-head fast confirmation, the
+red-main controller, the incident workflow and releases from a green main are
+unchanged. The [conditional concurrency direction](#conditional-concurrency-direction)
+and its gates are unaffected.
+
+**Known costs.** A family that is already red cannot show a second break in
+itself until it is green again. Category-level heavy failures cannot use the
+[expedited path](#expedited-red-main-fixes): a declared fix merges by ordinary
+confirmation and is proved by its own main run.
+
+**Trial and stop criteria.** The model runs as a seven-day observation from
+the first main squash that contains it. The maintainer reverts to full
+pre-merge confirmation if any of these holds:
+
+- median time to recover a red family exceeds 2 hours;
+- first-pass green deliveries fall below 14.0 per day (the October 30 to
+  November 6 frozen week);
+- unresolved first-main failures grow by more than ten in the week;
+- red main blocks a release for more than 24 hours.
 
 ## Historical measurement and upstream guidance
 

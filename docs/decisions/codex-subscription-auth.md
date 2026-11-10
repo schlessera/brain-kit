@@ -80,7 +80,7 @@ flow and expose its own connection state, even if the user chooses the same
 ChatGPT account. Native client credentials remain private to their owners;
 responses, logs and documentation must not expose tokens or account identifiers.
 Pi's existing Accounts flow remains the entry point for pi only
-(`createPiAuthRoutes`, `packages/ui-server/src/routes/pi-auth.ts:60-61`;
+(`createPiAuthRoutes`, `packages/ui-server/src/routes/pi-auth.ts:66-67`;
 `PiAccountsSection`, `packages/ui-react/src/components/settings/pi-accounts.tsx:19-24`).
 
 This is a go for implementing a separate Codex login in that Settings area,

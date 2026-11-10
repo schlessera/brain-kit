@@ -95,7 +95,7 @@ export const CLAUDE_INFERENCE_ENV: readonly string[] = Object.freeze(["CLAUDE_CO
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits">
-    & { /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler } = {},
+    & { /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler; reportCleanup?: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => void } = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
   startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
   persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
@@ -278,7 +278,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           try { await close(); }
           catch (error) {
             (stateOptions.cleanup ?? processCleanupReconciler()).retain({ bytes: state.bytes, turnTempBytes: state.turnTempBytes,
-              close, release: () => state.release() });
+              close, release: () => state.release(), report: stateOptions.reportCleanup }, error);
             throw error;
           }
           state.release();

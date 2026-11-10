@@ -1143,6 +1143,10 @@ Original fragment identities remain available at this entry point.
 
 - [ui-server HTTP routes](integration-contract/http.md#ui-server-http-routes) (original line 1943).
 
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+- [Degraded backend availability and unknown expiry (additive, #3817)](integration-contract/http.md#degraded-backend-availability-and-unknown-expiry-additive-3817).
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 - [Published React health and sync helpers (breaking health correction)](integration-contract/http.md#published-react-health-and-sync-helpers-breaking-health-correction) (original line 1964).
@@ -1505,6 +1509,23 @@ fixed-reader checkpoint reads, plus access generations that move a writable
 worktree into or out of one worker-bound directory; `NativePoolRecord` gains
 the `checkpoint` purpose and `access`. Described in
 [the package API](integration-contract/package-api.md#managed-worktree-storage-additive-2430).
+
+## Diff-assisted propagation freshness review (additive, 0.45.0, #3452)
+
+Optional canonical `hygiene.propagation` configuration authorizes bounded JEV
+currency review with source diffs, user-selected confidence floors and veto-only
+cross-checks. Automation is off by default; opted-in review defaults to the
+balanced profile (0.7 floor with both cross-checks). Separate Markdown judgment receipts can
+suppress a propagation finding without changing content-edit dates; all changed
+or unavailable evidence returns to review. `brain hygiene propagation --json`
+adds inspectable dry-run/judgment/sensitivity output, and enabled reconciliation
+adds an optional `propagation` report. Scope/reference frontmatter and rule scope
+are additive inputs. See [CLI](integration-contract/cli.md#propagation-freshness-additive-0450-3452),
+[file semantics](integration-contract/frontmatter.md#propagation-freshness-additive-0450-3452)
+and [configuration](configuration.md#hygienepropagation). Hosted scheduling has
+a separate operator opt-in; existing interactive hygiene stays credential-free.
+This ships in a minor; existing dates, CLI fields and provider activation retain
+their meaning. No breaking ruling is required.
 
 ## Managed worktree hygiene review (additive, #2431)
 
