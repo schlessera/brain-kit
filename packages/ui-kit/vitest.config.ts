@@ -12,6 +12,7 @@ import { hygieneLifecycleFailures } from "../ui-react/tests/browser/hygiene-life
 import { hygieneContextLifecycle, hygieneLifecycle, hygieneLifecycleCleanup } from "../ui-react/tests/browser/hygiene-lifecycle-command.ts";
 import { hygieneServer } from "../ui-react/tests/browser/hygiene-server-command.ts";
 import { dispatchActions } from "../ui-react/tests/browser/dispatch-actions-command.ts";
+import { safetyGapChats } from "../ui-react/tests/browser/safety-gap-command.ts";
 import { transcriptionHttp } from "../ui-react/tests/browser/offline/transcription-http.ts";
 import path from "node:path";
 import { MeasuredBrowserSequencer } from "../../scripts/browser-sequencer.ts";
@@ -172,7 +173,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { recordingProof, rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { recordingProof, rankTap, conversationServer, mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, hygieneLifecycle, hygieneContextLifecycle, hygieneLifecycleCleanup, hygieneLifecycleFailures, dispatchActions, safetyGapChats, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

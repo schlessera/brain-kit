@@ -449,6 +449,9 @@ test("a message refused because safety recording failed says so, not that the br
   expect(await refuse("Bind me to the mast.", { code: "SAFETY_RECORDING_UNAVAILABLE", message: "failed",
     failure: { errorClass: "safety_recording_unavailable", message: "failed" } }), "a one-turn recording failure is retryable")
     .toBe("Safety recording failed before this was sent. Nothing ran; try again.");
+  expect(await refuse("Ask the sirens again.", { code: "SAFETY_RECORDING_UNAVAILABLE", message: "full",
+    failure: { errorClass: "safety_recording_chat_full", message: "full" } }), "a full chat says what to do, not to retry")
+    .toBe("This chat has no room left for safety records. Nothing was sent; start a new chat to continue.");
   expect(await refuse("Steer for Ithaca.", { code: "BACKEND_ERROR", message: "refused" }), "other refusals keep their copy")
     .toBe("The brain refused this message.");
 });
