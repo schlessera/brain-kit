@@ -86,7 +86,8 @@ describe("Semaphore", () => {
       third = true;
       return r;
     });
-    await new Promise((r) => setTimeout(r, 5));
+    // Drain continuations without a wall-clock delay, as above.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(third).toBe(false); // still only one slot
     r2();
     (await p)();
