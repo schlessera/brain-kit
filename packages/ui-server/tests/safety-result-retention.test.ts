@@ -39,8 +39,10 @@ function installedRipgrep(root:string):string {
  * before its process exits, so the runtime dispatches neither result hook.
  * `duplicate`: the model sends the search twice under one id; the runtime
  * admits both, and the second admission is denied once the first search has
- * printed its matches, stopping the turn while that search runs. */
-type Interruption="refused"|"cancelled"|"running"|"duplicate";
+ * printed its matches, stopping the turn while that search runs.
+ * `denied`: nothing interrupts; the search is outside the turn's allowlist,
+ * the runtime asks the permission callback, and Penelope denies the card. */
+type Interruption="refused"|"cancelled"|"running"|"duplicate"|"denied";
 /** One model reply carrying each call as its own tool_use block. */
 function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]):Response {
  const events:unknown[]=[{type:"message_start",message:{id:"msg_ithaca",type:"message",role:"assistant",model:"claude-probe",content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
@@ -52,7 +54,7 @@ function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]
  return new Response(events.map(event=>`event: ${(event as {type:string}).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
 }
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
- first:{results:number;failures:number;aborted:boolean;admissions:number;refusals:number};searched:boolean;replayed:string[]})=>void){
+ first:{results:number;failures:number;aborted:boolean;indexWaits:number;admitted:number;cards:number;refusals:number};searched:boolean;replayed:string[]})=>void){
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
@@ -94,18 +96,26 @@ esac
   // Each admission the runtime makes passes the index wait first. Under a
   // duplicate id the second waits until the first search has printed its
   // matches, then Odysseus stops the turn and that admission is denied.
-  let admissions=0,refusals=0,refusal=()=>{};
+  let indexWaits=0,admitted=0,cards=0,refusals=0,refusal=()=>{};
   const refused=new Promise<void>(resolve=>{refusal=resolve;});
   const awaitIndex=async()=>{
-   if(!interrupt||interruption!=="duplicate"||++admissions<2)return;
+   if(!interrupt||interruption!=="duplicate"||++indexWaits<2)return;
    const deadline=Date.now()+15000;
    while(!existsSync(searched)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
    if(!existsSync(searched))throw new Error("The first search never ran");
    controller.abort(new Error("Odysseus stopped the turn while the first search ran"));
    throw new Error("The second search under the same id is denied");
   };
-  const inputSafety={...collector,refused:async(id:string)=>{await collector.refused!(id);refusals++;refusal();}};
-  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety,awaitIndex}},allowedTools:["Grep"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
+  // What the host reports to the collector, counted as it passes.
+  const inputSafety={...collector,admitting:(id:string)=>{admitted++;collector.admitting?.(id);},
+   refused:async(id:string,denied?:boolean)=>{await collector.refused!(id,denied);refusals++;refusal();}};
+  // The runtime lists Grep only when its allowlist names it, and then runs it
+  // without asking. So the denied search runs under an enforced turn
+  // allowlist that leaves Grep out: the host's hook asks, and the runtime
+  // consults the callback, as it does for every call outside it.
+  const denying=interrupt&&interruption==="denied";
+  const requestPermission=async()=>{cards++;return denying?{behavior:"deny" as const,message:"Penelope declines the search"}:{behavior:"allow" as const};};
+  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,enforceAllowedTools:denying,bridge:{emit(){},requestPermission,inputSafety,awaitIndex}},allowedTools:denying?[]:["Grep"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
   let results=0,failures=0;
   if(interrupt){
    // The Grep result exists and the runtime holds it; only its record is at risk.
@@ -124,7 +134,7 @@ esac
   const timer=setTimeout(()=>controller.abort(),20000);
   try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:["Grep"],...wiring,abortController:controller,
    ...(resume?{resume}:{}),
-   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
+   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;
     if("session_id" in message&&typeof message.session_id==="string")runtimeSession=message.session_id;
    }}catch{/* The interrupted turn is stopped. */}
@@ -134,13 +144,13 @@ esac
    if(interrupt&&interruption==="duplicate")await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
    await writes.safetyEnd(turnId);
   }
-  return {results,failures,aborted:controller.signal.aborted,admissions,refusals};
+  return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals};
  }
  try{
   const first=await voyage("voyage",null,true);
   expect(version,"SAFETY_ACTUAL_INSTALLED_RUNTIME").toBe(MEASURED_RUNTIME.claudeCode);
   if(interruption==="running"||interruption==="duplicate")expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true);
-  expect(first.aborted,"SAFETY_INTERRUPTED_RESULT_STOPS_ITS_TURN").toBe(true);
+  if(interruption!=="denied")expect(first.aborted,"SAFETY_INTERRUPTED_RESULT_STOPS_ITS_TURN").toBe(true);
   expect(runtimeSession,"SAFETY_RUNTIME_SESSION_TO_RESUME").toBeDefined();
   turn=1;
   await voyage("homeward","ithaca",false,runtimeSession);
@@ -152,13 +162,14 @@ esac
    .filter(block=>block.type==="tool_result"&&block.tool_use_id==="toolu_sirens").map(block=>typeof block.content==="string"?block.content:JSON.stringify(block.content));
   expect(replayed.length,"SAFETY_RUNTIME_RESUMES_THE_INTERRUPTED_CALL").toBeGreaterThan(0);
   // The premise: interrupting the record did not keep the result out of the model's context.
-  if(interruption!=="running"&&interruption!=="duplicate")expect(resumed.some(r=>r.raw.includes(SONG)),"SAFETY_RUNTIME_REPLAYS_THE_INTERRUPTED_RESULT").toBe(true);
+  if(interruption==="refused"||interruption==="cancelled")expect(resumed.some(r=>r.raw.includes(SONG)),"SAFETY_RUNTIME_REPLAYS_THE_INTERRUPTED_RESULT").toBe(true);
   check({db,writes,first,searched:existsSync(searched),replayed});
   // Contained to its chat: the brain-wide recorder is untouched, and a
-  // recovery has nothing to clear, so the chat stays restricted.
+  // recovery has nothing to clear, so the chat keeps its restriction (or,
+  // with nothing lost, stays normal).
   expect(db.query("SELECT failed FROM safety_meta").get(),"SAFETY_INTERRUPTED_RESULT_NEVER_LATCHES_THE_BRAIN").toEqual({failed:0});
   recoverSafetyRecording(db,{trigger:"owner",actor:"penelope"});
-  expect(writes.safety(null,"ithaca").restriction,"SAFETY_INTERRUPTED_RESULT_SURVIVES_RECOVERY").toBe("restricted");
+  expect(writes.safety(null,"ithaca").restriction,"SAFETY_INTERRUPTED_RESULT_SURVIVES_RECOVERY").toBe(interruption==="denied"?"normal":"restricted");
  }finally{origin.stop(true);await writer.close();db.close();rmSync(root,{recursive:true,force:true});}
 }
 
@@ -207,7 +218,7 @@ test("a denial under an id the runtime admitted twice cannot settle the search t
  // The installed runtime admits the same tool_use id twice and runs the
  // first search; its allow never reaches a callback, since `allowedTools`
  // lists Grep bare.
- expect(first.admissions,"SAFETY_RUNTIME_ADMITS_ONE_ID_TWICE").toBe(2);
+ expect(first.indexWaits,"SAFETY_RUNTIME_ADMITS_ONE_ID_TWICE").toBe(2);
  expect(first.refusals,"SAFETY_SECOND_ADMISSION_IS_DENIED").toBeGreaterThan(0);
  expect(first.results+first.failures,"SAFETY_RUNTIME_SKIPPED_BOTH_RESULT_HOOKS").toBe(0);
  // The denial proves nothing about the search already running under that id.
@@ -218,4 +229,21 @@ test("a denial under an id the runtime admitted twice cannot settle the search t
  const voyage=db.query("SELECT failure,failure_cause FROM safety_collections WHERE turn_id='voyage'").get() as {failure:string|null;failure_cause:string|null};
  expect(voyage.failure,"SAFETY_DUPLICATE_DENIAL_GAP_IS_DURABLE").toBe("recording_failed");
  expect(JSON.parse(voyage.failure_cause??"{}"),"SAFETY_DUPLICATE_DENIAL_NAMES_ITS_CALL").toMatchObject({site:"safetyEnd",turnId:"voyage",message:expect.stringContaining("Grep (toolu_sirens)")});
+ // What kept it: the host saw the second admission before its denial.
+ expect(first.admitted,"SAFETY_HOST_REPORTS_BOTH_ADMISSIONS").toBe(2);
+}),60000);
+
+test("a search denied at its permission card never runs, and its chat stays normal with no gap",()=>voyageHome("denied",({db,writes,first,searched})=>{
+ // The runtime asks the callback, its last gate, and Penelope's deny keeps
+ // the search from running at all.
+ expect(first.cards,"SAFETY_RUNTIME_ASKS_THE_CALLBACK").toBe(1);
+ expect(searched,"SAFETY_DENIED_SEARCH_NEVER_RAN").toBe(false);
+ // The denial of the id's only admission proves the call never ran.
+ expect(db.query("SELECT failure,gap FROM safety_collections WHERE turn_id='voyage'").get(),"SAFETY_CARD_DENY_LEAVES_NO_GAP").toEqual({failure:null,gap:null});
+ const chat=writes.safety("homeward","ithaca");
+ expect(chat.restriction,"SAFETY_CARD_DENY_KEEPS_THE_CHAT_NORMAL").toBe("normal");
+ expect(chat.coverage.state,"SAFETY_CARD_DENY_KEEPS_COVERAGE").toBe("complete");
+ // What proved it: the host saw one admission under the id, and its deny.
+ expect(first.admitted,"SAFETY_RUNTIME_ADMITS_THE_DENIED_SEARCH_ONCE").toBe(1);
+ expect(first.refusals,"SAFETY_CARD_DENY_IS_REPORTED").toBeGreaterThan(0);
 }),60000);

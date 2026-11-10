@@ -214,11 +214,12 @@ test("an unavailable collector notice awaits durable failure and carries no tool
 
 test("every permission answer but allow refuses the call at the collector, and an allow is checked first", async () => {
   // Pi runs a call only on "allow". A denial or a rejection refuses the
-  // call's id, so nothing later under it is admitted or let run; that
-  // discharges nothing (#3812).
-  const refused: string[] = [], allowed: string[] = [];
-  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); },
-    allowed: async (id: string) => { allowed.push(id); } };
+  // call's id, so nothing later under it is admitted or let run. Only a deny
+  // answer is the host's own denial, which can prove the call never ran; a
+  // rejection proves nothing. Every request is one admission (#3812).
+  const refused: [string, boolean | undefined][] = [], allowed: string[] = [], admitted: string[] = [];
+  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, admitting: (id: string) => { admitted.push(id); },
+    refused: async (id: string, denied?: boolean) => { refused.push([id, denied]); }, allowed: async (id: string) => { allowed.push(id); } };
   const routed = harness({}, { applyBrain: async () => ({ ok: true }) as never, inputSafety });
   expect(await routed.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-allowed"))).toEqual({ behavior: "allow" });
   const unrouted = harness({}, { inputSafety });
@@ -228,19 +229,23 @@ test("every permission answer but allow refuses the call at the collector, and a
   const stopped = harness({ live: () => { if (++checks > 1) throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked."); } },
     { applyBrain: async () => ({ ok: true }) as never, inputSafety });
   await expect(stopped.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-stopped"))).rejects.toThrow("turn is inactive");
-  expect(refused, "PI_NON_ALLOW_PERMISSION_REFUSES_THE_CALL").toEqual(["call-denied", "call-stopped"]);
+  expect(refused, "PI_NON_ALLOW_PERMISSION_REFUSES_THE_CALL").toEqual([["call-denied", true], ["call-stopped", undefined]]);
   expect(allowed, "PI_ALLOWED_PERMISSION_IS_CHECKED_BEFORE_IT_RUNS").toEqual(["call-allowed"]);
+  // A later request in the stopped turn is an admission too, and only rejected.
+  await expect(stopped.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-stopped"))).rejects.toThrow();
+  expect(admitted, "PI_EVERY_PERMISSION_REQUEST_IS_AN_ADMISSION").toEqual(["call-allowed", "call-denied", "call-stopped", "call-stopped"]);
+  expect(refused.at(-1), "PI_REJECTED_REQUEST_IS_NO_DENIAL").toEqual(["call-stopped", undefined]);
 });
 
 test("an allow the collector's last check refuses is denied, and its grant never published", async () => {
   // The call's id was refused, or its latest admission did not complete: it
   // must not run, and nothing it could use may exist (#3812).
-  const refused: string[] = [];
-  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); },
+  const refused: [string, boolean | undefined][] = [];
+  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string, denied?: boolean) => { refused.push([id, denied]); },
     allowed: async () => { throw new Error("Safety operation was refused or not admitted; the call does not run"); } };
   const { context, dispatch } = harness({}, { inputSafety });
   const answer = await dispatch(rpc("permission", "read_file", { path: "notes/ithaca.md" }, "call-refused"));
   expect(answer, "PI_UNCHECKED_ALLOW_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("does not run") });
   expect(context.grants.has("call-refused"), "PI_UNCHECKED_ALLOW_LEAVES_NO_GRANT").toBe(false);
-  expect(refused, "PI_UNCHECKED_ALLOW_IS_REFUSED").toEqual(["call-refused"]);
+  expect(refused, "PI_UNCHECKED_ALLOW_IS_REFUSED").toEqual([["call-refused", true]]);
 });

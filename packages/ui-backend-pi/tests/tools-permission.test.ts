@@ -80,17 +80,20 @@ describe("approval policy (approvalReason)", () => {
 });
 
 describe("tool_call permission gate", () => {
-  test("a call the gate blocks is refused at the collector", async () => {
-    // A blocked call's id is refused, so nothing later under it is admitted
-    // or let through; that discharges nothing (#3812).
-    const refused: string[] = [];
+  test("a call the gate blocks is refused at the collector as its own denial, and every tool_call is one admission", async () => {
+    // A block is the gate's own denial before the call runs: it refuses the
+    // id, and for the id's only admission, never let through, the collector
+    // discharges the call on it (#3812).
+    const refused: [string, boolean | undefined][] = [], admitted: string[] = [];
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "deny", message: "Penelope declines" } });
-    turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); } } };
+    turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {},
+      admitting: (id: string) => { admitted.push(id); }, refused: async (id: string, denied?: boolean) => { refused.push([id, denied]); } } };
     const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
     expect(await handler({ toolName: "write_file", toolCallId: "allowed", input: { path: "a.md", content: "x" } })).toBeUndefined();
     expect(await handler({ toolName: "brain_archive", toolCallId: "declined", input: { path: "notes/suitors.md" } })).toMatchObject({ block: true });
-    expect(refused, "PI_GATE_BLOCK_REFUSES_THE_CALL").toEqual(["declined"]);
+    expect(refused, "PI_GATE_BLOCK_REFUSES_THE_CALL").toEqual([["declined", true]]);
+    expect(admitted, "PI_GATE_EVERY_TOOL_CALL_IS_AN_ADMISSION").toEqual(["allowed", "declined"]);
   });
 
   test("a call the gate lets through is checked by the collector first, and one the check refuses is blocked", async () => {
@@ -100,7 +103,7 @@ describe("tool_call permission gate", () => {
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "allow" } });
     turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {},
-      refused: async (id: string) => { refused.push(id); },
+      refused: async (id: string, denied?: boolean) => { if (denied) refused.push(id); },
       allowed: async (id: string) => { if (id === "unchecked") throw new Error("Safety operation was refused or not admitted; the call does not run"); allowed.push(id); } } };
     const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
     expect(await handler({ toolName: "write_file", toolCallId: "checked", input: { path: "a.md", content: "x" } }), "PI_GATE_CHECKED_CALL_RUNS").toBeUndefined();

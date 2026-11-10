@@ -299,16 +299,20 @@ export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: 
     // gives only once the collector's last check passed (`permit`). Every
     // other answer, and every rejection (a replay, a stopped turn), refuses
     // the call's id at the collector, so no later request for it is admitted
-    // or let run. A refusal discharges nothing: it proves nothing about a
-    // call already admitted under that id (#3812).
+    // or let run. Each permission request is one admission of its id, counted
+    // before anything else, a replay included. Only a deny answer is this
+    // host's denial before the call could run: for the id's only admission,
+    // never allowed, it discharges the call's result obligation. A rejection
+    // proves nothing (#3812).
     const permission = msg.method === "permission" && safety?.refused ? safety : undefined;
     const refuse = <T>(outcome: Promise<T>): Promise<T> => !permission ? outcome : outcome.then(
       async answer => {
-        if ((answer as { behavior?: string } | null)?.behavior !== "allow") await permission.refused!(msg.toolCallId);
+        if ((answer as { behavior?: string } | null)?.behavior !== "allow") await permission.refused!(msg.toolCallId, true);
         return answer;
       },
       async error => { await permission.refused!(msg.toolCallId); throw error; });
     try {
+      permission?.admitting?.(msg.toolCallId);
       if (!result || !safety) context.live();
       if (msg.id <= lastRpcId) throw resultLoss(new Error("Replayed pi worker RPC"));
       lastRpcId = msg.id;

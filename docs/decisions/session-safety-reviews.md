@@ -102,24 +102,37 @@ running under the tainted policy, not refusing.
   leave the gap. The host does not rely on the runtime to report a result:
   the Claude runtime dispatches neither result hook for a turn stopped while
   a tool runs, and still keeps that call in its session. So every call
-  `begin()` admits is an obligation, recorded before the tool runs, and only
-  its durably recorded result discharges it. No refusal does: not a denial,
-  a rejected later `begin()`, a stopped turn or a replayed request. The host
-  does not see every allow (the Claude runtime runs a bare `allowedTools`
-  entry, or a rewrite hook's allow, without asking), and the installed
-  Claude runtime admits two calls under one id, so a refusal never proves
-  that an admitted call did not run. A call denied after its admission
-  therefore also leaves the gap; that false gap is the accepted cost. Only a
-  `begin()` rejected before its obligation is durable owes nothing, since
-  the backend runs nothing on that rejection. A refusal still refuses every
-  later admission and allow under its id. Each backend's allow (the Pi
-  dispatcher's, the Pi gate's pass, the Claude permission callback's) is
-  checked by the collector before the call can run, and the Pi dispatcher
-  publishes a call's grant only after that check, so no concurrent request
-  can use a grant for a call the check then refuses. A result's last record
-  and its discharge commit together. A collection that ends owing one,
-  however it ended, and an obligation still open at boot, leave the same
-  permanent gap.
+  `begin()` admits is an obligation, recorded before the tool runs. Its
+  durably recorded result discharges it. A refusal discharges it only when
+  it proves the call never ran, which needs all three of:
+  1. it is the backend's own denial before the call could run: a Claude
+     permission callback deny (a denied permission card) or `PreToolUse`
+     hook deny, a Pi permission deny or gate block;
+  2. it is the id's only admission: the runtime asked once to admit a call
+     under that id (each admission is counted before anything of it is
+     decided, whichever hook of it starts first);
+  3. the backend never let a call under that id run.
+
+  Anything else proves nothing, and only the recorded result discharges:
+  a second admission of the id (the installed Claude runtime admits two
+  calls under one id, and runs a bare `allowedTools` entry or a rewrite
+  hook's allow without asking), an allow followed by a refusal, a rejected
+  request (a stopped turn, a replayed Pi request), or an id whose
+  admissions the backend never reported. Such a call leaves the gap even
+  if it never ran. A rejected `begin()` discharges nothing by itself; the
+  denial the backend returns on it does. A `begin()` rejected before its
+  obligation is durable owes nothing. The counts and allows live in the
+  turn's collector, not on the obligation row: an admission can be denied
+  before any row exists, only that collector discharges, and a restart gaps
+  every open obligation. A refusal also refuses every later admission and
+  allow under its id. Each backend's allow (the Pi dispatcher's, the Pi
+  gate's pass, the Claude permission callback's) is checked by the
+  collector before the call can run, and the Pi dispatcher publishes a
+  call's grant only after that check, so no concurrent request can use a
+  grant for a call the check then refuses. A result's last record and its
+  discharge commit together. A collection that ends owing one, however it
+  ended, and an obligation still open at boot, leave the same permanent
+  gap.
 - **Evidence store unwritable** (the chat fact cannot commit): the brain
   latches through the emergency reserve, or, when even that fails, in the
   host process. New turns still begin, each with a permanent

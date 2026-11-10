@@ -158,43 +158,81 @@ test("a call admitted and never reported leaves its chat a permanent gap when it
   } finally { await f.close(); }
 });
 
-// No refusal proves an admitted call never ran: the Claude runtime runs a
-// bare `allowedTools` entry without asking and admits two calls under one id
-// (`safety-result-retention.test.ts`). So a call refused after its admission
-// still gaps its chat; that false gap is the accepted cost (#3812).
-test("a call refused after its admission stays owed, and only a recorded result discharges a call", async () => {
+test("a call the backend denies on its only admission owes nothing, and a recorded result discharges its call", async () => {
   const f = await voyage(); try {
-    await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
-    await f.collector.begin("call_oar", "grep", { pattern: "oar" });
-    // The gate refuses the first call after admitting it, with no allow seen.
-    await f.collector.refused!("call_raft");
+    f.collector.admitting?.("call_raft"); await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
+    f.collector.admitting?.("call_oar"); await f.collector.begin("call_oar", "grep", { pattern: "oar" });
+    // The gate denies the first call after admitting it: it never runs.
+    await f.collector.refused!("call_raft", true);
     // A refused call stays refused: a parallel admission cannot reopen it.
     expect(String((await refusal(f.collector.begin("call_raft", "grep", { pattern: "sirens" })))?.message), "SAFETY_REFUSED_CALL_STAYS_REFUSED").toContain("refused");
     expect(f.controller.signal.aborted, "SAFETY_REFUSED_CALL_DOES_NOT_STOP_ITS_TURN").toBe(false);
     await f.collector.result("call_oar", "grep", "", true);
-    expect(f.db.query("SELECT tool_use_id FROM safety_obligations").all(), "SAFETY_REFUSAL_DISCHARGES_NOTHING_A_RESULT_DOES").toEqual([{ tool_use_id: "call_raft" }]);
+    expect(f.owed(), "SAFETY_REFUSED_AND_RECORDED_CALLS_OWE_NOTHING").toBe(0);
     await f.writes.safetyEnd("voyage");
-    expect(f.failure(), "SAFETY_REFUSED_ADMITTED_CALL_IS_A_DURABLE_GAP").toBe("recording_failed");
-    expect(f.cause(), "SAFETY_REFUSED_ADMITTED_CALL_NAMES_ITS_CALL").toMatchObject({ site: "safetyEnd", message: expect.stringContaining("grep (call_raft)") });
-    expect(f.chat().coverage.state, "SAFETY_REFUSED_ADMITTED_CALL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+    expect(f.failure(), "SAFETY_REFUSED_CALL_LEAVES_NO_GAP").toBeNull();
+    expect(f.chat().coverage.state, "SAFETY_DISCHARGED_CALLS_KEEP_COVERAGE").toBe("complete");
   } finally { await f.close(); }
 });
 
-test("a call refused when its edited input cannot be recorded stays owed from its first admission", async () => {
+test("a call refused when its edited input cannot be recorded owes nothing", async () => {
   const f = await voyage(); try {
-    await f.collector.begin("call_aeolus", "WebFetch", { url: "https://example.com/aeolus" });
+    f.collector.admitting?.("call_aeolus"); await f.collector.begin("call_aeolus", "WebFetch", { url: "https://example.com/aeolus" });
     expect(f.owed(), "SAFETY_ADMITTED_FETCH_OWES_ITS_RESULT").toBe(1);
     // An approval edits the call; recording the edited input is refused, so
-    // the backend refuses the call. That later begin() proves nothing about
-    // the call its first admission let through.
+    // the backend denies the call, which never runs.
     f.db.exec("CREATE TRIGGER refuse_input BEFORE INSERT ON safety_pending BEGIN SELECT RAISE(ABORT,'forced input reservation failure'); END");
     expect(await refusal(f.collector.begin("call_aeolus", "WebFetch", { url: "https://example.com/zephyr" })), "SAFETY_UNRECORDED_EDIT_REFUSES_THE_CALL").toBeInstanceOf(Error);
     f.db.exec("DROP TRIGGER refuse_input");
-    // Refused before the edit could run: that refusal alone gaps nothing.
-    expect(f.failure(), "SAFETY_REFUSED_EDIT_GAPS_NOTHING_BY_ITSELF").toBeNull();
-    expect(f.owed(), "SAFETY_REFUSED_EDIT_KEEPS_THE_FIRST_OBLIGATION").toBe(1);
+    await f.collector.refused!("call_aeolus", true);
+    expect(f.owed(), "SAFETY_REFUSED_EDIT_OWES_NOTHING").toBe(0);
     await f.writes.safetyEnd("voyage");
-    expect(f.failure(), "SAFETY_REFUSED_EDIT_IS_A_DURABLE_GAP").toBe("recording_failed");
+    expect(f.failure(), "SAFETY_REFUSED_EDIT_LEAVES_NO_GAP").toBeNull();
+  } finally { await f.close(); }
+});
+
+// A refusal proves an admitted call never ran only when it is the backend's
+// own denial of the id's only admission, which nothing let run. Anything
+// else leaves the call to its recorded result (#3812): a rejected request (a
+// stopped turn, a replay), a second admission of the id (the installed Claude
+// runtime admits two calls under one id: `safety-result-retention.test.ts`),
+// an allow before the refusal, or an id whose admissions were never reported.
+for (const why of ["rejected", "readmitted", "allowed", "unreported"] as const) test(`a refusal that cannot prove an admitted call never ran leaves it owed: ${why}`, async () => {
+  const f = await voyage(); try {
+    if (why !== "unreported") f.collector.admitting?.("call_raft");
+    await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
+    if (why === "allowed") await f.collector.allowed!("call_raft");
+    if (why === "readmitted") f.collector.admitting?.("call_raft");
+    await f.collector.refused!("call_raft", why !== "rejected");
+    expect(f.owed(), "SAFETY_UNPROVEN_REFUSAL_KEEPS_THE_OBLIGATION").toBe(1);
+    await f.writes.safetyEnd("voyage");
+    expect(f.failure(), "SAFETY_UNPROVEN_REFUSAL_IS_A_DURABLE_GAP").toBe("recording_failed");
+    expect(f.cause(), "SAFETY_UNPROVEN_REFUSAL_NAMES_ITS_CALL").toMatchObject({ site: "safetyEnd", message: expect.stringContaining("grep (call_raft)") });
+    expect(f.chat().coverage.state, "SAFETY_UNPROVEN_REFUSAL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+  } finally { await f.close(); }
+});
+
+// Penelope denies a permission card: the Claude callback, the runtime's last
+// gate, refused the id's only admission, so the search never ran (#3812).
+test("a Claude call denied at its permission card on its only admission owes nothing, and its chat stays normal", async () => {
+  const f = await voyage(); try {
+    const wiring = createPermissionWiring({ req: { prompt: "Listen for the sirens.", signal: f.controller.signal,
+      bridge: { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Penelope declines the search" }), inputSafety: f.collector } } as never,
+      allowedTools: [], confirmPatterns: [], brainPath: f.brain, childEnv: { PATH: "/usr/bin:/bin" }, log() {},
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never });
+    const input = { pattern: "sirens", path: f.brain }, options = { toolUseID: "toolu_sirens", signal: new AbortController().signal } as never;
+    // The runtime admits the search: its hook records the input and the obligation.
+    const preToolUse = wiring.hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
+    const hooked = await preToolUse({ hook_event_name: "PreToolUse", tool_name: "Grep", tool_input: input, tool_use_id: "toolu_sirens" } as never, "toolu_sirens", { signal: new AbortController().signal });
+    expect((hooked as { hookSpecificOutput?: { permissionDecision?: string } }).hookSpecificOutput?.permissionDecision, "SAFETY_CLAUDE_HOOK_LEAVES_THE_CALL_TO_ITS_CARD").toBeUndefined();
+    expect(f.owed(), "SAFETY_CLAUDE_ADMITTED_SEARCH_OWES_ITS_RESULT").toBe(1);
+    // Grep is outside the turn's allowlist, so the runtime asks the callback.
+    expect((await wiring.canUseTool!("Grep", input, options))?.behavior, "SAFETY_CLAUDE_CARD_IS_DENIED").toBe("deny");
+    expect(f.owed(), "SAFETY_CLAUDE_CARD_DENY_DISCHARGES_THE_CALL").toBe(0);
+    await f.writes.safetyEnd("voyage");
+    expect(f.failure(), "SAFETY_CLAUDE_CARD_DENY_LEAVES_NO_GAP").toBeNull();
+    expect(f.chat().restriction, "SAFETY_CLAUDE_CARD_DENY_KEEPS_THE_CHAT_NORMAL").toBe("normal");
+    expect(f.chat().coverage.state, "SAFETY_CLAUDE_CARD_DENY_KEEPS_COVERAGE").toBe("complete");
   } finally { await f.close(); }
 });
 

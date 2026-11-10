@@ -666,17 +666,32 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   const ctx = createPermissionContext(options, nativeRefusal);
   const { enforced } = ctx;
   const enforcementHook = enforcementHookFor(ctx);
-  // A deny this backend returns refuses the call's id at the collector, so
-  // no later admission or allow under it succeeds. It discharges nothing:
-  // the runtime can admit two calls under one id, and runs a bare
-  // `allowedTools` entry or a rewrite hook's allow without asking, so a deny
-  // never proves an admitted call did not run. Every call `begin()` admitted
-  // stays owed until its result is recorded, whatever the runtime then
-  // delivers (#3812).
-  const refuse = async (toolUseId: string | undefined) => { if (toolUseId) await req.bridge.inputSafety?.refused?.(toolUseId).catch(() => {}); };
+  // Every deny this backend returns refuses the call's id at the collector,
+  // so no later admission or allow under it succeeds. It is the backend's own
+  // denial, before the call could run, so it discharges the call's result
+  // obligation when nothing else under the id could have run: the id's only
+  // admission, never allowed. The runtime admits two calls under one id, and
+  // runs a bare `allowedTools` entry or a rewrite hook's allow without asking,
+  // so a deny of a second admission proves nothing about the first (#3812).
+  const refuse = async (toolUseId: string | undefined) => { if (toolUseId) await req.bridge.inputSafety?.refused?.(toolUseId, true).catch(() => {}); };
+  // The runtime dispatches every matching PreToolUse hook once per call it
+  // admits, all under that call's id. Each hook counts its own invocations
+  // per id, and the highest count is how many calls the runtime admitted
+  // under the id. So whichever hook of a second admission starts first
+  // reports it, before any of that admission's waits, decisions or begin().
+  // Counting begin() calls instead would be wrong both ways: one admission
+  // records its input from several hooks, and a second admission can be
+  // denied before its begin() (#3812).
+  const admissions = new Map<string, number>();
+  const admit = (toolUseId: string, seen: Map<string, number>) => {
+    const count = (seen.get(toolUseId) ?? 0) + 1;
+    seen.set(toolUseId, count);
+    if (count > (admissions.get(toolUseId) ?? 0)) { admissions.set(toolUseId, count); req.bridge.inputSafety?.admitting?.(toolUseId); }
+  };
   const decideToolUse = canUseToolFor(ctx);
   // The callback's allow is the runtime's last gate: the call runs. The
-  // collector checks it first; one it can no longer let run is denied
+  // collector checks and notes it first, so no later deny under the id
+  // proves the call never ran; one it can no longer let run is denied
   // instead.
   const canUseTool: typeof decideToolUse = async (toolName, input, opts) => {
     const result = await decideToolUse(toolName, input, opts);
@@ -696,12 +711,13 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // Claude runs matching hooks in parallel. Every hook, including a read
   // observation or rewrite that finishes last, must fence its own final wait.
   // Outward gates still recompute standing/per-use authority in their bodies.
-  const fence: (hook: HookCallback) => HookCallback = hook => async (...args) => {
+  const fence: (hook: HookCallback) => HookCallback = hook => { const seen = new Map<string, number>(); return async (...args) => {
+    if (args[0].hook_event_name === "PreToolUse") admit(args[0].tool_use_id, seen);
     const output = await fenced(hook, args);
     if (args[0].hook_event_name === "PreToolUse" && "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse"
       && output.hookSpecificOutput.permissionDecision === "deny") await refuse(args[0].tool_use_id);
     return output;
-  };
+  }; };
   async function fenced(hook: HookCallback, args: Parameters<HookCallback>): Promise<Awaited<ReturnType<HookCallback>>> {
     let snapshot: AdmissionSafetySnapshot | undefined;
     let output: Awaited<ReturnType<HookCallback>>;

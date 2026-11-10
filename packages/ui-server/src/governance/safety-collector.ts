@@ -17,6 +17,13 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // that id is admitted or let run.
  type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean};
  const operations=new Map<string,Operation>();
+ // What the backend reported about each id: how many times the runtime asked
+ // to admit a call under it, and whether the backend ever let one run. Kept
+ // in memory, apart from `operations` and the obligation rows: an admission
+ // can be denied before any begin(), so before any row exists (the reviewer's
+ // duplicate-id run), and only this collector discharges this turn's
+ // obligations; a restart gaps every open obligation whatever these say.
+ const calls=new Map<string,{admissions:number;allowed:boolean}>();
  const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],done:false,admitted:false,signals:[],owed:false,refused:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
@@ -37,8 +44,9 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   if(failures.length>1)throw new AggregateError(failures,`Safety input refused: ${String(error)}`);
   throw error;
  };
- // Only a recorded result discharges an obligation. A discharge that cannot
- // commit leaves it, and so its chat's gap when the collection ends.
+ // A recorded result discharges an obligation, and so does a denial that
+ // proves the call never ran (`refused`). A discharge that cannot commit
+ // leaves it, and so its chat's gap when the collection ends.
  const discharge=async(op:Operation)=>{
   if(!op.owed)return;
   try{await writes.safetyDischarge(options.turnId,op.id);op.owed=false;}catch{/* Still owed: the end gaps it. */}
@@ -66,18 +74,14 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   async ready(backend,version){assertLive();await writes.safetyReady(options.turnId,backend,version);options.onReady?.();},
   async unavailable(){return fail(new Error("Input collection is not qualified for this runtime configuration"));},
   // Every call begin() admits owes its result's record from the moment its
-  // obligation is durable, and only that record discharges it (#3812). No
-  // refusal does, not even a rejected later begin() for the same id: the
-  // host does not see every allow (the Claude runtime runs a bare
-  // `allowedTools` entry, or a rewrite hook's allow, without asking), and a
-  // runtime can admit two calls under one id, so no refusal proves an
-  // admitted call did not run. A call refused before it ran therefore still
-  // gaps its chat; that false gap is the accepted cost. A begin() rejected
-  // before its obligation is durable owes nothing: the backend awaits it
-  // before running the tool, and runs nothing on rejection. The obligation is
-  // the host's own record, so it holds whatever the runtime delivers:
-  // cancellation, abort, a result hook the runtime skips, or process death
-  // all leave the gap.
+  // obligation is durable (#3812). Its recorded result discharges it, and so
+  // does the one refusal that proves it never ran (`refused`); a rejected
+  // begin() does not by itself, since the backend's denial that follows it
+  // is that refusal. A begin() rejected before its obligation is durable
+  // owes nothing: the backend awaits it before running the tool, and runs
+  // nothing on rejection. The obligation is the host's own record, so it
+  // holds whatever the runtime delivers: cancellation, abort, a result hook
+  // the runtime skips, or process death all leave the gap.
   begin(toolUseId,tool,input){return serial(toolUseId,async()=>{
    assertLive();
    // Refused: the runtime never runs it, and refusing again is no failure.
@@ -138,21 +142,43 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     await discharge(op);
    }catch(error){return fail(error);}
   },true));},
-  // The backend refused a call with this id. That proves nothing about a call
-  // already admitted under the id, so it discharges nothing; it refuses every
-  // later begin() and allow for the id, so a parallel hook or request cannot
-  // reopen it. Never rejects.
-  refused(toolUseId){return serial(toolUseId,async()=>{
-   const op=operations.get(toolUseId);
-   if(op)op.refused=true;else if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});
+  // The runtime asks to admit one call under this id. Counted at once, not
+  // queued: a refusal already queued for the id then sees the new admission
+  // and proves nothing. An id the collector cannot track keeps no count, so
+  // no refusal discharges it.
+  admitting(toolUseId){
+   const call=calls.get(toolUseId);
+   if(call)call.admissions++;else if(calls.size<2000)calls.set(toolUseId,{admissions:1,allowed:false});
+  },
+  // The backend refused a call with this id; a later begin() or allow for the
+  // id is refused too, so a parallel hook or request cannot reopen it. The
+  // refusal proves the call never ran, and discharges its obligation, only
+  // when it is the backend's own denial (`denied`: a Claude permission
+  // callback or PreToolUse hook deny, a Pi permission deny or gate block), of
+  // the only admission ever made under the id, and the backend never let a
+  // call under it run. Anything else proves nothing and leaves the
+  // obligation to its recorded result: a second admission of the id (the
+  // Claude runtime admits two calls under one id), an allow followed by a
+  // refusal, a rejected request (a stopped turn, a replay). Never rejects.
+  refused(toolUseId,denied=false){return serial(toolUseId,async()=>{
+   const op=operations.get(toolUseId),call=calls.get(toolUseId);
+   const proves=denied&&call?.admissions===1&&!call.allowed;
+   if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
+   op.refused=true;
+   if(proves&&!op.done)await discharge(op);
   },true).catch(()=>{});},
-  // The backend's last check before it lets this call run. A call whose id
+  // The backend's last check before it lets this call run, noted so that no
+  // later refusal under the id proves the call never ran. A call whose id
   // was refused, or whose latest begin() did not complete, must not run: the
   // backend refuses it instead, and hands out nothing the call could use
   // until this resolves.
   allowed(toolUseId){return serial(toolUseId,async()=>{
    const op=operations.get(toolUseId);
    if(op&&(op.refused||!op.admitted))throw new Error("Safety operation was refused or not admitted; the call does not run");
+   const call=calls.get(toolUseId);
+   if(call)call.allowed=true;
+   else if(calls.size<2000)calls.set(toolUseId,{admissions:0,allowed:true});
+   else throw new Error("Safety allowance capacity exceeded; the call does not run");
   },true);},
   // A result the backend could not hand over (a refused or malformed report):
   // its chat keeps a permanent gap. Resolves once that gap is durable.
