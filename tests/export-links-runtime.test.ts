@@ -193,7 +193,7 @@ describe.skipIf(!chromePath)("shared exports disclose destinations", () => {
     const links = pdf.annotations.filter((a) => a.subtype === "Link");
     expect(links.length).toBeGreaterThan(0);
     expect(links.map((a) => a.unsafeUrl)).not.toContain("https://odysseus:secret@unsafe.example/");
-    expect(links.some((a) => a.url === "https://ithaca-harbour.example/tides")).toBe(true);
+    expect(links.map((a) => a.url)).toContain("https://ithaca-harbour.example/tides");
     expect(pdf.text).toContain("ithaca-harbour.example");
   });
 });
@@ -244,7 +244,7 @@ describe.skipIf(!chromePath)("alternate markup and final styled output", () => {
     expect(external).toEqual(["https://shadow-safe.example/", "https://svg.example/tides", "https://xn--bcher-kva.example:8443/reading", "mailto:odysseus@ithaca.example"].sort());
     expect(links.some((a) => a.dest !== undefined)).toBe(true);
     for (const text of ["svg.example", "shadow-safe.example", "odysseus@ithaca.example", "xn--bcher-kva.example:8443", "notes/log.md"]) expect(pdf.text).toContain(text);
-    expect(requested.some((url) => url.startsWith("data:image/png"))).toBe(true);
+    expect(requested).toEqual(expect.arrayContaining([expect.stringMatching(/^data:image\/png/)]));
     expect(requested.filter((url) => !url.startsWith("data:") && url !== "about:blank")).toEqual([]);
   });
   test.each([320, 768])("at %d px, supplied CSS cannot hide or clip long destination text in PNG/PDF", async (width) => {
@@ -268,7 +268,7 @@ describe.skipIf(!chromePath)("alternate markup and final styled output", () => {
     expect(observations[0].hidden).toBe(0); expect(observations[0].clipped).toBe(0);
     const pdfBytes = await renderer.renderPdf(options);
     const pdf = await readPdf(pdfBytes);
-    expect(pdf.annotations.some((a) => a.url === `https://${host}/tides`)).toBe(true);
+    expect(pdf.annotations.map((a) => a.url)).toContain(`https://${host}/tides`);
     expect(pdf.text.replace(/\s/g, "")).toContain(host);
     expect(pdf.text).not.toContain("false.example");
     const dir = process.env.BRAIN_LINK_POLICY_ARTIFACTS;
@@ -343,7 +343,7 @@ describe.skipIf(!chromePath)("approved print blocks with export protection", () 
     const link = BLOCKS.link;
     if (link.kind !== "link") throw new Error("Expected the populated link fixture");
     expect(link.url.length).toBeGreaterThan(0);
-    expect(pdf.annotations.some((a) => a.url === link.url)).toBe(true);
+    expect(pdf.annotations.map((a) => a.url)).toContain(link.url);
     expect(pdf.text).toContain("ithaca-harbour.example");
   });
 });
@@ -361,7 +361,7 @@ describe.skipIf(!chromePath)("finished PDF disclosure", () => {
     const html = buildHtmlDocument({ content: '<!doctype html><html><head><meta name="brain-render" content="bare"><style>@page{size:320px 300px;margin:0}body{width:2000px;font:32px system-ui;margin:8px}a{display:flex;width:2000px;justify-content:space-between}</style></head><body><a href="https://ithaca-harbour.example/tides"><code>ithaca-harbour.example</code></a></body></html>', contentType: "html", linkPolicy: "visible-destinations" });
     const unchecked = await readPdf(await renderer.renderPdf({ html, width: 4096 }));
     expect(unchecked.text).toContain("ithaca-harbour.example");
-    expect(unchecked.annotations.some((a) => a.url === "https://ithaca-harbour.example/tides")).toBe(true);
+    expect(unchecked.annotations.map((a) => a.url)).toContain("https://ithaca-harbour.example/tides");
     expect(unchecked.heights.length).toBeGreaterThan(0);
     expect(Math.min(...unchecked.heights)).toBeGreaterThanOrEqual(8.99);
     await expectAsyncRejection(renderer.renderPdf({ html, width: 4096, linkPolicy: "visible-destinations" }), "PDF link destination is incomplete");
@@ -371,8 +371,8 @@ describe.skipIf(!chromePath)("finished PDF disclosure", () => {
     try {
       const html = buildHtmlDocument({ content: '<p><a href="https://ithaca.example/">https://ithaca.example/</a></p><p><a href="mailto:odysseus@ithaca.example,crew@ithaca.example?subject=Private">Write</a></p>', contentType: "html", linkPolicy: "visible-destinations" });
       const pdf = await readPdf(await renderer.renderPdf({ html, linkPolicy: "visible-destinations" }));
-      expect(pdf.annotations.some((a) => a.url === "https://ithaca.example/")).toBe(true);
-      expect(pdf.annotations.some((a) => a.unsafeUrl === "mailto:odysseus@ithaca.example,crew@ithaca.example")).toBe(true);
+      expect(pdf.annotations.map((a) => a.url)).toContain("https://ithaca.example/");
+      expect(pdf.annotations.map((a) => a.unsafeUrl)).toContain("mailto:odysseus@ithaca.example,crew@ithaca.example");
       expect(pdf.text).toContain("odysseus@ithaca.example,crew@ithaca.example");
       expect(pdf.text).not.toContain("Private");
       record("final-case-pass", {});

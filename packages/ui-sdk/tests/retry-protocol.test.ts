@@ -19,7 +19,7 @@ test("an unreadable optional retry handle cannot discard an otherwise readable f
   const frame = { type: "result", sessionId: "s1", isError: true, numTurns: 1, durationMs: 1, retryOfTurnId: 42,
     failure: { errorClass: "server_error", message: "Provider failed" } };
   const result = parseServerMessage(JSON.stringify(frame));
-  expect(result.ok).toBe(true);
+  expect(result.ok && result.message.type).toBe("result");
   if (result.ok && result.message.type === "result") {
     expect(result.message.retryOfTurnId).toBeUndefined();
     expect(result.message.failure).toEqual(frame.failure);

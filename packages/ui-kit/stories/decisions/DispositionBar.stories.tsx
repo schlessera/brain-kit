@@ -80,13 +80,16 @@ export const Applying = meta.story({
   play: async ({ canvas, canvasElement, args }) => {
     await expect(canvas.getByText("Recording…")).toBeTruthy();
     await expect(canvasElement.querySelector("[aria-busy='true']")).not.toBeNull();
-    for (const button of canvas.getAllByRole("button")) {
+    const buttons = canvas.getAllByRole("button");
+    await expect(buttons, "commit, Later and Dismiss are all drawn").toHaveLength(3);
+    for (const button of buttons) {
       await expect(button.getAttribute("aria-disabled")).toBe("true");
       // A pointer cannot reach it (pointer-events: none); a programmatic
       // click must not fire either.
       button.click();
     }
     await expect(args.commit!.onClick).not.toHaveBeenCalled();
+    await expect(args.later!.onClick, "Later is inert while busy").not.toHaveBeenCalled();
     await expect(args.dismiss!.onClick).not.toHaveBeenCalled();
   },
 });

@@ -41,8 +41,8 @@ test("a busy refusal names its holders by kind, without paths or identities", ()
   expect(error.message, "MAINTENANCE_BUSY_MESSAGE_NAMES_HOLDER_KIND").toBe("Maintenance temporary storage is busy: this command needs 256 MiB, "
     + "1 maintenance reservations hold 256 MiB of the separate 256 MiB budget (held by: scratch query). "
     + "Nothing ran. Retry after a maintenance command finishes; no agent runtime state was lost.");
-  expect(error.message.includes(root), "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PATH").toBe(false);
-  expect(error.message.includes(String(process.pid)), "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PROCESS_IDENTITY").toBe(false);
+  expect(error.message, "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PATH").not.toContain(root);
+  expect(error.message, "MAINTENANCE_BUSY_MESSAGE_HAS_NO_PROCESS_IDENTITY").not.toContain(String(process.pid));
 });
 
 test("several holders are counted per kind", () => {

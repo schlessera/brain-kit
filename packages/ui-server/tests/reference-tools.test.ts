@@ -80,7 +80,7 @@ describe("shared reference source", () => {
     const result = ok<Extract<ReferenceToolResult, { source: unknown }>>(await current.call(source(PUBLIC)));
     expect(result.source, "REFERENCE_TOOLS_SOURCE_REPORTS_BOUND_PATH").toMatchObject({ domain: "public", commit: "1".repeat(40), freshness: "fresh", error: null });
     const name = result.source.path!.slice("/tmp/brain-reference/public/".length);
-    expect(result.source.path!.startsWith("/tmp/brain-reference/public/")).toBe(true);
+    expect(result.source.path).toStartWith("/tmp/brain-reference/public/");
     // The worker path names the same entry the bound host view resolves.
     expect(readFileSync(join(current.views!.public, name, "odyssey.md"), "utf8")).toContain("Sing, Muse");
     expect([...pool.records.values()].some(record => record.view && join(pool.records.get(record.id)!.path!, "..") === current.views!.public)).toBe(true);
@@ -107,7 +107,7 @@ describe("shared reference source", () => {
     const issued = grant(penelope.id);
     const result = ok<Extract<ReferenceToolResult, { source: unknown }>>(await current.call(source(PRIVATE)));
     expect(result.source.domain).toBe("private");
-    expect(result.source.path!.startsWith("/tmp/brain-reference/private/")).toBe(true);
+    expect(result.source.path).toStartWith("/tmp/brain-reference/private/");
     // The bridge supplies the turn's principal; a mismatched caller holds nothing.
     expect(await current.call(source(PRIVATE), telemachus.id), "REFERENCE_TOOLS_PRINCIPAL_FROM_TURN").toMatchObject({ ok: false, code: "unavailable" });
     const theirs = await turn(telemachus.id);

@@ -18,7 +18,7 @@ test("native steering follows sealed configuration references without retaining 
   expect([...result.paths].sort(), "NATIVE_STEERING_TRANSITIVE_WITHOUT_CAS").toEqual(["brain.config.ts", "config/helper.ts", "config/routes.json"]);
   expect(result.unavailable).toEqual(["brain.config.ts"]);
   expect(reads).not.toContain("notes/odysseus.md");
-  expect(snapshot.entries.every(entry => entry.hash === undefined)).toBe(true);
+  expect(snapshot.entries.filter(entry => entry.hash !== undefined)).toEqual([]);
 });
 
 

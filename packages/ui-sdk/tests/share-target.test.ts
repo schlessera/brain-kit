@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import {
   createMemoryShareStoreForTests,
   pruneStoredShares,
@@ -222,18 +222,32 @@ describe("handleShareTargetRequest", () => {
   });
 
   test("a store that hangs forever still lands the browser somewhere", async () => {
+    // The store deadline is the handler's 5 s timer; a fake clock reaches it
+    // without spending it, and shows the handler waits the whole window.
+    let putCalled!: () => void;
+    const reached = new Promise<void>((resolve) => { putCalled = resolve; });
     const broken: ShareStore = {
       ...createMemoryShareStoreForTests(),
-      put: () => new Promise<void>(() => {}),
+      put: () => { putCalled(); return new Promise<void>(() => {}); },
     };
     const form = new FormData();
     form.set("text", "something");
 
-    const target = redirectTarget(
-      await handleShareTargetRequest(shareRequest(form), { store: broken })
-    );
-
-    expect(target.searchParams.get(SHARE_ERROR_PARAM)).toBe("store");
+    jest.useFakeTimers();
+    try {
+      let settled = false;
+      const answer = handleShareTargetRequest(shareRequest(form), { store: broken })
+        .finally(() => { settled = true; });
+      await reached;
+      jest.advanceTimersByTime(4_999);
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      jest.advanceTimersByTime(1);
+      const target = redirectTarget(await answer);
+      expect(target.searchParams.get(SHARE_ERROR_PARAM)).toBe("store");
+    } finally {
+      jest.useRealTimers();
+    }
   }, 10_000);
 
   test("a body that will not parse redirects with the parse error", async () => {
@@ -327,7 +341,7 @@ describe("pruneStoredShares", () => {
     expect((await store.list()).map((r) => r.id)).toEqual(["new"]);
   });
 
-  test("a stash is bounded even when the app never claims it", async () => {
+  test("a fresh stash survives the handler's own prune pass", async () => {
     const store = createMemoryShareStoreForTests();
     const form = new FormData();
     form.set("text", "abandoned");
@@ -395,14 +409,14 @@ describe("registerShareTarget", () => {
       { addEventListener: (_type, listener) => listeners.push(listener) }
     );
 
-    const seen: unknown[] = [];
+    const seen: string[] = [];
     const dispatch = (request: Request) =>
-      listeners[0]!({ request, respondWith: (r) => seen.push(r) });
+      listeners[0]!({ request, respondWith: () => seen.push(new URL(request.url).pathname) });
 
     dispatch(shareRequest(new FormData(), "/inbox-target"));
     dispatch(shareRequest(new FormData(), DEFAULT_SHARE_TARGET_PATH));
 
-    expect(seen).toHaveLength(1);
+    expect(seen).toEqual(["/inbox-target"]);
   });
 });
 
