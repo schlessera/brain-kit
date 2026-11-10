@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { CommandContext, CompletionProvider } from "@schlessera/brain";
 import { cleanup, makeTempBrain, runCli } from "../../core/tests/cli-harness.js";
+import command from "../src/cli.js";
+import { configSchema, type VideoConfig } from "../src/module.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) cleanup(root); });
+type CompletionRequest = Parameters<CompletionProvider["complete"]>[0];
 const URL = "https://www.youtube.com/watch?v=Odysseus001";
 function fixture(options: { capability?: boolean; builtin?: boolean; declared?: boolean; dormant?: boolean; answer?: string; emptyAnswer?: boolean } = {}) {
   const root = makeTempBrain({ empty: true }); roots.push(root);
@@ -71,6 +75,10 @@ describe("real brain video CLI", () => {
   });
   test("undeclared module contributes no namespace, watch skill or instructions", async () => {
     const root = fixture({ declared: false });
+    // `skills sync` never writes module instructions; only `module enable` can, so ask it.
+    const enable = await runCli(root, ["module", "enable", "video", "--json"]);
+    expect(enable.code).not.toBe(0);
+    expect(enable.stderr).toContain('Module "video" is not configured');
     const help = await runCli(root, ["--help"]);
     expect(help.code).toBe(0);
     expect(help.stdout).not.toMatch(/^\s+video\s/m);
@@ -111,6 +119,9 @@ describe("real brain video CLI", () => {
     expect(JSON.parse(missing.stdout).timestamps).toEqual([]);
     expect(JSON.parse(missing.stdout).warnings.join(" ")).toContain("no usable timestamps");
   });
+  // The module's own parser and source guards, in-process: one spawn per row
+  // cost seconds, and the spawned tests above and below already prove that a
+  // thrown error reaches the CLI as exit 1 with no success JSON.
   for (const args of [
     [URL, "--end", "0"], [URL, "--start", "2:00", "--end", "1:00"],
     [URL, "--start", "1:60"], [URL, "--engine", "local"], [URL, "--question"],
@@ -119,10 +130,22 @@ describe("real brain video CLI", () => {
     ["https://www.youtube.com:8443/watch?v=Odysseus001"], ["missing.mp4"],
   ]) {
     test(`rejects invalid input without invocation ${JSON.stringify(args)}`, async () => {
-      const root = fixture();
-      const result = await runCli(root, ["video", "watch", ...args, "--json"]);
-      expect(result.code).toBe(1); expect(result.stdout).toBe("");
-      expect(existsSync(join(root, "request.json"))).toBe(false);
+      const root = makeTempBrain({ empty: true }); roots.push(root);
+      const requests: CompletionRequest[] = [];
+      const ctx = {
+        root, json: true, config: configSchema.parse({}),
+        completions: { provider: {
+          id: "gemini:fictional-model", capabilities: { vision: true, video: true },
+          async complete(req: CompletionRequest) { requests.push(req); return "00:10 Odysseus checks the supplies."; },
+        } },
+      } as unknown as CommandContext<VideoConfig>;
+      const log = spyOn(console, "log").mockImplementation(() => {});
+      const error = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const code = await command.run(["watch", ...args, "--json"], ctx);
+        expect(code).toBe(1); expect(log).not.toHaveBeenCalled();
+        expect(requests).toEqual([]);
+      } finally { log.mockRestore(); error.mockRestore(); }
     });
   }
   test("empty answer fails without success JSON", async () => {
