@@ -782,14 +782,13 @@ test("review: a decoding image follows its branch even after opening the origina
   const branch = (await view(b)).id;
   await b.call("openOther");
   await b.call("releaseImage");
-  // The scene has no decode-complete signal: save until the decoded image is
-  // stored, instead of guessing how long the decode takes.
-  let kept: Row[] = [];
-  await expect.poll(async () => {
-    await b.call("save");
-    kept = await rows(b);
-    return kept.find((r) => r.value.draftId === branch)?.value.attachments.length;
-  }, { message: "the image decoded for the stale writer lands in its retained branch" }).toBe(incomingImages.length + 1);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await b.call("save");
+  const kept = await rows(b);
+  expect(
+    kept.find((r) => r.value.draftId === branch)?.value.attachments.length,
+    "the image decoded for the stale writer lands in its retained branch"
+  ).toBe(incomingImages.length + 1);
   expect(
     kept.find((r) => r.value.draftId === original)?.value.attachments,
     "the committed original keeps its empty image set"
