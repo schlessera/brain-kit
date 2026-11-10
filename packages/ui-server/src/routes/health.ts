@@ -38,6 +38,8 @@ export function createHealthRoutes(deps: { db: Database }): Hono {
 }
 
 interface StatusDeps {
+  /** Retained checkpoint cleanup and its durable historical cause. */
+  getJournalCleanup?(): unknown;
   /** Trusted metadata from configured modules; absent with an older CLI. */
   getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
@@ -64,6 +66,7 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
     return c.json({
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
       healthy: true,
+      ...(deps.getJournalCleanup ? { journalCleanup: deps.getJournalCleanup() } : {}),
       uptime: Date.now() - startTime,
       version: deps.sourceCommit,
       software: { release: packageInfo.version, sourceCommit: deps.sourceCommit },

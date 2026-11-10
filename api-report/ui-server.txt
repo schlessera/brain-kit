@@ -1564,6 +1564,12 @@ signatures (every public export and the types it is made of)
         statCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["statCheckpoint"];
         listCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["listCheckpoint"];
     }
+  NativeJournalReleaseAccounting (packages/ui-server/src/brain/native-journal-observer.ts)
+    export interface NativeJournalReleaseAccounting {
+        pending: number;
+        failed: number;
+        retainedBytes: number;
+    }
   NativeManagerReady (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativeManagerReady {
         brainPath: string;
@@ -2519,6 +2525,10 @@ signatures (every public export and the types it is made of)
             directory: string;
             inode: string;
             note: string;
+        };
+        cleanupStatus(): {
+            lastFailure: unknown;
+            retained: import("./native-journal-observer.js").NativeJournalReleaseAccounting;
         };
         close(): Promise<void>;
         configurationCoverage(): ConfigurationCoverageRead;

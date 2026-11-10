@@ -5186,3 +5186,9 @@ model tool or publication seam. Historical receipt projections and fresh
 its read-only reason additionally accepts `owner_required` or null; optional
 literal review lifetime/body bounds describe a supporting host. Absent or
 unsupported capability remains unavailable and grants no mutation authority.
+
+
+The journal host's additive `cleanupStatus()` method (#3815) returns
+`{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
+current accounting and historical diagnostic record exposed as
+[`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).

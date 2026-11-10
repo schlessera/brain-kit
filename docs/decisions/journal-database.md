@@ -97,7 +97,7 @@ that no pre-charge covers. The evidence is on the issue.
   readers understand the arrays until then, and an empty legacy array stays
   "no set recorded". The brain's current set is the one the most recent complete,
   inventoried turn recorded
-  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:725-731`).
+  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:738-744`).
   The sets table is an ordinary rowid table, as every journal table is: the
   operational backup copies and compares journal rows in rowid order.
 

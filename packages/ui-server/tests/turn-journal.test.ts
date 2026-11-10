@@ -14,6 +14,7 @@ import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { journalStatement } from "../src/brain/journal-store.js";
 import { configurationSet } from "../src/brain/journal-configuration-sets.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
+import { createStatusRoutes } from "../src/routes/health.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 import { exportInboxSnapshot } from "../src/inbox/snapshot.js";
 
@@ -724,4 +725,26 @@ test("native capture excludes an alternate trusted index identity without a publ
       await observed.commit();
     } catch (error) { await observed.abort(); throw error; }
   } finally { await capture.close(); await f.close(); }
+});
+
+
+test("idle checkpoint cleanup records its cause durably before any turn exists and exposes authenticated status", async () => {
+  const f = fixture();
+  const release = f.native.manager.release;
+  try {
+    f.native.manager.release = async () => { throw new Error("Odysseus idle checkpoint release refused"); };
+    await f.journal.observe();
+    await f.journal.releasesSettled(); await f.journal.idle();
+    expect(f.db.query("SELECT count(*) AS n FROM turn_journal_turns").get()).toEqual({ n: 0 });
+    const saved = new Database(join(f.root, "ui.db"), { readonly: true });
+    try {
+      const failure = saved.query("SELECT value FROM settings WHERE key='journal.cleanup.lastFailure'").get();
+      expect(failure, "IDLE_CLEANUP_CAUSE_DURABLE").not.toBeNull();
+      expect(failure).toMatchObject({ value: expect.stringContaining("Odysseus idle checkpoint release refused") });
+    } finally { saved.close(); }
+    const routes = createStatusRoutes({ sourceCommit: "fixture", getCronStatus: () => [], isTurnActive: () => false,
+      getJournalCleanup: () => f.journal.cleanupStatus() });
+    const status = await (await routes.request("/status")).json() as any;
+    expect(status.journalCleanup).toMatchObject({ retained: { failed: 1 }, lastFailure: { cause: "Error: Odysseus idle checkpoint release refused" } });
+  } finally { f.native.manager.release = release; await f.close(); }
 });

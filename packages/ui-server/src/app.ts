@@ -1055,6 +1055,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route(
     "/api",
     createStatusRoutes({
+      getJournalCleanup: () => journal.cleanupStatus(),
       sourceCommit: config.sourceCommit,
       getContentRenderers: async signal => brain.modules ? declaredContentRenderers((await brain.modules({ signal })).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),

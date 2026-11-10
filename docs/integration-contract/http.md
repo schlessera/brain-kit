@@ -1065,3 +1065,14 @@ Saved-audio PUT binds `Speech-Provider` before claim/body consumption; absent
 headers preserve effective-provider resolution. Retry provider changes return
 409 `transcription_provider_mismatch` with the receipt. Settings revisions,
 error codes, response schemas and operation binding are supported HTTP promises.
+
+
+### Checkpoint cleanup diagnostics (additive, #3815)
+
+Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
+`pending`, `failed` and `retainedBytes` for this process's superseded checkpoints;
+`lastFailure` is null or the durable historical failure with `kind`,
+`checkpointId`, `at` (epoch milliseconds), `scope`, `errorClass`, `cause` and
+`retrying: true` at the time it was recorded. The historical cause survives
+recovery and restart; it does not assert a currently blocked turn. Current
+charges remain separate in `retained`. No field changes public `/health`.

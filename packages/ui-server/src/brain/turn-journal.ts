@@ -23,6 +23,8 @@ import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
+import { getSetting } from "../db/settings.js";
+import { createSettingsWrites } from "../db/settings-writes.js";
 import { createOffloopActivityStore } from "../activity/store-writes.js";
 
 import { queryGovernanceEvents } from "../governance/events.js";
@@ -175,11 +177,13 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   } };
   const cleanupActivity = createOffloopActivityStore(db, writer);
+  const cleanupSettings = createSettingsWrites(db, writer);
   /** Superseded checkpoint cleanup reclaims space; its committed observation remains valid. */
   const releaseFailed = (error: unknown, checkpointId: string) => {
     const notice = { kind: "checkpoint_release_retry", checkpointId, at: now(), scope: "superseded_checkpoint",
       errorClass: error instanceof Error ? error.name : "UnknownError", cause: String(error).slice(0, 2000), retrying: true };
     console.warn(JSON.stringify(notice));
+    tracked(Promise.resolve(cleanupSettings.setSetting("journal.cleanup.lastFailure", notice))).catch(() => {});
     // The root span is kept with the turn in authenticated Activity, even
     // though its observation is complete and its workers keep running.
     const ids = [...active.keys()];
@@ -572,6 +576,15 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     /** Worktrees an active turn's journal observes. */
     worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id); },
     isHeld(): boolean { return holds > 0; },
+    /** Current retained charges, plus the durable historical cause even before any turn existed. */
+    cleanupStatus() {
+      const retained = capture.releases();
+      for (const root of worktrees.values()) {
+        const other = root.capture.releases();
+        retained.pending += other.pending; retained.failed += other.failed; retained.retainedBytes += other.retainedBytes;
+      }
+      return { retained, lastFailure: getSetting<unknown>(db, "journal.cleanup.lastFailure", null) };
+    },
     /** @internal Settles once every previous checkpoint handed to release so far has been attempted (#2872). */
     async releasesSettled(): Promise<void> {
       await capture.releasesSettled();

@@ -1469,7 +1469,7 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:272`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:242-263`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:246-267`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
@@ -1481,7 +1481,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:547-554`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:551-558`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1606,7 +1606,7 @@ these versions as metadata-only and never open them for retention
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
-(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:79`),
+(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:81`),
 so every observed refresh remains a recorded change. A metadata-only version is an intentional
 observation state: it adds no `missing` entry and does not make the turn
 partial. Removal coverage never treats the family as eligible, and history
@@ -1618,7 +1618,7 @@ stays now counts its largest size once too, rather than each version.
 **History.** History presents every index-family version as metadata-only
 however it was recorded, so a version an earlier release retained is no
 longer read
-(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:72-77`).
+(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:74-79`).
 The reader groups these entries as the search index, recorded by size and
 timestamps only, with no review action. Preview reports `metadata_only` and
 download has nothing to serve. History revert and Undo read that same
@@ -4319,7 +4319,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:376-441`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:380-445`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -4342,7 +4342,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:644-674`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:657-687`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
 
 ### Concurrent edits
