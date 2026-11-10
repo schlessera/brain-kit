@@ -13,7 +13,7 @@ test("capacity exact entry/recovery boundaries require two additional observatio
   value = observePressure(value, evidence(at, 10_001), at); expect(value.severity).toBe("observed");
   value = observePressure(value, evidence(at + 1, 10_000), at + 1); expect(value.severity).toBe("low");
   value = observePressure(value, evidence(at + 2, 5000), at + 2); expect(value.severity).toBe("critical");
-  const episode = value.episode; expect(episode).toBeTruthy();
+  const episode = value.episode; expect(episode, "STORAGE_CRITICAL_ENTRY_OPENS_EPISODE").toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   value = observePressure(value, evidence(at + 60_002, 7000), at + 60_002); expect(value.recoveryAt).toBeNull();
   value = observePressure(value, evidence(at + 120_002, 7001), at + 120_002); expect(value.severity).toBe("critical");
   value = observePressure(value, evidence(at + 180_001, 7001), at + 180_001); expect(value.severity, "STORAGE_RECOVERY_REQUIRES_SIXTY_SECONDS").toBe("critical");
@@ -40,7 +40,7 @@ test("every active cause must recover; stale, reversal, failed and incompatible 
   let value = observePressure(newPressure(identity, rootScope), evidence(at, 5000, finite(7), finite(7)), at);
   value = observePressure(value, evidence(at + 60_000, 13000), at + 60_000); expect(value.recoveryAt).toBeNull();
   const good = (time: number) => evidence(time, 13000, nondepleting, nondepleting);
-  value = observePressure(value, good(at + 120_000), at + 120_000); expect(value.recoveryAt).not.toBeNull();
+  value = observePressure(value, good(at + 120_000), at + 120_000); expect(value.recoveryAt, "STORAGE_RECOVERY_PAIR_STARTS_AT_FIRST_GOOD_OBSERVATION").toBe(at + 120_000);
   value = observePressure(value, null, at + 130_000); expect(value.recoveryAt).toBeNull();
   value = observePressure(value, good(at + 180_000), at + 180_000); expect(value.severity).toBe("critical");
   value = observePressure(value, good(at + 170_000), at + 180_000); expect(value.recoveryAt).toBeNull();
