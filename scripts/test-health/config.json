@@ -1,0 +1,29 @@
+{
+  "$comment": "Tunable values for scripts/test-health.ts. `defaults` is the regular recurring run; each profile overrides only what differs. The push wrapper skill uses the `push` profile and adds nothing else, so the audit itself is tuned in one place.",
+  "ledgerRemote": "origin",
+  "ledgerRef": "refs/heads/brain-test-health",
+  "defaults": {
+    "base": "origin/main",
+    "clusterSize": 5,
+    "budgetFiles": 25,
+    "sweepEvery": 2,
+    "claimHours": 3,
+    "reauditDays": 180,
+    "tiers": ["fast", "unit", "runtime", "browser", "layout", "endurance", "experiment"],
+    "ripe": { "changedFiles": 25, "ageHours": 72, "maxChangedFiles": 60, "whenExhausted": true },
+    "landing": { "maxOpenCandidates": 1, "maxPerDay": null },
+    "backlog": { "maxParkedChangedFiles": 150 },
+    "weights": { "cost": 3, "issues": 3, "signals": 2, "neverAudited": 1 },
+    "measure": { "runs": 5, "stableRuns": 10, "budgetSeconds": 600, "heavySeconds": 30 }
+  },
+  "profiles": {
+    "cron": {},
+    "push": {
+      "budgetFiles": null,
+      "claimHours": 12,
+      "ripe": { "changedFiles": null, "ageHours": null, "maxChangedFiles": null, "whenExhausted": true },
+      "landing": { "maxOpenCandidates": null, "maxPerDay": null },
+      "backlog": { "maxParkedChangedFiles": null }
+    }
+  }
+}

@@ -372,6 +372,22 @@ boundary, the reasons and the file- and assertion-level inventory are in
   experiment inventory and Bun version. A failing experiment test is a failing
   release check, not a skip.
 
+## The skill tooling tier
+
+Tests of the scripts behind the repo-local agent skills live under
+`scripts/skill-tests/` and run with `bun run test:skills`. They cover
+`scripts/test-health.ts` and its modules, `scripts/issue-queue.ts` and
+`scripts/pr-status.ts`.
+
+They are deliberately not product proof. Default discovery walks `./packages`
+and `./tests`, so every `check:pr` mode, the hosted unit shards that accompany
+each package change, and the release's experiment tier exclude them by
+construction. A failure there never blocks a product change or a release. The
+`test-health` skill runs the tier as its first step and stops its own run when
+it is red: a broken tool restricts only itself
+([the decision](../decisions/test-health.md)). Run it before changing those
+scripts, with the same offline preload and timeout as `bun run test`.
+
 ## Optional bubblewrap upgrade for local Linux proof
 
 On hosts with large mount tables, bubblewrap 0.13 or newer avoids the older
