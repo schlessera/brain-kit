@@ -49,8 +49,6 @@ const REFUSAL_LINE = "Tap Allow or Deny on the card. Voice can’t approve or re
 const OUTPUT_MUTED_LINE = "Brain’s voice was paused after a dropout. Replies still arrive as text.";
 const OUTPUT_MUTED_NOTICE = "Reply audio is muted. Recover reply audio to listen; the microphone is unchanged.";
 const READINESS_LINE = "Waiting for voice to be ready. Nothing is heard until then.";
-/** Discard draft's glyph, as the #3738 stories draw it. */
-const DISCARD_ICON: IconName = "withdrawn";
 
 function clock(seconds: number) {
   const h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, sec = seconds % 60;
@@ -164,7 +162,7 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
               // R1: a held draft takes Interrupt's place unless brain is speaking.
               : (!draft || state === "L4") && <VoiceControlButton name="Interrupt" icon="interrupt" disabled={state !== "L4"} onClick={client.stopReply} />}
             {draft && <>
-              <VoiceControlButton name="Discard draft" icon={DISCARD_ICON} onClick={client.discard} />
+              <VoiceControlButton name="Discard draft" icon="backspace" onClick={client.discard} />
               <VoiceControlButton name="Send now" icon="send" tone="you" disabled={s.connection !== "Connected" || s.interaction === "Checking whether the reply stopped"} onClick={() => client.commit(s.token)} />
             </>}
             <VoiceControlButton name="End" icon="dismiss" tone="end" onClick={leave} />
