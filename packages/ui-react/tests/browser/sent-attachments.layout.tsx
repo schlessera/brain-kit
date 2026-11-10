@@ -13,7 +13,7 @@ beforeEach(() => { viewport = { width: innerWidth, height: innerHeight }; themeB
 beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 afterAll(() => styles.remove());
 afterEach(async () => { if (renderer) flushSync(() => renderer!.unmount()); root?.dispose(); host?.remove(); renderer = undefined; root = undefined; host = undefined;
-  document.documentElement.dataset.theme = themeBefore; await page.viewport(viewport.width, viewport.height);
+  if (themeBefore === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = themeBefore; await page.viewport(viewport.width, viewport.height);
   if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
 const noop = () => {};
@@ -50,15 +50,19 @@ for (const width of [320,1280]) for (const theme of ["dark","light"]) {
     await commands.formViewport(width,Math.ceil(host.scrollHeight)+32); await page.viewport(width,Math.ceil(host.scrollHeight)+32);
     await page.screenshot({element:host,path:`../../.vitest-attachments/sent-attachments/${theme}-${width}.png`});
   });
-  test(`${theme} ${width}: live images retain 80px zoom targets and replay retains only its known count`, async () => {
-    outer=await commands.formViewport(width,800); await page.viewport(width,800); document.documentElement.dataset.theme=theme;
+}
+// One theme per width: the image targets are measured, never captured or read
+// for colour, and Storybook owns light/dark parity.
+for (const width of [320,1280]) {
+  test(`${width}: live images retain 80px zoom targets and replay retains only its known count`, async () => {
+    outer=await commands.formViewport(width,800); await page.viewport(width,800);
     root=createBrainUiRoot({storage:null});
     const pixel = document.createElement('canvas'); pixel.width = 1; pixel.height = 1; pixel.getContext('2d')!.fillRect(0,0,1,1);
     const preview = pixel.toDataURL('image/png');
     root.stores.chat.getState().addUserMessage(null,"The crossing.",undefined,[{previewUrl:preview,mediaType:"image/png"}],undefined);
     host=document.createElement('div');host.style.width=`${Math.min(width,720)}px`;document.body.append(host);renderer=createRoot(host);
     const draw=()=>flushSync(()=>renderer!.render(<BrainUiProvider root={root!}><MessageBubble message={{...root!.stores.chat.getState().draft!.messages[0]!,timestamp}} onToolApproval={noop} onAskUserSubmit={noop} onAskUserCancel={noop} onAskUserListSubmit={noop}/></BrainUiProvider>));
-    draw();const image=host.querySelector('img')!;await expect.poll(()=>image.naturalWidth).toBe(1);expect(image.getBoundingClientRect().width).toBe(80);expect(image.getBoundingClientRect().height).toBe(80);
+    draw();const image=host.querySelector('img')!;await expect.poll(()=>image.naturalWidth).toBe(1);expect(image.getBoundingClientRect().width,"SENT_IMAGE_ZOOM_TARGET").toBe(80);expect(image.getBoundingClientRect().height).toBe(80);
     expect(host.querySelectorAll('[data-kit-attachment-row]')).toHaveLength(0);image.focus();await userEvent.keyboard('{Enter}');
     await expect.poll(()=>document.querySelectorAll('[role="dialog"]').length).toBe(1);
     await userEvent.keyboard('{Escape}');await expect.poll(()=>document.querySelectorAll('[role="dialog"]').length).toBe(0);
