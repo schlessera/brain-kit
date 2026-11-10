@@ -24,7 +24,7 @@ test("the authenticated app attaches durable tools to the live turn bridge and r
   void proof.catch(() => {});
   const backend = makeFakeBackend({ id: "fixture", startTurn: async req => {
     try {
-      const listed = await req.bridge.inboxList!({ view: "queue" });
+      const listed = await req.bridge.inboxList!({ view: "queue", limit: 50 });
       expect(listed.items.map(item => item.id)).toEqual(["arrival"]);
       expect(listed.threads).toMatchObject([{ id: "share", trustClass: "untrusted" }]);
       const read = await req.bridge.inboxGet!({ itemId: "arrival" });
