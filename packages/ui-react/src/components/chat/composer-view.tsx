@@ -54,7 +54,6 @@ interface ComposerProvider {
 export interface ComposerViewProps {
   /** Capture panel, kept inside the existing bounded composer frame. */
   dictation?: ReactNode;
-  onConversation?: () => void;
   /**
    * Why the mic cannot record, in place of the capture panel: a refused
    * microphone, or a browser that cannot record on the device (#1012).
@@ -71,6 +70,11 @@ export interface ComposerViewProps {
   micUnavailable?: string;
   /** Off: no mic is drawn, because there is no capture to offer. */
   mic?: boolean;
+  /**
+   * The composer's hold-to-talk mic (#3693), drawn in the kit's mic slot.
+   * When set, `mic`, `onMic`, `micLabel`, `micTip` and `micUnavailable` do not apply.
+   */
+  micControl?: ReactNode;
   value: string;
   state: ComposerState;
   /** Overrides the state's own placeholder (a connection reason, the host's copy). */
@@ -192,20 +196,17 @@ export function ComposerView(p: ComposerViewProps) {
   const pointer = useMediaQuery("(min-width: 900px)");
   const files = p.onPickFiles ? p.files : undefined;
   const fileCount = (files?.queued.length ?? 0) + (files?.stored.length ?? 0);
-  // The trigger's name lists what its menu offers, in menu order (#3045):
-  // live conversation is reached through the paperclip, so the paperclip says
-  // so whenever the row is there. The kit paints the same string as the
-  // pointer tooltip; a phone's sheet names the actions in its subtitle.
+  // The trigger's name lists what its menu offers, in menu order (#3045).
+  // Live conversation is no longer in it: the mic's hold opens it (#3693).
   // Desktop with composer files: one unrestricted Files action (desktop
   // menu A, #3155); phones keep Photo library and Camera beside it.
   const desktopFiles = pointer && !!p.onPickFiles;
-  const attachLabel = p.onConversation ? `Attach — live conversation, ${desktopFiles ? "files" : "photo, camera, files"}` : desktopFiles ? "Attach — files" : undefined;
+  const attachLabel = desktopFiles ? "Attach — files" : undefined;
   const attachSubtitle = p.onPickFiles
-    ? `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, files or paste.`
-    : `${p.onConversation ? "Live conversation, photo" : "Photo"}, camera, ${p.onPickTracks ? "track files, " : ""}or paste.`;
+    ? "Photo, camera, files or paste."
+    : `Photo, camera, ${p.onPickTracks ? "track files, " : ""}or paste.`;
   const attachMenu = (
     <div className={pointer ? "bk-focus-clip flex flex-col rounded-[inherit]" : "flex flex-col"}>
-      {p.onConversation && <ListRow variant="group" icon="mic" iconTone="teal" title="Live conversation" subtitle="Talk while your agent works" onClick={p.onConversation} />}
       {!desktopFiles && <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />}
       {!desktopFiles && <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />}
       {p.onPickFiles
@@ -321,6 +322,7 @@ export function ComposerView(p: ComposerViewProps) {
         micLabel={p.micLabel}
         micTip={p.micTip}
         micUnavailable={p.micUnavailable}
+        micControl={p.micControl}
         status={p.status}
       />
     </div>

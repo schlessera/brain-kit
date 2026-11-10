@@ -184,7 +184,7 @@ async function mount(ctx: TestContext, opts: { online?: boolean; gum?: MediaDevi
   return s;
 }
 
-const mic = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Record on this device"], [data-composer] [role="button"][aria-label="Stop and save"], [data-composer] [role="button"][aria-label^="Dictate"], [data-composer] [role="button"][aria-label="Stop dictation"]');
+const mic = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label="Record on this device"], [data-composer] :is(button,[role="button"])[aria-label="Stop and save"], [data-composer] :is(button,[role="button"])[aria-label^="Dictate"], [data-composer] :is(button,[role="button"])[aria-label="Stop dictation"]');
 const field = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
 const notice = (s: Scene) => s.host.querySelector<HTMLElement>("[data-capture-notice]");
 const phase = (s: Scene) => s.ui.stores.voice.getState().local;
