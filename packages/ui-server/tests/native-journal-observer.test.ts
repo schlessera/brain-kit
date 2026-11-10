@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { createNativeJournalObserver, NativeJournalObservationError, NATIVE_RELEASE_BACKLOG, type NativeJournalManager } from "../src/brain/native-journal-observer.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 
+import { cleanupTimers } from "./helpers/cleanup-timers.js";
+
 type Entry = { path: string; ino: number; kind: string; mode: number; size: number; sha256?: string };
 const warmStream = Buffer.from("YnRyZnMtc3RyZWFtAAEAAABPAAAAAgDqvW00DwALAHdhcm0tODAwMC0wAQAQANEC0Ek2Vs1Ek6SKUp+teD8CAAgATwAAAAAAAAAUABAASziH678uVkGhaToa8/usdRUACABPAAAAAAAAAAAAAAAVAFBsyZ0=", "base64");
 // Runtime namespace fixtures paired with actual qualified native stream bytes.
@@ -318,4 +320,28 @@ test("a superseded checkpoint retries without another observation and keeps its 
     await f.observer.releasesSettled();
     expect(f.observer.releases()).toEqual({ pending: 0, failed: 0, retainedBytes: 0 });
   } finally { await f.close(); }
+});
+
+test("observer close cancels its slow retry even when shutdown release also fails", async () => {
+  const timers = cleanupTimers(), f = releaseFixture();
+  try {
+    await f.observer.initialize();
+    const first = f.observer.currentRoot();
+    writeFileSync(join(f.brain, "notes", "ithaca.md"), "Odysseus returns.\n");
+    await (await f.observer.observe()).commit();
+    (await f.next()).settle(new Error("Odysseus checkpoint pinned"));
+    await f.observer.releasesSettled();
+    expect(timers.pending.size).toBe(1);
+    expect(timers.handles.every(handle => handle.unrefed)).toBe(true);
+    const closing = f.observer.close();
+    void closing.catch(() => {});
+    const retry = await f.next(); expect(retry.id).toBe(first.id);
+    retry.settle(new Error("Odysseus checkpoint still pinned"));
+    (await f.next()).settle();
+    await expect(closing).rejects.toThrow("remain retained after shutdown");
+    expect(timers.pending.size, "OBSERVER_CLOSE_CANCELS_RETRY_TIMER").toBe(0);
+    timers.fire();
+    expect(f.waiting, "OBSERVER_CLOSED_MANAGER_NOT_REVISITED").toEqual([]);
+    expect(f.observer.releases()).toEqual({ pending: 0, failed: 1, retainedBytes: "Penelope waits at Ithaca.\n".length });
+  } finally { await f.close(); timers.restore(); }
 });
