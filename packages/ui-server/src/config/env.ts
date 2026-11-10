@@ -653,7 +653,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "The date CLAUDE_CODE_OAUTH_TOKEN was minted (ISO 8601, e.g. 2026-09-23), " +
       "set next to the token in the same redeploy. The server counts the " +
       "token's one-year lifetime from it and warns 30 days before expiry. " +
-      "An unparseable date refuses boot. Server-only.",
+      "An invalid date keeps serving with an explicit unknown-expiry warning in owner status and logs. Server-only.",
     default: "no expiry warning (one WARN at boot says so)",
     required: false,
   },
