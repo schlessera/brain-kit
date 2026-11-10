@@ -103,8 +103,11 @@ device per account, keyed by the service and its destination text; storage that
 fails asks again. A take sends the service it disclosed and refuses a session
 for any other; a default saved during a take applies to the next one. The
 acknowledgement is a notice above the composer: "Your words are sent to …
-to be written down. The audio isn't kept.", with initial focus on **Start
-dictation**; Cancel and Escape return focus to the mic. With no service to send
+to be written down.", then what happens to the audio. For Google Gemini that
+is "The audio isn't kept."; for any other service the app can't verify
+retention, so it says the service's own policy applies ("Deepgram's
+retention policy applies.", or for browser speech "Your browser's speech
+service policy applies."). Initial focus is on **Start dictation**; Cancel and Escape return focus to the mic. With no service to send
 to, a notice says so and offers **Open Settings**. Saved recordings are confirmed
 for the effective service when it can transcribe them; otherwise the tray
 offers an unsaved, per-recording choice among the services that can. Each new

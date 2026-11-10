@@ -335,6 +335,9 @@ describe.skipIf(!executablePath)("Settings › Voice and the next take, against 
       await Promise.race([card.waitFor(), (async () => { while (sessions().length === before) await Bun.sleep(10); })()]);
       expect(sessions().length, "NO_SESSION_BEFORE_START_DICTATION").toBe(before);
       expect(await card.textContent()).toContain("Your words are sent to Alpha Transcribe to be written down.");
+      // A service this app can't verify is never said to keep no audio (#3694, 2026-11-09).
+      expect(await card.textContent()).toContain("Alpha Transcribe\u2019s retention policy applies.");
+      expect(await card.textContent()).not.toContain("isn\u2019t kept");
       await page.waitForFunction(() => document.activeElement?.textContent === "Start dictation");
       await fits(page, width, '[data-dictation-notice] button, [data-dictation-notice] [role="button"]');
       await shot(page, `acknowledge-${width}`);

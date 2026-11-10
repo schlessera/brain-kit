@@ -271,6 +271,24 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) {
   });
 }
 
+// Maintainer decision on #3694 (2026-11-09): only Gemini's audio is claimed
+// as not kept; any other service is said to follow its own policy.
+for (const [provider, body] of [
+  ["gemini", "Your words are sent to Google Gemini to be written down. The audio isn\u2019t kept."],
+  ["deepgram", "Your words are sent to Deepgram to be written down. Deepgram\u2019s retention policy applies."],
+  ["webspeech", "Your words are sent to your browser\u2019s speech service to be written down. Your browser\u2019s speech service policy applies."],
+] as const) {
+  test(`D0 ${provider}: says what happens to the audio without claiming retention it can't verify, in the story's form`, async () => {
+    const s = await mount({ provider, acknowledged: false });
+    await s.tap();
+    await expect.poll(() => noticeForm()).toBe("D0");
+    expect(host!.querySelector(".bk-voice-notice-body")!.textContent).toBe(body);
+    expect(signature(voiceField()), "the same VoiceNotice, only its body text differs").toBe(story("D0"));
+    if (provider !== "gemini") expect(host!.textContent).not.toContain("isn\u2019t kept");
+    expect(s.sessions).toEqual([]);
+  });
+}
+
 for (const exit of ["Cancel", "Escape"] as const) {
   test(`D0 ${exit}: no take, nothing requested, focus back on the mic`, async () => {
     const s = await mount({ acknowledged: false });

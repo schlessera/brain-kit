@@ -1,7 +1,7 @@
 import { VoiceControlButton, VoiceField, VoiceNotice, VoiceText } from "@schlessera/brain-ui-kit";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { dictationNoticeForm } from "../../voice/dictation-failure.js";
-import { providerMeta, providerRecipient, savedServiceName } from "../../voice/dictation-providers.js";
+import { providerAudioPolicy, providerMeta, providerRecipient, savedServiceName } from "../../voice/dictation-providers.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
 
 /*
@@ -145,7 +145,7 @@ export function DictationNotices({ onConfirm, onCancel, onOpenSettings, onRetry,
           icon="mic"
           live="polite"
           title="Start dictation"
-          body={`Your words are sent to ${providerRecipient(gate.provider)} to be written down. The audio isn’t kept.`}
+          body={`Your words are sent to ${providerRecipient(gate.provider)} to be written down. ${providerAudioPolicy(gate.provider)}`}
           actions={[{ label: "Cancel", onClick: onCancel }, { label: "Start dictation", tone: "you", onClick: onConfirm }]}
         />
       </div>

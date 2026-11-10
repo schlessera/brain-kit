@@ -88,6 +88,18 @@ export function providerRecipient(provider: DictationProvider, chrome = isChrome
   return providerShortLabel(provider);
 }
 
+/**
+ * What happens to the audio, as D0 says it (maintainer decision on #3694,
+ * 2026-11-09). Only the built-in Gemini service keeps no audio, as signed
+ * off; for any other service this app can't verify retention, so it says the
+ * provider's own policy applies instead of claiming one.
+ */
+export function providerAudioPolicy(provider: DictationProvider): string {
+  if (builtInGemini(provider)) return "The audio isn\u2019t kept.";
+  if (provider.id === "webspeech") return "Your browser\u2019s speech service policy applies.";
+  return `${providerShortLabel(provider)}\u2019s retention policy applies.`;
+}
+
 type DictationTarget =
   | { kind: "ready"; provider: DictationProvider; smart: boolean }
   /** none: nothing registered; choose: several, nothing saved, no host default; unavailable: the saved choice is gone. */
