@@ -53,18 +53,18 @@ test("resolves real linked worktrees and approved alternates without counting sh
   mkdirSync(repo); mkdirSync(alternate);
   git(repo, "init"); git(alternate, "init", "--bare");
   writeFileSync(join(repo, "raft.md"), "Odysseus builds a raft.\n");
-  git(repo, "add", "."); git(repo, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-m", "Raft");
+  git(repo, "add", "."); // Command-scoped: environment-scoped signing config outranks GIT_CONFIG_GLOBAL (#3485).
+  git(repo, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "Raft");
   git(repo, "worktree", "add", "-b", "voyage", worktree);
   writeFileSync(join(repo, ".git", "objects", "info", "alternates"), join(alternate, "objects") + "\n");
   // Only objects/info/alternates has Git alternate semantics.
   writeFileSync(join(repo, ".git", "info", "alternates"), "/not-an-approved-store\n");
   const denied = await collectStorageInventory(worktree);
   expect(denied.status, "UNAPPROVED_GIT_STORE_PARTIAL").toBe("partial");
-  expect(denied.errors.some((e: any) => e.reason === "external-git-root-not-approved")).toBe(true);
+  expect(denied.errors.map((e: any) => e.reason)).toContain("external-git-root-not-approved");
   const approved = await collectStorageInventory(worktree, { gitRoots: [repo, alternate] });
   expect(approved.status, JSON.stringify(approved.errors)).toBe("complete");
-  expect(approved.roots.some((r: any) => r.path === join(repo, ".git"))).toBe(true);
-  expect(approved.roots.some((r: any) => r.path === join(alternate, "objects"))).toBe(true);
+  expect(approved.roots.map((r: any) => r.path)).toEqual(expect.arrayContaining([join(repo, ".git"), join(alternate, "objects")]));
   expect(new Set(approved.entries.map((e: any) => e.objectId)).size, "OVERLAPPING_GIT_ROOT_UNION").toBe(approved.entries.length);
   const again = await collectStorageInventory(worktree, { gitRoots: [repo, alternate] });
   expect(again.revision, "STABLE_OBSERVATION_REVISION").toBe(approved.revision);

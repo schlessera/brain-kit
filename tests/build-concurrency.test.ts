@@ -194,7 +194,8 @@ writeFileSync(marker(name,"done"),String(process.exitCode));
     expect(completed.length, "EXACTLY_ONE_EXECUTING_BUILD_OWNER_RECEIPT").toBe(1);
     expect(completed[0].success).toBe(true); expect(completed[0].state).toBe("complete");
     expect(completed[0].jobs).toBe(2); expect(completed[0].mode).toBe("subset");
-    expect(completed[0].packages.every((pkg: {state: string; children: {code: number}[]}) => pkg.state === "complete" && pkg.children.length === 1 && pkg.children[0].code === 0)).toBe(true);
+    expect(completed[0].packages.map((pkg: {name: string; state: string; children: {code: number}[]}) => [pkg.name, pkg.state, pkg.children.map(child => child.code)]).sort(),
+      "EVERY_BUILT_PACKAGE_COMPLETES_WITH_ONE_SUCCESSFUL_COMPILER").toEqual([["a-consumer", "complete", [0]], ["b-peer", "complete", [0]], ["c-peer", "complete", [0]], ["z-dependency", "complete", [0]]]);
     expect(JSON.stringify(completed), "BUILD_RECEIPT_OMITS_HOST_PATHS").not.toContain(root);
 
     }

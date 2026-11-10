@@ -94,7 +94,7 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} autonomous
     for (const q of receipt.requests) {
       expect(q.apiKey, "CREDENTIAL_INJECTED: the server's key, never the worker's").toBe(MARKERS.realKey);
       expect(q.authorization).toBeNull();
-      for (const value of Object.values(MARKERS).filter(v => v !== MARKERS.realKey)) expect(q.body.includes(value), `request carries ${value}`).toBe(false);
+      for (const value of Object.values(MARKERS).filter(v => v !== MARKERS.realKey)) expect(q.body, `request carries ${value}`).not.toContain(value);
     }
 
     // R29: no ambient instructions, skills, hooks, SYSTEM.md or extension; the
@@ -102,11 +102,14 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} autonomous
     const turns = receipt.requests.filter((q: any) => q.tools.length > 0);
     expect(turns.length, "inference worked through the relay").toBeGreaterThan(1);
     for (const q of turns) {
-      expect(q.body.includes(MARKERS.ambient), "AMBIENT_NOT_LOADED").toBe(false);
+      expect(q.body, "AMBIENT_NOT_LOADED").not.toContain(MARKERS.ambient);
       expect(q.tools).not.toContain("ambient_extension_tool");
-      // A Claude subagent carries its own agent prompt, not the main append.
-      if (!q.body.includes("SUBAGENT-ODYSSEUS")) expect(q.body).toContain("SERVER-INSTRUCTION-SNAPSHOT-ODYSSEUS");
     }
+    // A Claude subagent carries its own agent prompt, not the main append;
+    // every main-agent turn, and there is at least one, carries the snapshot.
+    const mainTurns = turns.filter((q: any) => !q.body.includes("SUBAGENT-ODYSSEUS"));
+    expect(mainTurns.length, "a main-agent turn reached the relay").toBeGreaterThan(0);
+    for (const q of mainTurns) expect(q.body).toContain("SERVER-INSTRUCTION-SNAPSHOT-ODYSSEUS");
 
     // An out-of-roster call escalates as a durable decision and never runs;
     // the principal is the server's, not anything the model wrote.
@@ -126,8 +129,9 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} autonomous
     expect(receipt.failure?.name).toBe("WorkerHostError");
     expect(receipt.requests, "no inference request").toEqual([]);
     expect(receipt.spawned, "no worker started").toEqual([]);
-    expect(receipt.frames.some((f: any) => f.failure?.errorClass === "worker_host_unsupported"
-      && f.message.includes("fixture: network namespaces unavailable")), "the visible refusal names the missing requirement").toBe(true);
+    expect(receipt.frames, "the visible refusal names the missing requirement").toEqual(expect.arrayContaining([expect.objectContaining({
+      failure: expect.objectContaining({ errorClass: "worker_host_unsupported" }),
+      message: expect.stringContaining("fixture: network namespaces unavailable") })]));
     passed.push(`${adapter}:refused`);
   }, TIMEOUT);
 });

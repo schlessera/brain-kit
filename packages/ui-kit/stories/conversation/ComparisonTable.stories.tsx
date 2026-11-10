@@ -1,4 +1,5 @@
 import preview from "#.storybook/preview";
+import { expect } from "storybook/test";
 
 import { straitChoice } from "../../fixtures/projects.js";
 import { ComparisonTable } from "../../src/conversation/ComparisonTable.js";
@@ -52,6 +53,9 @@ export const MissingValues = Default.extend({
       { label: "Escapable", cells: ["no", "no"] },
     ],
     footnote: "",
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.queryAllByText("—"), "both empty cells read as an em dash").toHaveLength(2);
   },
 });
 
