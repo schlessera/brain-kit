@@ -230,6 +230,11 @@ remaining aggregate budget. An old stage without this independent record, or a
 damaged/unreadable record, has no provable historical bound. Its charge stays
 unknown (`null`), new staging returns an explicit recovery refusal instead of a
 retryable capacity error, and authenticated status reports `healthy: false`.
+A bounded quarantine also returns recovery when its charge plus the requested
+allowance exceeds the budget: waiting cannot release quarantined storage.
+The boot status reports `stagingRefusal` when the configured allowance cannot
+fit, even when the charge is finite. Smaller requests can still use any proven
+remaining capacity. Active-stage pressure alone remains retryable busy.
 The cause stays in the private diagnostics directory. Repair requires proof of
 the historical cap or confirmed cleanup, never a guess based on current config.
 No historical checkpoint dependency is released while a quarantined receipt

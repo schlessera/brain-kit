@@ -1,3 +1,4 @@
+import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -43,7 +44,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   openRead(hash: string, assertOwner?: () => void): string;
   releaseRead(id: string): void;
   reserveTemporary(bytes: number): { id: string; release(): void };
-  recover(objects: { has(hash: string): boolean; verify(hash: string, bytes: number): boolean; discardPending(id: string): void }): void;
+  recover(objects: { has(hash: string): boolean; verify(hash: string, bytes: number): boolean; discardPending(id: string): void }): JournalRecoveryStatus;
 } {
   const cap = options.capBytes ?? JOURNAL_CAP_BYTES;
   const memory = dbPath === ":memory:" || dbPath === "";
@@ -229,7 +230,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       } };
     },
     recover(objects) {
-      const rows = db.query("SELECT * FROM turn_journal_reservations").all() as { id: string; hash: string; bytes: number; pid: number; pid_start: string; kind: string }[];
+      const report: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
+      const rows = db.query("SELECT * FROM turn_journal_reservations").all() as { id: string; hash: string; bytes: number; pid: number; pid_start: string; kind: string; recovery_failure: string | null }[];
       for (const row of rows) {
         if (processAlive(row.pid, row.pid_start)) continue;
         if (row.kind === "read") { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id)); continue; }
@@ -249,8 +251,21 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         } catch (error) {
           // An I/O refusal proves neither existence nor corruption. Keep the
           // reservation and its state untouched for the next recovery pass.
-          process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
-            errorClass: error instanceof Error ? error.name : "Error", message: String(error) }) + "\n");
+          const cause: NonNullable<JournalRecoveryStatus["firstCause"]> = row.recovery_failure ? JSON.parse(row.recovery_failure) : {
+            reservationId: row.id, hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+            errorClass: error instanceof Error ? error.name : "Error", message: (error instanceof Error ? error.message : String(error)).slice(0, 2000) };
+          let diagnosticError: string | undefined;
+          try {
+            // The cause belongs to the existing reservation: it disappears only
+            // when that reservation resolves, never by clearing its charge early.
+            write(() => db.query("UPDATE turn_journal_reservations SET recovery_failure=coalesce(recovery_failure,?) WHERE id=?")
+              .run(JSON.stringify(cause), row.id));
+          } catch (failure) { diagnosticError = String(failure); }
+          // A full/unwritable diagnostic store cannot turn a local I/O refusal
+          // into a boot refusal. Return the cause to the owner even in that case.
+          report.unresolvedRecords++;
+          if (!report.firstCause || cause.at < report.firstCause.at) report.firstCause = cause;
+          process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", ...cause, ...(diagnosticError ? { diagnosticError } : {}) }) + "\n");
           continue;
         }
         if (!published && db.query("SELECT 1 FROM turn_journal_object_refs WHERE hash=? LIMIT 1").get(row.hash))
@@ -287,6 +302,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         if (quarantined) process.stderr.write(JSON.stringify({ kind: "journal_object_quarantined", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
           errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }) + "\n");
       }
+      return report;
     },
     reserve(bytes, hash) {
       if (!Number.isSafeInteger(bytes) || bytes < 0) throw new JournalStorageUnavailable("invalid content reservation size");

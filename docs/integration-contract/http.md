@@ -176,6 +176,32 @@ claiming a temporary busy slot. Other operations remain available. The private
 diagnostics path and causes are never exposed by unauthenticated `/api/health`.
 This optional reporting is additive in 0.45.0; no CLI/MCP shape changes.
 
+### Staging refusal and unresolved journal recovery (additive, #3826)
+
+Authenticated `GET /api/status` extends `nativeRecovery` with optional
+`stagingRefusal: string`. It describes the recovery needed when a quarantined
+charge is unknown or when quarantine alone leaves too little budget for the
+configured per-stage allowance. In either case `healthy` is false. Individual
+stage requests use their actual requested allowance: a smaller request may fit;
+only pressure that can clear when active stages finish returns temporary busy.
+The refusal tells the owner to inspect private diagnostics, repair the original
+allowance or authoritative receipt, and restart the native manager. No unknown
+or surviving storage charge is released.
+
+The response also adds optional `journalRecovery`, declared by `SystemStatus`:
+`{ unresolvedRecords: number, firstCause: null | { reservationId: string,
+hash: string, at: number, errorClass: string, message: string, site: string } }`.
+This is the journal worker's boot recovery summary: the count is unresolved
+object reservations, including multiple reservations of the same hash, and
+`firstCause` is the earliest recorded I/O refusal among them (`at` is Unix
+milliseconds). The first cause stays on its charged reservation across restarts;
+a successful later recovery removes both. Zero unresolved records means
+`firstCause: null`. Any unresolved records make `healthy` false without refusing
+boot or unrelated work. If persisting a cause fails, the current boot still
+reports it and logs the diagnostic-write failure; the existing reservation
+remains durable and charged. Neither summary is exposed by unauthenticated
+`/api/status` or public `/api/health`. Additive in 0.45.0.
+
 <a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
 
 ### Degraded backend availability and unknown expiry (additive, #3817)
