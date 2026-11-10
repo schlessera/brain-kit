@@ -50,7 +50,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       autonomous: req.autonomous, enforceAllowedTools: req.enforceAllowedTools === true, noGrantSurface: req.noGrantSurface === true };
     const available = (name: string) => piToolAvailabilityRefusal(currentTurn, name) === undefined;
     const env: SessionEnv = {
-      workerSignal: req.signal,
+      workerSignal: req.signal, cleanupActivity: req.bridge.activity,
       sessionBudgetLimits: req.sessionBudgetLimits,
       budgetContext: req.budgetContext,
       ...(req.workerStartupView ? { workerStartupView: req.workerStartupView } : {}),

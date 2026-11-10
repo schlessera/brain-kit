@@ -1208,10 +1208,16 @@ export "./internal" (./src/internal.ts)
   BRAIN_INTERACTION_GUIDANCE
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
+  CLEANUP_RETRY_ATTEMPTS
+  CLEANUP_RETRY_BASE_MS
+  CLEANUP_RETRY_MAX_MS
   CREDENTIAL_FREE_ENV
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  type CleanupNotice
+  type CleanupReconciler
+  type CleanupReconcilerOptions
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
   type EgressRecord
@@ -1268,6 +1274,7 @@ export "./internal" (./src/internal.ts)
   RTK_WORKER_ENV
   type RemovalRun
   type Reservation
+  type RetainedCleanup
   STALE_SAFETY_ADMISSION
   SUBPROCESS_ENV
   type SessionPromptFacts
@@ -1331,6 +1338,7 @@ export "./internal" (./src/internal.ts)
   commitOutwardPlan
   compileWorkerCommandPolicy
   conversationOrientation
+  createCleanupReconciler
   createLimitTracker
   createNativeBrainManagerClient
   createSessionRetirement
@@ -1389,6 +1397,7 @@ export "./internal" (./src/internal.ts)
   probeNativeMaintenanceWorker
   probeWorkerHost
   probeWorkerHostAsync
+  processCleanupReconciler
   processStateLedger
   projectConversationGuidance
   promptPrefixFingerprint
@@ -5887,6 +5896,13 @@ signatures (every public export and the types it is made of)
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "worker_cleanup";
+        state: "retrying" | "resolved";
+        bytes: number;
+        turnTempBytes: number;
+        errorClass?: string;
+        message?: string;
+    } | {
         kind: "prompt_prefix";
         prefix: import("../protocol.js").PromptPrefixFingerprint;
         resumed: boolean;

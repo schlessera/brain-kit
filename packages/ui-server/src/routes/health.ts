@@ -41,6 +41,8 @@ export function createHealthRoutes(deps: { db: Database; degradedReasons?(): str
 }
 
 interface StatusDeps {
+  /** Retained checkpoint cleanup and its durable historical cause. */
+  getJournalCleanup?(): unknown;
   getBackendAvailability?(): { unavailable: BackendBootFailure[]; lastFailures: BackendBootFailure[] };
   getNativeRecovery?(): SystemStatus["nativeRecovery"];
   /** Trusted metadata from configured modules; absent with an older CLI. */
@@ -73,6 +75,7 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
       healthy: !backendAvailability?.unavailable.length && nativeRecovery?.stagingChargedBytes !== null,
       ...(backendAvailability ? { backendAvailability } : {}),
+      ...(deps.getJournalCleanup ? { journalCleanup: deps.getJournalCleanup() } : {}),
       uptime: Date.now() - startTime,
       version: deps.sourceCommit,
       software: { release: packageInfo.version, sourceCommit: deps.sourceCommit },

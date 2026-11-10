@@ -549,7 +549,7 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
 
   // ------------------------------------------------------------------ driver
 
-  const tracked = new Map<string, { failures: number }>();
+  const tracked = new Map<string, { failures: number; retryAt?: number }>();
   const initialDelay = options.driver?.initialDelayMs ?? 2_000;
   const maxDelay = options.driver?.maxDelayMs ?? 15_000;
   const perPass = options.driver?.visitsPerPass ?? 16;
@@ -580,10 +580,11 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
 
   async function pass(): Promise<void> {
     if (closed) return;
+    if (busy) return busy;
     let finish!: () => void;
     busy = new Promise(resolve => { finish = resolve; });
     try {
-      for (const id of [...tracked.keys()].slice(0, perPass)) {
+      for (const id of [...tracked].filter(([, entry]) => !entry.retryAt || entry.retryAt <= now()).slice(0, perPass).map(([id]) => id)) {
         if (closed) break;
         const entry = tracked.get(id);
         if (!entry) continue;
@@ -591,14 +592,16 @@ export function createComputeHost(options: ComputeHostOptions): ComputeHost {
         try {
           if (await visit(id) === "keep") tracked.set(id, { failures: 0 });
         } catch (error) {
-          if (entry.failures + 1 < maxFailures) tracked.set(id, { failures: entry.failures + 1 });
-          else {
-            // Its reservation stays active, counting at its reserved amount, and
-            // the run stays open, flagged, until a restart reattaches it.
-            log("WARN", `hosted compute stopped advancing ${id} after ${maxFailures} failed visits; it is reattached at the next restart`, { error: String(error) });
+          const failures = Math.min(entry.failures + 1, maxFailures);
+          tracked.set(id, { failures, ...(failures >= maxFailures ? { retryAt: now() + maxDelay } : {}) });
+          if (entry.failures < maxFailures && failures >= maxFailures) {
+            // Keep the reservation and retry owner until positive settlement.
+            const cause = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            log("WARN", `hosted compute ${id} entered slow reconciliation after ${maxFailures} failed visits`, { error: cause, retrying: true });
             const row = jobRow(id), store = options.activity?.store;
             if (row && row.settled_at === null && store) activityWrite("stuck", () => store.patchSpan(row.run_id, { attrs: { "brain.compute.stuck": true,
-              "brain.compute.uncertain": `the host stopped advancing it after ${maxFailures} failed visits; it is reattached at the next restart` } }));
+              "brain.compute.uncertain": `Visits failed: ${cause}; reconciliation continues with its reservation held`,
+              "brain.compute.reconcile_failed_at": now() } }));
           }
         }
       }
