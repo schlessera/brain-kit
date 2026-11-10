@@ -447,7 +447,8 @@ test("the merge path refuses uncovered local skips and a missing receipt, and ac
   const uncovered = await scenario("receipt-uncovered");
   expect(uncovered.dispatched, "NO_MERGE_WITH_UNCOVERED_LOCAL_SKIPS").toBe(false);
   expect(uncovered.code, uncovered.err).toBe(1);
-  expect(uncovered.err).toContain("complete pinned visual/accessibility/pointer suite (timed-out; needs browser)");
+  // A post-merge-only browser check is proved by the squash's main run, so only the unit gap refuses (hybrid ruling).
+  expect(uncovered.err).not.toContain("complete pinned visual/accessibility/pointer suite");
   expect(uncovered.err).toContain("complete unit and integration suite (preempted; needs unit)");
   expect(uncovered.state.active, "REFUSAL_RELEASES_THE_LEASE").toBeNull();
   const missing = await scenario("receipt-absent");

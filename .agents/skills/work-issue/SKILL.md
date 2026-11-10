@@ -288,7 +288,9 @@ coverage. A declared red-main fix may use `--fixes-main-run <run-id>`. Hold comp
 main merges while another lease is live. See the CI reference for explicit
 acquire/renew/release/revoke, expiry, hard cap and unsupported native candidates.
 After the last push, convert to draft and mark ready under that reservation to
-request complete candidate confirmation; opening/reopening ready also requests it. After cheap gates independent categories run concurrently; per-PR
+request candidate confirmation of the fast categories; opening/reopening ready also requests it. Heavy
+runtime/browser/layout/capture/endurance proof runs on your squash's main run, and a red result there is
+yours to fix through the incident workflow ([hybrid ruling](../../../docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)). After cheap gates independent categories run concurrently; per-PR
 cancellation cannot cancel another PR. Measure queue/elapsed time and wasted
 cancellations before adding shards. Follow docs/decisions/ci-utility.md.
 
@@ -332,7 +334,9 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
 When any command prints `main red at <sha>` (the hosted gate, a cancelled
 proof run or an `integrate.ts` refusal), or `bun scripts/integrate.ts
 main-status --json` reports `"red": true`, follow
-[the red-main incident steps](references/red-main.md). In short: stop
+[the red-main incident steps](references/red-main.md). A record whose
+failures are all post-merge categories blocks nothing: the gate admits proof
+and merges, and you only work the incident if you own it. Otherwise, in short: stop
 requesting proof for non-fix PRs; find the one incident issue named in the
 record and link duplicates there; try `bun scripts/red-main-incident.ts claim`
 — exactly one orchestrator wins it; the claimant assesses the cause, records

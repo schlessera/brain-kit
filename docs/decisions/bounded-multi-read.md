@@ -151,7 +151,7 @@ parallel default, with concurrency 1.
   proves only `read_file`, `write_file` and `edit_file`. So
   (`toolObservation`, `packages/ui-server/src/brain/tool-observation.ts:37-42`)
   calls it `unproven`, and
-  (`toolEnded`, `packages/ui-server/src/brain/turn-journal.ts:557-564`)
+  (`toolEnded`, `packages/ui-server/src/brain/turn-journal.ts:584-591`)
   observes every result and marks the turn lasting. Four reads made four
   observations, sequential or parallel. One batch call made one. That is a
   real host-side saving, small in time (8.3 ms against 1.4 ms on the fixture).
