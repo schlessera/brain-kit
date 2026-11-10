@@ -94,7 +94,7 @@ describe("API client URL building", () => {
         status: 500,
         headers: { "Content-Type": "application/json" },
       })) as unknown as typeof fetch;
-    expect(api.brainSearch("test")).rejects.toThrow("Search failed");
+    await expect(api.brainSearch("test")).rejects.toThrow("Search failed");
   });
 });
 
@@ -140,7 +140,7 @@ describe("billing overrides and pricing state", () => {
         status: 404,
         headers: { "Content-Type": "application/json" },
       })) as unknown as typeof fetch;
-    expect(api.pricingState()).rejects.toThrow();
+    await expect(api.pricingState()).rejects.toMatchObject({ status: 404, message: "Not found" });
   });
 });
 
