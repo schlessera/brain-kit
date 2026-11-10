@@ -58,6 +58,8 @@ let ui: BrainUiRoot | undefined;
 let host: HTMLDivElement | undefined;
 let style: HTMLStyleElement | undefined;
 const originalTheme = document.documentElement.dataset.theme;
+// The outer window is shared with every later file in the project: give it back.
+let outer: { width: number; height: number } | undefined;
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", FixtureSocket);
@@ -79,6 +81,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   if (originalTheme === undefined) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = originalTheme;
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
+  outer = undefined;
 });
 
 function pointerScene() {
@@ -90,7 +94,8 @@ function pointerScene() {
 
 async function mount(width: number, height: number, theme: "dark" | "light", connected = false, pages = false) {
   await page.viewport(width, height);
-  await commands.formViewport(width, height);
+  const previous = await commands.formViewport(width, height);
+  outer ??= previous;
   style = document.createElement("style");
   style.textContent = await commands.formConsumerStyles();
   document.head.append(style);
@@ -374,7 +379,10 @@ for (const theme of ["dark", "light"] as const) {
       await userEvent.keyboard("{Meta>}1{/Meta}");
       expect(state().activeView).toBe("chat");
       expect(amber()).toBe(0);
-      expect(state().activeView === "graph", "no chord reaches Graph").toBe(false);
+      // Graph follows the five in the palette: the next digits must not reach it.
+      await userEvent.keyboard("{Meta>}6{/Meta}");
+      await userEvent.keyboard("{Meta>}7{/Meta}");
+      expect(state().activeView, "NO_CHORD_REACHES_GRAPH").toBe("chat");
     });
 
     test(`the panel destination you are on never closes, by chord or rail (D52 N3): ${theme}, ${width}`, async () => {
