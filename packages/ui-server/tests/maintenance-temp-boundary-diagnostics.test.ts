@@ -71,7 +71,7 @@ test("held real worker retains bounded pre-receipt stderr and original exit befo
   expect(inner.signalCode).toBeNull();
   expect(inner.stdout).toBe("");
   expect(Buffer.byteLength(inner.stderr)).toBe(512);
-  expect(inner.stderr.endsWith("ODYSSEUS_INNER_STDERR_SENTINEL\n")).toBe(true);
+  expect(inner.stderr).toEndWith("ODYSSEUS_INNER_STDERR_SENTINEL\n");
   expect(Buffer.byteLength(stderr)).toBeLessThan(8192);
   expect(readdirSync(temporary), "OWNED_NATIVE_FIXTURE_CLEANED").toEqual([]);
   const ledgerFile = readdirSync(state).find(name => name.startsWith(".brain-maintenance-") && name.endsWith(".db"))!;
