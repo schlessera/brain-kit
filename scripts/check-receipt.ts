@@ -5,7 +5,7 @@
  * preempted local checks map to a hosted category that its exact-head hosted
  * proof did not run successfully.
  */
-import { CATEGORIES, type Category } from "./red-main";
+import { CATEGORIES, isPostMerge, type Category } from "./red-main";
 
 export const RECEIPT_KIND = "brain-check-pr-receipt";
 export const RECEIPT_START = "<!-- brain-check-pr-receipt:start -->";
@@ -109,9 +109,15 @@ export function coveredCategories(selected: { selections: Record<string, string>
 }
 
 export interface Uncovered { name: string; outcome: Outcome; categories: Category[]; }
-/** Local checks the receipt leaves unproven whose hosted categories did not run successfully. */
+/**
+ * Local checks the receipt leaves unproven whose hosted categories did not run
+ * successfully. A check mapped only to post-merge categories is proved by the
+ * main run of its own squash, never by ready confirmation, so it is not a
+ * pre-merge gap (the 2026-11-10 hybrid ruling). An unmapped check stays uncovered.
+ */
 export function uncoveredChecks(receipt: CheckReceipt, covered: Set<Category>): Uncovered[] {
-  return receipt.checks.filter(check => UNPROVEN.includes(check.outcome) && !check.categories.some(c => covered.has(c)))
+  const postMerge = (categories: Category[]) => categories.length > 0 && categories.every(isPostMerge);
+  return receipt.checks.filter(check => UNPROVEN.includes(check.outcome) && !postMerge(check.categories) && !check.categories.some(c => covered.has(c)))
     .map(({ name, outcome, categories }) => ({ name, outcome, categories }));
 }
 

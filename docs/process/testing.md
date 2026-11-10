@@ -477,9 +477,12 @@ The policy is [the CI decision](../decisions/ci-utility.md); the commands are
 in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
 
 - Contract tests assert the `--json` envelopes. Automatic CI runs cheap
-  metadata gates and complete affected hosted unit/integration/runtime,
-  keyless funnel, pinned browser proof, strict types and packaging on explicit
-  ready-candidate confirmation events. Agents keep focused local behavioral proof.
+  metadata gates, complete affected hosted unit/integration, strict types and
+  packaging on explicit ready-candidate confirmation events. Affected runtime,
+  native host, pinned browser, layout, capture and endurance proof runs on
+  every main squash
+  ([hybrid ruling](../decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
+  Agents keep focused local behavioral proof.
 - Run `bun run check:pr --base origin/main` before opening or marking ready,
   and paste the receipt block it prints into the PR body. Record a check you
   cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`
@@ -569,11 +572,13 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
-- Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
-  reverse dependencies plus root tests. Global/unknown changes expand to full
-  discovery. Relevant pinned browser/accessibility/pointer, layout/offline/
-  endurance, editorial, real Claude/Chrome and cleanup categories remain
-  intact. The `proof` aggregate requires every selected job to succeed;
+- Ready-candidate confirmation supplies complete repeatable fast proof for
+  affected workspaces and reverse dependencies plus root tests. Global/unknown
+  changes expand to full discovery. Relevant pinned browser/accessibility/
+  pointer, layout/offline/endurance, editorial, real Claude/Chrome and cleanup
+  categories remain intact and run on the squash's own main run; a red result
+  there is a red-main incident held per family, and does not block fast
+  confirmation of other PRs. The `proof` aggregate requires every selected job to succeed;
   missing tools, unavailable runtimes, failures, cancellations and unexpected
   skips are not green.
 - Retain every test, default discovery, pinned offline image and failure
