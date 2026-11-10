@@ -81,7 +81,7 @@ with image bytes as BLOBs. An upload that no save names is swept after one hour
 (`PENDING_ATTACHMENT_TTL_MS`, `packages/ui-server/src/drafts/store.ts:74`). A
 save checks the per-draft limit (`maxDraftBytes`, 8,388,608) and the host limit
 (`maxTotalBytes`, 268,435,456)
-(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:509-514`). On
+(`SESSION_DRAFT_LIMITS`, `packages/ui-sdk/src/protocol.ts:515-520`). On
 acceptance the host consumes only the named revision
 (`accept(input)`, `packages/ui-server/src/drafts/store.ts:666-699`). Track
 files are not draft content: D52 keeps them in the tab only.

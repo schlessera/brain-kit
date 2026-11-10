@@ -6,7 +6,7 @@
  * in-memory turn state and every read.
  */
 import type { Database, SQLQueryBindings } from "bun:sqlite";
-import type { JournalObservationReference, JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
+import type { JournalRecoveryStatus, JournalObservationReference, JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
 import { recordGovernanceEvent } from "../governance/events.js";
@@ -359,7 +359,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
       });
     },
     releaseRead(id: string): void { accounting.releaseRead(id); },
-    recover(): void { accounting.recover(objects); },
+    recover(): JournalRecoveryStatus { return accounting.recover(objects); },
     usage(): number { return accounting.usage(); },
     close(): void { objects.close(); },
   };
