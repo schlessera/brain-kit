@@ -3,7 +3,7 @@ import { closeSync, constants, fsyncSync, mkdirSync, openSync, renameSync, write
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
-export function recordNativeRecoveryFailure(root: string, scope: string, site: string, error: unknown): void {
+export function recordNativeRecoveryFailure(root: string, scope: string, site: string, error: unknown, log = true): boolean {
   const cause = { scope, site, at: Date.now(), errorClass: error instanceof Error ? error.name : "Error",
     message: (error instanceof Error ? error.message : String(error)).slice(0, 2000) };
   const name = createHash("sha256").update(`${site}:${scope}`).digest("hex");
@@ -18,5 +18,6 @@ export function recordNativeRecoveryFailure(root: string, scope: string, site: s
       renameSync(path(".tmp"), path(".json")); fsyncSync(directory);
     } finally { closeSync(directory); }
   } catch (error) { diagnosticError = String(error); }
-  console.error(JSON.stringify({ kind: "native_recovery_failure", ...cause, ...(diagnosticError ? { diagnosticError } : {}), diagnostics: join(root, `${name}.json`) }));
+  if (log) console.error(JSON.stringify({ kind: "native_recovery_failure", ...cause, ...(diagnosticError ? { diagnosticError } : {}), diagnostics: join(root, `${name}.json`) }));
+  return diagnosticError === undefined;
 }

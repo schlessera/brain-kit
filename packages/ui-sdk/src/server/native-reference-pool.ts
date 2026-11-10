@@ -452,7 +452,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     }
     intents.clear(); for (const [id, intent] of replacement) intents.set(id, intent);
     return replacement.keys();
-  }, error => recordNativeRecoveryFailure(join(privateRoot, "recovery-diagnostics"), "recovery-index", "native-reference-pool.writeIntent", error)); }
+  }, (error, log) => recordNativeRecoveryFailure(join(privateRoot, "recovery-diagnostics"), "recovery-index", "native-reference-pool.writeIntent", error, log)); }
     catch (error) { closeSync(stateFd); throw error; } })();
   // A publication interrupted between unseal and reseal leaves a sealed root writable.
   try {

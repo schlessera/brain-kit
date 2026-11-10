@@ -35,10 +35,10 @@ test("the status envelope carries the typed SystemStatus software object", async
 });
 
 
-test("mounted authenticated status exposes native quarantine while public health stays minimal", async () => {
+test.each([0, 4096, null])("mounted authenticated status exposes native quarantine with charge %s while public health stays minimal", async stagingChargedBytes => {
   const fixtures = await import("./helpers/native-journal-fixture.js");
   const create = fixtures.createNativeJournalFixture;
-  const recovery = {quarantinedIntents:1,stagingChargedBytes:4096,diagnosticsPath:"/native-fixture/recovery-diagnostics"};
+  const recovery = {quarantinedIntents:1,stagingChargedBytes,diagnosticsPath:"/native-fixture/recovery-diagnostics"};
   const fault = spyOn(fixtures,"createNativeJournalFixture").mockImplementation((...args) => {
     const fixture = create(...args), ready = fixture.client.ready;
     fixture.client.ready = async () => ({...await ready(),recovery});
@@ -52,7 +52,9 @@ test("mounted authenticated status exposes native quarantine while public health
     const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
     const status = await t.fetch("/api/status",{headers:{cookie}});
     expect(status.status).toBe(200);
-    expect((await status.json()).nativeRecovery, "NATIVE_QUARANTINE_VISIBLE_TO_OWNER").toEqual(recovery);
+    const body = await status.json();
+    expect(body.nativeRecovery, "NATIVE_QUARANTINE_VISIBLE_TO_OWNER").toEqual(recovery);
+    expect(body.healthy, "NATIVE_UNBOUNDED_QUARANTINE_IS_UNHEALTHY").toBe(stagingChargedBytes !== null);
     expect(Object.keys(await (await t.fetch("/api/health")).json()).sort()).toEqual(["status","timestamp","uptime"]);
   } finally { await t.teardown(); }
 });

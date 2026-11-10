@@ -5191,4 +5191,8 @@ and unrelated checkpoint operations. A recovery page containing a quarantined
 identity refuses explicitly rather than reporting an incomplete inventory as
 complete. Causes remain in the host-private diagnostics directory. Authenticated
 `GET /api/status` exposes the boot report as optional `nativeRecovery`, also
-added to `SystemStatus`; public `/api/health` remains unchanged.
+added to `SystemStatus`. A null staging charge makes `healthy` false and new
+staging returns a recovery refusal, not a retryable capacity error. A confirmed
+absent stage directory or invalid UUID charges zero; a surviving stage retains
+its independently persisted historical tmpfs cap. Public `/api/health` remains
+unchanged.

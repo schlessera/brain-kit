@@ -378,7 +378,9 @@ current degradation.
 
 `nativeRecovery`, when present, reports native intent quarantine at server boot:
 `{ quarantinedIntents, stagingChargedBytes, diagnosticsPath }`. A null charge
-means its bound could not be established; it never means zero. The diagnostics
+means its bound could not be established; it never means zero, and `healthy` is
+false while that recovery restriction remains. A numeric zero means no stage
+storage can belong to the quarantined identities. The diagnostics
 path is host-private and appears only behind authentication, never on `/health`.
 Healthy identities remain usable within provably available staging capacity.
 

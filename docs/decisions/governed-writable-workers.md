@@ -1602,7 +1602,7 @@ with retained bytes.
 **What the journal records.** Observation and before-version capture classify
 these versions as metadata-only and never open them for retention
 (`const retained = (entry`,
-`packages/ui-server/src/brain/native-journal-capture.ts:40`). A version keeps
+`packages/ui-server/src/brain/native-journal-capture.ts:41`). A version keeps
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are

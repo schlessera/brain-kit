@@ -216,14 +216,24 @@ An unreadable native intent stays in place as an identity fence. Startup records
 its error class, message, site and timestamp under the manager's private
 `recovery-diagnostics/` directory, and continues. `ready` reports the count,
 diagnostic directory and conservatively charged staging bytes; authenticated
-`/api/status` exposes that boot report as `nativeRecovery`. Each malformed
-identity without a stage directory retains one configured per-stage allowance;
-new stages fit within the remaining aggregate budget. The directory is created
-before namespace setup and removed only after confirmed close. If it survives,
-its historical allowance cannot be bounded by today's configuration: staging
-stays restricted with an unknown (`null`) charge. Unreadable directory state
-and invalid identities also retain that restriction. No historical checkpoint
-dependency is released while a quarantined receipt could own it.
+`/api/status` exposes that boot report as `nativeRecovery`. An invalid UUID
+cannot own a stage and has no staging charge. A confirmed absent stage directory
+also charges zero: the directory precedes namespace setup and is removed only
+after confirmed close. The malformed receipt remains quarantined in both cases.
+
+Before starting a stage, the manager durably records its exact tmpfs allowance
+in a separate root-owned `stages/<id>.allowance` file. A surviving or unreadable
+directory retains that cap even if today's configured allowance is smaller.
+The allowance record is removed only after close and durable directory removal;
+neither a failed close nor an I/O error releases it. Healthy stages can use the
+remaining aggregate budget. An old stage without this independent record, or a
+damaged/unreadable record, has no provable historical bound. Its charge stays
+unknown (`null`), new staging returns an explicit recovery refusal instead of a
+retryable capacity error, and authenticated status reports `healthy: false`.
+The cause stays in the private diagnostics directory. Repair requires proof of
+the historical cap or confirmed cleanup, never a guess based on current config.
+No historical checkpoint dependency is released while a quarantined receipt
+could own it.
 Healthy checkpoint creation and reads remain available;
 new roots created after recovery can also be released, since a historical stage
 cannot refer to those native identities. A recovery

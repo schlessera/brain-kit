@@ -71,7 +71,7 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
     return c.json({
       ...(nativeRecovery ? { nativeRecovery } : {}),
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
-      healthy: !backendAvailability?.unavailable.length,
+      healthy: !backendAvailability?.unavailable.length && nativeRecovery?.stagingChargedBytes !== null,
       ...(backendAvailability ? { backendAvailability } : {}),
       uptime: Date.now() - startTime,
       version: deps.sourceCommit,

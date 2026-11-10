@@ -9,7 +9,7 @@ export class NativeRecoveryIndex {
   private diagnostic: { error: unknown; logged?: boolean } | undefined;
 
   constructor(ids: Iterable<string>, private readonly reload?: () => Iterable<string>,
-    private readonly report?: (error: unknown) => void) {
+    private readonly report?: (error: unknown, log: boolean) => boolean | void) {
     this.db = this.build(ids);
   }
 
@@ -46,7 +46,11 @@ export class NativeRecoveryIndex {
   private reportPending(): void {
     const pending = this.diagnostic;
     if (!pending) return;
-    try { this.report?.(pending.error); this.diagnostic = undefined; }
+    try {
+      const written = this.report?.(pending.error, !pending.logged);
+      pending.logged = true;
+      if (written !== false) this.diagnostic = undefined;
+    }
     catch (error) {
       // Preserve the original cause for the next request; diagnostics never
       // gate a complete rebuild. Log one failure per pending cause.
