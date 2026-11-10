@@ -192,8 +192,8 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **T — Operational status.**
 
-- `mounted status reports the installed release and preserves the application commit` ([source](../packages/ui-server/tests/software-status.test.ts)), (`mounted status reports the installed release and preserves the application commit`, `packages/ui-server/tests/software-status.test.ts:6-17`)
-- `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:21-35`)
+- `mounted status reports the installed release and preserves the application commit` ([source](../packages/ui-server/tests/software-status.test.ts)), (`mounted status reports the installed release and preserves the application commit`, `packages/ui-server/tests/software-status.test.ts:10-21`)
+- `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:25-39`)
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:293-313`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
 - `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:66-83`)

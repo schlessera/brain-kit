@@ -1062,6 +1062,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route(
     "/api",
     createStatusRoutes({
+      getJournalRecovery: () => journal.recoveryStatus(),
       getJournalCleanup: () => journal.cleanupStatus(),
       sourceCommit: config.sourceCommit,
       getBackendAvailability: () => backendAvailability,

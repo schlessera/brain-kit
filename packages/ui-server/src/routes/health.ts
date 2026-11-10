@@ -48,6 +48,7 @@ interface StatusDeps {
   /** Retained checkpoint cleanup and its durable historical cause. */
   getJournalCleanup?(): unknown;
   getBackendAvailability?(): { unavailable: BackendBootFailure[]; lastFailures: BackendBootFailure[] };
+  getJournalRecovery?(): SystemStatus["journalRecovery"];
   getNativeRecovery?(): SystemStatus["nativeRecovery"];
   /** Trusted metadata from configured modules; absent with an older CLI. */
   getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
@@ -75,6 +76,7 @@ interface StatusDeps {
 export function createStatusRoutes(deps: StatusDeps): Hono<AppEnv> {
   return new Hono<AppEnv>().get("/status", async (c) => {
     const backendAvailability = deps.getBackendAvailability?.();
+    const journalRecovery = deps.getJournalRecovery?.();
     const nativeRecovery = deps.getNativeRecovery?.();
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
     // The cause names a turn and an error's text: the owner's, not every principal's.
@@ -84,9 +86,10 @@ export function createStatusRoutes(deps: StatusDeps): Hono<AppEnv> {
     }
     const contentRenderers = await deps.getContentRenderers?.(c.req.raw.signal).catch(() => undefined);
     return c.json({
+      ...(journalRecovery ? { journalRecovery } : {}),
       ...(nativeRecovery ? { nativeRecovery } : {}),
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
-      healthy: !backendAvailability?.unavailable.length && nativeRecovery?.stagingChargedBytes !== null,
+      healthy: !backendAvailability?.unavailable.length && nativeRecovery?.stagingChargedBytes !== null && !nativeRecovery?.stagingRefusal && !journalRecovery?.unresolvedRecords,
       ...(backendAvailability ? { backendAvailability } : {}),
       ...(deps.getJournalCleanup ? { journalCleanup: deps.getJournalCleanup() } : {}),
       uptime: Date.now() - startTime,
