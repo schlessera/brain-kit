@@ -539,7 +539,13 @@ describe.skipIf(!executablePath)("auth producer and identity races (#1018)",()=>
    expect(await fixture(page,f=>f.text())).toBe("");
    await page.waitForTimeout(400); await loginForm(page); await ready(page);
    expect(await field(page).inputValue(),"saved text survives the delayed image callback").toBe(DRAFT);
-   expect(await fixture(page,f=>f.images())).toEqual([]);
+   // This host keeps composer files (#3155): the image's original was stored and
+   // bound before the lock, so it is the host's draft content and comes back as
+   // that original. Its frame, decoded late, never became draft content.
+   const back=await fixture(page,f=>f.images());
+   expect(back,"only the stored original, no late frame").toHaveLength(1);
+   expect(back[0]).toMatchObject({mediaType:"image/png",name:"shroud.png"});
+   expect(back[0]!.data,"an original by its record, not a frame's base64").toMatch(/^[0-9a-f-]{36}:[0-9a-f]{64}:\d+$/);
   } finally {await context.close();}
  },120_000);
  test("on a host without composer files, track-only New chat restores the same unbound composer identity",async()=>{
