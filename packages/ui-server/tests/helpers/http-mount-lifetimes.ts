@@ -114,6 +114,8 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "GET /api/voice/providers": { shared: true, effects: "Reads fixed provider registry and default settings; never mints." },
   "GET /api/voice/dictation/settings": { shared: true, effects: "Reads default dictation settings without writes." },
   "PUT /api/voice/dictation/settings": { shared: false, effects: "Writes revisioned dictation settings on a fresh database." },
+  "GET /api/settings/voice": { shared: true, effects: "Reads the default live-service setting without writes." },
+  "PUT /api/settings/voice": { shared: false, effects: "Writes the revisioned live-service default on a fresh database." },
   "GET /api/voice/capabilities": { shared: true, effects: "Reads fixed webspeech capabilities; no provider call or token." },
   "GET /api/voice/recordings/:recordingId/transcription": { shared: false, effects: "Account-key initialization, transcription receipts and provider/timer paths; fresh account and recording state." },
   "PUT /api/voice/recordings/:recordingId/transcription": { shared: false, effects: "Account-key initialization, transcription receipts and provider/timer paths; fresh account and recording state." },

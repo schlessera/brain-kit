@@ -34,8 +34,11 @@ import {
   type ConversationCloseReason,
   type ConversationOutputRecord,
   type ConversationWorkReceipt,
+  type LiveDefault,
+  type LiveProviderSource,
   type ServerMessage,
 } from "@schlessera/brain-ui-sdk/protocol";
+import type { LiveProviderRegistry } from "../voice/live-providers.js";
 import {
   assertLiveConversationSession,
   parseLiveConversationEvent,
@@ -122,6 +125,10 @@ interface Epoch {
 }
 
 interface Conversation {
+  /** The live service this conversation opened with; a resume never changes it (#3616). */
+  provider: LiveConversationProvider;
+  /** How that service was chosen, echoed on `conversation_opened`. */
+  providerSource: Exclude<LiveProviderSource, "none">;
   historyOwnerId?: string;
   historyGeneration?: number;
   lastEpoch: number;
@@ -165,19 +172,80 @@ export class ConversationHost {
 
   constructor(
     private readonly host: WsHost,
-    readonly provider: LiveConversationProvider
+    readonly live: LiveProviderRegistry,
+    private readonly savedDefault: () => string | null = () => null
   ) {}
 
-  /** Public disclosure only; never opens a provider or reads chat content. */
-  profile(contextualTasks = true): ConversationProfile {
-    return { providerId: this.provider.id,
-      capabilities: { ...this.provider.capabilities, contextualTasks: contextualTasks && this.provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch ? "supported" : "unsupported" },
-      disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] } };
+  /** The saved default resolved against the registration (#3616). Reads no provider. */
+  liveDefault(): LiveDefault {
+    let saved: string | null = null;
+    try { saved = this.savedDefault(); } catch { saved = null; }
+    return this.live.resolve(saved);
   }
-  private disclosed(msg: ClientConversationStart): boolean {
+
+  /** Every registered service's public disclosure, in registration order (#3616). */
+  profiles(contextualTasks = true): ConversationProfile[] {
+    return this.live.providers.map((provider) => this.profileOf(provider, contextualTasks));
+  }
+
+  /**
+   * Public disclosure of the effective service, or of `providerId`; never
+   * opens a provider or reads chat content. Undefined when there is none.
+   */
+  profile(contextualTasks = true, providerId?: string): ConversationProfile | undefined {
+    const id = providerId ?? this.liveDefault().effective;
+    const provider = id === null ? undefined : this.live.get(id);
+    return provider ? this.profileOf(provider, contextualTasks) : undefined;
+  }
+
+  /** The additive hello fields (#3616); `conversationProfile` only when a service is effective. */
+  helloFields(): { conversationProfile?: ConversationProfile; conversationProfiles: ConversationProfile[]; liveDefault: LiveDefault } {
+    const liveDefault = this.liveDefault();
+    const effective = liveDefault.effective === null ? undefined : this.profile(true, liveDefault.effective);
+    return { ...(effective ? { conversationProfile: effective } : {}), conversationProfiles: this.profiles(), liveDefault };
+  }
+
+  /**
+   * After the saved default changes (#3616): tell every open connection. A
+   * running conversation keeps its pinned service; nothing is retargeted.
+   */
+  broadcastSettings(): void {
+    const { conversationProfiles, liveDefault } = this.helloFields();
+    this.host.clients.broadcast({ type: "live_settings", liveDefault, conversationProfiles });
+  }
+
+  private profileOf(provider: LiveConversationProvider, contextualTasks: boolean): ConversationProfile {
+    return { providerId: provider.id,
+      capabilities: { ...provider.capabilities, contextualTasks: contextualTasks && provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch ? "supported" : "unsupported" },
+      disclosure: { voiceService: provider.disclosure.voiceService, destinations: [...provider.disclosure.destinations] } };
+  }
+
+  /**
+   * The service this Start is for (#3616). An explicit `providerId` must equal
+   * the disclosed one and be registered. Without one, a resume keeps its
+   * conversation's pinned service and a new Start uses the effective one.
+   * Undefined refuses the start; nothing falls back to another service.
+   */
+  private target(msg: ClientConversationStart): { provider: LiveConversationProvider; source: Exclude<LiveProviderSource, "none"> } | undefined {
+    const resolved = this.liveDefault();
+    if (msg.providerId !== undefined) {
+      const provider = msg.disclosed?.providerId === msg.providerId ? this.live.get(msg.providerId) : undefined;
+      if (!provider) return undefined;
+      const pinned = msg.conversationId !== undefined ? this.conversations.get(msg.conversationId) : undefined;
+      if (pinned) return { provider: pinned.provider, source: pinned.providerSource };
+      return { provider, source: resolved.effective === provider.id && resolved.source !== "none" ? resolved.source : "change" };
+    }
+    const pinned = msg.conversationId !== undefined ? this.conversations.get(msg.conversationId) : undefined;
+    if (pinned) return { provider: pinned.provider, source: pinned.providerSource };
+    if (resolved.effective === null || resolved.source === "none") return undefined;
+    const provider = this.live.get(resolved.effective);
+    return provider ? { provider, source: resolved.source } : undefined;
+  }
+
+  private disclosed(msg: ClientConversationStart, provider: LiveConversationProvider): boolean {
     const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
       ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])) : value;
-    return JSON.stringify(canonical(msg.disclosed)) === JSON.stringify(canonical(this.profile(msg.contextualTasks === true)));
+    return JSON.stringify(canonical(msg.disclosed)) === JSON.stringify(canonical(this.profileOf(provider, msg.contextualTasks === true)));
   }
 
   // --- client commands ---
@@ -186,7 +254,9 @@ export class ConversationHost {
     if (connection.closed || !connection.authorization.valid || this.host.closing) return;
     // Privacy admission precedes even recovery reads and device takeover.
     if (!msg.disclosed) { this.refuse(ws,"CONVERSATION_CAPABILITY","Update this app before starting voice. Nothing was sent to the voice service.",msg.requestId); return; }
-    if (!this.disclosed(msg)) { this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return; }
+    const target = this.target(msg);
+    if (!target || !this.disclosed(msg, target.provider)) { this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return; }
+    const provider = target.provider;
     const principalId = connection.authorization.principalId;
     let conversation: Conversation;
     if (msg.conversationId !== undefined) {
@@ -198,7 +268,7 @@ export class ConversationHost {
           // Another resume may have registered an owner while storage awaited.
           found = this.conversations.get(msg.conversationId);
           if (!found && stored && this.makeRoom()) {
-            found = { id: stored.id, principalId, lastEpoch: stored.epoch,
+            found = { provider, providerSource: target.source, id: stored.id, principalId, lastEpoch: stored.epoch,
               ...(stored.sessionId ? { sessionId: stored.sessionId } : {}), ...(stored.agentProviderId ? { agentProviderId: stored.agentProviderId } : {}),
               connection: null, ws: null, epoch: null, receipts: [], byRequestId: new Map(), usedRequestIds: new Set(stored.requestIds), queue: [], running: null, outputs: new Map(), announced: new Set() };
             for (const receipt of stored.receipts) this.retainReceipt(found, { receipt, nativeHandle: receipt.nativeHandle, withdrawn: true, facts: stored.results?.find(r => r.requestId === receipt.requestId)?.facts ?? "", settled: true, sawResult: receipt.state === "completed", durableReady: true });
@@ -222,6 +292,10 @@ export class ConversationHost {
         this.refuse(ws, "CONVERSATION_LIMIT", "Stop this connection's conversation before resuming another.");
         return;
       }
+      // A resume keeps the service it opened with (#3616); another is a new disclosure.
+      if (found.provider !== provider) {
+        this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return;
+      }
       conversation = found;
       if (conversation.connection && conversation.connection !== connection) {
         // Another device held it: that one's capture ends, this one continues.
@@ -240,6 +314,8 @@ export class ConversationHost {
         return;
       }
       conversation = {
+        provider,
+        providerSource: target.source,
         id: crypto.randomUUID(),
         lastEpoch: 0,
         ...(!msg.sessionId && msg.agentProviderId ? { agentProviderId: msg.agentProviderId } : {}),
@@ -271,7 +347,7 @@ export class ConversationHost {
     this.endEpoch(conversation, "replaced");
     const epoch: Epoch = {
       number: ++conversation.lastEpoch,
-      contextualTasks: msg.contextualTasks === true && this.provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch,
+      contextualTasks: msg.contextualTasks === true && provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch,
       context: [], contextDigests: new Set(), nativeUsed: new Set(),
       ...(msg.requestId ? { requestId: msg.requestId } : {}),
       abort: new AbortController(),
@@ -293,7 +369,7 @@ export class ConversationHost {
     };
     let session: LiveConversationSession;
     try {
-      const owner = await this.host.dialogue.open({ conversationId: conversation.id, principalId, epoch: epoch.number, providerId: this.provider.id,
+      const owner = await this.host.dialogue.open({ conversationId: conversation.id, principalId, epoch: epoch.number, providerId: provider.id,
         ...(conversation.sessionId ? { sessionId: conversation.sessionId } : {}), ...(msg.historyOwnerId ? { historyOwnerId: msg.historyOwnerId } : {}) });
       if (owner) {conversation.historyOwnerId = owner.id;conversation.historyGeneration=owner.generation;}
       if (epoch.closed || connection.closed || !connection.authorization.valid) return;
@@ -309,11 +385,13 @@ export class ConversationHost {
       const retired = this.host.catalog.chatRetired;
       if (retired && (retired({ conversationId: conversation.id }) || (conversation.sessionId && retired({ sessionId: conversation.sessionId }))
         || (conversation.historyOwnerId && retired({ ownerId: conversation.historyOwnerId })))) throw new ChatRetiredError();
-      if (!this.disclosed(msg)) {
+      // The default may have changed on another device while history was read:
+      // the exact echo still decides, and nothing falls back (#3616).
+      if (this.target(msg)?.provider !== provider || !this.disclosed(msg, provider)) {
         this.endEpoch(conversation,"refused",undefined,epoch); this.detach(conversation);
         this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return;
       }
-      session = await this.provider.open(scope, {
+      session = await provider.open(scope, {
         orientation,
         ...(history ? { history } : {}),
         signal: epoch.abort.signal,
@@ -329,7 +407,7 @@ export class ConversationHost {
       this.host.log.emit({
         severityText: "WARN",
         body: "live conversation failed to open",
-        attributes: { "provider.id": this.provider.id, error: err instanceof Error ? err.message : String(err) },
+        attributes: { "provider.id": provider.id, error: err instanceof Error ? err.message : String(err) },
       });
       this.endEpoch(conversation, "provider_error", "The voice service or prior chat context could not be opened. No work was replayed. Restore access before restarting voice.", epoch);
       return;
@@ -351,7 +429,8 @@ export class ConversationHost {
       epoch: epoch.number,
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
       ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}),
-      ...this.profile(epoch.contextualTasks),
+      ...this.profileOf(provider, epoch.contextualTasks),
+      providerSource: conversation.providerSource,
       limits: { ...CONVERSATION_LIMITS },
       resync: { work: conversation.receipts.length, outputs: conversation.outputs.size },
     });
@@ -541,7 +620,7 @@ export class ConversationHost {
     // or indeterminate store is never written to again, not even for an end.
     if (!msg.resumable && conversation.startedAt !== undefined && conversation.openedEpoch === conversation.lastEpoch && !conversation.epoch?.storageFailing) {
       this.host.dialogue.ended(conversation.id, conversation.principalId, { kind: "voice_end", conversationId: conversation.id, epoch: conversation.lastEpoch,
-        providerId: this.provider.id, startedAt: conversation.startedAt, endedAt: Math.max(conversation.startedAt, Date.now()) });
+        providerId: conversation.provider.id, startedAt: conversation.startedAt, endedAt: Math.max(conversation.startedAt, Date.now()) });
     }
     this.endEpoch(conversation, "stopped");
     this.detach(conversation);
@@ -675,7 +754,7 @@ export class ConversationHost {
         this.send(conversation, { type: "conversation_event", ...scope, event: {
           kind: "interrupted", ...(event.outputId ? { outputId: event.outputId } : {}),
         } });
-        this.host.dialogue.interruption(conversation.id, { kind: "voice_interruption", conversationId: conversation.id, epoch: epoch.number, providerId: this.provider.id,
+        this.host.dialogue.interruption(conversation.id, { kind: "voice_interruption", conversationId: conversation.id, epoch: epoch.number, providerId: conversation.provider.id,
           ...(event.outputId ? { outputId: event.outputId } : {}) }, epoch.interruptions++);
         return;
       }
@@ -1135,7 +1214,7 @@ export class ConversationHost {
     // The ledger outlives epochs: a reconnect re-lists a pending request but
     // never announces it a second time. Speech stays closed until the
     // provider has proven exact host-approved copy.
-    const announce = !conversation.announced.has(key) && this.provider.capabilities.exactPermissionSpeech === "supported";
+    const announce = !conversation.announced.has(key) && conversation.provider.capabilities.exactPermissionSpeech === "supported";
     conversation.announced.add(key);
     this.send(conversation, {
       type: "conversation_permission",
@@ -1217,7 +1296,7 @@ export class ConversationHost {
     if (frame.type === "conversation_event" && (frame.event.kind === "input_fragment" || frame.event.kind === "unassigned_input_fragment" || frame.event.kind === "output_transcript")) {
       const epoch = conversation.epoch;
       const connection = conversation.connection;
-      const retained = this.host.dialogue.voice(conversation.id, { kind: "voice", conversationId: conversation.id, epoch: frame.epoch, providerId: this.provider.id, ...(epoch?.model ? {model:epoch.model} : {}), ...(epoch?.api ? {api:epoch.api} : {}), event: frame.event }, (saved) => {
+      const retained = this.host.dialogue.voice(conversation.id, { kind: "voice", conversationId: conversation.id, epoch: frame.epoch, providerId: conversation.provider.id, ...(epoch?.model ? {model:epoch.model} : {}), ...(epoch?.api ? {api:epoch.api} : {}), event: frame.event }, (saved) => {
         if (conversation.ws && conversation.epoch === epoch && !epoch?.closed && connection?.authorization.valid && !connection.closed) {
           try { this.host.sendMessage(conversation.ws, saved ? frame : {...frame,retention:"unsaved"}); }
           catch { /* Socket closure does not turn a committed record into unsaved text. */ }

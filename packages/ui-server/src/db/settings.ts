@@ -14,6 +14,7 @@ import {
   type BillingMode,
   type DictationSettings,
   type ThinkingLevel,
+  type VoiceLiveSettings,
 } from "@schlessera/brain-ui-sdk/protocol";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
@@ -211,5 +212,32 @@ export function saveDictationSettings(db: Database, expected: string, value: { d
     const revision = Number(current.revision) + 1;
     setSetting(db, DICTATION_KEY, { ...value, revision });
     return { saved: true, current: { ...value, revision: String(revision) } };
+  }).immediate();
+}
+
+const LIVE_DEFAULT_KEY = "voice.live.defaultProvider";
+/**
+ * The saved brain-wide live-conversation default (#3616). The reader is
+ * total: corrupt or unknown data reads as nothing saved, revision 0. A saved
+ * id the host no longer registers stays saved until changed in Settings.
+ */
+export function getLiveDefaultProvider(db: Database): VoiceLiveSettings {
+  const fallback = { defaultProvider: null, revision: 0 };
+  const value = getSetting<unknown>(db, LIVE_DEFAULT_KEY, null);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const row = value as Record<string, unknown>;
+  if (!(row.value === null || typeof row.value === "string" && row.value.length > 0) ||
+      typeof row.revision !== "number" || !Number.isSafeInteger(row.revision) || row.revision < 0) return fallback;
+  return { defaultProvider: row.value, revision: row.revision };
+}
+
+/** The revision comparison and write run in the same writer transaction. */
+export function saveLiveDefaultProvider(db: Database, expected: number, defaultProvider: string | null) {
+  return db.transaction(() => {
+    const current = getLiveDefaultProvider(db);
+    if (expected !== current.revision || current.revision >= Number.MAX_SAFE_INTEGER) return { saved: false, current };
+    const revision = current.revision + 1;
+    setSetting(db, LIVE_DEFAULT_KEY, { value: defaultProvider, revision });
+    return { saved: true, current: { defaultProvider, revision } };
   }).immediate();
 }

@@ -10,6 +10,7 @@ export const url = import.meta.url;
 function operations(db: Database, log?: Logger) {
   return {
     saveDictationSettings: (expected: string, value: { defaultProvider: string | null; smart: boolean }) => settings.saveDictationSettings(db, expected, value),
+    saveLiveDefaultProvider: (expected: number, defaultProvider: string | null) => settings.saveLiveDefaultProvider(db, expected, defaultProvider),
     setSetting: (key: string, value: unknown) => settings.setSetting(db, key, value),
     setHiddenModelIds: (ids: string[]) => settings.setHiddenModelIds(db, ids),
     setDefaultModelId: (id: string | null) => settings.setDefaultModelId(db, id),
@@ -57,6 +58,7 @@ export function createSettingsWrites(db: Database, writer?: SqliteWriter, log?: 
     });
   return {
     saveDictationSettings: (...args) => invoke("saveDictationSettings", args),
+    saveLiveDefaultProvider: (...args) => invoke("saveLiveDefaultProvider", args),
     setSetting: (...args) => invoke("setSetting", args),
     setHiddenModelIds: (...args) => invoke("setHiddenModelIds", args),
     setDefaultModelId: (...args) => invoke("setDefaultModelId", args),

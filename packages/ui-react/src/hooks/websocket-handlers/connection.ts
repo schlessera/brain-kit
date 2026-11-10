@@ -6,7 +6,7 @@ type ConnectionFrame = "safety_history" | "safety_update" | "safety_unavailable"
   | "server_hello" | "location_request" | "error" | "inbox_snapshot" | "inbox_delta"
   | "tool_resolution" | "session_queue" | "conversation_opened" | "conversation_closed"
   | "conversation_event" | "conversation_work" | "conversation_output" | "conversation_permission" | "chat_retired"
-  | "attachment_read";
+  | "attachment_read" | "live_settings";
 
 export const connectionFrameHandlers = {
   safety_history: () => {}, safety_update: () => {}, safety_unavailable: () => {},
@@ -53,6 +53,8 @@ export const connectionFrameHandlers = {
   // beside the demux, so nothing here touches a transcript.
   attachment_read: () => {},
   conversation_opened: () => {},
+  // The live-service default (#3616): the root conversation client reads it beside the demux.
+  live_settings: () => {},
   conversation_closed: () => {},
   conversation_event: () => {},
   conversation_work: () => {},

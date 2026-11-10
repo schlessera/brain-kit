@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion and individual safety-review routes mounted by `createApp`: 179 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review and live-service default routes mounted by `createApp`: 181 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -187,6 +187,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/voice/providers` | S | Read registered dictation providers and effective selection; never mint | Authenticated discovery, no-store. |
 | GET | `/api/voice/dictation/settings` | S | Read brain-wide dictation choice, SMART mode and revision | Independent of live conversation settings. |
 | PUT | `/api/voice/dictation/settings` | S | Save dictation choice with If-Match revision | Human owner/ambient only; stale writes never overwrite. |
+| GET | `/api/settings/voice` | S | Read the saved brain-wide default live-conversation service and revision | Human sessions only; independent of the model and dictation defaults. |
+| PUT | `/api/settings/voice` | S | Save the default live-conversation service against its revision | Owner human session or ambient human only; 403 empty body otherwise; stale writes never overwrite. |
 | GET | `/api/voice/capabilities` | S | Read active-provider capabilities without minting a credential | Saved-audio discovery and independent clients; additive #1021 contract. |
 | GET | `/api/voice/recordings/:recordingId/transcription` | S | Read an account-owned durable transcription receipt | Saved-audio status recovery; never dispatches a provider. |
 | PUT | `/api/voice/recordings/:recordingId/transcription` | S | Explicitly upload or retry saved audio | Account ownership, verified hash, bounded body and durable claim protect idempotency. |
@@ -212,7 +214,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 179 declared endpoints are mounted regardless of backend, renderer or
+All 181 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1422,6 +1424,36 @@ regardless of current defaults. It snapshots identity/capabilities for the respo
 saved switch (initially true). A failed exact mint returns generic 500
 `{ error: "Voice session failed" }` without provider diagnostics or credentials.
 Bodyless legacy requests retain their previous response/error shape.
+
+## Live-conversation service default
+
+`GET /api/settings/voice` returns `VoiceLiveSettings`
+`{ defaultProvider: string | null, revision: number }`, the saved brain-wide
+default live-conversation service (#3616). Nothing saved reads as
+`{ defaultProvider: null, revision: 0 }`; a corrupt or unknown `voice.live.defaultProvider`
+row in the ui-server settings store reads the same. A saved id the host no
+longer registers stays saved until changed here. Any authenticated human
+session (an owner or the ambient principal) may read; other principals get 403
+with an empty body.
+
+`PUT /api/settings/voice` takes `application/json` `{ defaultProvider: string | null,
+revision: number }`, where `revision` is the one last read and `null` clears the
+default. The route has its own owner-only guard, checked before the body is
+read: only the brain owner's human session (password or passkey) or the ambient
+human principal passes. Delegated agent principals and any other principal get
+403 with an empty body. A non-JSON media type is 415; a malformed body is 400
+`{ error: "LIVE_SETTINGS_INVALID" }`; an id that is not registered is 400
+`{ error: "LIVE_PROVIDER_UNKNOWN" }`; a stale revision is 409
+`{ error: "LIVE_SETTINGS_CHANGED", message, current }`. A successful write returns
+200 with the new `{ defaultProvider, revision }` and sends `live_settings` on every
+open WebSocket connection ([wire](integration-contract/wire.md#live-service-selection-additive-3616)).
+
+Both routes are `no-store`. Neither reads or reports a credential, key presence
+or endpoint, opens a provider, captures audio or reads chat history. A save takes
+effect at the next explicit Start and never retargets a running conversation.
+The ordinary model default (`/api/models/default`) and the dictation choice
+(`/api/voice/dictation/settings`) are separate settings with their own routes
+and revisions.
 
 ## Saved-audio transcription
 

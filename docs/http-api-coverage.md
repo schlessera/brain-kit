@@ -145,6 +145,8 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/voice/providers` | `mounted supported handler: GET /api/voice/providers` | R |
 | `GET /api/voice/dictation/settings` | `mounted supported handler: GET /api/voice/dictation/settings` | R |
 | `PUT /api/voice/dictation/settings` | `mounted supported handler: PUT /api/voice/dictation/settings` | R |
+| `GET /api/settings/voice` | `mounted supported handler: GET /api/settings/voice` | LV |
+| `PUT /api/settings/voice` | `mounted supported handler: PUT /api/settings/voice` | LV |
 | `GET /api/voice/capabilities` | `mounted supported handler: GET /api/voice/capabilities` | R |
 | `GET /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: GET /api/voice/recordings/:recordingId/transcription` | R |
 | `PUT /api/voice/recordings/:recordingId/transcription` | `mounted supported handler: PUT /api/voice/recordings/:recordingId/transcription` | R |
@@ -511,6 +513,8 @@ no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
 
 **R** — [selectable-dictation.test.ts](../packages/ui-server/tests/selectable-dictation.test.ts) covers exact provider selection, settings revisions/authority and held mint/upload binding; [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+
+**LV — Live-conversation service default.** [live-provider-selection.test.ts](../packages/ui-server/tests/live-provider-selection.test.ts) covers the owner-only write guard (403 with an empty body for a delegated principal, before body validation), revisions under concurrent writes, unknown ids, persistence in the settings store, the `live_settings` broadcast and that a save opens no provider.
 
 **RV — User history restoration.** `turn-revert.test.ts` exercises raw restoration,
 Undo, partial conflicts, operation identity, authorization, original voice and

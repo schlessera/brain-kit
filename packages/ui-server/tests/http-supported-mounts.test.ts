@@ -143,6 +143,8 @@ const checks: Record<string, Check> = {
   "GET /api/geo/coastline": { path: "/api/geo/coastline?bbox=15.6,38.2,15.8,38.32", body: { coastline: [], attribution: "© OpenStreetMap contributors" } },
   "GET /api/voice/providers": { body: { dictation: { effective: "webspeech", source: "host" } } },
   "GET /api/voice/dictation/settings": { body: { defaultProvider: null, smart: true, revision: "0" } },
+  "GET /api/settings/voice": { body: { defaultProvider: null, revision: 0 } },
+  "PUT /api/settings/voice": { init: json("PUT", { defaultProvider: null, revision: 0 }), body: { defaultProvider: null, revision: 1 } },
   "PUT /api/voice/dictation/settings": { init: { method: "PUT", headers: { "If-Match": '"0"' }, body: JSON.stringify({ defaultProvider: "webspeech", smart: false }) }, body: { defaultProvider: "webspeech", smart: false, revision: "1" } },
   "GET /api/voice/capabilities": { body: { providerId: "webspeech", capabilities: { savedAudio: false } } },
   "GET /api/voice/recordings/:recordingId/transcription": { path: "/api/voice/recordings/00000000-0000-4000-8000-000000000001/transcription", status: 404, body: { error: "transcription_not_found" } },

@@ -40,6 +40,9 @@ import type {
   ClientConversationPlayback,
   ClientConversationStart,
   ConversationProfile,
+  LiveDefault,
+  ServerLiveSettings,
+  VoiceLiveSettings,
   ClientConversationStop,
   ConversationAudioFormat,
   ConversationCapabilities,
@@ -850,6 +853,7 @@ export const clientDialogueReadSchema = z.looseObject({
 
 export const clientConversationStartSchema = z.looseObject({
   disclosed: z.lazy(() => conversationProfileSchema).optional(),
+  providerId: id.optional(),
   type: z.literal("conversation_start"),
   historyOwnerId: id.optional(),
   contextualTasks: z.boolean().optional(),
@@ -1192,6 +1196,9 @@ export const serverHelloSchema = z.looseObject({
   safetyCapabilities: safetyCapabilitiesSchema.optional().catch(undefined),
   type: z.literal("server_hello"),
   conversationProfile: z.lazy(() => conversationProfileSchema).optional().catch(undefined),
+  // A malformed live-service roster is dropped rather than costing the whole hello (#3616).
+  conversationProfiles: z.lazy(() => conversationProfilesSchema).optional().catch(undefined),
+  liveDefault: z.lazy(() => liveDefaultSchema).optional().catch(undefined),
   protocolRev: z.number(),
   principalKey: z.string().max(MAX_ID_CHARS).optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
@@ -1760,6 +1767,30 @@ export const conversationProfileSchema = z.object({
   disclosure: conversationDisclosureSchema,
 }) satisfies z.ZodType<ConversationProfile>;
 
+/** Registered live services, in registration order (#3616). Ids are unique. */
+export const conversationProfilesSchema = z.array(conversationProfileSchema).max(64)
+  .refine((profiles) => new Set(profiles.map((p) => p.providerId)).size === profiles.length, { message: "duplicate providerId" });
+
+export const liveDefaultSchema = z.looseObject({
+  saved: id.nullable(),
+  savedUsable: z.boolean(),
+  effective: id.nullable(),
+  source: z.enum(["saved", "host", "only", "none"]),
+}) satisfies z.ZodType<LiveDefault>;
+
+/** Additive (#3616): the saved live-service default changed; same fields as hello. */
+export const serverLiveSettingsSchema = z.looseObject({
+  type: z.literal("live_settings"),
+  liveDefault: liveDefaultSchema,
+  conversationProfiles: conversationProfilesSchema,
+}) satisfies z.ZodType<ServerLiveSettings>;
+
+/** `GET`/`PUT /api/settings/voice` response (#3616). */
+export const voiceLiveSettingsSchema = z.looseObject({
+  defaultProvider: id.nullable(),
+  revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+}) satisfies z.ZodType<VoiceLiveSettings>;
+
 export const conversationAudioFormatSchema = z.looseObject({
   encoding: z.literal("pcm16"),
   sampleRate: conversationSampleRateSchema,
@@ -1909,6 +1940,7 @@ export const serverConversationOpenedSchema = z.looseObject({
   epoch: conversationEpoch,
   sessionId: id.optional(),
   providerId: id,
+  providerSource: z.enum(["change", "saved", "host", "only"]).optional().catch(undefined),
   capabilities: conversationCapabilitiesSchema,
   disclosure: conversationDisclosureSchema,
   limits: conversationLimitsSchema,
@@ -2071,6 +2103,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverConversationWorkSchema,
   serverConversationOutputSchema,
   serverConversationPermissionSchema,
+  serverLiveSettingsSchema,
 ]) satisfies z.ZodType<ServerMessage>;
 
 /**

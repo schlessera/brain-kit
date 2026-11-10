@@ -964,7 +964,8 @@ export type ServerMessage =
   | ServerTurnJournal
   | ServerUsage
   | ServerChatRetired
-  | ServerAttachmentRead;
+  | ServerAttachmentRead
+  | ServerLiveSettings;
 
 /**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
@@ -976,8 +977,22 @@ export type ServerMessage =
 export interface ServerHello {
   /** Read sidecar only; absent means unavailable. */
   safetyCapabilities?: SafetyCapabilities;
-  /** Known destination/profile before explicit Start; no provider has opened. */
+  /**
+   * Known destination/profile before explicit Start; no provider has opened.
+   * Present only when the effective live service is non-null (#3616): it is
+   * that service's profile. A multi-service host with nothing saved and no
+   * host default, or with an unusable saved default, omits it, so a client
+   * that reads only this field shows live conversation as unavailable.
+   */
   conversationProfile?: ConversationProfile;
+  /**
+   * Every registered live service's profile, in registration order (#3616).
+   * Present exactly when `capabilities.liveConversation` is true. Discovery
+   * only: registration is not proven provider health.
+   */
+  conversationProfiles?: ConversationProfile[];
+  /** How a new Start resolves its live service (#3616). Present with `conversationProfiles`. */
+  liveDefault?: LiveDefault;
   type: "server_hello";
   protocolRev: number;
   /**
@@ -2304,6 +2319,13 @@ export interface ConversationOutputRecord {
 export interface ClientConversationStart {
   /** Exact profile explicitly disclosed at Start; absent legacy starts refuse. */
   disclosed?: ConversationProfile;
+  /**
+   * The live service this Start is for (#3616): the effective one or a
+   * one-time pick. It must equal `disclosed.providerId` and name a
+   * registered service, or the start is refused. Absent means the effective
+   * service (legacy), and a start is refused when there is none.
+   */
+  providerId?: string;
   /** Resume retained host-only history without pretending it is a backend session. */
   historyOwnerId?: string;
   /** New clients opt into the provider capability; older clients stay reviewed. */
@@ -2382,6 +2404,50 @@ export interface ClientConversationStop {
  * re-executed or re-announced. One frame per record keeps every record whole:
  * a single snapshot frame could outgrow the per-frame cap and be clipped.
  */
+/**
+ * Why a live service is the one a Start uses (#3616): `change` is the one-time
+ * pick on the Start card, `saved` the brain-wide default, `host` the host's
+ * `defaultConversationProviderId`, `only` the single registered service, and
+ * `none` means a Start must name one. `change` appears only on
+ * `conversation_opened`, never in `liveDefault`.
+ */
+export type LiveProviderSource = "change" | "saved" | "host" | "only" | "none";
+
+/** The live-service default as a new Start resolves it (#3616). Never names a credential. */
+export interface LiveDefault {
+  /** The saved brain-wide default, kept even when it is no longer registered. */
+  saved: string | null;
+  /** Whether `saved` names a registered service; false when nothing is saved. */
+  savedUsable: boolean;
+  /** The service a Start without a pick uses; null means a pick is required, or none exists. */
+  effective: string | null;
+  source: Exclude<LiveProviderSource, "change">;
+}
+
+/**
+ * Server → Client (#3616, additive). Sent to every open connection after the
+ * saved live-service default changes, with the same fields `server_hello`
+ * carries. It never retargets a running conversation. Older clients ignore it.
+ */
+export interface ServerLiveSettings {
+  type: "live_settings";
+  liveDefault: LiveDefault;
+  conversationProfiles: ConversationProfile[];
+}
+
+/** `GET`/`PUT /api/settings/voice` (#3616): the saved live-service default and its revision. */
+export interface VoiceLiveSettings {
+  /** A registered live service id, or null for nothing saved. */
+  defaultProvider: string | null;
+  revision: number;
+}
+
+/** `PUT /api/settings/voice` body (#3616). `revision` is the one last read. */
+export interface VoiceLiveSettingsUpdate {
+  defaultProvider: string | null;
+  revision: number;
+}
+
 export interface ServerConversationOpened {
   /**
    * Actual bounded startup text coverage; no semantic recall guarantee.
@@ -2402,6 +2468,8 @@ export interface ServerConversationOpened {
   /** Chat session, once known. */
   sessionId?: string;
   providerId: string;
+  /** How this conversation's live service was chosen (#3616). Absent from older hosts. */
+  providerSource?: Exclude<LiveProviderSource, "none">;
   capabilities: ConversationCapabilities;
   disclosure: ConversationDisclosure;
   limits: ConversationLimits;
