@@ -398,14 +398,21 @@ test("voice and expired facts remove actions; an old POST response cannot attach
     await page.evaluate(id=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:id,journal:{...(window as any).__journalSeed.summary,actor:"voice"}}),turnId);
     expect(await page.getByRole("button",{name:"Review whole-turn revert",exact:true}).count(),"REVERT_VOICE_SURFACE_INACTIVE").toBe(0);
     await page.evaluate(id=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:id,journal:{...(window as any).__journalSeed.summary,state:"expired"}}),turnId);
-    expect(await page.getByRole("button",{name:/Revert|Undo/}).count(),"REVERT_EXPIRED_SURFACE_INACTIVE").toBe(0);
+    expect(await page.getByRole("button",{name:/revert|undo/i}).count(),"REVERT_EXPIRED_SURFACE_INACTIVE").toBe(0);
     await page.evaluate(id=>(window as any).__journalFixture.frame({type:"turn_journal",sessionId:"ithaca",turnId:id,journal:(window as any).__journalSeed.summary}),turnId);
     await context.route("**/turns/*/revert",async route=>{if(route.request().method()!=="POST")return route.continue();const response=await route.fetch();await new Promise<void>(resolve=>{releaseResponse=resolve;});await route.fulfill({response});});
     await page.getByRole("button",{name:"Review notes/voyage.md",exact:true}).click();await page.getByRole("button",{name:"Revert notes/voyage.md",exact:true}).click();
     for(let attempts=0;!releaseResponse&&attempts<100;attempts++)await Bun.sleep(10);expect(releaseResponse).toBeDefined();
     await page.evaluate(()=>(window as any).__journalFixture.switchSession());releaseResponse!();hold.release();await page.waitForTimeout(100);
     expect(await page.locator("[data-revert-receipt]").count(),"REVERT_STALE_SESSION_RESPONSE_IGNORED").toBe(0);expect(await page.getByRole("dialog").count()).toBe(0);
-  } finally {releaseResponse?.();hold.release();await context.close();}
+  } finally {
+    releaseResponse?.();hold.release();await context.close();
+    // The held revert still lands once the gate opens; put the bytes back so the
+    // cases that revert this file start from the turn's own result, in any order.
+    const voyage=resolve(root,"brain/notes/voyage.md");
+    for(let attempt=0;attempt<100&&await readFile(voyage,"utf8")!=="Ithaca\r\n";attempt++)await Bun.sleep(50);
+    await writeFile(voyage,"Athena charts the return.\r\n");
+  }
 });
 
 for (const [width, theme] of journalRuntimeCells) test(`steering skill review and existing per-file revert ${theme} ${width}`, async () => {
@@ -476,6 +483,9 @@ test("keep-both refreshes the actual disposable index with both retained files",
       if(paths.length===2)break;await Bun.sleep(50);
     }
     expect(paths,`CONFLICT_KEEP_BOTH_ACTUAL_INDEX_SEES_BOTH ${JSON.stringify(observability.logs.records())}`).toEqual(["notes/crossing-remote.md","notes/crossing.md"]);
+    // Undo the keep-both so the shared conflict stays open for the other conflict cases, in any order.
+    await page.getByRole("button",{name:"Undo",exact:true}).click();await page.getByRole("button",{name:"Revert 2 files",exact:true}).click();await page.locator("[data-revert-receipt='complete']").waitFor();
+    expect(await Bun.file(resolve(root,"brain/notes/crossing-remote.md")).exists(),"CONFLICT_KEEP_BOTH_FIXTURE_UNDONE").toBe(false);
   }finally{await context.close();}
 });
 
