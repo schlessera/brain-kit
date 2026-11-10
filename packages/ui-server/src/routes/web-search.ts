@@ -88,6 +88,8 @@ interface WebSearchConfigView {
 
 interface WebSearchRoutesDeps {
   agent: AgentConfig;
+  /** True while boot excluded pi as unavailable (#3817): the routes answer as if pi were not configured. */
+  excluded?: () => boolean;
   /** Test seam — overrides the config file location. */
   configPath?: string;
   /** Test seam — overrides the environment credential lookup. */
@@ -135,7 +137,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
   const configPath = () => deps.configPath ?? resolveWebSearchConfigPath(env);
 
   const piConfigured = () =>
-    Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi";
+    (Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi") && !deps.excluded?.();
 
   /**
    * The pi models in the picker. Malformed config cannot reach here —

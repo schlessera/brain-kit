@@ -194,10 +194,14 @@ export interface SessionCaps {
   apify?: boolean;
   /** On-demand reads of the conversation's composer originals (#3154); interactive sessions only. */
   attachments?: boolean;
+  /** The host-owned web tools (#3685); ordinary interactive sessions only, never an autonomous turn. */
+  web?: boolean;
 }
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  /** Host-only cleanup diagnostics, captured before worker initialization. */
+  cleanupActivity?: BackendBridge["activity"];
   /** Internal static limits and current actionable budget context. */
   sessionBudgetLimits?: string;
   budgetContext?: string;
@@ -240,11 +244,12 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     compute: Boolean(bridge.compute),
     apify: Boolean(bridge.apify),
     attachments: Boolean(bridge.readAttachment),
+    web: Boolean(bridge.webAccess),
   };
 }
 
 /** Deployment-owned tools exist even when this turn has no matching handler. */
 export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
   policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true,
+  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true, apify: true, attachments: true, web: true,
 });

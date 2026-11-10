@@ -142,7 +142,10 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
     test(`${prefix} search and viewer controls`, async ctx => {
       const mode = pointer(); const s = await mount(ctx, width, theme);
       s.draw(<SearchPanel open onClose={s.actions.close} />);
-      await page.getByRole("textbox").fill("Ithaca");
+      // One letter: below the panel's two-letter minimum, so no debounced
+      // search starts. A search in flight replaces Clear with its spinner,
+      // and the ring would be read on a control that just left (#3819).
+      await page.getByRole("textbox").fill("I");
       const clear = s.find("Clear search").element() as HTMLElement;
       const targets = [target(clear, mode)]; const rings = [await ring(clear)];
       await s.find("Clear search").click();
@@ -188,7 +191,8 @@ export function remainingButtonCases(pointer: () => "fine" | "coarse" | "mixed")
       s.draw(<SearchPanel open onClose={s.actions.close} />);
       const input = page.getByRole("textbox").element();
       expect(document.activeElement, "overlay initially focuses the search input").toBe(input);
-      await page.getByRole("textbox").fill("Ithaca");
+      // One letter, so no debounced search swaps Clear for its spinner (#3819).
+      await page.getByRole("textbox").fill("I");
       await s.find("Clear search").click();
       expect(document.activeElement, "clear returns to the input").toBe(input);
       await userEvent.tab();
