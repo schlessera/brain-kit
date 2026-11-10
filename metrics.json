@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T18:23:53.090Z",
+  "generatedAt": "2026-11-10T18:24:26.708Z",
   "sha": "206750d48b65b72ae83d774ab87a37b2c31251f4",
   "coverage": {
     "files": 1835,
-    "auditedCurrent": 645,
+    "auditedCurrent": 653,
     "stale": 0,
-    "never": 1190,
-    "share": 0.351,
+    "never": 1182,
+    "share": 0.356,
     "medianAuditAgeDays": 0
   },
   "runs": {
@@ -25,47 +25,47 @@
     }
   },
   "audits": {
-    "clusters": 336,
-    "files": 645,
-    "filesChanged": 146
+    "clusters": 340,
+    "files": 653,
+    "filesChanged": 148
   },
   "findings": {
-    "total": 1049,
-    "perAuditedFile": 1.63,
+    "total": 1059,
+    "perAuditedFile": 1.62,
     "byLens": {
       "failure-issues": 50,
       "overlap": 37,
-      "nondeterminism": 260,
-      "cannot-fail": 454,
+      "nondeterminism": 265,
+      "cannot-fail": 456,
       "not-running": 23,
-      "hygiene": 137,
-      "cost": 85,
+      "hygiene": 139,
+      "cost": 86,
       "tier-and-doubles": 3
     },
     "bySmell": {
       "test-fault": 28,
       "unreproduced": 20,
       "matrix-multiplier": 30,
-      "settling-sleep": 79,
+      "settling-sleep": 82,
       "shared-state": 56,
-      "weak-matcher": 153,
-      "conditional-assertion": 184,
+      "weak-matcher": 154,
+      "conditional-assertion": 185,
       "unseeded-random": 4,
       "fixed-resource": 38,
       "conditional-skip": 23,
-      "opaque-failure": 130,
+      "opaque-failure": 132,
       "spawn-per-assertion": 14,
       "earlier-layer-answers": 17,
       "long-timeout": 23,
       "no-assertion": 37,
       "duplicate-case": 6,
       "real-time-wait": 18,
-      "unrestored-global": 39,
-      "slow-file": 22,
+      "unrestored-global": 40,
+      "slow-file": 23,
       "wrong-object": 6,
       "unclear-name": 1,
       "self-comparison": 10,
-      "wall-clock": 30,
+      "wall-clock": 31,
       "derived-expectation": 8,
       "empty-by-construction": 10,
       "load-sensitive": 6,
@@ -85,9 +85,9 @@
     "byAction": {
       "deflake": 30,
       "remove": 5,
-      "none": 826,
+      "none": 834,
       "strengthen": 75,
-      "cleanup": 78,
+      "cleanup": 80,
       "file-issue": 14,
       "rewrite": 12,
       "speed-up": 7,
@@ -95,8 +95,8 @@
     },
     "byStatus": {
       "deferred": 31,
-      "accepted": 826,
-      "fixed": 181,
+      "accepted": 834,
+      "fixed": 183,
       "filed": 11
     }
   },
@@ -108,19 +108,19 @@
     "testsRemoved": 1
   },
   "accounting": {
-    "testsBefore": 1734,
-    "testsAfter": 1734,
+    "testsBefore": 1766,
+    "testsAfter": 1766,
     "declaredRemoved": 0,
-    "casesBefore": 2121,
-    "casesAfter": 2121,
-    "assertionsBefore": 12355,
-    "assertionsAfter": 12490
+    "casesBefore": 2173,
+    "casesAfter": 2173,
+    "assertionsBefore": 12649,
+    "assertionsAfter": 12784
   },
   "batches": {
     "open": 15,
     "landed": 3,
     "abandoned": 0,
-    "parkedChangedFiles": 93,
+    "parkedChangedFiles": 95,
     "droppedCommits": 0,
     "landingAttempts": 9,
     "meanFilesPerLanded": 17.7,
