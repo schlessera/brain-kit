@@ -328,8 +328,9 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
     const sending = h.send();
     try {
       for (let i = 0; i < 200 && !h.frames.some((frame) => frame.type === "result"); i++) await Bun.sleep(5);
-      const result = h.frames.find((frame) => frame.type === "result");
-      expect(result?.type === "result" && result.turnId).toBeString();
+      // Servers stamp the turn id on every frame (protocol.ts, RESERVED).
+      const result = h.frames.find((frame): frame is Extract<ServerMessage, { type: "result" }> & { turnId?: string } => frame.type === "result");
+      expect(result?.turnId).toBeString();
       // A client reads the history again on the result, as a started
       // follow-up carrying composer originals does (#3155).
       const frames: ServerMessage[] = [];
@@ -338,7 +339,7 @@ for (const id of ["claude", "pi"] as const) describe(`${id}: live failure surviv
       release();
       await sending; await loading;
       const replay = frames.find((frame) => frame.type === "session_history");
-      expect(replay?.type === "session_history" && replay.messages.at(-1)?.turnId, "the answer carries its turn").toBe(result?.type === "result" ? result.turnId : "");
+      expect(replay?.type === "session_history" && replay.messages.at(-1)?.turnId, "the answer carries its turn").toBe(result?.turnId);
     } finally { release(); await sending; }
   });
 });
