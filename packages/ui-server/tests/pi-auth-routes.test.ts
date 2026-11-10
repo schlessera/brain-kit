@@ -102,6 +102,18 @@ describe("pi-auth routes", () => {
     expect(body.flow.userCode).toBe("ABCD-1234");
   });
 
+  test("a pi backend excluded at boot loads no auth service (#3817)", async () => {
+    const { importer, calls } = makeFakeModule();
+    const routes = createPiAuthRoutes({ agent: agentFor({ BRAIN_UI_PI_PROFILES: PROFILES }), excluded: () => true, importer });
+    expect(await (await routes.request("/pi-auth/providers")).json()).toEqual({ providers: [] });
+    const post = (path: string) => routes.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ providerId: "openai-codex" }) });
+    expect((await post("/pi-auth/login")).status).toBe(409);
+    expect((await post("/pi-auth/logout")).status).toBe(409);
+    expect((await routes.request("/pi-auth/login/flow-1")).status).toBe(409);
+    expect((await routes.request("/pi-auth/login/flow-1", { method: "DELETE" })).status).toBe(409);
+    expect(calls).toEqual([]);
+  });
+
   test("login rejects unknown providers and unconfigured deployments", async () => {
     const { importer } = makeFakeModule();
     const unconfigured = createPiAuthRoutes({ agent: agentFor(), importer });

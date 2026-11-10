@@ -242,6 +242,15 @@ signatures (every public export and the types it is made of)
     export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
         [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
     };
+  BackendBootFailure (packages/ui-server/src/agent/backend.ts)
+    export interface BackendBootFailure {
+        backendId: string;
+        phase: "resolution" | "runtime";
+        site: "assertBackendResolvable" | "probeBackendRuntimes";
+        errorClass: string;
+        message: string;
+        at: string;
+    }
   BackendRegistry (packages/ui-server/src/agent/backend.ts)
     export interface BackendRegistry {
         getBackends(): Promise<AgentBackend[]>;
@@ -2385,7 +2394,7 @@ signatures (every public export and the types it is made of)
         turn_usd: z.ZodNumber;
     }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
-    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
+    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): BackendBootFailure[];
   attribution (packages/ui-server/src/governance/events.ts)
     const attribution: z.ZodObject<{
         actor: z.ZodEnum<{
