@@ -21,7 +21,9 @@ afterEach(() => {
 });
 
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  // Signing is off per command (#3485): an environment-scoped GIT_CONFIG_COUNT
+  // outranks the repository-local commit.gpgsign the fixtures set, but not -c.
+  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
   return { code: r.exitCode, out: r.stdout.toString() + r.stderr.toString() };
 }
 
