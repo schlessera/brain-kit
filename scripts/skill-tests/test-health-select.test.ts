@@ -3,9 +3,9 @@ import { LENS_IDS, type LensId, type LensVerdict } from "../test-health/catalog"
 import { loadConfig, type Profile } from "../test-health/config";
 import type { Inventory, Row, Tier } from "../test-health/inventory";
 import { mapIssues, type Issue } from "../test-health/issues";
-import type { FileAuditState } from "../test-health/ledger";
+import { ledgerState, type ClusterRecord, type FileAuditState } from "../test-health/ledger";
 import { buildAffinity, importSpecifiers, nameTokens, neighboursOf, type ImportIndex } from "../test-health/neighbours";
-import { fileState, makeShards, modeFor, planRun, rank, remainingIn, type PlanInput } from "../test-health/select";
+import { fileState, groupsOf, makeShards, modeFor, planRun, rank, remainingIn, type PlanInput } from "../test-health/select";
 
 const NOW = new Date("2026-07-12T12:00:00Z");
 const lenses = Object.fromEntries(LENS_IDS.map(lens => [lens, "clean"])) as Record<LensId, LensVerdict>;
@@ -34,7 +34,8 @@ const index: ImportIndex = new Map([
   [HARBOUR, []], [SANDS, ["packages/pylos/src/sands.ts"]],
 ]);
 const affinity = buildAffinity(rows, index);
-const profile: Profile = { ...loadConfig("cron").profile, clusterSize: 3, budgetFiles: 4 };
+/** Every package is its own group here; the small group has its own fixture below. */
+const profile: Profile = { ...loadConfig("cron").profile, clusterSize: 3, budgetFiles: 4, smallPackageFiles: null };
 
 const audited = (file: string, at: string, blob = `blob-${file}`): [string, FileAuditState] =>
   [file, { at, runId: "th-old", cluster: 0, blobBefore: blob, blobAfter: blob, lenses }];
@@ -130,8 +131,8 @@ describe("what a run audits", () => {
     expect(plan.stats).toMatchObject({ fresh: 1, claimed: 1, inOpenPrs: 1 });
   });
 
-  test("a run continues the package of the open batch while it has work", () => {
-    const plan = planRun(input({ mode: "hot", preferPackage: "pylos", signalWeights: new Map([[BOW, 99]]) }));
+  test("a run continues the group of the open batch while it has work", () => {
+    const plan = planRun(input({ mode: "hot", preferGroup: "pylos", signalWeights: new Map([[BOW, 99]]) }));
     expect(plan.package).toBe("pylos");
   });
 
@@ -168,26 +169,150 @@ describe("what a run audits", () => {
 
 describe("shards for parallel workers", () => {
   const many = Array.from({ length: 40 }, (_, i) => row(`packages/ithaca/tests/oar-${String(i).padStart(2, "0")}.test.ts`));
-  const all = [...many, row(SANDS), row(HARBOUR)];
+  const small = ["sparta", "argos", "mycenae"].flatMap(name => [row(`packages/${name}/tests/shield.test.ts`), row(`packages/${name}/tests/spear.test.ts`)]);
+  const all = [...many, row(SANDS), row(HARBOUR), ...small];
+  const grouped: Profile = { ...profile, smallPackageFiles: 25 };
+  const groups = groupsOf(all, grouped);
   const candidates = rank(input({ inventory: { ...inventory, rows: all }, affinity: buildAffinity(all, new Map()) }));
+  const groupOf = (file: string) => groups.get(file.split("/")[1]!);
 
-  test("every file that needs an audit is in exactly one shard, and a shard never spans packages", () => {
-    const shards = makeShards(candidates, 4);
+  test("every file that needs an audit is in exactly one shard, and a shard never spans groups", () => {
+    const shards = makeShards(candidates, 4, groups);
     const files = shards.flatMap(shard => shard.files);
     expect(files.sort()).toEqual(all.map(entry => entry.file).sort());
     expect(new Set(files).size).toBe(files.length);
-    for (const shard of shards) expect(new Set(shard.files.map(file => file.split("/")[1])).size).toBe(1);
+    for (const shard of shards) expect([...new Set(shard.files.map(groupOf))]).toEqual([shard.group]);
   });
 
-  test("a large package is split and a small one keeps a shard of its own", () => {
-    const shards = makeShards(candidates, 4);
-    expect(shards.map(shard => [shard.id, shard.files.length])).toEqual([["ithaca-01", 11], ["ithaca-02", 11], ["ithaca-03", 11], ["ithaca-04", 7], ["pylos-01", 2]]);
+  test("a large package is split, and the small packages share a shard instead of taking one each", () => {
+    const shards = makeShards(candidates, 4, groups);
+    expect(shards.map(shard => [shard.id, shard.files.length])).toEqual([["ithaca-01", 14], ["ithaca-02", 14], ["ithaca-03", 12], ["small-01", 8]]);
+    expect(new Set(shards.find(shard => shard.group === "small")!.files.map(file => file.split("/")[1])).size).toBe(4);
   });
 
   test("files already audited are not handed out", () => {
     const audits = new Map(many.slice(0, 30).map(entry => audited(entry.file, "2026-07-11T00:00:00Z")));
     const remaining = rank(input({ inventory: { ...inventory, rows: all }, audits, affinity: buildAffinity(all, new Map()) }));
-    expect(makeShards(remaining, 4).flatMap(shard => shard.files).length).toBe(12);
+    expect(makeShards(remaining, 4, groups).flatMap(shard => shard.files).length).toBe(18);
+  });
+});
+
+describe("small packages share a group", () => {
+  // Three packages under the threshold of 3 test files and one, ithaca, above it.
+  // sparta's march shares a distinctive name with pylos's sands test, so the two are neighbours across packages of one group.
+  const SHIELD = "packages/sparta/tests/shield.test.ts", MARCH = "packages/sparta/tests/sands-march.test.ts";
+  const WALLS = "packages/argos/tests/walls.test.ts";
+  const smallRows = [SANDS, HARBOUR, SHIELD, MARCH, WALLS].map(file => row(file));
+  const largeRows = [BOW, BOW_STRING, BOW_RUNTIME, SAILS, SAILS_REEF, LOOM].map(file => row(file));
+  const all = [...largeRows, ...smallRows];
+  const grouped: Profile = { ...profile, smallPackageFiles: 3, budgetFiles: null };
+  const groupInput = (extra: Partial<PlanInput> = {}) => input({ inventory: { ...inventory, rows: all }, affinity: buildAffinity(all, index), profile: grouped, ...extra });
+  const packageOf = (file: string) => file.split("/")[1]!;
+
+  test("a sweep of the small group takes clusters from several packages, and each cluster stays inside one", () => {
+    const audits = new Map(largeRows.map(entry => audited(entry.file, "2026-07-11T00:00:00Z")));
+    const plan = planRun(groupInput({ mode: "sweep", audits }));
+    expect(new Set(members(plan).flat().map(packageOf))).toEqual(new Set(["argos", "pylos", "sparta"]));
+    expect([plan.group, plan.package]).toEqual(["small", null]);
+    for (const cluster of plan.clusters) expect(cluster.members.map(packageOf)).toEqual(cluster.members.map(() => cluster.package));
+    // A neighbour in another package of the group, or in another group, is context, never a member.
+    expect(plan.clusters.find(cluster => cluster.members.includes(SANDS))).toMatchObject({ members: [SANDS], context: [MARCH] });
+    expect(plan.clusters.find(cluster => cluster.seed === HARBOUR)?.members).toEqual([HARBOUR]);
+  });
+
+  test("a plan for the large package contains only that package", () => {
+    const plan = planRun(groupInput({ mode: "hot", signalWeights: new Map([[BOW, 99]]) }));
+    expect([plan.group, plan.package, [...new Set(members(plan).flat().map(packageOf))]]).toEqual(["ithaca", "ithaca", ["ithaca"]]);
+  });
+
+  test("a package named like the shared group is refused rather than merged into it", () => {
+    expect(() => groupsOf([row("packages/small/tests/a.test.ts"), ...all], grouped)).toThrow('A package named "small"');
+  });
+
+  test("the group is counted over the profile's tiers, and null turns grouping off", () => {
+    expect(groupsOf(all, grouped).get("pylos")).toBe("small");
+    expect(groupsOf(all, { ...grouped, tiers: ["runtime"] }).get("ithaca")).toBe("small");
+    expect(groupsOf(all, { ...grouped, smallPackageFiles: null }).get("pylos")).toBe("pylos");
+  });
+
+  test("the small group is unfinished while any of its packages has an eligible file", () => {
+    const allAudited = (except: string[]) => new Map(all.filter(entry => !except.includes(entry.file)).map(entry => audited(entry.file, "2026-07-11T00:00:00Z")));
+    expect(remainingIn(groupInput({ audits: allAudited([WALLS]) }), "small")).toBe(1);
+    expect(remainingIn(groupInput({ audits: allAudited([]) }), "small")).toBe(0);
+    // A batch opened before groups records its package; that package's group is the one counted.
+    expect(remainingIn(groupInput({ audits: allAudited([WALLS]) }), "sparta")).toBe(1);
+  });
+});
+
+describe("work deferred for budget or proof stays in the rotation", () => {
+  const at = "2026-07-11T00:00:00Z";
+  const finding = (file: string, smell: string, extra: Record<string, unknown> = {}) => ({ id: `F-${smell}`, file, lens: "nondeterminism", smell,
+    action: "deflake", status: "deferred", note: "Ten runs of the browser file did not fit the run.", ...extra });
+  const record = (findings: unknown[]): ClusterRecord => ({ v: 1, type: "cluster", at, runId: "th-old", cluster: 0, batchId: null, commit: null,
+    package: "ithaca", audits: [BOW, BOW_STRING].map(file => ({ file, blobBefore: `blob-${file}`, blobAfter: `blob-${file}`, lenses })),
+    worksheet: { schemaVersion: 1, runId: "th-old", cluster: 0, seed: BOW, members: [BOW, BOW_STRING], context: [], audits: [], findings } as never });
+  const planned = (findings: unknown[]) => planRun(input({ mode: "hot", package: "ithaca", audits: ledgerState([record(findings)], NOW).audits }));
+
+  test("a file whose audit deferred a finding for budget is planned again and counted as unfinished", () => {
+    const plan = planned([finding(BOW, "settling-sleep", { deferredFor: "budget" })]);
+    expect(members(plan).flat()).toContain(BOW);
+    expect(members(plan).flat()).not.toContain(BOW_STRING);
+    expect(plan.stats).toMatchObject({ unfinished: 1, fresh: 1 });
+  });
+
+  test("a finding left to an issue's owner, or one that did not reproduce, leaves the file fresh", () => {
+    for (const deferredFor of ["assigned", "unreproduced"]) {
+      const plan = planned([finding(BOW, "settling-sleep", { deferredFor })]);
+      expect(members(plan).flat()).not.toContain(BOW);
+      expect(plan.stats).toMatchObject({ unfinished: 0, fresh: 2 });
+    }
+  });
+
+  test("in the hot queue an unfinished file ranks ahead of a never-audited file with the same score", () => {
+    const audits = ledgerState([record([finding(BOW, "settling-sleep", { deferredFor: "proof" })])], NOW).audits;
+    const plan = planRun(input({ mode: "hot", package: "ithaca", audits, profile: { ...profile, clusterSize: 1 } }));
+    expect(plan.clusters[0]!.seed).toBe(BOW);
+  });
+
+  test("the sweep queue keeps its oldest-audit order: an unfinished file deferred again does not hold every run", () => {
+    const audits = new Map([...ledgerState([record([finding(BOW, "settling-sleep", { deferredFor: "budget" })])], NOW).audits,
+      audited(SAILS, "2026-07-01T00:00:00Z", "edited")]);
+    const plan = planRun(input({ mode: "sweep", package: "ithaca", audits, profile: { ...profile, clusterSize: 1, budgetFiles: null } }));
+    const seeds = plan.clusters.map(cluster => cluster.seed);
+    // Never-audited files first, then the oldest audit (SAILS, 07-01), then BOW's audit of 07-11.
+    expect(seeds.indexOf(BOW)).toBeGreaterThan(seeds.indexOf(SAILS));
+    expect(seeds.indexOf(SAILS)).toBeGreaterThan(seeds.indexOf(LOOM));
+  });
+
+  test("a prepared patch that changes only a helper still belongs to the unfinished file it resumes", () => {
+    const helper = "packages/ithaca/tests/helpers/bow.ts";
+    const withPatch = { ...record([finding(BOW, "settling-sleep", { deferredFor: "proof" })]),
+      wip: { path: "wip/th-old-0.patch", sha256: "0".repeat(64), bytes: 10, files: [helper] } };
+    const audits = ledgerState([withPatch], NOW).audits;
+    expect([audits.get(BOW)?.wip, audits.get(BOW_STRING)?.wip]).toEqual(["wip/th-old-0.patch", undefined]);
+  });
+
+  test("a record from before deferredFor, shaped like th-20261110115220-5ecaed#0, leaves its browser file unfinished", () => {
+    const REVIEW = "packages/ui-react/tests/browser/hygiene-review.layout.tsx";
+    const MEDIA = "packages/ui-react/tests/browser/hygiene-media-flow.layout.tsx";
+    const HANDOFF = "packages/ui-react/tests/render/handoff-entry.test.tsx";
+    const deferred = (id: string, lens: string, smell: string, action: string) => ({ id, file: REVIEW, lens, smell, action, status: "deferred", note: "Left for a later run." });
+    const accepted = (id: string, file: string, lens: string, smell: string) => ({ id, file, lens, smell, action: "none", status: "accepted", note: "Fine in context." });
+    const old: ClusterRecord = { v: 1, type: "cluster", at, runId: "th-20261110115220-5ecaed", cluster: 0, batchId: "ui-react-th-20261110115220-5ecaed",
+      commit: "c".repeat(40), package: "ui-react",
+      audits: [{ file: REVIEW, blobBefore: "review", blobAfter: "review", lenses }, { file: MEDIA, blobBefore: "media", blobAfter: "media-fixed", lenses },
+        { file: HANDOFF, blobBefore: "handoff", blobAfter: "handoff", lenses }],
+      worksheet: { schemaVersion: 1, runId: "th-20261110115220-5ecaed", cluster: 0, seed: REVIEW, members: [REVIEW, MEDIA, HANDOFF], context: [], audits: [], findings: [
+        deferred("F1", "failure-issues", "test-fault", "deflake"), deferred("F2", "failure-issues", "unreproduced", "deflake"),
+        deferred("F3", "failure-issues", "unreproduced", "deflake"), deferred("F4", "overlap", "matrix-multiplier", "remove"),
+        accepted("F5", REVIEW, "nondeterminism", "settling-sleep"),
+        { id: "F8", file: MEDIA, lens: "cannot-fail", smell: "conditional-assertion", action: "strengthen", status: "fixed", note: "Asserts the media now." },
+        accepted("F10", HANDOFF, "cannot-fail", "weak-matcher"),
+      ] } as never };
+    const audits = ledgerState([old], NOW).audits;
+    const state = (file: string, blob: string) => fileState(row(file, { blob }), audits.get(file), NOW, 180);
+    expect([state(REVIEW, "review"), state(MEDIA, "media-fixed"), state(HANDOFF, "handoff")]).toEqual(["unfinished", "fresh", "fresh"]);
+    expect(audits.get(REVIEW)!.deferred!.map(entry => [entry.id, entry.deferredFor])).toEqual([["F1", "budget"], ["F2", "unreproduced"], ["F3", "unreproduced"], ["F4", "budget"]]);
   });
 });
 

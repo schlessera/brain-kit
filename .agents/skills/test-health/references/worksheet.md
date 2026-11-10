@@ -62,6 +62,13 @@ prose. The brief ends with a skeleton to start from; its lens verdicts say
     `split`, `deflake`, `speed-up`, `unskip`, `cleanup`, `file-issue`, `none`.
   - `status` is `fixed`, `filed`, `deferred` or `accepted`.
   - `note` is one sentence: what was wrong, and what you did or why you left it.
+  - `deferredFor` is required on a `deferred` finding and allowed on no other:
+    `budget` (no time to write the fix), `proof` (the fix is written, its proof
+    did not finish), `assigned` (an issue's owner has it), `unreproduced` (an
+    open failure issue did not reproduce) or `context` (the finding is on a
+    context file). `budget` and `proof` keep the file in the rotation: the next
+    run plans it again and its brief lists the finding. The others mark the
+    file audited.
   - `evidence` paths are relative to the run directory.
 
 ## Evidence a fixed finding must carry
@@ -110,8 +117,8 @@ When a title is missing from your declarations, the message quotes it:
 copy it from there. If you did not mean to remove it, you have just been
 stopped from losing a test; restore it.
 
-A context file's finding can never be `fixed`: defer it, and its own package's
-run will pick it up.
+A context file's finding can never be `fixed`: defer it with
+`deferredFor: "context"`, and its own package's run will pick it up.
 
 ## Validating and recording
 
@@ -134,6 +141,7 @@ bun scripts/test-health.ts record cluster --run <runId> --cluster <n> --workshee
 | `N test(s) disappeared without being declared: "..."` | A test is gone that no fixed finding names; declare it or restore it |
 | `N executed case(s) fewer than before, and the findings declare M` | Fewer cases run than you declared: a table or loop shrank, or a test is no longer collected |
 | `measurements.before and measurements.after must both measure it` | A Bun test file changed and one of the two measurements does not cover it |
+| `a deferred finding says why in deferredFor` | A `deferred` finding has no reason, or one not in the list above |
 
 `record cluster` refuses a worksheet that does not validate, a member whose
 content changed without `--commit`, a commit whose message lacks the cluster's
@@ -141,4 +149,25 @@ content changed without `--commit`, a commit whose message lacks the cluster's
 marks its files as audited.
 
 Do not edit a worksheet to match a result you did not get. If the proof will
-not come out, the finding is `deferred`.
+not come out, the finding is `deferred` with `deferredFor: "proof"`.
+
+## Keeping an unproven fix
+
+Before you defer for `proof`, prove the fix past your time budget, by up to
+`proofOverrunMinutes` in `config.json`, as the skill's step 4 says; and when a
+brief names a patch from an earlier audit, apply it and prove it before
+anything else in that cluster. A fix whose proof still did not finish is kept on the ledger, so a later run on any
+machine resumes it instead of rediscovering it. Save it as a patch, restore the
+files so the cluster records nothing as changed, and pass the patch to
+`record cluster`:
+
+```sh
+git diff -- <files> > <runDir>/wip-<n>.patch && git checkout -- <files>
+bun scripts/test-health.ts record cluster --run <runId> --cluster <n> --worksheet <runDir>/cluster-<n>.json --wip <runDir>/wip-<n>.patch
+```
+
+The ledger stores it as `wip/<runId>-<n>.patch`. It refuses a patch larger than
+`wipMaxBytes` in `config.json`, one without a `diff --git` header, and one that
+touches any path a batch could not land: only test code and test support. The
+next brief for the file copies the patch into that run's directory and names
+it.

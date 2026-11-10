@@ -33,9 +33,9 @@ If the brief lists no issue for a file, the verdict for this lens is
 
 | Verdict | Issue unassigned | Issue assigned to someone |
 | --- | --- | --- |
-| `test-fault` | Fix the test under the lens that names the cause (usually [non-determinism](nondeterminism.md)); the finding is `fixed` with that lens's proof. Comment the cause and the proof on the issue. | Comment your evidence. Finding `deferred`. |
+| `test-fault` | Fix the test under the lens that names the cause (usually [non-determinism](nondeterminism.md)); the finding is `fixed` with that lens's proof. Comment the cause and the proof on the issue. | Comment your evidence. Finding `deferred`, `deferredFor: "assigned"`. |
 | `product-fault` | Leave the test exactly as it is. Comment the evidence. Make sure a `type: fix` issue exists for the defect, filing one if not. Finding `filed`. | Same, without filing a duplicate. |
-| `unreproduced` | Comment what you ran: command, commit, run count, conditions, result. Keep `needs: repro`. Finding `deferred`. | Same. |
+| `unreproduced` | Comment what you ran: command, commit, run count, conditions, result. Keep `needs: repro`. Finding `deferred`, `deferredFor: "unreproduced"`. | Same. |
 
 Record the finding under this lens (`failure-issues`) with the smell that is
 your verdict. When you also fix the cause, the action is the fixing action
