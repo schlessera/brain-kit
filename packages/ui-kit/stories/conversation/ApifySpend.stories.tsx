@@ -83,7 +83,7 @@ export const StoppedUnconfirmed320 = meta.story({
     await bounds(notice, "stop notice"); await targets(notice, "stop notice"); await accessible(document.querySelector("main")!);
     await userEvent.click(within(notice).getByRole("button", { name: "Check again" }));
     await waitFor(() => expect(document.querySelector("[data-apify-turn-notice]"), "settled by the host, not by the click").toBeNull());
-    await expect(reads.some(query => query.includes("refresh=1"))).toBe(true);
+    await expect(reads, "Check again asked the host to refresh").toContainEqual(expect.stringContaining("refresh=1"));
   },
 });
 export const StoppedUnconfirmed1280 = StoppedUnconfirmed320.extend(atWidth(1280));
