@@ -108,14 +108,18 @@ describe("bun run eval in a brain generated from the template", () => {
 
   test("with the README's static example line it scores keyless and exits 0", async () => {
     const [staticLine] = readmeExampleLines(readFileSync(join(TEMPLATE, "README.md"), "utf-8"));
-    writeFileSync(join(brain, "evals", "retrieval.jsonl"), staticLine + "\n");
-    const { code, stdout, stderr } = await run(["bun", "run", "eval", "--", "--json"]);
-    // `bun run` echoes the script's command line to stderr; nothing else may follow.
-    expect(stderr.replace(/^\$ brain eval .*\n/, "")).toBe("");
-    expect(code).toBe(0);
-    const out = JSON.parse(stdout);
-    expect(out.meta.modes).toEqual(["fts"]);
-    expect(out.per_query).toHaveLength(1);
-    expect(out.per_query[0]).toMatchObject({ id: "hello", rank: 1 });
+    const set = join(brain, "evals", "retrieval.jsonl");
+    writeFileSync(set, staticLine + "\n");
+    // The brain is shared: remove the set again so the no-set case holds in any order.
+    try {
+      const { code, stdout, stderr } = await run(["bun", "run", "eval", "--", "--json"]);
+      // `bun run` echoes the script's command line to stderr; nothing else may follow.
+      expect(stderr.replace(/^\$ brain eval .*\n/, "")).toBe("");
+      expect(code).toBe(0);
+      const out = JSON.parse(stdout);
+      expect(out.meta.modes).toEqual(["fts"]);
+      expect(out.per_query).toHaveLength(1);
+      expect(out.per_query[0]).toMatchObject({ id: "hello", rank: 1 });
+    } finally { rmSync(set, { force: true }); }
   });
 });
