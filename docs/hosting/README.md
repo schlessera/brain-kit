@@ -345,7 +345,9 @@ What the server does between logins:
 - **Before expiry.** From 30 days before `expiresAt`, and after it, the server
   logs a WARN at boot and at most once a day, naming the date and this
   procedure. Without `BRAIN_UI_CLAUDE_TOKEN_MINTED_AT` it cannot tell, and says
-  so once at boot. A date it cannot read refuses the boot.
+  so once at boot. An invalid date keeps serving and reports "expiry unknown:
+  invalid mint date" in authenticated status and the boot log; correct the date
+  and restart to restore the estimate.
 - **Proof it works.** `lastProvenAt` is the latest successful turn that ran on
   the subscription (kept in the database, so it survives a restart and the
   activity retention window), or a successful model-discovery call with the

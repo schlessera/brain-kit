@@ -39,7 +39,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\
 
 /**
  * The mint date as the operator wrote it, or null when unset. Anything that
- * is not a real ISO 8601 date refuses boot — a day that does not exist, a
+ * is not a real ISO 8601 date is rejected — a day that does not exist, a
  * time with no zone, a date in the future — because a date silently ignored
  * or misread would move the expiry warning or switch it off.
  */
@@ -75,6 +75,7 @@ export interface SubscriptionStatus {
   tokenSet: boolean;
   mintedAt: string | null;
   expiresAt: string | null;
+  expiryWarning?: { reason: "invalid_mint_date"; message: string; errorClass: string; at: string };
   /** When the token last demonstrably worked. */
   lastProvenAt: string | null;
   provenBy: "turn" | "model_discovery" | null;
@@ -143,13 +144,23 @@ export function keepSubscriptionProof(db: Database, at: number): void {
 }
 
 /**
- * Validates the configuration (throwing refuses the boot), logs the boot
- * warnings, and starts the daily expiry check.
+ * Rejects invalid dates as unknown expiry, logs the warning, and starts the daily check.
  */
 export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): SubscriptionMonitor {
   const { config, log } = options;
   const now = options.now ?? (() => new Date());
-  const mintedAt = parseMintedAt(config.mintedAt, now());
+  let mintedAt: Date | null = null;
+  let expiryWarning: SubscriptionStatus["expiryWarning"];
+  try { mintedAt = parseMintedAt(config.mintedAt, now()); }
+  catch (error) {
+    expiryWarning = { reason: "invalid_mint_date", message: `expiry unknown: invalid mint date. ${error instanceof Error ? error.message : String(error)}`,
+      errorClass: error instanceof Error ? error.name : "UnknownError", at: now().toISOString() };
+    // Retain the last cause even after the operator corrects the setting.
+    setSetting(options.db, "subscription.invalidMintDate", expiryWarning);
+    log.emit({ severityText: "WARN", body: expiryWarning.message,
+      attributes: { "config.variable": MINTED_AT_ENV, "error.type": expiryWarning.errorClass,
+        "warning.scope": "subscription_expiry", "warning.site": "createSubscriptionMonitor", "warning.at": expiryWarning.at } });
+  }
   const expiresAt = mintedAt ? new Date(mintedAt.getTime() + TOKEN_LIFETIME_MS) : null;
   let lastWarnedAt: number | null = null;
 
@@ -199,7 +210,7 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
     });
   }
 
-  if (config.tokenSet && !mintedAt) {
+  if (config.tokenSet && !mintedAt && !expiryWarning) {
     log.emit({
       severityText: "WARN",
       body:
@@ -260,6 +271,7 @@ export function createSubscriptionMonitor(options: SubscriptionMonitorOptions): 
         tokenSet: config.tokenSet,
         mintedAt: mintedAt?.toISOString() ?? null,
         expiresAt: expiresAt?.toISOString() ?? null,
+        ...(expiryWarning ? { expiryWarning } : {}),
         lastProvenAt: proven ? new Date(proven.at).toISOString() : null,
         provenBy: proven?.by ?? null,
         lastAuthFailure: failures[0] ?? null,
