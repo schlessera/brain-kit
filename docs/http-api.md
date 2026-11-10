@@ -179,6 +179,7 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/status/safety-recording/recover` | S | Owner fallback: clear a latched safety recorder whose producers have stopped | Owner tooling when automatic recovery cannot run; additive #3810 ([contract](integration-contract/http.md#safety-recording-status-additive-3810)). Refuses with 409 `producers_open`, changing nothing, while any safety producer is open. |
 | POST | `/api/status/worker-host` | S | Re-run the agent worker host probe and return what it recorded | React "Check again" and independent monitoring; additive #1632 ([contract](integration-contract/http.md#worker-host-status-additive-1632)). Admits no turn. |
 | POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
@@ -385,6 +386,11 @@ re-records the mode it probed. It never admits or refuses a turn: each turn
 runs its own probe. **POST /api/status/worker-host** is protected, accepts no
 body, re-runs the boot's probes and returns the same `workerHost` object
 ([contract](integration-contract/http.md#worker-host-status-additive-1632)).
+For the owner only, `safetyRecording` reports the brain-wide safety recorder
+(#3810): `{ latched, since, reason, cause, retained, lastRecovery }`. A latch
+is normally cleared by the host itself (#3812); **POST
+/api/status/safety-recording/recover** is the owner's fallback
+([contract](integration-contract/http.md#safety-recording-status-additive-3810)).
 While the server runs as uid 0, `workerHost` also carries
 `rootServer: { warning }` (#1638): the boot log's warning that its workers can
 read root-owned files and connect to root-owned and abstract Unix sockets.

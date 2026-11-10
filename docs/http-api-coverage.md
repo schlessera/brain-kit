@@ -139,6 +139,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/schedules/proposals/:id/approve` | `mounted supported handler: POST /api/schedules/proposals/:id/approve` | K |
 | `POST /api/share` | `mounted supported handler: POST /api/share` | J, Q |
 | `GET /api/status` | `mounted supported handler: GET /api/status` | T |
+| `POST /api/status/safety-recording/recover` | `mounted supported handler: POST /api/status/safety-recording/recover` | T |
 | `POST /api/status/worker-host` | `mounted supported handler: POST /api/status/worker-host` | T |
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
 | `GET /api/voice/overrides` | `mounted supported handler: GET /api/voice/overrides` | N |

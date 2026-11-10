@@ -252,6 +252,38 @@ recorded setup step there. The probe's own requirement is unchanged
 ([additive, #3664](../integration-contract.md#setup-timeouts-name-their-step-additive-0450-3664)).
 Clients must tolerate either mode being absent.
 
+<a id="safety-recording-status-additive-3810"></a>
+
+### Safety recording status and owner recovery (additive, #3810, #3812)
+
+For an owner principal, authenticated `GET /api/status` gains optional
+`safetyRecording`: `{ latched, since, reason, cause, retained, lastRecovery }`.
+`latched` is true while the brain-wide safety recorder is failed. `since` is
+the Unix-millisecond time of the first latch; `reason` is `recording_failed`
+or `capacity`, and `capacity` only when a capacity check refused the write.
+`cause` is the first latch's `{ reason, site, turnId, errorClass, message,
+stack, since, count }`: identifiers and error text only, never message
+content; later latches only increase `count`. `retained` is true when only
+this process holds the loss because its durable notice could not commit.
+`lastRecovery` is the latest `{ trigger, actor, at, gapped, cause }`, where
+`trigger` is `boot`, `automatic` or `owner`. Other principals never receive
+the field.
+
+A brain-wide latch is the exception, not the rule. A failure before delivery
+refuses its one turn; lost evidence after delivery restricts its chat with a
+permanent gap; only an evidence store that cannot take a scoped fact latches
+the brain. While latched, new turns run under their tainted policy with a
+permanent pre-delivery gap, and the host clears the latch by itself once the
+gap facts are durable and the producers that predate it have drained
+([proportionate containment](../decisions/proportionate-containment.md)).
+
+Owner-only `POST /api/status/safety-recording/recover` takes a JSON body
+(ignored), runs the same recovery and answers 200 with `{ recovery,
+safetyRecording }`. It refuses with 409 `{ code: "producers_open", message,
+retryable: true }`, changing nothing, while any safety producer or collection
+is open. Each recovery is recorded with its trigger, actor, time and the cause
+it cleared. Affected chats keep their gaps.
+
 <a id="root-server-warning-additive-1638"></a>
 
 ### Root server warning (additive, #1638)

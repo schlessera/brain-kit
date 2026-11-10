@@ -5,8 +5,12 @@ import type { Database } from "bun:sqlite";
 import type { ContentRendererDeclaration } from "@schlessera/brain-ui-sdk";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
+import type { AppEnv } from "../app-env.js";
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
 import type { BackendBootFailure } from "../agent/backend.js";
+import type { SafetyRecordingStatus, SafetyRecovery } from "../governance/safety-store.js";
+import { requireJson } from "../middleware/origin.js";
+import { requireOwner } from "../middleware/require-owner.js";
 import type { SubscriptionStatus } from "../agent/subscription.js";
 import type { MetricSnapshot } from "../observability/index.js";
 
@@ -56,15 +60,24 @@ interface StatusDeps {
   getSubscription?(): Promise<SubscriptionStatus>;
   /** Re-runs the boot's worker host probes and returns what they recorded (#1632). */
   checkWorkerHost?(): WorkerHostStatus | Promise<WorkerHostStatus>;
+  /** The brain-wide safety recorder: latched, since, reason, first cause (#3810). Owner only. */
+  getSafetyRecording?(): SafetyRecordingStatus;
+  /** Owner fallback for automatic safety-recording recovery (#3810). */
+  recoverSafetyRecording?(actor: string): SafetyRecovery;
 }
 
 // Operational status. Registered BEHIND the auth guard: it exposes the git SHA,
 // cron job errors (raw stderr with filesystem paths), and whether a turn is
 // active — none of which should be readable unauthenticated.
-export function createStatusRoutes(deps: StatusDeps): Hono {
-  return new Hono().get("/status", async (c) => {
+export function createStatusRoutes(deps: StatusDeps): Hono<AppEnv> {
+  return new Hono<AppEnv>().get("/status", async (c) => {
     const backendAvailability = deps.getBackendAvailability?.();
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
+    // The cause names a turn and an error's text: the owner's, not every principal's.
+    let safetyRecording: SafetyRecordingStatus | undefined;
+    if (deps.getSafetyRecording && c.get("principal")?.kind === "owner") {
+      try { safetyRecording = deps.getSafetyRecording(); } catch { safetyRecording = undefined; }
+    }
     const contentRenderers = await deps.getContentRenderers?.(c.req.raw.signal).catch(() => undefined);
     return c.json({
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
@@ -85,6 +98,7 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
       // Whether the subscription token is set, when it expires, when it last
       // worked, and what to do about the last auth failure. Never the token.
       ...(subscription ? { subscription } : {}),
+      ...(safetyRecording ? { safetyRecording } : {}),
     });
   }).post("/status/worker-host", async (c) => {
     // "Check again" (#1632): re-runs the real probes the boot ran and answers
@@ -93,5 +107,17 @@ export function createStatusRoutes(deps: StatusDeps): Hono {
     // every turn still runs its own probe.
     if (!deps.checkWorkerHost) return c.json({ error: "Not found" }, 404);
     return c.json(await deps.checkWorkerHost());
+  }).post("/status/safety-recording/recover", requireOwner(), requireJson(), (c) => {
+    // Runs the same recovery the host runs by itself, with its preconditions:
+    // it refuses, changing nothing, while any safety producer is open.
+    if (!deps.recoverSafetyRecording) return c.json({ error: "Not found" }, 404);
+    c.header("Cache-Control", "no-store");
+    try {
+      const recovery = deps.recoverSafetyRecording(c.get("principal")!.id);
+      return c.json({ recovery, safetyRecording: deps.getSafetyRecording?.() });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ code: /producers/.test(message) ? "producers_open" : "unavailable", message, retryable: true }, 409);
+    }
   });
 }
