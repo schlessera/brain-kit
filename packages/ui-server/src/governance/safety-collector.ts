@@ -14,13 +14,16 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  const marked=(path:string)=>isMarkedUntrusted(db,path);
  const hash=(value:string)=>new Bun.CryptoHasher("sha256").update(value).digest("hex");
  const assertLive=()=>{if(options.signal.aborted)throw new Error("Safety input collection cancelled");};
- const fail=async(error:unknown)=>{
+ // `held`: the failure came from begin(), which the backend awaits before it
+ // runs the tool. A refused reservation there, with a producer that did stop,
+ // delivered nothing: only this turn is refused, its chat keeps no gap (#3812).
+ // A result already exists when result() records it, and the runtime may keep
+ // it in its own session (the Claude runtime replays it on resume), so every
+ // failure there is a loss after delivery and the chat keeps a permanent gap.
+ const fail=async(error:unknown,held=false)=>{
   const failures=[error];
   try{options.stop?.(error instanceof Error?error:new Error(String(error)));}catch(stop){failures.push(stop);}
-  // Every record here commits before the backend releases its input. A
-  // refused reservation with a producer that did stop delivered nothing:
-  // only this turn is refused, and its chat keeps no gap (#3812).
-  if(failures.length===1&&error instanceof SafetyRecordingUnavailable&&error.beforeDelivery)throw error;
+  if(held&&failures.length===1&&error instanceof SafetyRecordingUnavailable&&error.beforeDelivery)throw error;
   try{await writes.safetyFail(options.turnId,error);}
   catch(notice){throw new AggregateError([...failures,notice],`Safety input refused: ${String(error)}; failure notice could not commit`);}
   if(failures.length>1)throw new AggregateError(failures,`Safety input refused: ${String(error)}`);
@@ -53,7 +56,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
      op.occurrences.push(item.id);op.signals.push(signal);
     }
     assertLive();
-   }catch(error){return fail(error);}
+   }catch(error){return fail(error,true);}
   });},
   result(toolUseId,tool,output,finalized,segments){return serial(toolUseId,async()=>{
    assertLive();
@@ -65,12 +68,13 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     // Each separately delivered external result segment has its own exposure.
     for(const _segment of (segments??[]).slice(1))for(const signal of op.signals.filter(signal=>["compute_input","external_mcp_input","attachment_input","tool_web_input"].includes(signal.detector))){
       const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
-      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});op.occurrences.push(item.id);
+      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
-    // Record output independently, before the backend releases any of its bytes.
+    // Record output independently, before the backend releases it to the
+    // model. Its bytes already exist, so a refusal here is never "before delivery".
     for(const signal of outputTaintSignals(tool,output,options.brainPath,marked)){
       const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
-      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});op.occurrences.push(item.id);
+      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
     const state=finalized&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
     for(const id of op.occurrences)await writes.record({...base(),kind:"taint_exposure",dedupeKey:id,payload:{occurrenceId:id,state}});

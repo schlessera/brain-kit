@@ -144,9 +144,12 @@ for(const mode of ["normal","error","blocked","writer-loss"] as const)test(`inst
   expect(f.executed,"SAFETY_PI_REAL_INSTALLED_TOOL_EXECUTED").toBe(mode==="blocked"?0:1);
   if(mode==="writer-loss"){
    expect(f.requests,"SAFETY_PI_RECORDING_LOSS_STOPS_NEXT_PROVIDER_REQUEST").toHaveLength(1);
-   // The result was refused before delivery and its producer stopped: the
-   // turn ends, and nothing it never delivered becomes a gap (#3812).
-   expect(f.controller.signal.aborted,"SAFETY_PI_RECORDING_LOSS_STOPS_THE_TURN").toBe(true);return;
+   expect(f.controller.signal.aborted,"SAFETY_PI_RECORDING_LOSS_STOPS_THE_TURN").toBe(true);
+   // The tool already ran. The host cannot tell a runtime that drops a
+   // refused result from one that keeps it in its session, so the loss
+   // stays with its chat, never treated as before delivery (#3812).
+   expect(f.writes.recordingAvailable("voyage","ithaca"),"SAFETY_PI_REFUSED_RESULT_KEEPS_ITS_LOSS").toBe(false);
+   expect(f.writes.safety(null,"ithaca").coverage.state,"SAFETY_PI_REFUSED_RESULT_NEVER_LOOKS_COMPLETE").toBe("incomplete");return;
   }
   expect(f.requests).toHaveLength(2);
   if(mode!=="blocked")expect(f.events.indexOf("permission")).toBeLessThan(f.events.indexOf("execute"));
