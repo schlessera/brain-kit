@@ -48,7 +48,7 @@ import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
-import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
+import { createSubscriptionMonitor } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, probeWorkerHostRecordedAsync, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
 import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
@@ -131,6 +131,7 @@ import {
   getDefaultModelId,
   getHiddenModelIds,
   getSetting,
+  setSetting,
   getThinkingOverrides,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
@@ -422,22 +423,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (options.registry && Object.keys(backendRequirements ?? {}).length > 0) {
     throw new Error(`Cannot verify host versionRequirements.backends during startup through an injected registry: detected identities unknown; declarations ${JSON.stringify(backendRequirements)}. Use the descriptor-backed default registry, or omit explicit backend requirements.`);
   }
-  // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
-  // first turn — otherwise /api/health reports healthy while every turn is
-  // guaranteed to fail. Descriptor loading and profile validation happen here;
-  // backend construction and model discovery remain lazy.
-  // Skipped when the embedder injects its own registry.
-  if (!options.registry) assertBackendResolvable(config.agent);
-  // An unparseable token mint date refuses here, before anything is opened
-  // (#254): ignoring it would silently switch the expiry warning off.
-  parseMintedAt(config.subscription.mintedAt);
-  // The runtime every active backend would spawn, probed now (#211): a
-  // missing or unstartable binary refuses the boot here instead of failing
-  // the first turn — and before anything is opened, so a refused boot leaves
-  // nothing behind. Skipped with an injected registry, like the check above.
+  // The default must work. A secondary package/runtime failure removes only
+  // that backend; the same exclusion reaches lazy registry construction.
+  const unavailableBackends = options.registry ? [] : assertBackendResolvable(config.agent);
   const runtimeProbes = options.registry
     ? []
-    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements, config.exec);
+    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements, config.exec, unavailableBackends);
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
@@ -539,6 +530,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recovered.retained.length) brainLog.emit({ severityText: "WARN", body: `Managed worktree recovery retained ${recovered.retained.length} unresolved worktree or generation record(s).` });
   }
   assertInboxRecoveryReady(db);
+  const storedBackendFailures = getSetting<typeof unavailableBackends>(db, "boot.backendFailures", []);
+  // Diagnostics cannot turn a malformed historical setting into a new boot gate.
+  const lastBackendFailures = Array.isArray(storedBackendFailures) ? storedBackendFailures.filter(entry => entry
+    && ["claude", "pi"].includes(entry.backendId) && ["resolution", "runtime"].includes(entry.phase)
+    && ["assertBackendResolvable", "probeBackendRuntimes"].includes(entry.site)
+    && typeof entry.message === "string" && typeof entry.errorClass === "string" && typeof entry.at === "string") : [];
+  for (const failure of unavailableBackends) {
+    const previous = lastBackendFailures.findIndex(entry => entry.backendId === failure.backendId);
+    if (previous < 0) lastBackendFailures.push(failure); else lastBackendFailures[previous] = failure;
+    observability.logger("agent").emit({ severityText: "WARN", body: `Backend ${failure.backendId} unavailable: ${failure.message}`,
+      attributes: { "backend.id": failure.backendId, "boot.phase": failure.phase, "boot.site": failure.site, "error.type": failure.errorClass,
+        "boot.at": failure.at, "boot.scope": "backend" } });
+  }
+  if (unavailableBackends.length) setSetting(db, "boot.backendFailures", lastBackendFailures);
+  const backendAvailability = { unavailable: unavailableBackends, lastFailures: lastBackendFailures };
   // One package-local pricing instance, shared by admission and Activity.
   // Refresh warms in the background; resolve() is synchronous and rollups
   // never wait on the network.
@@ -628,6 +634,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       exec: config.exec,
       maintenance: boundary.maintenance,
       versionRequirements: backendRequirements,
+      unavailableBackends,
       brainPath: config.brainPath,
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
@@ -710,7 +717,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
   // Idle passes keep the observer initialized and current, and expire old
   // turns, off the next admission's path (#3355).
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000,
+  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000, log: brainLog,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
@@ -1009,7 +1016,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // probe and the login/logout routes are reachable without a session.
   // /api/status is intentionally NOT here — it leaks the git SHA, cron errors,
   // and a session oracle, so it lives behind the guard below.
-  app.route("/api", createHealthRoutes({ db }));
+  app.route("/api", createHealthRoutes({ db, degradedReasons: () => unavailableBackends.length ? ["backend_unavailable"] : [] }));
   // Not under /api, and not behind the guard: this is where a system share
   // lands when no service worker was around to intercept it. See the route.
   app.route("/", shareTargetFallbackRoutes);
@@ -1055,7 +1062,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route(
     "/api",
     createStatusRoutes({
+      getJournalRecovery: () => journal.recoveryStatus(),
+      getJournalCleanup: () => journal.cleanupStatus(),
       sourceCommit: config.sourceCommit,
+      getBackendAvailability: () => backendAvailability,
+      getNativeRecovery: () => nativeReady.recovery,
       getContentRenderers: async signal => brain.modules ? declaredContentRenderers((await brain.modules({ signal })).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
@@ -1213,8 +1224,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createModelRoutes({ registry, db, settingsWrites, pricing, log: observability.logger("models") })
   );
-  app.route("/api", createPiAuthRoutes({ agent: config.agent }));
-  app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  // A backend excluded at boot never executes, including its auth and extension services (#3817).
+  const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
+  app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
+  app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
   const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });

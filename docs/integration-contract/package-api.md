@@ -342,6 +342,13 @@ full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
 already uses for Open diagram. The framed diagram renderer's header uses it.
 No existing key, glyph or component changes.
 
+## UI-kit backspace icon (additive, 0.45.0, #3762)
+
+The semantic `IconName` gains `backspace`: discard what is held, as a
+keyboard's backspace key does. It draws lucide's `Delete`, the backspace-key
+glyph. The voice field's Discard draft control uses it. No existing key, glyph
+or component changes. This ships in a minor.
+
 ## UI-kit Button reach (additive #3252)
 
 `ButtonProps.reach?: boolean`, when the Button has `onClick`, adds the kit's
@@ -806,6 +813,13 @@ receipts; pi counts completed assistant `message_end` receipts, excluding aborte
 and error answers. Server checkpoint settlement uses these receipts as described
 in the [budget guide](../inbox-budget.md). Backends without this optional reporting
 retain conservative missing-receipt settlement.
+
+The additive server-only `BackendActivityEvent` variant `worker_cleanup`
+(#3815) contains `{ state: "retrying" | "resolved", bytes, turnTempBytes,
+errorClass?, message? }`. Both backends report retained cleanup allowances and
+their confirmation, including after a turn ends. The host records these as
+`worker_cleanup` Activity events on the original run without changing its
+terminal outcome. They never enter provider history and add no client frame.
 
 The additive server-only `BackendActivityEvent` variant `resource_limit`
 (#1660) contains `{ limits, fatal }`: each new host resource-limit hit of the
@@ -5172,3 +5186,37 @@ model tool or publication seam. Historical receipt projections and fresh
 its read-only reason additionally accepts `owner_required` or null; optional
 literal review lifetime/body bounds describe a supporting host. Absent or
 unsupported capability remains unavailable and grants no mutation authority.
+
+### Native recovery quarantine status (#3816)
+
+`NativeManagerReady` gains optional `recovery` with `quarantinedIntents`,
+`stagingChargedBytes` (null when no safe stage bound is known) and
+`diagnosticsPath`. It is present when historical native
+intents cannot be read. Those identities remain fenced; staging capacity and
+unknown checkpoint dependencies remain charged. The manager serves readiness
+and unrelated checkpoint operations. A recovery page containing a quarantined
+identity refuses explicitly rather than reporting an incomplete inventory as
+complete. Causes remain in the host-private diagnostics directory. Authenticated
+`GET /api/status` exposes the boot report as optional `nativeRecovery`, also
+added to `SystemStatus`. A null staging charge makes `healthy` false and new
+staging returns a recovery refusal, not a retryable capacity error. A confirmed
+absent stage directory or invalid UUID charges zero; a surviving stage retains
+its independently persisted historical tmpfs cap. Public `/api/health` remains
+unchanged.
+
+The journal host's additive `cleanupStatus()` method (#3815) returns
+`{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
+current accounting and historical diagnostic record exposed as
+[`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).
+
+
+### Unresolved recovery summaries (#3826)
+
+`NativeManagerReady.recovery` and `SystemStatus.nativeRecovery` add optional
+`stagingRefusal`, a recovery explanation when quarantine prevents admission of
+the configured allowance. The manager tests each stage's actual allowance
+before classifying its refusal. `JournalRecoveryStatus` and optional
+`SystemStatus.journalRecovery` expose the count and first cause of unresolved
+object reservations from boot. The journal host adds `recoveryStatus()` returning
+that summary. Fields and recovery semantics are in the
+[HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).

@@ -3,8 +3,12 @@
 Read this when the implementation has a PR. Commands were checked against
 installed `gh` help; use their help again if an interface changes.
 Use finite queries/log exports and bounded waits, with user updates during
-monitoring. Prefix commands with `rtk proxy` as the session's RTK instructions
-require. The CI policy these commands check is
+monitoring. Write commands plainly: where `rtk` is installed, its hook
+compresses their output without being asked, and a `rtk proxy` or `rtk bypass`
+prefix switches that off. `bun scripts/pr-status.ts <pr>` reads a pull
+request's head, live base, checks, `proof` and failures in one line of JSON;
+the raw `gh` commands below are what it reads, for when you need more than it
+prints. The CI policy these commands check is
 [docs/process/testing.md](../../../../docs/process/testing.md#required-proof-for-a-pr).
 
 Green is a claim about a SHA, not about `main`. A commit pushed to a branch
@@ -85,24 +89,21 @@ blocks with shell error checking enabled; a failed comparison stops the merge
 decision. PR `baseRefOid` is not a substitute for the live Git reference.
 
 ```sh
-verified_head=$(rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json headRefOid --jq .headRefOid)
-verified_base=$(rtk proxy gh api repos/schlessera/brain-kit/git/ref/heads/main \
-  --jq .object.sha)
-rtk proxy git fetch origin main
-rtk proxy test "$(rtk proxy git rev-parse origin/main)" = "$verified_base"
-rtk proxy git show --no-patch --format='%H %P %T' "$verified_base"
-rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json state,isDraft,headRefOid,baseRefName,mergeable,mergeStateStatus,reviewDecision,url
-rtk proxy gh api 'repos/schlessera/brain-kit/commits/<head-sha>/check-runs' \
-  --paginate --jq '.check_runs[] | {name,status,conclusion,details_url}'
-rtk proxy gh api 'repos/schlessera/brain-kit/commits/<head-sha>/status' \
-  --jq '{state,statuses:[.statuses[] | {context,state,target_url}]}'
-rtk proxy gh pr checks <pr> --repo schlessera/brain-kit \
-  --json name,state,bucket,link,workflow
-rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json headRefOid,statusCheckRollup
+bun scripts/pr-status.ts <pr>
+git fetch origin main
+git show --no-patch --format='%H %P %T' <liveBase>
 ```
+
+Take `verified_head` from `head` and `verified_base` from `liveBase`: the
+script queries the base branch's live Git ref itself, independently of the
+pull request's own base field. `mergeRef.current` says whether GitHub's
+synthetic merge commit has exactly that base and that head as its parents;
+`false` is the stale-base case described below. `checks.total` of zero means
+CI has not started on this head, which is not green; `proof` is `passed` only
+for a successful `proof` check on this head; `receipt` says whether the body
+carries a `check:pr` receipt. When you need a single check's details, the
+underlying reads are `gh pr view <pr> --json statusCheckRollup` and
+`gh api 'repos/schlessera/brain-kit/commits/<head-sha>/check-runs'`.
 
 Record `headRefOid` for this inspection and re-read it before deciding. After
 a push/rebase/conflict resolution, inspect the new SHA from scratch. If CI
@@ -142,13 +143,15 @@ For GitHub Actions, follow the check's run link and inspect its SHA, event,
 attempt, jobs and failed steps. These commands help locate and diagnose it:
 
 ```sh
-rtk proxy gh run list --repo schlessera/brain-kit --commit <head-sha> \
-  --limit 100 --json databaseId,headSha,status,conclusion,workflowName,event,url
-rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
-  --json headSha,status,conclusion,jobs,url,attempt
-rtk proxy gh run view <run-id> --repo schlessera/brain-kit \
-  --attempt <attempt-number> --log-failed
+bun scripts/pr-status.ts <pr> --failures --logs <dir>
+gh run view <run-id> --repo schlessera/brain-kit --json headSha,status,conclusion,jobs,url,attempt
+gh run view <run-id> --repo schlessera/brain-kit --attempt <attempt-number> --log-failed
 ```
+
+The first command names every failed job of the head's runs with its failed
+steps, saves each job's log under `<dir>` and prints only its failing lines;
+read the saved log when those lines are not enough. `runs` in the plain
+`pr-status` output lists each run's id, workflow, event and attempt.
 
 A run list alone does not establish all PR checks; use the check links for
 ruleset or synthetic-merge runs omitted by the head-SHA filter.
@@ -161,7 +164,7 @@ are explicitly allowed, even when stdout is redirected. Export those logs to
 a file rather than printing the escaped response in a terminal:
 
 ```sh
-rtk proxy gh api --allow-escape-sequences \
+gh api --allow-escape-sequences \
   'repos/schlessera/brain-kit/actions/jobs/<job-id>/logs' > /tmp/ci-job.log
 ```
 
@@ -175,13 +178,13 @@ two-parent PR merge checkout, verify immutable parents and retain its tree:
 
 ```sh
 ci_checkout=<sha-from-actual-checkout-log>
-rtk proxy gh api "repos/schlessera/brain-kit/git/commits/$ci_checkout" \
+gh api "repos/schlessera/brain-kit/git/commits/$ci_checkout" \
   --jq '{sha,parents:[.parents[].sha],tree:.tree.sha}'
-rtk proxy git fetch origin "$ci_checkout"
-rtk proxy git show --no-patch --format='%H %P %T' "$ci_checkout"
-rtk proxy test "$(rtk proxy git show -s --format=%P "$ci_checkout")" \
+git fetch origin "$ci_checkout"
+git show --no-patch --format='%H %P %T' "$ci_checkout"
+test "$(git show -s --format=%P "$ci_checkout")" \
   = "$verified_base $verified_head"
-verified_tree=$(rtk proxy git rev-parse "$ci_checkout^{tree}")
+verified_tree=$(git rev-parse "$ci_checkout^{tree}")
 ```
 
 The local object must agree with the immutable API receipt. Reconcile all
@@ -297,12 +300,15 @@ targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
 that must show the record's failing test files red on the exact base and green
 on the exact head, waits for the exact-head fast invariants and squashes under
 the reservation. It refuses category-level failures; use ordinary confirmation
-for those. Never merge a red-main fix any other way
+for those, and the fix's own main run proves a post-merge category. Never merge a red-main fix any other way
 ([expedited red-main fixes](../../../../docs/decisions/ci-utility.md#expedited-red-main-fixes)).
 
-While main is red, `confirm` and `merge` refuse every PR that is not a
-declared fix, and hosted proof containing the bad commit is refused or
-cancelled. Do not retry it; follow [the red-main incident steps](red-main.md)
+While main is red in a fast category (or with an unknown failure set),
+`confirm` and `merge` refuse every PR that is not a declared fix, and hosted
+proof containing the bad commit is refused or cancelled. Red confined to
+post-merge categories (runtime, runtime_host, browser, layout, captures,
+endurance) refuses nothing
+([hybrid ruling](../../../../docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)). Do not retry it; follow [the red-main incident steps](red-main.md)
 and resume when `main-status` reports green. A fix or targeted revert PR for
 the incident is declared with `bun scripts/integrate.ts declare-fix <pr>` and
 then uses this same reservation and merge procedure.
@@ -322,15 +328,13 @@ Immediately re-read head/state/reviews/checks and query live main again.
 Keep the verified head/base/tree from the passing combined-state inspection:
 
 ```sh
-current_head=$(rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
-  --json headRefOid --jq .headRefOid)
-current_base=$(rtk proxy gh api repos/schlessera/brain-kit/git/ref/heads/main \
-  --jq .object.sha)
-rtk proxy git fetch origin main
-rtk proxy test "$(rtk proxy git rev-parse origin/main)" = "$current_base"
-rtk proxy test "$current_head" = "$verified_head"
-rtk proxy git diff --name-only "$verified_base" "$current_base"
+bun scripts/pr-status.ts <pr> --expect-head "$verified_head" --expect-base "$verified_base"
+git fetch origin main
 ```
+
+It exits 1 when either moved. `unchanged` says which, and `baseGained` lists
+how many files the base gained and which of them this pull request also
+changes.
 
 A head mismatch requires new inspection. A base mismatch requires assessment of
 the missing commits and new confirmation: request candidate confirmation for the new base; a rebase is needed only when the change requires it. Record unrelated advancement and retain the original tested base/tree;
@@ -339,16 +343,16 @@ passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
 
 ```sh
-rtk proxy bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> --token <holder-token> \
+bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> --token <holder-token> \
   --issues schlessera/brain-kit#<advanced-issue>
-rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
+gh pr view <pr> --repo schlessera/brain-kit \
   --json state,mergeCommit,mergedAt,headRefOid,url
-rtk proxy git fetch origin
-rtk proxy git merge-base --is-ancestor <merge-commit-sha> origin/main
-rtk proxy git show --no-patch --format='%H %P %T' <merge-commit-sha>
-rtk proxy test "$(rtk proxy git show -s --format=%P <merge-commit-sha>)" \
+git fetch origin
+git merge-base --is-ancestor <merge-commit-sha> origin/main
+git show --no-patch --format='%H %P %T' <merge-commit-sha>
+test "$(git show -s --format=%P <merge-commit-sha>)" \
   = "$verified_base"
-rtk proxy test "$(rtk proxy git rev-parse <merge-commit-sha>^{tree})" \
+test "$(git rev-parse <merge-commit-sha>^{tree})" \
   = "$verified_tree"
 ```
 

@@ -131,7 +131,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:28-45`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
-- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1019`) follows public routes;
+- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:1040`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:184-244`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
 - **Permission parking:** (`const requestPermission`, `packages/ui-server/src/ws/bridge-capabilities/permissions.ts:19-188`). Timeout unwind is
@@ -154,7 +154,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:218-286`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:101`) assigns the source in server code.
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2589`) bounds text, not binary uploads;
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2692`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
 - **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1346-1358`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
@@ -807,7 +807,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2589`). Budget: **40k input tokens per
+  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2692`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it

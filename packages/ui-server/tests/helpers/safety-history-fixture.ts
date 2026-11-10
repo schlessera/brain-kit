@@ -24,6 +24,8 @@ import { createSessionCatalog } from "../../src/ws/session-catalog";
 import { createStaticBackendRegistry } from "../../src/agent/backend";
 import { makeFakeBackend } from "./fake-backend";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+
+const FRAME_DEADLINE_MS = 15_000;
 export async function safetyHistoryFixture(bound=true,review=false,mode:AuthMode="password"){
   const root=mkdtempSync(join(tmpdir(),"odysseus-safety-history-")),path=join(root,"ui.db"),db=createUiDb(path),writer=openSqliteWriter(db);
   const writes=createGovernanceWrites(db,writer),principal=createPrincipal(db,{authMethod:"password",label:"Odysseus",ttlSeconds:3600});
@@ -61,7 +63,10 @@ export async function safetyHistoryFixture(bound=true,review=false,mode:AuthMode
     ws.addEventListener("message",e=>{frames.push(JSON.parse(String(e.data)));for(const wake of listeners)wake();});
     const until=(predicate:(m:ServerMessage)=>boolean)=>new Promise<ServerMessage>((resolve,reject)=>{
       const check=()=>{const index=frames.findIndex(predicate);if(index<0)return;const frame=frames.splice(index,1)[0]!;clearTimeout(timer);listeners.delete(check);resolve(frame);};
-      const timer=setTimeout(()=>{listeners.delete(check);reject(new Error("Safety frame deadline"));},3000);listeners.add(check);check();});
+      // The deadline only turns a missing frame into a fast failure. 3 s was
+      // shorter than a loaded parallel CI shard needs to deliver a real frame
+      // (#3845); every assertion is unchanged.
+      const timer=setTimeout(()=>{listeners.delete(check);reject(new Error("Safety frame deadline"));},FRAME_DEADLINE_MS);listeners.add(check);check();});
     const hello=await until(m=>m.type==="server_hello");ws.send(JSON.stringify({type:"client_hello",protocolRev:5,capabilities:{sessionSafetyHistory:true}}));
     return {ws,frames,until,hello,send:(v:unknown)=>ws.send(JSON.stringify(v))};
   };

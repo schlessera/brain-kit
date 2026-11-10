@@ -1146,6 +1146,10 @@ Original fragment identities remain available at this entry point.
 
 - [ui-server HTTP routes](integration-contract/http.md#ui-server-http-routes) (original line 1943).
 
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+- [Degraded backend availability and unknown expiry (additive, #3817)](integration-contract/http.md#degraded-backend-availability-and-unknown-expiry-additive-3817).
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 - [Published React health and sync helpers (breaking health correction)](integration-contract/http.md#published-react-health-and-sync-helpers-breaking-health-correction) (original line 1964).

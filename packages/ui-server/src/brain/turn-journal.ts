@@ -1,4 +1,6 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
+import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
@@ -22,6 +24,10 @@ import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENC
 import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
+
+import { getSetting } from "../db/settings.js";
+import { createSettingsWrites } from "../db/settings-writes.js";
+import { createOffloopActivityStore } from "../activity/store-writes.js";
 
 import { queryGovernanceEvents } from "../governance/events.js";
 
@@ -93,6 +99,8 @@ export interface TurnJournalOptions {
    * next admission does not. Absent, all of that waits for an admission.
    */
   idleObservationMs?: number;
+  /** Structured log for cleanup retries; absent, they are recorded durably only. */
+  log?: Logger;
 }
 
 export function createTurnJournal(db: Database, options: TurnJournalOptions) {
@@ -105,16 +113,17 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const ownWriter = !options.writer;
   const ledger = writer.channel<JournalStoreOptions>(journalStore, { dbPath: options.dbPath, objectsRoot: options.objectsRoot, ...(options.capBytes !== undefined ? { capBytes: options.capBytes } : {}) }, reviveJournalError);
   if (writer.offloop) installEscapeGuard(db);
+  let recoveryStatus: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
   /** Startup recovery commits before any later write; `ready` reports its refusal. */
   const ready = (async () => {
     await ledger.ready;
-    await ledger.call("recover");
+    recoveryStatus = await ledger.call<JournalRecoveryStatus>("recover");
     // Governance events live in the UI database; a commit split between the
     // two files is completed from the journal's rows (#2789).
     await createGovernanceWrites(db, writer).replaySteering();
-    const interrupted = (db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[])
+    const interrupted = (db.query("SELECT turn_id,pid,pid_start,missing FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string; missing: string }[])
       .filter(row => !processAlive(row.pid, row.pid_start));
-    for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
+    for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([...JSON.parse(row.missing), { path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
     // Index bytes earlier releases retained are purged once, a step per
     // commit, after interrupted turns have ended (#2903). A refused step is
     // left for the next open; until then history already presents them as
@@ -172,21 +181,23 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       await reservation.release(); throw error;
     }
   } };
-  /**
-   * A previous checkpoint is released after the observation that superseded it
-   * committed, and the hold does not wait for it (#2872). A failed release keeps
-   * the outcome it had inside the hold: every active turn stops and its record
-   * is partial, a hold it overlaps kills its held workers instead of resuming
-   * them, and an admission requested before it is refused.
-   */
-  let releaseFailures = 0;
-  const releaseFailed = (error: unknown) => {
-    releaseFailures++;
-    const failure = storageError(error);
-    for (const [id, turn] of active) {
-      void fail(id, failure).catch(() => {});
-      try { turn.stop(failure); } catch { /* Continue stopping every participant. */ }
+  const cleanupActivity = createOffloopActivityStore(db, writer);
+  const cleanupSettings = createSettingsWrites(db, writer);
+  /** Superseded checkpoint cleanup reclaims space; its committed observation remains valid. */
+  const releaseFailed = (error: unknown, checkpointId: string) => {
+    const notice = { kind: "checkpoint_release_retry", checkpointId, at: now(), scope: "superseded_checkpoint",
+      errorClass: error instanceof Error ? error.name : "UnknownError", cause: String(error).slice(0, 2000), retrying: true };
+    options.log?.emit({ severityText: "WARN", body: `Superseded checkpoint ${checkpointId} release failed; retrying`,
+      attributes: { "journal.cleanup.scope": notice.scope, "journal.cleanup.checkpoint": checkpointId, "error.type": notice.errorClass, "journal.cleanup.retrying": true } });
+    tracked(Promise.resolve(cleanupSettings.setSetting("journal.cleanup.lastFailure", notice))).catch(() => {});
+    // The root span is kept with the turn in authenticated Activity, even
+    // though its observation is complete and its workers keep running.
+    const ids = [...active.keys()];
+    if (!ids.length) {
+      const latest = db.query("SELECT turn_id FROM turn_journal_turns ORDER BY started_at DESC LIMIT 1").get() as { turn_id: string } | null;
+      if (latest) ids.push(latest.turn_id);
     }
+    for (const id of ids) tracked(Promise.resolve(cleanupActivity.appendEvent(`${id}:turn`, "checkpoint_release_retry", notice))).catch(() => {});
   };
   const capture = createNativeJournalCapture(options.nativeManager, retainVersion, {}, readIdentity, undefined, releaseFailed);
   /**
@@ -202,11 +213,38 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   /** Managed worktrees a running turn's workers can reach, each observed as its own root. */
   const worktrees = new Map<string, { turnId: string; capture: ReturnType<typeof createNativeJournalCapture>; policy: NativeJournalPolicy }>();
+  /** Closed captures still own their failed releases after their turn ends. */
+  const retiredWorktrees = new Set<ReturnType<typeof createNativeJournalCapture>>();
+  const worktreeCloses = new Map<ReturnType<typeof createNativeJournalCapture>, Promise<void>>();
+  let worktreeRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let worktreeRetry: Promise<void> | undefined;
+  function retryWorktreesLater(): void {
+    if (closing || worktreeRetryTimer || worktreeRetry || !retiredWorktrees.size) return;
+    worktreeRetryTimer = setTimeout(() => {
+      worktreeRetryTimer = undefined;
+      worktreeRetry = (async () => {
+        for (const root of [...retiredWorktrees]) {
+          if (closing) break;
+          await retireWorktree(root);
+        }
+      })().finally(() => { worktreeRetry = undefined; retryWorktreesLater(); });
+    }, 30_000);
+    worktreeRetryTimer.unref?.();
+  }
+  function retireWorktree(root: ReturnType<typeof createNativeJournalCapture>): Promise<void> {
+    const pendingClose = worktreeCloses.get(root);
+    if (pendingClose) return pendingClose;
+    retiredWorktrees.add(root);
+    const work = root.close().then(() => { retiredWorktrees.delete(root); }, () => {
+      // Keep the capture, its charge and its recorded cause until deletion is confirmed.
+    }).finally(() => { worktreeCloses.delete(root); retryWorktreesLater(); });
+    worktreeCloses.set(root, work);
+    return work;
+  }
   async function dropWorktrees(turnId?: string) {
     for (const [id, root] of [...worktrees]) if (turnId === undefined || root.turnId === turnId) {
       worktrees.delete(id);
-      // A checkpoint this cannot release stays a held lease; startup recovery releases it.
-      await root.capture.close().catch(() => {});
+      await retireWorktree(root.capture);
     }
   }
   let tail: Promise<unknown> = Promise.resolve();
@@ -246,7 +284,6 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     let acquired = 0;
     try { for (const holder of holders) { acquired++; holder.before(); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false); return Promise.reject(error); }
-    const releasesBefore = releaseFailures;
     return serialize(async () => {
       let completed = false;
       const failedBefore = observationFailures;
@@ -254,8 +291,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       finally {
         // A cancelled/refused new admission made no worker writes. Existing
         // participants resume when their shared observation itself succeeded,
-        // and no release failed while they were held.
-        const safe = (completed || admission && observationFailures === failedBefore) && releaseFailures === releasesBefore;
+        // even if reclaiming a superseded checkpoint failed.
+        const safe = (completed || admission && observationFailures === failedBefore);
         holds--; for (const holder of holders) holder.after(safe);
       }
     });
@@ -398,7 +435,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       try { separate.push({ worktreeId, turnId: root.turnId, observation: await root.capture.observe(new Map([[root.turnId, root.policy]])) }); }
       catch (error) {
         // Only the holding turn depends on this root: it stops, and its record stays partial.
-        worktrees.delete(worktreeId); void root.capture.close().catch(() => {});
+        worktrees.delete(worktreeId); void tracked(retireWorktree(root.capture));
         const failure = storageError(error);
         const recorded = fail(root.turnId, failure).catch(() => { /* The partial slot remains authoritative. */ });
         try { holder.stop(failure); } catch { /* Continue with the other participants. */ }
@@ -463,8 +500,6 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void, signal?: AbortSignal,
       /** Each step of the admission (#3355); a failed step is left unended. */ timing?: PhaseTimer) {
-      // Taken when the admission is requested, before it queues behind other journal work.
-      const releasesBefore = releaseFailures;
       const waited = timing?.("hold_wait");
       return held(async () => {
       waited?.();
@@ -489,8 +524,6 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const policy = await capture.policy(metadata.coveredPaths);
       end?.();
       signal?.throwIfAborted();
-      // A release that failed during this admission refuses it, as it did when it failed this admission's observation.
-      if (releaseFailures !== releasesBefore) throw new JournalStorageUnavailable("a native checkpoint release failed during admission");
       active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
@@ -571,19 +604,35 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         const policy = await root.policy();
         signal?.throwIfAborted();
         worktrees.set(worktreeId, { turnId, capture: root, policy });
-      } catch (error) { await root.close().catch(() => {}); throw signal?.aborted ? error : storageError(error); }
+      } catch (error) { await retireWorktree(root); throw signal?.aborted ? error : storageError(error); }
     }); },
     /** Worktrees an active turn's journal observes. */
     worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id); },
     isHeld(): boolean { return holds > 0; },
+    /** Unresolved object verification from the most recent boot recovery pass. */
+    recoveryStatus(): JournalRecoveryStatus { return recoveryStatus; },
+    /** Current retained charges, plus the durable historical cause even before any turn existed. */
+    cleanupStatus() {
+      const retained = capture.releases();
+      for (const root of [...worktrees.values()].map(root => root.capture).concat([...retiredWorktrees])) {
+        const other = root.releases();
+        retained.pending += other.pending; retained.failed += other.failed; retained.retainedBytes += other.retainedBytes;
+      }
+      return { retained, lastFailure: getSetting<unknown>(db, "journal.cleanup.lastFailure", null) };
+    },
     /** @internal Settles once every previous checkpoint handed to release so far has been attempted (#2872). */
     async releasesSettled(): Promise<void> {
+      await worktreeRetry;
       await capture.releasesSettled();
       for (const root of worktrees.values()) await root.capture.releasesSettled();
+      for (const root of retiredWorktrees) await root.releasesSettled();
     },
     async idle(): Promise<void> {
       let waiting: Promise<unknown>;
       do { waiting = tail; await waiting; } while (waiting !== tail);
+      // Background worktree cleanup (#3825) is not awaited here: every turn's
+      // host effects wait on idle(), and one ended turn's slow release must not
+      // delay them. releasesSettled() waits for it.
       await Promise.allSettled([...unserialized]);
     },
     /** Settles once startup recovery has run; rejects with its refusal. */
@@ -610,7 +659,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
         await write([
           ...(failures.has(turnId) ? [statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", failures.get(turnId)!.padEnd(64), turnId)] : []),
-          statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' THEN state ELSE 'complete' END WHERE turn_id=?", now(), turnId),
+          statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' OR missing!='[]' THEN 'partial' ELSE 'complete' END WHERE turn_id=?", now(), turnId),
           statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
           statement("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash)) AND NOT EXISTS (SELECT 1 FROM turn_journal_claude_memory m WHERE m.turn_id=? AND m.state!='saved' AND (json_extract(m.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(m.after_json,'$.hash')=turn_journal_object_refs.hash))", turnId, turnId, turnId),
         ]);
@@ -636,7 +685,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }); },
     hasRetainedVersion(turnId: string, selected: JournalVersion): boolean {
       if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
-      if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)) return false;
+      if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)
+        || db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(selected.hash)) return false;
       try { return objects.verify(selected.hash, selected.bytes); } catch { return false; }
     },
     /**
@@ -750,7 +800,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);
       const selected = change?.[side];
-      if (!selected?.hash || selected.metadataOnly || details?.summary.state === "expired") return null;
+      if (!selected?.hash || selected.metadataOnly || details?.summary.state === "expired"
+        || db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(selected.hash)) return null;
       return { selected, bytes: (maxBytes: number) => objects.read(selected.hash!, maxBytes), async stream() {
         const lease = await call<string>("openRead", selected.hash!);
         const release = () => releaseRead(lease);
@@ -761,9 +812,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     maintain,
     async close() {
       closing = true; clearInterval(idleTimer); shutdown.abort(new Error("turn journal closed"));
+      clearTimeout(worktreeRetryTimer); worktreeRetryTimer = undefined;
       clearInterval(scopeTimer);
-      try { await tail; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
-      finally { objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
+      try { await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
+      finally { await Promise.allSettled([...unserialized]); objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
     },
   };
 }

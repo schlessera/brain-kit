@@ -53,6 +53,12 @@ interface PiAuthMirror {
 
 interface PiAuthRoutesDeps {
   agent: AgentConfig;
+  /**
+   * True while boot excluded pi as unavailable (#3817). An excluded backend
+   * never executes, so its OAuth service is not loaded either: the routes
+   * answer as if pi were not configured.
+   */
+  excluded?: () => boolean;
   /** Test seam — forwarded to loadBackendModule. */
   importer?: (specifier: string) => Promise<unknown>;
 }
@@ -77,7 +83,8 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
   }
 
   const piConfigured = () =>
-    Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi";
+    (Boolean(agent.piProfilesJson) || (agent.backend || "claude") === "pi") && !deps.excluded?.();
+  const notConfigured = { error: "The pi backend is not configured." } as const;
 
   // One service for the app's lifetime: it owns the pending-flow state.
   let authPromise: Promise<PiAuthMirror> | null = null;
@@ -118,9 +125,7 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
         providerId?: unknown;
       } | null;
       const providerId = typeof body?.providerId === "string" ? body.providerId : "";
-      if (!piConfigured()) {
-        return c.json({ error: "The pi backend is not configured." }, 409);
-      }
+      if (!piConfigured()) return c.json(notConfigured, 409);
       if (!providerId || !(await allowedProviders()).includes(providerId)) {
         return c.json({ error: "Unknown provider." }, 400);
       }
@@ -137,12 +142,14 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
       }
     })
     .get("/pi-auth/login/:id", async (c) => {
+      if (!piConfigured()) return c.json(notConfigured, 409);
       const auth = await getAuth();
       const flow = auth.getFlow(c.req.param("id"));
       if (!flow) return c.json({ error: "Unknown login flow." }, 404);
       return c.json({ flow });
     })
     .delete("/pi-auth/login/:id", async (c) => {
+      if (!piConfigured()) return c.json(notConfigured, 409);
       const auth = await getAuth();
       auth.cancelFlow(c.req.param("id"));
       return c.json({ ok: true });
@@ -154,6 +161,7 @@ export function createPiAuthRoutes(deps: PiAuthRoutesDeps): Hono {
         providerId?: unknown;
       } | null;
       const providerId = typeof body?.providerId === "string" ? body.providerId : "";
+      if (!piConfigured()) return c.json(notConfigured, 409);
       if (!providerId || !(await allowedProviders()).includes(providerId)) {
         return c.json({ error: "Unknown provider." }, 400);
       }

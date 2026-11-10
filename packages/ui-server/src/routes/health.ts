@@ -3,9 +3,10 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
 import type { ContentRendererDeclaration } from "@schlessera/brain-ui-sdk";
-import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
+import type { BackendBootFailure } from "../agent/backend.js";
 import type { SubscriptionStatus } from "../agent/subscription.js";
 import type { MetricSnapshot } from "../observability/index.js";
 
@@ -22,15 +23,17 @@ const startTime = Date.now();
 // SELECT 1 — a constant expression touches no page of the database file, so it
 // cannot notice a locked or corrupted one. The unhealthy body carries no
 // detail — the route is public.
-export function createHealthRoutes(deps: { db: Database }): Hono {
+export function createHealthRoutes(deps: { db: Database; degradedReasons?(): string[] }): Hono {
   return new Hono().get("/health", (c) => {
     try {
       deps.db.query("SELECT name FROM sqlite_master LIMIT 1").get();
     } catch {
       return c.json({ status: "unhealthy" }, 503);
     }
+    const reasons = deps.degradedReasons?.() ?? [];
     return c.json({
-      status: "healthy",
+      status: reasons.length ? "degraded" : "healthy",
+      ...(reasons.length ? { reasons } : {}),
       uptime: Date.now() - startTime,
       timestamp: new Date().toISOString(),
     });
@@ -38,6 +41,11 @@ export function createHealthRoutes(deps: { db: Database }): Hono {
 }
 
 interface StatusDeps {
+  /** Retained checkpoint cleanup and its durable historical cause. */
+  getJournalCleanup?(): unknown;
+  getBackendAvailability?(): { unavailable: BackendBootFailure[]; lastFailures: BackendBootFailure[] };
+  getJournalRecovery?(): SystemStatus["journalRecovery"];
+  getNativeRecovery?(): SystemStatus["nativeRecovery"];
   /** Trusted metadata from configured modules; absent with an older CLI. */
   getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
@@ -59,11 +67,18 @@ interface StatusDeps {
 // active — none of which should be readable unauthenticated.
 export function createStatusRoutes(deps: StatusDeps): Hono {
   return new Hono().get("/status", async (c) => {
+    const backendAvailability = deps.getBackendAvailability?.();
+    const journalRecovery = deps.getJournalRecovery?.();
+    const nativeRecovery = deps.getNativeRecovery?.();
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
     const contentRenderers = await deps.getContentRenderers?.(c.req.raw.signal).catch(() => undefined);
     return c.json({
+      ...(journalRecovery ? { journalRecovery } : {}),
+      ...(nativeRecovery ? { nativeRecovery } : {}),
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
-      healthy: true,
+      healthy: !backendAvailability?.unavailable.length && nativeRecovery?.stagingChargedBytes !== null && !nativeRecovery?.stagingRefusal && !journalRecovery?.unresolvedRecords,
+      ...(backendAvailability ? { backendAvailability } : {}),
+      ...(deps.getJournalCleanup ? { journalCleanup: deps.getJournalCleanup() } : {}),
       uptime: Date.now() - startTime,
       version: deps.sourceCommit,
       software: { release: packageInfo.version, sourceCommit: deps.sourceCommit },
