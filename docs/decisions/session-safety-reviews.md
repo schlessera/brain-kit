@@ -72,6 +72,39 @@ and failure capacity before ingestion; stop/restrict before overflow loses a
 signal. A failed pending write must not disappear into apparently normal state,
 including across restart. No test count or arbitrary cleanup TTL proves safety.
 
+### A recording failure restricts what it puts at risk (#3812)
+
+Ruled by the maintainer on 2026-11-09, under
+[proportionate containment](proportionate-containment.md). "Restricted" means
+running under the tainted policy, not refusing.
+
+- **Before delivery** (a failed collection begin, or a refused reservation
+  whose producer holds its input until the event commits): the one turn is
+  refused with a retryable `SAFETY_RECORDING_UNAVAILABLE`. Nothing latches.
+- **Lost after delivery**: the turn's own collection takes the failure and its
+  first cause, so its chat keeps a permanent gap projected as
+  `recording_failed` and that producer stops. Other chats are unaffected. A
+  reservation still open when its collection ends becomes the same gap.
+- **Evidence store unwritable** (the chat fact cannot commit): the brain
+  latches through the emergency reserve, or, when even that fails, in the
+  host process. New turns still begin, each with a permanent
+  `recording_failed` gap committed before delivery, and run restricted. A turn
+  is refused only when that restricted begin itself cannot commit
+  (`safety_recording_paused`). The host keeps retrying, backing off to once a
+  minute, and clears the latch itself with `recoverSafetyRecording` semantics
+  once the producers that predate it have drained.
+- **Boot** resolves a set latch and pending reservations after restart
+  classification, gaps first. A legacy row that cannot migrate gaps its own
+  turn. The server never boots into refusing every turn.
+
+Every latch keeps its first cause (class, message, bounded stack, call site,
+turn, time) and a count, logs one structured line, and is visible to the owner
+on `/api/status`. Every recovery is recorded with its trigger, actor, time and
+cleared cause. The owner route (#3810) is a fallback with the strict
+quiescence precondition. Only a capacity check classifies a failure as
+`capacity`. No gap ever clears, and nothing here lets an unrecorded input
+become clean.
+
 ## Human authority and policy publication
 
 Initially **only a live password-mode human owner** may commit a verdict or

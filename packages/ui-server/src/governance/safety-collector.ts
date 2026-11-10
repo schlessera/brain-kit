@@ -5,6 +5,7 @@ import { inputTaintSignals, outputTaintSignals, type IngestionSignal } from "../
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
+import { SafetyRecordingUnavailable } from "./safety-store.js";
 
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
  sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null}):NonNullable<BackendBridge["inputSafety"]> {
@@ -16,7 +17,11 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  const fail=async(error:unknown)=>{
   const failures=[error];
   try{options.stop?.(error instanceof Error?error:new Error(String(error)));}catch(stop){failures.push(stop);}
-  try{await writes.safetyFail(options.turnId);}
+  // Every record here commits before the backend releases its input. A
+  // refused reservation with a producer that did stop delivered nothing:
+  // only this turn is refused, and its chat keeps no gap (#3812).
+  if(failures.length===1&&error instanceof SafetyRecordingUnavailable&&error.beforeDelivery)throw error;
+  try{await writes.safetyFail(options.turnId,error);}
   catch(notice){throw new AggregateError([...failures,notice],`Safety input refused: ${String(error)}; failure notice could not commit`);}
   if(failures.length>1)throw new AggregateError(failures,`Safety input refused: ${String(error)}`);
   throw error;
@@ -44,7 +49,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
      if(op.signals.some(prior=>prior.detector===signal.detector&&prior.key===signal.key))continue;
      const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
-     await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});
+     await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});
      op.occurrences.push(item.id);op.signals.push(signal);
     }
     assertLive();
@@ -60,12 +65,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     // Each separately delivered external result segment has its own exposure.
     for(const _segment of (segments??[]).slice(1))for(const signal of op.signals.filter(signal=>["compute_input","external_mcp_input","attachment_input","tool_web_input"].includes(signal.detector))){
       const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
-      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
+      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});op.occurrences.push(item.id);
     }
     // Record output independently, before the backend releases any of its bytes.
     for(const signal of outputTaintSignals(tool,output,options.brainPath,marked)){
       const item=occurrence(options.bindingId,signal.detector,op.id,"open");item.admission={trusted:false,policyHash:options.policyHash??null,trustRevision:"0"};
-      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
+      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});op.occurrences.push(item.id);
     }
     const state=finalized&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
     for(const id of op.occurrences)await writes.record({...base(),kind:"taint_exposure",dedupeKey:id,payload:{occurrenceId:id,state}});
