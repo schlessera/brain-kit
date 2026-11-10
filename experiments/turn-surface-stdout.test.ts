@@ -47,7 +47,7 @@ test("native split UTF-8 and final result survive delayed SDK reader and reader 
     expect(thrown).toBe(true);
     expect(chunks.some(chunk => chunk.at(-1) === 0xcf)).toBe(true);
     expect(captured).toEqual([frame]);
-    expect(readFileSync(join(root, "stdout.jsonl")).equals(Buffer.from(source))).toBe(true);
+    expect(readFileSync(join(root, "stdout.jsonl"))).toEqual(Buffer.from(source));
   } finally {
     if (child.exitCode === null) child.kill("SIGKILL");
     await closed;
@@ -76,7 +76,7 @@ test("native late EOF receipt survives an early SDK consumer throw; missing raw 
     expect(await closed).toBe(0);
     expect(raw).toEqual(final);
     expect(() => successfulSurfaceReceipt(raw, observation)).toThrow("Missing model usage");
-    expect(readFileSync(join(root, "stdout.jsonl")).equals(Buffer.from(bytes))).toBe(true);
+    expect(readFileSync(join(root, "stdout.jsonl"))).toEqual(Buffer.from(bytes));
   } finally {
     if (child.exitCode === null) child.kill("SIGKILL");
     await closed;
