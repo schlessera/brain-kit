@@ -206,6 +206,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       const id = crypto.randomUUID();
       write(() => {
         assertOwner?.();
+        if (db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(hash)) throw new JournalStorageUnavailable("the retained object is quarantined");
         if (!db.query("SELECT 1 FROM turn_journal_objects WHERE hash=? AND state='present'").get(hash)) throw new JournalStorageUnavailable("the retained object is unavailable");
         db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash,kind) VALUES (?,0,?,?,?,?,'read')").run(id, SELF.pid, SELF.start, Date.now(), hash);
       }); return id;
@@ -236,18 +237,42 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           });
           continue;
         }
-        const published = objects.has(row.hash);
-        if (published && !objects.verify(row.hash, row.bytes)) throw new JournalStorageUnavailable("a published interrupted object failed integrity verification");
+        let published = false, corrupt: unknown;
+        try {
+          published = objects.has(row.hash);
+          if (published && !objects.verify(row.hash, row.bytes)) corrupt = new Error("Published interrupted object failed integrity verification");
+        } catch (error) { corrupt = error; }
+        let quarantined = false;
         write(() => {
           // Verify liveness again under the database write lock; neither a live
           // writer nor a new reservation sharing this hash is collected.
           const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=?").get(row.id) as { pid: number; pid_start: string } | null;
           if (!current || processAlive(current.pid, current.pid_start)) return;
           objects.discardPending(row.id);
-          if (published) db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(row.hash);
+          if (corrupt) {
+            const cause = { errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: (corrupt instanceof Error ? corrupt.message : String(corrupt)).slice(0, 2000) };
+            db.query("INSERT OR IGNORE INTO turn_journal_object_quarantine VALUES (?,?,?,?,?)").run(row.hash, Date.now(), cause.errorClass, cause.message, "journal-accounting.recover");
+            // Logical quarantine keeps the bytes at their original hash, charged,
+            // but no read or replacement reservation can use them. Only normal
+            // expiry/collection removes them after their owners release them.
+            db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(row.hash);
+            const owners = db.query("SELECT t.turn_id,t.missing FROM turn_journal_turns t JOIN turn_journal_object_refs r ON r.turn_id=t.turn_id WHERE r.hash=?").all(row.hash) as {turn_id:string;missing:string}[];
+            for (const owner of owners) {
+              const paths = db.query(`SELECT path FROM turn_journal_changes WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
+                UNION SELECT path FROM turn_journal_claude_memory WHERE turn_id=?1 AND (json_extract(before_json,'$.hash')=?2 OR json_extract(after_json,'$.hash')=?2)
+                UNION SELECT p.path FROM turn_journal_revert_paths p JOIN turn_journal_revert_operations o ON o.id=p.operation_id WHERE o.journal_turn_id=?1 AND (json_extract(p.before_json,'$.hash')=?2 OR json_extract(p.after_json,'$.hash')=?2)`)
+                .all(owner.turn_id, row.hash) as {path:string}[];
+              const missing = JSON.parse(owner.missing) as {path:string;reason:string}[];
+              for (const {path} of paths.length ? paths : [{path:"."}]) if (!missing.some(item => item.path === path && item.reason === "retained_object_corrupt")) missing.push({path,reason:"retained_object_corrupt"});
+              db.query("UPDATE turn_journal_turns SET state=CASE WHEN state='expired' THEN state ELSE 'partial' END,missing=? WHERE turn_id=?").run(JSON.stringify(missing), owner.turn_id);
+            }
+            quarantined = true;
+          } else if (published) db.query("UPDATE turn_journal_objects SET state='present' WHERE hash=?").run(row.hash);
           db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id);
-          if (!published) db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending' AND NOT EXISTS (SELECT 1 FROM turn_journal_reservations WHERE hash=?)").run(row.hash, row.hash);
+          if (!published && !corrupt) db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending' AND NOT EXISTS (SELECT 1 FROM turn_journal_reservations WHERE hash=?)").run(row.hash, row.hash);
         });
+        if (quarantined) console.error(JSON.stringify({ kind: "journal_object_quarantined", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+          errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }));
       }
     },
     reserve(bytes, hash) {
@@ -255,6 +280,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       if (!/^[a-f0-9]{64}$/.test(hash)) throw new JournalStorageUnavailable("invalid content identity");
       const id = crypto.randomUUID();
       write(() => {
+        if (db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(hash)) throw new JournalStorageUnavailable("the retained object is quarantined");
         db.query("INSERT OR IGNORE INTO turn_journal_objects VALUES (?, ?, 'pending')").run(hash, bytes);
         db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?, ?, ?, ?, ?, ?)").run(id, bytes, SELF.pid, SELF.start, Date.now(), hash);
       });

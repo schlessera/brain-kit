@@ -111,3 +111,15 @@ and the ledger's attach is then a no-op.
 A `roadblock` event a journal-reader failure records is not replayed: its
 payload carries timings that the journal does not keep. The journal's `missing`
 record of that path stays authoritative.
+
+## Corrupt interrupted publication (#3816)
+
+Recovery quarantines a published object that fails verification in
+`turn_journal_object_quarantine`. The cause includes error class, message, time
+and call site. The bytes stay at their original hash and remain charged, while
+read leases and new reservations for that hash refuse. The interrupted writer's
+reservation is cleared in the same accounted transaction that records quarantine
+and marks every referencing history path incomplete. Other history stays usable.
+The history details expose `retained_object_corrupt`; normal expiry eventually
+collects the quarantined bytes and their diagnostic row. A later disk repair
+does not silently turn the old incomplete history into complete history.

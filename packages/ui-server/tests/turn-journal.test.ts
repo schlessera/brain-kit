@@ -719,3 +719,32 @@ test("native capture excludes an alternate trusted index identity without a publ
     } catch (error) { await observed.abort(); throw error; }
   } finally { await capture.close(); await f.close(); }
 });
+
+test("journal startup quarantines one corrupt object and preserves unrelated history", async () => {
+  const f = fixture();
+  let reopened: ReturnType<typeof createTurnJournal> | undefined;
+  try {
+    await f.begin("odysseus-corrupt");
+    writeFileSync(join(f.brain, "notes/odysseus.md"), "# New voyage\n");
+    await f.journal.finish("odysseus-corrupt");
+    await f.begin("athena-healthy");
+    writeFileSync(join(f.brain, "notes/athena.md"), "# Guidance\n");
+    await f.journal.finish("athena-healthy");
+    const before = f.journal.details("ithaca", "odysseus-corrupt")!.changes.find(change => change.path === "notes/odysseus.md")!.before!;
+    await f.journal.close();
+    // Reproduce an interrupted publisher on an existing retained object.
+    const {createJournalAccounting} = await import("../src/brain/journal-accounting.js");
+    const accounting = createJournalAccounting(f.db, join(f.root, "ui.db"));
+    accounting.write(() => f.db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,?,?,'gone',0,?)")
+      .run(crypto.randomUUID(), before.bytes, process.pid, before.hash!));
+    writeFileSync(join(f.root, "objects", before.hash!), Buffer.alloc(before.bytes));
+    reopened = createTurnJournal(f.db, {nativeManager:f.native.manager,brainPath:f.brain,dbPath:join(f.root,"ui.db"),objectsRoot:join(f.root,"objects")});
+    await reopened.ready;
+    expect(reopened.summary("odysseus-corrupt").state, "JOURNAL_READY_AFTER_CORRUPT_PUBLICATION").toBe("partial");
+    expect(reopened.details("ithaca", "odysseus-corrupt")!.missing).toContainEqual({path:"notes/odysseus.md",reason:"retained_object_corrupt"});
+    expect(reopened.hasRetainedVersion("odysseus-corrupt", before)).toBe(false);
+    const other = reopened.details("ithaca", "athena-healthy")!;
+    expect(other.summary.state, "JOURNAL_OTHER_HISTORY_STAYS_COMPLETE").toBe("complete");
+    expect(reopened.hasRetainedVersion("athena-healthy", other.changes.find(change => change.path === "notes/athena.md")!.after!)).toBe(true);
+  } finally { await reopened?.close(); await f.close(); }
+});

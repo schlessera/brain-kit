@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
@@ -159,4 +159,32 @@ test("a killed private reader owner leaves a recoverable reservation without cla
     expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations").get()).toEqual({ n: 0 });
     expect(db.query("SELECT count(*) AS n FROM turn_journal_objects").get()).toEqual({ n: 0 });
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+ test("a corrupt published interrupted object is quarantined without poisoning other history", async () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-quarantine-odysseus-")), path = join(root, "ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db, path), objects = createJournalObjects(join(root, "objects"), ledger);
+  try {
+    const bad = await objects.putBytes(Buffer.from("Odysseus")), good = await objects.putBytes(Buffer.from("Athena"));
+    ledger.write(() => {
+      for (const [id, hash, bytes] of [["odysseus", bad, 8], ["penelope", bad, 8], ["athena", good, 6]] as const) {
+        db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,ended_at,state) VALUES (?,'interactive','governed',0,1,'complete')").run(id);
+        db.query("INSERT INTO turn_journal_object_refs VALUES (?,?)").run(id, hash);
+        db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json) VALUES (?,1,?,'brain',?)").run(id, `notes/${id}.md`, JSON.stringify({kind:"file",hash,bytes}));
+      }
+      db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(), process.pid, bad);
+    });
+    writeFileSync(join(root, "objects", bad), "damaged!");
+    expect(() => ledger.recover(objects), "JOURNAL_CORRUPT_OBJECT_DOES_NOT_REFUSE_BOOT").not.toThrow();
+    expect(db.query("SELECT * FROM turn_journal_reservations").all()).toEqual([]);
+    expect(db.query("SELECT turn_id,state FROM turn_journal_turns ORDER BY turn_id").all()).toEqual([
+      {turn_id:"athena",state:"complete"},{turn_id:"odysseus",state:"partial"},{turn_id:"penelope",state:"partial"}]);
+    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all()).toEqual([{hash:bad}]);
+    expect(() => ledger.openRead(bad), "JOURNAL_QUARANTINE_DENIES_RESTORE").toThrow("quarantined");
+    const lease = ledger.openRead(good);
+    expect(objects.read(good, 6), "JOURNAL_UNRELATED_VERSION_RESTORES").toEqual(Buffer.from("Athena")); ledger.releaseRead(lease);
+    expect(db.query("SELECT bytes,state FROM turn_journal_objects WHERE hash=?").get(bad), "JOURNAL_QUARANTINE_BYTES_STAY_CHARGED").toEqual({bytes:8,state:"present"});
+    ledger.recover(objects);
+    expect(db.query("SELECT count(*) AS n FROM turn_journal_object_quarantine").get()).toEqual({n:1});
+  } finally { objects.close(); db.close(); rmSync(root, {recursive:true,force:true}); }
 });

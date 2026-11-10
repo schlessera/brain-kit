@@ -5,7 +5,7 @@
  * The server and the cron runner are separate processes, so it lives in the
  * UI database: two handles on one file stand in for the two processes.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -441,4 +441,34 @@ describe("unpinned host writer provenance", () => {
       candidate.release(); legacy.release();
     } finally { w.close(); }
   });
+});
+
+for (const operation of ["release", "dequeue"] as const) test(`a failed writer-gate ${operation} retries without restarting`, async () => {
+  const w = world();
+  const query = w.db.query.bind(w.db);
+  let attempts = 0;
+  const sql = operation === "release" ? "DELETE FROM writer_gate WHERE id = ?" : "DELETE FROM writer_gate_turn_waiters WHERE id = ?";
+  const fault = spyOn(w.db, "query").mockImplementation(((text: string) => {
+    if (text === sql && attempts++ === 0) throw new Error("Odysseus transient DELETE failure");
+    return query(text);
+  }) as typeof w.db.query);
+  try {
+    if (operation === "release") {
+      const hold = await w.server.acquire("exclusive", "user revert");
+      await hold.release();
+    } else {
+      const held = await w.server.acquire("shared", "active turn");
+      const abort = new AbortController();
+      const waiting = w.server.acquire("exclusive", "user revert", { queueTurns: true, signal: abort.signal }).catch(error => error);
+      await settle(); abort.abort(new Error("Odysseus cancelled"));
+      const error = await waiting;
+      expect(String(error)).toContain("Odysseus cancelled");
+      await held.release();
+    }
+    expect(attempts, "GATE_FAILED_DELETE_RETRIED").toBeGreaterThanOrEqual(2);
+    const next = await w.server.acquire("shared", "next turn", { turn: true, signal: AbortSignal.timeout(1000) });
+    await next.release();
+    expect(w.server.holders()).toEqual([]);
+    expect(w.db.query("SELECT * FROM writer_gate_turn_waiters").all()).toEqual([]);
+  } finally { fault.mockRestore(); w.close(); }
 });

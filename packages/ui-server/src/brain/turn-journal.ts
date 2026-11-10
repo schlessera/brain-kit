@@ -636,7 +636,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }); },
     hasRetainedVersion(turnId: string, selected: JournalVersion): boolean {
       if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
-      if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)) return false;
+      if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)
+        || db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(selected.hash)) return false;
       try { return objects.verify(selected.hash, selected.bytes); } catch { return false; }
     },
     /**
@@ -750,7 +751,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);
       const selected = change?.[side];
-      if (!selected?.hash || selected.metadataOnly || details?.summary.state === "expired") return null;
+      if (!selected?.hash || selected.metadataOnly || details?.summary.state === "expired"
+        || db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(selected.hash)) return null;
       return { selected, bytes: (maxBytes: number) => objects.read(selected.hash!, maxBytes), async stream() {
         const lease = await call<string>("openRead", selected.hash!);
         const release = () => releaseRead(lease);

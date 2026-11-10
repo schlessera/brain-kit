@@ -22,6 +22,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { NativeBrainManagerError, nativeCheckpointId, nativePoolName, NATIVE_CONTROL_BYTES, REFERENCE_POOL_CHECKPOINT_BYTES, type NativePoolAccess, type NativePoolCheckpoint, type NativePoolRecord,
   type NativePoolSpace, type NativePoolState, type NativePoolStatus } from "./native-brain-manager-protocol.js";
+import { recordNativeRecoveryFailure } from "./native-recovery-diagnostics.js";
 import { NativeRecoveryIndex } from "./native-recovery-index.js";
 import { POOL_HELPER } from "./native-reference-pool-helper.js";
 
@@ -427,8 +428,9 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       emergencyConsumed = true; await context.command([BTRFS, "filesystem", "sync", pool.storePath]);
       try { write(); } catch (again) { throw new NativeBrainManagerError("capacity", String(again)); }
     }
+    intents.set(intent.id, intent);
     try { index.remember(intent.id); }
-    catch { throw new NativeBrainManagerError("unknown", "Reference pool intent is durable but recovery indexing failed; restart the manager to rebuild it."); }
+    catch { throw new NativeBrainManagerError("unknown", "Reference pool intent is durable but recovery indexing failed; rebuilding from durable intents is unavailable; retry the operation."); }
   }
   const ids: string[] = [];
   for (const name of readdirSync(state)) {
@@ -438,9 +440,20 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     try { readIntent(id); } catch (error) { closeSync(stateFd); throw error; }
     ids.push(id);
   }
-  const index = (() => { try { return new NativeRecoveryIndex(ids); } catch (error) { closeSync(stateFd); throw error; } })();
-  // Startup reads every retained intent once; identities stay bounded by maxIdentities.
+  // Durable mutations update both accounting and the disposable index before replying.
   const intents = new Map<string, PoolIntent>(ids.map(id => [id, readIntent(id)!]));
+  const index = (() => { try { return new NativeRecoveryIndex(ids, () => {
+    const replacement = new Map<string, PoolIntent>();
+    for (const name of readdirSync(state)) {
+      if (name.endsWith(".tmp")) continue;
+      const id = name.slice(0, -5);
+      if (!name.endsWith(".json") || !nativeCheckpointId.safeParse(id).success) throw new NativeBrainManagerError("unknown", "Reference pool state contains an unrecognized identity.");
+      replacement.set(id, readIntent(id)!);
+    }
+    intents.clear(); for (const [id, intent] of replacement) intents.set(id, intent);
+    return replacement.keys();
+  }, error => recordNativeRecoveryFailure(join(privateRoot, "recovery-diagnostics"), "recovery-index", "native-reference-pool.writeIntent", error)); }
+    catch (error) { closeSync(stateFd); throw error; } })();
   // A publication interrupted between unseal and reseal leaves a sealed root writable.
   try {
     for (const intent of intents.values()) {
@@ -560,6 +573,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     try { return lstatSync(emergency).blocks * 512 * dataFactor; } catch { return 0; }
   }
   async function measure(signal?: AbortSignal) {
+    index.ensureAvailable();
     const observation = await observe(signal), places = { viewDirIds: viewDirIds(), accessDirIds: accessDirIds() };
     await reconcile(observation, places, signal);
     const result = referencePoolAccounting({ observation, intents: [...intents.values()], limits: pool, rootsDirId, ...places,

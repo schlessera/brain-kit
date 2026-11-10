@@ -1584,6 +1584,11 @@ signatures (every public export and the types it is made of)
         availableBytes: number;
         recoveryReserveBytes: number;
         reserveAllocatedBytes: number;
+        recovery?: {
+            quarantinedIntents: number;
+            stagingChargedBytes: number | null;
+            diagnosticsPath: string;
+        };
     }
   NativePoolAccess (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolAccess {
