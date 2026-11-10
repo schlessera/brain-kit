@@ -290,7 +290,7 @@ restore, resend, draft autosave and answer-delivery callbacks. Activity/Inbox/
 journal APIs remain independent retained surfaces under the selected exclusion.
 Concrete entry points include `readSessionRecovery`
 (`readSessionRecovery`, `packages/ui-server/src/ws/recovery.ts:209-222`),
-`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-93`),
+`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-94`),
 and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:100-110`;
 `prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
 belongs to `createDraftClient` (`createDraftClient`,
