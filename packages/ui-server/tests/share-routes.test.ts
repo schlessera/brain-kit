@@ -57,7 +57,7 @@ describe("POST /api/share", () => {
     const body = await response.json();
 
     expect(response.status).toBe(201);
-    expect(body.dir.startsWith(`${SHARE_STAGING_DIR}/`)).toBe(true);
+    expect(body.dir).toStartWith(`${SHARE_STAGING_DIR}/`);
     expect(body.files).toEqual([]);
     expect(body.title).toBe("A page");
     expect(body.url).toBe("https://example.com/post");
@@ -414,8 +414,8 @@ describe("share staging", () => {
     for (const raw of hostile) {
       const name = sanitizeFileName(raw, "text/plain");
       expect(name).toMatch(/^[\p{L}\p{N}\p{M}._-]+$/u);
-      expect(name.startsWith("-")).toBe(false);
-      expect(name.startsWith(".")).toBe(false);
+      expect(name).not.toStartWith("-");
+      expect(name).not.toStartWith(".");
     }
   });
 
@@ -451,18 +451,18 @@ describe("share staging", () => {
   test("a long name is bounded by BYTES and keeps its extension", () => {
     const ascii = sanitizeFileName(`${"a".repeat(400)}.jpg`, "image/jpeg");
     expect(Buffer.byteLength(ascii, "utf-8")).toBeLessThanOrEqual(100);
-    expect(ascii.endsWith(".jpg")).toBe(true);
+    expect(ascii).toEndWith(".jpg");
 
     // Three bytes per character: counting characters would produce a name the
     // filesystem refuses with ENAMETOOLONG.
     const cjk = sanitizeFileName(`${"\u8a18".repeat(200)}.jpg`, "image/jpeg");
     expect(Buffer.byteLength(cjk, "utf-8")).toBeLessThanOrEqual(100);
-    expect(cjk.endsWith(".jpg")).toBe(true);
+    expect(cjk).toEndWith(".jpg");
 
     // And no surrogate pair is cut in half.
     const emoji = sanitizeFileName(`${"\u{1f4a1}".repeat(100)}.png`, "image/png");
     expect(Buffer.byteLength(emoji, "utf-8")).toBeLessThanOrEqual(100);
-    expect(emoji.includes("\ufffd")).toBe(false);
+    expect(emoji).not.toContain("\ufffd");
   });
 
   test("a part that lies about its size is caught on the decoded bytes", async () => {
@@ -503,7 +503,7 @@ describe("share staging", () => {
     expect(await readFile(join(BRAIN_ROOT, result.files[0]!.path), "utf8")).toBe("x");
 
     expect(entries).toEqual([result.id]);
-    expect(entries.some((e) => e.includes("partial"))).toBe(false);
+    expect(entries.filter((e) => e.includes("partial"))).toEqual([]);
   });
 
   test("a url the agent must not dereference is demoted to text", async () => {
