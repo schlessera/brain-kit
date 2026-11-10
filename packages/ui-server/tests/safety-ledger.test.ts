@@ -307,6 +307,8 @@ test("independent SQLite connections share the durable pending ceiling; the fail
  expect(results.map(r=>r.status).sort(),"SAFETY_CROSS_CONNECTION_CAPACITY_SERIALIZES").toEqual(["fulfilled","rejected"]);
  expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:256});
  expect(createGovernanceWrites(peer,peerWriter).safety(null,"ithaca").restriction).toBe("restricted");
+ // The refused reservation's own durable failure, not the 256 pending rows, fences the chat.
+ expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get(),"SAFETY_CROSS_CONNECTION_FAILURE_IS_DURABLE_CAPACITY").toEqual({failure:"capacity"});
  expect(createGovernanceWrites(peer,peerWriter).recordingAvailable("voyage","ithaca"),"SAFETY_CROSS_CONNECTION_FAILURE_STOPS_ITS_PRODUCER").toBe(false);
  const peerWrites=createGovernanceWrites(peer,peerWriter);
  await peerWrites.safetyBegin({turnId:"other",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1});

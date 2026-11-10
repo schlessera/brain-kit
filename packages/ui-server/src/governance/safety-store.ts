@@ -73,7 +73,8 @@ export function safetyFailureCause(error:unknown,site:SafetyFailureSite,turnId:s
 }
 /** Honest classification: `capacity` only when a capacity check refused the write. */
 export function safetyFailureReason(error:unknown):SafetyFailureReason {
-  return error instanceof SafetyCapacityExhausted?"capacity":"recording_failed";
+  // The name survives the write worker's boundary; only this module's class carries it.
+  return error instanceof SafetyCapacityExhausted||(error as {name?:unknown}|null)?.name==="SafetyCapacityExhausted"?"capacity":"recording_failed";
 }
 /** One structured stderr line per latch, restriction or recovery. */
 export function logSafetyRecording(body:string,attributes:Record<string,string|number|null>):void {
@@ -97,12 +98,12 @@ export function failSafetyCollection(db:Database,turnId:string,reason:SafetyFail
 /** Brain scope: the evidence store could not take a scoped fact. Uses the
  * emergency cells allocated before ingestion, never appended at overflow.
  * The first cause is kept; later latches only count. */
-export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureReason,cause:SafetyFailureCause=safetyFailureCause(new Error("Safety recording latched"),"safetyFail",turnId)):void {
+export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureReason,cause:SafetyFailureCause=safetyFailureCause(new Error("Safety recording latched"),"safetyFail",turnId),unscoped=false):void {
   db.transaction(()=>{
     db.query("UPDATE safety_emergency_reserve SET padding=zeroblob(0) WHERE singleton=1").run();
     db.query("UPDATE safety_meta SET failed=1,reason=CASE WHEN reason='capacity' THEN reason ELSE ? END WHERE singleton=1").run(reason);
-    db.query(`INSERT INTO safety_latch(singleton,since,reason,site,turn_id,error_class,message,stack) VALUES(1,?,?,?,?,?,?,?)
-      ON CONFLICT(singleton) DO UPDATE SET count=count+1`).run(cause.at,reason,cause.site,cause.turnId,cause.errorClass,cause.message,cause.stack);
+    db.query(`INSERT INTO safety_latch(singleton,since,reason,site,turn_id,error_class,message,stack,unscoped) VALUES(1,?,?,?,?,?,?,?,?)
+      ON CONFLICT(singleton) DO UPDATE SET count=count+1,unscoped=MAX(unscoped,excluded.unscoped)`).run(cause.at,reason,cause.site,cause.turnId,cause.errorClass,cause.message,cause.stack,unscoped?1:0);
     if(turnId) db.query("UPDATE safety_collections SET failure=CASE WHEN failure='capacity' THEN failure ELSE ? END,failure_cause=COALESCE(failure_cause,?) WHERE turn_id=?").run(reason,JSON.stringify(cause),turnId);
     if(BigInt(meta(db).revision)<MAX_REVISION)advance(db);
   }).immediate();
@@ -110,12 +111,28 @@ export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureR
 }
 /** Contain a failure at the narrowest scope that durably takes it: the turn's
  * chat, else the brain. Throws only when neither fact could commit. */
-export function recordSafetyFailure(db:Database,turnId:string|null,error:unknown,site:SafetyFailureSite):"chat"|"brain" {
+export function recordSafetyFailure(db:Database,turnId:string|null,error:unknown,site:SafetyFailureSite,sessionId:string|null=null):"chat"|"brain" {
   const reason=safetyFailureReason(error),cause=safetyFailureCause(error,site,turnId);
-  try { if(turnId&&failSafetyCollection(db,turnId,reason,cause))return "chat"; }
-  catch(scoped) { cause.message=clip(`${cause.message}; chat fact failed: ${scoped instanceof Error?scoped.message:String(scoped)}`,512); }
-  latchSafety(db,turnId,reason,cause);
+  try {
+    if(turnId&&failSafetyCollection(db,turnId,reason,cause))return "chat";
+    if(sessionId&&failSafetySession(db,turnId,sessionId,reason,cause))return "chat";
+  } catch(scoped) { cause.message=clip(`${cause.message}; chat fact failed: ${scoped instanceof Error?scoped.message:String(scoped)}`,512); }
+  // No collection names the chat: the latch itself must remember that every
+  // collection needs a gap, durably, so no recovery can clear it narrower.
+  latchSafety(db,turnId,reason,cause,!(turnId&&collection(db,turnId)));
   return "brain";
+}
+/** A loss with no collection of its own, in a known chat: give that chat a
+ * failed epoch, so its gap is durable without latching the brain. */
+function failSafetySession(db:Database,turnId:string|null,sessionId:string,reason:SafetyFailureReason,cause:SafetyFailureCause):boolean {
+  return db.transaction(()=>{
+    if(!db.query("SELECT 1 FROM sessions WHERE id=?").get(sessionId))return false;
+    const owned=turnId??`lost_${crypto.randomUUID().replaceAll("-","")}`;
+    ensureSafetyEventCollection(db,{sessionId,turnId:owned,at:cause.at} as GovernanceEventRow);
+    if(!failSafetyCollection(db,owned,reason,cause))return false;
+    if(!turnId)db.query("UPDATE safety_collections SET ended=1,end_revision=COALESCE(end_revision,?) WHERE turn_id=?").run(advance(db),owned);
+    return true;
+  }).immediate();
 }
 function live(db:Database,c:Collection,reserved=false):void {
   assertLive(db,[["session",c.session_id],["dialogue_owner",c.history_owner_id]]);
@@ -445,7 +462,7 @@ export function migrateSafetyHistory(db:Database):boolean {
     catch(scoped){
       if(scoped instanceof ChatRetiredError){after=r.id;continue;}
       complete=false;
-      try{latchSafety(db,r.turn_id,reason,cause);}catch{/* The unmigrated row is retried; the next boot latches again. */}
+      try{latchSafety(db,r.turn_id,reason,cause,true);}catch{/* The unmigrated row is retried; the next boot latches again. */}
       return complete;
     }
    }
@@ -523,12 +540,15 @@ export function recoverSafetyRecording(db:Database,options:{trigger?:SafetyRecov
   const totals=meta(db);
   if(!totals.failed&&!local.failed&&!one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_pending").n)return;
   if(totals.used_rows+totals.scope_rows>=SAFETY_LIMITS.brainRows||totals.used_bytes+totals.scope_bytes>=SAFETY_LIMITS.brainBytes)throw new SafetyCapacityExhausted("Safety capacity must be recovered first");
-  cause=latchCause(db)??(local.failed?{reason:"recording_failed",site:"retained",turnId:null,errorClass:"SafetyUnavailable",
-   message:"Only this process retained the loss; its durable notice could not commit.",stack:null,since:at,count:1}:null);
+  const lost=local.lossCause;
+  cause=latchCause(db)??(local.failed?{reason:"recording_failed",site:lost?.site??"retained",turnId:lost?.turnId??null,errorClass:lost?.errorClass??"SafetyUnavailable",
+   message:lost?`${lost.message} (retained in process; its durable notice could not commit)`:"Only this process retained the loss; its durable notice could not commit.",
+   stack:null,since:lost?.at??at,count:lost?.count??1}:null);
+  const unscoped=local.unscopedLoss||!!one<{unscoped:number}|null>(db,"SELECT unscoped FROM safety_latch WHERE singleton=1")?.unscoped;
   const gap=(sql:string,...args:string[])=>{gapped+=db.query(`UPDATE safety_collections SET gap=COALESCE(gap,'recording_failed_recovered') WHERE gap IS NULL AND (${sql})`).run(...args).changes;};
   // Reservations on ended epochs could never have released input: the event
   // and reservation consumption commit together. Retain the historical gap.
-  if(local.unscopedLoss)gap("1=1");
+  if(unscoped)gap("1=1");
   else for(const turnId of local.lostTurns)gap("turn_id=?",turnId);
   gap("id IN (SELECT collection_id FROM safety_pending) OR failure IS NOT NULL");
   // An open collection's reservation may still commit: it is already
@@ -542,7 +562,7 @@ export function recoverSafetyRecording(db:Database,options:{trigger?:SafetyRecov
   advance(db);recovered=true;
  }).immediate();
  if(recovered){
-  local.failed=false;local.lostTurns.clear();local.unscopedLoss=false;
+  local.failed=false;local.lostTurns.clear();local.unscopedLoss=false;local.lossCause=null;
   const c=cause as SafetyLatchCause|null;
   logSafetyRecording("safety recording recovered for the brain",{"safety.scope":"brain","safety.trigger":trigger,"safety.actor":actor,"safety.gapped":gapped,
    "safety.reason":c?.reason??null,"safety.site":c?.site??null,"error.class":c?.errorClass??null,"error.message":c?.message??null});

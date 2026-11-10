@@ -9,7 +9,7 @@ import { openSqliteWriter } from "../src/db/write-worker";
 import { attemptSafetyRecovery, createGovernanceWrites } from "../src/governance/event-writes";
 import { createSafetyCollector } from "../src/governance/safety-collector";
 import { latchSafety, safetyCatalogCreated, safetyFailureCause, SafetyCapacityExhausted, safetyFailureReason,
-  SafetyRecordingUnavailable } from "../src/governance/safety-store";
+  SafetyRecordingUnavailable, SafetyUnavailable } from "../src/governance/safety-store";
 import { emitTurnError } from "../src/ws/bridge-capabilities/turn-error";
 
 const roots: string[] = [];
@@ -127,7 +127,8 @@ test("an unwritable evidence store restricts the brain, new turns run restricted
     expect(audit.length, "SAFETY_AUTOMATIC_RECOVERY_IS_AUDITED").toBe(1);
     expect(audit[0]).toMatchObject({ trigger: "automatic", actor: "host", scope: "brain" });
     expect(audit[0]!.at).toBeGreaterThan(0);
-    expect(JSON.parse(audit[0]!.cause)).toMatchObject({ site: "retained" });
+    expect(JSON.parse(audit[0]!.cause), "SAFETY_RETAINED_LOSS_KEEPS_ITS_ORIGINAL_CAUSE").toMatchObject({ site: "retained", turnId: "voyage", errorClass: "Error",
+      message: expect.stringContaining("lost") });
     expect(log.lines().filter(l => l.body === "safety recording recovered for the brain").length, "SAFETY_AUTOMATIC_RECOVERY_LOGS_ONE_LINE").toBe(1);
   } finally { log.restore(); await f.close(); }
 });
@@ -236,7 +237,7 @@ test("owner recovery clears an idle latch, refuses while a producer is open, and
 
 test("only a capacity check classifies a failure as capacity", () => {
   expect(safetyFailureReason(new SafetyCapacityExhausted("Safety pending capacity exhausted"))).toBe("capacity");
-  for (const error of [new Error("SQLITE_IOERR"), new TypeError("bug"), new (class SafetyUnavailable extends Error {})("Invalid bounded safety identity")])
+  for (const error of [new Error("SQLITE_IOERR"), new TypeError("bug"), new SafetyUnavailable("Invalid bounded safety identity")])
     expect(safetyFailureReason(error), "SAFETY_NON_CAPACITY_ERRORS_ARE_RECORDING_FAILED").toBe("recording_failed");
 });
 
@@ -295,5 +296,51 @@ test("automatic recovery waits for an uncovered producer to drain", async () => 
     await f.writes.safetyEnd("voyage");
     expect(attemptSafetyRecovery(f.db)).toBe(true);
     expect(failed(f)).toBe(0);
+  } finally { await f.close(); }
+});
+
+const occurrence = (turnId: string | null, sessionId: string | null) => ({ kind: "taint" as const, turnId, sessionId, actor: "interactive" as const,
+  model: null, profile: null, payload: { source: "web_fetch" as const, tool: "WebFetch", detail: null } });
+
+test("a producer refused under a brain latch still leaves its own chat a durable gap", async () => {
+  const f = fixture(); try {
+    await chat(f, "voyage", "ithaca");
+    latchSafety(f.db, null, "recording_failed", safetyFailureCause(new Error("disk I/O error"), "record", null));
+    // Not a producer that holds its input: what it refuses may already be delivered.
+    expect(() => f.writes.firstTaint(occurrence("voyage", "ithaca"))).toThrow("requires recovery");
+    await until(() => !!(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get() as { failure: string | null }).failure);
+    await f.writes.safetyEnd("voyage");
+    expect(attemptSafetyRecovery(f.db)).toBe(true);
+    expect(f.writes.safety(null, "ithaca").restriction, "SAFETY_REFUSED_PRODUCER_UNDER_LATCH_KEEPS_ITS_GAP").toBe("restricted");
+  } finally { await f.close(); }
+});
+
+test("a loss with no collection is kept on its named chat, or gaps every chat when none is named", async () => {
+  const f = fixture(); try {
+    await chat(f, "voyage", "ithaca"); await f.writes.safetyEnd("voyage");
+    await chat(f, "siege", "troy"); await f.writes.safetyEnd("siege");
+    // The compatibility producer's own collection cannot be created.
+    f.db.exec("CREATE TRIGGER no_unbound BEFORE INSERT ON safety_collections WHEN NEW.turn_id LIKE 'unbound_%' BEGIN SELECT RAISE(ABORT,'forced compatibility failure'); END");
+    await f.writes.firstTaint(occurrence(null, "ithaca")).catch(() => {});
+    expect(failed(f), "SAFETY_SESSION_LOSS_NEVER_LATCHES_THE_BRAIN").toBe(0);
+    expect(f.writes.safety(null, "ithaca").restriction, "SAFETY_SESSION_LOSS_GAPS_ITS_NAMED_CHAT").toBe("restricted");
+    expect(f.writes.safety(null, "troy").restriction).toBe("normal");
+    await f.writes.firstTaint(occurrence(null, null)).catch(() => {});
+    expect(f.db.query("SELECT unscoped FROM safety_latch").get(), "SAFETY_UNNAMED_LOSS_IS_DURABLY_UNSCOPED").toEqual({ unscoped: 1 });
+    f.db.exec("DROP TRIGGER no_unbound");
+    // Recovery from a fresh process, which retains nothing in memory.
+    await f.close();
+    const g = open(f.path); try {
+      expect((g.db.query("SELECT failed FROM safety_meta").get() as { failed: number }).failed).toBe(0);
+      expect(g.writes.safety(null, "troy").restriction, "SAFETY_UNSCOPED_RECOVERY_GAPS_EVERY_CHAT").toBe("restricted");
+    } finally { await g.close(); }
+  } catch (error) { await f.close().catch(() => {}); throw error; }
+});
+
+test("a capacity cause passed through the write worker stays capacity", async () => {
+  const f = fixture(); try {
+    await chat(f, "voyage", "ithaca");
+    await f.writes.safetyFail("voyage", new SafetyCapacityExhausted("Safety occurrence write capacity exceeded"));
+    expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get(), "SAFETY_CAPACITY_SURVIVES_THE_WORKER").toEqual({ failure: "capacity" });
   } finally { await f.close(); }
 });

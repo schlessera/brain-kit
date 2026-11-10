@@ -11,7 +11,9 @@ ALTER TABLE safety_collections ADD COLUMN failure_cause TEXT;
 CREATE TABLE safety_latch (
   singleton INTEGER PRIMARY KEY CHECK(singleton=1),
   since INTEGER NOT NULL, reason TEXT NOT NULL, site TEXT NOT NULL, turn_id TEXT,
-  error_class TEXT NOT NULL, message TEXT NOT NULL, stack TEXT, count INTEGER NOT NULL DEFAULT 1
+  error_class TEXT NOT NULL, message TEXT NOT NULL, stack TEXT, count INTEGER NOT NULL DEFAULT 1,
+  -- Some latched loss named no chat: recovery must gap every collection.
+  unscoped INTEGER NOT NULL DEFAULT 0
 );
 -- A latch already set before this migration has no recorded cause.
 INSERT INTO safety_latch(singleton,since,reason,site,turn_id,error_class,message,stack)

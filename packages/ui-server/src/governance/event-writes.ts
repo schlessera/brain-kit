@@ -10,7 +10,7 @@ import { retainSafetyLoss, safetyQueue, notifySafetyChanged } from "./safety-que
 import { prepareSafetyReview, commitSafetyReview, type SafetyReviewBody, type SafetyReviewer, type SafetyReviewReceipt } from "./safety-reviews.js";
 import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite,
   ensureSafetyEventCollection, recordSafetyFailure, recoverSafetyRecording, migrateSafetyHistory, logSafetyRecording, safetyRecordingStatus,
-  SafetyRecordingUnavailable, SafetyUnavailable, safetyScopeTurns, type SafetyCollectionInput, type SafetyProjection,
+  SafetyCapacityExhausted, SafetyRecordingUnavailable, SafetyUnavailable, safetyScopeTurns, type SafetyCollectionInput, type SafetyProjection,
   type SafetyFailureSite, type SafetyRecovery, type SafetyRecordingStatus } from "./safety-store.js";
 import { Database } from "bun:sqlite";
 import {assertLive,ChatRetiredError} from "../ws/chat-lifecycle.js";
@@ -28,16 +28,16 @@ export function setup(db: Database): WriteProcedures {
   const retired=(turnId:string)=>!!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId);
   // Writes the failure at the narrowest scope that takes it and tells the app
   // side which one did, on the error itself: `chat`, `brain`, or `unrecorded`.
-  const contain=(error:unknown,turnId:string|null,site:SafetyFailureSite)=>{
+  const contain=(error:unknown,turnId:string|null,site:SafetyFailureSite,sessionId:string|null=null)=>{
     let scope:string;
-    try{scope=recordSafetyFailure(db,turnId,error,site);}catch{scope="unrecorded";}
+    try{scope=recordSafetyFailure(db,turnId,error,site,sessionId);}catch{scope="unrecorded";}
     if(error instanceof Error)try{Object.defineProperty(error,"safetyScope",{value:scope,enumerable:true,configurable:true});}catch{/* frozen: treated as unrecorded */}
   };
   return {
     safetyPrepareReview: (body:SafetyReviewBody,actor:SafetyReviewer) => prepareSafetyReview(db,body,actor),
     safetyCommitReview: (id:string,body:SafetyReviewBody,actor:SafetyReviewer,pending:boolean,failed:boolean=false) => commitSafetyReview(db,id,body,actor,pending,failed),
     record: (row: GovernanceEventRow) => {
-      try { return insertGovernanceEvent(db,row); } catch(error) { if(!(error instanceof ChatRetiredError)&&(row.kind==="taint"||row.kind==="taint_exposure"))contain(error,row.turnId,"record"); throw error; }
+      try { return insertGovernanceEvent(db,row); } catch(error) { if(!(error instanceof ChatRetiredError)&&(row.kind==="taint"||row.kind==="taint_exposure"))contain(error,row.turnId,"record",row.sessionId); throw error; }
     },
     // A failed begin is before any delivery: it refuses that turn alone and
     // latches nothing (#3812). The app side names the retryable refusal.
@@ -58,11 +58,11 @@ export function setup(db: Database): WriteProcedures {
     // until the event commits, a refused reservation delivered nothing.
     safetyReserve: (row:GovernanceEventRow,id:string,bytes:number,beforeDelivery=false) => {
       try {const turnId=ensureSafetyEventCollection(db,row);reserveSafetyWrite(db,turnId,id,bytes,row.kind==="taint_exposure"?JSON.parse(row.payload).occurrenceId:undefined);}
-      catch(error){if(!(error instanceof ChatRetiredError)&&!beforeDelivery)contain(error,row.turnId,"safetyReserve");throw error;}
+      catch(error){if(!(error instanceof ChatRetiredError)&&!beforeDelivery)contain(error,row.turnId,"safetyReserve",row.sessionId);throw error;}
     },
     safetyCommit: (row:GovernanceEventRow,id:string) => {
       try{return db.transaction(()=>{assertLive(db,[["session",row.sessionId]]);if(row.turnId&&db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(row.turnId))throw new ChatRetiredError();if(!db.query("SELECT 1 FROM safety_pending WHERE id=?").get(id))throw new SafetyUnavailable("Safety reservation absent");releaseSafetyWrite(db,id);return insertGovernanceEvent(db,row,true);}).immediate();}
-      catch(error){if(!(error instanceof ChatRetiredError))contain(error,row.turnId,"safetyCommit");throw error;}
+      catch(error){if(!(error instanceof ChatRetiredError))contain(error,row.turnId,"safetyCommit",row.sessionId);throw error;}
     },
     bind: (turnId: string, sessionId: string) => bindTurnEvents(db, turnId, sessionId),
     // Classification reads the turn's earlier events on the same connection,
@@ -143,7 +143,10 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     shared.inflight++;
     return invoke<T>(name,...args).finally(()=>{shared.inflight--;watchLatch();notifySafetyChanged(db);});
   };
-  const retainedForBrain=(turnId:string|null,notice:unknown)=>{
+  const retainedForBrain=(turnId:string|null,notice:unknown,cause?:unknown)=>{
+    const original=cause??notice;
+    shared.lossCause=shared.lossCause?{...shared.lossCause,count:shared.lossCause.count+1}:{errorClass:original instanceof Error?(original.constructor?.name&&original.constructor.name!=="Error"?original.constructor.name:original.name):"Error",
+      message:(original instanceof Error?original.message:String(original)).slice(0,512),site:"retained",turnId,at:Date.now(),count:1};
     retainSafetyLoss(db,turnId,true);scheduleSafetyRecovery(db);
     logSafetyRecording("safety recording retained in process for the brain",{"safety.scope":"brain","safety.reason":"recording_failed",
       "safety.site":"retained","safety.turn_id":turnId,"error.message":notice instanceof Error?notice.message:String(notice)});
@@ -162,7 +165,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     },notice=>{
       // Neither the chat nor the brain fact committed: the store cannot take
       // a write. Restrict the brain in-process until recovery commits one.
-      if(counted)retainedForBrain(turnId,notice);
+      if(counted)retainedForBrain(turnId,notice,cause);
       throw notice;
     });
   };
@@ -178,14 +181,20 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     const restricted=covered(row.turnId);
     // A stopped producer stays stopped: its chat, or the brain, holds the failure.
     if (!restricted&&input.kind!=="taint_exposure"&&(brainFailed()||(row.turnId!==null&&(shared.lostTurns.has(row.turnId)
-      ||!!db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND failure IS NOT NULL AND ended=0").get(row.turnId)))))
-      throw new Error("Safety occurrence writer requires recovery");
+      ||!!db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND failure IS NOT NULL AND ended=0").get(row.turnId))))) {
+      // A producer that holds its input delivered nothing. Any other may
+      // already have: its chat keeps the loss before this refusal returns.
+      if (options.beforeDelivery) throw new SafetyRecordingUnavailable(brainFailed());
+      const refused = new Error("Safety occurrence writer requires recovery");
+      void safetyFail(row.turnId, refused).catch(() => {});
+      throw refused;
+    }
     const bytes = Buffer.byteLength(JSON.stringify(row))+1024;
     const session = snapshot(()=>row.turnId===null&&row.sessionId===null
       ? [...pendingTaints].filter(p=>p.turnId===null&&p.sessionId===null) : pendingInScope(row.turnId,row.sessionId));
     if (pendingTaints.size >= 4096 || shared.bytes + bytes > 16777216 || session.length >= 256
       || session.reduce((sum, p) => sum + p.bytes, 0) + bytes > 1048576) {
-      void safetyFail(row.turnId,new Error("Safety occurrence write capacity exceeded")).catch(()=>{});
+      void safetyFail(row.turnId,new SafetyCapacityExhausted("Safety occurrence write capacity exceeded")).catch(()=>{});
       throw new Error("Safety occurrence write capacity exceeded; ingestion must stop");
     }
     const pending = { turnId: row.turnId, sessionId: row.sessionId, source: input.kind==="taint"?(input as GovernanceEventInput<"taint">).payload.source:"legacy_unknown" as const, bytes };

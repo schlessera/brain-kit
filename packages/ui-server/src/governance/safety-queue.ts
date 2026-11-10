@@ -3,10 +3,12 @@ import type { Database } from "bun:sqlite";
 import type { SessionTaint } from "./session-taint.js";
 type PendingSafety = {turnId:string|null;sessionId:string|null;source:SessionTaint["source"];bytes:number};
 const queues=new WeakMap<Database,{pending:Set<PendingSafety>;bytes:number;failed:boolean;inflight:number;
- lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number}}>();
+ lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};
+ /** First cause of a loss only this process holds, kept for the recovery audit. */
+ lossCause:{errorClass:string;message:string;site:string;turnId:string|null;at:number;count:number}|null}>();
 export function safetyQueue(db:Database){
  let queue=queues.get(db);
- if(!queue){queue={pending:new Set(),bytes:0,failed:false,inflight:0,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0}};queues.set(db,queue);}
+ if(!queue){queue={pending:new Set(),bytes:0,failed:false,inflight:0,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null};queues.set(db,queue);}
  return queue;
 }
 
