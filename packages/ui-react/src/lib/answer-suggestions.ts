@@ -98,7 +98,7 @@ interface SuggestionsContext {
   /** The session still has a turn running or queued. */
   running: boolean;
   voiceMode: VoiceMode;
-  /** Voice text waiting in the review card. */
+  /** Dictated text not yet moved into the draft (#3694). */
   voiceReviewPending: boolean;
 }
 

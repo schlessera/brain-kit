@@ -63,15 +63,18 @@ interface ComposerProvider {
 }
 
 export interface ComposerViewProps {
-  /** Capture panel, kept inside the existing bounded composer frame. */
+  /** Voice notices (dictation's D0, D7, D8 and Dx; live's S4) and capture panels, above the field. */
   dictation?: ReactNode;
+  /**
+   * The voice field while dictation captures (Dc, D2, D3–D5, #3694). It
+   * replaces the kit composer; the draft stays in the store meanwhile.
+   */
+  voiceField?: ReactNode;
   /**
    * Why the mic cannot record, in place of the capture panel: a refused
    * microphone, or a browser that cannot record on the device (#1012).
    */
   captureNotice?: string;
-  dictationNotice?: string;
-  onDismissDictationNotice?: () => void;
   onDismissCaptureNotice?: () => void;
   /** The mic's accessible name when it does not dictate, or names the dictation service. */
   micLabel?: string;
@@ -231,16 +234,7 @@ export function ComposerView(p: ComposerViewProps) {
   return (
     <div ref={p.frameRef} data-composer="" className="relative mx-auto max-w-3xl" onKeyDown={onKeyDown} onPaste={onPaste} onDrop={onDrop} onDragOver={onDragOver}>
       {p.dictation}
-      {p.dictationNotice && (
-        <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="dictation" onPointerDown={(event) => {
-          const button = (event.target as HTMLElement).closest('[role="button"]');
-          if (button && button !== document.activeElement) event.preventDefault();
-        }}>
-          <div data-capture-message="" className="min-w-0 flex-1"><Callout tone="amber" variant="boxed" icon="mic" text={p.dictationNotice} /></div>
-          <Button label="Dismiss" ariaLabel="Dismiss dictation notice" tone="quiet" size="sm" block={false} reach onClick={p.onDismissDictationNotice} />
-        </div>
-      )}
-      {p.captureNotice && p.captureNotice !== p.dictationNotice && (
+      {p.captureNotice && (
         <div className="mb-2 flex items-start gap-2" role="status" data-capture-notice="local" onPointerDown={(event) => {
           const button = (event.target as HTMLElement).closest('[role="button"]');
           if (button && button !== document.activeElement) event.preventDefault();
@@ -310,7 +304,7 @@ export function ComposerView(p: ComposerViewProps) {
         {attachMenu}
       </Overlay>
 
-      <KitComposer
+      {p.voiceField ?? <KitComposer
         variant="send"
         state={p.state}
         placeholder={p.placeholder}
@@ -335,7 +329,7 @@ export function ComposerView(p: ComposerViewProps) {
         micUnavailable={p.micUnavailable}
         micControl={p.micControl}
         status={p.status}
-      />
+      />}
     </div>
   );
 }

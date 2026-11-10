@@ -21,9 +21,7 @@ import { ComposerView } from "./composer-view.js";
 import { ComposerMic } from "./composer-mic.js";
 import { RecordingsTray } from "../voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
-import { DictationSheet } from "../voice/dictation-sheet.js";
-import { ReviewCard } from "../voice/review-card.js";
-import { dictationNoticeText } from "../../voice/dictation-failure.js";
+import { DictationCapture, DictationNotices, useDictationCapturing } from "../voice/dictation-field.js";
 import { useDictation } from "../../voice/use-dictation.js";
 import { dictationTarget, loadDiscovery, providerShortLabel } from "../../voice/dictation-providers.js";
 import { useLocalCapture, useLocalCaptureSupport } from "../../voice/use-local-capture.js";
@@ -341,9 +339,27 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const voiceMode = useVoiceStore((s) => s.mode);
   const reviewText = useVoiceStore((s) => s.reviewText);
   const clearReview = useVoiceStore((s) => s.clearReview);
-  const dictationNotice = useVoiceStore((s) => s.dictationNotice);
-  const dismissDictationNotice = useVoiceStore((s) => s.dismissDictationNotice);
   const dictation = useDictation();
+  // Dc, D2 and D3–D5: the voice field stands in for the composer (#3694).
+  const capturing = useDictationCapturing();
+  // D6 (#3694): what a take heard joins the draft as plain editable text,
+  // caret at the end. The draft this happened to is remembered, so its send
+  // still reads as dictated and its mic says "Dictate more".
+  const [dictatedDraft, setDictatedDraft] = useState<string | null>(null);
+  const dictated = dictatedDraft === draftId && input.trim() !== "";
+  useLayoutEffect(() => {
+    if (!reviewText) return;
+    const heard = reviewText.trim();
+    root.stores.voice.getState().setReviewText("");
+    if (!heard) return;
+    const drafts = root.stores.drafts.getState();
+    const current = drafts.drafts[draftId]?.text ?? "";
+    drafts.edit(draftId, sessionId, { text: current === "" ? heard : /\s$/.test(current) ? `${current}${heard}` : `${current} ${heard}` });
+    setDictatedDraft(draftId);
+    heardTake.current = true;
+  }, [root, reviewText, draftId, sessionId]);
+  /** The dictated draft was sent: its review, and any notice about its take, are over. */
+  const endReview = () => { clearReview(); setDictatedDraft(null); };
   // The mic names the service the next take goes to (D4), from the read-only
   // discovery snapshot. Reading it mints nothing and opens no microphone.
   // A stale snapshot may no longer be the server's, so it names nothing.
@@ -376,13 +392,17 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const dictationUnavailable = micMode === "dictate" && voiceMode !== "dictate" && discovery?.providers.length === 0
     ? "Dictation isn\u0027t set up on this host." : undefined;
 
-  const micLabel = micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save";
+  // D6's mic is "Dictate more" (#3694); like the resting mic it names the
+  // next take's service when one is known (D4, #3709).
+  const dictateMore = dictateLabel ? dictateLabel.replace(/^Dictate/, "Dictate more") : "Dictate more";
+  const micLabel = micMode !== "local" ? dictated ? dictateMore : voiceMode === "dictate" && !gated ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save";
   // The hold-to-talk mic at rest (#3693, drawn as signed off on #3727): it
   // dictates, or records on the device with no hold (M1). Dictating, a
   // recording in progress and a mic still deciding keep the kit's own mic.
   // With neither dictation nor live conversation here, the kit's disabled
   // mic still says why, since a hold would have nothing to offer.
-  const restingMic = (micMode === "dictate" && voiceMode !== "dictate" && !(dictationUnavailable && !conversation.available))
+  // D0 and Dx keep it drawn beside them: the take has not started (#3694).
+  const restingMic = (micMode === "dictate" && (voiceMode !== "dictate" || gated) && !(dictationUnavailable && !conversation.available))
     || (micMode === "local" && (localPhase === "idle" || localPhase === "opening"));
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
@@ -391,11 +411,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       ? "Brain can't use the microphone. Allow it in your browser's site settings, then tap Record again."
       : undefined;
   useEffect(() => { setDismissedLocalNotice(null); }, [captureNotice]);
-  function dismissNotice(kind: "dictation" | "local") {
+  function dismissLocalNotice() {
     const frame = frameRef.current;
-    const heldFocus = frame?.querySelector(`[aria-label="Dismiss ${kind === "dictation" ? "dictation" : "capture"} notice"]`) === document.activeElement;
-    if (kind === "dictation") dismissDictationNotice();
-    else { setDismissedLocalNotice(captureNotice ?? null); root.stores.voice.getState().setLocalNotice(null); }
+    const heldFocus = frame?.querySelector('[aria-label="Dismiss capture notice"]') === document.activeElement;
+    setDismissedLocalNotice(captureNotice ?? null);
+    root.stores.voice.getState().setLocalNotice(null);
     if (heldFocus) {
       const mic = frame?.querySelector<HTMLElement>('[aria-label^="Dictate"], [aria-label="Record on this device"]');
       if (mic) mic.focus(); else focusField();
@@ -471,15 +491,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       document.removeEventListener("keydown", onKey);
     };
   }, [providerMenuOpen, attachMenuOpen]);
-
-  /**
-   * The draft is whatever is visible above the send button: composer text
-   * plus any voice text under review. Both send paths submit the combined
-   * draft so nothing is silently dropped.
-   */
-  function draftText() {
-    return [input.trim(), reviewText.trim()].filter(Boolean).join("\n");
-  }
 
   /**
    * Decode, downscale and validate incoming image files, merging them with any
@@ -572,7 +583,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   draftIdRef.current = draftId;
 
   function handleSubmit() {
-    const text = draftText();
+    // Dictated words are in the field by now (D6), so the field is the draft.
+    const text = input.trim();
     const currentTracks = trackUploads.files;
     const currentQueued = fileQueue.files;
     const currentDraft = root.stores.drafts.getState().drafts[draftId];
@@ -616,7 +628,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       )
     ) {
       setInput("");
-      clearReview();
+      endReview();
       return;
     }
 
@@ -628,7 +640,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       mediaType: a.attachment.mediaType,
     })), ...frames.previews];
     const chat = root.stores.chat.getState();
-    const source = reviewText.trim() ? "voice-dictate" : "typed";
+    const source = dictated ? "voice-dictate" : "typed";
     const requestId = chatRequestAck ? crypto.randomUUID() : undefined;
     // A send while the session is busy is a follow-up the host queues. On a
     // host that reports its queue it waits as a pending pill, not in the
@@ -714,16 +726,15 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (requestId) {
       if (sent === false) {
         setPendingSend(null);
-        // Nothing left: the snapshot goes back into the draft, whole. It holds
-        // the dictated words too, so the review is not kept beside them.
+        // Nothing left: the snapshot goes back into the draft, whole,
+        // dictated words included, so it still reads as dictated.
         drafts.sendFailed(requestId);
-        clearReview();
         chat.withdrawSend(sessionId, requestId);
         if (pendingFollowUp) root.stores.followUp.getState().dropLocal(requestId);
         root.stores.connection.getState().reportError("CHAT_NOT_SENT", "The message could not be sent. Your draft is kept.");
         return;
       }
-      clearReview();
+      endReview();
       setAttachErrors([]);
       return;
     }
@@ -732,7 +743,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     // rendered user message (revoked later by the chat store) — not revoked here.
     drafts.transfer(attachments);
     drafts.edit(draftId, sessionId, { text: "", attachments: [] });
-    clearReview();
+    endReview();
     for (const track of currentTracks) trackUploads.remove(track.id);
     setAttachErrors([]);
   }
@@ -760,7 +771,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     // A typed answer to a pending question is still an answer, never a message (D38 §1).
     if (text && !hasAttachments && takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) =>
       void root.answers.submit(answer).then((result) => { if (result === "refused") root.stores.chat.getState().requestComposerInsert(text); }))) {
-      setInput(""); clearReview(); return;
+      setInput(""); endReview(); return;
     }
     if (text) setLastPrompt(text);
     const requestId = crypto.randomUUID();
@@ -774,7 +785,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       ...(selectedEffort !== undefined ? { thinkingLevel: selectedEffort } : {}),
       providerId: sessionId || !providers.some((p) => p.id === selectedProviderId) ? undefined : selectedProviderId,
       client: detectClientEnvironment(),
-      source: reviewText.trim() ? "voice-dictate" : "typed",
+      source: dictated ? "voice-dictate" : "typed",
     };
     const snapshot: ComposerSnapshot = {
       snapshotId: crypto.randomUUID(), requestId, text,
@@ -785,7 +796,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (pending.length > 0) fileQueue.assign(pending.map((item) => item.id), snapshot.snapshotId);
     store.createSnapshot(draftId, sessionId, snapshot, input);
     setPendingSend({ requestId, key: sessionId, effort });
-    clearReview();
+    endReview();
     setAttachErrors([]);
     setEffortNotice("");
   }
@@ -843,7 +854,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
   function stopDictation() {
     // Read synchronously: another stop may arrive before React paints the
-    // disabled Done button. The driver owns the drain and review handoff.
+    // busy Finish button. The driver owns the drain and review handoff.
     if (root.stores.voice.getState().draining) return;
     void dictation.stop(true);
   }
@@ -853,12 +864,33 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
     '[aria-label="Record on this device"], [aria-label^="Dictate"], [aria-label="Stop and save"]'
   )?.focus({ preventScroll: true }), 0);
+  // A take that ends while focus is in the voice field (Finish, V3's
+  // silence stop, a provider end) hands focus back to the composer: the
+  // field with the caret after the dictated words (D6), or the mic (D1).
+  const refocusTake = useRef(false);
+  const heardTake = useRef(false);
   useEffect(() => root.stores.voice.subscribe((state, previous) => {
     // Observe the end before React removes the sheet's focused control.
     // Automatic limits and track interruptions share this idle transition.
     if (state.local === "idle" && previous.local !== "idle" &&
       frameRef.current?.querySelector("[data-local-recording-sheet]")?.contains(document.activeElement)) focusMic();
+    if (state.mode === "idle" && previous.mode === "dictate") {
+      const active = document.activeElement;
+      refocusTake.current = !active || active === document.body || Boolean(frameRef.current?.querySelector("[data-dictation-field]")?.contains(active));
+    }
   }), [root]);
+  useEffect(() => {
+    if (voiceMode !== "idle" || !refocusTake.current) return;
+    refocusTake.current = false;
+    const heard = heardTake.current;
+    heardTake.current = false;
+    setTimeout(() => {
+      const field = frameRef.current?.querySelector("textarea");
+      if (!heard || !field) { focusMic(); return; }
+      field.focus({ preventScroll: true });
+      field.setSelectionRange(field.value.length, field.value.length);
+    }, 0);
+  }, [voiceMode]);
   const stopLocal = async () => { await localCapture.stop("user"); focusMic(); };
   const discardLocal = async () => {
     const active = localCapture.recording();
@@ -874,7 +906,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   };
 
   function handleMicTap() {
-    if (root.stores.voice.getState().mode === "dictate") {
+    const voice = root.stores.voice.getState();
+    if (voice.mode === "dictate" && voice.dictationGate) {
+      // The mic beside D0 or Dx: the take it asks about is not wanted.
+      cancelDictation();
+    } else if (voice.mode === "dictate") {
       stopDictation();
     } else if (micMode === "local") {
       setAttachMenuOpen(false);
@@ -890,11 +926,33 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       setAttachMenuOpen(false);
       setProviderMenuOpen(false);
       setPaletteDismissed(true);
-      // Defensive: blur composer so the keyboard never fights the mic sheet on Android
+      // Defensive: blur composer so the keyboard never fights the voice field on Android
       frameRef.current?.querySelector("textarea")?.blur();
-      // Any existing review text stays put — the new capture appends to it.
+      // The draft stays put — what the new take hears is added after it.
       void dictation.start();
     }
+  }
+
+  /** Cancel, Esc or the mic on a take that has not started listening: focus returns to the mic. */
+  function cancelDictation() {
+    dictation.cancel();
+    focusMic();
+  }
+
+  /** D8's Try again: a new take, whose words join the kept ones in the draft. */
+  function retryDictation() {
+    root.stores.voice.getState().dismissDictationNotice();
+    if (root.stores.voice.getState().local !== "idle") return;
+    void dictation.start();
+  }
+
+  /** D7's OK, D8's Dismiss: the words stay in the draft; focus goes to the mic, or the field without one. */
+  function dismissDictationNotice() {
+    root.stores.voice.getState().dismissDictationNotice();
+    setTimeout(() => {
+      const mic = frameRef.current?.querySelector<HTMLElement>('[aria-label^="Dictate"], [aria-label="Record on this device"]');
+      if (mic) mic.focus({ preventScroll: true }); else focusField();
+    }, 0);
   }
 
   // The mic's hold (#3693): Start when live conversation is offered here,
@@ -920,28 +978,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     ok?.focus({ preventScroll: true });
   }, [liveNotice]);
 
-  function handleVoiceSend() {
-    if (!draftText() || isStreaming || wsStatus !== "connected") {
-      // If we cannot send right now, fall back to editing
-      handleVoiceEdit();
-      return;
-    }
-    handleSubmit();
-  }
-
-  function handleVoiceEdit() {
-    setInput((prev) => (prev ? `${prev}\n${reviewText}` : reviewText));
-    clearReview();
-    setTimeout(focusField, 50);
-  }
-
-  function handleVoiceAppend() {
-    // Dictation never starts beside a recording on the device.
-    if (root.stores.voice.getState().local !== "idle") return;
-    // Review text stays in place; the next capture appends to it on stop.
-    void dictation.start();
-  }
-
   function handleRecall() {
     if (lastPrompt && !input.trim()) {
       setInput(lastPrompt);
@@ -961,7 +997,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   }
 
   const hasDraft = Boolean(
-    input.trim() || reviewText.trim() || attachments.length > 0 || tracks.length > 0 || queuedFiles.length > 0 || draftFiles.length > 0
+    input.trim() || attachments.length > 0 || tracks.length > 0 || queuedFiles.length > 0 || draftFiles.length > 0
   );
   // A send while a session is running is a follow-up (not blocked by streaming).
   const canSend = hasDraft && wsStatus === "connected" && !waiting && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts && !outgoingFull;
@@ -1023,14 +1059,6 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
           <RecordingsTray composerRef={frameRef} onAccepted={() => setPaletteDismissed(true)} />
           {recordingNotice && <p role="status" className="mb-2 text-xs text-muted-foreground">{recordingNotice}</p>}
-          {/* Voice review card sits above the composer */}
-          <ReviewCard
-            text={reviewText}
-            onSend={handleVoiceSend}
-            onEdit={handleVoiceEdit}
-            onDiscard={clearReview}
-            onAppend={handleVoiceAppend}
-          />
         </div>
 
         {/* Hidden file inputs for the paperclip / camera buttons */}
@@ -1041,17 +1069,16 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         {filesOn && <input ref={fileInputRef} type="file" multiple hidden onChange={onFilePick} data-files-input="" />}
 
         <ComposerView
-          micControl={restingMic ? <ComposerMic name={micLabel} onTap={handleMicTap} onTalkLive={micMode === "dictate" ? handleTalkLive : undefined} /> : undefined}
+          // D6 is the review (#3694, M2 on #3727): the mic is "Dictate more", with no hold.
+          micControl={restingMic ? <ComposerMic name={micLabel} onTap={handleMicTap} onTalkLive={micMode === "dictate" && !dictated ? handleTalkLive : undefined} /> : undefined}
+          voiceField={capturing ? <DictationCapture onFinish={stopDictation} onCancel={cancelDictation} /> : undefined}
           dictation={<>{liveNotice && <div className="mb-2" data-live-notice="">
             <VoiceNotice tone="idle" icon="fyi" title="Live conversation isn’t set up here" body="Whoever runs this brain can add a live service. Dictation still works." actions={[{ label: "OK", onClick: dismissLiveNotice }]} />
-          </div>}<DictationSheet open={voiceMode === "dictate"}
-            composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} onConfirm={dictation.confirm}
+          </div>}<DictationNotices onConfirm={dictation.confirm} onCancel={cancelDictation} onRetry={retryDictation} onDismiss={dismissDictationNotice}
             onOpenSettings={() => { dictation.cancel(); root.stores.ui.getState().openSettings("voice"); }} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
-          dictationNotice={dictationNotice ? dictationNoticeText(dictationNotice) : undefined}
-          onDismissDictationNotice={() => dismissNotice("dictation")}
           captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
-          onDismissCaptureNotice={() => dismissNotice("local")}
+          onDismissCaptureNotice={dismissLocalNotice}
           mic={micMode !== "unsupported"}
           micLabel={micLabel}
           micTip={micMode === "dictate" && voiceMode !== "dictate" && dictateLabel !== undefined}
@@ -1059,12 +1086,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           value={input}
           // The kit's `state` drives placeholder, hint and the trailing control
           // together (D37): streaming shows the stop, reconnecting keeps send
-          // live, offline disables it and keeps the draft. Dictating keeps the
-          // draft read-only and makes the mic the explicit capture stop.
+          // live, offline disables it and keeps the draft. While dictation
+          // captures, the voice field stands in for all of it.
           state={
-            voiceMode === "dictate"
-              ? "dictating"
-              : wsStatus === "connected" && (restorePhase !== null || sessionProfile.saving || sessionProfile.awaitingDraftFacts || (outgoingFull !== null && !isStreaming))
+            wsStatus === "connected" && (restorePhase !== null || sessionProfile.saving || sessionProfile.awaitingDraftFacts || (outgoingFull !== null && !isStreaming))
               // The kit's disabled send, with its own reason (#1328).
               ? "offline"
               : wsStatus === "connected"
@@ -1076,7 +1101,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                 : "offline"
           }
           placeholder={
-            voiceMode === "dictate" && !gated ? "Dictating…" : voiceMode === "dictate" ? root.config.composerPlaceholder : wsStatus === "connected" && restorePhase !== null
+            wsStatus === "connected" && restorePhase !== null
               ? "Sending waits until this conversation is restored"
               : wsStatus !== "connected"
               ? connectionIssue === "capacity"
@@ -1086,7 +1111,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
                   : "Connecting..."
               : root.config.composerPlaceholder
           }
-          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : voiceMode === "dictate" && !gated ? "Dictating… · stop to review your words" : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
+          hint={localPhase === "recording" ? "Recording on this device" : heldSend ? heldHint() : localSaveFailed ? LOCAL_SAVE_FAILED : followUpHint ? `${followUpHint} · ${finePointer ? "esc or " : ""}the stop button ends the run` : undefined}
           blockedWhy={
             wsStatus === "connected" && outgoingFull !== null && restorePhase === null && !sessionProfile.saving && !sessionProfile.awaitingDraftFacts ? `${outgoingFull.limit} messages waiting · your text stays here`
               : wsStatus === "connected" && sessionProfile.saving ? "saving this chat profile · your draft is kept"
@@ -1154,13 +1179,13 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           frameRef={frameRef}
           providerMenuRef={providerMenuRef}
           onChange={(value) => {
-            if (voiceMode === "dictate" || creatingSnapshot) return;
+            if (capturing || creatingSnapshot) return;
             setInput(value);
             setPaletteDismissed(false);
             setPaletteIndex(0);
           }}
           onSend={() => {
-            if (voiceMode === "dictate") return;
+            if (capturing) return;
             // A slash command runs as clicking its row does; it is never sent.
             const command = commandForEnter();
             if (command) handleCommand(command);
