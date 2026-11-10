@@ -119,9 +119,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     // Governance events live in the UI database; a commit split between the
     // two files is completed from the journal's rows (#2789).
     await createGovernanceWrites(db, writer).replaySteering();
-    const interrupted = (db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[])
+    const interrupted = (db.query("SELECT turn_id,pid,pid_start,missing FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string; missing: string }[])
       .filter(row => !processAlive(row.pid, row.pid_start));
-    for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
+    for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([...JSON.parse(row.missing), { path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
     // Index bytes earlier releases retained are purged once, a step per
     // commit, after interrupted turns have ended (#2903). A refused step is
     // left for the next open; until then history already presents them as
@@ -623,7 +623,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
         await write([
           ...(failures.has(turnId) ? [statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", failures.get(turnId)!.padEnd(64), turnId)] : []),
-          statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' THEN state ELSE 'complete' END WHERE turn_id=?", now(), turnId),
+          statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' OR missing!='[]' THEN 'partial' ELSE 'complete' END WHERE turn_id=?", now(), turnId),
           statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
           statement("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash)) AND NOT EXISTS (SELECT 1 FROM turn_journal_claude_memory m WHERE m.turn_id=? AND m.state!='saved' AND (json_extract(m.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(m.after_json,'$.hash')=turn_journal_object_refs.hash))", turnId, turnId, turnId),
         ]);
@@ -649,7 +649,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }); },
     hasRetainedVersion(turnId: string, selected: JournalVersion): boolean {
       if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
-      if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)) return false;
+      if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)
+        || db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(selected.hash)) return false;
       try { return objects.verify(selected.hash, selected.bytes); } catch { return false; }
     },
     /**
@@ -763,7 +764,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);
       const selected = change?.[side];
-      if (!selected?.hash || selected.metadataOnly || details?.summary.state === "expired") return null;
+      if (!selected?.hash || selected.metadataOnly || details?.summary.state === "expired"
+        || db.query("SELECT 1 FROM turn_journal_object_quarantine WHERE hash=?").get(selected.hash)) return null;
       return { selected, bytes: (maxBytes: number) => objects.read(selected.hash!, maxBytes), async stream() {
         const lease = await call<string>("openRead", selected.hash!);
         const release = () => releaseRead(lease);

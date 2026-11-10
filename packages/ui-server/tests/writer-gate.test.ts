@@ -5,7 +5,7 @@
  * The server and the cron runner are separate processes, so it lives in the
  * UI database: two handles on one file stand in for the two processes.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -441,4 +441,58 @@ describe("unpinned host writer provenance", () => {
       candidate.release(); legacy.release();
     } finally { w.close(); }
   });
+});
+
+for (const operation of ["release", "dequeue"] as const) test(`a failed writer-gate ${operation} retries without restarting`, async () => {
+  const w = world();
+  const query = w.db.query.bind(w.db);
+  let attempts = 0;
+  const sql = operation === "release" ? "DELETE FROM writer_gate WHERE id = ?" : "DELETE FROM writer_gate_turn_waiters WHERE id = ?";
+  const fault = spyOn(w.db, "query").mockImplementation(((text: string) => {
+    if (text === sql && attempts++ === 0) throw new Error("Odysseus transient DELETE failure");
+    return query(text);
+  }) as typeof w.db.query);
+  try {
+    if (operation === "release") {
+      const hold = await w.server.acquire("exclusive", "user revert");
+      await hold.release();
+    } else {
+      const held = await w.server.acquire("shared", "active turn");
+      const abort = new AbortController();
+      const waiting = w.server.acquire("exclusive", "user revert", { queueTurns: true, signal: abort.signal }).catch(error => error);
+      await settle(); abort.abort(new Error("Odysseus cancelled"));
+      const error = await waiting;
+      expect(String(error)).toContain("Odysseus cancelled");
+      await held.release();
+    }
+    expect(attempts, "GATE_FAILED_DELETE_RETRIED").toBeGreaterThanOrEqual(2);
+    const causes = w.db.query("SELECT payload,at FROM governance_events WHERE kind='roadblock'").all() as {payload:string;at:number}[];
+    expect(causes, "GATE_CLEANUP_CAUSE_IS_DURABLE").toHaveLength(1);
+    expect(JSON.parse(causes[0]!.payload)).toMatchObject({family:"writer_gate_cleanup",failures:[{signature:"Error: Odysseus transient DELETE failure"}]});
+    expect(JSON.parse(causes[0]!.payload).signature).toStartWith(operation + ":");
+    expect(causes[0]!.at).toBeGreaterThan(0);
+    const next = await w.server.acquire("shared", "next turn", { turn: true, signal: AbortSignal.timeout(1000) });
+    await next.release();
+    expect(w.server.holders()).toEqual([]);
+    expect(w.db.query("SELECT * FROM writer_gate_turn_waiters").all()).toEqual([]);
+  } finally { fault.mockRestore(); w.close(); }
+});
+
+
+test("a failed gate diagnostic never prevents release or the next writer", async () => {
+  const w = world(), query = w.db.query.bind(w.db);
+  let attempts = 0;
+  const fault = spyOn(w.db,"query").mockImplementation(((sql: string) => {
+    if (sql === "DELETE FROM writer_gate WHERE id = ?" && attempts++ === 0) throw Error("Odysseus transient DELETE failure");
+    if (sql.includes("INSERT") && sql.includes("governance_events")) throw Error("Odysseus diagnostic unavailable");
+    return query(sql);
+  }) as typeof w.db.query);
+  let release: Promise<void> | undefined;
+  try {
+    const hold = await w.server.acquire("exclusive","user revert");
+    release = Promise.resolve(hold.release());
+    const next = await w.cron.acquire("shared","healthy turn",{signal:AbortSignal.timeout(300)});
+    expect(attempts, "GATE_DIAGNOSTICS_DO_NOT_BLOCK_DELETE").toBeGreaterThanOrEqual(2);
+    await release; await next.release();
+  } finally { fault.mockRestore(); await release; await w.server.settled(); w.close(); }
 });

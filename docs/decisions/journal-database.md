@@ -28,7 +28,7 @@ that no pre-charge covers. The evidence is on the issue.
   `DB_PATH` names one journal.
   Every page in it is the journal's, so the measurement is the file's page
   count and the journal's own WAL, read without walking
-  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:67-81`).
+  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:72-86`).
   Other components' pages and WAL frames are no longer the journal's charge.
 - **The tables move on start.** Migrations up to `063` create journal tables
   in the UI database. Before any later migration, and again after the last,
@@ -93,11 +93,11 @@ that no pre-charge covers. The evidence is on the issue.
   capture took an inventory at all, which it does only for an observation that
   saw a change. Per-turn arrays from earlier releases move into sets at open, a
   bounded batch per accounted commit, because SQLite cannot hash
-  (`migrateConfigurationSets(limit`, `packages/ui-server/src/brain/journal-store.ts:230-238`);
+  (`migrateConfigurationSets(limit`, `packages/ui-server/src/brain/journal-store.ts:232-240`);
   readers understand the arrays until then, and an empty legacy array stays
   "no set recorded". The brain's current set is the one the most recent complete,
   inventoried turn recorded
-  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:738-744`).
+  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:743-749`).
   The sets table is an ordinary rowid table, as every journal table is: the
   operational backup copies and compares journal rows in rowid order.
 
@@ -111,3 +111,24 @@ and the ledger's attach is then a no-op.
 A `roadblock` event a journal-reader failure records is not replayed: its
 payload carries timings that the journal does not keep. The journal's `missing`
 record of that path stays authoritative.
+
+## Corrupt interrupted publication (#3816)
+
+Recovery quarantines a published object that fails verification in
+`turn_journal_object_quarantine`. The cause includes error class, message, time
+and call site. The bytes stay at their original hash and remain charged, while
+read leases and new reservations for that hash refuse. The interrupted writer's
+reservation is cleared in the same accounted transaction that records quarantine
+and marks every referencing history path incomplete. Other history stays usable.
+The history details expose `retained_object_corrupt`; normal expiry eventually
+collects the quarantined bytes and their diagnostic row. A later disk repair
+does not silently turn the old incomplete history into complete history.
+
+Later captures of a quarantined hash record only the affected path as missing
+(`retained_object_corrupt`); the shared observation and other active turns
+continue. No replacement is trusted and old gap facts stay intact. An I/O error
+while testing existence or verification proves neither corruption nor absence:
+the reservation, object state and charge remain unchanged for the next recovery
+pass. Only a verified mismatch or confirmed absence of retained content can
+quarantine it. Recovery marks live owners' paths without changing their running
+state; their normal completion preserves the gap.

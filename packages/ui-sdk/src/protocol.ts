@@ -1893,6 +1893,8 @@ export type GovernedStatus = {
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
 export interface SystemStatus {
+  /** Native quarantine reported at server boot; only on authenticated status. */
+  nativeRecovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; diagnosticsPath: string };
   healthy: boolean;
   uptime: number;
   /** The configured source commit (`"dev"` by default), never a release. */
