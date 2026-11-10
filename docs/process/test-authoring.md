@@ -96,7 +96,12 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
   `self-comparison`.
 - **S4. Compare values, not booleans.** `expect(island).toBe("Ithaca")`, not
   `expect(island === "Ithaca").toBe(true)`: the failure should print both
-  sides. Prevents `opaque-failure`.
+  sides. The same goes for a predicate over a collection:
+  `expect(crew.every(c => c.rowed)).toBe(true)` hides which sailor failed and
+  passes on an empty crew. Map or filter to values instead,
+  `expect(crew.filter(c => !c.rowed)).toEqual([])` or
+  `expect(crew.map(c => c.name)).not.toContain("Eurylochus")`, and pin the
+  size when an empty collection would be wrong. Prevents `opaque-failure`.
 - **S5. The expected value does not come from the code under test.** Write it
   as a literal or derive it independently. A test that resolves the same tokens
   the component paints with proves wiring and nothing else. Prevents
