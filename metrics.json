@@ -1,87 +1,91 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T12:39:43.017Z",
-  "sha": "fff3cfbe68535e330c070e1dffcac85977370d74",
+  "generatedAt": "2026-11-10T14:43:23.306Z",
+  "sha": "30359911aa33e3a080f0ae72a7cda35ce5b17de5",
   "coverage": {
     "files": 1835,
-    "auditedCurrent": 3,
+    "auditedCurrent": 13,
     "stale": 0,
-    "never": 1832,
-    "share": 0.002,
-    "medianAuditAgeDays": 0
+    "never": 1822,
+    "share": 0.007,
+    "medianAuditAgeDays": 0.1
   },
   "runs": {
-    "total": 1,
+    "total": 2,
     "byOutcome": {
-      "completed": 1
+      "completed": 2
     },
     "byAgent": {
-      "claude-opus-5-5": 1
+      "claude-opus-5-5": 2
     },
     "byProfile": {
-      "cron": 1
+      "cron": 2
     }
   },
   "audits": {
-    "clusters": 1,
-    "files": 3,
-    "filesChanged": 1
+    "clusters": 7,
+    "files": 13,
+    "filesChanged": 2
   },
   "findings": {
-    "total": 11,
-    "perAuditedFile": 3.67,
+    "total": 21,
+    "perAuditedFile": 1.62,
     "byLens": {
       "failure-issues": 3,
       "overlap": 1,
-      "nondeterminism": 3,
-      "cannot-fail": 4
+      "nondeterminism": 7,
+      "cannot-fail": 9,
+      "not-running": 1
     },
     "bySmell": {
       "test-fault": 1,
       "unreproduced": 2,
       "matrix-multiplier": 1,
       "settling-sleep": 2,
-      "shared-state": 1,
-      "weak-matcher": 3,
-      "conditional-assertion": 1
+      "shared-state": 3,
+      "weak-matcher": 4,
+      "conditional-assertion": 5,
+      "unseeded-random": 1,
+      "fixed-resource": 1,
+      "conditional-skip": 1
     },
     "byAction": {
-      "deflake": 3,
+      "deflake": 4,
       "remove": 1,
-      "none": 6,
+      "none": 15,
       "strengthen": 1
     },
     "byStatus": {
       "deferred": 4,
-      "accepted": 6,
-      "fixed": 1
+      "accepted": 15,
+      "fixed": 2
     }
   },
   "proof": {
-    "mutationsKilled": 1,
+    "mutationsKilled": 2,
     "testsThatCouldNotFail": 1,
-    "deflaked": 0,
+    "deflaked": 1,
     "secondsSavedPerRun": 0,
     "testsRemoved": 0
   },
   "accounting": {
-    "testsBefore": 5,
-    "testsAfter": 5,
+    "testsBefore": 17,
+    "testsAfter": 17,
     "declaredRemoved": 0,
-    "casesBefore": 0,
-    "casesAfter": 0,
-    "assertionsBefore": 0,
-    "assertionsAfter": 0
+    "casesBefore": 12,
+    "casesAfter": 12,
+    "assertionsBefore": 167,
+    "assertionsAfter": 167
   },
   "batches": {
     "open": 1,
-    "landed": 0,
+    "landed": 1,
     "abandoned": 0,
     "parkedChangedFiles": 1,
     "droppedCommits": 0,
-    "landingAttempts": 0,
-    "meanFilesPerLanded": null,
-    "meanHoursToLand": null
+    "landingAttempts": 3,
+    "meanFilesPerLanded": 1,
+    "meanHoursToLand": 1.7
   },
   "refind": {
     "reaudits": 0,
@@ -124,6 +128,42 @@
       "openIssues": 69,
       "openIssuesNeedingRepro": 24,
       "at": "2026-11-10T12:39:40.033Z"
+    },
+    {
+      "sha": "30359911aa33e3a080f0ae72a7cda35ce5b17de5",
+      "files": 1835,
+      "scenarios": 15854,
+      "assertions": 65329,
+      "costSeconds": 10388.2,
+      "top50CostShare": 0.639,
+      "signals": {
+        "asserts-the-double": 2,
+        "conditional-assertion": 2670,
+        "conditional-skip": 139,
+        "fixed-resource": 221,
+        "giant-test": 15,
+        "leaked-resource": 5,
+        "long-timeout": 328,
+        "matrix-multiplier": 399,
+        "no-assertion": 177,
+        "not-throw-only": 14,
+        "opaque-failure": 1513,
+        "per-test-setup": 63,
+        "real-time-wait": 91,
+        "self-comparison": 12,
+        "settling-sleep": 888,
+        "shared-state": 940,
+        "spawn-per-assertion": 50,
+        "unawaited-async": 4,
+        "unclear-name": 9,
+        "unrestored-global": 1182,
+        "unseeded-random": 10,
+        "wall-clock": 1099,
+        "weak-matcher": 1295
+      },
+      "openIssues": 69,
+      "openIssuesNeedingRepro": 24,
+      "at": "2026-11-10T14:43:20.105Z"
     }
   ]
 }
