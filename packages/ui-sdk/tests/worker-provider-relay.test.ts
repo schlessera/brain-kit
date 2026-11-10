@@ -178,8 +178,8 @@ describe.each(["governed", "strict"] as const)("a %s turn worker with the provid
     // Ordinary turn egress (G5): the provider connection is the turn's record.
     expect(records.filter(record => record.path?.endsWith(":batchEmbedContents")), "RELAYED_REQUEST_IS_TURN_EGRESS")
       .toMatchObject([{ method: "POST", host: "127.0.0.1", port: upstream.port, outcome: "completed" }]);
-    expect(records.some(record => record.inference)).toBe(false);
-    expect(SECRETS.some(secret => stdout.includes(secret) || stderr.includes(secret))).toBe(false);
+    expect(records.filter(record => record.inference)).toEqual([]);
+    expect(SECRETS.filter(secret => stdout.includes(secret) || stderr.includes(secret))).toEqual([]);
   });
 
   test("a blocked budget refuses the request before any provider contact", async () => {
@@ -205,11 +205,11 @@ describe.each(["governed", "strict"] as const)("a %s turn worker with the provid
       "POST /upload/v1beta/files", "POST /upload/v1beta/files", "GET /v1beta/files/troy-1",
       "POST /v1beta/models/gemini-3-flash-preview:generateContent", "DELETE /v1beta/files/troy-1",
     ]);
-    expect(seen.every(request => request.headers["x-goog-api-key"] === HOST_KEYS.GEMINI_API_KEY), "HOST_KEY_ON_EVERY_LIFECYCLE_REQUEST").toBe(true);
+    expect(seen.map(request => request.headers["x-goog-api-key"]), "HOST_KEY_ON_EVERY_LIFECYCLE_REQUEST").toEqual(Array(5).fill(HOST_KEYS.GEMINI_API_KEY));
     expect(stored, "RELAYED_VIDEO_LEAVES_NO_FILE").toEqual(new Set());
     expect(receipts.map(receipt => receipt.operation), "RELAYED_VIDEO_METERED").toEqual(["files", "files", "files", "completions", "files"]);
     expect(receipts[3]).toMatchObject({ model: "gemini-3-flash-preview", usage: { inputTokens: 300, outputTokens: 12, inputByModality: { VIDEO: 290, TEXT: 10 } } });
-    expect(SECRETS.some(secret => stdout.includes(secret) || stderr.includes(secret)), "WORKER_SEES_NO_KEY").toBe(false);
+    expect(SECRETS.filter(secret => stdout.includes(secret) || stderr.includes(secret)), "WORKER_SEES_NO_KEY").toEqual([]);
   });
 
   test("a blocked budget refuses brain video watch before any byte reaches the provider", async () => {

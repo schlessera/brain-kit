@@ -62,7 +62,7 @@ describe("inference relay", () => {
     expect((await send(r.socketPath, "POST", "/v1/messages", { authorization: "Bearer worker", "x-api-key": "worker" }, "{}")).status).toBe(200);
     expect(calls).toBe(2);
     expect(seen.map(item => item.headers.authorization)).toEqual(["Bearer odysseus-first-login", "Bearer odysseus-changed-login"]);
-    expect(seen.every(item => item.headers["x-api-key"] === undefined)).toBe(true);
+    expect(seen.map(item => item.headers["x-api-key"])).toEqual([undefined, undefined]);
   });
 
   test("credential resolution failures and invalid headers never reach upstream or disclose host secrets", async () => {
