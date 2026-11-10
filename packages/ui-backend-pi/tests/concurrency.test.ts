@@ -37,9 +37,7 @@ const CTX = {} as never;
 const settle = () => new Promise((r) => setTimeout(r, 15));
 /** Wait until each session's turn has reached its prompt: it has acquired, subscribed and emitted session_info. */
 async function prompted(...controls: Array<{ promptCalls: unknown[] }>) {
-  for (const deadline = Date.now() + 3_000; controls.some((c) => c.promptCalls.length === 0) && Date.now() < deadline;) {
-    await new Promise((r) => setTimeout(r, 1));
-  }
+  while (controls.some((c) => c.promptCalls.length === 0)) await new Promise((r) => setTimeout(r, 1));
   expect(controls.map((c) => c.promptCalls.length)).toEqual(controls.map(() => 1));
 }
 
