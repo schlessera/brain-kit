@@ -140,7 +140,9 @@ on, links to or describes them.
 
 ## Testing expectations
 
-[Full testing rules and incident context](docs/process/testing.md).
+[Full testing rules and incident context](docs/process/testing.md). How to
+write one, and which kind of test proves which claim:
+[docs/process/test-authoring.md](docs/process/test-authoring.md).
 
 - Every library keeps or gains unit tests; contract tests assert the `--json`
   envelopes. Integration tests run against `packages/core/fixtures/corpus/` —
@@ -230,6 +232,8 @@ In `.agents/skills/`, symlinked into `.claude/skills/`.
 | `gh-stack` | Creating or working in stacked branches/PRs, including rebasing, submitting and merging a stack. Apply the [project stack rules](docs/process/github.md#stacked-pull-requests) alongside it. |
 | `work-issue` | Taking one unassigned, highest-priority ready brain-kit issue through implementation and merge, or a blocked handoff. |
 | `triage-issues` | Preparing open brain-kit issues without `agent-ready`: resolve factual gaps, maintain prompts, and reconcile labels and epic membership. |
+| `test-health` | A recurring run that audits one batch of existing tests in depth, proves and lands the fixes, and records the metrics. |
+| `test-health-push` | One dedicated full pass of the suite: the `test-health` audit fanned out against an integration branch and landed as one pull request. |
 
 A skill records what works. Fix any incorrect command, limit or API shape
 in the same PR that found it.
