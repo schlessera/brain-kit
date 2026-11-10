@@ -77,15 +77,20 @@ export async function proveRecoveryInventory(artifacts: string): Promise<void> {
   let manager = await createNativeBrainManager(config);
   const remember = NativeRecoveryIndex.prototype.remember;
   // A real SQLite write failure AFTER the production JSON rename/fsync.
-  // Reading the surviving JSON is not a substitute for the restart below.
+  // The same live manager must rebuild and admit the next checkpoint.
   const failedWrite = spyOn(NativeRecoveryIndex.prototype, "remember").mockImplementation(function(this: NativeRecoveryIndex, value: string) {
     if (value === failedId) (this as unknown as { db: Database }).db.exec("PRAGMA query_only = ON");
     return remember.call(this, value);
   });
   try {
-    await expect(manager.run({ operation: "release", id: failedId }), "NATIVE_RECOVERY_INTERRUPTED_INDEX_OUTCOME_UNKNOWN").rejects.toThrow("indexing failed");
+    expect(await (await manager.run({ operation: "release", id: failedId })).json(), "NATIVE_RECOVERY_FAILED_WRITE_REBUILDS_IN_PLACE").toEqual({id:failedId,state:"deleted"});
     expect(JSON.parse(fs.readFileSync(join(state, `${failedId}.json`), "utf8")).state).toBe("deleted");
-    await expect(manager.run({ operation: "listRecovery", after: id(100000) }), "NATIVE_RECOVERY_POISONED_INDEX_REFUSES_PARTIAL_PAGE").rejects.toThrow("restart");
+    const page = await (await manager.run({ operation: "listRecovery", after: id(100000) })).json() as {records:{id:string}[]};
+    expect(page.records.some(record => record.id === failedId), "NATIVE_RECOVERY_REBUILD_INCLUDES_DURABLE_INTENT").toBe(true);
+    const nextId = id(100003);
+    const next = await (await manager.run({ operation: "checkpoint", id: nextId })).json() as {id:string};
+    expect(next.id, "NATIVE_RECOVERY_NEXT_CHECKPOINT_WORKS").toBe(nextId);
+    await manager.run({operation:"release",id:nextId});
   } finally { failedWrite.mockRestore(); await manager.close(); }
   manager = await createNativeBrainManager(config);
   try {
@@ -112,4 +117,59 @@ export async function proveRecoveryInventory(artifacts: string): Promise<void> {
     const page = await (await manager.run({ operation: "listRecovery", after: id(100000) })).json() as { records: { id: string; state: string }[] };
     expect(page.records.filter(row => [failedId, lostId].includes(row.id))).toEqual([{ id: failedId, state: "deleted" }, { id: lostId, state: "deleted" }]);
   } finally { await manager.close(); }
+
+  const malformedId = id(100004), healthyId = id(100005), historicalId = id(100007);
+  manager = await createNativeBrainManager(config);
+  try { await manager.run({operation:"checkpoint",id:historicalId}); } finally { await manager.close(); }
+  fs.writeFileSync(join(state, `${malformedId}.json`), "{malformed", {mode:0o600});
+  manager = await createNativeBrainManager({...config, appUid:1000, stageAllowanceBytes:4096, stageBudgetBytes:4096});
+  try {
+    const ready = await (await manager.run({operation:"ready"})).json() as {recovery:{quarantinedIntents:number;stagingChargedBytes:number;diagnosticsPath:string}};
+
+    expect(fs.readdirSync(ready.recovery.diagnosticsPath).length).toBeGreaterThan(0);
+    const healthy = await (await manager.run({operation:"checkpoint",id:healthyId})).json() as {id:string};
+    expect(healthy.id, "NATIVE_MALFORMED_INTENT_OTHER_CHECKPOINT_WORKS").toBe(healthyId);
+    await expect(manager.run({operation:"checkpoint",id:malformedId}), "NATIVE_QUARANTINE_ID_CANNOT_BE_REUSED").rejects.toThrow("quarantined");
+    const stage = await (await manager.run({operation:"prepareStage",id:id(100006),checkpointId:healthyId,allowanceBytes:4096})).json() as {id:string};
+    expect(stage.id, "NATIVE_MALFORMED_INTENT_HEALTHY_STAGE_PREPARES").toBe(id(100006));
+    expect(ready.recovery, "NATIVE_ABSENT_STAGE_HAS_NO_STORAGE_CHARGE").toMatchObject({quarantinedIntents:1,stagingChargedBytes:0});
+    await expect(manager.run({operation:"prepareStage",id:id(100008),checkpointId:healthyId,allowanceBytes:4096}), "NATIVE_ACTIVE_STAGE_CHARGE_REMAINS_RESERVED").rejects.toThrow("budget");
+    await manager.run({operation:"releaseStage",id:stage.id});
+    await expect(manager.run({operation:"release",id:historicalId}), "NATIVE_UNKNOWN_STAGE_DEPENDENCIES_NOT_RELEASED").rejects.toThrow("dependencies");
+    expect(await (await manager.run({operation:"release",id:healthyId})).json(), "NATIVE_QUARANTINE_NEW_CHECKPOINT_RELEASES").toEqual({id:healthyId,state:"deleted"});
+    expect(fs.readFileSync(join(state, `${malformedId}.json`), "utf8")).toBe("{malformed");
+  } finally { await manager.close(); }
+  // The independent cap is written by actual stage creation, and survives an
+  // unreadable intent plus a smaller configured allowance on the next boot.
+  const boundedId = id(100011), boundedPath = join("/brain-fixture/.brain-native/stages", boundedId);
+  manager = await createNativeBrainManager({...config,appUid:1000,stageAllowanceBytes:8192,stageBudgetBytes:8192});
+  try { await manager.run({operation:"prepareStage",id:boundedId,checkpointId:historicalId,allowanceBytes:8192}); }
+  finally { await manager.close(); }
+  fs.writeFileSync(join(state, `${boundedId}.json`), "{broken", {mode:0o600});
+  manager = await createNativeBrainManager({...config,appUid:1000,stageAllowanceBytes:4096,stageBudgetBytes:12288});
+  try {
+    const ready = await (await manager.run({operation:"ready"})).json() as {recovery:{stagingChargedBytes:number}};
+    expect(ready.recovery.stagingChargedBytes,"NATIVE_QUARANTINE_RETAINS_REAL_TMPFS_CAP").toBe(8192);
+    await manager.run({operation:"prepareStage",id:id(100012),checkpointId:historicalId,allowanceBytes:4096});
+    await expect(manager.run({operation:"prepareStage",id:id(100013),checkpointId:historicalId,allowanceBytes:4096}),
+      "NATIVE_QUARANTINE_CHARGE_REMAINS_RESERVED").rejects.toMatchObject({code:"capacity"});
+    await manager.run({operation:"releaseStage",id:id(100012)});
+  } finally {
+    await manager.close(); fs.rmdirSync(boundedPath); fs.unlinkSync(`${boundedPath}.allowance`); fs.unlinkSync(join(state, `${boundedId}.json`));
+  }
+  // An old namespace placeholder may outlive changed configuration. Never
+  // replace an unknown historical allowance with today's smaller limit.
+  const uncertainStage = join("/brain-fixture/.brain-native/stages", malformedId);
+  fs.mkdirSync(uncertainStage,{mode:0o700});
+  manager = await createNativeBrainManager({...config,appUid:1000,stageAllowanceBytes:4096,stageBudgetBytes:8192});
+  try {
+    const ready = await (await manager.run({operation:"ready"})).json() as {recovery:{stagingChargedBytes:number|null}};
+    expect(ready.recovery.stagingChargedBytes,"NATIVE_UNKNOWN_HISTORICAL_STAGE_BOUND_STAYS_UNKNOWN").toBeNull();
+    const nextId = id(100009);
+    await manager.run({operation:"checkpoint",id:nextId});
+    await expect(manager.run({operation:"prepareStage",id:id(100010),checkpointId:nextId,allowanceBytes:4096}),"NATIVE_UNKNOWN_STAGE_CAPACITY_NOT_RELEASED").rejects.toMatchObject({code:"unknown",message:expect.stringContaining("recovery")});
+    await manager.run({operation:"release",id:nextId});
+  } finally { await manager.close(); fs.rmdirSync(uncertainStage); fs.unlinkSync(join(state, `${malformedId}.json`)); }
+  manager = await createNativeBrainManager(config);
+  try { await manager.run({operation:"release",id:historicalId}); } finally { await manager.close(); }
 }

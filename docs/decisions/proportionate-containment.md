@@ -65,7 +65,7 @@ design, not an afterthought.
      non-restorable.
    - Disproportionate: one corrupt undo object stops the server from starting
      (`recover(objects)`,
-     `packages/ui-server/src/brain/journal-accounting.ts:225-239`).
+     `packages/ui-server/src/brain/journal-accounting.ts:231-245`).
 5. **Diagnosable.** Every latch, give-up, quarantine or restricted boot records
    its cause durably (error class, message, call site, scope, time), writes one
    structured log line, and is visible to the owner. A cause that is only in a

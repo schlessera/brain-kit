@@ -86,6 +86,8 @@ export interface NativeManagerReady {
   availableBytes: number;
   recoveryReserveBytes: number;
   reserveAllocatedBytes: number;
+  /** Historical unreadable receipts stay fenced and conservatively charged. */
+  recovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; diagnosticsPath: string };
 }
 export interface NativeRecoveryRecord {
   id: string;
