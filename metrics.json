@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T20:00:22.537Z",
-  "sha": "a4b1b9854c64b772b4d92e7b0b931a2a5078a765",
+  "generatedAt": "2026-11-10T20:01:28.784Z",
+  "sha": "b9b305a21b5ed0bfa661bf56f183112ea500ff62",
   "coverage": {
     "files": 1835,
-    "auditedCurrent": 1326,
+    "auditedCurrent": 1332,
     "stale": 0,
-    "never": 509,
-    "share": 0.723,
+    "never": 503,
+    "share": 0.726,
     "medianAuditAgeDays": 0.1
   },
   "runs": {
@@ -25,34 +25,34 @@
     }
   },
   "audits": {
-    "clusters": 721,
-    "files": 1333,
-    "filesChanged": 314
+    "clusters": 725,
+    "files": 1339,
+    "filesChanged": 315
   },
   "findings": {
-    "total": 2101,
-    "perAuditedFile": 1.58,
+    "total": 2107,
+    "perAuditedFile": 1.57,
     "byLens": {
       "failure-issues": 105,
       "overlap": 101,
-      "nondeterminism": 628,
-      "cannot-fail": 787,
-      "not-running": 38,
+      "nondeterminism": 631,
+      "cannot-fail": 788,
+      "not-running": 39,
       "hygiene": 297,
       "cost": 135,
-      "tier-and-doubles": 10
+      "tier-and-doubles": 11
     },
     "bySmell": {
       "test-fault": 50,
       "unreproduced": 49,
       "matrix-multiplier": 92,
-      "settling-sleep": 216,
+      "settling-sleep": 217,
       "shared-state": 122,
       "weak-matcher": 291,
-      "conditional-assertion": 307,
+      "conditional-assertion": 308,
       "unseeded-random": 5,
       "fixed-resource": 65,
-      "conditional-skip": 38,
+      "conditional-skip": 39,
       "opaque-failure": 277,
       "spawn-per-assertion": 18,
       "earlier-layer-answers": 19,
@@ -60,12 +60,12 @@
       "no-assertion": 75,
       "duplicate-case": 8,
       "real-time-wait": 29,
-      "unrestored-global": 112,
+      "unrestored-global": 113,
       "slow-file": 33,
       "wrong-object": 6,
       "unclear-name": 3,
       "self-comparison": 19,
-      "wall-clock": 80,
+      "wall-clock": 81,
       "derived-expectation": 12,
       "empty-by-construction": 13,
       "load-sensitive": 10,
@@ -73,7 +73,7 @@
       "not-throw-only": 12,
       "per-test-setup": 11,
       "nothing-to-observe": 23,
-      "wrong-tier": 4,
+      "wrong-tier": 5,
       "asserts-the-double": 7,
       "leaked-resource": 9,
       "order-dependent": 15,
@@ -86,48 +86,48 @@
       "double-too-high": 4
     },
     "byAction": {
-      "deflake": 76,
+      "deflake": 77,
       "remove": 23,
-      "none": 1629,
+      "none": 1633,
       "strengthen": 124,
       "cleanup": 176,
       "file-issue": 39,
       "rewrite": 18,
       "speed-up": 11,
-      "move-tier": 2,
+      "move-tier": 3,
       "unskip": 1,
       "split": 2
     },
     "byStatus": {
-      "deferred": 72,
-      "accepted": 1629,
-      "fixed": 372,
+      "deferred": 73,
+      "accepted": 1633,
+      "fixed": 373,
       "filed": 28
     }
   },
   "proof": {
     "mutationsKilled": 145,
     "testsThatCouldNotFail": 117,
-    "deflaked": 54,
+    "deflaked": 55,
     "secondsSavedPerRun": 73.6,
     "testsRemoved": 15
   },
   "accounting": {
-    "testsBefore": 3499,
-    "testsAfter": 3500,
+    "testsBefore": 3516,
+    "testsAfter": 3517,
     "declaredRemoved": 0,
-    "casesBefore": 4068,
-    "casesAfter": 4071,
-    "assertionsBefore": 28417,
-    "assertionsAfter": 28581
+    "casesBefore": 4085,
+    "casesAfter": 4088,
+    "assertionsBefore": 28455,
+    "assertionsAfter": 28619
   },
   "batches": {
     "open": 19,
     "landed": 4,
     "abandoned": 0,
-    "parkedChangedFiles": 254,
+    "parkedChangedFiles": 255,
     "droppedCommits": 0,
-    "landingAttempts": 14,
+    "landingAttempts": 15,
     "meanFilesPerLanded": 14.8,
     "meanHoursToLand": 1.7
   },
