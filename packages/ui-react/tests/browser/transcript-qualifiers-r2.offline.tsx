@@ -54,7 +54,7 @@ test("review: technical evidence is reachable with native Tab", async ctx => {
   const visited:string[]=[];
   for(let n=0;n<4;n++){await userEvent.keyboard("{Tab}");visited.push(document.activeElement?.tagName+":"+document.activeElement?.textContent);}
   console.log("REVIEW_TAB", JSON.stringify(visited));
-  expect(visited.some(x=>x.startsWith("SUMMARY:")),"Tab must reach collapsed technical evidence").toBe(true);
+  expect(visited,"Tab must reach collapsed technical evidence").toContainEqual(expect.stringMatching(/^SUMMARY:/));
   const summary = document.querySelector<HTMLDialogElement>("dialog[open]")!.querySelector("summary")!;
   expect(document.activeElement).toBe(summary);
   await userEvent.keyboard(" ");
@@ -71,9 +71,9 @@ test("review: task request offers exact View result", async ctx => {
   const answer={...request,id:"raft-answer",role:"assistant" as const,source:undefined,content:"The raft notes are ready.",parts:[{kind:"text" as const,text:"The raft notes are ready."}],toolCalls:[],isStreaming:false};
   flushSync(()=>s.ui.stores.chat.setState(state=>({buffers:{...state.buffers,[SESSION]:{...state.buffers[SESSION]!,messages:[...state.buffers[SESSION]!.messages,{...answer,id:"unrelated-answer",requestId:"unrelated-request",turnId:"unrelated-turn"},answer]}}})));
   await expect.poll(()=>s.host.querySelector("[data-conversation-task-result]")).not.toBeNull();
-  expect([...s.host.querySelectorAll('button,[role="button"]')].some(x=>x.textContent==="View request"),"fixture has exact backlink").toBe(true);
+  expect([...s.host.querySelectorAll('button,[role="button"]')].map(x=>x.textContent),"fixture has exact backlink").toContain("View request");
   console.log("REVIEW_LINKS",JSON.stringify([...s.host.querySelectorAll('button,[role="button"]')].map(x=>x.textContent).filter(x=>x?.includes("View"))));
-  expect([...s.host.querySelectorAll('button,[role="button"]')].some(x=>x.textContent==="View result"),"request must expose exact retained result").toBe(true);
+  expect([...s.host.querySelectorAll('button,[role="button"]')].map(x=>x.textContent),"request must expose exact retained result").toContain("View result");
   const answerEntry = transcriptTimelineFor(s.ui.stores.chat).state.getState().entries.find(e => e.kind === "message" && e.message.id === answer.id && e.section !== "progress")!;
   await userEvent.click(page.getByRole("button", { name: "View result", exact: true }));
   await expect.poll(() => (document.activeElement as HTMLElement)?.dataset.arrivalKey).toBe(answerEntry.key);
