@@ -108,9 +108,10 @@ individual page with mutations. Pages do not promise a multi-request snapshot:
 an identity inserted below an already-consumed cursor is not returned later.
 
 Intent rename and parent-directory fsync precede index insertion. If insertion
-fails, the mutation has an unknown outcome and the index refuses subsequent
-pages until restart rebuilds it. Losing the in-memory index or a transport reply
-does not lose the durable identity. Deleted intents remain present and continue
+fails, the manager builds a complete replacement from those durable intents
+before continuing. A failed rebuild refuses dependent admission and pages;
+each later request retries the rebuild in the same process. Losing the
+in-memory index or a transport reply does not lose the durable identity. Deleted intents remain present and continue
 to fence delayed create requests; no identity retirement or tombstone lifetime
 policy is introduced.
 
@@ -208,3 +209,45 @@ Reduced undo remains a distinct product choice: committed-version restoration
 or mediated-tool-only undo can avoid universal preimages. Removing only the
 whole-turn revert action cannot. This ruling keeps existing observed-version
 undo and changes its storage mechanism instead.
+
+## Containing recovery failures (#3816)
+
+An unreadable native intent stays in place as an identity fence. Startup records
+its error class, message, site and timestamp under the manager's private
+`recovery-diagnostics/` directory, and continues. `ready` reports the count,
+diagnostic directory and conservatively charged staging bytes; authenticated
+`/api/status` exposes that boot report as `nativeRecovery`. An invalid UUID
+cannot own a stage and has no staging charge. A confirmed absent stage directory
+also charges zero: the directory precedes namespace setup and is removed only
+after confirmed close. The malformed receipt remains quarantined in both cases.
+
+Before starting a stage, the manager durably records its exact tmpfs allowance
+in a separate root-owned `stages/<id>.allowance` file. A surviving or unreadable
+directory retains that cap even if today's configured allowance is smaller.
+The allowance record is removed only after close and durable directory removal;
+neither a failed close nor an I/O error releases it. Healthy stages can use the
+remaining aggregate budget. An old stage without this independent record, or a
+damaged/unreadable record, has no provable historical bound. Its charge stays
+unknown (`null`), new staging returns an explicit recovery refusal instead of a
+retryable capacity error, and authenticated status reports `healthy: false`.
+The cause stays in the private diagnostics directory. Repair requires proof of
+the historical cap or confirmed cleanup, never a guess based on current config.
+No historical checkpoint dependency is released while a quarantined receipt
+could own it.
+Healthy checkpoint creation and reads remain available;
+new roots created after recovery can also be released, since a historical stage
+cannot refer to those native identities. A recovery
+page touching that identity refuses explicitly. Repairing an authoritative
+receipt requires owner judgment; restart after that repair reconstructs the
+known reservation. Unknown identities are never adopted or deleted.
+
+Index rebuilds use the same diagnostics directory; they need no owner action.
+The reference pool refreshes its accounting map from the same durable intents
+before it reopens dependent admission.
+
+Diagnostic writes are best-effort and cannot gate mechanical recovery. If the
+private diagnostic directory refuses a write, the structured stderr record
+retains both the original cause and that write failure; the authoritative bad
+intent remains on disk. A disposable index rebuild publishes only its complete
+replacement, and retries pending diagnostic writes on later requests separately
+from admission.

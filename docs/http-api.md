@@ -358,7 +358,7 @@ healthy does not certify upstream model or brain CLI availability.
 
 **GET /api/status** is protected, accepts no inputs, and returns
 `{ healthy: boolean, uptime, version, software, cronJobs, activeSession, metrics,
-runtime?, subscription?, backendAvailability? }`. `version` is the configured source commit (default
+runtime?, subscription?, backendAvailability?, nativeRecovery? }`. `version` is the configured source commit (default
 `"dev"`), not a release; `software` is `{ release, sourceCommit }`. `cronJobs`
 contains `{ name, lastRunAt, lastStatus, lastDurationMs, lastError }`, nullable
 when a job has not run; it includes recorded jobs and configured in-process
@@ -376,6 +376,14 @@ The default backend must pass boot validation; unavailable secondary backends
 are never constructed or routed to. Correct the package/runtime or host
 configuration and start again to revalidate. Prior records alone do not imply
 current degradation.
+
+`nativeRecovery`, when present, reports native intent quarantine at server boot:
+`{ quarantinedIntents, stagingChargedBytes, diagnosticsPath }`. A null charge
+means its bound could not be established; it never means zero, and `healthy` is
+false while that recovery restriction remains. A numeric zero means no stage
+storage can belong to the quarantined identities. The diagnostics
+path is host-private and appears only behind authentication, never on `/health`.
+Healthy identities remain usable within provably available staging capacity.
 
 `runtime.workerHost` is whether this host can run agent workers (#1632):
 `{ ordinary?, restricted? }`, each `{ available, checkedAt, trigger }` plus

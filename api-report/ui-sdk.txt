@@ -12190,6 +12190,11 @@ signatures (every public export and the types it is made of)
     }
   SystemStatus (packages/ui-sdk/src/protocol.ts)
     export interface SystemStatus {
+        nativeRecovery?: {
+            quarantinedIntents: number;
+            stagingChargedBytes: number | null;
+            diagnosticsPath: string;
+        };
         healthy: boolean;
         uptime: number;
         version: string;

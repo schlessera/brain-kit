@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
 import type { ContentRendererDeclaration } from "@schlessera/brain-ui-sdk";
-import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { AppEnv } from "../app-env.js";
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
@@ -48,6 +48,7 @@ interface StatusDeps {
   /** Retained checkpoint cleanup and its durable historical cause. */
   getJournalCleanup?(): unknown;
   getBackendAvailability?(): { unavailable: BackendBootFailure[]; lastFailures: BackendBootFailure[] };
+  getNativeRecovery?(): SystemStatus["nativeRecovery"];
   /** Trusted metadata from configured modules; absent with an older CLI. */
   getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
@@ -74,6 +75,7 @@ interface StatusDeps {
 export function createStatusRoutes(deps: StatusDeps): Hono<AppEnv> {
   return new Hono<AppEnv>().get("/status", async (c) => {
     const backendAvailability = deps.getBackendAvailability?.();
+    const nativeRecovery = deps.getNativeRecovery?.();
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
     // The cause names a turn and an error's text: the owner's, not every principal's.
     let safetyRecording: SafetyRecordingStatus | undefined;
@@ -82,8 +84,9 @@ export function createStatusRoutes(deps: StatusDeps): Hono<AppEnv> {
     }
     const contentRenderers = await deps.getContentRenderers?.(c.req.raw.signal).catch(() => undefined);
     return c.json({
+      ...(nativeRecovery ? { nativeRecovery } : {}),
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
-      healthy: !backendAvailability?.unavailable.length,
+      healthy: !backendAvailability?.unavailable.length && nativeRecovery?.stagingChargedBytes !== null,
       ...(backendAvailability ? { backendAvailability } : {}),
       ...(deps.getJournalCleanup ? { journalCleanup: deps.getJournalCleanup() } : {}),
       uptime: Date.now() - startTime,

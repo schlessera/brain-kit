@@ -160,6 +160,22 @@ conflicts, unavailable detail, unknown outcomes and partial work remain explicit
 voice, agent and autonomous execution do not gain a history action. This is
 additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
+<a id="native-intent-recovery-additive-3816"></a>
+
+### Native intent recovery (additive, #3816)
+
+Authenticated `GET /api/status` adds optional `nativeRecovery`:
+`{ quarantinedIntents: number, stagingChargedBytes: number | null,
+diagnosticsPath: string }`, also declared by `SystemStatus`. It reports the
+manager's boot quarantine and conservative staging charge. Invalid UUIDs and
+confirmed absent stage directories charge zero; surviving stages retain their
+independently recorded historical tmpfs allowance. The charge includes known
+stage reservations at boot. `null` means no safe bound is proven, never zero:
+`healthy` is false and staging refuses with a recovery diagnostic rather than
+claiming a temporary busy slot. Other operations remain available. The private
+diagnostics path and causes are never exposed by unauthenticated `/api/health`.
+This optional reporting is additive in 0.45.0; no CLI/MCP shape changes.
+
 <a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
 
 ### Degraded backend availability and unknown expiry (additive, #3817)

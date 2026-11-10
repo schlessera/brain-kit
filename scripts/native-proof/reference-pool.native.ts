@@ -1,5 +1,5 @@
 /** Real reference-pool qualification on owned Btrfs loop volumes (#2428). Runs only inside reference-pool-fixture.py. */
-import { expect } from "bun:test";
+import { expect, spyOn } from "bun:test";
 import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -9,6 +9,8 @@ import { reservePhysical } from "../../packages/ui-sdk/src/server/native-referen
 import type { NativePoolRecord, NativePoolStatus } from "../../packages/ui-sdk/src/server/native-brain-manager-protocol.js";
 
 import { createFixtureWorktrees } from "./reference-worktree-allocation.js";
+import { NativeRecoveryIndex } from "../../packages/ui-sdk/src/server/native-recovery-index.js";
+import type { Database } from "bun:sqlite";
 import { settledWorktreeRelease } from "./reference-worktree-release.js";
 
 const MIB = 1024 ** 2, POOL = "/reference-pool", ARTIFACTS = process.env.BRAIN_REFERENCE_POOL_ARTIFACTS ?? "/proof";
@@ -61,6 +63,23 @@ function bounded(name: string, before: NonNullable<NativePoolStatus["accounting"
   const physical = after.chargedBytes - before.chargedBytes, owner = after.ownerBytes - before.ownerBytes;
   note("bound", { name, physical, owner, ratio: owner > 0 ? physical / owner : null, reserved: reservePhysical(owner, after.reservationFactor) });
   expect(physical, `REFERENCE_POOL_FACTOR_BOUNDS_${name}`).toBeLessThanOrEqual(reservePhysical(owner, after.reservationFactor) + extra);
+}
+
+// Disposable index write failure must not poison pool admission or its accounting.
+{
+  const remember = NativeRecoveryIndex.prototype.remember;
+  let injected = false;
+  const fault = spyOn(NativeRecoveryIndex.prototype, "remember").mockImplementation(function(this:NativeRecoveryIndex,id:string) {
+    if (!injected) { injected = true; (this as unknown as {db:Database}).db.exec("PRAGMA query_only = ON"); }
+    return remember.call(this,id);
+  });
+  try {
+    const source = await create("worktree", 8 * MIB);
+    expect(source.state, "POOL_RECOVERY_INDEX_FAILED_WRITE_REBUILDS").toBe("writable");
+    const checkpoint = await call<NativePoolRecord>({operation:"poolCheckpoint",id:randomUUID(),from:source.id});
+    expect(checkpoint.state, "POOL_RECOVERY_INDEX_NEXT_CHECKPOINT_WORKS").toBe("sealed");
+    await release(checkpoint.id); await release(source.id);
+  } finally { fault.mockRestore(); }
 }
 
 // 1. Qualification and baseline.
