@@ -67,11 +67,11 @@ describe("the key and signed URLs stay out of everything but the API header", ()
       expect(others).toEqual([]);
     }
     if (collected.kind !== "ok") throw new Error(collected.kind);
+    expect(collected.artifacts.map((artifact) => artifact.status)).toEqual(["collected", "collected"]);
     for (const artifact of collected.artifacts) {
-      expect(artifact.status === "collected" && new TextDecoder().decode(artifact.data).includes(KEY)).toBe(false);
+      if (artifact.status === "collected") expect(new TextDecoder().decode(artifact.data)).not.toContain(KEY);
     }
-    const printed = started.kind === "ok" ? JSON.stringify(seen[3]) : "";
-    expect(printed.includes("VOYAGE=ithaca")).toBe(true);
+    expect(JSON.stringify(seen[3])).toContain("VOYAGE=ithaca");
   });
 
   test("the fake refuses a signed-URL request that carries an Authorization header, as a stray key must never reach one", async () => {
