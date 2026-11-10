@@ -81,7 +81,7 @@ describe("links.target_id index", () => {
   test("the query under test is still the one brain_graph runs", () => {
     // A stale copy would keep the plan test green while the real query moved.
     const source = readFileSync(join(import.meta.dir, "../src/lib/link-walk.ts"), "utf8");
-    expect(source.includes(INCOMING_QUERY)).toBe(true);
+    expect(source).toContain(INCOMING_QUERY);
   });
 
   test("the brain_graph incoming query searches links by target_id instead of scanning it", () => {
@@ -89,7 +89,7 @@ describe("links.target_id index", () => {
     try {
       seed(db, 200);
       const detail = plan(db);
-      expect(detail.some((d) => /^SCAN l\b/.test(d)), detail.join("\n")).toBe(false);
+      expect(detail.filter((d) => /^SCAN l\b/.test(d))).toEqual([]);
       expect(
         detail.some((d) => /^SEARCH l USING (COVERING )?INDEX \S+ \(target_id=\?\)/.test(d)),
         detail.join("\n")
@@ -125,7 +125,7 @@ describe("links.target_id index", () => {
       expect(after.prepare("SELECT source_id, target, target_id FROM links ORDER BY source_id, target").all()).toEqual(
         linksBefore
       );
-      expect(plan(after).some((d) => /^SCAN l\b/.test(d))).toBe(false);
+      expect(plan(after).filter((d) => /^SCAN l\b/.test(d))).toEqual([]);
     } finally {
       after.close();
     }
