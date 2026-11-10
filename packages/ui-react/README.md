@@ -51,17 +51,25 @@ Only the phase changes announce. The existing composer owns the single Stop.
 
 ## Dictation
 
-At widths of 900px and above, dictation opens a panel immediately above the
-composer, bounded to its width. Done or the composer's mic stops capture and
-hands the transcript to review. Conversation text remains selectable while
-recording. Done receives focus on opening; Enter or Space activates the
-focused stop control, and Escape cancels. Closing returns focus to the mic.
+Dictation happens in the voice field (#3694), drawn with the kit's
+`VoiceField`, `VoiceText`, `VoiceNotice` and `VoiceControlButton`. Tapping the
+mic replaces the composer with the compact field. While the session is fetched
+the field is grey, reads "Connecting" and "Not listening yet", and offers
+**Cancel dictation**. If the browser asks for the microphone, its notice
+replaces the field. Once the microphone is open the field turns amber and reads
+"Listening", with the level meter, then goes flat when there has been no speech
+for a moment, and reads "Finishing" while the last words arrive. Its label meta
+names where the words go in every one of these states: "to Google Gemini",
+"via Deepgram", "browser speech · audio goes to Google" in Chrome, or "browser
+speech · sent by your browser" elsewhere. The ✓ (**Finish dictation**) ends
+the take, and so does 30 seconds without speech. Escape cancels a take that is
+not finishing. The field keeps one 84px height throughout.
 
-Below 900px, dictation keeps the full-width phone sheet and its backdrop stop
-control. Its 200ms upward entrance respects reduced-motion preferences through
-both stylesheet entry points. Both forms keep the provider disclosure,
-transcript scrolling and review flow. The composer preserves its draft and
-prevents typing or sending while capture or its final drain is active.
+What a take heard joins the draft as plain editable text, after anything
+already typed, with the caret at its end. Nothing is sent until **Send**. While
+the draft holds dictated words the mic reads **Dictate more** and adds the
+next take after them, and the send is marked as dictated. A take that heard
+nothing returns focus to the mic.
 
 ### Choosing the dictation service
 
@@ -93,9 +101,14 @@ shows where its audio goes, with **Cancel** and **Start dictation**, before any
 session request or microphone access. The acknowledgement is stored on the
 device per account, keyed by the service and its destination text; storage that
 fails asks again. A take sends the service it disclosed and refuses a session
-for any other; a default saved during a take applies to the next one. After
-**Start dictation**, focus continues on **Done**. With no service to send to,
-the sheet says so and offers **Open Settings**. Saved recordings are confirmed
+for any other; a default saved during a take applies to the next one. The
+acknowledgement is a notice above the composer: "Your words are sent to …
+to be written down.", then what happens to the audio. For Google Gemini that
+is "The audio isn't kept."; for any other service the app can't verify
+retention, so it says the service's own policy applies ("Deepgram's
+retention policy applies.", or for browser speech "Your browser's speech
+service policy applies."). Initial focus is on **Start dictation**; Cancel and Escape return focus to the mic. With no service to send
+to, a notice says so and offers **Open Settings**. Saved recordings are confirmed
 for the effective service when it can transcribe them; otherwise the tray
 offers an unsaved, per-recording choice among the services that can. Each new
 confirmation is resolved from the root's current discovery and keeps that
@@ -105,11 +118,13 @@ upload needs a new confirmation. Labels and destinations the server sends win;
 built-ins registered without them fall back to client-side names.
 
 When a provider ends dictation with an error, or dictation cannot start, a
-persistent amber notice explains the failure below review. Its safe copy refers
-only to words from that capture. Dismiss keeps the review words; a new capture
-or review Send/Edit/Discard clears the notice. Typing and session changes keep
-it. It is announced once politely, appears without moving focus, and offers no
-automatic restart. Distinct local microphone notices remain visible afterward.
+notice above the composer explains it. A refused microphone reads "Microphone
+is blocked" with **OK**. Any other failure reads "Dictation stopped" and quotes
+the words the take kept, which are already in the draft, with **Dismiss** and
+**Try again**. Its safe copy never carries provider text. Typing and session
+changes keep it; a new take or a send clears it. It is announced once politely,
+never takes focus, and offers no automatic restart. Distinct local microphone
+notices remain visible afterward.
 
 ### Recording on the device
 
@@ -511,7 +526,7 @@ minimal view of each store rather than its full state:
 | Hook | View | Fields |
 | --- | --- | --- |
 | `useChatStore` | `ChatShellState` | `buffers`, `draft`, `activeSessionId` (what `activeChat` and `anyStreaming` read) |
-| `useVoiceStore` | `VoiceShellState` | `mode`, `connecting`, `draining`, `reviewText` |
+| `useVoiceStore` | `VoiceShellState` | `mode`, `connecting`, `draining`, `reviewText` (dictated words not yet in a draft; a mounted composer moves them in at once) |
 | `useShareStore` | `ShareShellState` | `queue`, `busy` (what `hasPendingShare` reads) |
 | `useUIStore` | `UIShellState` | `activeView`, `setActiveView`, `setFilePanelOpen` |
 | `useFileStore` | `FileShellState` | `openFile`, `openDir` |
