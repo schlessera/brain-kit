@@ -51,7 +51,7 @@ export const LegendMatchesTheChart = meta.story({
     // the whole visual claim.
     await expect(getComputedStyle(hatched).color).not.toBe(getComputedStyle(solid).color);
     // And it really is a fraction of the same hue, not a second colour.
-    await expect(getComputedStyle(hatched).color.startsWith("rgba(")).toBe(true);
+    await expect(getComputedStyle(hatched).color).toMatch(/^rgba\(/);
   },
 });
 
