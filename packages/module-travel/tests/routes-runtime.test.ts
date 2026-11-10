@@ -125,7 +125,7 @@ describe("real route CLI", () => {
       expect(result.requests.map((r) => r.url)).toEqual([`${url.origin}/robots.txt`, url.href]);
       expect(result.requests.map((r) => r.method)).toEqual(["GET", "GET"]);
       expect(result.requests.map((r) => r.headers["user-agent"])).toEqual([expect.stringContaining("brain-scrape"), expect.stringContaining("brain-scrape")]);
-      expect(result.requests.map((r) => [r.headers.cookie, r.headers.authorization])).toEqual([[undefined, undefined], [undefined, undefined]]);
+      expect(result.requests.flatMap((r) => Object.keys(r.headers).filter((name) => ["cookie", "authorization"].includes(name.toLowerCase())))).toEqual([]);
       const { route } = JSON.parse(result.stdout);
       const saved = parseGpx(readFileSync(join(root, route.gpx), "utf8"));
       expect(saved.segments[0]!.length).toBeGreaterThan(1);
