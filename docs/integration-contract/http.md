@@ -1134,6 +1134,22 @@ headers preserve effective-provider resolution. Retry provider changes return
 error codes, response schemas and operation binding are supported HTTP promises.
 
 
+### Live-conversation service default (additive, #3616)
+
+[`GET`/`PUT /api/settings/voice`](../http-api.md#live-conversation-service-default)
+read and save the brain-wide default live-conversation service as
+`VoiceLiveSettings` `{ defaultProvider: string | null, revision: number }`.
+Reading needs a human session (owner or ambient); writing has its own
+owner-only guard: the owner's password or passkey session, or the ambient human,
+and 403 with an empty body for anyone else, before the body is read. Unknown
+ids are 400 `LIVE_PROVIDER_UNKNOWN`, malformed bodies 400 `LIVE_SETTINGS_INVALID`,
+stale revisions 409 `LIVE_SETTINGS_CHANGED` with `current`. A save sends
+[`live_settings`](wire.md#live-service-selection-additive-3616) and applies from
+the next explicit Start. It is independent of `/api/models/default` and
+`/api/voice/dictation/settings`. The route shapes, error codes and the guard are
+supported HTTP promises.
+
+
 ### Checkpoint cleanup diagnostics (additive, #3815)
 
 Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains

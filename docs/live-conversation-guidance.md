@@ -179,7 +179,7 @@ Keyless source, startup-frame, admission, identity, omission, replacement and
 prefix tests establish request assembly and host behavior. Scripted audio and
 prompt substrings do not establish model obedience, recognition, judgment,
 audible acknowledgement or semantic recall. Actual-provider comparison remains
-with #3131/#961; persona/provider Settings remain #3617/#3616.
+with #3131/#961; persona Settings remain #3617; the live-service default is in Settings › Voice (#3616).
 
 Useful listening scenarios are:
 

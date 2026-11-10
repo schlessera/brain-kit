@@ -1569,6 +1569,34 @@ retention, cost and the error table) is specified in the
 the two suites above. Boat's environment variable for its own CLI is never
 read.
 
+<a id="live-service-registration-additive-3616"></a>
+
+### Live-service registration (additive, #3616)
+
+`CreateAppOptions` (`@schlessera/brain-ui-server`) adds
+`conversationProviders?: LiveConversationProvider[]`, fixed at construction in
+registration order, and `defaultConversationProviderId?: string`, the host's
+default while nothing is saved. `conversationProvider` still registers one and
+means a list of one. Construction fails when both are given, on duplicate ids,
+on an invalid provider, or when `defaultConversationProviderId` names no
+registered provider. The saved brain-wide default lives in the ui-server
+settings store under `voice.live.defaultProvider` as
+`{ value: string | null, revision: number }`; corrupt rows read as nothing
+saved, revision 0. It is persisted server state, not part of the disposable
+content index. How a Start resolves the service is in
+[the wire contract](wire.md#live-service-selection-additive-3616).
+
+`@schlessera/brain-ui-sdk/protocol` exports `LiveDefault`, `LiveProviderSource`,
+`ServerLiveSettings`, `VoiceLiveSettings` and `VoiceLiveSettingsUpdate`;
+`ServerHello` adds `conversationProfiles?` and `liveDefault?`,
+`ClientConversationStart` adds `providerId?` and `ServerConversationOpened` adds
+`providerSource?`. `@schlessera/brain-ui-sdk/schemas` exports
+`conversationProfilesSchema`, `liveDefaultSchema`, `serverLiveSettingsSchema`
+and `voiceLiveSettingsSchema`; a malformed roster or `liveDefault` is dropped
+from a hello without losing the frame. `@schlessera/brain-ui-kit` exports the
+presentational `LiveServiceSettings` group (`LiveServiceOption`,
+`LiveServiceSettingsProps`, `LiveServiceStatus`), which opens nothing itself.
+
 <a id="dictation-speech-integration-and-conformance"></a>
 
 ### Dictation speech integration and conformance
