@@ -168,7 +168,10 @@ on, links to or describes them.
   failing-first/mutation receipts. Default preflight runs lint/leakage, environment
   documentation, changeset checks and affected fast invariants; import-graph
   feedback is opt-in with `--import-graph`. Explicit ready-candidate CI supplies complete
-  affected proof; subsequent pushes need a new confirmation request; every selected job must pass, and
+  affected fast proof (types, packaging, unit/integration); heavy runtime, browser, layout,
+  capture and endurance proof runs on the squash's own main run
+  ([hybrid ruling](docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
+  Subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and
   [the PR proof rules](docs/process/testing.md#required-proof-for-a-pr).

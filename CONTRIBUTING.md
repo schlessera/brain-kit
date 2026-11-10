@@ -223,7 +223,10 @@ check requires every selected category to pass. Scheduled/manual exhaustive
 runs supplement affected PR proof; they do not replace it.
 
 Drafts stay on cheap gates. Opening/reopening a ready PR or marking it ready
-requests full affected candidate confirmation. Subsequent pushes run fast
+requests affected candidate confirmation of the fast categories (types,
+packaging, unit/integration); heavy runtime, browser, layout, capture and
+endurance proof runs on the squash's own main run
+([hybrid ruling](docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)). Subsequent pushes run fast
 feedback only and leave `proof` nonpassing. Convert to draft and mark ready
 after the final push to request confirmation again. Main remains full affected;
 scheduled/manual proof remains exhaustive. Independent packaging, types, unit and browser/runtime jobs start

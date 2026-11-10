@@ -5,8 +5,8 @@ import { join, resolve } from "node:path";
 import type { CheckPlan } from "../scripts/ci-plan";
 import { GitReservationStore } from "../scripts/integration-reservation";
 import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures, recordExpedited,
-  openRed, parseRedMain, type RedFailure, type RedMainRecord } from "../scripts/red-main";
-import { coordinate, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
+  openRed, parseRedMain, POST_MERGE_CATEGORIES, postMergeOnly, type RedFailure, type RedMainRecord } from "../scripts/red-main";
+import { coordinate, detectLanded, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
 
 const ROOT = resolve(import.meta.dir, "..");
 const scratch: string[] = [];
@@ -332,5 +332,29 @@ describe("expedited fixes (#2940)", () => {
     await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe fix 100 ${B}` });
     expect(gh.record(), "FIX_PROBE_NEVER_CHANGES_THE_RECORD").toBe(before);
     expect(gh.issues).toHaveLength(0); expect(gh.comments).toHaveLength(0); expect(gh.dispatched).toHaveLength(0);
+  });
+});
+
+describe("per-family red under the hybrid post-merge ruling", () => {
+  const open = (failures: RedFailure[]) => openRed(emptyRedMain(), { firstBad: B, run: 11, failures }, NOW);
+  test("red confined to post-merge categories dooms no pre-merge proof; any fast-category or unknown failure still refuses", () => {
+    expect([...POST_MERGE_CATEGORIES].sort()).toEqual(["browser", "captures", "endurance", "layout", "runtime", "runtime_host"]);
+    const heavy = open([failure(null, "browser"), failure("packages/ui-kit/tests/menu.browser.test.ts", "layout"), failure(null, "runtime_host")]);
+    const admitted = gateDecision({ record: heavy, pr: 7, contains: () => true });
+    expect(admitted.refuse, "POST_MERGE_ONLY_RED_ADMITS").toBe(false);
+    expect(admitted.message).toContain("every red failure is post-merge proof (browser, layout, runtime_host)");
+    for (const category of ["unit", "verify", "pack", "changeset"] as const) {
+      expect(gateDecision({ record: open([failure(null, "browser"), failure(null, category)]), pr: 7, contains: () => true }).refuse, `FAST_${category}_RED_REFUSES`).toBe(true);
+    }
+    expect(postMergeOnly([]), "EMPTY_FAILURE_SET_STAYS_GLOBAL").toBe(false);
+    expect(gateDecision({ record: heavy, pr: 7, contains: () => false }).message, "UNRELATED_MERGE_REF_UNCHANGED").toContain("does not contain it");
+  });
+
+  test("a squash landing while only post-merge proof is red is not reported as a bypass", async () => {
+    const io = { isAncestor: () => true, async json() { throw new Error("no API call expected"); } } as unknown as CoordinatorIO;
+    const landed = await detectLanded(io, open([failure(null, "browser")]), { head_sha: C } as WorkflowRun).then(value => value, error => String(error));
+    expect(landed, "POST_MERGE_RED_LANDING_NOT_REPORTED").toBe(false);
+    await expect(detectLanded(io, open([failure("tests/raft.test.ts")]), { head_sha: C } as WorkflowRun).then(() => null, error => String(error)))
+      .resolves.toContain("no API call expected");
   });
 });

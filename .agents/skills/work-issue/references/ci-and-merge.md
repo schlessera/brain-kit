@@ -297,12 +297,15 @@ targeted revert alike, may use `bun scripts/integrate.ts confirm <pr>
 that must show the record's failing test files red on the exact base and green
 on the exact head, waits for the exact-head fast invariants and squashes under
 the reservation. It refuses category-level failures; use ordinary confirmation
-for those. Never merge a red-main fix any other way
+for those, and the fix's own main run proves a post-merge category. Never merge a red-main fix any other way
 ([expedited red-main fixes](../../../../docs/decisions/ci-utility.md#expedited-red-main-fixes)).
 
-While main is red, `confirm` and `merge` refuse every PR that is not a
-declared fix, and hosted proof containing the bad commit is refused or
-cancelled. Do not retry it; follow [the red-main incident steps](red-main.md)
+While main is red in a fast category (or with an unknown failure set),
+`confirm` and `merge` refuse every PR that is not a declared fix, and hosted
+proof containing the bad commit is refused or cancelled. Red confined to
+post-merge categories (runtime, runtime_host, browser, layout, captures,
+endurance) refuses nothing
+([hybrid ruling](../../../../docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)). Do not retry it; follow [the red-main incident steps](red-main.md)
 and resume when `main-status` reports green. A fix or targeted revert PR for
 the incident is declared with `bun scripts/integrate.ts declare-fix <pr>` and
 then uses this same reservation and merge procedure.
