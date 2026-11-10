@@ -1,7 +1,9 @@
 import { COMPOSER_FILES_CAPABILITY, type ClientMessage, type Draft, type ServerMessage, type SessionDraftLimits } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { createDraftApi, type DraftApi, type DraftCallResult } from "./draft-api.js";
-import { bindableFiles, hasContent, type ComposerDraft, type DraftSend } from "../stores/draft-state.js";
+import { bindableFiles, draftSnapshots, hasContent, holdsSnapshots, snapshotSaveList, type ComposerDraft, type ComposerSnapshot, type DraftSend } from "../stores/draft-state.js";
+import { detectClientEnvironment } from "./client-environment.js";
+import { restorationOf } from "../stores/chat-state.js";
 import type { PendingAttachment } from "./image-attachments.js";
 import { moveTracks, removeTracks, trackKey } from "./draft-tracks.js";
 
@@ -31,6 +33,12 @@ const CHECK_TIMEOUT_MS = 10_000;
 
 /** A pause in typing before a change is saved. */
 const SAVE_DELAY_MS = 800;
+/**
+ * While a chat is full of outgoing snapshots, how often a visible tab asks the
+ * host whether another tab or device freed a slot (#3155, maintainer ruling A
+ * of 2026-11-08: a bounded re-read; there is no draft change frame).
+ */
+const FULL_RECHECK_MS = 15_000;
 /** Backoff for a save that got no answer or a transient refusal. */
 const RETRY_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 60_000];
 
@@ -53,6 +61,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   const failures = new Map<string, number>();
   /** Idempotency keys per draft for the save in flight: a retry of the same body reuses it. */
   const saveKeys = new Map<string, { body: string; key: string }>();
+  /**
+   * The save this tab last sent per draft and got no answer for (#3155):
+   * what Check again compares the host's draft with. Cleared by any answer.
+   */
+  const unanswered = new Map<string, { ifMatch: number; edit: number; complete: boolean; body: { sessionId: string | null; text: string; attachmentIds: string[]; fileIds?: string[]; snapshots?: ReturnType<typeof snapshotSaveList>["writes"] }; uploads: Map<PendingAttachment, string> }>();
   const uploadKeys = new WeakMap<PendingAttachment, Map<string, string>>();
   /** Bumped whenever a draft's host copy changes, so a list read before it cannot judge it. */
   const hostSeq = new Map<string, number>();
@@ -69,6 +82,19 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     timers.set(draftId, setTimeout(() => { timers.delete(draftId); void sync(draftId); }, delay));
   }
 
+  /**
+   * A send's snapshot step (#3155): saved at once, without waiting for a
+   * timer, so pressing Send reaches the host as directly as the frame did
+   * before snapshots. Only send steps use it; typing keeps its pause and
+   * retries keep their backoff.
+   */
+  function soon(draftId: string) {
+    if (!live()) return;
+    clearTimeout(timers.get(draftId));
+    timers.delete(draftId);
+    queueMicrotask(() => { void sync(draftId); });
+  }
+
   function backoff(draftId: string) {
     const n = failures.get(draftId) ?? 0;
     failures.set(draftId, n + 1);
@@ -80,8 +106,16 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (d.deviceOnly || d.conflict) return false;
     if (d.failure && d.failure.kind !== "unsaved") return false;
     if (d.bind) return true;
-    if (!hasContent(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
+    // A snapshot's send is out: acceptance releases it without a revision,
+    // so a save made meanwhile could list it again (#3733). It waits.
+    if (sendingSnapshot(d.draftId)) return false;
+    if (!hasContent(d) && !holdsSnapshots(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
     return d.host === null || d.host.edit !== d.edit;
+  }
+
+  function sendingSnapshot(draftId: string): boolean {
+    const store = drafts.getState();
+    return Object.values(store.sends).some((s) => s.snapshotId && s.state === "pending" && store.sendDraftId(s.requestId) === draftId);
   }
 
   function held(draftId: string): boolean {
@@ -95,7 +129,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
    * call carried: a size or capacity refusal of an older edit says nothing
    * about the content now, which is tried again instead.
    */
-  function failed(draftId: string, result: Exclude<DraftCallResult<unknown>, { ok: true }>, edit?: number): void {
+  function failed(draftId: string, result: Exclude<DraftCallResult<unknown>, { ok: true }>, edit?: number, save = false): void {
     const body = result.body;
     const store = drafts.getState();
     if ((result.status === 413 || result.status === 507) && edit !== undefined && store.drafts[draftId]?.edit !== edit) {
@@ -103,7 +137,27 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       return;
     }
     if (result.status === 409 && body.error === "DRAFT_CONFLICT" && body.current) {
+      // A revision this tab already accounts for (the host kept the row at
+      // the next revision after accepting a snapshot's send): save again over it.
+      const known = store.drafts[draftId]?.host?.revision;
+      if (store.snapshotsOn && known !== undefined && (body.current as Draft).revision <= known) { schedule(draftId, 0); return; }
       store.conflictWith(draftId, body.current as Draft, true);
+      return;
+    }
+    if (result.status === 409 && body.error === "DRAFT_OUTGOING_FULL") {
+      // Nothing was stored and nothing sent (rev 5 §2): the new snapshots
+      // come back to the composer, and the chat shows the queue-full notice.
+      const d = store.drafts[draftId];
+      const acked = new Set((d?.host?.snapshots ?? []).map((x) => x.snapshotId));
+      const created = draftSnapshots(d).filter((x) => !acked.has(x.snapshotId) && !x.retiring && !x.replaces).map((x) => x.snapshotId);
+      if (created.length > 0) store.snapshotsRefused(draftId, created, Number(body.limit) || store.limits.maxOutgoingSnapshots || 10);
+      else backoff(draftId);
+      return;
+    }
+    if (result.status === 400 && store.snapshotsOn && holdsSnapshots(store.drafts[draftId] ?? { snapshots: [], host: null })) {
+      // The host refused the list: its own may have moved (an acceptance
+      // released a snapshot). Read it, and save again from what it holds.
+      void reconcileSnapshots(draftId);
       return;
     }
     if (result.status === 410 || (result.status === 404 && body.error === "DRAFT_NOT_FOUND")) {
@@ -122,7 +176,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     // No answer at all: the host may have stored it. That is settled before
     // an emptied draft is forgotten (`step`).
-    store.saveFailed(draftId, { kind: "unsaved" }, result.status === 0);
+    // A save that got no answer may have been stored (#3155): the indicator
+    // says it couldn't confirm, and Check again reads what the host holds.
+    store.saveFailed(draftId, save && result.status === 0 ? { kind: "unsaved", lost: true } : { kind: "unsaved" }, result.status === 0);
     backoff(draftId);
   }
 
@@ -154,7 +210,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       failed(d.draftId, result);
       return;
     }
-    if (!hasContent(d) && !d.host && d.uncertain) {
+    if (!hasContent(d) && !holdsSnapshots(d) && !d.host && d.uncertain) {
       // Emptied after a save that got no answer: ask what the host holds,
       // and delete what it stored, rather than let a refresh bring it back.
       const read = await api.get(d.draftId);
@@ -175,7 +231,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       drafts.getState().removed(d.draftId);
       return;
     }
-    if (!hasContent(d)) {
+    if (!hasContent(d) && !holdsSnapshots(d)) {
       if (!d.host) return;
       const result = await api.remove(d.draftId, d.host.revision);
       if (!current()) return;
@@ -202,6 +258,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     // Only originals minted for this id can be bound here (#3155); one
     // carried from another id waits to be chosen again, and is not listed.
     const fileIds = bindableFiles(d).map((f) => f.file.fileId);
+    // The whole snapshot list on every save, once the draft has one (#3588).
+    const list = store.snapshotsOn && holdsSnapshots(d) ? snapshotSaveList(d) : null;
     const body = {
       // A save never moves a draft: a bound one stays its host session's until a bind.
       sessionId: d.host ? d.host.sessionId : d.sessionId,
@@ -210,6 +268,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       // Listed whenever this revision or the last one binds any, so removing
       // the last original unbinds it; omitted for a host without them.
       ...(fileIds.length > 0 || (d.host?.fileIds?.length ?? 0) > 0 ? { fileIds } : {}),
+      ...(list ? { snapshots: list.writes } : {}),
     };
     const ifMatch = d.host?.revision ?? 0;
     const fingerprint = JSON.stringify([ifMatch, body]);
@@ -218,14 +277,19 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     saveKeys.set(d.draftId, { body: fingerprint, key: idempotencyKey });
     const result = await api.save(d.draftId, ifMatch, idempotencyKey, body);
     if (!current()) return;
+    if (!result.ok && result.status === 0) unanswered.set(d.draftId, { ifMatch, edit: d.edit, complete: !list || list.complete, body, uploads });
+    else unanswered.delete(d.draftId);
     if (result.ok) {
       saveKeys.delete(d.draftId);
       failures.delete(d.draftId);
       bumpHost(d.draftId);
       drafts.getState().saved(d.draftId, {
-        revision: result.value.revision, edit: d.edit, sessionId: body.sessionId,
-        attachmentIds: body.attachmentIds, ...(body.fileIds ? { fileIds: body.fileIds } : {}), updatedAt: result.value.updatedAt,
+        // A Send again swap is two saves: until the second, this is not the whole edit.
+        revision: result.value.revision, edit: list && !list.complete ? -1 : d.edit, sessionId: body.sessionId,
+        attachmentIds: body.attachmentIds, ...(body.fileIds ? { fileIds: body.fileIds } : {}),
+        ...(list ? { snapshots: list.writes } : {}), updatedAt: result.value.updatedAt,
       }, uploads);
+      if (list) advanceSnapshots(d.draftId);
       return;
     }
     if (result.status === 409 && result.body.error === "DRAFT_KEY_REUSED") { saveKeys.delete(d.draftId); backoff(d.draftId); return; }
@@ -236,7 +300,113 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       backoff(d.draftId);
       return;
     }
-    failed(d.draftId, result, d.edit);
+    failed(d.draftId, result, d.edit, true);
+  }
+
+  /**
+   * The host refused a snapshot list. Read what it holds: a held or
+   * dispatched snapshot it no longer lists was released by its acceptance,
+   * the only way one leaves without being returned first.
+   */
+  async function reconcileSnapshots(draftId: string): Promise<void> {
+    const read = await api.get(draftId);
+    if (disposed) return;
+    const store = drafts.getState();
+    const d = store.drafts[draftId];
+    if (!d) return;
+    if (!read.ok) { if (read.status === 404 || read.status === 410) { bumpHost(draftId); store.hostGone(draftId); } else backoff(draftId); return; }
+    const held = new Set((read.value.snapshots ?? []).map((x) => x.snapshotId));
+    for (const s of draftSnapshots(d)) {
+      const acked = d.host?.snapshots?.some((x) => x.snapshotId === s.snapshotId);
+      if (acked && !held.has(s.snapshotId) && s.state !== "returned") {
+        const send = store.sends[s.requestId];
+        if (send) drafts.getState().accepted(s.requestId, d.sessionId ?? undefined);
+        else drafts.getState().snapshotReleased(draftId, s.requestId);
+      }
+    }
+    const now = drafts.getState().drafts[draftId];
+    if (!now?.host) { backoff(draftId); return; }
+    // Saved again over the host's revision, with the host's list as acknowledged.
+    bumpHost(draftId);
+    drafts.setState((st) => st.drafts[draftId] ? { drafts: { ...st.drafts, [draftId]: { ...st.drafts[draftId]!, host: { ...st.drafts[draftId]!.host!, revision: read.value.revision, edit: -1,
+      snapshots: (read.value.snapshots ?? []).map(({ createdAt: _at, ...w }) => w) } } } } : st);
+    backoff(draftId);
+  }
+
+  /** Whether a snapshot of this draft may send now: connected, and a new chat's only from its own view. */
+  function canDispatch(d: ComposerDraft): boolean {
+    if (root.stores.connection.getState().wsStatus !== "connected" || root.authLock.state.getState().phase !== "active") return false;
+    // A conversation still being restored takes no message yet (#1328): it waits, never fails.
+    if (d.sessionId !== null && restorationOf(chat.getState())?.sessionId === d.sessionId) return false;
+    if (d.sessionId !== null) return true;
+    const c = chat.getState();
+    return c.activeSessionId === null && drafts.getState().fresh === d.draftId && c.pendingDraftId === null;
+  }
+
+  const hostState = (d: ComposerDraft, s: ComposerSnapshot) => d.host?.snapshots?.find((x) => x.snapshotId === s.snapshotId);
+
+  /**
+   * After an acknowledged save: a held snapshot whose files are all stored and
+   * bound moves to dispatched, and a dispatched one this tab owes is sent,
+   * once, from the revision that holds it (rev 5 §2).
+   */
+  function advanceSnapshots(draftId: string) {
+    const d = drafts.getState().drafts[draftId];
+    if (!d || !live() || !drafts.getState().snapshotsOn || !canDispatch(d)) return;
+    for (const s of draftSnapshots(d)) {
+      const stored = hostState(d, s);
+      if (s.state === "held" && !s.paused && !(s.uploads?.length) && stored?.state === "held"
+        && stored.fileIds.length === s.files.length && stored.fileIds.every((id, i) => id === s.files[i]!.fileId)) {
+        drafts.getState().patchSnapshot(draftId, s.snapshotId, { state: "dispatched", dispatch: "due" });
+        soon(draftId);
+      }
+    }
+    const now = drafts.getState().drafts[draftId]!;
+    for (const s of draftSnapshots(now)) {
+      if (s.state === "dispatched" && s.dispatch === "due" && !s.retiring && hostState(now, s)?.state === "dispatched" && !drafts.getState().sends[s.requestId]) dispatch(now, s);
+    }
+  }
+
+  /** The frame a snapshot sends when this tab has none from its Send (a restored one). */
+  function frameFor(d: ComposerDraft, s: ComposerSnapshot): Extract<ClientMessage, { type: "chat_message" }> {
+    return { type: "chat_message", text: s.text, ...(d.sessionId ? { sessionId: d.sessionId } : {}), requestId: s.requestId, client: detectClientEnvironment(), source: "typed" };
+  }
+
+  /** Send a dispatched snapshot's message: its text, its files, and a revision that holds it. */
+  function dispatch(d: ComposerDraft, s: ComposerSnapshot) {
+    const draftRef = { draftId: d.draftId, revision: d.host!.revision };
+    const { draftRef: _r, attachmentRefs: _a, draftId: _c, ...template } = s.message ?? frameFor(d, s);
+    const fileIds = s.files.map((f) => f.fileId);
+    const message: Extract<ClientMessage, { type: "chat_message" }> = {
+      ...template, type: "chat_message", text: s.text, requestId: s.requestId, draftRef,
+      ...(fileIds.length ? { attachmentRefs: fileIds.map((fileId) => ({ kind: "attachment" as const, fileId })) } : {}),
+    };
+    const attachmentFiles = s.files.flatMap((f) => f.file ? [{ file: f.file, lineage: d.draftId }] : []);
+    drafts.getState().patchSnapshot(d.draftId, s.snapshotId, { dispatch: "sent" }, true);
+    drafts.getState().beginSnapshotSend({
+      requestId: s.requestId, draftId: d.draftId, sessionId: d.sessionId, text: s.text, attachments: [],
+      ...(attachmentFiles.length ? { attachmentFiles } : {}), snapshotId: s.snapshotId, draftRef, message,
+    });
+    // The transcript draws it as the composer always has: the bubble became the message.
+    const c = chat.getState();
+    const key = d.sessionId;
+    const buffer = key === null ? c.draft : c.buffers[key];
+    const streaming = buffer?.isStreaming ?? false;
+    const source = message.source ?? "typed";
+    if (streaming && key !== null && root.stores.connection.getState().followUpQueue) {
+      root.stores.followUp.getState().addLocal(key, { requestId: s.requestId, text: s.text, source, ...(message.thinkingLevel !== undefined ? { thinkingLevel: message.thinkingLevel } : {}), queuedAt: Date.now() });
+    } else {
+      c.addUserMessage(key, s.text, source, undefined, { requestId: s.requestId, ...(message.thinkingLevel !== undefined ? { thinkingLevel: message.thinkingLevel } : {}) },
+        undefined, attachmentFiles.length ? attachmentFiles.map((f) => f.file) : undefined);
+    }
+    if (!streaming) c.startAssistantMessage(key, undefined, s.requestId);
+    const correlation = key ? undefined : c.startDraftTurn();
+    const sent = options.send({ ...message, ...(correlation ? { draftId: correlation } : {}) });
+    if (!sent) {
+      const send = drafts.getState().sends[s.requestId];
+      if (send) withdraw(send);
+      drafts.getState().sendFailed(s.requestId);
+    }
   }
 
   /** Orphans whose delete got no answer, waiting for their next try. */
@@ -401,12 +571,36 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     for (const [id, d] of Object.entries(state.drafts)) {
       const before = prev.drafts[id];
       if (before && before.edit === d.edit && before.conflict === d.conflict && before.bind === d.bind && before.host === d.host) continue;
-      if (owed(d)) schedule(id, d.edit !== before?.edit ? SAVE_DELAY_MS : 0);
+      // A snapshot change is a send's step: it goes at once, not after a pause in typing.
+      const snapshotStep = before?.snapshots !== d.snapshots && d.snapshots !== undefined;
+      if (owed(d)) {
+        if (snapshotStep) soon(id);
+        else schedule(id, d.edit !== before?.edit ? SAVE_DELAY_MS : 0);
+      }
     }
-    // A send that settled may release a draft that only it was holding.
-    if (state.sends !== prev.sends) for (const d of Object.values(state.drafts)) if (!hasContent(d) && owed(d)) schedule(d.draftId, 0);
+    // A send that settled may release a draft that only it was holding, or
+    // one whose saves waited for a snapshot's answer.
+    if (state.sends !== prev.sends) for (const d of Object.values(state.drafts)) if ((!hasContent(d) || holdsSnapshots(d)) && owed(d)) schedule(d.draftId, 0);
+    if (state.snapshotsOn) adoptRestored(state);
     if (state.orphans.length > 0 && state.orphans !== prev.orphans) flushOrphans();
   });
+
+  /**
+   * A dispatched snapshot this page did not send (a reload, another tab's):
+   * no answer will come for it here, so it reads as unconfirmed, with Check
+   * and Send again, and is never sent again by itself (rev 5 §4).
+   */
+  function adoptRestored(state: ReturnType<typeof drafts.getState>) {
+    for (const d of Object.values(state.drafts)) {
+      for (const s of draftSnapshots(d)) {
+        if (s.state !== "dispatched" || s.dispatch || s.retiring || state.sends[s.requestId] || !hostState(d, s)) continue;
+        drafts.getState().beginSnapshotSend({
+          requestId: s.requestId, draftId: d.draftId, sessionId: d.sessionId, text: s.text, attachments: [],
+          snapshotId: s.snapshotId, draftRef: null, message: s.message ?? frameFor(d, s), unconfirmedAs: "disconnected",
+        });
+      }
+    }
+  }
 
   /** Every send still waiting is held for review: nothing will answer for it now. */
   function holdPending(reason: "disconnected" | "uncorrelated") {
@@ -419,11 +613,65 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   // Silence from the host about a send: the socket closed.
   const unsubscribeConnection = root.stores.connection.subscribe((state, prev) => {
     if (prev.wsStatus === "connected" && state.wsStatus !== "connected") holdPending("disconnected");
+    if (prev.wsStatus !== "connected" && state.wsStatus === "connected") advanceAll();
   });
+  // A new chat's snapshot sends only from its own view: it waits until shown.
+  const unsubscribeView = chat.subscribe((state, prev) => {
+    if (state.activeSessionId !== prev.activeSessionId || state.pendingDraftId !== prev.pendingDraftId || restorationOf(state) !== restorationOf(prev)) advanceAll();
+  });
+  function advanceAll() { if (drafts.getState().snapshotsOn) for (const id of Object.keys(drafts.getState().drafts)) advanceSnapshots(id); }
 
-  const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+  /**
+   * The queue-full notice (#3155) clears when this tab frees a slot, and
+   * otherwise from a host read: the chat's drafts are listed, and each one of
+   * that chat is read for its snapshots. Reads only, never a save; it runs
+   * only while the notice shows and the tab is visible, every
+   * FULL_RECHECK_MS, and at once on focus, `online` and hello.
+   */
+  let fullTimer: ReturnType<typeof setTimeout> | null = null;
+  let fullChecking = false;
+  const visible = () => typeof document === "undefined" || document.visibilityState === "visible";
+  function scheduleFullCheck() {
+    if (fullTimer) { clearTimeout(fullTimer); fullTimer = null; }
+    if (disposed || !drafts.getState().outgoingFull || !visible()) return;
+    fullTimer = setTimeout(() => { fullTimer = null; void recheckFull(); }, FULL_RECHECK_MS);
+  }
+  async function recheckFull(): Promise<void> {
+    const full = drafts.getState().outgoingFull;
+    if (disposed || !full || fullChecking || !visible() || !live()) { scheduleFullCheck(); return; }
+    fullChecking = true;
+    try {
+      const listed = await api.list();
+      if (disposed || drafts.getState().outgoingFull !== full) return;
+      if (!listed.ok) return;
+      const ids = listed.value.drafts
+        .filter((x) => x.draftId === full.draftId || (full.sessionId !== null && x.sessionId === full.sessionId))
+        .map((x) => x.draftId);
+      let count = 0;
+      for (const id of ids) {
+        const read = await api.get(id);
+        if (disposed || drafts.getState().outgoingFull !== full) return;
+        // A draft gone since the list holds nothing; any other failure proves nothing.
+        if (!read.ok) { if (read.status === 404 || read.status === 410) continue; return; }
+        count += read.value.snapshots?.length ?? 0;
+      }
+      if (count < full.limit) drafts.getState().clearOutgoingFull();
+    } finally {
+      fullChecking = false;
+      scheduleFullCheck();
+    }
+  }
+  const unsubscribeFull = drafts.subscribe((state, prev) => { if (state.outgoingFull !== prev.outgoingFull) scheduleFullCheck(); });
+  const onFocus = () => { if (drafts.getState().outgoingFull) void recheckFull(); };
+  if (typeof window !== "undefined") window.addEventListener("focus", onFocus);
+
+  const onVisible = () => {
+    if (document.visibilityState === "visible") { void refresh(); if (drafts.getState().outgoingFull) void recheckFull(); }
+    else scheduleFullCheck();
+  };
   const onOnline = () => {
     void refresh();
+    if (drafts.getState().outgoingFull) void recheckFull();
     for (const d of Object.values(drafts.getState().drafts)) if (owed(d)) schedule(d.draftId, 0);
   };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
@@ -436,13 +684,17 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       const supported = msg.capabilities?.sessionDrafts === true;
       // Composer originals need durable drafts to bind them (#3155, design §9).
       const files = supported && msg.capabilities?.[COMPOSER_FILES_CAPABILITY] === true ? msg.attachmentLimits ?? null : null;
-      drafts.getState().setSupport(supported, supported ? (msg.sessionDraftLimits as SessionDraftLimits | undefined) : undefined, files);
+      const limits = supported ? (msg.sessionDraftLimits as SessionDraftLimits | undefined) : undefined;
+      // Durable snapshots need a host that says it keeps them, and request receipts to settle them (#3155).
+      const snapshots = files !== null && typeof limits?.maxOutgoingSnapshots === "number" && msg.capabilities?.chatRequestAck === true;
+      drafts.getState().setSupport(supported, limits, files, snapshots);
       if (!supported) return;
       failures.clear();
       // A new connection is new evidence: what was full may have room now.
       retryFull();
       void refresh();
       for (const d of Object.values(drafts.getState().drafts)) if (owed(d)) schedule(d.draftId, 0);
+      if (drafts.getState().outgoingFull) void recheckFull();
     },
 
     /**
@@ -490,7 +742,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         if (send.draftRef) retryFull();
         // Accepted after all: its rows come back before the turn's frames do.
         if (send.state === "unconfirmed") restoreRows(send, sessionId ?? send.sessionId);
-      } else drafts.getState().refused(requestId);
+      } else {
+        drafts.getState().refused(requestId);
+        // Its bubble says it was not sent: the transcript does not say it twice.
+        if (send.snapshotId) withdraw(send);
+      }
       return true;
     },
 
@@ -556,9 +812,91 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         options.send({ type: "session_resume", sessionId });
         return;
       }
+      // No acceptance on record at all: this request was not accepted. The
+      // snapshot returns, and Edit or Delete… are offered (rev 5 §2).
+      if (current.snapshotId && result.recovery.revision === 0) {
+        drafts.getState().refused(requestId);
+        const draftId = drafts.getState().sendDraftId(requestId) ?? current.draftId;
+        drafts.getState().patchSnapshot(draftId, current.snapshotId, { why: { kind: "failed", reason: "The brain has no record of it." } }, true);
+        return;
+      }
       // Another request is the latest: this one may have been accepted
       // before it, or never. That proves neither (D52 §6 names only the latest).
       drafts.getState().setChecked(requestId, "cant_check", "the host's latest is another message");
+    },
+
+    /**
+     * Send again for a snapshot's send: a new request replaces it. The old
+     * snapshot is returned and then left out as its successor is created,
+     * so the swap never needs a free slot; only then is the new one sent.
+     */
+    resendSnapshot(requestId: string): boolean {
+      const store = drafts.getState();
+      const send = store.sends[requestId];
+      if (!send?.snapshotId || send.state !== "unconfirmed") return false;
+      const draftId = store.sendDraftId(requestId) ?? send.draftId;
+      const nextRequestId = crypto.randomUUID();
+      const { draftRef: _r, attachmentRefs: _a, ...template } = send.message;
+      store.resendSnapshot(draftId, send.snapshotId, { snapshotId: crypto.randomUUID(), requestId: nextRequestId, message: { ...template, requestId: nextRequestId } });
+      root.stores.trackers.setState((s) => {
+        const rekey = (map: Record<string, string>) => Object.fromEntries(Object.entries(map).map(([k, v]) => [k, v === requestId ? nextRequestId : v]));
+        return { unconfirmed: rekey(s.unconfirmed), createdFor: rekey(s.createdFor) };
+      });
+      // The old request is abandoned here: an answer for it now finds nothing.
+      drafts.setState((st) => { const sends = { ...st.sends }; delete sends[requestId]; return { sends }; });
+      schedule(draftId, 0);
+      return true;
+    },
+
+    /**
+     * Check again for a draft save whose answer was lost (#3155, rev 5 §1):
+     * one read of the draft, never a save. When the host's revision is the
+     * one that save would have made, with the same text, images, original
+     * bindings and snapshot list, the host stored it, and the draft takes it
+     * as acknowledged. Anything else changes nothing here; the save's own
+     * retries go on as before.
+     */
+    async checkSave(draftId: string): Promise<"saved" | "not_saved" | "changed" | "unreachable" | "none"> {
+      const attempt = unanswered.get(draftId);
+      if (!attempt || disposed) return "none";
+      const seq = hostSeq.get(draftId) ?? 0;
+      const read = await api.get(draftId);
+      if (disposed) return "none";
+      // Another answer arrived while the read was out: it is the newer evidence.
+      if (unanswered.get(draftId) !== attempt || (hostSeq.get(draftId) ?? 0) !== seq) return "changed";
+      if (!read.ok) return read.status === 404 || read.status === 410 ? (attempt.ifMatch === 0 ? "not_saved" : "changed") : "unreachable";
+      const host = read.value;
+      if (host.revision === attempt.ifMatch) return "not_saved";
+      const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+      const snapshots = (host.snapshots ?? []).map((x) => `${x.snapshotId}:${x.state}:${x.fileIds.join(",")}`);
+      const sent = (attempt.body.snapshots ?? []).map((x) => `${x.snapshotId}:${x.state}:${x.fileIds.join(",")}`);
+      const stored = host.revision === attempt.ifMatch + 1 && host.text === attempt.body.text
+        && same(host.attachments.map((a) => a.attachmentId), attempt.body.attachmentIds)
+        && same((host.files ?? []).map((f) => f.fileId), attempt.body.fileIds ?? [])
+        && (attempt.body.snapshots === undefined || same(snapshots, sent));
+      if (!stored) return "changed";
+      const d = drafts.getState().drafts[draftId];
+      if (!d) return "none";
+      unanswered.delete(draftId);
+      saveKeys.delete(draftId);
+      failures.delete(draftId);
+      bumpHost(draftId);
+      drafts.getState().saved(draftId, {
+        revision: host.revision, edit: attempt.complete ? attempt.edit : -1, sessionId: attempt.body.sessionId,
+        attachmentIds: attempt.body.attachmentIds, ...(attempt.body.fileIds ? { fileIds: attempt.body.fileIds } : {}),
+        ...(attempt.body.snapshots ? { snapshots: attempt.body.snapshots } : {}), updatedAt: host.updatedAt,
+      }, attempt.uploads);
+      if (attempt.body.snapshots) advanceSnapshots(draftId);
+      return "saved";
+    },
+
+    /** Send on a paused snapshot (a hold restored after reload): only now, and only by this tap. */
+    sendPaused(draftId: string, snapshotId: string): void {
+      const d = drafts.getState().drafts[draftId];
+      const s = d && draftSnapshots(d).find((x) => x.snapshotId === snapshotId);
+      if (!d || !s || s.state !== "held" || !s.paused) return;
+      drafts.getState().patchSnapshot(draftId, snapshotId, { paused: false, state: "dispatched", dispatch: "due", message: s.message ?? frameFor(d, s) });
+      schedule(draftId, 0);
     },
 
     dispose(): void {
@@ -570,8 +908,12 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       orphanRetries.clear();
       unsubscribeDrafts();
       unsubscribeConnection();
+      unsubscribeView();
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
       if (typeof window !== "undefined") window.removeEventListener("online", onOnline);
+      if (typeof window !== "undefined") window.removeEventListener("focus", onFocus);
+      if (fullTimer) clearTimeout(fullTimer);
+      unsubscribeFull();
     },
   };
 }

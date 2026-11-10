@@ -48,6 +48,8 @@ export interface BackendRegistryOptions {
   versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>;
   brainPath: string;
   agent: AgentConfig;
+  /** Backends refused by startup validation; never constructed or routed to. */
+  unavailableBackends?: readonly BackendBootFailure[];
   getHiddenModelIds?: () => string[];
   getDefaultModelId?: () => string | null;
   getCustomOpenRouterModels?: () => string[];
@@ -280,6 +282,21 @@ function parseBackendDescriptors(
   return parsed;
 }
 
+/** A boot refusal contained to one optional backend. No credentials are recorded. */
+export interface BackendBootFailure {
+  backendId: string;
+  phase: "resolution" | "runtime";
+  site: "assertBackendResolvable" | "probeBackendRuntimes";
+  errorClass: string;
+  message: string;
+  at: string;
+}
+
+function backendBootFailure(backendId: string, phase: BackendBootFailure["phase"], error: unknown): BackendBootFailure {
+  return { backendId, phase, site: phase === "resolution" ? "assertBackendResolvable" : "probeBackendRuntimes", errorClass: error instanceof Error ? error.name : "UnknownError",
+    message: error instanceof Error ? error.message : String(error), at: new Date().toISOString() };
+}
+
 /**
  * Boot guard. It resolves active optional backend packages and synchronously
  * loads their descriptors so backend-owned profile validation finishes before
@@ -295,36 +312,37 @@ export function assertBackendResolvable(
   load: (specifier: string) => unknown = (specifier) => {
     return createRequire(import.meta.url)(specifier);
   }
-): void {
+): BackendBootFailure[] {
   const primary = agent.backend || "claude";
   const primaryEntry = firstParty(primary);
   if (!primaryEntry) throw unknownBackendError(primary);
 
   const entries = activeFirstPartyBackends(agent);
   const descriptors = new Map<string, BackendModule>();
+  const failures: BackendBootFailure[] = [];
   for (const entry of entries) {
     try {
-      resolve(entry.specifier);
-    } catch {
-      if (entry.id === primary) throw missingBackendError(entry.id);
-      throw missingConfiguredBackendError(entry);
-    }
-    try {
-      descriptors.set(
-        entry.id,
-        backendDescriptorFromModule(entry.id, load(entry.specifier))
-      );
+      try { resolve(entry.specifier); }
+      catch (error) {
+        if (moduleNotFoundSpecifier(error) === entry.specifier)
+          throw entry.id === primary ? missingBackendError(entry.id) : missingConfiguredBackendError(entry);
+        throw error;
+      }
+      try { descriptors.set(entry.id, backendDescriptorFromModule(entry.id, load(entry.specifier))); }
+      catch (error) {
+        if (moduleNotFoundSpecifier(error) === entry.specifier)
+          throw entry.id === primary ? missingBackendError(entry.id) : missingConfiguredBackendError(entry);
+        throw error;
+      }
     } catch (error) {
-      if (entry.id === primary && moduleNotFoundSpecifier(error) === entry.specifier) {
-        throw missingBackendError(entry.id);
-      }
-      if (entry.id !== primary && moduleNotFoundSpecifier(error) === entry.specifier) {
-        throw missingConfiguredBackendError(entry);
-      }
-      throw error;
+      if (entry.id === primary) throw error;
+      failures.push(backendBootFailure(entry.id, "resolution", error));
     }
   }
-  parseBackendDescriptors(agent, entries, descriptors);
+  // Invalid profile definitions and identity collisions still refuse: they
+  // are shared routing configuration, not an unavailable runtime.
+  parseBackendDescriptors(agent, entries.filter(entry => descriptors.has(entry.id)), descriptors);
+  return failures;
 }
 
 /** What a backend's boot-time runtime probe found, keyed to its backend. */
@@ -385,9 +403,9 @@ async function verifyBackendRequirements(descriptor: BackendModule, context: Bac
 
 /**
  * Probe the runtime every active first-party backend would spawn, at boot
- * (#211). A backend whose runtime is missing or will not start throws, which
- * refuses the boot — the same reason a missing backend package does
- * (`assertBackendResolvable`). A runtime that is not the one the backend was
+ * (#211). The default backend must pass; failures of a secondary backend
+ * are recorded in `failures` and exclude it from the registry (#3817).
+ * A runtime that is not the one the backend was
  * measured against is a warning naming both, not a refusal
  * (docs/decisions/claude-code-runtime.md).
  */
@@ -397,48 +415,55 @@ export async function probeBackendRuntimes(
   log?: Logger,
   load: (specifier: string) => unknown = (specifier) => createRequire(import.meta.url)(specifier),
   versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>,
-  exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig
+  exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig,
+  failures: BackendBootFailure[] = []
 ): Promise<BackendRuntimeProbe[]> {
   const validated = validateBackendVersionRequirements(agent, versionRequirements);
   const probes: BackendRuntimeProbe[] = [];
   for (const entry of activeFirstPartyBackends(agent)) {
-    const descriptor = backendDescriptorFromModule(entry.id, load(entry.specifier));
-    const report = await verifyBackendRequirements(descriptor, {
-      exec,
-      brainPath,
-      config: { ...agent },
-      profiles: [],
-      confirmBashPatterns: agent.confirmBashPatterns,
-      settings: {},
-      ...(validated?.[entry.id] ? { versionRequirements: validated[entry.id] } : {}),
-      ...(log ? { log: toBackendLog(log) } : {}),
-    }, "startup");
-    if (!report) continue;
-    const pair = (runtime: string, sdk?: string) => (sdk ? `${runtime} / SDK ${sdk}` : runtime);
-    log?.emit({
-      severityText: "INFO",
-      body: report.runtime ? `${entry.id} runtime: ${report.runtime.name} ${report.runtime.version}` : `${entry.id} SDK: ${report.sdk?.name} ${report.sdk?.version}`,
-      attributes: {
-        "backend.id": entry.id,
-        ...(report.runtime ? {
-          "runtime.version": report.runtime.version,
-          "runtime.command": report.runtime.command,
-          "runtime.host_provided": report.runtime.hostProvided,
-        } : {}),
-        ...(report.sdk ? { "sdk.version": report.sdk.version } : {}),
-      },
-    });
-    if (report.runtime && report.measured && !report.measured.matches) {
+    if (failures.some(failure => failure.backendId === entry.id)) continue;
+    try {
+      const descriptor = backendDescriptorFromModule(entry.id, load(entry.specifier));
+      const report = await verifyBackendRequirements(descriptor, {
+        exec,
+        brainPath,
+        config: { ...agent },
+        profiles: [],
+        confirmBashPatterns: agent.confirmBashPatterns,
+        settings: {},
+        ...(validated?.[entry.id] ? { versionRequirements: validated[entry.id] } : {}),
+        ...(log ? { log: toBackendLog(log) } : {}),
+      }, "startup");
+      if (!report) continue;
+      const pair = (runtime: string, sdk?: string) => (sdk ? `${runtime} / SDK ${sdk}` : runtime);
       log?.emit({
-        severityText: "WARN",
-        body:
-          `${entry.id} runtime ${pair(report.runtime.version, report.sdk?.version)} is not the one its ` +
-          `behaviour was measured against (${pair(report.measured.runtime, report.measured.sdk)}); ` +
-          "continuing — re-run scripts/measure-claude-runtime.ts",
-        attributes: { "backend.id": entry.id, "runtime.host_provided": report.runtime.hostProvided },
+        severityText: "INFO",
+        body: report.runtime ? `${entry.id} runtime: ${report.runtime.name} ${report.runtime.version}` : `${entry.id} SDK: ${report.sdk?.name} ${report.sdk?.version}`,
+        attributes: {
+          "backend.id": entry.id,
+          ...(report.runtime ? {
+            "runtime.version": report.runtime.version,
+            "runtime.command": report.runtime.command,
+            "runtime.host_provided": report.runtime.hostProvided,
+          } : {}),
+          ...(report.sdk ? { "sdk.version": report.sdk.version } : {}),
+        },
       });
+      if (report.runtime && report.measured && !report.measured.matches) {
+        log?.emit({
+          severityText: "WARN",
+          body:
+            `${entry.id} runtime ${pair(report.runtime.version, report.sdk?.version)} is not the one its ` +
+            `behaviour was measured against (${pair(report.measured.runtime, report.measured.sdk)}); ` +
+            "continuing — re-run scripts/measure-claude-runtime.ts",
+          attributes: { "backend.id": entry.id, "runtime.host_provided": report.runtime.hostProvided },
+        });
+      }
+      probes.push({ backendId: entry.id, report });
+    } catch (error) {
+      if (entry.id === (agent.backend || "claude")) throw error;
+      failures.push(backendBootFailure(entry.id, "runtime", error));
     }
-    probes.push({ backendId: entry.id, report });
   }
   return probes;
 }
@@ -484,7 +509,9 @@ export function createBackendRegistry(options: BackendRegistryOptions): BackendR
   let loadedRegistry: RegistrySnapshot | null = null;
 
   async function buildRegistry(): Promise<RegistrySnapshot> {
-    const entries = activeFirstPartyBackends(agent);
+    if (options.unavailableBackends?.some(failure => failure.backendId === primary))
+      throw new Error(`Default backend "${primary}" is unavailable.`);
+    const entries = activeFirstPartyBackends(agent).filter(entry => !options.unavailableBackends?.some(failure => failure.backendId === entry.id));
     const descriptors = new Map<string, BackendModule>();
     for (const entry of entries) {
       descriptors.set(entry.id, await loadBackendDescriptor(entry.id));

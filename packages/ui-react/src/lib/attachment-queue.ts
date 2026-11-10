@@ -45,6 +45,14 @@ export interface QueuedFile {
   status?: string;
   /** The longer explanation for the same state. */
   detail?: string;
+  /** Why the host refused it (a received 4xx); the draft indicator names space refusals. */
+  refusal?: "space" | "size" | "count" | "gone" | "invalid";
+  /**
+   * The held outgoing snapshot it belongs to (#3155): Send moved it out of
+   * the composer, so the composer neither shows it nor waits for it, and its
+   * result goes to that snapshot.
+   */
+  snapshotId?: string;
 }
 
 /** Pending items hold Send; failed and refused ones block it until removed or retried. */
@@ -99,15 +107,15 @@ export function queuedFileCopy(item: QueuedFile): { status: string; detail?: str
 const limitBytes = (n: number): string => (n >= 1_000_000 && n % 1_000_000 === 0 ? `${n / 1_000_000} MB` : trackBytes(n));
 
 /** A refusal's copy: the host answered with a 4xx, so the file is known not stored. */
-function refusal(status: number, body: { bound?: string; limit?: number; error?: string }): { status: string; detail: string } | null {
+function refusal(status: number, body: { bound?: string; limit?: number; error?: string }): { status: string; detail: string; refusal: NonNullable<QueuedFile["refusal"]> } | null {
   if (status === 413) {
-    if (body.bound === "draftCount") return { status: "not stored · too many files", detail: `Up to ${body.limit ?? ATTACHMENT_MAX_FILES} files per message.` };
-    if (body.bound === "draftFiles") return { status: "not stored · message too large", detail: `Files can be up to ${limitBytes(body.limit ?? ATTACHMENT_MAX_TOTAL_BYTES)} together.` };
-    return { status: "too large", detail: `Files can be up to ${limitBytes(body.limit ?? ATTACHMENT_MAX_FILE_BYTES)} each.` };
+    if (body.bound === "draftCount") return { status: "not stored · too many files", detail: `Up to ${body.limit ?? ATTACHMENT_MAX_FILES} files per message.`, refusal: "count" };
+    if (body.bound === "draftFiles") return { status: "not stored · message too large", detail: `Files can be up to ${limitBytes(body.limit ?? ATTACHMENT_MAX_TOTAL_BYTES)} together.`, refusal: "size" };
+    return { status: "too large", detail: `Files can be up to ${limitBytes(body.limit ?? ATTACHMENT_MAX_FILE_BYTES)} each.`, refusal: "size" };
   }
-  if (status === 507) return { status: "not stored · no space", detail: "This host's attachment space is full. Nothing was removed to make room." };
-  if (status === 410) return { status: "not stored · draft gone", detail: "The draft it was for was deleted. Choose the file again to attach it." };
-  if (status === 400) return { status: "not stored", detail: "The host refused this file. Empty files can't be attached." };
+  if (status === 507) return { status: "not stored · no space", detail: "This host's attachment space is full. Nothing was removed to make room.", refusal: "space" };
+  if (status === 410) return { status: "not stored · draft gone", detail: "The draft it was for was deleted. Choose the file again to attach it.", refusal: "gone" };
+  if (status === 400) return { status: "not stored", detail: "The host refused this file. Empty files can't be attached.", refusal: "invalid" };
   return null;
 }
 
@@ -121,6 +129,11 @@ interface AttachmentQueueOptions {
   apiBase: string;
   /** The host stored it: the draft takes it from here. The item has already left the queue. */
   stored: (item: QueuedFile, file: AttachmentFile) => void;
+  /**
+   * It failed or was refused. True takes it out of the queue: its owner
+   * (a held snapshot) has recorded the outcome.
+   */
+  settled?: (item: QueuedFile) => boolean;
   changed: () => void;
   /** Resolve a draft id that was rotated since the file was picked. */
   resolveDraft?: (draftId: string) => string;
@@ -137,13 +150,15 @@ export function createAttachmentQueue(options: AttachmentQueueOptions) {
   const has = (id: string) => items.some((item) => item.id === id);
   function update(id: string, patch: Partial<QueuedFile>) {
     items = items.map((item) => (item.id === id ? { ...item, ...patch } : item));
+    const now = items.find((item) => item.id === id);
+    if (now && (now.state === "failed" || now.state === "refused") && options.settled?.(now)) items = items.filter((item) => item.id !== id);
     notify();
   }
 
   async function upload(item: QueuedFile, controller: AbortController) {
     // A rotated draft's successor is where the binding goes; the host checks lineage.
     const draftId = options.resolveDraft?.(item.draftId) ?? item.draftId;
-    update(item.id, { state: "uploading", draftId, status: undefined, detail: undefined });
+    update(item.id, { state: "uploading", draftId, status: undefined, detail: undefined, refusal: undefined });
     let answered = false;
     try {
       const response = await request(`${apiBase}/drafts/${encodeURIComponent(draftId)}/files`, {
@@ -175,9 +190,11 @@ export function createAttachmentQueue(options: AttachmentQueueOptions) {
       // A 2xx this client cannot read is not a stored file it knows: asking
       // again with the same key returns it, so it is a retryable failure.
       if (!parsed.success) { update(item.id, { state: "failed", status: "upload failed" }); return; }
+      // As it is now: Send may have moved it into a held snapshot meanwhile.
+      const current = items.find((other) => other.id === item.id) ?? item;
       items = items.filter((other) => other.id !== item.id);
       notify();
-      options.stored(item, parsed.data as AttachmentFile);
+      options.stored(current, parsed.data as AttachmentFile);
     } catch {
       if (controller.signal.aborted || !has(item.id)) return;
       // No answer at all: the host may have stored it. Never "not stored".
@@ -211,8 +228,10 @@ export function createAttachmentQueue(options: AttachmentQueueOptions) {
       const maxFiles = limits?.maxFiles ?? ATTACHMENT_MAX_FILES;
       const maxFileBytes = limits?.maxFileBytes ?? ATTACHMENT_MAX_FILE_BYTES;
       const maxTotal = limits?.maxTotalBytes ?? ATTACHMENT_MAX_TOTAL_BYTES;
-      let count = existing.count + items.length;
-      let bytes = existing.bytes + items.reduce((sum, item) => sum + item.file.size, 0);
+      // A held snapshot's uploads are that message's, not this draft's.
+      const own = items.filter((item) => !item.snapshotId);
+      let count = existing.count + own.length;
+      let bytes = existing.bytes + own.reduce((sum, item) => sum + item.file.size, 0);
       let overCount = 0;
       let overBytes = 0;
       const tooLarge: string[] = [];
@@ -231,6 +250,17 @@ export function createAttachmentQueue(options: AttachmentQueueOptions) {
       notify(); pump();
       return notices;
     },
+    /** Send moved these items into a held snapshot: their results are its. */
+    assign(ids: readonly string[], snapshotId: string) {
+      items = items.map((item) => (ids.includes(item.id) ? { ...item, snapshotId } : item));
+      notify();
+    },
+    /** A held snapshot was cancelled: its uploads stop, and nothing is claimed about what the host keeps. */
+    dropSnapshot(snapshotId: string) {
+      for (const item of items) if (item.snapshotId === snapshotId) { running.get(item.id)?.abort(); clearTimeout(busyTimers.get(item.id)); busyTimers.delete(item.id); }
+      items = items.filter((item) => item.snapshotId !== snapshotId);
+      notify(); pump();
+    },
     /** Remove from the composer only. Nothing is claimed about what the host keeps. */
     remove(id: string) {
       running.get(id)?.abort();
@@ -243,7 +273,7 @@ export function createAttachmentQueue(options: AttachmentQueueOptions) {
     retry(id: string) {
       const item = items.find((other) => other.id === id);
       if (!item || !(item.state === "failed" || item.state === "unknown")) return;
-      update(id, { state: online ? "waiting" : "paused", status: undefined, detail: undefined });
+      update(id, { state: online ? "waiting" : "paused", status: undefined, detail: undefined, refusal: undefined });
       pump();
     },
     setOnline(value: boolean) {

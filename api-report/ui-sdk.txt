@@ -762,9 +762,11 @@ export "./client" (./src/client/index.ts)
   type DraftSnapshotState
   type DraftSnapshotWrite
   type DraftSummary
+  FETCH_CONTENT_INPUT_SCHEMA
   FILE_SIZE_CAP_BYTES
   FIRST_PARTY_FAILURE_CLASSES
   FOLLOW_UP_QUEUE_CAPABILITY
+  type FetchContentInput
   type FileContentKind
   type FileContentResponse
   type FileEntry
@@ -775,9 +777,11 @@ export "./client" (./src/client/index.ts)
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
+  GET_SEARCH_CONTENT_INPUT_SCHEMA
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
+  type GetSearchContentInput
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -958,6 +962,7 @@ export "./client" (./src/client/index.ts)
   SHOW_BLOCK_INPUT_SCHEMA
   SHOW_BLOCK_PAYLOAD_SCHEMA
   SHOW_BLOCK_TOOL_NAME
+  SOURCE_CHECK_INPUT_SCHEMA
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
@@ -1049,6 +1054,7 @@ export "./client" (./src/client/index.ts)
   type SharedFileMeta
   type ShowBlockInput
   type ShowBlockPayload
+  type SourceCheckInput
   type SpeechCapabilities
   type StateRoomObservation
   type StorageBytes
@@ -1141,7 +1147,22 @@ export "./client" (./src/client/index.ts)
   type VoiceSessionRequest
   type VoiceSessionResponse
   type VoiceTokenResponse
+  WEB_SEARCH_INPUT_SCHEMA
+  WEB_TOOL_CONTRACTS
+  WEB_TOOL_ERROR_CODES
+  WEB_TOOL_LIMITS
+  WEB_TOOL_NAMES
+  WEB_TOOL_NAME_LIST
+  WEB_TOOL_PROVIDERS
+  type WebSearchInput
   type WebSocketClose
+  type WebToolCall
+  type WebToolEnvelope
+  type WebToolErrorCode
+  type WebToolInput
+  type WebToolName
+  type WebToolParse
+  type WebToolProvider
   type WikilinkMapResponse
   type WorkerHostCheck
   type WorkerHostStatus
@@ -1162,8 +1183,10 @@ export "./client" (./src/client/index.ts)
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
+  isWebToolName
   parseHandoffText
   parseToolPayload
+  parseWebToolInput
   planPlaces
   registerAsrClient
   registerContentRenderers
@@ -1175,6 +1198,7 @@ export "./client" (./src/client/index.ts)
   toolBriefLines
   toolInputJsonSchema
   visibleToolName
+  webToolProviders
 
 export "./internal" (./src/internal.ts)
   AGENT_INFERENCE_CREDENTIAL_ENV
@@ -1184,10 +1208,16 @@ export "./internal" (./src/internal.ts)
   BRAIN_INTERACTION_GUIDANCE
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
+  CLEANUP_RETRY_ATTEMPTS
+  CLEANUP_RETRY_BASE_MS
+  CLEANUP_RETRY_MAX_MS
   CREDENTIAL_FREE_ENV
   type ClassificationAnswers
   type ClassificationPlan
   type ClassificationRequest
+  type CleanupNotice
+  type CleanupReconciler
+  type CleanupReconcilerOptions
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
   type EgressRecord
@@ -1244,6 +1274,7 @@ export "./internal" (./src/internal.ts)
   RTK_WORKER_ENV
   type RemovalRun
   type Reservation
+  type RetainedCleanup
   STALE_SAFETY_ADMISSION
   SUBPROCESS_ENV
   type SessionPromptFacts
@@ -1307,6 +1338,7 @@ export "./internal" (./src/internal.ts)
   commitOutwardPlan
   compileWorkerCommandPolicy
   conversationOrientation
+  createCleanupReconciler
   createLimitTracker
   createNativeBrainManagerClient
   createSessionRetirement
@@ -1365,6 +1397,7 @@ export "./internal" (./src/internal.ts)
   probeNativeMaintenanceWorker
   probeWorkerHost
   probeWorkerHostAsync
+  processCleanupReconciler
   processStateLedger
   projectConversationGuidance
   promptPrefixFingerprint
@@ -2439,9 +2472,11 @@ export "./server" (./src/server/index.ts)
   type EditedApprovalCheckInput
   type ExecWrapperConfig
   type ExecutionBrief
+  FETCH_CONTENT_INPUT_SCHEMA
   FILE_SIZE_CAP_BYTES
   FIRST_PARTY_FAILURE_CLASSES
   FOLLOW_UP_QUEUE_CAPABILITY
+  type FetchContentInput
   type FetchLike
   type FileContentKind
   type FileContentResponse
@@ -2454,11 +2489,13 @@ export "./server" (./src/server/index.ts)
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
+  GET_SEARCH_CONTENT_INPUT_SCHEMA
   type GeoConfig
   type GeoConfigInput
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
+  type GetSearchContentInput
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -2654,6 +2691,7 @@ export "./server" (./src/server/index.ts)
   SHOW_BLOCK_INPUT_SCHEMA
   SHOW_BLOCK_PAYLOAD_SCHEMA
   SHOW_BLOCK_TOOL_NAME
+  SOURCE_CHECK_INPUT_SCHEMA
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
@@ -2747,6 +2785,7 @@ export "./server" (./src/server/index.ts)
   type SharedFileMeta
   type ShowBlockInput
   type ShowBlockPayload
+  type SourceCheckInput
   type SpeechCapabilities
   type SpeechProvider
   type SpeechSession
@@ -2859,7 +2898,22 @@ export "./server" (./src/server/index.ts)
   type VoiceSessionRequest
   type VoiceSessionResponse
   type VoiceTokenResponse
+  WEB_SEARCH_INPUT_SCHEMA
+  WEB_TOOL_CONTRACTS
+  WEB_TOOL_ERROR_CODES
+  WEB_TOOL_LIMITS
+  WEB_TOOL_NAMES
+  WEB_TOOL_NAME_LIST
+  WEB_TOOL_PROVIDERS
   type WebSearchBrief
+  type WebSearchInput
+  type WebToolCall
+  type WebToolEnvelope
+  type WebToolErrorCode
+  type WebToolInput
+  type WebToolName
+  type WebToolParse
+  type WebToolProvider
   type WikilinkMapResponse
   type WorkerHostCheck
   type WorkerHostStatus
@@ -2916,17 +2970,20 @@ export "./server" (./src/server/index.ts)
   handleRequestImageMask
   handleShowBlock
   handleTurnTemp
+  handleWebTool
   isBillingMode
   isCompletedAutonomousToolCall
   isFailureOutcome
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
+  isWebToolName
   killWrapped
   parseHandoffText
   parseLiveConversationEvent
   parseSubprocessEnvExtra
   parseToolPayload
+  parseWebToolInput
   prepare
   prepareLand
   probeVersionCommand
@@ -2947,6 +3004,7 @@ export "./server" (./src/server/index.ts)
   validateExecWrapper
   validateVersionMinimum
   visibleToolName
+  webToolProviders
   wrapCommand
 
 export "./share-target" (./src/client/share-target.ts)
@@ -3091,11 +3149,15 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ComputeToolName
   type ComputeToolRefusalCode
   type ComputeToolResult
+  FETCH_CONTENT_INPUT_SCHEMA
+  type FetchContentInput
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
+  GET_SEARCH_CONTENT_INPUT_SCHEMA
   type GetCurrentLocationInput
+  type GetSearchContentInput
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
   INBOX_ADD_INPUT_SCHEMA
@@ -3156,8 +3218,10 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   SHOW_BLOCK_INPUT_SCHEMA
   SHOW_BLOCK_PAYLOAD_SCHEMA
   SHOW_BLOCK_TOOL_NAME
+  SOURCE_CHECK_INPUT_SCHEMA
   type ShowBlockInput
   type ShowBlockPayload
+  type SourceCheckInput
   TURN_TEMP_CONTRACT
   TURN_TEMP_DESCRIPTION
   TURN_TEMP_INPUT_SCHEMA
@@ -3169,14 +3233,32 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ToolInput
   type ToolPayload
   type TurnTempInput
+  WEB_SEARCH_INPUT_SCHEMA
+  WEB_TOOL_CONTRACTS
+  WEB_TOOL_ERROR_CODES
+  WEB_TOOL_LIMITS
+  WEB_TOOL_NAMES
+  WEB_TOOL_NAME_LIST
+  WEB_TOOL_PROVIDERS
+  type WebSearchInput
+  type WebToolCall
+  type WebToolEnvelope
+  type WebToolErrorCode
+  type WebToolInput
+  type WebToolName
+  type WebToolParse
+  type WebToolProvider
   apifyOperationOf
   bridgeContractForToolName
   defineToolComponentContract
   defineToolContract
+  isWebToolName
   parseToolPayload
+  parseWebToolInput
   toolBriefLines
   toolInputJsonSchema
   visibleToolName
+  webToolProviders
 
 signatures (every public export and the types it is made of)
   ACTIVITY_COMPUTE_CAPABILITY (packages/ui-sdk/src/protocol.ts)
@@ -5814,6 +5896,13 @@ signatures (every public export and the types it is made of)
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "worker_cleanup";
+        state: "retrying" | "resolved";
+        bytes: number;
+        turnTempBytes: number;
+        errorClass?: string;
+        message?: string;
+    } | {
         kind: "prompt_prefix";
         prefix: import("../protocol.js").PromptPrefixFingerprint;
         resumed: boolean;
@@ -6017,6 +6106,7 @@ signatures (every public export and the types it is made of)
         compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
         apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
         readAttachment?(input: import("../tool-contracts/attachment.js").ReadAttachmentInput): Promise<import("../tool-contracts/attachment.js").AttachmentReadResult>;
+        webAccess?(call: import("../tool-contracts/web.js").WebToolCall): Promise<import("../tool-contracts/web.js").WebToolEnvelope>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
     export class BackendBusyError extends Error {
@@ -7538,6 +7628,15 @@ signatures (every public export and the types it is made of)
     export interface ExtendableEventLike {
         waitUntil(promise: Promise<unknown>): void;
     }
+  FETCH_CONTENT_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/web.ts)
+    const FETCH_CONTENT_INPUT_SCHEMA: z.ZodObject<{
+        mode: z.ZodOptional<z.ZodEnum<{
+            raw: "raw";
+            readable: "readable";
+        }>>;
+        url: z.ZodOptional<z.ZodString>;
+        urls: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>;
   FILE_SIZE_CAP_BYTES (packages/ui-sdk/src/protocol.ts)
     const FILE_SIZE_CAP_BYTES: 10485760;
   FIRST_PARTY_FAILURE_CLASSES (packages/ui-sdk/src/protocol.ts)
@@ -7546,6 +7645,8 @@ signatures (every public export and the types it is made of)
     }>;
   FOLLOW_UP_QUEUE_CAPABILITY (packages/ui-sdk/src/protocol.ts)
     const FOLLOW_UP_QUEUE_CAPABILITY: "followUpQueue";
+  FetchContentInput (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type FetchContentInput = z.infer<typeof FETCH_CONTENT_INPUT_SCHEMA>;
   FetchLike (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
   FileContentKind (packages/ui-sdk/src/protocol.ts)
     export type FileContentKind = "markdown" | "html" | "text" | "binary";
@@ -7615,6 +7716,22 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   GET_CURRENT_LOCATION_TOOL_NAME (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const GET_CURRENT_LOCATION_TOOL_NAME: "get_current_location";
+  GET_SEARCH_CONTENT_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/web.ts)
+    const GET_SEARCH_CONTENT_INPUT_SCHEMA: z.ZodObject<{
+        findMode: z.ZodOptional<z.ZodEnum<{
+            "case-insensitive": "case-insensitive";
+            exact: "exact";
+            fuzzy: "fuzzy";
+        }>>;
+        findText: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>;
+        limit: z.ZodOptional<z.ZodNumber>;
+        offset: z.ZodOptional<z.ZodNumber>;
+        query: z.ZodOptional<z.ZodString>;
+        queryIndex: z.ZodOptional<z.ZodNumber>;
+        responseId: z.ZodString;
+        url: z.ZodOptional<z.ZodString>;
+        urlIndex: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strict>;
   GeoConfig (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoConfigInput (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoCoords (packages/ui-sdk/src/protocol.ts)
@@ -7635,6 +7752,8 @@ signatures (every public export and the types it is made of)
     }
   GetCurrentLocationInput (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export type GetCurrentLocationInput = z.infer<typeof GET_CURRENT_LOCATION_INPUT_SCHEMA>;
+  GetSearchContentInput (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type GetSearchContentInput = z.infer<typeof GET_SEARCH_CONTENT_INPUT_SCHEMA>;
   GovernedStatus (packages/ui-sdk/src/protocol.ts)
     export type GovernedStatus = {
         hostExecution: "worker" | "host";
@@ -10783,6 +10902,44 @@ signatures (every public export and the types it is made of)
     }, z.core.$strip>;
   SHOW_BLOCK_TOOL_NAME (packages/ui-sdk/src/tool-contracts/blocks.ts)
     const SHOW_BLOCK_TOOL_NAME: "show_block";
+  SOURCE_CHECK_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/web.ts)
+    const SOURCE_CHECK_INPUT_SCHEMA: z.ZodObject<{
+        claim: z.ZodString;
+        domainFilter: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        fetchContent: z.ZodOptional<z.ZodBoolean>;
+        numResults: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodOptional<z.ZodUnion<readonly [z.ZodEnum<{
+            auto: "auto";
+            brave: "brave";
+            duckduckgo: "duckduckgo";
+            exa: "exa";
+            firecrawl: "firecrawl";
+            gemini: "gemini";
+            jina: "jina";
+            kagi: "kagi";
+            openai: "openai";
+            perplexity: "perplexity";
+            tavily: "tavily";
+        }>, z.ZodArray<z.ZodEnum<{
+            brave: "brave";
+            duckduckgo: "duckduckgo";
+            exa: "exa";
+            firecrawl: "firecrawl";
+            gemini: "gemini";
+            jina: "jina";
+            kagi: "kagi";
+            openai: "openai";
+            perplexity: "perplexity";
+            tavily: "tavily";
+        }>>]>>;
+        queries: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        recencyFilter: z.ZodOptional<z.ZodEnum<{
+            day: "day";
+            month: "month";
+            week: "week";
+            year: "year";
+        }>>;
+    }, z.core.$strict>;
   SPAN_OP_EXECUTE_TOOL (packages/ui-sdk/src/protocol.ts)
     const SPAN_OP_EXECUTE_TOOL: "execute_tool";
   SPAN_OP_INVOKE_AGENT (packages/ui-sdk/src/protocol.ts)
@@ -11415,6 +11572,8 @@ signatures (every public export and the types it is made of)
     export type ShowBlockInput = z.infer<typeof SHOW_BLOCK_INPUT_SCHEMA>;
   ShowBlockPayload (packages/ui-sdk/src/tool-contracts/blocks.ts)
     export type ShowBlockPayload = z.infer<typeof SHOW_BLOCK_PAYLOAD_SCHEMA>;
+  SourceCheckInput (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type SourceCheckInput = z.infer<typeof SOURCE_CHECK_INPUT_SCHEMA>;
   SpeechCapabilities (packages/ui-sdk/src/protocol.ts)
     export interface SpeechCapabilities {
         streaming: boolean;
@@ -12516,6 +12675,74 @@ signatures (every public export and the types it is made of)
         token: string;
         expiresAt: number;
     }
+  WEB_SEARCH_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/web.ts)
+    const WEB_SEARCH_INPUT_SCHEMA: z.ZodObject<{
+        category: z.ZodOptional<z.ZodString>;
+        domainFilter: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        includeContent: z.ZodOptional<z.ZodBoolean>;
+        numResults: z.ZodOptional<z.ZodNumber>;
+        provider: z.ZodOptional<z.ZodUnion<readonly [z.ZodEnum<{
+            auto: "auto";
+            brave: "brave";
+            duckduckgo: "duckduckgo";
+            exa: "exa";
+            firecrawl: "firecrawl";
+            gemini: "gemini";
+            jina: "jina";
+            kagi: "kagi";
+            openai: "openai";
+            perplexity: "perplexity";
+            tavily: "tavily";
+        }>, z.ZodArray<z.ZodEnum<{
+            brave: "brave";
+            duckduckgo: "duckduckgo";
+            exa: "exa";
+            firecrawl: "firecrawl";
+            gemini: "gemini";
+            jina: "jina";
+            kagi: "kagi";
+            openai: "openai";
+            perplexity: "perplexity";
+            tavily: "tavily";
+        }>>]>>;
+        queries: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        query: z.ZodOptional<z.ZodString>;
+        recencyFilter: z.ZodOptional<z.ZodEnum<{
+            day: "day";
+            month: "month";
+            week: "week";
+            year: "year";
+        }>>;
+    }, z.core.$strict>;
+  WEB_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/web.ts)
+    const WEB_TOOL_CONTRACTS: readonly ToolContract<WebToolName>[];
+  WEB_TOOL_ERROR_CODES (packages/ui-sdk/src/tool-contracts/web.ts)
+    const WEB_TOOL_ERROR_CODES: readonly ["invalid_input", "unsupported", "provider_not_admitted", "unavailable", "unknown_handle", "replayed_call", "busy", "request_too_large", "response_too_large", "cancelled", "deadline", "executor_died", "failed"];
+  WEB_TOOL_LIMITS (packages/ui-sdk/src/tool-contracts/web.ts)
+    const WEB_TOOL_LIMITS: Readonly<{
+        domainChars: 253;
+        domains: 10;
+        findTexts: 10;
+        pageChars: 30000;
+        providers: 3;
+        queries: 4;
+        requestBytes: 16384;
+        results: 20;
+        textChars: 500;
+        urlChars: 2048;
+        urls: 5;
+    }>;
+  WEB_TOOL_NAMES (packages/ui-sdk/src/tool-contracts/web.ts)
+    const WEB_TOOL_NAMES: {
+        readonly content: "get_search_content";
+        readonly fetch: "fetch_content";
+        readonly search: "web_search";
+        readonly sourceCheck: "source_check";
+    };
+  WEB_TOOL_NAME_LIST (packages/ui-sdk/src/tool-contracts/web.ts)
+    const WEB_TOOL_NAME_LIST: readonly WebToolName[];
+  WEB_TOOL_PROVIDERS (packages/ui-sdk/src/tool-contracts/web.ts)
+    const WEB_TOOL_PROVIDERS: readonly ["exa", "duckduckgo", "brave", "jina", "perplexity", "tavily", "openai", "gemini", "firecrawl", "kagi"];
   WebSearchBrief (packages/ui-sdk/src/server/web-search.ts)
     export interface WebSearchBrief {
         toolName: string;
@@ -12526,12 +12753,53 @@ signatures (every public export and the types it is made of)
             paid: boolean;
         }>;
     }
+  WebSearchInput (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type WebSearchInput = z.infer<typeof WEB_SEARCH_INPUT_SCHEMA>;
   WebSocketClose (packages/ui-sdk/src/client/ws-client.ts)
     export interface WebSocketClose {
         code: number;
         reason: string;
         opened: boolean;
     }
+  WebToolCall (packages/ui-sdk/src/tool-contracts/web.ts)
+    export interface WebToolCall {
+        tool: WebToolName;
+        input: Record<string, unknown>;
+        toolCallId: string;
+    }
+  WebToolEnvelope (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type WebToolEnvelope = {
+        ok: true;
+        tool: WebToolName;
+        text: string;
+        responseId?: string;
+    } | {
+        ok: false;
+        tool: WebToolName;
+        error: {
+            code: WebToolErrorCode;
+            message: string;
+            feature?: string;
+        };
+    };
+  WebToolErrorCode (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type WebToolErrorCode = (typeof WEB_TOOL_ERROR_CODES)[number];
+  WebToolInput (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type WebToolInput = WebSearchInput | FetchContentInput | GetSearchContentInput | SourceCheckInput;
+  WebToolName (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type WebToolName = (typeof WEB_TOOL_NAMES)[keyof typeof WEB_TOOL_NAMES];
+  WebToolParse (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type WebToolParse = {
+        ok: true;
+        input: Record<string, unknown>;
+    } | {
+        ok: false;
+        code: "invalid_input" | "unsupported" | "provider_not_admitted" | "request_too_large";
+        message: string;
+        feature?: string;
+    };
+  WebToolProvider (packages/ui-sdk/src/tool-contracts/web.ts)
+    export type WebToolProvider = (typeof WEB_TOOL_PROVIDERS)[number];
   WikilinkMapResponse (packages/ui-sdk/src/protocol.ts)
     export interface WikilinkMapResponse {
         generatedAt: number;
@@ -14028,6 +14296,11 @@ signatures (every public export and the types it is made of)
     export function handleShowBlock(input: ShowBlockInput): ShowBlockPayload;
   handleTurnTemp (packages/ui-sdk/src/server/bridge-tools/turn-temp.ts)
     export function handleTurnTemp(input: TurnTempInput, access: TurnTempAccess | undefined, record?: (event: TurnTempPurgeRecord) => void): object;
+  handleWebTool (packages/ui-sdk/src/server/bridge-tools/web.ts)
+    export function handleWebTool(name: WebToolName, input: unknown, bridge: Pick<BackendBridge, "webAccess">, toolCallId: string): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
   handoffRequestSchema (packages/ui-sdk/src/schemas.ts)
     const handoffRequestSchema: z.ZodObject<{
         handoffId: z.ZodString;
@@ -17548,6 +17821,8 @@ signatures (every public export and the types it is made of)
     export function isProfileUnavailableReason(value: unknown): value is ProfileUnavailableReason;
   isThinkingLevel (packages/ui-sdk/src/protocol.ts)
     export function isThinkingLevel(v: unknown): v is ThinkingLevel;
+  isWebToolName (packages/ui-sdk/src/tool-contracts/web.ts)
+    const isWebToolName: (name: string) => name is WebToolName;
   killWrapped (packages/ui-sdk/src/server/exec-wrapper.ts)
     export function killWrapped(proc: KillableProcess, config?: ExecWrapperConfig, signal?: NodeJS.Signals, onFailure?: (message: string) => void, bounded?: WrappedKillOptions): void;
   localExchangeSchema (packages/ui-sdk/src/schemas.ts)
@@ -17938,6 +18213,8 @@ signatures (every public export and the types it is made of)
     export function parseSubprocessEnvExtra(value: string | undefined): string[];
   parseToolPayload (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function parseToolPayload<Contract extends ToolComponentContract>(contract: Contract, output: string | undefined): ToolPayload<Contract> | null;
+  parseWebToolInput (packages/ui-sdk/src/tool-contracts/web.ts)
+    export function parseWebToolInput(name: WebToolName, input: unknown): WebToolParse;
   planPlaces (packages/ui-sdk/src/places.ts)
     export function planPlaces(places: ReadonlyArray<MapPlace>): PlacePlan;
   prepare (packages/geo/src/coastline.ts) recorded in api-report/geo.txt
@@ -25676,5 +25953,7 @@ signatures (every public export and the types it is made of)
     export function validateVersionMinimum(value: unknown, owner: string, identity: string): string;
   visibleToolName (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function visibleToolName(name: string, adapter: ToolAdapter): string;
+  webToolProviders (packages/ui-sdk/src/tool-contracts/web.ts)
+    export function webToolProviders(input: Record<string, unknown>): readonly string[];
   wrapCommand (packages/ui-sdk/src/server/exec-wrapper.ts)
     export function wrapCommand(argv: readonly string[], wrapper?: string): string[];

@@ -37,16 +37,19 @@ export function ConversationPermissionOutcomes({ sessionId }: { sessionId: strin
  * It reads as brain's spoken turn: the teal speaker mark, never a heard claim.
  * No text is dimmed as unplayed: the client knows which chunks drained, not
  * which words they carried (`playedSamples` does not align text to audio).
- * `cutOff` comes only from a retained interruption naming this output.
+ * `cutOff` comes only from a retained interruption naming this output. The
+ * turn's evidence opens from its own Details stop (#3728), never a glyph.
  */
 export function ConversationOutput({ output, restored = false, arrivalKey, cutOff = false }: { output: ConversationClientOutput; restored?: boolean; arrivalKey?: string; cutOff?: boolean }) {
   return <div className="py-4" data-arrival-key={arrivalKey} tabIndex={-1} data-conversation-output="" data-output-id={output.outputId}>
-    <SpokenTurn speaker="brain" cutOff={cutOff}><span className="whitespace-pre-wrap">{output.generated}</span></SpokenTurn>
-    <div className="flex"><TranscriptQualifiers kind="generated" source={output.providerId ? conversationService(output.providerId) : undefined}
-      playback={output.playback === "discarded" ? "not-spoken" : output.playback} restored={restored} unsaved={output.unsaved} orderUnknown={output.orderUnknown ?? restored} evidenceLabel="Technical evidence (generated reply)">
-      <p>Conversation {output.conversationId} · epoch {output.epoch} · output {output.outputId}</p>
-      {output.playedSamples && <p>Reported local samples: {output.playedSamples.start}–{output.playedSamples.end}. This does not align text to audio.</p>}
-    </TranscriptQualifiers></div>
+    <SpokenTurn speaker="brain" cutOff={cutOff} details={{
+      kind: "generated", source: output.providerId ? conversationService(output.providerId) : undefined,
+      playback: output.playback === "discarded" ? "not-spoken" : output.playback, restored, unsaved: output.unsaved, orderUnknown: output.orderUnknown ?? restored, evidenceLabel: "Technical evidence (generated reply)",
+      children: <>
+        <p>Conversation {output.conversationId} · epoch {output.epoch} · output {output.outputId}</p>
+        {output.playedSamples && <p>Reported local samples: {output.playedSamples.start}–{output.playedSamples.end}. This does not align text to audio.</p>}
+      </>,
+    }}><span className="whitespace-pre-wrap">{output.generated}</span></SpokenTurn>
   </div>;
 }
 
@@ -80,7 +83,8 @@ export function ConversationTaskContext({ message, sessionId, result, entries = 
  * bubble with a cursor while live recognition is still updating, and a dotted
  * underline only where a calibrated score is low. Restored text never shows as
  * still being recognized. Provider, timing and speaker evidence stay in the
- * details, outside user-message and live-announcement regions.
+ * details the turn opens (#3728), outside user-message and live-announcement
+ * regions.
  */
 export function ConversationRecognitionRow({ fragments, introduction = false }: { fragments: ConversationRecognition[]; introduction?: boolean }) {
   const first = fragments[0]!;
@@ -91,17 +95,18 @@ export function ConversationRecognitionRow({ fragments, introduction = false }: 
   const moved = fragments.every(f => f.moved);
   return <section className="py-4 text-foreground" data-conversation-recognition="" style={{ overflowWrap: "anywhere" }}>
     {introduction && <div className="mb-3 text-xs text-muted-foreground">Voice · {service} <TranscriptSymbols /></div>}
-    <SpokenTurn speaker="you" inProgress={!restored && !moved && updating > 0}><span className="whitespace-pre-wrap" data-recognized-text="">{moved ? "Moved to voice review" : fragments.map(f => <RecognizedWords key={JSON.stringify([f.kind, f.sequence])} fragment={f} />)}</span></SpokenTurn>
-    <div className="flex justify-end"><TranscriptQualifiers
-      kind="recognized" source={service} finish={finish} unsaved={first.unsaved} restored={restored} orderUnknown={fragments.some(f=>f.orderUnknown)} evidenceLabel={`Technical evidence (${fragments.length} fragment${fragments.length === 1 ? "" : "s"})`}>
-      <p>Recognized text evidence. Display order does not establish an exact response pairing.</p>
-      <ol>{fragments.map(f => <li key={JSON.stringify([f.kind, f.sequence])} className="py-1">
-        Epoch {f.epoch} · fragment {f.sequence} · {f.kind === "input_fragment" ? `Captured input ${f.utteranceId}; speaker unverified` : "Unassigned input; speaker unverified"}.
-        {f.kind === "input_fragment" ? f.certainty === "known" && f.confidence !== undefined ? ` Service confidence ${Math.round(f.confidence * 100)}%.` : " No calibrated confidence." : ""}
-        {f.kind === "unassigned_input_fragment" && f.sessionInterval ? ` Provider session timing; approximate: ${f.sessionInterval.startMs}–${f.sessionInterval.endMs} ms.` : f.kind === "input_fragment" && f.interval ? ` Provider input timing: ${f.interval.startMs}–${f.interval.endMs} ms.` : " Timing unavailable; speaker unverified."}
-        {f.finalization === "final" ? " Service finish marker received." : f.finalization === "interim" ? " Updating recognition." : " No finish evidence."}
-      </li>)}</ol>
-    </TranscriptQualifiers></div>
+    <SpokenTurn speaker="you" inProgress={!restored && !moved && updating > 0} details={{
+      kind: "recognized", source: service, finish, unsaved: first.unsaved, restored, orderUnknown: fragments.some(f => f.orderUnknown), evidenceLabel: `Technical evidence (${fragments.length} fragment${fragments.length === 1 ? "" : "s"})`,
+      children: <>
+        <p>Recognized text evidence. Display order does not establish an exact response pairing.</p>
+        <ol>{fragments.map(f => <li key={JSON.stringify([f.kind, f.sequence])} className="py-1">
+          Epoch {f.epoch} · fragment {f.sequence} · {f.kind === "input_fragment" ? `Captured input ${f.utteranceId}; speaker unverified` : "Unassigned input; speaker unverified"}.
+          {f.kind === "input_fragment" ? f.certainty === "known" && f.confidence !== undefined ? ` Service confidence ${Math.round(f.confidence * 100)}%.` : " No calibrated confidence." : ""}
+          {f.kind === "unassigned_input_fragment" && f.sessionInterval ? ` Provider session timing; approximate: ${f.sessionInterval.startMs}–${f.sessionInterval.endMs} ms.` : f.kind === "input_fragment" && f.interval ? ` Provider input timing: ${f.interval.startMs}–${f.interval.endMs} ms.` : " Timing unavailable; speaker unverified."}
+          {f.finalization === "final" ? " Service finish marker received." : f.finalization === "interim" ? " Updating recognition." : " No finish evidence."}
+        </li>)}</ol>
+      </>,
+    }}><span className="whitespace-pre-wrap" data-recognized-text="">{moved ? "Moved to voice review" : fragments.map(f => <RecognizedWords key={JSON.stringify([f.kind, f.sequence])} fragment={f} />)}</span></SpokenTurn>
   </section>;
 }
 

@@ -534,8 +534,10 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
   await until(page, "p.draft().images === 1");
   await page.locator("input[data-files-input]").setInputFiles({ name: TRACK_NAME, mimeType: "application/geo+json", buffer: TRACK });
   await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
-  await page.locator('[data-draft-save="saved"]').waitFor();
+  // The host holds the words and the image; with the track still uploading
+  // the draft indicator never calls the draft saved (#3155): it waits.
   await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draft));
+  await page.locator('[data-draft-save="queued"]').waitFor();
 
   // The reader scrolls up, away from both ends, with the mouse wheel.
   const box = await page.locator("[data-reading-column]").evaluate((el) => {

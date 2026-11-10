@@ -55,7 +55,7 @@ reports the paths observed so far, a lower bound, and an empty partial reports
 summary retained before this field, or sent by an older server, omits it or
 reports `null`: the count is unknown, never zero, and a client names the
 `changedFiles` figure as recorded entries rather than files. The count is
-(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:47-50`).
+(`const KEPT_CHANGE`, `packages/ui-server/src/brain/turn-journal.ts:52-55`).
 
 **Configuration coverage set (additive, #3257).** Untraced configuration inputs
 are a property of the brain's configuration, so the host stores each distinct
@@ -1968,6 +1968,17 @@ D52's tab-only track path.
   unconfirmed snapshot; the single-slot write still works. `DELETE` of a draft
   holding a held or unconfirmed snapshot is 409 `DRAFT_OUTGOING_PENDING`. The
   rules are in the [HTTP API](../http-api.md#outgoing-snapshot-list-additive-0450-3588).
+- **The React client writes the list (additive, #3155).** On a host that
+  advertises `composerFiles`, `chatRequestAck` and
+  `sessionDraftLimits.maxOutgoingSnapshots`, `@schlessera/brain-ui-react`
+  sends every message through a snapshot: Send writes it, `held` or
+  `dispatched`, in the same `PUT` that clears the composer, and the
+  `chat_message` follows only once the host acknowledges a revision that
+  holds it dispatched, with that revision as `draftRef` and the snapshot's
+  `fileIds` as `attachmentRefs`. The frame's shape is unchanged. Send again
+  is two saves: the old snapshot moves to `returned`, then is left out in the
+  save that creates its successor under a new `snapshotId` and `requestId`.
+  A host without the limit field keeps D52's tab-local path.
 
 The SDK publishes `COMPOSER_FILES_CAPABILITY`, `ATTACHMENT_DIR`,
 `ATTACHMENT_MAX_FILES`, `ATTACHMENT_MAX_FILE_BYTES`,

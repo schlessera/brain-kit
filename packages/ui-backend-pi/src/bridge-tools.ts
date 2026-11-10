@@ -1,5 +1,5 @@
 import { PROPOSE_POLICY_CHANGE_CONTRACT, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, INBOX_TOOL_CONTRACTS, READ_ATTACHMENT_CONTRACT, REFERENCE_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReadAttachment, handleReferenceTool } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, INBOX_TOOL_CONTRACTS, READ_ATTACHMENT_CONTRACT, REFERENCE_TOOL_CONTRACTS, WEB_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReadAttachment, handleReferenceTool, handleWebTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION,
@@ -99,6 +99,8 @@ export interface PiBridgeToolOptions {
     apify?: boolean;
     /** On-demand reads of the conversation's composer originals (#3154). */
     attachments?: boolean;
+    /** The host-owned web tools (#3685). */
+    web?: boolean;
   };
   reverseGeocodeConfig?: ReverseGeocodeConfig;
   reverseGeocode?: LocationHandlerOptions["reverseGeocode"];
@@ -362,6 +364,17 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     name: READ_ATTACHMENT_CONTRACT.name, label: "Read attachment", description: READ_ATTACHMENT_CONTRACT.description, parameters: toPiParameters(READ_ATTACHMENT_CONTRACT),
     async execute(_id: string, input: unknown) {
       const result = await handleReadAttachment(input, turn.bridge ?? {});
+      if (result.isError) throw new Error(result.text);
+      return textResult(result.text);
+    },
+  });
+  // The web tools (#3685) run in the host's executor: the host binds the
+  // turn, holds provider configuration and credentials, and issues the
+  // result handles. An unsupported feature or a refusal is a tool error.
+  if (capabilities?.web) for (const contract of WEB_TOOL_CONTRACTS) tools.push({
+    name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
+    async execute(id: string, input: unknown) {
+      const result = await handleWebTool(contract.name, input, turn.bridge ?? {}, id);
       if (result.isError) throw new Error(result.text);
       return textResult(result.text);
     },

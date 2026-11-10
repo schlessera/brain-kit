@@ -160,6 +160,29 @@ conflicts, unavailable detail, unknown outcomes and partial work remain explicit
 voice, agent and autonomous execution do not gain a history action. This is
 additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+### Degraded backend availability and unknown expiry (additive, #3817)
+
+A failed secondary backend leaves public `GET /api/health` live (HTTP 200),
+with `status: "degraded"` and `reasons: ["backend_unavailable"]`; uptime and
+timestamp stay present. Raw causes and backend identities remain protected.
+Authenticated `GET /api/status` adds `backendAvailability` with this boot's
+`unavailable` array and durable `lastFailures` (latest per backend). Records
+carry `backendId`, `phase`, `site`, `errorClass`, `message`, and ISO `at` as specified
+in [the HTTP reference](../http-api.md#liveness-and-operational-status).
+`healthy` is false while any secondary backend is excluded. The default
+backend still must pass; no version-incompatible backend executes.
+
+An invalid subscription mint date adds `subscription.expiryWarning` with
+`reason: "invalid_mint_date"`, `message`, `errorClass`, and ISO `at` while
+`mintedAt` and `expiresAt` remain null. Serving and authentication continue.
+The missing-date and valid-date shapes are unchanged. These additions ship
+in 0.45.0; no CLI/MCP envelope or provider history changes. The exported
+`assertBackendResolvable` now returns the excluded secondary backends as
+`BackendBootFailure[]`; callers that ignored its former void return continue
+to work. Primary-backend and shared profile-configuration errors still throw.
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 ### Published React health and sync helpers (breaking health correction)
@@ -1070,3 +1093,14 @@ Saved-audio PUT binds `Speech-Provider` before claim/body consumption; absent
 headers preserve effective-provider resolution. Retry provider changes return
 409 `transcription_provider_mismatch` with the receipt. Settings revisions,
 error codes, response schemas and operation binding are supported HTTP promises.
+
+
+### Checkpoint cleanup diagnostics (additive, #3815)
+
+Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
+`pending`, `failed` and `retainedBytes` for this process's superseded checkpoints;
+`lastFailure` is null or the durable historical failure with `kind`,
+`checkpointId`, `at` (epoch milliseconds), `scope`, `errorClass`, `cause` and
+`retrying: true` at the time it was recorded. The historical cause survives
+recovery and restart; it does not assert a currently blocked turn. Current
+charges remain separate in `retained`. No field changes public `/health`.

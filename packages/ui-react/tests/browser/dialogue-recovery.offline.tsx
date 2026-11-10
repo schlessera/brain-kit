@@ -859,7 +859,8 @@ for (const provider of ["gemini", "gpt"] as const) for (const failure of ["quota
   expect(qualifiers).toHaveLength(2);
   expect(qualifiers[0]!.getAttribute("aria-label")).not.toContain("unsaved");
   expect(qualifiers[1]!.getAttribute("aria-label"),"UNSAVED_ROW_QUALIFIER").toContain("unsaved");
-  expect(qualifiers[1]!.querySelectorAll("svg").length).toBeGreaterThan(qualifiers[0]!.querySelectorAll("svg").length);
+  // #3700: the unsaved state is named on the Details stop and in its dialog, never drawn as a glyph.
+  expect(qualifiers.map(q=>q.querySelectorAll("svg").length),"no glyph on a spoken turn").toEqual([0,0]);
 
   expect(rows.flatMap(e=>e.fragments.map(f=>f.text))).toEqual(events.map(f=>"text" in f.event ? f.event.text : ""));
   expect(result.rows).toHaveLength(events.filter(f=>f.retention!=="unsaved").length);

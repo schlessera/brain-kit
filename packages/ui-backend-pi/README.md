@@ -233,8 +233,8 @@ before every tool execution — curated and extension-registered alike. The
 policy mirrors the Claude backend:
 
 - **Allowlisted tools run with no round-trip** (`DEFAULT_PI_ALLOWED_TOOLS`:
-  every curated tool except `brain_archive`, plus `pi-web-access`'s
-  `web_search`/`fetch_content`).
+  every curated tool except `brain_archive`, including the four host-owned
+  web tools).
   This includes `brain_read_base`, which reads the authoritative content and
   base hash before an edit. An explicit `allowedTools` list still replaces
   the default; native base reads still require an admitted grant for the exact
@@ -287,6 +287,7 @@ output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marke
 | `query_activity` | read | auto-allow | routes to `bridge.queryActivity` (read-only record) |
 | `turn_temp` | read (turn temp only) | auto-allow | usage and scoped purge through the host's held worker descriptor; linked files are kept unless named paths force their removal |
 | `show_block` | read | auto-allow | validates and echoes one answer block; no bridge, no side effect |
+| `web_search`, `fetch_content`, `get_search_content`, `source_check` | read | auto-allow | routes to `bridge.webAccess`: the host's web executor runs the call; interactive sessions only, never autonomous |
 | `request_image_mask` | mutate | auto-allow (the mask editor IS the approval) | server PNG application; writes `<image>.mask.png` |
 | `write_file` | mutate | auto-allow | server-validated Markdown application |
 | `edit_file` | mutate | auto-allow | server-validated Markdown application; `old_string` must be unique |
@@ -307,10 +308,28 @@ through the server application route; a missing route visibly refuses. Search
 degrades to FTS-only when no embedding key is configured (the same keyless
 behaviour the CLI has).
 
-## Extensions (web search, MCP)
+## Web tools
+
+Web search runs on the host, not in the worker (#3685, epic #2765). Ordinary
+interactive sessions list four curated forwarding tools, `web_search`,
+`fetch_content`, `get_search_content` and `source_check`, with the pinned
+upstream pi-web-access parameters narrowed to what the host admits. Each call
+crosses the worker's bridge RPC under its exact permission grant. The host
+binds it to the turn's principal, session, profile and policy revision, runs it
+in its web executor and returns one JSON envelope. Provider configuration and
+credentials never enter the worker. A `responseId` is a host handle scoped to
+the calling session. Answer mode, summaries, curator review, video analysis
+and the browser-cookie and credential-command modes answer `unsupported`. Each
+result passes the input-safety collector before the model receives it.
+Autonomous turns get none of these tools. A host without a web executor
+refuses them before they run. The production executor is not built yet
+(#3686); until it is, the tools are listed but refused.
+
+## Extensions (MCP, subagents)
 
 Managed turns currently refuse every loaded external extension, including
-`pi-web-access`, `pi-mcp-adapter` and `pi-subagents`. A tool permission gate or a
+`pi-web-access`, `pi-mcp-adapter` and `pi-subagents`. Web search does not need
+`pi-web-access` (see Web tools above). A tool permission gate or a
 final `tool_result` observer cannot qualify these packages: Pi also exposes live
 messages/results after that observer, independent custom-message injection and
 provider-payload hooks. There is no trusted extension path, name or package

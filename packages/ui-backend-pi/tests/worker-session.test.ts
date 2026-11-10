@@ -453,3 +453,34 @@ test("host exec survives the Pi worker init boundary; omitted factory options re
     if (old === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER; else process.env.BRAIN_UI_EXEC_WRAPPER = old;
   }
 });
+
+test("initialization failure keeps a cleanup owner beyond the foreground retry limit", async () => {
+  const base = launch.getMockImplementation()!;
+  let closes = 0;
+  const pending: Array<() => void> = [];
+  const cleanup = worker.createCleanupReconciler({ attempts: 2, schedule: run => { pending.push(run); return () => {}; }, log() {} });
+  const owner = spyOn(worker, "processCleanupReconciler").mockReturnValue(cleanup);
+  const baseline = worker.processStateLedger().turnTempHeld;
+  const notices: unknown[] = [];
+  launch.mockImplementation(async (...args: unknown[]) => {
+    const launched = await base(...args) as any;
+    launched.stdin = new Writable({ write(_chunk, _encoding, callback) { sendPipe(launched.stdout, { type: "error", message: "Odysseus refused the voyage" }); callback(); } });
+    return { ...launched, turnTemp: { root, space: () => ({ total: 0, free: 0 }),
+      async closeAsync() { if (++closes <= 7) throw new Error("worker_identity_cleanup_unconfirmed"); } } };
+  });
+  try {
+    await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: {} as never, cleanupActivity: notice => notices.push(notice) })).rejects.toThrow("Odysseus refused the voyage");
+    expect(closes).toBe(1);
+    expect(cleanup.held, "PI_STARTUP_REFUSAL_HAS_RETRY_OWNER").toBe(1);
+    for (let i = 0; i < 6; i++) {
+      pending.shift()!(); await Bun.sleep(0);
+      expect(worker.processStateLedger().turnTempHeld, "PI_RETRY_REFUSAL_KEEPS_ALLOWANCE").toBeGreaterThan(baseline);
+    }
+    pending.shift()!(); await Bun.sleep(0);
+    expect(closes, "PI_RETRIES_PAST_FOREGROUND_LIMIT").toBe(8);
+    expect(cleanup.held).toBe(0);
+    expect(worker.processStateLedger().turnTempHeld, "PI_LATE_CONFIRMATION_RELEASES_ALLOWANCE").toBe(baseline);
+    expect(pending).toHaveLength(0);
+    expect(notices).toMatchObject([{ kind: "worker_cleanup", state: "retrying", message: "Error: worker_identity_cleanup_unconfirmed" }, { kind: "worker_cleanup", state: "resolved" }]);
+  } finally { cleanup.close(); owner.mockRestore(); }
+});
