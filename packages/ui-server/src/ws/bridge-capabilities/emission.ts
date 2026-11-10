@@ -112,10 +112,10 @@ function offerRetry(ctx: BridgeContext, msg: ResultFrame): ResultFrame {
 
 /** Frame emission: stamps, persists and forwards every frame the backend emits. */
 export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
-  options: Pick<MakeBridgeOptions, "promptText" | "onSessionNamed" | "onTerminalFailure" | "promptLabel" | "pricingContext">): BridgeSlice<"emit"> {
+  options: Pick<MakeBridgeOptions, "promptText" | "onSessionNamed" | "onTerminalFailure" | "onTurnResult" | "promptLabel" | "pricingContext">): BridgeSlice<"emit"> {
   const { host, turn, turnId, requestId, backendId, principalId, authorization, work, recorder, mainModel, workerProfile } = ctx;
   const { coordinator, catalog } = host;
-  const { promptText, onTerminalFailure, promptLabel, pricingContext } = options;
+  const { promptText, onTerminalFailure, onTurnResult, promptLabel, pricingContext } = options;
   const { thinkingLevel, draftRef, attachmentFileIds, draftPrincipalId, resumedSession } = captureFrameFields(ctx);
   let profileBound = false;
   let draftSettled = false;
@@ -224,6 +224,7 @@ export function createEmission(ctx: BridgeContext, transcript: TurnTranscript,
     if (turn.turnId === turnId && msg.failure && (msg.outcome === "error" || (msg.outcome === undefined && msg.isError))) {
       onTerminalFailure?.(msg.sessionId, msg.failure);
     }
+    if (turn.turnId === turnId) onTurnResult?.(msg.sessionId);
     return offerRetry(ctx, msg);
   };
 
