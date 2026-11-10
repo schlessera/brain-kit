@@ -2383,8 +2383,13 @@ export interface ClientConversationStop {
  * a single snapshot frame could outgrow the per-frame cap and be clipped.
  */
 export interface ServerConversationOpened {
-  /** Actual bounded startup text coverage; no semantic recall guarantee. */
-  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
+  /**
+   * Actual bounded startup text coverage; no semantic recall guarantee.
+   * `includedMessages` (#3699) is how many prior chat and spoken messages the
+   * startup context actually carried; completed results and gap markers are
+   * not counted. Absent from older hosts.
+   */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean; includedMessages?: number };
   historyGeneration?: number;
   historyOwnerId?: string;
   type: "conversation_opened";
