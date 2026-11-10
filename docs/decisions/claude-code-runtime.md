@@ -268,7 +268,7 @@ than refuses on a mismatch.**
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
   reports the source commit (`Operational status`,
-  `packages/ui-server/src/routes/health.ts:61-79`), and the run record. Not
+  `packages/ui-server/src/routes/health.ts:65-83`), and the run record. Not
   `/api/health`: it is public and deliberately carries no version
   (`Public liveness probe`, `health.ts:15-17`). Not `brain doctor`: it runs on
   the user's machine against a different binary.

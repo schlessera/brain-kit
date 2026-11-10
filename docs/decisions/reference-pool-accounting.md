@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:272-964`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:273-988`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -224,7 +224,7 @@ directory its intent records. Sealing also makes the root's top directory
 `roots/` and `views/` join the mandatory worker masks. A worker sees reference
 source only through a view bound for it, and other domains' views stay
 invisible. `poolView` (#2432) opens a view's directory before its first
-publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:940-943`),
+publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:954-957`),
 so a worker that binds it at its start sees the domain's first publication on a
 later lookup ([agent tools](managed-worktrees.md#agent-tools)).
 
