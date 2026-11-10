@@ -66,7 +66,8 @@ const BOUNDARY_READ_MS = 10_000;
 /** One concrete host's in-flight writes; never shared across apps or sessions. */
 export class FailureReplay {
   private readonly pending = new Map<string, Set<Promise<void>>>();
-  constructor(private readonly catalog: SessionCatalog, private readonly log: Logger) {}
+  /** `boundaryReadMs` bounds a boundary read and a result-to-finish hold; tests shorten it. */
+  constructor(private readonly catalog: SessionCatalog, private readonly log: Logger, private readonly boundaryReadMs = BOUNDARY_READ_MS) {}
 
   async wait(sessionId: string): Promise<void> {
     for (;;) {
@@ -111,7 +112,7 @@ export class FailureReplay {
         // so the read is bounded by its own timer instead.
         const messages = await Promise.race([
           backend.getHistory(sessionId),
-          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("history read timed out")), BOUNDARY_READ_MS); }),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("history read timed out")), this.boundaryReadMs); }),
         ]);
         this.catalog.recordScratchPins?.(sessionId, backend.id, messages);
         const count = assistantCount(messages);
@@ -177,7 +178,7 @@ export class FailureReplay {
         if (closed || held || before === null || !this.catalog.recordTurnBoundary) return;
         held = true;
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const hold = Promise.race([ended, new Promise<void>((resolve) => { timer = setTimeout(resolve, BOUNDARY_READ_MS); })])
+        const hold = Promise.race([ended, new Promise<void>((resolve) => { timer = setTimeout(resolve, this.boundaryReadMs); })])
           .finally(() => clearTimeout(timer));
         this.track(sid, hold);
       },
