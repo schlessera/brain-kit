@@ -118,10 +118,14 @@ export const FactsBeforeAnythingAsks = MorningDigest.extend({
 
     // The only card on the screen is the kind that asks for nothing: no button,
     // no approve/deny pair, one chevron to somewhere else.
-    // The card is itself the one control, and nothing inside it is another.
+    // The card is the FYI kind, and no card on the screen is a kind that asks.
+    // (A control nested inside the card is refused by the axe gate already.)
     const card = (await canvas.findByText(fyi.title)).closest<HTMLElement>('[role="button"]');
     await expect(card).not.toBeNull();
-    await expect(within(card!).queryAllByRole("button")).toEqual([]);
+    await expect(within(card!).getByText("FYI")).toBeVisible();
+    for (const kind of ["Approval", "Choose", "Dead letter", "Quarantined", "Premise unverified", "Suggestion"]) {
+      await expect(canvas.queryByText(kind)).toBeNull();
+    }
     await expect(await canvas.findByText(fyi.rightMeta!)).toBeTruthy();
   },
 });
