@@ -352,9 +352,10 @@ const OBLIGATIONS = 2048;
 const clipText=(text:string)=>clip(text.replace(/[\u0000-\u001f\u007f]/g," "),128);
 /**
  * A tool call admitted before it runs owes its result's record (#3812). It
- * is owed until that record is durable, or until the backend refuses the
- * call, which proves it never ran. Owing it is restrictive only: it needs no
- * healthy recorder, only an open collection to gap if the result never comes.
+ * is owed until that record is durable; no refusal discharges it, since none
+ * proves an admitted call did not run. Owing it is restrictive only: it needs
+ * no healthy recorder, only an open collection to gap if the result never
+ * comes.
  */
 export function openSafetyObligation(db:Database,turnId:string,id:string,toolUseId:string,tool:string,at=Date.now()):void {
  db.transaction(()=>{
@@ -368,8 +369,8 @@ export function openSafetyObligation(db:Database,turnId:string,id:string,toolUse
   db.query("INSERT INTO safety_obligations(id,collection_id,tool_use_id,tool,opened_at) VALUES(?,?,?,?,?)").run(id,c.id,clipText(toolUseId),clipText(tool),at);
  }).immediate();
 }
-/** Its result is durably recorded, or the call was refused and never ran.
- * Once the collection ended the call's gap is already committed: nothing to do. */
+/** Its result is durably recorded. Once the collection ended the call's gap
+ * is already committed: nothing to do. */
 export function dischargeSafetyObligation(db:Database,turnId:string,id:string):void {
  db.query("DELETE FROM safety_obligations WHERE id=? AND collection_id=(SELECT id FROM safety_collections WHERE turn_id=? AND ended=0)").run(id,turnId);
 }

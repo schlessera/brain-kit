@@ -146,18 +146,35 @@ async function permission(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWo
     // Exact application authorization belongs to the server route.
     await bridge.inputSafety?.begin(msg.toolCallId,msg.toolName,msg.input);
     live();
-    const unavailable = safetyAdmissionRefusal(bridge.admissionSafety);
-    if (unavailable) return { behavior: "deny", message: unavailable };
-    return { behavior: "allow" };
+    return permit(msg, bridge, context, { behavior: "allow" }, () => safetyAdmissionRefusal(bridge.admissionSafety));
   }
   grants.delete(msg.toolCallId);
   const decision = await decidePiToolPermission({ turn: turnContext, allowedTools, confirmPatterns }, msg.toolName, msg.input, msg.toolCallId);
   live();
-  if (decision.behavior === "allow") {
-    const stale = revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, decision.updatedInput ?? msg.input);
-    if (stale) return { behavior: "deny", message: stale };
-  }
-  if (decision.behavior === "allow") grants.set(msg.toolCallId, { name: msg.toolName, input: JSON.stringify(decision.updatedInput ?? msg.input) });
+  if (decision.behavior !== "allow") return decision;
+  const input = decision.updatedInput ?? msg.input;
+  return permit(msg, bridge, context, decision, () => revalidatePiAdmission(turnContext, msg.toolName, msg.toolCallId, input),
+    { name: msg.toolName, input: JSON.stringify(input) });
+}
+
+/**
+ * Lets one decided call run. The collector's last check comes first; the
+ * turn's liveness and the call's standing admission are rechecked after it,
+ * and the grant is published last, with no wait between it and the answer.
+ * A grant is usable the moment it exists, by any concurrent RPC for the call
+ * (a document-base read, a bridge call, a lock, a file observation or a
+ * final admission), so one published before the collector's check could run
+ * a call that check then refuses (#3812). A refused check denies the call,
+ * a stopped turn rejects it, and neither publishes anything.
+ */
+async function permit(msg: PiWorkerRpc, bridge: BackendBridge, context: PiWorkerRpcContext, decision: unknown,
+  refusal: () => string | null, grant?: { name: string; input: string }): Promise<unknown> {
+  try { await bridge.inputSafety?.allowed?.(msg.toolCallId); }
+  catch (error) { return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." }; }
+  context.live();
+  const refused = refusal();
+  if (refused) return { behavior: "deny", message: refused };
+  if (grant) context.grants.set(msg.toolCallId, grant);
   return decision;
 }
 
@@ -278,21 +295,17 @@ export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: 
     // check refuses the worker. A report refused before it reaches the
     // collector leaves its chat a permanent gap instead (#3812).
     const result = msg.method === "safetyResult", safety = context.turn.bridge?.inputSafety;
-    // Pi runs a call only on an "allow" answer: a denial or a rejection
-    // blocks it before it executes, so the call owes no result (#3812). An
-    // allow is noted first, so a later denial, rejection, stopped turn or
-    // replay of a request for the same call cannot discharge a call that may
-    // have run; one the host can no longer allow is denied instead.
-    const permission = msg.method === "permission" && safety?.refused && safety.allowed ? safety : undefined;
+    // Pi runs a call only on an "allow" answer, which the permission handler
+    // gives only once the collector's last check passed (`permit`). Every
+    // other answer, and every rejection (a replay, a stopped turn), refuses
+    // the call's id at the collector, so no later request for it is admitted
+    // or let run. A refusal discharges nothing: it proves nothing about a
+    // call already admitted under that id (#3812).
+    const permission = msg.method === "permission" && safety?.refused ? safety : undefined;
     const refuse = <T>(outcome: Promise<T>): Promise<T> => !permission ? outcome : outcome.then(
       async answer => {
-        if ((answer as { behavior?: string } | null)?.behavior !== "allow") { await permission.refused!(msg.toolCallId); return answer; }
-        try { await permission.allowed!(msg.toolCallId); return answer; }
-        catch (error) {
-          context.grants.delete(msg.toolCallId);
-          await permission.refused!(msg.toolCallId);
-          return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." } as T;
-        }
+        if ((answer as { behavior?: string } | null)?.behavior !== "allow") await permission.refused!(msg.toolCallId);
+        return answer;
       },
       async error => { await permission.refused!(msg.toolCallId); throw error; });
     try {

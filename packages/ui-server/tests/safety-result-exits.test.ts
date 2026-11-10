@@ -1,7 +1,7 @@
 /** Every exit between a tool running and its result's record either records
  * the result or leaves its chat a permanent gap, in both backends (#3812).
- * Every call `begin()` admits owes its result until the record is durable or
- * the backend refuses the call; one still owed when its collection ends, or
+ * Every call `begin()` admits owes its result until the record is durable,
+ * and no refusal discharges it; one still owed when its collection ends, or
  * at boot, is a gap. The installed Claude runtime's replay of a stopped
  * turn's result, and its skipped result hooks, are proved in
  * `safety-result-retention.test.ts`; these drive the remaining exits against
@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@earendil-works/pi-agent-core";
+import { createEffectiveSafety } from "../src/governance/effective-safety";
 import { createUiDb } from "../src/db/client";
 import { openSqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
@@ -157,35 +158,43 @@ test("a call admitted and never reported leaves its chat a permanent gap when it
   } finally { await f.close(); }
 });
 
-test("a call the backend refuses owes nothing, and a recorded result discharges its call", async () => {
+// No refusal proves an admitted call never ran: the Claude runtime runs a
+// bare `allowedTools` entry without asking and admits two calls under one id
+// (`safety-result-retention.test.ts`). So a call refused after its admission
+// still gaps its chat; that false gap is the accepted cost (#3812).
+test("a call refused after its admission stays owed, and only a recorded result discharges a call", async () => {
   const f = await voyage(); try {
     await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
     await f.collector.begin("call_oar", "grep", { pattern: "oar" });
-    // The gate refuses the first call after admitting it: it never runs.
+    // The gate refuses the first call after admitting it, with no allow seen.
     await f.collector.refused!("call_raft");
     // A refused call stays refused: a parallel admission cannot reopen it.
     expect(String((await refusal(f.collector.begin("call_raft", "grep", { pattern: "sirens" })))?.message), "SAFETY_REFUSED_CALL_STAYS_REFUSED").toContain("refused");
     expect(f.controller.signal.aborted, "SAFETY_REFUSED_CALL_DOES_NOT_STOP_ITS_TURN").toBe(false);
     await f.collector.result("call_oar", "grep", "", true);
-    expect(f.owed(), "SAFETY_REFUSED_AND_RECORDED_CALLS_OWE_NOTHING").toBe(0);
+    expect(f.db.query("SELECT tool_use_id FROM safety_obligations").all(), "SAFETY_REFUSAL_DISCHARGES_NOTHING_A_RESULT_DOES").toEqual([{ tool_use_id: "call_raft" }]);
     await f.writes.safetyEnd("voyage");
-    expect(f.failure(), "SAFETY_REFUSED_CALL_LEAVES_NO_GAP").toBeNull();
-    expect(f.chat().coverage.state, "SAFETY_DISCHARGED_CALLS_KEEP_COVERAGE").toBe("complete");
+    expect(f.failure(), "SAFETY_REFUSED_ADMITTED_CALL_IS_A_DURABLE_GAP").toBe("recording_failed");
+    expect(f.cause(), "SAFETY_REFUSED_ADMITTED_CALL_NAMES_ITS_CALL").toMatchObject({ site: "safetyEnd", message: expect.stringContaining("grep (call_raft)") });
+    expect(f.chat().coverage.state, "SAFETY_REFUSED_ADMITTED_CALL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
   } finally { await f.close(); }
 });
 
-test("a call refused when its edited input cannot be recorded owes nothing", async () => {
+test("a call refused when its edited input cannot be recorded stays owed from its first admission", async () => {
   const f = await voyage(); try {
     await f.collector.begin("call_aeolus", "WebFetch", { url: "https://example.com/aeolus" });
     expect(f.owed(), "SAFETY_ADMITTED_FETCH_OWES_ITS_RESULT").toBe(1);
     // An approval edits the call; recording the edited input is refused, so
-    // the backend refuses the call, which never runs.
+    // the backend refuses the call. That later begin() proves nothing about
+    // the call its first admission let through.
     f.db.exec("CREATE TRIGGER refuse_input BEFORE INSERT ON safety_pending BEGIN SELECT RAISE(ABORT,'forced input reservation failure'); END");
     expect(await refusal(f.collector.begin("call_aeolus", "WebFetch", { url: "https://example.com/zephyr" })), "SAFETY_UNRECORDED_EDIT_REFUSES_THE_CALL").toBeInstanceOf(Error);
     f.db.exec("DROP TRIGGER refuse_input");
-    expect(f.owed(), "SAFETY_REFUSED_EDIT_OWES_NOTHING").toBe(0);
+    // Refused before the edit could run: that refusal alone gaps nothing.
+    expect(f.failure(), "SAFETY_REFUSED_EDIT_GAPS_NOTHING_BY_ITSELF").toBeNull();
+    expect(f.owed(), "SAFETY_REFUSED_EDIT_KEEPS_THE_FIRST_OBLIGATION").toBe(1);
     await f.writes.safetyEnd("voyage");
-    expect(f.failure(), "SAFETY_REFUSED_EDIT_LEAVES_NO_GAP").toBeNull();
+    expect(f.failure(), "SAFETY_REFUSED_EDIT_IS_A_DURABLE_GAP").toBe("recording_failed");
   } finally { await f.close(); }
 });
 
@@ -244,8 +253,7 @@ async function stillOwed(f: Voyage, call: string) {
   expect(f.chat().coverage.state, "SAFETY_ALLOWED_UNREPORTED_CALL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
 }
 
-// A refusal proves a call never ran only until the backend let it run. A
-// later request for the same call, refused for any reason, proves nothing
+// A later request for the same call, refused for any reason, proves nothing
 // about the search that already ran (#3812).
 for (const later of ["replayed", "stopped", "denied", "unrecordable"] as const) test(`a Pi call allowed and run stays owed whatever a later request for it says: ${later}`, async () => {
   const f = await voyage(); try {
@@ -363,4 +371,45 @@ test("a collection's end waits for a stopped turn's result record already under 
     expect(f.chat().unresolvedCount, "SAFETY_RECORD_UNDER_WAY_AWAITS_REVIEW").toBe(1);
     expect(f.chat().coverage.state, "SAFETY_RECORD_UNDER_WAY_KEEPS_COVERAGE").toBe("complete");
   } finally { release(); await reported; await f.close(); }
+});
+
+// A Pi grant is usable the moment it exists, by any concurrent RPC for the
+// call. So the dispatcher publishes it only after the collector's last check
+// passed: a check that then refuses the call must find nothing used (#3812).
+test("a Pi grant is unusable until the collector's last check passes, and a call refused at that check stays owed", async () => {
+  const f = await voyage(); let release = () => {};
+  try {
+    mkdirSync(join(f.brain, "notes"), { recursive: true }); writeFileSync(join(f.brain, "notes/sirens.md"), "The sirens sing.\n");
+    let read = 0, checking = () => {};
+    const checked = new Promise<void>(resolve => { checking = resolve; }), hold = new Promise<void>(resolve => { release = resolve; });
+    // Hold the collector's last check for the read, once it is reached.
+    const inputSafety = { ...f.collector, allowed: async (id: string) => { checking(); await hold; return f.collector.allowed!(id); } };
+    const admissionSafety = createEffectiveSafety(f.db, { turnId: "voyage", sessionId: () => "ithaca", policyHash: null, writes: f.writes, authority: () => ({ current: true, epoch: "1" }) });
+    const turn = { bridge: { inputSafety, admissionSafety, emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Penelope declines the push" }),
+      readBrainBase: async (path: string) => { read++; return { content: await Bun.file(join(f.brain, path)).text() }; } },
+      signal: f.controller.signal, enforceAllowedTools: false, noGrantSurface: false };
+    const dispatch = createPiWorkerRpcDispatcher({ turn, grants: new Map(), allowedTools: new Set(["brain_read_base"]), confirmPatterns: [], admitTool() {}, autonomous: false,
+      live() { if (f.controller.signal.aborted) throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked."); },
+      executed: () => ({ name: "brain_read_base", host: false, lock: false, phases: new Set() }) } as unknown as PiWorkerRpcContext);
+    const ask = { type: "rpc", id: 1, method: "permission", toolName: "brain_read_base", toolCallId: "call_sirens", input: { path: "notes/sirens.md" } } as PiWorkerRpc;
+    // The allowlist lets the read through; only the collector's check remains.
+    const answer = dispatch(ask);
+    await checked;
+    expect(f.owed(), "SAFETY_PI_ADMITTED_READ_OWES_ITS_RESULT").toBe(1);
+    // The worker asks for the document before its answer has arrived.
+    const early = await refusal(dispatch({ ...ask, id: 2, method: "readBase" }));
+    expect(read, "SAFETY_PI_UNCHECKED_GRANT_NEVER_READS").toBe(0);
+    expect(String(early?.message), "SAFETY_PI_GRANT_IS_UNUSABLE_BEFORE_THE_LAST_CHECK").toContain("no matching server permission decision");
+    // A concurrent request under the same id is denied, which refuses the id.
+    expect(await dispatch({ ...ask, id: 3, toolName: "bash", input: { command: "git push" } }), "SAFETY_PI_SAME_ID_REQUEST_IS_DENIED").toMatchObject({ behavior: "deny" });
+    release();
+    expect(await answer, "SAFETY_PI_REFUSED_ID_DENIES_THE_HELD_CALL").toMatchObject({ behavior: "deny" });
+    expect(await refusal(dispatch({ ...ask, id: 4, method: "readBase" })), "SAFETY_PI_DENIED_CALL_LEAVES_NO_GRANT").toBeInstanceOf(Error);
+    expect(read, "SAFETY_PI_DENIED_CALL_NEVER_READS").toBe(0);
+    // Admitted, then refused: the refusal proves nothing, so the call stays owed.
+    expect(f.owed(), "SAFETY_PI_REFUSAL_KEEPS_THE_OBLIGATION").toBe(1);
+    await f.writes.safetyEnd("voyage");
+    expect(f.failure(), "SAFETY_PI_REFUSED_ADMITTED_READ_IS_A_DURABLE_GAP").toBe("recording_failed");
+    expect(f.chat().coverage.state, "SAFETY_PI_REFUSED_ADMITTED_READ_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+  } finally { release(); await f.close(); }
 });

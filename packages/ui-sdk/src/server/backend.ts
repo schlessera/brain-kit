@@ -189,21 +189,20 @@ export interface BackendBridge {
      * could record it: the turn's chat keeps a permanent gap. Resolves once
      * that gap is durable. */
     lost?(toolUseId: string, toolName: string, cause: unknown): Promise<void>;
-    /** @internal The backend refused this call, so the runtime never runs it.
-     * Every call `begin` admits owes its `result` until one is recorded or
-     * this says it never ran; still owed when the turn ends, it leaves the
-     * turn's chat a permanent gap. Call it for every refusal the backend
-     * returns, before returning it. A refusal after `allowed` proves
-     * nothing about a call that may already have run, and discharges
-     * nothing. Never rejects. */
+    /** @internal The backend refused a call with this id. Every call `begin`
+     * admits owes its `result` from then on, and only a recorded `result`
+     * discharges it; still owed when the turn ends, it leaves the turn's
+     * chat a permanent gap. A refusal discharges nothing, since it cannot
+     * prove that a call admitted under the same id did not run: it refuses
+     * every later `begin` and `allowed` for the id. Call it for every
+     * refusal the backend returns, before returning it. Never rejects. */
     refused?(toolUseId: string): Promise<void>;
-    /** @internal The backend lets this call run. From now on only its
-     * recorded `result` discharges it: a later refusal, a rejected `begin`,
-     * a stopped turn or a replayed request for the same id proves nothing
-     * about a call that may already have run. Call it before returning every
-     * allow; a backend that calls `refused` must call this too. Rejects when
-     * the call was refused or its admission did not complete; the backend
-     * then refuses the call instead. */
+    /** @internal The backend's last check before it lets this call run. Call
+     * it before returning every allow, and hand out nothing the call could
+     * use (a grant, a capability) until it resolves; a backend that calls
+     * `refused` must call this too. Rejects when the call's id was refused
+     * or its latest `begin` did not complete; the backend then refuses the
+     * call instead. */
     allowed?(toolUseId: string): Promise<void>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */

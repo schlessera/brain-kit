@@ -94,8 +94,8 @@ export interface GovernanceWrites {
    * `SafetyRecordingUnavailable`: the call has not run, and the backend
    * refuses it. */
   safetyOblige(turnId:string,obligationId:string,toolUseId:string,tool:string):Promise<void>;
-  /** The call's result is durably recorded, or the backend refused the call
-   * and it never ran. A failure leaves the obligation, and so the gap. */
+  /** The call's result is durably recorded; nothing else discharges it, a
+   * refusal included. A failure leaves the obligation, and so the gap. */
   safetyDischarge(turnId:string,obligationId:string):Promise<void>;
   /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;

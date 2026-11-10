@@ -36,10 +36,23 @@ function installedRipgrep(root:string):string {
 /** `refused`: the result's reservation fails. `cancelled`: the turn is
  * stopped after the tool ran, just before its result is recorded.
  * `running`: the turn is stopped once the search has printed its matches but
- * before its process exits, so the runtime dispatches neither result hook. */
-type Interruption="refused"|"cancelled"|"running";
+ * before its process exits, so the runtime dispatches neither result hook.
+ * `duplicate`: the model sends the search twice under one id; the runtime
+ * admits both, and the second admission is denied once the first search has
+ * printed its matches, stopping the turn while that search runs. */
+type Interruption="refused"|"cancelled"|"running"|"duplicate";
+/** One model reply carrying each call as its own tool_use block. */
+function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]):Response {
+ const events:unknown[]=[{type:"message_start",message:{id:"msg_ithaca",type:"message",role:"assistant",model:"claude-probe",content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
+ calls.forEach((call,index)=>events.push(
+  {type:"content_block_start",index,content_block:{type:"tool_use",id:call.id,name:call.name,input:{}}},
+  {type:"content_block_delta",index,delta:{type:"input_json_delta",partial_json:JSON.stringify(call.input)}},
+  {type:"content_block_stop",index}));
+ events.push({type:"message_delta",delta:{stop_reason:"tool_use",stop_sequence:null},usage:{output_tokens:calls.length}},{type:"message_stop"});
+ return new Response(events.map(event=>`event: ${(event as {type:string}).type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
+}
 async function voyageHome(interruption:Interruption,check:(f:{db:ReturnType<typeof createUiDb>;writes:ReturnType<typeof createGovernanceWrites>;
- first:{results:number;failures:number;aborted:boolean};searched:boolean;replayed:string[]})=>void){
+ first:{results:number;failures:number;aborted:boolean;admissions:number;refusals:number};searched:boolean;replayed:string[]})=>void){
  const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retention-")),brain=join(root,"brain"),home=join(root,"home");
  // A note: reading it records nothing before the tool runs, so only the
  // search output's own record stands between it and a complete chat.
@@ -65,7 +78,9 @@ esac
   if(!Array.isArray(body.tools)||!body.tools.length)return nativeModelReply();
   requests.push({turn,raw});
   const first=turn===0&&requests.filter(r=>r.turn===0).length===1;
-  return nativeModelReply(first?{name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}}:undefined);
+  const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}};
+  if(first&&interruption==="duplicate")return modelCalls([search,search]);
+  return nativeModelReply(first?search:undefined);
  }});
  async function voyage(turnId:string,sessionId:string|null,interrupt:boolean,resume?:string){
   const controller=new AbortController(),bindingId=crypto.randomUUID();
@@ -76,7 +91,21 @@ esac
   }
   const collector=createSafetyCollector(db,writes,{turnId,bindingId,backendId:"claude",sessionId:()=>"ithaca",brainPath:brain,shellProxied:()=>false,signal:controller.signal,stop:error=>controller.abort(error)});
   await collector.ready("claude",1);
-  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety:collector}},allowedTools:["Grep"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
+  // Each admission the runtime makes passes the index wait first. Under a
+  // duplicate id the second waits until the first search has printed its
+  // matches, then Odysseus stops the turn and that admission is denied.
+  let admissions=0,refusals=0,refusal=()=>{};
+  const refused=new Promise<void>(resolve=>{refusal=resolve;});
+  const awaitIndex=async()=>{
+   if(!interrupt||interruption!=="duplicate"||++admissions<2)return;
+   const deadline=Date.now()+15000;
+   while(!existsSync(searched)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
+   if(!existsSync(searched))throw new Error("The first search never ran");
+   controller.abort(new Error("Odysseus stopped the turn while the first search ran"));
+   throw new Error("The second search under the same id is denied");
+  };
+  const inputSafety={...collector,refused:async(id:string)=>{await collector.refused!(id);refusals++;refusal();}};
+  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety,awaitIndex}},allowedTools:["Grep"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
   let results=0,failures=0;
   if(interrupt){
    // The Grep result exists and the runtime holds it; only its record is at risk.
@@ -95,17 +124,22 @@ esac
   const timer=setTimeout(()=>controller.abort(),20000);
   try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:["Grep"],...wiring,abortController:controller,
    ...(resume?{resume}:{}),
-   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
+   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;
     if("session_id" in message&&typeof message.session_id==="string")runtimeSession=message.session_id;
    }}catch{/* The interrupted turn is stopped. */}
-  finally{clearInterval(watching);clearTimeout(timer);db.exec("DROP TRIGGER IF EXISTS refuse_result");await writes.safetyEnd(turnId);}
-  return {results,failures,aborted:controller.signal.aborted};
+  finally{
+   clearInterval(watching);clearTimeout(timer);db.exec("DROP TRIGGER IF EXISTS refuse_result");
+   // The denial lands before the turn's end, as it would once the hook returns.
+   if(interrupt&&interruption==="duplicate")await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
+   await writes.safetyEnd(turnId);
+  }
+  return {results,failures,aborted:controller.signal.aborted,admissions,refusals};
  }
  try{
   const first=await voyage("voyage",null,true);
   expect(version,"SAFETY_ACTUAL_INSTALLED_RUNTIME").toBe(MEASURED_RUNTIME.claudeCode);
-  if(interruption==="running")expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true);
+  if(interruption==="running"||interruption==="duplicate")expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true);
   expect(first.aborted,"SAFETY_INTERRUPTED_RESULT_STOPS_ITS_TURN").toBe(true);
   expect(runtimeSession,"SAFETY_RUNTIME_SESSION_TO_RESUME").toBeDefined();
   turn=1;
@@ -118,7 +152,7 @@ esac
    .filter(block=>block.type==="tool_result"&&block.tool_use_id==="toolu_sirens").map(block=>typeof block.content==="string"?block.content:JSON.stringify(block.content));
   expect(replayed.length,"SAFETY_RUNTIME_RESUMES_THE_INTERRUPTED_CALL").toBeGreaterThan(0);
   // The premise: interrupting the record did not keep the result out of the model's context.
-  if(interruption!=="running")expect(resumed.some(r=>r.raw.includes(SONG)),"SAFETY_RUNTIME_REPLAYS_THE_INTERRUPTED_RESULT").toBe(true);
+  if(interruption!=="running"&&interruption!=="duplicate")expect(resumed.some(r=>r.raw.includes(SONG)),"SAFETY_RUNTIME_REPLAYS_THE_INTERRUPTED_RESULT").toBe(true);
   check({db,writes,first,searched:existsSync(searched),replayed});
   // Contained to its chat: the brain-wide recorder is untouched, and a
   // recovery has nothing to clear, so the chat stays restricted.
@@ -167,4 +201,21 @@ test("a turn stopped while its search runs reaches neither result hook, and its 
  expect(voyage.failure,"SAFETY_UNRECORDED_RESULT_GAP_IS_DURABLE").toBe("recording_failed");
  // The gap names the call that still owed its record.
  expect(JSON.parse(voyage.failure_cause??"{}"),"SAFETY_UNRECORDED_RESULT_NAMES_ITS_CALL").toMatchObject({site:"safetyEnd",turnId:"voyage",message:expect.stringContaining("Grep (toolu_sirens)")});
+}),60000);
+
+test("a denial under an id the runtime admitted twice cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("duplicate",({db,writes,first})=>{
+ // The installed runtime admits the same tool_use id twice and runs the
+ // first search; its allow never reaches a callback, since `allowedTools`
+ // lists Grep bare.
+ expect(first.admissions,"SAFETY_RUNTIME_ADMITS_ONE_ID_TWICE").toBe(2);
+ expect(first.refusals,"SAFETY_SECOND_ADMISSION_IS_DENIED").toBeGreaterThan(0);
+ expect(first.results+first.failures,"SAFETY_RUNTIME_SKIPPED_BOTH_RESULT_HOOKS").toBe(0);
+ // The denial proves nothing about the search already running under that id.
+ const chat=writes.safety("homeward","ithaca");
+ expect(chat.restriction,"SAFETY_DUPLICATE_DENIAL_CANNOT_SETTLE_THE_RUN_SEARCH").toBe("restricted");
+ expect(chat.coverage.state,"SAFETY_DUPLICATE_DENIAL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+ expect(chat.coverage.epochs.find(e=>e.reason==="recording_failed"),"SAFETY_DUPLICATE_DENIAL_IS_A_RECORDING_GAP").toBeDefined();
+ const voyage=db.query("SELECT failure,failure_cause FROM safety_collections WHERE turn_id='voyage'").get() as {failure:string|null;failure_cause:string|null};
+ expect(voyage.failure,"SAFETY_DUPLICATE_DENIAL_GAP_IS_DURABLE").toBe("recording_failed");
+ expect(JSON.parse(voyage.failure_cause??"{}"),"SAFETY_DUPLICATE_DENIAL_NAMES_ITS_CALL").toMatchObject({site:"safetyEnd",turnId:"voyage",message:expect.stringContaining("Grep (toolu_sirens)")});
 }),60000);

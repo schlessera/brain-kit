@@ -666,15 +666,18 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   const ctx = createPermissionContext(options, nativeRefusal);
   const { enforced } = ctx;
   const enforcementHook = enforcementHookFor(ctx);
-  // A deny this backend returns is final: the runtime never runs that call,
-  // so it owes no result record. Every other admitted call stays owed until
-  // its result is recorded, whatever the runtime then delivers (#3812).
+  // A deny this backend returns refuses the call's id at the collector, so
+  // no later admission or allow under it succeeds. It discharges nothing:
+  // the runtime can admit two calls under one id, and runs a bare
+  // `allowedTools` entry or a rewrite hook's allow without asking, so a deny
+  // never proves an admitted call did not run. Every call `begin()` admitted
+  // stays owed until its result is recorded, whatever the runtime then
+  // delivers (#3812).
   const refuse = async (toolUseId: string | undefined) => { if (toolUseId) await req.bridge.inputSafety?.refused?.(toolUseId).catch(() => {}); };
   const decideToolUse = canUseToolFor(ctx);
-  // The callback's allow is the runtime's last gate: the call runs. Noted
-  // first, so no later deny for the same id discharges a call that may have
-  // run; one the host can no longer allow is denied instead. A PreToolUse
-  // hook's allow is no such gate, since a parallel hook's deny wins.
+  // The callback's allow is the runtime's last gate: the call runs. The
+  // collector checks it first; one it can no longer let run is denied
+  // instead.
   const canUseTool: typeof decideToolUse = async (toolName, input, opts) => {
     const result = await decideToolUse(toolName, input, opts);
     if (result?.behavior === "deny") await refuse(opts.toolUseID);

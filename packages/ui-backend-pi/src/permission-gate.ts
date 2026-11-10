@@ -109,10 +109,12 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
     factory: (pi) => {
       pi.on("tool_call", async (event) => {
         const answer = await admit(event), safety = turn.bridge?.inputSafety;
-        // A blocked call never runs, so it owes no result record (#3812).
+        // A blocked call's id is refused at the collector, so nothing later
+        // under it is admitted or let through. That discharges nothing: only
+        // a recorded result settles a call `begin()` admitted (#3812).
         if (answer?.block) { await safety?.refused?.(event.toolCallId); return answer; }
-        // A call let through may run: from now on only its recorded result
-        // discharges it. One the host can no longer allow is blocked instead.
+        // The collector's last check before the call runs: one it can no
+        // longer let run is blocked instead.
         try { await safety?.allowed?.(event.toolCallId); }
         catch (error) {
           await safety?.refused?.(event.toolCallId);

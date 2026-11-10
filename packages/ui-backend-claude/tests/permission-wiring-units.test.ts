@@ -116,16 +116,18 @@ describe("the extracted callbacks", () => {
   });
 });
 
-describe("refusals owe no result", () => {
-  // A deny this backend returns is final: the runtime never runs the call,
-  // so the host's collector stops waiting for its result (#3812).
-  function wiring(signal: AbortSignal, unnoted?: string) {
+describe("refusals and the collector's last check", () => {
+  // Every deny this backend returns refuses the call's id at the host's
+  // collector, so nothing later under that id is admitted or let run. It
+  // discharges nothing: only a recorded result settles an admitted call
+  // (#3812).
+  function wiring(signal: AbortSignal, unchecked?: string) {
     const refused: string[] = [], allowed: string[] = [], released: string[] = [];
     const { canUseTool, hooks } = createPermissionWiring({
       req: { prompt: "Count the suitors in the hall", signal,
         bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }),
           inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); },
-            allowed: async (id: string) => { if (id === unnoted) throw new Error("Safety operation was refused or not admitted; the call does not run"); allowed.push(id); } } } } as never,
+            allowed: async (id: string) => { if (id === unchecked) throw new Error("Safety operation was refused or not admitted; the call does not run"); allowed.push(id); } } } } as never,
       allowedTools: ["Read"], confirmPatterns: [], brainPath: "/srv/odysseus-brain",
       turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool(id: string) { released.push(id); } } as never, childEnv: {}, log: () => {},
     });
@@ -133,7 +135,7 @@ describe("refusals owe no result", () => {
     return { canUseTool: canUseTool!, preToolUse, refused, allowed, released };
   }
 
-  test("a call the backend denies tells the collector it never runs", async () => {
+  test("a call the backend denies is refused at the collector", async () => {
     const stopped = new AbortController(); stopped.abort();
     const { canUseTool, preToolUse, refused } = wiring(stopped.signal);
     expect((await canUseTool("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: stopped.signal } as never))?.behavior).toBe("deny");
@@ -143,23 +145,23 @@ describe("refusals owe no result", () => {
     expect(refused, "CLAUDE_DENY_REFUSES_THE_CALL").toEqual(["oar-1", "oar-2"]);
   });
 
-  test("a call the backend lets run stays owed", async () => {
+  test("a call the backend lets run is checked by the collector and never refused", async () => {
     const live = new AbortController();
     const { canUseTool, preToolUse, refused, allowed } = wiring(live.signal);
     expect((await canUseTool("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: live.signal } as never))?.behavior).toBe("allow");
     await preToolUse(...hookCall("Read", { file_path: "/srv/odysseus-brain/notes/ithaca.md" }));
     expect(refused, "CLAUDE_ALLOW_LEAVES_THE_CALL_OWED").toEqual([]);
-    // The callback's allow is the runtime's last gate, so it is noted before
-    // the call runs: no later deny for the same id can discharge it (#3812).
-    expect(allowed, "CLAUDE_CALLBACK_ALLOW_IS_NOTED").toEqual(["oar-1"]);
+    // The callback's allow is the runtime's last gate, so the collector
+    // checks it before the call runs (#3812).
+    expect(allowed, "CLAUDE_CALLBACK_ALLOW_IS_CHECKED").toEqual(["oar-1"]);
   });
 
-  test("a callback allow the collector cannot note is denied instead", async () => {
+  test("a callback allow the collector's check refuses is denied instead", async () => {
     const live = new AbortController();
     const { canUseTool, refused, released } = wiring(live.signal, "oar-1");
     const answer = await canUseTool("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: live.signal } as never);
-    expect(answer, "CLAUDE_UNNOTED_ALLOW_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("does not run") });
-    expect(refused, "CLAUDE_UNNOTED_ALLOW_IS_REFUSED").toEqual(["oar-1"]);
-    expect(released, "CLAUDE_UNNOTED_ALLOW_RELEASES_ITS_LOCK").toContain("oar-1");
+    expect(answer, "CLAUDE_UNCHECKED_ALLOW_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("does not run") });
+    expect(refused, "CLAUDE_UNCHECKED_ALLOW_IS_REFUSED").toEqual(["oar-1"]);
+    expect(released, "CLAUDE_UNCHECKED_ALLOW_RELEASES_ITS_LOCK").toContain("oar-1");
   });
 });

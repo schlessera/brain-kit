@@ -80,8 +80,9 @@ describe("approval policy (approvalReason)", () => {
 });
 
 describe("tool_call permission gate", () => {
-  test("a call the gate blocks tells the collector it never runs", async () => {
-    // A blocked call never executes, so it owes no result record (#3812).
+  test("a call the gate blocks is refused at the collector", async () => {
+    // A blocked call's id is refused, so nothing later under it is admitted
+    // or let through; that discharges nothing (#3812).
     const refused: string[] = [];
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "deny", message: "Penelope declines" } });
@@ -92,21 +93,21 @@ describe("tool_call permission gate", () => {
     expect(refused, "PI_GATE_BLOCK_REFUSES_THE_CALL").toEqual(["declined"]);
   });
 
-  test("a call the gate lets through is noted before it runs, and one the collector cannot note is blocked", async () => {
-    // Noted, a later block for the same call cannot discharge one that may
-    // have run; not noted, it must not run at all (#3812).
+  test("a call the gate lets through is checked by the collector first, and one the check refuses is blocked", async () => {
+    // The collector's last check: a call whose id was refused, or whose
+    // latest admission did not complete, must not run at all (#3812).
     const refused: string[] = [], allowed: string[] = [];
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "allow" } });
     turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {},
       refused: async (id: string) => { refused.push(id); },
-      allowed: async (id: string) => { if (id === "unnoted") throw new Error("Safety operation was refused or not admitted; the call does not run"); allowed.push(id); } } };
+      allowed: async (id: string) => { if (id === "unchecked") throw new Error("Safety operation was refused or not admitted; the call does not run"); allowed.push(id); } } };
     const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
-    expect(await handler({ toolName: "write_file", toolCallId: "noted", input: { path: "a.md", content: "x" } }), "PI_GATE_NOTED_CALL_RUNS").toBeUndefined();
-    expect(await handler({ toolName: "write_file", toolCallId: "unnoted", input: { path: "b.md", content: "y" } }), "PI_GATE_UNNOTED_CALL_IS_BLOCKED")
+    expect(await handler({ toolName: "write_file", toolCallId: "checked", input: { path: "a.md", content: "x" } }), "PI_GATE_CHECKED_CALL_RUNS").toBeUndefined();
+    expect(await handler({ toolName: "write_file", toolCallId: "unchecked", input: { path: "b.md", content: "y" } }), "PI_GATE_REFUSED_CHECK_BLOCKS_THE_CALL")
       .toMatchObject({ block: true, reason: expect.stringContaining("does not run") });
-    expect(allowed, "PI_GATE_ALLOW_IS_NOTED").toEqual(["noted"]);
-    expect(refused, "PI_GATE_UNNOTED_CALL_IS_REFUSED").toEqual(["unnoted"]);
+    expect(allowed, "PI_GATE_ALLOW_IS_CHECKED").toEqual(["checked"]);
+    expect(refused, "PI_GATE_BLOCKED_CALL_IS_REFUSED").toEqual(["unchecked"]);
   });
 
   test("default brain_read_base executes in-process without an approval card", async () => {

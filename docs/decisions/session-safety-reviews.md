@@ -102,16 +102,24 @@ running under the tainted policy, not refusing.
   leave the gap. The host does not rely on the runtime to report a result:
   the Claude runtime dispatches neither result hook for a turn stopped while
   a tool runs, and still keeps that call in its session. So every call
-  `begin()` admits is an obligation, recorded before the tool runs, until its
-  result is durably recorded or the backend refuses the call (a refusal, or
-  a rejected `begin()`, proves it never ran). That proof holds only until
-  the backend lets the call run: the Pi dispatcher's allow, the Pi gate's
-  pass and the Claude permission callback's allow are noted before the call
-  runs, and from then on a later refusal, rejected `begin()`, stopped turn or
-  replayed request for the same call discharges nothing; only its recorded
-  result does. A result's last record and its discharge commit together. A
-  collection that ends owing one, however it ended, and an obligation still
-  open at boot, leave the same permanent gap.
+  `begin()` admits is an obligation, recorded before the tool runs, and only
+  its durably recorded result discharges it. No refusal does: not a denial,
+  a rejected later `begin()`, a stopped turn or a replayed request. The host
+  does not see every allow (the Claude runtime runs a bare `allowedTools`
+  entry, or a rewrite hook's allow, without asking), and the installed
+  Claude runtime admits two calls under one id, so a refusal never proves
+  that an admitted call did not run. A call denied after its admission
+  therefore also leaves the gap; that false gap is the accepted cost. Only a
+  `begin()` rejected before its obligation is durable owes nothing, since
+  the backend runs nothing on that rejection. A refusal still refuses every
+  later admission and allow under its id. Each backend's allow (the Pi
+  dispatcher's, the Pi gate's pass, the Claude permission callback's) is
+  checked by the collector before the call can run, and the Pi dispatcher
+  publishes a call's grant only after that check, so no concurrent request
+  can use a grant for a call the check then refuses. A result's last record
+  and its discharge commit together. A collection that ends owing one,
+  however it ended, and an obligation still open at boot, leave the same
+  permanent gap.
 - **Evidence store unwritable** (the chat fact cannot commit): the brain
   latches through the emergency reserve, or, when even that fails, in the
   host process. New turns still begin, each with a permanent
