@@ -160,6 +160,9 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+On such a host the React package uploads images as originals too and sends
+each frame with `ChatImageAttachment.fileId` naming its original (#3155); a
+legacy draft image and a host without the flag keep the inline-only path.
 
 ## Outgoing snapshot list (additive, 0.45.0, #3588)
 
@@ -660,7 +663,8 @@ carry an optional authorized, frozen chat snapshot, separately from native
 same-conversation resync. `LiveConversationSession.historyCoverage` and
 `conversation_opened.historyCoverage` optionally report the actual startup
 selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
-`tailOmitted`. This is data receipt/selection evidence, never a guarantee of
+`tailOmitted`, plus, additively (#3699), `includedMessages`: the number of
+prior chat and spoken messages actually sent. This is data receipt/selection evidence, never a guarantee of
 semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
 and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
 

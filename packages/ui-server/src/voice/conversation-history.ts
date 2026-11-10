@@ -96,5 +96,5 @@ export function liveContext(scope: ConversationScope, options: LiveConversationO
   const resync = selectResync(scope, options.resync, { ...limits, maxBytes: limits.maxBytes - reserve });
   const history = boundHistory(options.history, resync.resultKeys, { maxItems: 128,
     maxBytes: limits.maxBytes - bytes(resync.text), maxFactBytes: limits.maxFactBytes - resync.factBytes });
-  return { blocks: [orientation, history.text, resync.text].filter(Boolean), coverage: { state: history.coverage.state, tailOmitted: history.tailOmitted } };
+  return { blocks: [orientation, history.text, resync.text].filter(Boolean), coverage: { state: history.coverage.state, tailOmitted: history.tailOmitted, includedMessages: history.includedMessages } };
 }

@@ -450,9 +450,11 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
   await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   // The host keeps composer originals (composerFiles), so the track goes to the
   // neutral composer route as a generic file and the host detects it (#3155).
+  // Images go there too, as their originals; only the track's upload is held.
   await context.route("**/api/drafts/*/files", (route) => {
-    net.uploads++;
-    if (net.holdTracks) net.held.push(route);
+    const track = decodeURIComponent(route.request().headers()["x-file-name"] ?? "") === TRACK_NAME;
+    if (track) net.uploads++;
+    if (track && net.holdTracks) net.held.push(route);
     else void route.continue();
   });
   // Forward the real socket, with an explicit network delay for queue frames.
@@ -533,10 +535,10 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
   await page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "sail.png", mimeType: "image/png", buffer: SAIL });
   await until(page, "p.draft().images === 1");
   await page.locator("input[data-files-input]").setInputFiles({ name: TRACK_NAME, mimeType: "application/geo+json", buffer: TRACK });
-  await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
+  await page.waitForFunction(() => /uploading/.test(document.querySelector('[data-file-chip][aria-label^="ithaca-to-pylos-coastal-route-day-3.geojson,"]')?.getAttribute("aria-label") ?? ""));
   // The host holds the words and the image; with the track still uploading
   // the draft indicator never calls the draft saved (#3155): it waits.
-  await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draft));
+  await hostUntil((d) => d.some((x) => x.sessionId === A && (x.attachmentCount ?? 0) + (x.fileCount ?? 0) === 1 && x.preview === draft));
   await page.locator('[data-draft-save="queued"]').waitFor();
 
   // The reader scrolls up, away from both ends, with the mouse wheel.
@@ -649,7 +651,7 @@ function measure(page: Page): Promise<Measure> {
       selectionEnd: field.selectionEnd,
       replaced: marks.nodes.filter((n) => !n.isConnected).length,
       previews: [...document.querySelectorAll("[data-composer] img")].map((img) => (img as HTMLImageElement).src),
-      track: document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? "",
+      track: document.querySelector('[data-file-chip][aria-label^="ithaca-to-pylos-coastal-route-day-3.geojson,"]')?.getAttribute("aria-label") ?? "",
       pills: [...document.querySelectorAll('[data-row-half="right"] [data-pill]')].map((pill) => pill.textContent ?? ""),
       transcriptPreviews: [...column.querySelectorAll("img")].map((img) => img.src),
       replacedImages: marks.images.filter((img) => !img.isConnected).length,
@@ -665,7 +667,7 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">, preparation: "sc
   // of the drop: the order that cannot hide a failure behind a pause.
   const uploading = s.net.held.splice(0);
   for (const route of uploading) await route.abort("connectionreset").catch(() => {});
-  if (uploading.length) await s.page.waitForFunction(() => !/uploading/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
+  if (uploading.length) await s.page.waitForFunction(() => !/uploading/.test(document.querySelector('[data-file-chip][aria-label^="ithaca-to-pylos-coastal-route-day-3.geojson,"]')?.getAttribute("aria-label") ?? ""));
   await probe(s.page, p => p.backoff.pause());
   server!.stop(true);
   const beforeOffline = await connectivity(s.page);
@@ -1115,7 +1117,8 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
             expect(base.pills, "a real pending follow-up is guarded").toHaveLength(1);
             expect(base.pills[0]).toContain("Then bind me to the");
             expect(base.transcriptPreviews, "a sent image body is guarded").toHaveLength(1);
-            expect(base.transcriptPreviews[0]).toStartWith("blob:");
+            // An image original's sent row draws the frame it sent (#3155).
+            expect(base.transcriptPreviews[0]).toStartWith("data:image/jpeg;base64,");
           }
           log.push({ cycle, phase: "before", ...base });
 
@@ -1152,8 +1155,8 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           // original identity/layout assertions. Recovery's preceding 500ms
           // window and every drop/final/IME window remain independent.
           await finishRender(page);
-          if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
-          else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-file-chip]")?.getAttribute("aria-label") ?? ""));
+          if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector('[data-file-chip][aria-label^="ithaca-to-pylos-coastal-route-day-3.geojson,"]')?.getAttribute("aria-label") ?? ""));
+          else await page.waitForFunction(() => /uploading/.test(document.querySelector('[data-file-chip][aria-label^="ithaca-to-pylos-coastal-route-day-3.geojson,"]')?.getAttribute("aria-label") ?? ""));
           expect(net.uploads, `cycle ${cycle}: the upload resumed after reconnect`).toBe(uploadsBefore + 1);
           const after = await measure(page);
           log.push({ cycle, phase: "after", ...after });
@@ -1165,7 +1168,8 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         expect(net.sent.slice(sentBefore).filter((t) => t === "chat_message"), "reconnecting sent no chat message").toEqual([]);
         expect(net.sent.slice(sentBefore).length, "the spy saw the page's frames").toBeGreaterThan(0);
         expect(await page.evaluate(() => (window as unknown as { __events: Array<{ type: string }> }).__events.map((e) => e.type)), "nothing blurred the field").toEqual([]);
-        await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draft));
+        // The image and, now that it finished, the track: both stored originals (#3155).
+        await hostUntil((d) => d.some((x) => x.sessionId === A && (x.attachmentCount ?? 0) + (x.fileCount ?? 0) === 2 && x.preview === draft));
         await finishRecoveredTurn(s, cell);
         // #2932: a backend result is not host settlement. Hold B at that real
         // boundary; the following IME scene retains its original tracker check.

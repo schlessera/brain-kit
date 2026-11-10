@@ -17,6 +17,9 @@ export interface VoicePermissionReceipt {
   postureDenied?: true;
 }
 
+/** The strip line while this turn's approvals wait for a tap; the live field draws its own copy for it (#3699). */
+export const PERMISSION_PENDING_LINE = "Use Deny on screen · voice can’t approve or refuse with this service";
+
 /** Concrete permission routing. Exact-copy speech is absent, so only a local earcon is queued. */
 export function createConversationPermissions(root: BrainUiServices, send: (message: ClientMessage) => boolean,
   selected: () => { active: boolean; sessionId: string | null; micOn: boolean; quiet: boolean; isolated: boolean }, earcon: () => void, overflow: () => void) {
@@ -41,7 +44,7 @@ export function createConversationPermissions(root: BrainUiServices, send: (mess
   // not prove user attribution; keep the scoped input guard and direct decisions
   // to the screen until a separately qualified capability can support this copy.
   function publish() {
-    state.setState({ records: [...records.values()], line: full ? "Use Deny on screen; the voice request limit was reached." : pending().length ? "Use Deny on screen · voice can’t approve or refuse with this service" : "" });
+    state.setState({ records: [...records.values()], line: full ? "Use Deny on screen; the voice request limit was reached." : pending().length ? PERMISSION_PENDING_LINE : "" });
     apply();
   }
   function put(receipt: VoicePermissionReceipt) {

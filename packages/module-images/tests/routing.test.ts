@@ -16,8 +16,8 @@ const picked = (d: ReturnType<typeof route>) => {
   expect(d.kind).toBe("resolved");
   return (d as { model: ModelCapabilities; reason: string });
 };
-const SUNBURST = "gpt-image-2.5-sunburst";
-const FLARE = "gpt-image-2.5-flare";
+const SUNBURST = "gpt-image-2.6-sunburst";
+const FLARE = "gpt-image-2.6-flare";
 
 describe("availability", () => {
   test("no key means no models", () => {
@@ -33,11 +33,11 @@ describe("availability", () => {
     const limited = availableModels(configSchema.parse({ disabledModels: [SUNBURST] }), {
       OPENAI_API_KEY: "x",
     } as NodeJS.ProcessEnv);
-    expect(ids(limited)).toEqual([FLARE]);
+    expect(ids(limited)).toEqual([FLARE, "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]);
   });
 
-  test("OpenAI offers exactly the two 2.5 models, and neither retired one", () => {
-    expect(ids(OPENAI_ONLY)).toEqual([SUNBURST, FLARE]);
+  test("OpenAI offers exactly the 2.6 and 2.5 pairs, and neither retired one", () => {
+    expect(ids(OPENAI_ONLY)).toEqual([SUNBURST, FLARE, "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]);
     expect(ids(ALL)).not.toContain("gpt-image-2");
     expect(ids(ALL)).not.toContain("gpt-image-1.5");
   });

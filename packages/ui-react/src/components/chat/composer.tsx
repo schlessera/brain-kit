@@ -1,7 +1,7 @@
 import { useStore } from "zustand";
 import { ConversationUnassigned } from "../voice/conversation-unassigned.js";
-import { ConversationStrip } from "../voice/conversation-strip.js";
-import { Button, Callout, InlineToast } from "@schlessera/brain-ui-kit";
+import { ConversationField } from "../voice/conversation-field.js";
+import { Button, Callout, InlineToast, VoiceNotice } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
@@ -18,6 +18,7 @@ import {
 import { ShareIntake } from "./share-card.js";
 import { CommandPalette, exactCommand, matchCommands } from "./command-palette.js";
 import { ComposerView } from "./composer-view.js";
+import { ComposerMic } from "./composer-mic.js";
 import { RecordingsTray } from "../voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
@@ -34,6 +35,7 @@ import { takeComposerTextAsAnswer } from "./ask-user-typed.js";
 import { trackPending, trackReady } from "../../lib/track-uploads.js";
 import { trackKey, tracksFor } from "../../lib/draft-tracks.js";
 import { filesFor } from "../../lib/draft-files.js";
+import { ensureFrame, frameOf, framesFor, isFramedImage, placeFrames, subscribeFrames } from "../../lib/image-frames.js";
 import { queuedBlocking, queuedPending } from "../../lib/attachment-queue.js";
 import { bindableFiles, draftFiles as draftFilesOf, draftSnapshots, type ComposerSnapshot, type DraftFile } from "../../stores/draft-state.js";
 import { focusOldestSnapshot } from "./outgoing-snapshots.js";
@@ -243,6 +245,16 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const hasSettledTurn = useChatStore((s) => activeChat(s).messages.some((m) => m.role === "assistant" && !m.isStreaming));
   const handoffEntry = useHandoffEntry(sessionId, hasSettledTurn);
   const wsStatus = useConnectionStore((s) => s.wsStatus);
+  // Image originals' frames (#3155): page state the chips and Send read.
+  const [frameVersion, updateFrames] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => subscribeFrames(root, updateFrames), [root]);
+  // A restored image original has no frame in this page yet: it is made from
+  // the original the host keeps, again after a failed read once reconnected.
+  useEffect(() => {
+    if (wsStatus !== "connected") return;
+    for (const f of draftFiles) if (f.lineage === draftId) ensureFrame(root, f.file);
+  }, [root, draftFiles, draftId, wsStatus]);
+  const framePlacement = placeFrames(draftFiles.filter((f) => f.lineage === draftId).map((f) => f.file), (id) => frameOf(root, id), attachments);
   // The browser's own word on the network, for the draft indicator's offline state (#3155).
   const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
   useEffect(() => {
@@ -364,6 +376,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const dictationUnavailable = micMode === "dictate" && voiceMode !== "dictate" && discovery?.providers.length === 0
     ? "Dictation isn\u0027t set up on this host." : undefined;
 
+  const micLabel = micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save";
+  // The hold-to-talk mic at rest (#3693, drawn as signed off on #3727): it
+  // dictates, or records on the device with no hold (M1). Dictating, a
+  // recording in progress and a mic still deciding keep the kit's own mic.
+  // With neither dictation nor live conversation here, the kit's disabled
+  // mic still says why, since a hold would have nothing to offer.
+  const restingMic = (micMode === "dictate" && voiceMode !== "dictate" && !(dictationUnavailable && !conversation.available))
+    || (micMode === "local" && (localPhase === "idle" || localPhase === "opening"));
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
     ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
@@ -472,18 +492,23 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     let target = draftId;
     const owner = sessionId;
     const incoming = Array.from(files);
+    const heldFiles = root.stores.drafts.getState().drafts[target]?.files ?? NO_FILES;
+    // With composer files every file, images included, is uploaded unfiltered
+    // as its exact original, and the host decides what it is (#3155). An image
+    // gets its inline frame once the host has stored it as one. Legacy inline
+    // images of a saved draft still count toward the envelope.
+    if (filesOn) {
+      setAttachErrors(fileQueue.add(incoming, target, {
+        count: attachmentsOf(target).length + heldFiles.length,
+        bytes: attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0) + heldFiles.reduce((sum, f) => sum + f.file.bytes, 0),
+      }, fileLimits));
+      return;
+    }
+    // An older host: images become inline frames only, and the rest the tab-only track queue.
     const list = incoming.filter(file => file.type.startsWith("image/"));
     const others = incoming.filter(file => !file.type.startsWith("image/"));
-    const heldFiles = root.stores.drafts.getState().drafts[target]?.files ?? NO_FILES;
-    // With composer files every other file is uploaded unfiltered and the host
-    // decides what it is (#3155); an older host keeps the tab-only track queue.
-    const trackErrors = filesOn
-      ? fileQueue.add(others, target, {
-        count: attachmentsOf(target).length + list.length + heldFiles.length,
-        bytes: attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0) + heldFiles.reduce((sum, f) => sum + f.file.bytes, 0),
-      }, fileLimits)
-      : trackUploads.add(others, attachmentsOf(target).length + list.length,
-        attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
+    const trackErrors = trackUploads.add(others, attachmentsOf(target).length + list.length,
+      attachmentsOf(target).reduce((sum, image) => sum + image.bytes, 0));
     if (list.length === 0) { setAttachErrors(trackErrors); return; }
 
     const authEpoch = root.authLock.epoch();
@@ -511,11 +536,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         ...current,
         ...fresh,
       ]);
-      const otherFiles = root.stores.drafts.getState().drafts[target]?.files ?? NO_FILES;
-      const otherCount = trackUploads.files.length + fileQueue.files.length + otherFiles.length;
-      let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0)
-        + fileQueue.files.reduce((sum, item) => sum + item.file.size, 0) + otherFiles.reduce((sum, f) => sum + f.file.bytes, 0);
-      const maxFiles = fileLimits?.maxFiles ?? SHARE_MAX_FILES;
+      // Only an older host reaches here: no composer files, so the tab's tracks are the rest of the envelope.
+      const otherCount = trackUploads.files.length;
+      let combinedBytes = trackUploads.files.reduce((sum, track) => sum + (track.meta?.bytes ?? track.file.size), 0);
+      const maxFiles = SHARE_MAX_FILES;
       const accepted = imageAccepted.filter((image, index) => {
         combinedBytes += image.bytes;
         return index + otherCount < maxFiles && combinedBytes <= SHARE_MAX_TOTAL_BYTES;
@@ -597,10 +621,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     }
 
     if (text) setLastPrompt(text);
-    const messageAttachments = attachments.map((a) => ({
+    // Image originals travel with their frames, after any legacy inline image (#3155).
+    const frames = framesFor(root, currentFiles.map((f) => f.file), attachments) ?? { attachments: [], previews: [] };
+    const messageAttachments = [...attachments.map((a) => ({
       previewUrl: a.previewUrl,
       mediaType: a.attachment.mediaType,
-    }));
+    })), ...frames.previews];
     const chat = root.stores.chat.getState();
     const source = reviewText.trim() ? "voice-dictate" : "typed";
     const requestId = chatRequestAck ? crypto.randomUUID() : undefined;
@@ -657,8 +683,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       // The originals the saved revision binds; the host resolves each against
       // that revision (`draftRef`), so they are sent only with one (#3153).
       ...(currentFiles.length ? { attachmentRefs: currentFiles.map((f) => ({ kind: "attachment" as const, fileId: f.file.fileId })) } : {}),
-      attachments: attachments.length > 0
-        ? attachments.map((a) => a.attachment)
+      attachments: attachments.length + frames.attachments.length > 0
+        ? [...attachments.map((a) => a.attachment), ...frames.attachments]
         : undefined,
       // Measured per send, not once per session: the same tab can rotate,
       // move to an external display, or be installed as a PWA mid-conversation.
@@ -781,6 +807,8 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     if (d.conflict) return { blocked: "Your draft is kept. Choose which version to keep before sending its files." };
     // Sent only from an acknowledged revision: the message names it.
     if (!(d.host !== null && d.host.edit === d.edit)) return { pending: true };
+    // An image's frame still being made: the message carries it, so it waits.
+    if (!framesFor(root, bindableFiles(d).map((f) => f.file), d.attachments)) return { pending: true };
     return {};
   }
 
@@ -803,12 +831,13 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       submitHeldDraft.current();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [heldSend, tracks, queuedFiles, draftClean, draftFailure, draftFiles, wsStatus]);
+  }, [heldSend, tracks, queuedFiles, draftClean, draftFailure, draftFiles, wsStatus, frameVersion]);
 
   /** What a held send waits for, in the hint row. */
   function heldHint(): string {
     const files = tracks.filter(trackPending).length + queuedFiles.filter(queuedPending).length;
     if (files > 0) return `sends when ${files} file${files === 1 ? " finishes" : "s finish"}`;
+    if ([...framePlacement.values()].includes("pending")) return "sends when its image previews are ready";
     return "sends when the draft with its files is saved";
   }
 
@@ -867,6 +896,29 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
       void dictation.start();
     }
   }
+
+  // The mic's hold (#3693): Start when live conversation is offered here,
+  // otherwise the S4 notice (V4). A hold itself captures nothing.
+  const [liveNotice, setLiveNotice] = useState(false);
+  function handleTalkLive() {
+    setAttachMenuOpen(false);
+    setProviderMenuOpen(false);
+    const voice = root.stores.voice.getState();
+    if (voice.mode !== "idle" || voice.local !== "idle") return;
+    if (root.connection.conversation.state.getState().available) { setLiveNotice(false); root.connection.conversation.enter(); }
+    else setLiveNotice(true);
+  }
+  function dismissLiveNotice() {
+    setLiveNotice(false);
+    focusMic();
+  }
+  // The notice answers one hold; it goes once the mic does something else.
+  useEffect(() => { if (voiceMode !== "idle" || conversation.active) setLiveNotice(false); }, [voiceMode, conversation.active]);
+  useEffect(() => {
+    if (!liveNotice) return;
+    const ok = [...frameRef.current?.querySelectorAll<HTMLElement>("[data-live-notice] button") ?? []].find(b => b.textContent === "OK");
+    ok?.focus({ preventScroll: true });
+  }, [liveNotice]);
 
   function handleVoiceSend() {
     if (!draftText() || isStreaming || wsStatus !== "connected") {
@@ -946,7 +998,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
   return (
     <>
-      {conversation.active ? <div className="px-2 md:px-6"><ConversationStrip backend={[displayProviderLabel, displayProvider?.backendId, displayProvider?.vendor].filter(Boolean).join(" · ")} onLeave={() => queueMicrotask(focusField)} /></div> : <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
+      {conversation.active ? <div className="px-2 md:px-6"><ConversationField backend={[displayProviderLabel, displayProvider?.backendId, displayProvider?.vendor].filter(Boolean).join(" · ")} onLeave={() => queueMicrotask(focusField)} /></div> : <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
         {/* Says where a taken suggestion went, since focus moves with it. */}
         <div className="sr-only" aria-live="polite" data-composer-notice="">
           {insertNotice}
@@ -989,8 +1041,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         {filesOn && <input ref={fileInputRef} type="file" multiple hidden onChange={onFilePick} data-files-input="" />}
 
         <ComposerView
-          onConversation={conversation.available && micMode !== "local" && voiceMode !== "dictate" ? () => { setAttachMenuOpen(false); root.connection.conversation.enter(); } : undefined}
-          dictation={<><DictationSheet open={voiceMode === "dictate"}
+          micControl={restingMic ? <ComposerMic name={micLabel} onTap={handleMicTap} onTalkLive={micMode === "dictate" ? handleTalkLive : undefined} /> : undefined}
+          dictation={<>{liveNotice && <div className="mb-2" data-live-notice="">
+            <VoiceNotice tone="idle" icon="fyi" title="Live conversation isn’t set up here" body="Whoever runs this brain can add a live service. Dictation still works." actions={[{ label: "OK", onClick: dismissLiveNotice }]} />
+          </div>}<DictationSheet open={voiceMode === "dictate"}
             composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} onConfirm={dictation.confirm}
             onOpenSettings={() => { dictation.cancel(); root.stores.ui.getState().openSettings("voice"); }} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
@@ -999,7 +1053,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
           onDismissCaptureNotice={() => dismissNotice("local")}
           mic={micMode !== "unsupported"}
-          micLabel={micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
+          micLabel={micLabel}
           micTip={micMode === "dictate" && voiceMode !== "dictate" && dictateLabel !== undefined}
           micUnavailable={dictationUnavailable}
           value={input}
@@ -1055,7 +1109,12 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
             if (trackUploads.files.length === 0 && !current?.text && !current?.attachments.length) focusField();
           }}
           onRetryTrack={id => trackUploads.retry(id)}
-          files={filesOn ? { queued: queuedFiles, stored: draftFiles.map((f) => ({ file: f.file, detached: f.lineage !== draftId })) } : undefined}
+          files={filesOn ? { queued: queuedFiles, stored: draftFiles.map((f) => {
+            const frame = frameOf(root, f.file.fileId);
+            const placement = f.lineage === draftId && isFramedImage(f.file) ? framePlacement.get(f.file.fileId) : undefined;
+            return { file: f.file, detached: f.lineage !== draftId,
+              ...(placement ? { image: { placement, ...(frame?.state === "ready" ? { previewUrl: frame.previewUrl } : {}) } } : {}) };
+          }) } : undefined}
           onRemoveQueuedFile={(id) => fileQueue.remove(id)}
           onRetryQueuedFile={(id) => fileQueue.retry(id)}
           onRemoveStoredFile={(fileId) => {

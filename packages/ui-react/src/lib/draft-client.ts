@@ -6,6 +6,7 @@ import { detectClientEnvironment } from "./client-environment.js";
 import { restorationOf } from "../stores/chat-state.js";
 import type { PendingAttachment } from "./image-attachments.js";
 import { moveTracks, removeTracks, trackKey } from "./draft-tracks.js";
+import { ensureFrame, framesFor, subscribeFrames } from "./image-frames.js";
 
 /** How long a Check again may wait for the host before it counts as unreachable. */
 const CHECK_TIMEOUT_MS = 10_000;
@@ -363,7 +364,13 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     }
     const now = drafts.getState().drafts[draftId]!;
     for (const s of draftSnapshots(now)) {
-      if (s.state === "dispatched" && s.dispatch === "due" && !s.retiring && hostState(now, s)?.state === "dispatched" && !drafts.getState().sends[s.requestId]) dispatch(now, s);
+      if (s.state === "dispatched" && s.dispatch === "due" && !s.retiring && hostState(now, s)?.state === "dispatched" && !drafts.getState().sends[s.requestId]) {
+        // Its images' frames go with it (#3155): it waits for them, and a frame's settling advances it.
+        const known = s.files.flatMap((f) => f.file ? [f.file] : []);
+        for (const file of known) ensureFrame(root, file);
+        const frames = framesFor(root, known);
+        if (frames) dispatch(now, s, frames);
+      }
     }
   }
 
@@ -373,13 +380,15 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
   }
 
   /** Send a dispatched snapshot's message: its text, its files, and a revision that holds it. */
-  function dispatch(d: ComposerDraft, s: ComposerSnapshot) {
+  function dispatch(d: ComposerDraft, s: ComposerSnapshot, frames: NonNullable<ReturnType<typeof framesFor>>) {
     const draftRef = { draftId: d.draftId, revision: d.host!.revision };
-    const { draftRef: _r, attachmentRefs: _a, draftId: _c, ...template } = s.message ?? frameFor(d, s);
+    const { draftRef: _r, attachmentRefs: _a, draftId: _c, attachments: _f, ...template } = s.message ?? frameFor(d, s);
     const fileIds = s.files.map((f) => f.fileId);
     const message: Extract<ClientMessage, { type: "chat_message" }> = {
       ...template, type: "chat_message", text: s.text, requestId: s.requestId, draftRef,
       ...(fileIds.length ? { attachmentRefs: fileIds.map((fileId) => ({ kind: "attachment" as const, fileId })) } : {}),
+      // Each image original's frame, naming it (`ChatImageAttachment.fileId`).
+      ...(frames.attachments.length ? { attachments: frames.attachments } : {}),
     };
     const attachmentFiles = s.files.flatMap((f) => f.file ? [{ file: f.file, lineage: d.draftId }] : []);
     drafts.getState().patchSnapshot(d.draftId, s.snapshotId, { dispatch: "sent" }, true);
@@ -394,9 +403,9 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     const streaming = buffer?.isStreaming ?? false;
     const source = message.source ?? "typed";
     if (streaming && key !== null && root.stores.connection.getState().followUpQueue) {
-      root.stores.followUp.getState().addLocal(key, { requestId: s.requestId, text: s.text, source, ...(message.thinkingLevel !== undefined ? { thinkingLevel: message.thinkingLevel } : {}), queuedAt: Date.now() });
+      root.stores.followUp.getState().addLocal(key, { requestId: s.requestId, text: s.text, source, ...(frames.previews.length ? { attachments: frames.previews } : {}), ...(message.thinkingLevel !== undefined ? { thinkingLevel: message.thinkingLevel } : {}), queuedAt: Date.now() });
     } else {
-      c.addUserMessage(key, s.text, source, undefined, { requestId: s.requestId, ...(message.thinkingLevel !== undefined ? { thinkingLevel: message.thinkingLevel } : {}) },
+      c.addUserMessage(key, s.text, source, frames.previews.length ? frames.previews : undefined, { requestId: s.requestId, ...(message.thinkingLevel !== undefined ? { thinkingLevel: message.thinkingLevel } : {}) },
         undefined, attachmentFiles.length ? attachmentFiles.map((f) => f.file) : undefined);
     }
     if (!streaming) c.startAssistantMessage(key, undefined, s.requestId);
@@ -544,8 +553,11 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     const c = chat.getState();
     const buffer = key === null ? c.draft : c.buffers[key];
     if (buffer?.messages.some((m) => m.role === "user" && m.requestId === send.requestId)) return;
+    // Image originals' frames are the message's own (#3155), drawn from the frame it sent.
+    const framed = (send.message.attachments ?? []).filter((a) => a.fileId).map((a) => ({ previewUrl: `data:${a.mediaType};base64,${a.data}`, mediaType: a.mediaType }));
+    const previews = [...send.attachments.map((a) => ({ previewUrl: a.previewUrl, mediaType: a.attachment.mediaType })), ...framed];
     c.addUserMessage(key, send.text, send.message.source,
-      send.attachments.length ? send.attachments.map((a) => ({ previewUrl: a.previewUrl, mediaType: a.attachment.mediaType })) : undefined,
+      previews.length ? previews : undefined,
       { requestId: send.requestId, ...(send.message.thinkingLevel !== undefined ? { thinkingLevel: send.message.thinkingLevel } : {}) },
       send.files?.length ? send.files : undefined,
       send.attachmentFiles?.length ? send.attachmentFiles.map((f) => f.file) : undefined);
@@ -620,6 +632,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (state.activeSessionId !== prev.activeSessionId || state.pendingDraftId !== prev.pendingDraftId || restorationOf(state) !== restorationOf(prev)) advanceAll();
   });
   function advanceAll() { if (drafts.getState().snapshotsOn) for (const id of Object.keys(drafts.getState().drafts)) advanceSnapshots(id); }
+  // A frame a due snapshot waited for has settled.
+  const unsubscribeFrames = subscribeFrames(root, () => { if (!disposed) advanceAll(); });
 
   /**
    * The queue-full notice (#3155) clears when this tab frees a slot, and
@@ -907,6 +921,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
       if (refreshRetry) clearTimeout(refreshRetry.timer);
       orphanRetries.clear();
       unsubscribeDrafts();
+      unsubscribeFrames();
       unsubscribeConnection();
       unsubscribeView();
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);

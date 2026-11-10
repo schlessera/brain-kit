@@ -31,7 +31,9 @@ Object.assign(window, {
       return chat.activeSessionId ? chat.buffers[chat.activeSessionId]?.messages.length ?? 0 : 0;
     },
     text: () => draft()?.text ?? "",
-    images: () => (draft()?.attachments ?? []).map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, name: a.name })),
+    // Legacy inline images by their frame; image originals (#3155) by the stored record that names their bytes.
+    images: () => [...(draft()?.attachments ?? []).map((a) => ({ data: a.attachment.data, mediaType: a.attachment.mediaType, name: a.name })),
+      ...(draft()?.files ?? []).filter((f) => f.file.kind === "image").map((f) => ({ data: `${f.file.fileId}:${f.file.sha256}:${f.file.bytes}`, mediaType: f.file.mediaType, name: f.file.incomingName || f.file.name }))],
     reviewText: () => root.stores.voice.getState().reviewText,
     /** The review card's text, as a finished dictation leaves it (no microphone in CI). */
     review: (text: string) => root.stores.voice.getState().setReviewText(text),

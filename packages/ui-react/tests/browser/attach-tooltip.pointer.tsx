@@ -7,8 +7,9 @@
  * A hovering primary pointer gets the tooltip on hover and on keyboard focus
  * (the `ui-react-layout` scene in `conversation-controls.offline.tsx` times it).
  * A touch-only device never renders it — not on focus, not after a tap — and
- * reads the name in the attach sheet instead. The live row still leads to the
- * first-entry disclosure and nothing opens a provider or a microphone.
+ * reads the name in the attach sheet instead. Live conversation is no longer
+ * in the menu or its name: the mic's hold opens it (#3693,
+ * `composer-mic.pointer.tsx`).
  */
 import { afterAll, beforeAll, expect, inject, test, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
@@ -26,7 +27,7 @@ declare module "vitest" {
 }
 
 const SESSION = "odysseus-ithaca";
-const LIVE_ATTACH = "Attach — live conversation, photo, camera, files";
+const ATTACH = "Attach — photo, camera, files";
 const PROFILE = conversationProfileSchema.parse({
   providerId: "gpt-live",
   capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" },
@@ -68,10 +69,10 @@ for (const theme of ["light", "dark"] as const) for (const [width, height] of [[
   if (mode === "coarse") expect(touch, "touch premise").toBe(true);
   expect(matchMedia("(prefers-reduced-motion: reduce)").matches, "reduced motion premise").toBe(true);
   const s = await scene(ctx, width, height, theme);
-  const trigger = page.getByRole("button", { name: LIVE_ATTACH, exact: true }).element() as HTMLElement;
+  const trigger = page.getByRole("button", { name: ATTACH, exact: true }).element() as HTMLElement;
   const tip = trigger.querySelector<HTMLElement>("[data-composer-tip]")!;
   const shown = () => getComputedStyle(tip).display !== "none" && getComputedStyle(tip).visibility === "visible";
-  expect(tip.textContent).toBe(LIVE_ATTACH);
+  expect(tip.textContent).toBe(ATTACH);
 
   // Keyboard focus: at once with a hovering pointer, never on touch.
   s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!.focus();
@@ -95,15 +96,11 @@ for (const theme of ["light", "dark"] as const) for (const [width, height] of [[
   }
   if (width < 900) {
     await expect.poll(() => document.querySelector('[data-overlay-site="attach"]')).not.toBe(null);
-    expect(document.querySelector('[data-overlay-site="attach"]')!.textContent, "the sheet names live conversation").toContain("Live conversation, photo, camera, track files, or paste.");
+    expect(document.querySelector('[data-overlay-site="attach"]')!.textContent, "the sheet names the menu's actions").toContain("Photo, camera, track files, or paste.");
   } else await expect.element(page.getByRole("menu", { name: "Attach" })).toBeInTheDocument();
-  const row = page.getByRole("button", { name: /^Live conversation/ }).element() as HTMLElement;
-  if (touch) expect(row.getBoundingClientRect().height, "the live row is a 44px target").toBeGreaterThanOrEqual(44);
+  expect(document.body.textContent, "live conversation is the mic's hold, not a menu row").not.toContain("Live conversation");
   await page.screenshot({ element: s.host, path: `../../.vitest-attachments/attach-tooltip/${mode}-${theme}-${width}-menu.png` });
-  if (touch) { const r = row.getBoundingClientRect(); await commands.rankTap({ x: r.x + r.width / 2, y: r.y + r.height / 2 }); }
-  else await userEvent.click(row);
-  await expect.poll(() => s.client.state.getState().disclosureOpen).toBe(true);
-  expect(s.client.state.getState().micOn).toBe(false);
-  expect(s.network.socket()!.frames("conversation_start"), "ENTRY_DISCLOSES_WITHOUT_OPENING_PROVIDER").toHaveLength(0);
-  expect(s.network.socket()!.frames("conversation_audio")).toHaveLength(0);
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => document.querySelector('[data-overlay-site="attach"],[role="menu"]')).toBe(null);
+  expect(s.client.state.getState().disclosureOpen).toBe(false);
 });
