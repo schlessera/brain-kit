@@ -44,7 +44,7 @@ describe("nullable tags from actual retrieval projections", () => {
     expect(result.warnings).toEqual([]);
     assertTags(result.results);
     expect(result.results.map(r => r.path)).toEqual(["notes/1.md", "notes/2.md"]);
-    expect(result.results.every(r => Number.isFinite(r.score) && r.score > 0)).toBe(true);
+    expect(result.results.filter(r => !(Number.isFinite(r.score) && r.score > 0)).map(r => [r.path, r.score])).toEqual([]);
     expect(embeddingCalls).toBe(mode === "fts" ? 0 : 1);
   });
 
