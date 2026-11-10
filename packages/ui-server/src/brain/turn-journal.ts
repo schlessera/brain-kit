@@ -1,4 +1,5 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
+import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
@@ -97,6 +98,8 @@ export interface TurnJournalOptions {
    * next admission does not. Absent, all of that waits for an admission.
    */
   idleObservationMs?: number;
+  /** Structured log for cleanup retries; absent, they are recorded durably only. */
+  log?: Logger;
 }
 
 export function createTurnJournal(db: Database, options: TurnJournalOptions) {
@@ -182,7 +185,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const releaseFailed = (error: unknown, checkpointId: string) => {
     const notice = { kind: "checkpoint_release_retry", checkpointId, at: now(), scope: "superseded_checkpoint",
       errorClass: error instanceof Error ? error.name : "UnknownError", cause: String(error).slice(0, 2000), retrying: true };
-    console.warn(JSON.stringify(notice));
+    options.log?.emit({ severityText: "WARN", body: `Superseded checkpoint ${checkpointId} release failed; retrying`,
+      attributes: { "journal.cleanup.scope": notice.scope, "journal.cleanup.checkpoint": checkpointId, "error.type": notice.errorClass, "journal.cleanup.retrying": true } });
     tracked(Promise.resolve(cleanupSettings.setSetting("journal.cleanup.lastFailure", notice))).catch(() => {});
     // The root span is kept with the turn in authenticated Activity, even
     // though its observation is complete and its workers keep running.
