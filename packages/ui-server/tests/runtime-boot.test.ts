@@ -224,7 +224,7 @@ describe("backend-owned compatibility checks", () => {
       const status = await (await t.fetch("/api/status")).json() as { runtime: { boot: unknown[] } };
       expect(status.runtime.boot).toHaveLength(1);
       expect(status.runtime.boot[0]).toMatchObject({ backendId: "claude", runtime: { version: "2.1.999" }, sdk: { version: MEASURED_RUNTIME.agentSdk }, measured: { matches: false } });
-      expect(observability.logs.find({ scope: "agent", severity: "WARN" }).some(log => String(log.body).includes("not the one its behaviour was measured against"))).toBe(true);
+      expect(observability.logs.find({ scope: "agent", severity: "WARN" }).map(log => String(log.body))).toContainEqual(expect.stringContaining("not the one its behaviour was measured against"));
     } finally { await t.teardown(); }
   });
   test("Pi startup and provider construction report SDK without requiring an inactive Claude executable", async () => {
