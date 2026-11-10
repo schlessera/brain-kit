@@ -42,7 +42,7 @@ describe("shipped core skills", () => {
     const { skills, warnings } = shippedSkills();
     expect(warnings).toEqual([]);
     expect(skills.length).toBeGreaterThanOrEqual(12);
-    expect(skills.every((s) => s.source === "core")).toBe(true);
+    expect(skills.filter((s) => s.source !== "core").map((s) => s.name)).toEqual([]);
   });
 
   test("include external-compute, which skills sync emits for Claude (#3107)", () => {
