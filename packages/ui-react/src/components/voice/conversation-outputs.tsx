@@ -1,4 +1,4 @@
-import { Button, SpokenTurn, UncertainWord } from "@schlessera/brain-ui-kit";
+import { Button, Callout, SpokenTurn, TextButton, UncertainWord } from "@schlessera/brain-ui-kit";
 import { TranscriptQualifiers, TranscriptSymbols } from "@schlessera/brain-ui-kit/internal";
 import type { TranscriptEntry } from "../../lib/transcript-timeline.js";
 import { conversationService, type ConversationRecognition, type ConversationClientOutput } from "../../voice/conversation-client.js";
@@ -20,6 +20,23 @@ function RecognizedWords({ fragment }: { fragment: ConversationRecognition }) {
   if (!uncertain(fragment)) return <>{fragment.text}</>;
   const [, lead = "", words = "", trail = ""] = /^(\s*)([\s\S]*?)(\s*)$/.exec(fragment.text) ?? [];
   return words ? <>{lead}<UncertainWord>{words}</UncertainWord>{trail}</> : <>{fragment.text}</>;
+}
+
+/**
+ * R2 (#3699): a live conversation's startup-context coverage, inline at the
+ * start of its live section. It says only what `historyCoverage` reports:
+ * the host's count of messages sent, or, from an older host without one, the
+ * coverage state. Details opens the disclosure sheet while that conversation is live.
+ */
+export function ConversationCoverageNotice({ conversationId, coverage }: { conversationId: string; coverage: { state: string; tailOmitted: boolean; includedMessages?: number } }) {
+  const client = useBrainUiRoot().connection.conversation;
+  const live = useStore(client.state, s => s.active && s.profile?.conversationId === conversationId);
+  const n = coverage.includedMessages ?? 0;
+  const text = n > 0 ? `Started with the last ${n} ${n === 1 ? "message" : "messages"}`
+    : coverage.tailOmitted ? coverage.state === "partial" ? "Newest prior context may be missing." : "Newest prior context was not sent." : "Prior context is incomplete.";
+  return <div data-voice-coverage=""><Callout variant="plain" tone="neutral" icon="history">
+    {text}{live && <> · <TextButton label="Details" ariaLabel="Prior context details" inline onClick={client.details} /></>}
+  </Callout></div>;
 }
 
 /** Voice-generated words share Chat's scrolling transcript; they never replace backend progress. */

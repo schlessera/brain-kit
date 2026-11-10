@@ -1,4 +1,5 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
+import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
@@ -112,10 +113,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const ownWriter = !options.writer;
   const ledger = writer.channel<JournalStoreOptions>(journalStore, { dbPath: options.dbPath, objectsRoot: options.objectsRoot, ...(options.capBytes !== undefined ? { capBytes: options.capBytes } : {}) }, reviveJournalError);
   if (writer.offloop) installEscapeGuard(db);
+  let recoveryStatus: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
   /** Startup recovery commits before any later write; `ready` reports its refusal. */
   const ready = (async () => {
     await ledger.ready;
-    await ledger.call("recover");
+    recoveryStatus = await ledger.call<JournalRecoveryStatus>("recover");
     // Governance events live in the UI database; a commit split between the
     // two files is completed from the journal's rows (#2789).
     await createGovernanceWrites(db, writer).replaySteering();
@@ -607,6 +609,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     /** Worktrees an active turn's journal observes. */
     worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id); },
     isHeld(): boolean { return holds > 0; },
+    /** Unresolved object verification from the most recent boot recovery pass. */
+    recoveryStatus(): JournalRecoveryStatus { return recoveryStatus; },
     /** Current retained charges, plus the durable historical cause even before any turn existed. */
     cleanupStatus() {
       const retained = capture.releases();

@@ -249,6 +249,7 @@ export "." (./src/index.ts)
   type InboxWorkPayload
   type JournalObservationReference
   type JournalOutwardAction
+  type JournalRecoveryStatus
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -847,6 +848,7 @@ export "./client" (./src/client/index.ts)
   type InboxWorkPayload
   type JournalObservationReference
   type JournalOutwardAction
+  type JournalRecoveryStatus
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -1721,6 +1723,7 @@ export "./protocol" (./src/protocol.ts)
   type InboxWorkPayload
   type JournalObservationReference
   type JournalOutwardAction
+  type JournalRecoveryStatus
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
@@ -2565,6 +2568,7 @@ export "./server" (./src/server/index.ts)
   type InboxWorkPayload
   type JournalObservationReference
   type JournalOutwardAction
+  type JournalRecoveryStatus
   type JournalVersion
   type KeyedLock
   type KeyedLockAcquireOptions
@@ -8403,6 +8407,18 @@ signatures (every public export and the types it is made of)
         historyRewrite: boolean;
         revertible: false;
     }
+  JournalRecoveryStatus (packages/ui-sdk/src/protocol.ts)
+    export interface JournalRecoveryStatus {
+        unresolvedRecords: number;
+        firstCause: {
+            reservationId: string;
+            hash: string;
+            at: number;
+            errorClass: string;
+            message: string;
+            site: string;
+        } | null;
+    }
   JournalVersion (packages/ui-sdk/src/turn-journal.ts)
     export interface JournalVersion {
         kind: "file" | "symlink" | "other";
@@ -8547,6 +8563,7 @@ signatures (every public export and the types it is made of)
         historyCoverage?: {
             state: "complete" | "bounded" | "partial" | "unavailable";
             tailOmitted: boolean;
+            includedMessages?: number;
         };
         events: AsyncIterable<LiveConversationEvent>;
         appendAudio(chunk: LiveConversationAudioChunk): void;
@@ -11081,6 +11098,7 @@ signatures (every public export and the types it is made of)
         historyCoverage?: {
             state: "complete" | "bounded" | "partial" | "unavailable";
             tailOmitted: boolean;
+            includedMessages?: number;
         };
         historyGeneration?: number;
         historyOwnerId?: string;
@@ -12190,9 +12208,11 @@ signatures (every public export and the types it is made of)
     }
   SystemStatus (packages/ui-sdk/src/protocol.ts)
     export interface SystemStatus {
+        journalRecovery?: JournalRecoveryStatus;
         nativeRecovery?: {
             quarantinedIntents: number;
             stagingChargedBytes: number | null;
+            stagingRefusal?: string;
             diagnosticsPath: string;
         };
         healthy: boolean;
@@ -19850,6 +19870,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>;
         epoch: z.ZodNumber;
         historyCoverage: z.ZodOptional<z.ZodObject<{
+            includedMessages: z.ZodOptional<z.ZodNumber>;
             state: z.ZodEnum<{
                 bounded: "bounded";
                 complete: "complete";
@@ -23936,6 +23957,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>;
         epoch: z.ZodNumber;
         historyCoverage: z.ZodOptional<z.ZodObject<{
+            includedMessages: z.ZodOptional<z.ZodNumber>;
             state: z.ZodEnum<{
                 bounded: "bounded";
                 complete: "complete";

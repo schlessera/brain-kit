@@ -4824,6 +4824,18 @@ retires the reviewed input identities; late recognition cannot restore them.
 These actions and Mute cancel pending automatic review timers, while output recovery
 remains independent of microphone consent.
 
+### Conversation capture intent and meter readings (#3699)
+
+Additive. The conversation client's state carries `capture`, the intent behind
+`micOn`: `idle` before Start in an entry, `listening` while consent stands
+(recoverable transitions restore capture on their own), `muted` after a manual
+Mute until Unmute, and `stopped` when a genuine failure withdrew consent and only
+a new Start resumes capture. Manual Mute stays `muted` across teardown and
+reconnects. `levels()` returns display-only 0–1 readings, `{ input, output }`:
+the newest microphone block while capture is open, and the 10 ms window of the
+reply sounding now. Neither value gates capture, endpointing, output recovery or
+permission routing.
+
 ### Retained dialogue data (#3177)
 
 The SDK protocol exports `DialogueEvidence`, `DialogueRecord`, `DialoguePage`,
@@ -4893,7 +4905,11 @@ recency is unknown. Partial coverage uses “may be missing” copy rather than 
 claim about the exact newest item. These bounds never delete the display archive.
 
 `LiveConversationSession.historyCoverage?` exposes the adapter's actual bounded
-historical selection as `{state, tailOmitted}`. Third-party providers may ignore
+historical selection as `{state, tailOmitted, includedMessages?}`. The optional
+`includedMessages` (additive, #3699) is the number of prior chat and spoken
+messages the startup context actually carried; completed results and gap markers
+are not counted, and it is 0 when no history block was sent. It is host-only
+display data: it is never part of any provider-facing text. Third-party providers may ignore
 the additive history input but cannot thereby claim existing-chat continuity.
 The frozen provider prefix/tools/instructions are never rewritten within an epoch.
 
@@ -5208,3 +5224,15 @@ The journal host's additive `cleanupStatus()` method (#3815) returns
 `{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
 current accounting and historical diagnostic record exposed as
 [`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).
+
+
+### Unresolved recovery summaries (#3826)
+
+`NativeManagerReady.recovery` and `SystemStatus.nativeRecovery` add optional
+`stagingRefusal`, a recovery explanation when quarantine prevents admission of
+the configured allowance. The manager tests each stage's actual allowance
+before classifying its refusal. `JournalRecoveryStatus` and optional
+`SystemStatus.journalRecovery` expose the count and first cause of unresolved
+object reservations from boot. The journal host adds `recoveryStatus()` returning
+that summary. Fields and recovery semantics are in the
+[HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).

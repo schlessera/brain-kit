@@ -206,8 +206,12 @@ export interface LiveConversationOpenOptions {
  * @experimental Part of the `LiveConversationProvider` seam.
  */
 export interface LiveConversationSession {
-  /** Actual bounded historical seed coverage, when the adapter supports it. */
-  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
+  /**
+   * Actual bounded historical seed coverage, when the adapter supports it.
+   * `includedMessages` counts the prior chat and spoken messages the seed
+   * carried (not results or gap markers).
+   */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean; includedMessages?: number };
   events: AsyncIterable<LiveConversationEvent>;
   appendAudio(chunk: LiveConversationAudioChunk): void;
   markEndpoint(utteranceId: string): void;
