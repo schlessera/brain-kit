@@ -270,7 +270,7 @@ describe("durable inbox store", () => {
           },
         },
       ])
-    ).toThrow();
+    ).toThrow("No matching discriminator");
     expect(() =>
       store.commit([
         {
@@ -655,8 +655,8 @@ describe("durable inbox store", () => {
     expect(
       changes
         .filter((change) => change.kind.startsWith("remove_"))
-        .every((change) => change.threadId === "thread-seed")
-    ).toBe(true);
+        .map((change) => change.threadId)
+    ).toEqual(["thread-seed", "thread-seed", "thread-seed"]);
     expect(store.snapshot().highWaterSeq["thread-seed"]).toBeGreaterThan(0);
     expect(() => store.projectionForRun("thread-seed")).toThrow("removed");
   });
@@ -850,8 +850,8 @@ describe("durable inbox store", () => {
     });
     expect(store.projectionForRun("thread-seed").facts).toEqual(facts);
     expect(
-      readdirSync(dir).every((filename) => filename.startsWith("ui.sqlite"))
-    ).toBe(true);
+      readdirSync(dir).filter((filename) => !filename.startsWith("ui.sqlite"))
+    ).toEqual([]);
   });
 
   test("migration 021 preserves a populated 020 database and applies once", () => {
