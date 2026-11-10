@@ -78,7 +78,7 @@ test("native workspace history retains raw HEAD and refs but excludes Git config
     writeFileSync(join(workspace, ".git/HEAD"), "ref: refs/heads/harbor\r\n"); writeFileSync(join(workspace, ".git/refs/heads/return"), "updated-ref\n");
     writeFileSync(join(workspace, "notes/athena.md"), "# Athena\r\nHarbor plan.\r\n"); writeFileSync(join(workspace, ".git/config"), "[core]\nfsmonitor = malicious\n"); writeFileSync(join(workspace, ".git/objects/fixture"), "excluded changed raw Git object");
     const details = await f.observe();
-    expect(details.changes.some(item => item.path.endsWith(".git/config") || item.path.includes(".git/objects/")), "NATIVE_HISTORY_GIT_EXECUTION_INPUTS_NOT_RETAINED").toBe(false);
+    expect(details.changes.filter(item => item.path.endsWith(".git/config") || item.path.includes(".git/objects/")).map(item => item.path), "NATIVE_HISTORY_GIT_EXECUTION_INPUTS_NOT_RETAINED").toEqual([]);
     expect(f.bytes("workspaces/ithaca/.git/HEAD", "before")).toEqual(Buffer.from("ref: refs/heads/return\r\n"));
     expect(f.bytes("workspaces/ithaca/.git/HEAD", "after")).toEqual(Buffer.from("ref: refs/heads/harbor\r\n"));
     expect(f.bytes("workspaces/ithaca/.git/refs/heads/return", "after")).toEqual(Buffer.from("updated-ref\n"));
