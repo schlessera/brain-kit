@@ -27,7 +27,11 @@ function fullTextFits(el:HTMLElement, box:DOMRect) {
  while(walker.nextNode()) {if(!walker.currentNode.textContent?.trim())continue; const r=document.createRange();r.selectNodeContents(walker.currentNode);for(const b of r.getClientRects()){if(!b.width)continue;count++;expect(b.left).toBeGreaterThanOrEqual(box.left-0.5);expect(b.right).toBeLessThanOrEqual(box.right+0.5);expect(b.top).toBeGreaterThanOrEqual(box.top-0.5);expect(b.bottom).toBeLessThanOrEqual(box.bottom+0.5);}}
  expect(count).toBeGreaterThan(0);
 }
+// Storybook owns light and dark parity (docs/process/theme-parity.md); label
+// placement never reads a colour, so each width runs in one theme, alternating.
+const widthTheme=(width:number)=>[238,390].includes(width)?'dark':'light';
 for(const theme of ['dark','light']) for(const width of [238,320,390,720]) {
+ if(widthTheme(width)!==theme) continue;
  test(`cave names remain inside viewport ${theme} ${width}`,async()=>{
   const view=await mount(width,theme,gozoMap);const names=labels(view);expect(names.length).toBeGreaterThan(0);expect(view.textContent).toContain('Ramla Bay');
   for(const label of names)fullTextFits(label,view.getBoundingClientRect());
@@ -56,14 +60,14 @@ for(const theme of ['dark','light']) for(const width of [238,320,390,720]) {
 }
 
 for (const theme of ["dark", "light"]) {
- test(`unlabelled marker does not misaddress following callout ${theme}`,async()=>{
+ if (theme === "dark") test(`unlabelled marker does not misaddress following callout ${theme}`,async()=>{
   const view=await mount(390,theme,{pins:[{lat:38.25,lon:15.72},{lat:38.26,lon:15.65,label:"Charybdis"}],spanKm:9});
   const named=labels(view);expect(named).toHaveLength(1);expect(named[0]!.textContent).toBe("Charybdis");fullTextFits(named[0]!,view.getBoundingClientRect());
   const tether=view.querySelector<SVGLineElement>('[data-map-tether]')!;expect(tether).not.toBeNull();
   const dot=[...view.querySelectorAll<HTMLElement>('[data-map-dot]')][1]!;const b=dot.getBoundingClientRect();const box=view.getBoundingClientRect();
   expect(Number(tether.getAttribute('x1'))).toBeCloseTo(b.left+b.width/2-box.left,1);
  });
- test(`resize and changed content recompute full callouts ${theme}`,async()=>{
+ if (theme === "light") test(`resize and changed content recompute full callouts ${theme}`,async()=>{
   const view=await mount(390,theme,gozoMap);
   host!.style.width="240px";
   await expect.poll(()=>view.querySelector('svg')!.viewBox.baseVal.width).toBe(238);
@@ -73,7 +77,7 @@ for (const theme of ["dark", "light"]) {
  });
 }
 
-for (const theme of ["dark", "light"]) test(`adding the coordinate chip replans labels ${theme}`,async()=>{
+for (const theme of ["dark"]) test(`adding the coordinate chip replans labels ${theme}`,async()=>{
  const view=await mount(320,theme,{...voyageMap,coordChip:false});
  flushSync(()=>root!.render(<MapView {...voyageMap} maxWidth={320} coordChip />));
  const chip=view.querySelector<HTMLElement>('[data-map-annotation][style*="top: 8px"]')!;expect(chip).not.toBeNull();
