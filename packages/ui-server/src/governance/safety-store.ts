@@ -531,7 +531,9 @@ export function recoverSafetyRecording(db:Database,options:{trigger?:SafetyRecov
   if(local.unscopedLoss)gap("1=1");
   else for(const turnId of local.lostTurns)gap("turn_id=?",turnId);
   gap("id IN (SELECT collection_id FROM safety_pending) OR failure IS NOT NULL");
-  db.query("DELETE FROM safety_pending").run();
+  // An open collection's reservation may still commit: it is already
+  // gapped, and its own end resolves whatever stays pending.
+  db.query("DELETE FROM safety_pending WHERE collection_id IN (SELECT id FROM safety_collections WHERE ended=1)").run();
   db.query("UPDATE safety_emergency_reserve SET padding=zeroblob(65536) WHERE singleton=1").run();
   db.query("UPDATE safety_meta SET failed=0,reason=NULL WHERE singleton=1").run();
   db.query("DELETE FROM safety_latch").run();

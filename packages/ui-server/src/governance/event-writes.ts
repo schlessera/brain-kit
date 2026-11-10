@@ -136,9 +136,17 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
   // nothing it loses can make its chat look complete, so it keeps running.
   const covered=(turnId:string|null)=>turnId!==null&&!!db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(turnId);
   const retired=(turnId:string)=>!!db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(turnId);
+  // Any worker write can latch the brain (a failed end, a commit, a peer):
+  // whichever does, recovery is scheduled from here.
+  const watchLatch=()=>{try{if(!shared.recovery.timer&&brainFailed())scheduleSafetyRecovery(db);}catch{/* A closed or broken store schedules nothing. */}};
   const call:typeof invoke=<T>(name:string,...args:unknown[])=>{
     shared.inflight++;
-    return invoke<T>(name,...args).finally(()=>{shared.inflight--;notifySafetyChanged(db);});
+    return invoke<T>(name,...args).finally(()=>{shared.inflight--;watchLatch();notifySafetyChanged(db);});
+  };
+  const retainedForBrain=(turnId:string|null,notice:unknown)=>{
+    retainSafetyLoss(db,turnId,true);scheduleSafetyRecovery(db);
+    logSafetyRecording("safety recording retained in process for the brain",{"safety.scope":"brain","safety.reason":"recording_failed",
+      "safety.site":"retained","safety.turn_id":turnId,"error.message":notice instanceof Error?notice.message:String(notice)});
   };
   const safetyFail=(turnId:string|null,cause?:unknown):Promise<void>=>{
     const counted=!turnId||!retired(turnId);
@@ -154,7 +162,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     },notice=>{
       // Neither the chat nor the brain fact committed: the store cannot take
       // a write. Restrict the brain in-process until recovery commits one.
-      if(counted){retainSafetyLoss(db,turnId,true);scheduleSafetyRecovery(db);}
+      if(counted)retainedForBrain(turnId,notice);
       throw notice;
     });
   };
@@ -162,7 +170,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     const scope=(error as {safetyScope?:string}|null)?.safetyScope;
     if(scope==="chat")return;
     if(scope==="brain"){scheduleSafetyRecovery(db);return;}
-    retainSafetyLoss(db,turnId,true);scheduleSafetyRecovery(db);
+    retainedForBrain(turnId,error);
   };
   const record = (input: GovernanceEventInput, options: { beforeDelivery?: boolean } = {}): Promise<{ id: number; recorded: boolean }> => {
     const row = governanceEventRow(input);
@@ -196,7 +204,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       throw error;
     }).finally(() => { pendingTaints.delete(pending); shared.bytes -= bytes; notifySafetyChanged(db); });
   };
-  if(brainFailed())scheduleSafetyRecovery(db);
+  watchLatch();
   return {
     record,
     safetyPrepareReview: (body,actor)=>call("safetyPrepareReview",body,actor),
