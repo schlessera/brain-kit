@@ -5,7 +5,7 @@
  * of failure into a red build.
  *
  * It also pins the key and glyph counts (the port shipped 78 over 76, then 79 over 77; D52 added
- * eight session-state keys, 87 over 85; Discovery adds loading, 88 over 86; framed diagrams add enlarge, 89 over 87; the voice surface adds speaker, mic-off and interrupt, 92 over 90) — so a key lost in a merge is caught, and the
+ * eight session-state keys, 87 over 85; Discovery adds loading, 88 over 86; framed diagrams add enlarge, 89 over 87; the voice surface adds speaker, mic-off and interrupt, 92 over 90; Discard draft adds backspace, 93 over 91) — so a key lost in a merge is caught, and the
  * two deprecated aliases stay repointed at their canonical exports.
  */
 
@@ -23,14 +23,15 @@ describe("icon map", () => {
     expect(unresolved).toEqual([]);
   });
 
-  test("all 92 keys survive, over 90 distinct glyphs", () => {
+  test("all 93 keys survive, over 91 distinct glyphs", () => {
     // Two pairs are aliases — deny/dismiss and settings/filter. They render
     // identically today but mean different things, and collapsing them would
     // leave a future icon set unable to tell them apart.
-    expect(entries.length).toBe(92);
-    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(90);
+    expect(entries.length).toBe(93);
+    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(91);
     expect(ICONS.loading).toBe(lucide.LoaderCircle);
     expect(ICONS.enlarge).toBe(lucide.Expand);
+    expect(ICONS.backspace).toBe(lucide.Delete);
     expect(ICONS.deny).toBe(ICONS.dismiss);
     expect(ICONS.settings).toBe(ICONS.filter);
   });
