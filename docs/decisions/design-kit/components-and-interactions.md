@@ -1271,7 +1271,7 @@ A 44px box stays where it is the design, or where it draws no visible box:
 | Borderless links and `Disclosure` triggers given 44px through a host rule | They paint no box, so nothing visible is inflated. D57 records the `Disclosure` case. |
 | Icon controls the size of an `md` `IconButton`: the mask editor's tools, the viewer toolbar's link and share trigger, the zoom toolbar, and the graph's floating discs | 44px is the kit's `md` icon size. |
 | `ApprovalCard`'s Deny mount (96 × 44) and `Send bug report` | Approved designs specify 44px. |
-| The live conversation strip and the dictation sheet's primary button | Their bars are laid out around 44px controls (the strip's 44/52px rows). They are touch-first surfaces, not inflated `sm` or `md` Buttons. |
+| The live conversation strip | Its bar is laid out around 44px controls (its 44/52px rows). It is a touch-first surface, not inflated `sm` or `md` Buttons. (The dictation sheet's primary button was here too until #3694 replaced the sheet with the voice field.) |
 | The crash fallback (`app-error-boundary`) | It renders without the kit and uses system colours. |
 
 Two sites still draw a visible pill 44px tall, and neither has a kit size to

@@ -45,10 +45,59 @@ export function providerShortLabel(provider: DictationProvider): string {
   return known && (label === null || label === known.label) ? known.short : providerLabel(provider);
 }
 
+/** A saved choice the host no longer offers, by the name Settings knew it by. */
+export function savedServiceName(id: string | null): string | null {
+  return id === null ? null : BUILT_IN[id]?.short ?? id;
+}
+
 /** Where the audio goes, in the provider's own words when it gave any. */
 export function providerDestination(provider: DictationProvider): string {
   return provider.destination?.trim() || BUILT_IN[provider.id]?.destination
     || `While you speak, microphone audio streams from this browser to ${providerLabel(provider)}.`;
+}
+
+/**
+ * Whether this browser is known to be Chrome, whose speech service is
+ * Google's. Only a brand the browser reports counts; anything else is not
+ * claimed (#3694, K2).
+ */
+function isChrome(nav: Navigator | undefined = typeof navigator === "undefined" ? undefined : navigator): boolean {
+  const brands = (nav as (Navigator & { userAgentData?: { brands?: { brand: string }[] } }) | undefined)?.userAgentData?.brands;
+  return Boolean(brands?.some((b) => b.brand === "Google Chrome"));
+}
+
+/** The built-in Gemini service under its own name, which the field calls Google Gemini. */
+const builtInGemini = (provider: DictationProvider) => provider.id === "gemini" && providerShortLabel(provider) === BUILT_IN.gemini!.short;
+
+/**
+ * Where the words go, as the voice field's label meta names it in Dc and
+ * D3–D5 (#3694): "to Google Gemini", "via Deepgram", or browser speech with
+ * its destination only where the browser is known.
+ */
+export function providerMeta(provider: DictationProvider, chrome = isChrome()): string {
+  if (provider.id === "webspeech") return chrome ? "browser speech \u00b7 audio goes to Google" : "browser speech \u00b7 sent by your browser";
+  if (provider.id === "deepgram") return `via ${providerShortLabel(provider)}`;
+  if (builtInGemini(provider)) return "to Google Gemini";
+  return `to ${providerShortLabel(provider)}`;
+}
+
+/** Who the words are sent to, as the first-take acknowledgement (D0) says it. */
+export function providerRecipient(provider: DictationProvider, chrome = isChrome()): string {
+  if (provider.id === "webspeech") return chrome ? "Google" : "your browser\u2019s speech service";
+  if (builtInGemini(provider)) return "Google Gemini";
+  return providerShortLabel(provider);
+}
+
+/**
+ * What happens to the audio, as D0 says it (maintainer decision on #3694,
+ * 2026-11-09). Only the built-in Gemini service keeps no audio, as signed
+ * off; for any other service this app can't verify retention, so it says the
+ * provider's own policy applies instead of claiming one.
+ */
+export function providerAudioPolicy(provider: DictationProvider): string {
+  if (builtInGemini(provider)) return "The audio isn\u2019t kept.";
+  if (provider.id === "webspeech") return "Your browser\u2019s speech service policy applies.";
+  return `${providerShortLabel(provider)}\u2019s retention policy applies.`;
 }
 
 type DictationTarget =

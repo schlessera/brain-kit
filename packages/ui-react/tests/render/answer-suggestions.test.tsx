@@ -463,13 +463,17 @@ describe("suppression", () => {
       }
     });
 
-    test(`S6 · ${mode}: hidden while voice text waits for review, back after it clears`, async () => {
+    // Since #3694 (D6) a take's words go straight into the draft, as typed
+    // text does; no separate review waits beside the composer to hide for.
+    test(`S6 · ${mode}: dictated words join the draft like typed text, and the row stays`, async () => {
       const page = await mount();
       try {
         build(page, { calls: [SUGGESTIONS] });
         act(() => page.root.stores.voice.getState().setReviewText("and the winds"));
-        expect(page.shown()).toBe(false);
-        act(() => page.root.stores.voice.getState().clearReview());
+        await tick();
+        expect(page.root.stores.voice.getState().reviewText, "the composer took the words").toBe("");
+        const drafts = page.root.stores.drafts.getState();
+        expect(drafts.drafts[drafts.idFor(SESSION)]?.text).toBe("and the winds");
         expect(page.shown()).toBe(true);
       } finally {
         page.done();

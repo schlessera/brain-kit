@@ -950,15 +950,16 @@ for (const width of [390, 320]) test(`missing-ID conversation stays live and rev
   expect(s.client.state.getState().active).toBe(false);
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.client.reviewUnassigned(), "the transfer cannot append twice").toBe(false);
-  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Existing typed note.");
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Existing voice review.\n\nFind the departure note.");
+  // Reviewed in the composer (#3694, D6): voice text joins the draft, after what was typed, once.
+  await expect.poll(() => s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Existing typed note. Existing voice review. Find the departure note.");
+  expect(s.ui.stores.voice.getState().reviewText).toBe("");
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);
   await expect.poll(() => s.button("Send")).not.toBeUndefined();
   await userEvent.click(s.button("Send"));
   const sent = s.socket.frames("chat_message");
   expect(sent).toHaveLength(1);
-  expect(sent[0]).toMatchObject({ source: "voice-dictate", text: "Existing typed note.\nExisting voice review.\n\nFind the departure note." });
+  expect(sent[0]).toMatchObject({ source: "voice-dictate", text: "Existing typed note. Existing voice review. Find the departure note." });
   expect(sent[0]).not.toHaveProperty("utteranceId");
 });
 
@@ -1030,8 +1031,7 @@ for (const afterLeave of [false, true]) test(`mixed review transfers only genuin
   await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("1 voice fragment wasn't sent.");
   expect(s.host.scrollWidth).toBeLessThanOrEqual(320);
   expect(s.client.reviewUnassigned(), "MIXED_REVIEW_TRANSFERS_REAL_CANDIDATES").toBe(true);
-  expect(s.ui.stores.voice.getState().reviewText, "CONTEXT_NEVER_ENTERS_MIXED_COMPOSER_REVIEW").toBe("Existing voice review.\n\nReview the launch note.");
-  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Keep the typed raft draft.");
+  await expect.poll(() => s.ui.stores.drafts.getState().drafts[id]?.text, { message: "CONTEXT_NEVER_ENTERS_MIXED_COMPOSER_REVIEW" }).toBe("Keep the typed raft draft. Existing voice review. Review the launch note.");
   expect(s.client.state.getState().unassigned).toEqual(s.context);
   expect(s.client.state.getState().recognition.filter(f => f.contextual), "contextual transcript is never marked moved").toEqual(s.contextualRecognition);
   expect(s.client.state.getState().recognition.filter(f => !f.contextual)).toMatchObject([{ text: "", moved: true }]);
@@ -1040,7 +1040,7 @@ for (const afterLeave of [false, true]) test(`mixed review transfers only genuin
   expect(s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).toContain("No request was submitted or linked to running work.");
   expect(s.host.querySelector('[aria-label="Voice review controls"]')?.textContent).not.toContain("fragment wasn't sent");
   expect(s.client.reviewUnassigned()).toBe(false);
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Existing voice review.\n\nReview the launch note.");
+  expect(s.ui.stores.drafts.getState().drafts[id]?.text).toBe("Keep the typed raft draft. Existing voice review. Review the launch note.");
   expect(s.client.state.getState().active).toBe(false);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);

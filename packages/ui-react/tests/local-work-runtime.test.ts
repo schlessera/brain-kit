@@ -281,7 +281,9 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await field(page).evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(12, 26));
       await page.locator('input[type="file"][accept="image/*"][multiple]').setInputFiles(resolve(scratch!, "shroud.png"));
       await until(page, "f.images().length === 1");
+      // Dictated words join the draft as editable text (D6, #3694).
       await fixture(page, (f) => f.review("and the suitors never noticed"));
+      await until(page, `f.text() === ${JSON.stringify(`${DRAFT} and the suitors never noticed`)}`);
       await field(page).focus();
       await field(page).evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(12, 26));
       await committed(page);
@@ -293,7 +295,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
         selection: await field(page).evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd]),
         place: (await fixture(page, (f) => f.firstVisible()))!,
       };
-      expect(before.text).toBe(DRAFT);
+      expect(before.text).toBe(`${DRAFT} and the suitors never noticed`);
       expect(before.images).toHaveLength(1);
       expect(before.images[0]!.data.length).toBeGreaterThan(0);
       expect(before.selection).toEqual([12, 26]);
@@ -306,11 +308,11 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await page.reload();
       await ready(page);
       // Given time to come back; the assertions below say what did.
-      await until(page, `f.text() === ${JSON.stringify(DRAFT)}`, 5_000).catch(() => {});
+      await until(page, `f.text() === ${JSON.stringify(before.text)}`, 5_000).catch(() => {});
       // The transcript's place is held for a moment against late layout.
       await page.waitForTimeout(1_800);
 
-      expect(await field(page).inputValue(), "the draft text").toBe(DRAFT);
+      expect(await field(page).inputValue(), "the draft text, dictated words included").toBe(before.text);
       expect(await fixture(page, (f) => f.images()), "the image's bytes").toEqual(before.images);
       expect(await fixture(page, (f) => f.reviewText()), "the review text").toBe(before.review);
       expect(await field(page).evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd]), "the selection").toEqual(before.selection);
