@@ -466,9 +466,33 @@ for (const operation of ["release", "dequeue"] as const) test(`a failed writer-g
       await held.release();
     }
     expect(attempts, "GATE_FAILED_DELETE_RETRIED").toBeGreaterThanOrEqual(2);
+    const causes = w.db.query("SELECT payload,at FROM governance_events WHERE kind='roadblock'").all() as {payload:string;at:number}[];
+    expect(causes, "GATE_CLEANUP_CAUSE_IS_DURABLE").toHaveLength(1);
+    expect(JSON.parse(causes[0]!.payload)).toMatchObject({family:"writer_gate_cleanup",failures:[{signature:"Error: Odysseus transient DELETE failure"}]});
+    expect(JSON.parse(causes[0]!.payload).signature).toStartWith(operation + ":");
+    expect(causes[0]!.at).toBeGreaterThan(0);
     const next = await w.server.acquire("shared", "next turn", { turn: true, signal: AbortSignal.timeout(1000) });
     await next.release();
     expect(w.server.holders()).toEqual([]);
     expect(w.db.query("SELECT * FROM writer_gate_turn_waiters").all()).toEqual([]);
   } finally { fault.mockRestore(); w.close(); }
+});
+
+
+test("a failed gate diagnostic never prevents release or the next writer", async () => {
+  const w = world(), query = w.db.query.bind(w.db);
+  let attempts = 0;
+  const fault = spyOn(w.db,"query").mockImplementation(((sql: string) => {
+    if (sql === "DELETE FROM writer_gate WHERE id = ?" && attempts++ === 0) throw Error("Odysseus transient DELETE failure");
+    if (sql.includes("INSERT") && sql.includes("governance_events")) throw Error("Odysseus diagnostic unavailable");
+    return query(sql);
+  }) as typeof w.db.query);
+  let release: Promise<void> | undefined;
+  try {
+    const hold = await w.server.acquire("exclusive","user revert");
+    release = Promise.resolve(hold.release());
+    const next = await w.cron.acquire("shared","healthy turn",{signal:AbortSignal.timeout(300)});
+    expect(attempts, "GATE_DIAGNOSTICS_DO_NOT_BLOCK_DELETE").toBeGreaterThanOrEqual(2);
+    await release; await next.release();
+  } finally { fault.mockRestore(); await release; await w.server.settled(); w.close(); }
 });

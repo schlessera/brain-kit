@@ -6,7 +6,7 @@ export class NativeRecoveryIndex {
   private db: Database;
   private failed = false;
   private closed = false;
-  private diagnostic: { error: unknown } | undefined;
+  private diagnostic: { error: unknown; logged?: boolean } | undefined;
 
   constructor(ids: Iterable<string>, private readonly reload?: () => Iterable<string>,
     private readonly report?: (error: unknown) => void) {
@@ -32,35 +32,48 @@ export class NativeRecoveryIndex {
     if (!this.reload) throw Error("Native recovery index is unavailable; restart the manager to rebuild it.");
     // Publish only a complete replacement. A refused rebuild leaves admission
     // closed, and the next operation retries without needing a process restart.
-    // If recording itself failed, keep the original cause and retry it before
-    // reopening admission. A later successful rebuild cannot erase that cause.
-    if (this.diagnostic) { this.report?.(this.diagnostic.error); this.diagnostic = undefined; }
     try {
       const replacement = this.build(this.reload());
       this.db.close(); this.db = replacement; this.failed = false;
+      this.reportPending();
     } catch (error) {
-      this.failed = true; this.diagnostic = { error };
-      try { this.report?.(error); this.diagnostic = undefined; } catch { /* Retry the durable cause before admission. */ }
+      this.failed = true; this.diagnostic ??= { error };
+      this.reportPending();
       throw error;
+    }
+  }
+
+  private reportPending(): void {
+    const pending = this.diagnostic;
+    if (!pending) return;
+    try { this.report?.(pending.error); this.diagnostic = undefined; }
+    catch (error) {
+      // Preserve the original cause for the next request; diagnostics never
+      // gate a complete rebuild. Log one failure per pending cause.
+      if (!pending.logged) {
+        console.error(JSON.stringify({ kind: "native_recovery_diagnostic_failure", site: "NativeRecoveryIndex.reportPending", at: Date.now(),
+          cause: String(pending.error), diagnosticError: String(error) }));
+        pending.logged = true;
+      }
     }
   }
 
   private use<T>(operation: () => T): T {
     if (this.closed) throw Error("Native recovery index is closed.");
-    if (this.failed) this.rebuild();
+    if (this.failed) this.rebuild(); else this.reportPending();
     try { return operation(); }
     catch (error) {
-      this.failed = true; this.diagnostic = { error };
+      this.failed = true; this.diagnostic ??= { error };
       this.rebuild();
       try { return operation(); }
-      catch (again) { this.failed = true; this.diagnostic = { error: again }; throw again; }
+      catch (again) { this.failed = true; this.diagnostic ??= { error: again }; throw again; }
     }
   }
 
   /** Dependent admission waits for a complete rebuild after any failed write. */
   ensureAvailable(): void {
     if (this.closed) throw Error("Native recovery index is closed.");
-    if (this.failed) this.rebuild();
+    if (this.failed) this.rebuild(); else this.reportPending();
   }
 
   /** Called only after the JSON rename and parent-directory fsync complete. */

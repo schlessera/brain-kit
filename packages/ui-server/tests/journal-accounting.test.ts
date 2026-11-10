@@ -161,7 +161,7 @@ test("a killed private reader owner leaves a recoverable reservation without cla
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
- test("a corrupt published interrupted object is quarantined without poisoning other history", async () => {
+for (const absent of [false, true]) test(`a ${absent ? "missing" : "corrupt"} published interrupted object is quarantined without poisoning other history`, async () => {
   const root = mkdtempSync(join(tmpdir(), "journal-quarantine-odysseus-")), path = join(root, "ui.db");
   const db = createUiDb(path), ledger = createJournalAccounting(db, path), objects = createJournalObjects(join(root, "objects"), ledger);
   try {
@@ -174,7 +174,7 @@ test("a killed private reader owner leaves a recoverable reservation without cla
       }
       db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(), process.pid, bad);
     });
-    writeFileSync(join(root, "objects", bad), "damaged!");
+    if (absent) rmSync(join(root,"objects",bad)); else writeFileSync(join(root, "objects", bad), "damaged!");
     expect(() => ledger.recover(objects), "JOURNAL_CORRUPT_OBJECT_DOES_NOT_REFUSE_BOOT").not.toThrow();
     expect(db.query("SELECT * FROM turn_journal_reservations").all()).toEqual([]);
     expect(db.query("SELECT turn_id,state FROM turn_journal_turns ORDER BY turn_id").all()).toEqual([
@@ -184,7 +184,34 @@ test("a killed private reader owner leaves a recoverable reservation without cla
     const lease = ledger.openRead(good);
     expect(objects.read(good, 6), "JOURNAL_UNRELATED_VERSION_RESTORES").toEqual(Buffer.from("Athena")); ledger.releaseRead(lease);
     expect(db.query("SELECT bytes,state FROM turn_journal_objects WHERE hash=?").get(bad), "JOURNAL_QUARANTINE_BYTES_STAY_CHARGED").toEqual({bytes:8,state:"present"});
+    ledger.write(() => {
+      db.query("UPDATE turn_journal_turns SET ended_at=NULL,state='recording',pid=?,pid_start=? WHERE turn_id='penelope'").run(process.pid,"live");
+      db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(),process.pid,bad);
+    });
     ledger.recover(objects);
+    expect(db.query("SELECT state FROM turn_journal_turns WHERE turn_id='penelope'").get(), "QUARANTINE_PRESERVES_OPEN_TURN_LIFECYCLE").toEqual({state:"recording"});
     expect(db.query("SELECT count(*) AS n FROM turn_journal_object_quarantine").get()).toEqual({n:1});
   } finally { objects.close(); db.close(); rmSync(root, {recursive:true,force:true}); }
+});
+
+
+for (const operation of ["has", "verify"] as const) for (const code of ["EMFILE", "EIO", "EACCES"]) test(`journal recovery retries unresolved ${operation} ${code} without inventing corruption`, async () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-unresolved-")), path = join(root,"ui.db");
+  const db = createUiDb(path), ledger = createJournalAccounting(db,path), objects = createJournalObjects(join(root,"objects"),ledger);
+  try {
+    const hash = await objects.putBytes(Buffer.from("Odysseus"));
+    ledger.write(() => {
+      db.query("UPDATE turn_journal_objects SET state='pending' WHERE hash=?").run(hash);
+      db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,8,?,'gone',0,?)").run(crypto.randomUUID(),process.pid,hash);
+    });
+    const before = ledger.usage();
+    expect(() => ledger.recover({...objects,[operation]() { throw Object.assign(new Error(code),{code}); }})).not.toThrow();
+    expect(db.query("SELECT hash FROM turn_journal_object_quarantine").all(), "JOURNAL_IO_ERROR_IS_NOT_CORRUPTION").toEqual([]);
+    expect(db.query("SELECT state FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({state:"pending"});
+    expect(db.query("SELECT bytes FROM turn_journal_reservations").all(), "JOURNAL_UNRESOLVED_CHARGE_RETAINED").toEqual([{bytes:8}]);
+    expect(ledger.usage()).toBe(before);
+    ledger.recover(objects);
+    expect(db.query("SELECT * FROM turn_journal_reservations").all()).toEqual([]);
+    expect(db.query("SELECT state FROM turn_journal_objects WHERE hash=?").get(hash)).toEqual({state:"present"});
+  } finally { objects.close(); db.close(); rmSync(root,{recursive:true,force:true}); }
 });

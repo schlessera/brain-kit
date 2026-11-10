@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,4 +21,23 @@ test("malformed native intents preserve identity and cause while other identitie
     expect(cause).toMatchObject({ scope: `${bad}.json`, site: "native-brain-manager.recoverIntent", errorClass: "SyntaxError" });
     expect(cause.at).toBeGreaterThan(0);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("a failed native diagnostic write does not abandon healthy intent recovery", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-diagnostics-")), state = join(root,"state"), diagnostics = join(root,"diagnostics");
+  mkdirSync(state); writeFileSync(diagnostics,"unwritable directory");
+  const bad = "11111111-1111-4111-8111-111111111790", good = "22222222-2222-4222-8222-222222221790";
+  writeFileSync(join(state, `${bad}.json`), "{broken"); writeFileSync(join(state, `${good}.json`), "{}");
+  const recovered: string[] = [], logs: string[] = [];
+  const logger = spyOn(console,"error").mockImplementation(line => { logs.push(String(line)); });
+  try {
+    expect(() => recoverNativeIntents(state, diagnostics, id => {
+      JSON.parse(readFileSync(join(state, `${id}.json`), "utf8")); recovered.push(id);
+    }), "NATIVE_DIAGNOSTIC_FAILURE_DOES_NOT_BLOCK_BOOT").not.toThrow();
+    expect(recovered).toEqual([good]);
+    expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0]!)).toMatchObject({kind:"native_recovery_failure",scope:`${bad}.json`,errorClass:"SyntaxError"});
+    expect(JSON.parse(logs[0]!).diagnosticError).toContain("EEXIST");
+  } finally { logger.mockRestore(); rmSync(root,{recursive:true,force:true}); }
 });

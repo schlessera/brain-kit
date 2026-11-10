@@ -125,16 +125,33 @@ export async function proveRecoveryInventory(artifacts: string): Promise<void> {
   manager = await createNativeBrainManager({...config, appUid:1000, stageAllowanceBytes:4096, stageBudgetBytes:8192});
   try {
     const ready = await (await manager.run({operation:"ready"})).json() as {recovery:{quarantinedIntents:number;stagingChargedBytes:number;diagnosticsPath:string}};
-    expect(ready.recovery, "NATIVE_MALFORMED_INTENT_BOOTS_CHARGED").toMatchObject({quarantinedIntents:1,stagingChargedBytes:8192});
+
     expect(fs.readdirSync(ready.recovery.diagnosticsPath).length).toBeGreaterThan(0);
     const healthy = await (await manager.run({operation:"checkpoint",id:healthyId})).json() as {id:string};
     expect(healthy.id, "NATIVE_MALFORMED_INTENT_OTHER_CHECKPOINT_WORKS").toBe(healthyId);
     await expect(manager.run({operation:"checkpoint",id:malformedId}), "NATIVE_QUARANTINE_ID_CANNOT_BE_REUSED").rejects.toThrow("quarantined");
-    await expect(manager.run({operation:"prepareStage",id:id(100006),checkpointId:healthyId,allowanceBytes:4096}), "NATIVE_UNKNOWN_STAGE_CAPACITY_NOT_RELEASED").rejects.toThrow("charged");
+    const stage = await (await manager.run({operation:"prepareStage",id:id(100006),checkpointId:healthyId,allowanceBytes:4096})).json() as {id:string};
+    expect(stage.id, "NATIVE_MALFORMED_INTENT_HEALTHY_STAGE_PREPARES").toBe(id(100006));
+    expect(ready.recovery, "NATIVE_MALFORMED_INTENT_BOOTS_CHARGED").toMatchObject({quarantinedIntents:1,stagingChargedBytes:4096});
+    await expect(manager.run({operation:"prepareStage",id:id(100008),checkpointId:healthyId,allowanceBytes:4096}), "NATIVE_QUARANTINE_CHARGE_REMAINS_RESERVED").rejects.toThrow("budget");
+    await manager.run({operation:"releaseStage",id:stage.id});
     await expect(manager.run({operation:"release",id:historicalId}), "NATIVE_UNKNOWN_STAGE_DEPENDENCIES_NOT_RELEASED").rejects.toThrow("dependencies");
     expect(await (await manager.run({operation:"release",id:healthyId})).json(), "NATIVE_QUARANTINE_NEW_CHECKPOINT_RELEASES").toEqual({id:healthyId,state:"deleted"});
     expect(fs.readFileSync(join(state, `${malformedId}.json`), "utf8")).toBe("{malformed");
-  } finally { await manager.close(); fs.unlinkSync(join(state, `${malformedId}.json`)); }
+  } finally { await manager.close(); }
+  // An old namespace placeholder may outlive changed configuration. Never
+  // replace an unknown historical allowance with today's smaller limit.
+  const uncertainStage = join("/brain-fixture/.brain-native/stages", malformedId);
+  fs.mkdirSync(uncertainStage,{mode:0o700});
+  manager = await createNativeBrainManager({...config,appUid:1000,stageAllowanceBytes:4096,stageBudgetBytes:8192});
+  try {
+    const ready = await (await manager.run({operation:"ready"})).json() as {recovery:{stagingChargedBytes:number|null}};
+    expect(ready.recovery.stagingChargedBytes,"NATIVE_UNKNOWN_HISTORICAL_STAGE_BOUND_STAYS_UNKNOWN").toBeNull();
+    const nextId = id(100009);
+    await manager.run({operation:"checkpoint",id:nextId});
+    await expect(manager.run({operation:"prepareStage",id:id(100010),checkpointId:nextId,allowanceBytes:4096}),"NATIVE_UNKNOWN_STAGE_CAPACITY_NOT_RELEASED").rejects.toThrow("budget");
+    await manager.run({operation:"release",id:nextId});
+  } finally { await manager.close(); fs.rmdirSync(uncertainStage); fs.unlinkSync(join(state, `${malformedId}.json`)); }
   manager = await createNativeBrainManager(config);
   try { await manager.run({operation:"release",id:historicalId}); } finally { await manager.close(); }
 }

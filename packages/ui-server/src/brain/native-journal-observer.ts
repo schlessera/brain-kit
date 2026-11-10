@@ -32,7 +32,7 @@ interface NativeJournalChange {
 }
 export interface NativeJournalUnreadable {
   path: string; bytes: number | null; mode?: number; kind?: NativeJournalMetadata["kind"];
-  reason: "worker_reader_unavailable";
+  reason: "worker_reader_unavailable" | "retained_object_corrupt";
   ms: number;
 }
 export class NativeJournalObservationError extends Error {

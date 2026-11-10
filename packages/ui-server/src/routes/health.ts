@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 
 import type { ContentRendererDeclaration } from "@schlessera/brain-ui-sdk";
-import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { RuntimeStatusSnapshot } from "../activity/runtime-status.js";
 import type { BackendBootFailure } from "../agent/backend.js";
@@ -42,6 +42,7 @@ export function createHealthRoutes(deps: { db: Database; degradedReasons?(): str
 
 interface StatusDeps {
   getBackendAvailability?(): { unavailable: BackendBootFailure[]; lastFailures: BackendBootFailure[] };
+  getNativeRecovery?(): SystemStatus["nativeRecovery"];
   /** Trusted metadata from configured modules; absent with an older CLI. */
   getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
@@ -64,9 +65,11 @@ interface StatusDeps {
 export function createStatusRoutes(deps: StatusDeps): Hono {
   return new Hono().get("/status", async (c) => {
     const backendAvailability = deps.getBackendAvailability?.();
+    const nativeRecovery = deps.getNativeRecovery?.();
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
     const contentRenderers = await deps.getContentRenderers?.(c.req.raw.signal).catch(() => undefined);
     return c.json({
+      ...(nativeRecovery ? { nativeRecovery } : {}),
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
       healthy: !backendAvailability?.unavailable.length,
       ...(backendAvailability ? { backendAvailability } : {}),

@@ -317,20 +317,27 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
     return done;
   };
   // These deletes are idempotent. A failed commit retains its hold/waiter,
-  // and remains owned until both its cause and the delete have committed.
+  // and remains owned until the delete commits. Reporting cannot gate cleanup.
   const cleanup = (operation: "release" | "dequeue", id: string): Promise<void> => {
     const done = (async () => {
       let cause: { message: string; at: number } | undefined, recorded = false;
       let attempt = 0;
       for (;;) {
         try {
-          if (cause && !recorded) { await submit("cleanupFailure", id, operation, cause.message, cause.at); recorded = true; }
           await submit(operation, id);
+          if (cause && !recorded) {
+            try { await submit("cleanupFailure", id, operation, cause.message, cause.at); }
+            catch { /* Original structured cause was logged; never retain a released hold for reporting. */ }
+          }
           return;
         } catch (error) {
           if (!cause) {
             cause = { message: `${error instanceof Error ? error.name : "Error"}: ${error instanceof Error ? error.message : String(error)}`.slice(0, 1000), at: Date.now() };
             console.error(JSON.stringify({ kind: "writer_gate_cleanup", operation, id, ...cause }));
+          }
+          if (!recorded) {
+            try { await submit("cleanupFailure", id, operation, cause.message, cause.at); recorded = true; }
+            catch { /* Retry the independent diagnostic after the next delete attempt. */ }
           }
           await pause(Math.min(30_000, Math.max(1, pollMs) * 2 ** Math.min(attempt++, 10)));
         }

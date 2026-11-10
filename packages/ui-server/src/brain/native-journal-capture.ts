@@ -1,4 +1,5 @@
 /** Changed versions only; checkpoint advancement follows the journal commit. */
+import { JournalObjectQuarantined } from "./journal-accounting.js";
 import { createNativeJournalObserver, type NativeJournalManager, type NativeJournalMetadata, type NativeJournalUnreadable } from "./native-journal-observer.js";
 import { freezeNativeJournalPolicy, journalMetadataOnlyPath, journalPathScope } from "./native-journal-policy.js";
 import { nativeJournalPermissionDenied, readNativeJournalFile, withNativeJournalFile, type NativeJournalReadContext } from "./native-journal-read.js";
@@ -78,6 +79,11 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
             const privateRead = context(root, signal), started = performance.now();
             try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes, signal)); }
             catch (error) {
+              if (error instanceof JournalObjectQuarantined) {
+                unreadable.set(metadata.path, {path:metadata.path, bytes:metadata.bytes, mode:metadata.mode, kind:metadata.kind,
+                  reason:"retained_object_corrupt", ms:0});
+                return result;
+              }
               if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
               unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable", ms: Math.max(0, Math.round(performance.now() - started)) });
               return result;

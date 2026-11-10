@@ -66,7 +66,7 @@ test("index recovery retains a cause whose diagnostic write initially failed", (
   });
   try {
     (index as unknown as { db: import("bun:sqlite").Database }).db.exec("PRAGMA query_only = ON");
-    expect(() => index.remember(id(2))).toThrow("diagnostics unavailable");
+    expect(() => index.remember(id(2)), "RECOVERY_INDEX_DIAGNOSTIC_DOES_NOT_BLOCK_REBUILD").not.toThrow();
     expect(index.page(null)).toEqual([id(1), id(2)]);
     expect(causes[0], "RECOVERY_INDEX_ORIGINAL_CAUSE_SURVIVES_REPORT_FAILURE").toContain("readonly");
   } finally { index.close(); }

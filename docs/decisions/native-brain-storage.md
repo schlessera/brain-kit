@@ -215,9 +215,16 @@ undo and changes its storage mechanism instead.
 An unreadable native intent stays in place as an identity fence. Startup records
 its error class, message, site and timestamp under the manager's private
 `recovery-diagnostics/` directory, and continues. `ready` reports the count,
-diagnostic directory and conservatively charged staging bytes. No new stage is
-admitted and no historical checkpoint dependency is released while a quarantined
-receipt could own it. Healthy checkpoint creation and reads remain available;
+diagnostic directory and conservatively charged staging bytes; authenticated
+`/api/status` exposes that boot report as `nativeRecovery`. Each malformed
+identity without a stage directory retains one configured per-stage allowance;
+new stages fit within the remaining aggregate budget. The directory is created
+before namespace setup and removed only after confirmed close. If it survives,
+its historical allowance cannot be bounded by today's configuration: staging
+stays restricted with an unknown (`null`) charge. Unreadable directory state
+and invalid identities also retain that restriction. No historical checkpoint
+dependency is released while a quarantined receipt could own it.
+Healthy checkpoint creation and reads remain available;
 new roots created after recovery can also be released, since a historical stage
 cannot refer to those native identities. A recovery
 page touching that identity refuses explicitly. Repairing an authoritative
@@ -227,3 +234,10 @@ known reservation. Unknown identities are never adopted or deleted.
 Index rebuilds use the same diagnostics directory; they need no owner action.
 The reference pool refreshes its accounting map from the same durable intents
 before it reopens dependent admission.
+
+Diagnostic writes are best-effort and cannot gate mechanical recovery. If the
+private diagnostic directory refuses a write, the structured stderr record
+retains both the original cause and that write failure; the authoritative bad
+intent remains on disk. A disposable index rebuild publishes only its complete
+replacement, and retries pending diagnostic writes on later requests separately
+from admission.
