@@ -97,30 +97,38 @@ function readOnly<T>(paths: string[], fn: () => T): T {
 }
 
 describe("codexEmitter AGENTS.md contract block", () => {
-  const root = mkRepo();
-  const add = skill(root, "add", "Capture a note into the brain.");
-  const audit = skill(root, "audit", "Report hygiene issues: staleness, orphans.");
-  const agentsFile = join(root, "AGENTS.md");
+  /** A fresh repo with two skills, emitted `times` times already. */
+  function repo(times: number) {
+    const root = mkRepo();
+    const add = skill(root, "add", "Capture a note into the brain.");
+    const audit = skill(root, "audit", "Report hygiene issues: staleness, orphans.");
+    for (let run = 0; run < times; run++) codexEmitter.emit([add, audit], root);
+    return { root, add, audit, agentsFile: join(root, "AGENTS.md") };
+  }
 
   test("writes AGENTS.md and no .codex directory", () => {
+    const { root, add, audit } = repo(0);
     const res = codexEmitter.emit([add, audit], root);
     expect(res.written).toEqual(["AGENTS.md"]);
     expect(existsSync(join(root, ".codex"))).toBe(false);
   });
 
   test("the block's text is the body of the installed CONTRACT.md", () => {
+    const { agentsFile } = repo(1);
     expect(contractBody.length).toBeGreaterThan(0);
     expect(contractBody).toContain("source of truth");
     expect(contractBlockBody(readFileSync(agentsFile, "utf8"))).toBe(contractBody);
   });
 
   test("the block restates no skill", () => {
+    const { agentsFile } = repo(1);
     const text = readFileSync(agentsFile, "utf8");
     expect(text).not.toContain(INDEX_START);
     expect(text).not.toContain("Capture a note into the brain.");
   });
 
   test("re-running on an unchanged skill set makes no write at all", () => {
+    const { root, add, audit, agentsFile } = repo(1);
     const before = readFileSync(agentsFile);
     const res = readOnly([agentsFile, root], () => codexEmitter.emit([add, audit], root));
     expect(res).toEqual({ written: [], removed: [], warnings: [] });
@@ -129,21 +137,27 @@ describe("codexEmitter AGENTS.md contract block", () => {
 });
 
 describe("contract block preserves surrounding content", () => {
-  const root = mkRepo();
-  const add = skill(root, "add", "Capture a note.");
-  const agentsFile = join(root, "AGENTS.md");
   const preamble = "# My Repo\n\nHand-written guidance the emitter must never touch.\n";
   const postamble = "\n## After\n\nMore hand-written text, below the block.\n";
-
-  test("appends the block below existing content", () => {
+  /** A fresh repo whose hand-written AGENTS.md has had the block appended once. */
+  function appended() {
+    const root = mkRepo();
+    const add = skill(root, "add", "Capture a note.");
+    const agentsFile = join(root, "AGENTS.md");
     writeFileSync(agentsFile, preamble);
     codexEmitter.emit([add], root);
+    return { root, add, agentsFile };
+  }
+
+  test("appends the block below existing content", () => {
+    const { agentsFile } = appended();
     const text = readFileSync(agentsFile, "utf8");
-    expect(text.startsWith(preamble)).toBe(true);
+    expect(text.slice(0, preamble.length)).toBe(preamble);
     expect(text).toContain(CONTRACT_START);
   });
 
   test("content on both sides of the markers is byte-identical after a sync", () => {
+    const { root, add, agentsFile } = appended();
     writeFileSync(agentsFile, readFileSync(agentsFile, "utf8") + postamble);
     const staleBlock = readFileSync(agentsFile, "utf8").replace(
       /<!-- brain-kit:contract:start -->[\s\S]*<!-- brain-kit:contract:end -->/,
@@ -166,6 +180,9 @@ describe("contract block preserves surrounding content", () => {
   });
 
   test("re-run makes no write with the surrounding content intact", () => {
+    const { root, add, agentsFile } = appended();
+    writeFileSync(agentsFile, readFileSync(agentsFile, "utf8") + postamble);
+    codexEmitter.emit([add], root);
     const before = readFileSync(agentsFile);
     const res = readOnly([agentsFile, root], () => codexEmitter.emit([add], root));
     expect(res.written).toEqual([]);
@@ -461,7 +478,8 @@ describe("syncSkills surfaces an emitter's warnings", () => {
     const root = mkRepo();
     writeFileSync(join(root, "AGENTS.md"), `${CONTRACT_START}\nno end\n`);
     const res = syncSkills({ root, modules: [] }, { emitters: [codexEmitter], coreSkillsDir: join(root, "none") });
-    expect(res.warnings.some((w) => w.startsWith("codex emitter: AGENTS.md has 1 start and 0 end marker(s)"))).toBe(true);
+    const prefix = "codex emitter: AGENTS.md has 1 start and 0 end marker(s)";
+    expect(res.warnings.map((w) => w.slice(0, prefix.length))).toContain(prefix);
     expect(res.emitters).toEqual([{ agent: "codex", written: [], removed: [] }]);
   });
 });
@@ -559,7 +577,8 @@ describe("geminiEmitter GEMINI.md contract", () => {
     writeFileSync(join(root, "GEMINI.md"), text);
     const res = syncSkills({ root, modules: [] }, { emitters: [geminiEmitter], coreSkillsDir: join(root, "none") });
     expect(readFileSync(join(root, "GEMINI.md"), "utf8")).toBe(text);
-    expect(res.warnings.some(w => w.startsWith("gemini emitter: GEMINI.md has 1 start and 0 end marker(s)"))).toBe(true);
+    const warning = "gemini emitter: GEMINI.md has 1 start and 0 end marker(s)";
+    expect(res.warnings.map((w) => w.slice(0, warning.length))).toContain(warning);
   });
 });
 
@@ -593,7 +612,7 @@ describe("Gemini installed contract refresh and read failure", () => {
     writeFileSync(contract, upgraded);
     expect(emit().written).toEqual(["GEMINI.md"]);
     const text = readFileSync(file, "utf8");
-    expect(text.startsWith(before)).toBe(true);
+    expect(text.slice(0, before.length)).toBe(before);
     expect(contractBlockBody(text)).toBe(upgraded.trim());
     expect(emit().written).toEqual([]);
   });

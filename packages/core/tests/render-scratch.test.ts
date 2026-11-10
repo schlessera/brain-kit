@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import { SCRATCH_MAX_BYTES } from "../src/lib/scratch";
+import { ignoreScratch, SCRATCH_MAX_BYTES } from "../src/lib/scratch";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 
 let root: string;
@@ -29,6 +29,10 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup(root));
+
+// The ignore line `brain doctor --fix` writes, written in-process: the doctor's
+// own fix is proved by the tests that name it, and a CLI launch costs most of a second.
+const ignored = () => expect(ignoreScratch(root)).toBe(true);
 
 const scratchFiles = () =>
   existsSync(join(root, ".brain/scratch")) ? readdirSync(join(root, ".brain/scratch")) : [];
@@ -61,7 +65,7 @@ describe("render into the scratch area", () => {
   }, CLI_TIMEOUT_MS);
 
   test("a write into scratch prunes it, so it never waits for the daily pass", async () => {
-    await runCli(root, ["doctor", "--fix"]);
+    ignored();
     mkdirSync(join(root, ".brain/scratch"), { recursive: true });
     const stale = join(root, ".brain/scratch/stale.pdf");
     writeFileSync(stale, "old");
@@ -74,7 +78,7 @@ describe("render into the scratch area", () => {
   }, CLI_TIMEOUT_MS);
 
   test("two inputs with one basename, and two renders of one input, all keep their own output", async () => {
-    await runCli(root, ["doctor", "--fix"]);
+    ignored();
     mkdirSync(join(root, "notes/a"), { recursive: true });
     mkdirSync(join(root, "notes/b"), { recursive: true });
     writeFileSync(join(root, "notes/a/report.md"), "# Report A\n");
@@ -95,8 +99,8 @@ describe("render into the scratch area", () => {
     // A link out of the brain is already refused as an escape; a link to a
     // directory inside it is contained, and is the case the guard exists for:
     // a "scratch" write would otherwise become content.
-    await runCli(root, ["doctor", "--fix"]);
-    // The check created the (empty) directory; the link takes its place.
+    ignored();
+    // A link takes the scratch directory's place.
     rmSync(join(root, ".brain/scratch"), { recursive: true, force: true });
     symlinkSync(join("..", "notes"), join(root, ".brain/scratch"));
     const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--scratch"]);
@@ -106,7 +110,7 @@ describe("render into the scratch area", () => {
   }, CLI_TIMEOUT_MS);
 
   test("stdin without --out goes to scratch", async () => {
-    await runCli(root, ["doctor", "--fix"]);
+    ignored();
     const proc = Bun.spawn(["bun", BRAIN_BIN, "render", "-", "--format", "html", "--json"], {
       env: keylessEnv(root),
       stdout: "pipe",
@@ -125,7 +129,7 @@ describe("render into the scratch area", () => {
     const res = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/x.html"]);
     expect(res.code).toBe(1);
     expect(res.stderr + res.stdout).toContain("brain doctor --fix");
-    await runCli(root, ["doctor", "--fix"]);
+    ignored();
     for (let i = 0; i < 2; i++) {
       const again = await runCli(root, ["render", "notes/trip.md", "--format", "html", "--out", ".brain/scratch/x.html"]);
       expect(again.code).toBe(0);
@@ -146,7 +150,7 @@ describe("render into the scratch area", () => {
   }, CLI_TIMEOUT_MS);
 
   test("retained pins over the cap do not let the render delete its own reported output (#1691)", async () => {
-    await runCli(root, ["doctor", "--fix"]);
+    ignored();
     // A retained conversation pins a file larger than the cap on its own.
     // Sparse: the size counts, no GiB of blocks is allocated.
     const pinned = join(root, ".brain/scratch/voyage-log.bin");

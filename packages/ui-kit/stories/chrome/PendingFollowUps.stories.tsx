@@ -113,7 +113,7 @@ export const Keyboard = meta.story({
   play: async ({ canvas, canvasElement }) => {
     const [first, second] = canvas.getAllByRole("button");
     const texts = [...canvasElement.querySelectorAll<HTMLElement>("[data-follow-up-text]")];
-    await expect(texts.every((t) => t.hidden)).toBe(true);
+    await expect(texts.map((t) => t.hidden)).toEqual([true, true]);
     await userEvent.tab();
     await expect(document.activeElement).toBe(first);
     await waitFor(() => expect(texts[0]!.hidden).toBe(false));
