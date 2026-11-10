@@ -47,6 +47,6 @@ test("actual same-device bind descendants are not traversed by the server metada
     expect(code, err).toBe(0);
     const result = JSON.parse(out);
     expect(result.errors, "STORAGE_BIND_MOUNT_REFUSED").toContainEqual({ rootId: "odysseus", reason: "mount-boundary" });
-    expect(result.entries.some((entry: {path:string}) => entry.path === "mounted/Troy.pdf")).toBe(false);
+    expect(result.entries.map((entry: {path:string}) => entry.path)).not.toContain("mounted/Troy.pdf");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -58,7 +58,7 @@ test("intentional worktree edits are journaled as workspace content of the holdi
     const worktreeRows = rows.filter(row => row.scope === REFERENCE_WORKTREE_JOURNAL_SCOPE);
     expect(worktreeRows.map(row => row.path).sort(), "REFERENCE_WORKTREE_EDITS_JOURNALED").toEqual([
       referenceWorktreeJournalPath(tree.id, "build/out.txt"), referenceWorktreeJournalPath(tree.id, "odyssey/book-1.md"), referenceWorktreeJournalPath(tree.id, "odyssey/book-2.md")]);
-    expect(worktreeRows.every(row => row.class === "content" && row.actor === "agent"), "REFERENCE_WORKTREE_EDITS_ARE_CONTENT").toBe(true);
+    expect(worktreeRows.map(row => ({ class: row.class, actor: row.actor })), "REFERENCE_WORKTREE_EDITS_ARE_CONTENT").toEqual(Array(3).fill({ class: "content", actor: "agent" }));
     const book = worktreeRows.find(row => row.path.endsWith("book-1.md"))!;
     expect(JSON.parse(book.after_json!), "REFERENCE_WORKTREE_VERSION_RETAINED").toMatchObject({ kind: "file", ignored: false, hash: expect.any(String) });
     expect(JSON.parse(worktreeRows.find(row => row.path.endsWith("out.txt"))!.after_json!), "REFERENCE_WORKTREE_GITIGNORE_RESPECTED").toMatchObject({ ignored: true });
@@ -104,7 +104,7 @@ test("a worktree capture that fails leaves its holding turn partial and stopped,
     f.pool.poolDelta = delta;
     expect(f.journal.summary("turn-ithaca").state, "REFERENCE_WORKTREE_FAILED_CAPTURE_PARTIAL").toBe("partial");
     expect(f.stopped.get("turn-ithaca")?.message, "REFERENCE_WORKTREE_FAILED_CAPTURE_STOPS_HOLDER").toMatch(/unreadable/);
-    expect(f.stopped.has("turn-other"), "REFERENCE_WORKTREE_FAILURE_CONFINED").toBe(false);
+    expect(f.stopped.get("turn-other"), "REFERENCE_WORKTREE_FAILURE_CONFINED").toBeUndefined();
     expect(f.journal.summary("turn-other").state).toBe("recording");
     expect(f.journal.worktrees("turn-ithaca"), "REFERENCE_WORKTREE_FAILED_ROOT_DROPPED").toEqual([]);
     expect(f.facts.get("turn-ithaca"), "REFERENCE_WORKTREE_PARTIAL_FACTS_NOT_HEADROOM").toMatchObject({ partial: true });
@@ -146,7 +146,7 @@ test("ended worktree cleanup stays visible and retries until confirmed without b
     for (let pass = 0; pass < 3; pass++) {
       const before = attempts;
       expect(timers.pending.size, "ENDED_WORKTREE_HAS_RETRY_OWNER").toBe(1);
-      expect(timers.handles.every(handle => handle.unrefed), "CLEANUP_RETRIES_DO_NOT_KEEP_HOST_ALIVE").toBe(true);
+      expect(timers.handles.filter(handle => !handle.unrefed), "CLEANUP_RETRIES_DO_NOT_KEEP_HOST_ALIVE").toEqual([]);
       timers.fire(); await f.journal.releasesSettled();
       expect(attempts, "ENDED_WORKTREE_RETRIES_WHILE_IDLE").toBe(before + 1);
       expect(f.journal.cleanupStatus().retained).toEqual(retained);
@@ -237,7 +237,7 @@ test("failed worktree capture hands all unreleased checkpoints to cleanup and ke
     await f.journal.observe(); await f.journal.idle();
     expect(f.journal.worktrees("turn-ithaca")).toEqual([]);
     expect(f.journal.summary("turn-ithaca").state).toBe("partial");
-    expect(f.stopped.has("turn-other")).toBe(false);
+    expect(f.stopped.get("turn-other")).toBeUndefined();
     expect(f.journal.summary("turn-other").state).toBe("recording");
     expect(f.ledger.size).toBe(2);
     expect(f.journal.cleanupStatus().retained.failed, "FAILED_CAPTURE_ALL_RETAINED_ROOTS_VISIBLE").toBe(2);
