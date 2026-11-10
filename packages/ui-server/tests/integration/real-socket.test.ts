@@ -160,7 +160,7 @@ describe("a real client on a real socket", () => {
       await Bun.sleep(20);
     }
 
-    expect(frames.some((f) => f.type === "error" && f.code === "PARSE_ERROR")).toBe(true);
+    expect(frames).toContainEqual(expect.objectContaining({ type: "error", code: "PARSE_ERROR" }));
     expect(
       observability.metrics.value("ws.frames.dropped", {
         reason: "parse_error",
@@ -198,6 +198,7 @@ describe("the SPA fallback", () => {
     // The rough edge: `serveStatic({ path })` resolves against the process cwd,
     // so an absolute staticRoot produced a fallback that 404ed every deep link.
     const dir = mkdtempSync(join(tmpdir(), "brain-spa-"));
+    brainRoots.push(dir);
     writeFileSync(join(dir, "index.html"), "<!doctype html><title>shell</title>");
 
     const config = resolveServerConfig({
@@ -221,8 +222,6 @@ describe("the SPA fallback", () => {
     const res = await fetch(`http://127.0.0.1:${server.port}/some/deep/link`);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("shell");
-
-    rmSync(dir, { recursive: true, force: true });
   });
 });
 
