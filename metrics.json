@@ -1,44 +1,44 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T21:07:24.015Z",
-  "sha": "39865be95d7c1e4b428dfc4ac222ab22383336eb",
+  "generatedAt": "2026-11-10T21:09:23.050Z",
+  "sha": "5bda59a464d955b903eef9005e2531ab8fcc4a16",
   "coverage": {
     "files": 1835,
-    "auditedCurrent": 1546,
+    "auditedCurrent": 1551,
     "stale": 0,
-    "never": 289,
-    "share": 0.843,
+    "never": 284,
+    "share": 0.845,
     "medianAuditAgeDays": 0.1
   },
   "runs": {
-    "total": 24,
+    "total": 25,
     "byOutcome": {
-      "completed": 20,
+      "completed": 21,
       "nothing-to-do": 4
     },
     "byAgent": {
-      "claude-opus-5-5": 24
+      "claude-opus-5-5": 25
     },
     "byProfile": {
       "cron": 2,
-      "push": 22
+      "push": 23
     }
   },
   "audits": {
-    "clusters": 834,
-    "files": 1563,
-    "filesChanged": 404
+    "clusters": 835,
+    "files": 1568,
+    "filesChanged": 407
   },
   "findings": {
-    "total": 2551,
+    "total": 2559,
     "perAuditedFile": 1.63,
     "byLens": {
       "failure-issues": 123,
       "overlap": 145,
       "nondeterminism": 751,
-      "cannot-fail": 928,
+      "cannot-fail": 935,
       "not-running": 46,
-      "hygiene": 374,
+      "hygiene": 375,
       "cost": 172,
       "tier-and-doubles": 12
     },
@@ -48,12 +48,12 @@
       "matrix-multiplier": 133,
       "settling-sleep": 253,
       "shared-state": 145,
-      "weak-matcher": 336,
-      "conditional-assertion": 381,
+      "weak-matcher": 340,
+      "conditional-assertion": 384,
       "unseeded-random": 5,
       "fixed-resource": 74,
       "conditional-skip": 46,
-      "opaque-failure": 347,
+      "opaque-failure": 348,
       "spawn-per-assertion": 24,
       "earlier-layer-answers": 21,
       "long-timeout": 54,
@@ -88,9 +88,9 @@
     "byAction": {
       "deflake": 90,
       "remove": 33,
-      "none": 1939,
-      "strengthen": 153,
-      "cleanup": 247,
+      "none": 1943,
+      "strengthen": 156,
+      "cleanup": 248,
       "file-issue": 45,
       "rewrite": 22,
       "speed-up": 14,
@@ -101,32 +101,32 @@
     },
     "byStatus": {
       "deferred": 89,
-      "accepted": 1939,
-      "fixed": 491,
+      "accepted": 1943,
+      "fixed": 495,
       "filed": 32
     }
   },
   "proof": {
-    "mutationsKilled": 191,
-    "testsThatCouldNotFail": 145,
+    "mutationsKilled": 194,
+    "testsThatCouldNotFail": 148,
     "deflaked": 63,
     "secondsSavedPerRun": 73.6,
     "testsRemoved": 24
   },
   "accounting": {
-    "testsBefore": 4346,
-    "testsAfter": 4346,
+    "testsBefore": 4380,
+    "testsAfter": 4380,
     "declaredRemoved": 1,
-    "casesBefore": 5029,
-    "casesAfter": 5019,
-    "assertionsBefore": 51672,
-    "assertionsAfter": 51861
+    "casesBefore": 5063,
+    "casesAfter": 5053,
+    "assertionsBefore": 51822,
+    "assertionsAfter": 52011
   },
   "batches": {
-    "open": 26,
+    "open": 27,
     "landed": 5,
     "abandoned": 0,
-    "parkedChangedFiles": 328,
+    "parkedChangedFiles": 331,
     "droppedCommits": 0,
     "landingAttempts": 18,
     "meanFilesPerLanded": 14.2,
@@ -1001,6 +1001,42 @@
       "openIssues": 98,
       "openIssuesNeedingRepro": 24,
       "at": "2026-11-10T21:04:45.528Z"
+    },
+    {
+      "sha": "5bda59a464d955b903eef9005e2531ab8fcc4a16",
+      "files": 1835,
+      "scenarios": 15855,
+      "assertions": 65357,
+      "costSeconds": 10388.2,
+      "top50CostShare": 0.639,
+      "signals": {
+        "asserts-the-double": 2,
+        "conditional-assertion": 2667,
+        "conditional-skip": 137,
+        "fixed-resource": 221,
+        "giant-test": 15,
+        "leaked-resource": 3,
+        "long-timeout": 328,
+        "matrix-multiplier": 399,
+        "no-assertion": 177,
+        "not-throw-only": 14,
+        "opaque-failure": 1405,
+        "per-test-setup": 62,
+        "real-time-wait": 91,
+        "self-comparison": 12,
+        "settling-sleep": 887,
+        "shared-state": 942,
+        "spawn-per-assertion": 50,
+        "unawaited-async": 2,
+        "unclear-name": 9,
+        "unrestored-global": 1190,
+        "unseeded-random": 10,
+        "wall-clock": 1096,
+        "weak-matcher": 1289
+      },
+      "openIssues": 100,
+      "openIssuesNeedingRepro": 24,
+      "at": "2026-11-10T21:09:14.152Z"
     }
   ]
 }
