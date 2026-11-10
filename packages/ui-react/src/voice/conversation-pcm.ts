@@ -1,9 +1,17 @@
 import type { ConversationAudioFormat, ConversationPlayback } from "@schlessera/brain-ui-sdk/protocol";
 import { openPcmMicrophone, pcm16Bytes } from "./pcm-capture.js";
 
+/**
+ * A 0–1 meter reading from a block's RMS amplitude. Display only: it never
+ * gates capture, endpointing or playback evidence.
+ */
+function meterLevel(rms: number) {
+  return Math.max(0, Math.min(1, rms / 0.25));
+}
+
 /** Concrete browser PCM transport. No recorder codec or independent speech service. */
-export function openConversationMicrophone(rate: number, receive: (pcm: Uint8Array, speaking: boolean) => void, opened: () => void, interrupted: () => void) {
-  return openPcmMicrophone(rate, (pcm, rms) => receive(pcm16Bytes(pcm), rms > 0.015), opened, interrupted);
+export function openConversationMicrophone(rate: number, receive: (pcm: Uint8Array, speaking: boolean, level: number) => void, opened: () => void, interrupted: () => void) {
+  return openPcmMicrophone(rate, (pcm, rms) => receive(pcm16Bytes(pcm), rms > 0.015, meterLevel(rms)), opened, interrupted);
 }
 
 /** One queue owns all local output, including chunks waiting for a quiet boundary. */
@@ -13,7 +21,8 @@ export function createConversationPlayback(report: (outputId: string, state: Con
   let availableAt = 0;
   let blocked = true;
   const waiting: { outputId: string; bytes: Uint8Array; format: ConversationAudioFormat }[] = [];
-  const live = new Map<AudioBufferSourceNode, { outputId: string; audible: [number, number][] }>();
+  // `levels` holds one meter reading per 10 ms window from `start`.
+  const live = new Map<AudioBufferSourceNode, { outputId: string; audible: [number, number][]; start: number; step: number; levels: number[] }>();
   let boundary: ReturnType<typeof setTimeout> | undefined;
   // PCM magnitude cannot prove physical audibility. Only digital silence is
   // excluded: every nonzero sample conservatively protects a 10 ms window.
@@ -50,9 +59,13 @@ export function createConversationPlayback(report: (outputId: string, state: Con
       source.connect(context.destination);
       availableAt = Math.max(context.currentTime, availableAt);
       const audible: [number, number][] = [];
+      const levels: number[] = [];
       const window = Math.max(1, Math.round(chunk.format.sampleRate / 100));
       for (let offset = 0; offset < samples.length; offset += window) {
         const end = Math.min(offset + window, samples.length);
+        let energy = 0;
+        for (let i = offset; i < end; i++) energy += samples[i]! * samples[i]!;
+        levels.push(meterLevel(Math.sqrt(energy / (end - offset))));
         if (!samples.subarray(offset, end).some(sample => sample !== 0)) continue;
         const startTime = availableAt + offset / chunk.format.sampleRate;
         const endTime = availableAt + end / chunk.format.sampleRate;
@@ -60,7 +73,7 @@ export function createConversationPlayback(report: (outputId: string, state: Con
         if (previous && previous[1] === startTime) previous[1] = endTime;
         else audible.push([startTime, endTime]);
       }
-      live.set(source, { outputId: chunk.outputId, audible });
+      live.set(source, { outputId: chunk.outputId, audible, start: availableAt, step: window / chunk.format.sampleRate, levels });
       touched.add(chunk.outputId);
       const own = generation;
       source.onended = () => {
@@ -99,6 +112,16 @@ export function createConversationPlayback(report: (outputId: string, state: Con
     pending: () => waiting.length > 0 || live.size > 0,
     playing: () => playingIds().length > 0,
     playingIds,
+    /** The reading of whatever sounds now, for the meter only. */
+    level() {
+      if (context?.state !== "running") return 0;
+      const now = context.currentTime;
+      for (const item of live.values()) {
+        const at = Math.floor((now - item.start) / item.step);
+        if (at >= 0 && at < item.levels.length) return item.levels[at]!;
+      }
+      return 0;
+    },
     // A local floor/tone flush cannot retire an epoch-wide provider identity.
     // Only cancellation/teardown rejects later chunks with the same identity.
     flush() { flush(false); },
