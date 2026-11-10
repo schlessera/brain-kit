@@ -38,16 +38,16 @@ test("waypoint-only files and invalid waypoint evidence never fabricate a line",
   expect(parsed.waypoints[0]!.lat).toBe(90);
   expect(parsed.waypointOmissions).toEqual([{ index: 1, reason: "latitude_out_of_range", reasons: ["latitude_out_of_range"] }]);
 });
-for (const [name, source] of [
-  ["ordinary JSON", '{"hello":"world"}'],
-  ["XML entities", '<!DOCTYPE kml [<!ENTITY x "text">]><kml/>'],
-  ["malformed XML", '<kml><LineString></kml>'],
-  ["alternate encoding", '<?xml version="1.0" encoding="ISO-8859-1"?><kml/>'],
-  ["unsupported KML geometry", '<kml><Polygon/></kml>'],
-  ["unsupported JSON geometry", '{"type":"Polygon","coordinates":[]}'],
-  ["alternate JSON CRS", '{"type":"LineString","crs":{},"coordinates":[[0,0],[1,1]]}'],
-  ["duplicate coordinates", '<kml><LineString><coordinates>0,0 1,1</coordinates><coordinates>2,2 3,3</coordinates></LineString></kml>'],
-] as const) test(`${name} remains a structural error`, () => { expect(() => parseImportedTrack(source)).toThrow(); });
+for (const [name, source, message] of [
+  ["ordinary JSON", '{"hello":"world"}', "Supported GeoJSON track geometry is LineString"],
+  ["XML entities", '<!DOCTYPE kml [<!ENTITY x "text">]><kml/>', "doctypes/entities are unsupported"],
+  ["malformed XML", '<kml><LineString></kml>', "unexpected close tag"],
+  ["alternate encoding", '<?xml version="1.0" encoding="ISO-8859-1"?><kml/>', "must use UTF-8 or ASCII"],
+  ["unsupported KML geometry", '<kml><Polygon/></kml>', "Unsupported KML Polygon"],
+  ["unsupported JSON geometry", '{"type":"Polygon","coordinates":[]}', "Supported GeoJSON track geometry is LineString"],
+  ["alternate JSON CRS", '{"type":"LineString","crs":{},"coordinates":[[0,0],[1,1]]}', "Alternate GeoJSON coordinate systems are unsupported"],
+  ["duplicate coordinates", '<kml><LineString><coordinates>0,0 1,1</coordinates><coordinates>2,2 3,3</coordinates></LineString></kml>', "Duplicate track XML coordinates"],
+] as const) test(`${name} remains a structural error`, () => { expect(() => parseImportedTrack(source)).toThrow(message); });
 test("byte, depth and aggregate point limits count all evidence", () => {
   expect(() => parseImportedTrack(" ".repeat(20 * 1024 * 1024 + 1))).toThrow("20 MiB");
   expect(() => parseImportedTrack('<kml>' + '<Folder>'.repeat(129) + '</Folder>'.repeat(129) + '</kml>')).toThrow("nesting");
@@ -57,6 +57,9 @@ test("byte, depth and aggregate point limits count all evidence", () => {
 test("GeoJSON wrappers are structurally validated, rather than treating mislabeled ordinary objects as geometry", () => {
   const line = { type: "LineString", coordinates: [[3,2],[3.01,2]] };
   const feature = { type: "Feature", properties: {}, geometry: line };
-  for (const bad of [{ type: "FeatureCollection", features: [line] }, { type: "GeometryCollection", geometries: [feature] }, { type: "Feature", properties: {}, geometry: feature }]) expect(() => parseImportedTrack(JSON.stringify(bad))).toThrow();
+  for (const [bad, message] of [[{ type: "FeatureCollection", features: [line] }, "FeatureCollection members must be Features"],
+    [{ type: "GeometryCollection", geometries: [feature] }, "not a Feature wrapper"], [{ type: "Feature", properties: {}, geometry: feature }, "not a Feature wrapper"]] as const) {
+    expect(() => parseImportedTrack(JSON.stringify(bad))).toThrow(message);
+  }
   expect(parseImportedTrack(JSON.stringify({ type: "FeatureCollection", features: [feature] })).track.counts.retained).toBe(2);
 });
