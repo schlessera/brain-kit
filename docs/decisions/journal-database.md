@@ -28,7 +28,7 @@ that no pre-charge covers. The evidence is on the issue.
   `DB_PATH` names one journal.
   Every page in it is the journal's, so the measurement is the file's page
   count and the journal's own WAL, read without walking
-  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:72-86`).
+  (`function measure(`, `packages/ui-server/src/brain/journal-accounting.ts:73-87`).
   Other components' pages and WAL frames are no longer the journal's charge.
 - **The tables move on start.** Migrations up to `063` create journal tables
   in the UI database. Before any later migration, and again after the last,
@@ -97,7 +97,7 @@ that no pre-charge covers. The evidence is on the issue.
   readers understand the arrays until then, and an empty legacy array stays
   "no set recorded". The brain's current set is the one the most recent complete,
   inventoried turn recorded
-  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:743-749`).
+  (`configurationCoverage(): ConfigurationCoverageRead`, `packages/ui-server/src/brain/turn-journal.ts:779-785`).
   The sets table is an ordinary rowid table, as every journal table is: the
   operational backup copies and compares journal rows in rowid order.
 
@@ -132,3 +132,18 @@ the reservation, object state and charge remain unchanged for the next recovery
 pass. Only a verified mismatch or confirmed absence of retained content can
 quarantine it. Recovery marks live owners' paths without changing their running
 state; their normal completion preserves the gap.
+
+
+## Unresolved object recovery (#3826)
+
+An I/O refusal while checking an interrupted object's existence or integrity
+proves neither corruption nor absence. Its reservation remains charged. The
+first error class, bounded message, site, time and reservation/hash identity
+are stored with that reservation through an accounted worker write. A later
+successful recovery deletes the reservation and its diagnostic together.
+
+The worker returns a boot summary to authenticated status: unresolved record
+count and earliest cause. This keeps a local verification failure visible while
+boot and independent records remain usable. A failed diagnostic write is logged
+and the in-memory summary still reaches the owner; it does not release the
+original durable reservation or convert the refusal into a boot failure.

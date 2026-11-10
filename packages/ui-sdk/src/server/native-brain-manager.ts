@@ -352,8 +352,13 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     try { lstatSync(join(stages, id)); }
     catch (error) { if (errorCode(error) === "ENOENT") continue; }
     try {
-      quarantinedStageBytes += readStageAllowance(id);
-      if (!Number.isSafeInteger(quarantinedStageBytes)) throw Error("Native quarantine capacity exceeds safe accounting range");
+      const allowance = readStageAllowance(id);
+      // Still validate later records, but Infinity already means unknown, not
+      // a new arithmetic overflow attributable to each subsequent identity.
+      if (Number.isFinite(quarantinedStageBytes)) {
+        quarantinedStageBytes += allowance;
+        if (!Number.isSafeInteger(quarantinedStageBytes)) throw Error("Native quarantine capacity exceeds safe accounting range");
+      }
     } catch (error) {
       quarantinedStageBytes = Infinity;
       recordNativeRecoveryFailure(join(privateRoot, "recovery-diagnostics"), id, "native-brain-manager.recoverStageAllowance", error);
@@ -401,6 +406,16 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     }
     return intent;
   }
+  function stagingRecoveryRefusal(allowance: number): string | undefined {
+    // Status is read at server boot, so the owner restarts both after a repair.
+    const restart = "then restart the native manager and the server. Waiting for another conversation will not resolve it.";
+    if (!Number.isFinite(quarantinedStageBytes)) return "Native output staging is blocked: a quarantined stage's storage size is unknown. "
+      + `Inspect the host-private recovery diagnostics and restore that stage's allowance record from proof of its original size, ${restart}`;
+    if (quarantinedStageBytes > 0 && fixed.stageBudgetBytes !== undefined && quarantinedStageBytes + allowance > fixed.stageBudgetBytes)
+      return "Native output staging is blocked: quarantined stage storage leaves too little budget for this request. "
+        + `Inspect the host-private recovery diagnostics and repair the stage's receipt or confirm its storage is removed, ${restart}`;
+    return undefined;
+  }
   async function ready(signal?: AbortSignal): Promise<NativeManagerReady> {
     const identity = await qualify(signal); await ensureReserve(signal);
     const { statfsSync } = await import("node:fs"), space = statfsSync(fixed.storePath);
@@ -410,6 +425,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       fsid: fixed.fsid, capacityBytes: fixed.capacityBytes, availableBytes: space.bavail * space.bsize, recoveryReserveBytes: fixed.recoveryReserveBytes,
       reserveAllocatedBytes: lstatSync(reserve).blocks * 512,
       ...(quarantinedIntents.size ? { recovery: { quarantinedIntents: quarantinedIntents.size,
+        stagingRefusal: stagingRecoveryRefusal(fixed.stageAllowanceBytes ?? 0),
         stagingChargedBytes: Number.isSafeInteger(stagedBytes + quarantinedStageBytes) ? stagedBytes + quarantinedStageBytes : null, diagnosticsPath: join(privateRoot, "recovery-diagnostics") } } : {}) };
   }
   async function run(request: NativeManagerRequest, signal?: AbortSignal): Promise<Response> {
@@ -553,7 +569,8 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
         const source = readIntent(request.checkpointId);
         if (!source || source.kind === "stage" || source.state !== "sealed") throw new NativeBrainManagerError("unknown", "Native staging requires one retained sealed checkpoint.");
         const checkpoint = await verifyOwned(source, signal);
-        if (!Number.isFinite(quarantinedStageBytes)) throw new NativeBrainManagerError("unknown", "Native staging recovery cannot establish a quarantined stage's storage bound. Inspect the host-private recovery diagnostics and repair its allowance or authoritative receipt; waiting for another conversation will not resolve it.");
+        const recoveryRefusal = stagingRecoveryRefusal(request.allowanceBytes);
+        if (recoveryRefusal) throw new NativeBrainManagerError("unknown", recoveryRefusal);
         if (stagedBytes + quarantinedStageBytes + request.allowanceBytes > fixed.stageBudgetBytes) throw new NativeBrainManagerError("capacity", "Native output staging aggregate budget is busy; nothing ran.");
         const path = join(stages, request.id);
         if (!intent) {

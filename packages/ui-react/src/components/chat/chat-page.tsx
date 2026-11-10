@@ -1,6 +1,6 @@
 import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
-import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
+import { ConversationCoverageNotice, ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -762,6 +762,7 @@ export function ChatPage() {
                   <TranscriptReadingScope onRead={beginReading} returnFocus={readingFallback}>
                   {visibleEntries.map((entry) => {
                     if (entry.kind === "history-notice") return <p key={entry.key} className="py-3 text-sm">{entry.label}</p>;
+                    if (entry.kind === "voice-coverage") return <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationCoverageNotice conversationId={entry.conversationId} coverage={entry.coverage} /></div>;
                     if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} cutOff={entry.cutOff} />;
                     if (entry.kind === "voice-boundary") return entry.label === "Voice ended"
                       ? <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationEndDivider label={conversationEndLabel(entry.durationMs)} /></div>

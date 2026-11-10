@@ -353,6 +353,7 @@ signatures (every public export and the types it is made of)
         token: number;
         connection: "Connecting" | "Connected" | "Reconnecting" | "Speech lost";
         micOn: boolean;
+        capture: "idle" | "listening" | "muted" | "stopped";
         interaction: "Listening" | "Sending soon" | "Review before sending" | "Working" | "Speaking" | "Checking whether the reply stopped" | "Answering question";
         disclosureOpen: boolean;
         profile: ServerConversationOpened | null;
@@ -1685,6 +1686,10 @@ signatures (every public export and the types it is made of)
             frame: (message: import("@schlessera/brain-ui-sdk").ServerMessage) => import("@schlessera/brain-ui-sdk").ServerMessage | null;
             historyOwnerFor: (key: string) => string | undefined;
             leave: () => void;
+            levels: () => {
+                input: number;
+                output: number;
+            };
             loadDialogue: (key: string, older?: boolean) => void;
             mute(): void;
             permissions: {

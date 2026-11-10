@@ -1597,6 +1597,7 @@ signatures (every public export and the types it is made of)
         recovery?: {
             quarantinedIntents: number;
             stagingChargedBytes: number | null;
+            stagingRefusal?: string;
             diagnosticsPath: string;
         };
     }
@@ -2583,6 +2584,7 @@ signatures (every public export and the types it is made of)
             inode: string;
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
+        recoveryStatus(): JournalRecoveryStatus;
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;

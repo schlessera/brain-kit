@@ -1,4 +1,5 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
+import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
@@ -112,10 +113,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const ownWriter = !options.writer;
   const ledger = writer.channel<JournalStoreOptions>(journalStore, { dbPath: options.dbPath, objectsRoot: options.objectsRoot, ...(options.capBytes !== undefined ? { capBytes: options.capBytes } : {}) }, reviveJournalError);
   if (writer.offloop) installEscapeGuard(db);
+  let recoveryStatus: JournalRecoveryStatus = { unresolvedRecords: 0, firstCause: null };
   /** Startup recovery commits before any later write; `ready` reports its refusal. */
   const ready = (async () => {
     await ledger.ready;
-    await ledger.call("recover");
+    recoveryStatus = await ledger.call<JournalRecoveryStatus>("recover");
     // Governance events live in the UI database; a commit split between the
     // two files is completed from the journal's rows (#2789).
     await createGovernanceWrites(db, writer).replaySteering();
@@ -211,11 +213,38 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   }
   /** Managed worktrees a running turn's workers can reach, each observed as its own root. */
   const worktrees = new Map<string, { turnId: string; capture: ReturnType<typeof createNativeJournalCapture>; policy: NativeJournalPolicy }>();
+  /** Closed captures still own their failed releases after their turn ends. */
+  const retiredWorktrees = new Set<ReturnType<typeof createNativeJournalCapture>>();
+  const worktreeCloses = new Map<ReturnType<typeof createNativeJournalCapture>, Promise<void>>();
+  let worktreeRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let worktreeRetry: Promise<void> | undefined;
+  function retryWorktreesLater(): void {
+    if (closing || worktreeRetryTimer || worktreeRetry || !retiredWorktrees.size) return;
+    worktreeRetryTimer = setTimeout(() => {
+      worktreeRetryTimer = undefined;
+      worktreeRetry = (async () => {
+        for (const root of [...retiredWorktrees]) {
+          if (closing) break;
+          await retireWorktree(root);
+        }
+      })().finally(() => { worktreeRetry = undefined; retryWorktreesLater(); });
+    }, 30_000);
+    worktreeRetryTimer.unref?.();
+  }
+  function retireWorktree(root: ReturnType<typeof createNativeJournalCapture>): Promise<void> {
+    const pendingClose = worktreeCloses.get(root);
+    if (pendingClose) return pendingClose;
+    retiredWorktrees.add(root);
+    const work = root.close().then(() => { retiredWorktrees.delete(root); }, () => {
+      // Keep the capture, its charge and its recorded cause until deletion is confirmed.
+    }).finally(() => { worktreeCloses.delete(root); retryWorktreesLater(); });
+    worktreeCloses.set(root, work);
+    return work;
+  }
   async function dropWorktrees(turnId?: string) {
     for (const [id, root] of [...worktrees]) if (turnId === undefined || root.turnId === turnId) {
       worktrees.delete(id);
-      // A checkpoint this cannot release stays a held lease; startup recovery releases it.
-      await root.capture.close().catch(() => {});
+      await retireWorktree(root.capture);
     }
   }
   let tail: Promise<unknown> = Promise.resolve();
@@ -406,7 +435,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       try { separate.push({ worktreeId, turnId: root.turnId, observation: await root.capture.observe(new Map([[root.turnId, root.policy]])) }); }
       catch (error) {
         // Only the holding turn depends on this root: it stops, and its record stays partial.
-        worktrees.delete(worktreeId); void root.capture.close().catch(() => {});
+        worktrees.delete(worktreeId); void tracked(retireWorktree(root.capture));
         const failure = storageError(error);
         const recorded = fail(root.turnId, failure).catch(() => { /* The partial slot remains authoritative. */ });
         try { holder.stop(failure); } catch { /* Continue with the other participants. */ }
@@ -575,28 +604,35 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         const policy = await root.policy();
         signal?.throwIfAborted();
         worktrees.set(worktreeId, { turnId, capture: root, policy });
-      } catch (error) { await root.close().catch(() => {}); throw signal?.aborted ? error : storageError(error); }
+      } catch (error) { await retireWorktree(root); throw signal?.aborted ? error : storageError(error); }
     }); },
     /** Worktrees an active turn's journal observes. */
     worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id); },
     isHeld(): boolean { return holds > 0; },
+    /** Unresolved object verification from the most recent boot recovery pass. */
+    recoveryStatus(): JournalRecoveryStatus { return recoveryStatus; },
     /** Current retained charges, plus the durable historical cause even before any turn existed. */
     cleanupStatus() {
       const retained = capture.releases();
-      for (const root of worktrees.values()) {
-        const other = root.capture.releases();
+      for (const root of [...worktrees.values()].map(root => root.capture).concat([...retiredWorktrees])) {
+        const other = root.releases();
         retained.pending += other.pending; retained.failed += other.failed; retained.retainedBytes += other.retainedBytes;
       }
       return { retained, lastFailure: getSetting<unknown>(db, "journal.cleanup.lastFailure", null) };
     },
     /** @internal Settles once every previous checkpoint handed to release so far has been attempted (#2872). */
     async releasesSettled(): Promise<void> {
+      await worktreeRetry;
       await capture.releasesSettled();
       for (const root of worktrees.values()) await root.capture.releasesSettled();
+      for (const root of retiredWorktrees) await root.releasesSettled();
     },
     async idle(): Promise<void> {
       let waiting: Promise<unknown>;
       do { waiting = tail; await waiting; } while (waiting !== tail);
+      // Background worktree cleanup (#3825) is not awaited here: every turn's
+      // host effects wait on idle(), and one ended turn's slow release must not
+      // delay them. releasesSettled() waits for it.
       await Promise.allSettled([...unserialized]);
     },
     /** Settles once startup recovery has run; rejects with its refusal. */
@@ -776,9 +812,10 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     maintain,
     async close() {
       closing = true; clearInterval(idleTimer); shutdown.abort(new Error("turn journal closed"));
+      clearTimeout(worktreeRetryTimer); worktreeRetryTimer = undefined;
       clearInterval(scopeTimer);
-      try { await tail; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
-      finally { objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
+      try { await tail; await worktreeRetry; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
+      finally { await Promise.allSettled([...unserialized]); objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
     },
   };
 }
