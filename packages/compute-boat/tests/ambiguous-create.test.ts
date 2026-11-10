@@ -63,7 +63,8 @@ describe("ambiguous create", () => {
     advance(25 * 60 * 60 * 1000);
     fake.forgetIdempotencyKeys();
     const again = await provider.allocate({ key: "job-scheria-3", leaseSeconds: 600, retain: false }, contextFor(fake, { now }));
-    expect(first.kind === "ok" && again.kind === "ok" && again.sandbox.id === first.sandbox.id).toBe(true);
+    if (first.kind !== "ok") throw new Error(first.kind);
+    expect(again.kind === "ok" && again.sandbox.id).toBe(first.sandbox.id);
     expect([fake.created(), fake.routes().filter((r) => r === "create").length]).toEqual([1, 1]);
   });
 
