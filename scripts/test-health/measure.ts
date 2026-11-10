@@ -9,13 +9,15 @@
  *   stress   - alone while every CPU is busy: does it depend on spare capacity?
  *
  * The verdict names the first variant that fails. Timings come from `repeat`
- * only, so a before/after pair compares like with like.
+ * only, so a before/after pair compares like with like. A file whose every
+ * repeat run exits nonzero without collecting a single case never reached its
+ * tests: that is `not-collected` (a missing build, a load error), not `failing`.
  */
 import { availableParallelism } from "node:os";
 import type { CaseResult } from "./junit";
 import type { RunOutput, TestRunner } from "./runner";
 
-export type Verdict = "stable" | "failing" | "flaky" | "order-dependent" | "leaks-between-files" | "load-sensitive";
+export type Verdict = "stable" | "not-collected" | "failing" | "flaky" | "order-dependent" | "leaks-between-files" | "load-sensitive";
 
 export interface FileMeasure {
   file: string;
@@ -35,6 +37,8 @@ export interface FileMeasure {
   slowestCases: Array<{ name: string; medianMs: number }>;
   /** Every case of one representative run: what the batch's test accounting compares before and after a change. */
   cases: Array<{ name: string; state: "passed" | "failed" | "skipped"; assertions: number | null }>;
+  /** Only for `not-collected`: the last lines the runner printed, which name why nothing was collected. */
+  setupError?: string;
 }
 export interface MeasureResult {
   schemaVersion: 1;
@@ -77,6 +81,13 @@ export function cpuLoad(): () => void {
 
 /** A run fails on a nonzero exit, and also when a case failed under an exit code that hid it. */
 const failed = (run: RunOutput): boolean => run.exitCode !== 0 || run.cases.some(entry => entry.state === "failed");
+/** A run that failed before collecting any case says nothing about the tests. */
+const notCollected = (run: RunOutput): boolean => run.exitCode !== 0 && run.cases.length === 0;
+const SETUP_ERROR_LINES = 20;
+// Terminal colour codes from the runner, written as an escape so no raw control character sits in source.
+const ANSI = /\u001b\[[0-9;]*m/g;
+const tail = (output: string): string =>
+  output.replace(ANSI, "").split("\n").map(line => line.trimEnd()).filter(Boolean).slice(-SETUP_ERROR_LINES).join("\n");
 
 export function runsFor(requested: number, costSeconds: number | undefined, budgetSeconds: number | undefined): number {
   if (!costSeconds || !budgetSeconds) return requested;
@@ -103,7 +114,8 @@ export async function measure(options: MeasureOptions): Promise<MeasureResult> {
     const all = Object.values(variants).flat();
     const failures = (name: string) => (variants[name] ?? []).filter(failed).length;
     const repeatFailures = failures("repeat");
-    const verdict: Verdict = repeatFailures === runs ? "failing" : repeatFailures > 0 ? "flaky"
+    const uncollected = variants.repeat!.length > 0 && variants.repeat!.every(notCollected);
+    const verdict: Verdict = uncollected ? "not-collected" : repeatFailures === runs ? "failing" : repeatFailures > 0 ? "flaky"
       : failures("shuffle") > 0 ? "order-dependent" : failures("stress") > 0 ? "load-sensitive" : "stable";
     const byCase = new Map<string, CaseResult[]>();
     for (const run of all) for (const entry of run.cases) byCase.set(entry.name, [...(byCase.get(entry.name) ?? []), entry]);
@@ -125,6 +137,7 @@ export async function measure(options: MeasureOptions): Promise<MeasureResult> {
       slowestCases: [...repeatCases.entries()].map(([name, list]) => ({ name, medianMs: median(list)! }))
         .sort((a, b) => b.medianMs - a.medianMs || (a.name < b.name ? -1 : 1)).slice(0, 8),
       cases: (variants.repeat!.find(run => !failed(run)) ?? variants.repeat![0])?.cases.map(entry => ({ name: entry.name, state: entry.state, assertions: entry.assertions })) ?? [],
+      ...(uncollected ? { setupError: tail(variants.repeat!.at(-1)!.output) } : {}),
     });
   }
 
