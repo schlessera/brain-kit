@@ -85,8 +85,12 @@ async function mount(width: number, theme: string) {
 
 const spans = (row: HTMLElement, text: string) => [...row.querySelectorAll<HTMLElement>("span")].find((s) => s.textContent === text);
 
+/** Storybook owns light and dark parity (docs/process/theme-parity.md); row
+ * geometry never reads a colour, so each width runs in one theme, alternating. */
+const widthTheme = (width: number) => ([768, 1280].includes(width) ? "dark" : "light");
 for (const theme of ["dark", "light"] as const) {
   for (const width of [768, 1024, 1280, 1440]) {
+    if (widthTheme(width) !== theme) continue;
     test(`a reason that fits stays beside the label, one that does not drops under it: ${theme}, ${width}`, async () => {
       pointerScene();
       const { dialog, rows } = await mount(width, theme);
@@ -133,6 +137,7 @@ for (const theme of ["dark", "light"] as const) {
  * the 34px density, 35.7px with a chip (#1120). */
 for (const theme of ["dark", "light"] as const) {
   for (const width of [768, 1024, 1280, 1440]) {
+    if (widthTheme(width) !== theme) continue;
     test(`every row is a 44px target under a coarse pointer, and keeps its density under a fine one: ${theme}, ${width}`, async () => {
       const mode = pointerScene();
       const { rows } = await mount(width, theme);
