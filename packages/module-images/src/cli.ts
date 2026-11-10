@@ -21,12 +21,14 @@ import type { ImagesConfig } from "./module.js";
 import { availableModels, providerFor, PROVIDERS } from "./providers/index.js";
 import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
-import { estimateOpenAiOutputCost, openAiRequestSize } from "./providers/openai.js";
+import { estimateOpenAiOutputCost, openAiRequestQuality, openAiRequestSize } from "./providers/openai.js";
 import { isRetiredModel, retiredModelMessage } from "./retired.js";
 import { route, type RoutingDecision } from "./routing.js";
 import {
+  IMAGE_COMPLEXITIES,
   IMAGE_QUALITIES,
   ImageProviderError,
+  type ImageComplexity,
   type ImageInput,
   type ImageQuality,
   type ImageRequest,
@@ -56,7 +58,11 @@ Shape (--aspect and --resolution work on every model):
   --resolution <r>        512px | 1K | 2K | 4K
   --size <WxH>            Exact pixels — OpenAI only (16px grid, max edge 3840,
                           0.65-8.3MP). Requesting one routes away from Gemini.
-  --quality <q>           low | medium | high | xhigh | max | auto (OpenAI; sent as given)
+  --quality <q>           low | medium | high | xhigh | max | auto (OpenAI; sent as given).
+                          Default: max, the highest and most expensive tier
+  --complexity <c>        low | medium | high — how much GPT Image 2.6 plans before it
+                          renders (no separate fee). Default on 2.6: high. Refused on
+                          any other model
   --transparent           Transparent background, png or webp (OpenAI; stays on the
                           selected model)
 
@@ -66,7 +72,7 @@ Editing:
 
 Routing:
   --provider openai|gemini    Pin a provider
-  --model <id>                Pin a model, e.g. gpt-image-2.5-flare
+  --model <id>                Pin a model, e.g. gpt-image-2.6-flare
   --text-in-image             The image is mostly type — poster, diagram, menu
   --characters                Recurring characters must stay consistent
   --no-watermark              Output must not carry SynthID
@@ -75,8 +81,9 @@ Routing:
 
 Routing is by capability: a mask, a transparent background or an exact pixel
 size forces OpenAI; heavy reference counts and character consistency favour
-Gemini. Otherwise the default is gpt-image-2.5-sunburst when OpenAI is
-available; gpt-image-2.5-flare is chosen by --model or preferredModels.
+Gemini. Otherwise the default is gpt-image-2.6-sunburst when OpenAI is
+available; gpt-image-2.6-flare and the 2.5 pair are chosen by --model or
+preferredModels.
 
 --json envelope: { output, provider, model, costUsd, costIsEstimate, bytes, reason }`;
 
@@ -204,6 +211,11 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       console.error(`--quality must be one of ${IMAGE_QUALITIES.join(", ")} (got "${quality}")`);
       return 1;
     }
+    const complexity = parsed.flags.complexity as string | undefined;
+    if (complexity !== undefined && !(IMAGE_COMPLEXITIES as readonly string[]).includes(complexity)) {
+      console.error(`--complexity must be one of ${IMAGE_COMPLEXITIES.join(", ")} (got "${complexity}")`);
+      return 1;
+    }
     const format = parsed.flags.format as string | undefined;
     if (format !== undefined && !(FORMATS as readonly string[]).includes(format)) {
       console.error(`--format must be one of ${FORMATS.join(", ")} (got "${format}")`);
@@ -218,6 +230,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
         aspect: parsed.flags.aspect as string | undefined,
         resolution: parsed.flags.resolution as ImageRequest["resolution"],
         quality: quality as ImageQuality | undefined,
+        complexity: complexity as ImageComplexity | undefined,
         format: format as ImageRequest["format"],
         transparent: parsed.flags.transparent === true,
         references: (parsed.repeated.ref ?? []).map((r) => loadImage(ctx.root, r)),
@@ -308,11 +321,12 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     const report = (abs: string) => relative(ctx.root, abs);
 
     if (parsed.flags["dry-run"] === true) {
-      // The 2.5 models have no card price, but a stated quality and size have
-      // a published output-token count; anything else stays unknown.
+      // The GPT Image models have no card price, but a quality (stated, or the
+      // max default) and a size have a published output-token count; `auto`
+      // or an unstated size stays unknown.
       const estimatedCostUsd =
         model.provider === "openai"
-          ? (estimateOpenAiOutputCost(model.id, request.quality, openAiRequestSize(request, model.id)) ?? null)
+          ? (estimateOpenAiOutputCost(model.id, openAiRequestQuality(request), openAiRequestSize(request, model.id)) ?? null)
           : model.approxCostUsd1K;
       const payload = {
         status: "dry-run",
@@ -326,7 +340,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       else {
         const cost =
           estimatedCostUsd === null && model.provider === "openai"
-            ? "cost unknown — pass --quality and --size to price it"
+            ? "cost unknown — pass --size or --aspect (and a quality other than auto) to price it"
             : price(estimatedCostUsd);
         console.log(`Would use ${describe(decision)}`);
         console.log(`Would write ${payload.output} (${cost})`);

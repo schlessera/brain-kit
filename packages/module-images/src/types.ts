@@ -18,10 +18,16 @@ export interface ImageRequest {
   /** Gemini-style resolution bucket. */
   resolution?: "512px" | "1K" | "2K" | "4K";
   /**
-   * OpenAI-style quality tier. `xhigh` and `max` are GPT Image 2.5 tiers; they
-   * are forwarded as given, never mapped down to `high`.
+   * OpenAI-style quality tier. `xhigh` and `max` are GPT Image 2.5 and 2.6
+   * tiers; they are forwarded as given, never mapped down to `high`. Unset,
+   * an OpenAI request sends `max` (#3782).
    */
   quality?: ImageQuality;
+  /**
+   * GPT Image 2.6 planning effort, independent of quality. Only models with
+   * `complexityControl` take it; routing refuses it anywhere else.
+   */
+  complexity?: ImageComplexity;
   format?: "png" | "jpeg" | "webp";
   /** Transparent background (png or webp only). Only some models support it; routing enforces that. */
   transparent?: boolean;
@@ -35,6 +41,10 @@ export interface ImageRequest {
 /** Every quality tier the CLI accepts. Anything else is refused before routing. */
 export const IMAGE_QUALITIES = ["low", "medium", "high", "xhigh", "max", "auto"] as const;
 export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+
+/** GPT Image 2.6 `complexity` values. Anything else is refused before routing. */
+export const IMAGE_COMPLEXITIES = ["low", "medium", "high"] as const;
+export type ImageComplexity = (typeof IMAGE_COMPLEXITIES)[number];
 
 export interface ImageInput {
   data: Uint8Array;
@@ -75,6 +85,8 @@ export interface ModelCapabilities {
   transparentBackground: boolean;
   /** Pixel-scoped inpainting with an alpha mask. */
   maskInpainting: boolean;
+  /** Takes OpenAI's `complexity` (planning effort) parameter: GPT Image 2.6. */
+  complexityControl: boolean;
   /**
    * Arbitrary WxH rather than a fixed set, within OpenAI's published
    * custom-size rules (`OPENAI_LIMITS` in `shape.ts`).
@@ -105,8 +117,8 @@ export interface ModelCapabilities {
   defaultFormat: "png" | "jpeg" | "webp";
   /**
    * Approximate USD for one image at ~1K, for cost reporting and tie-breaks.
-   * `null` when no verified per-image price exists: the GPT Image 2.5 models
-   * are billed per token, and OpenAI states its calculator does not estimate
+   * `null` when no verified per-image price exists: the GPT Image 2.5 and 2.6
+   * models are billed per token, and OpenAI states its calculator does not estimate
    * their token consumption. An unknown cost is reported as unknown, never as
    * a borrowed figure.
    */
