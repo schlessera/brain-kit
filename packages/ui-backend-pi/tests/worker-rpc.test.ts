@@ -215,8 +215,9 @@ test("an unavailable collector notice awaits durable failure and carries no tool
 test("every permission answer but allow tells the collector the call never runs", async () => {
   // Pi runs a call only on "allow": a denial or a rejection blocks it before
   // it executes, so the call owes no result record (#3812).
-  const refused: string[] = [];
-  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); } };
+  const refused: string[] = [], allowed: string[] = [];
+  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); },
+    allowed: async (id: string) => { allowed.push(id); } };
   const routed = harness({}, { applyBrain: async () => ({ ok: true }) as never, inputSafety });
   expect(await routed.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-allowed"))).toEqual({ behavior: "allow" });
   const unrouted = harness({}, { inputSafety });
@@ -227,4 +228,18 @@ test("every permission answer but allow tells the collector the call never runs"
     { applyBrain: async () => ({ ok: true }) as never, inputSafety });
   await expect(stopped.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-stopped"))).rejects.toThrow("turn is inactive");
   expect(refused, "PI_NON_ALLOW_PERMISSION_REFUSES_THE_CALL").toEqual(["call-denied", "call-stopped"]);
+  expect(allowed, "PI_ALLOWED_PERMISSION_IS_NOTED_BEFORE_IT_RUNS").toEqual(["call-allowed"]);
+});
+
+test("an allow the collector can no longer note is denied, and its grant withdrawn", async () => {
+  // A refusal already discharged this call's obligation: letting it run now
+  // would leave its result owed to nothing (#3812).
+  const refused: string[] = [];
+  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); },
+    allowed: async () => { throw new Error("Safety operation was refused or not admitted; the call does not run"); } };
+  const { context, dispatch } = harness({}, { inputSafety });
+  const answer = await dispatch(rpc("permission", "read_file", { path: "notes/ithaca.md" }, "call-refused"));
+  expect(answer, "PI_UNNOTED_ALLOW_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("does not run") });
+  expect(context.grants.has("call-refused"), "PI_UNNOTED_ALLOW_LEAVES_NO_GRANT").toBe(false);
+  expect(refused, "PI_UNNOTED_ALLOW_IS_REFUSED").toEqual(["call-refused"]);
 });

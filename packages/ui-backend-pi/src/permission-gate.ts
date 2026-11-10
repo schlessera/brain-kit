@@ -108,9 +108,16 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
     name: "brain-permission-gate",
     factory: (pi) => {
       pi.on("tool_call", async (event) => {
-        const answer = await admit(event);
+        const answer = await admit(event), safety = turn.bridge?.inputSafety;
         // A blocked call never runs, so it owes no result record (#3812).
-        if (answer?.block) await turn.bridge?.inputSafety?.refused?.(event.toolCallId);
+        if (answer?.block) { await safety?.refused?.(event.toolCallId); return answer; }
+        // A call let through may run: from now on only its recorded result
+        // discharges it. One the host can no longer allow is blocked instead.
+        try { await safety?.allowed?.(event.toolCallId); }
+        catch (error) {
+          await safety?.refused?.(event.toolCallId);
+          return { block: true, reason: error instanceof Error ? error.message : "Safety recording refused this call." };
+        }
         return answer;
       });
       async function admit(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {

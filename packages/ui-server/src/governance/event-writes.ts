@@ -62,8 +62,15 @@ export function setup(db: Database): WriteProcedures {
       try {const turnId=ensureSafetyEventCollection(db,row);reserveSafetyWrite(db,turnId,id,bytes,row.kind==="taint_exposure"?JSON.parse(row.payload).occurrenceId:undefined);}
       catch(error){if(!(error instanceof ChatRetiredError)&&!beforeDelivery)contain(error,row.turnId,"safetyReserve",row.sessionId);throw error;}
     },
-    safetyCommit: (row:GovernanceEventRow,id:string) => {
-      try{return db.transaction(()=>{assertLive(db,[["session",row.sessionId]]);if(row.turnId&&db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(row.turnId))throw new ChatRetiredError();if(!db.query("SELECT 1 FROM safety_pending WHERE id=?").get(id))throw new SafetyUnavailable("Safety reservation absent");releaseSafetyWrite(db,id);return insertGovernanceEvent(db,row,true);}).immediate();}
+    // `discharge`: the obligation of the call whose result this row completes.
+    // It goes in the row's own transaction, so no end or restart finds the
+    // record durable and the call still owed (#3812).
+    safetyCommit: (row:GovernanceEventRow,id:string,discharge:string|null=null) => {
+      try{return db.transaction(()=>{assertLive(db,[["session",row.sessionId]]);if(row.turnId&&db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(row.turnId))throw new ChatRetiredError();if(!db.query("SELECT 1 FROM safety_pending WHERE id=?").get(id))throw new SafetyUnavailable("Safety reservation absent");releaseSafetyWrite(db,id);
+        const stored=insertGovernanceEvent(db,row,true);
+        if(discharge===null)return stored;
+        if(!row.turnId)throw new SafetyUnavailable("Safety discharge requires its turn");
+        dischargeSafetyObligation(db,row.turnId,discharge);return {...stored,discharged:true};}).immediate();}
       catch(error){if(!(error instanceof ChatRetiredError))contain(error,row.turnId,"safetyCommit",row.sessionId);throw error;}
     },
     bind: (turnId: string, sessionId: string) => bindTurnEvents(db, turnId, sessionId),
@@ -90,6 +97,7 @@ export interface GovernanceWrites {
   /** The call's result is durably recorded, or the backend refused the call
    * and it never ran. A failure leaves the obligation, and so the gap. */
   safetyDischarge(turnId:string,obligationId:string):Promise<void>;
+  /** Ends the turn's collection once its result records under way settle. */
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
   safetyFail(turnId:string,cause?:unknown):Promise<void>;
@@ -99,9 +107,11 @@ export interface GovernanceWrites {
   /**
    * Validates now, throwing `GovernanceEventError` as the synchronous writer
    * did; the returned promise settles once the row commits, or with the
-   * database failure.
+   * database failure. `discharge`: on a tool result's last record, the
+   * obligation of the call it completes, discharged in the same transaction;
+   * `discharged` confirms that it was (#3812).
    */
-  record(input: GovernanceEventInput): Promise<{ id: number; recorded: boolean }>;
+  record(input: GovernanceEventInput, options?: { discharge?: string }): Promise<{ id: number; recorded: boolean; discharged?: boolean }>;
   /** Stores every distinct occurrence; only the exact host key deduplicates. Historical internal method name. */
   /** `beforeDelivery`: a tool's input, recorded before the tool runs, which
    * the producer holds until this settles; a refused reservation delivered
@@ -126,6 +136,11 @@ export interface GovernanceWrites {
   /** Records any `steering_change` event a journal steering change lacks (#2789). */
   replaySteering(): Promise<number>;
 }
+
+/** How long a collection's end waits for its turn's result records under
+ * way. Each settles with its writes; the bound only keeps a stuck one from
+ * holding the turn's teardown. */
+const SAFETY_END_RECORD_WAIT_MS = 10_000;
 
 /** The app side: every write commits on `writer` when there is one, else on `db` at once. */
 export function createGovernanceWrites(db: Database, writer?: SqliteWriter): GovernanceWrites {
@@ -188,7 +203,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     if(scope==="brain"){scheduleSafetyRecovery(db);return;}
     retainedForBrain(turnId,error);
   };
-  const record = (input: GovernanceEventInput, options: { beforeDelivery?: boolean } = {}): Promise<{ id: number; recorded: boolean }> => {
+  const record = (input: GovernanceEventInput, options: { beforeDelivery?: boolean; discharge?: string } = {}): Promise<{ id: number; recorded: boolean; discharged?: boolean }> => {
     const row = governanceEventRow(input);
     if (input.kind !== "taint" && input.kind !== "taint_exposure") return call("record", row);
     const restricted=covered(row.turnId);
@@ -215,7 +230,7 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
     notifySafetyChanged(db);
     const reservation=crypto.randomUUID();let reserved=false;
     const stored = call<void>("safetyReserve",row,reservation,bytes,!!options.beforeDelivery)
-      .then(()=>{reserved=true;return call<{id:number;recorded:boolean}>("safetyCommit",row,reservation);});
+      .then(()=>{reserved=true;return call<{id:number;recorded:boolean;discharged?:boolean}>("safetyCommit",row,reservation,options.discharge??null);});
     return stored.catch(error => {
       if((error as {code?:string})?.code==="chat_retired")throw error;
       // Already permanently gapped before delivery: this loss changes nothing.
@@ -261,7 +276,19 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       }
     },
     safetyDischarge: (turnId,obligationId)=>call("safetyDischarge",turnId,obligationId),
-    safetyEnd: turnId=>call("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId)),
+    async safetyEnd(turnId){
+      // A tool result's record already under way finishes first: stopping a
+      // turn refuses new tools, never the record of one that ran (#3812).
+      // Bounded: a record still unsettled then is refused by the end, and its
+      // chat keeps the gap.
+      const under=shared.recording.get(turnId);
+      if(under?.size){
+        let timer:ReturnType<typeof setTimeout>|undefined;
+        await Promise.race([Promise.allSettled([...under]),new Promise<void>(resolve=>{timer=setTimeout(resolve,SAFETY_END_RECORD_WAIT_MS);(timer as {unref?:()=>void}).unref?.();})]);
+        clearTimeout(timer);
+      }
+      await call<void>("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId));
+    },
     safetyFail,
     safety: (turnId,sessionId)=>snapshot(()=>{
       const projection=safetyProjection(db,turnId,sessionId);

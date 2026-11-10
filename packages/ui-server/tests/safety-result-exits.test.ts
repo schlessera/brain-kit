@@ -18,6 +18,11 @@ import { createSafetyCollector } from "../src/governance/safety-collector";
 import { safetyCatalogCreated } from "../src/governance/safety-store";
 import { createPiWorkerRpcDispatcher, type PiWorkerRpc, type PiWorkerRpcContext } from "../../ui-backend-pi/src/worker-rpc";
 import { installPiToolSafety } from "../../ui-backend-pi/src/tool-safety";
+import { createPermissionGate } from "../../ui-backend-pi/src/permission-gate";
+import { createBrainTools } from "../../ui-backend-pi/src/tools";
+import { createBrainAccess } from "../../ui-backend-pi/src/brain-access";
+import { createTurnContext } from "../../ui-backend-pi/src/turn-context";
+import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
 import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 
 /** A search that names a workspace note: only its result's record carries the taint. */
@@ -43,7 +48,9 @@ async function voyage() {
   const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, backendId: "pi", sessionId: () => "ithaca", brainPath: brain,
     shellProxied: () => false, signal: controller.signal, stop: error => controller.abort(error) });
   await collector.ready("pi", 1);
-  return { db, writes, collector, controller, path: join(root, "ui.db"),
+  return { db, writes, collector, controller, brain, path: join(root, "ui.db"),
+    /** Resolves once the writer has applied every write sent before it. */
+    idle: () => writer.idle(),
     failure: () => (db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get() as { failure: string | null }).failure,
     recorded: () => db.query(`SELECT r.detector FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
       WHERE c.turn_id='voyage' AND r.kind='occurrence'`).all(),
@@ -216,4 +223,143 @@ test("a call still owed when the host dies leaves its chat a permanent gap at bo
     expect(chat.restriction, "SAFETY_OWED_AT_RESTART_RESTRICTS_ITS_CHAT").toBe("restricted");
     expect(chat.coverage.epochs.find(epoch => epoch.reason === "recording_failed"), "SAFETY_OWED_AT_RESTART_IS_A_RECORDING_GAP").toBeDefined();
   } finally { await writer.close(); db.close(); }
+});
+
+/** The real curated search, run the way the worker runs it once the host allowed it. */
+async function searchRuns(f: Voyage, toolCallId: string, input: Record<string, unknown>): Promise<string> {
+  const grep = createBrainTools({ brain: createBrainAccess(f.brain), turn: createTurnContext(), exec: {},
+    lock: { withKey: async (_key: string, run: () => Promise<unknown>) => run() } } as never).find(tool => tool.name === "grep")!;
+  return JSON.stringify((await grep.execute(toolCallId, input as never, f.controller.signal, undefined, undefined as never)).content);
+}
+
+/** What stands for a call that ran and was never reported: its obligation, then its chat's gap. */
+async function stillOwed(f: Voyage, call: string) {
+  // A search of a note records nothing before it runs: only the obligation is left.
+  expect(f.chat().unresolvedCount, "SAFETY_UNREPORTED_SEARCH_LEFT_NOTHING_ELSE").toBe(0);
+  expect(f.owed(), "SAFETY_LATER_REFUSAL_KEEPS_THE_OBLIGATION").toBe(1);
+  await f.writes.safetyEnd("voyage");
+  expect(f.failure(), "SAFETY_ALLOWED_UNREPORTED_CALL_IS_A_DURABLE_GAP").toBe("recording_failed");
+  expect(f.cause(), "SAFETY_ALLOWED_UNREPORTED_CALL_NAMES_ITS_CALL").toMatchObject({ site: "safetyEnd", message: expect.stringContaining(call) });
+  expect(f.chat().restriction, "SAFETY_ALLOWED_UNREPORTED_CALL_RESTRICTS_ITS_CHAT").toBe("restricted");
+  expect(f.chat().coverage.state, "SAFETY_ALLOWED_UNREPORTED_CALL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+}
+
+// A refusal proves a call never ran only until the backend let it run. A
+// later request for the same call, refused for any reason, proves nothing
+// about the search that already ran (#3812).
+for (const later of ["replayed", "stopped", "denied", "unrecordable"] as const) test(`a Pi call allowed and run stays owed whatever a later request for it says: ${later}`, async () => {
+  const f = await voyage(); try {
+    const allowedTools = new Set(["grep"]);
+    const turn = { bridge: { inputSafety: f.collector, emit() {}, requestPermission: async () => ({ behavior: "deny", message: "Penelope declines the later request" }) },
+      signal: f.controller.signal, enforceAllowedTools: false, noGrantSurface: false };
+    const dispatch = createPiWorkerRpcDispatcher({ turn, grants: new Map(), allowedTools, confirmPatterns: [], admitTool() {}, autonomous: false,
+      live() { if (f.controller.signal.aborted) throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked."); } } as unknown as PiWorkerRpcContext);
+    const ask = { type: "rpc", id: 1, method: "permission", toolName: "grep", toolCallId: "call_raft", input: { pattern: "sirens" } } as PiWorkerRpc;
+    expect(await dispatch(ask), "SAFETY_PI_CALL_IS_ALLOWED").toEqual({ behavior: "allow" });
+    expect(f.owed(), "SAFETY_PI_ALLOWED_CALL_OWES_ITS_RESULT").toBe(1);
+    // The worker runs the search; its result never reaches the host.
+    expect(await searchRuns(f, ask.toolCallId, ask.input), "SAFETY_PI_ALLOWED_SEARCH_RAN").toContain("Sail past the sirens");
+    if (later === "stopped") f.controller.abort(new Error("Odysseus stopped the turn"));
+    if (later === "denied") allowedTools.clear();
+    // Re-requested with an input whose record is refused: its admission, a
+    // rejected begin(), fails before delivery and gaps nothing by itself.
+    if (later === "unrecordable") f.db.exec("CREATE TRIGGER refuse_input BEFORE INSERT ON safety_pending BEGIN SELECT RAISE(ABORT,'forced input reservation failure'); END");
+    const answer = await dispatch({ ...ask, id: later === "replayed" ? 1 : 2, ...(later === "unrecordable" ? { input: { pattern: "sirens", path: "workspaces/voyage" } } : {}) })
+      .catch((error: Error) => error);
+    if (later === "unrecordable") f.db.exec("DROP TRIGGER refuse_input");
+    if (later === "denied") expect(answer, "SAFETY_PI_LATER_REQUEST_IS_DENIED").toMatchObject({ behavior: "deny" });
+    else expect((answer as Error).message, "SAFETY_PI_LATER_REQUEST_IS_REJECTED").toContain(later === "replayed" ? "Replayed pi worker RPC" : "inactive, cancelled or revoked");
+    if (later === "unrecordable") expect(f.failure(), "SAFETY_PI_REFUSED_ADMISSION_GAPS_NOTHING_BY_ITSELF").toBeNull();
+    await stillOwed(f, "grep (call_raft)");
+  } finally { await f.close(); }
+});
+
+test("a Pi call the in-process gate let through stays owed when a later admission of it is blocked", async () => {
+  const f = await voyage(); try {
+    const turn = createTurnContext();
+    turn.bridge = { inputSafety: f.collector, emit() {}, requestPermission: async () => ({ behavior: "allow" }) } as never;
+    turn.signal = f.controller.signal;
+    let admit: ((event: { toolName: string; toolCallId: string; input: unknown }) => Promise<{ block: boolean; reason?: string } | undefined>) | undefined;
+    createPermissionGate({ turn, allowedTools: new Set(["grep"]), confirmPatterns: [] }).factory({ on: (event: string, handler: unknown) => { if (event === "tool_call") admit = handler as typeof admit; } } as never);
+    const call = { toolName: "grep", toolCallId: "call_raft", input: { pattern: "sirens" } };
+    expect(await admit!(call), "SAFETY_PI_GATE_LETS_THE_CALL_RUN").toBeUndefined();
+    expect(await searchRuns(f, call.toolCallId, call.input), "SAFETY_PI_GATE_SEARCH_RAN").toContain("Sail past the sirens");
+    f.controller.abort(new Error("Odysseus stopped the turn"));
+    expect(await admit!(call), "SAFETY_PI_GATE_BLOCKS_THE_LATER_ADMISSION").toMatchObject({ block: true });
+    await stillOwed(f, "grep (call_raft)");
+  } finally { await f.close(); }
+});
+
+test("a Claude call its callback allowed stays owed whatever a later admission of it says", async () => {
+  const f = await voyage(); try {
+    const wiring = createPermissionWiring({ req: { prompt: "Listen for the sirens.", signal: f.controller.signal,
+      bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" }), inputSafety: f.collector } } as never,
+      allowedTools: [], confirmPatterns: [], brainPath: f.brain, childEnv: { PATH: "/usr/bin:/bin" }, log() {},
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never });
+    const input = { pattern: "sirens", path: f.brain, output_mode: "content" }, options = { toolUseID: "toolu_sirens", signal: new AbortController().signal } as never;
+    // The callback is the runtime's last gate: on its allow the search runs.
+    expect((await wiring.canUseTool!("Grep", input, options))?.behavior, "SAFETY_CLAUDE_CALLBACK_ALLOWS_THE_CALL").toBe("allow");
+    expect(f.owed(), "SAFETY_CLAUDE_ALLOWED_CALL_OWES_ITS_RESULT").toBe(1);
+    // The turn stops before either result hook; the call is admitted again and denied.
+    f.controller.abort(new Error("Odysseus stopped the turn"));
+    const preToolUse = wiring.hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
+    const hooked = await preToolUse({ hook_event_name: "PreToolUse", tool_name: "Grep", tool_input: input, tool_use_id: "toolu_sirens" } as never, "toolu_sirens", { signal: new AbortController().signal });
+    expect((hooked as { hookSpecificOutput?: { permissionDecision?: string } }).hookSpecificOutput?.permissionDecision, "SAFETY_CLAUDE_LATER_HOOK_DENIES").toBe("deny");
+    expect((await wiring.canUseTool!("Grep", input, options))?.behavior, "SAFETY_CLAUDE_LATER_CALLBACK_DENIES").toBe("deny");
+    await stillOwed(f, "Grep (toolu_sirens)");
+  } finally { await f.close(); }
+});
+
+test("a result's last record discharges its call in the same commit, so a host dying after it owes nothing", async () => {
+  const f = await voyage(); let release = () => {}, reported: Promise<unknown> | undefined, open = true;
+  try {
+    await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
+    let committed = () => {};
+    const recorded = new Promise<void>(resolve => { committed = resolve; }), hold = new Promise<void>(resolve => { release = resolve; });
+    // Hold the collector the moment the result's exposure has committed.
+    const record = f.writes.record;
+    f.writes.record = async (...args: Parameters<typeof record>) => { const stored = await record(...args); if (args[0].kind === "taint_exposure") { committed(); await hold; } return stored; };
+    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true));
+    await recorded;
+    expect(f.db.query("SELECT kind,state FROM safety_records ORDER BY rowid").all(), "SAFETY_RESULT_RECORD_IS_DURABLE").toContainEqual({ kind: "exposure", state: "finalized" });
+    expect(f.owed(), "SAFETY_RECORDED_RESULT_IS_DISCHARGED_IN_ITS_OWN_COMMIT").toBe(0);
+    // The host dies here, before the collector returns.
+    await f.close(); open = false;
+    const db = createUiDb(f.path), writer = openSqliteWriter(db);
+    holdSafetyRecovery(db);
+    try {
+      const voyage = db.query("SELECT failure,failure_cause FROM safety_collections WHERE turn_id='voyage'").get() as { failure: string | null; failure_cause: string | null };
+      expect(voyage, "SAFETY_RECORDED_RESULT_IS_NO_GAP_AT_BOOT").toEqual({ failure: null, failure_cause: null });
+      expect(db.query("SELECT r.detector FROM safety_records r WHERE r.kind='occurrence'").all(), "SAFETY_RECORDED_RESULT_SURVIVES_RESTART").toEqual([{ detector: "tool_search_output" }]);
+    } finally { await writer.close(); db.close(); }
+  } finally { release(); await reported; if (open) await f.close(); }
+});
+
+test("a collection's end waits for a stopped turn's result record already under way", async () => {
+  const f = await voyage(); let release = () => {}, reported: Promise<unknown> | undefined;
+  try {
+    await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
+    let reached = () => {};
+    const midway = new Promise<void>(resolve => { reached = resolve; }), hold = new Promise<void>(resolve => { release = resolve; });
+    // Hold the record halfway: its occurrence committed, its exposure not yet.
+    const record = f.writes.record;
+    f.writes.record = async (...args: Parameters<typeof record>) => { if (args[0].kind === "taint_exposure") { reached(); await hold; } return record(...args); };
+    // Odysseus stops the turn as the result arrives; teardown then ends its collection.
+    f.controller.abort(new Error("Odysseus stopped the turn as the result arrived"));
+    reported = refusal(f.collector.result("call_raft", "grep", SEARCH, true));
+    await midway;
+    const ending = f.writes.safetyEnd("voyage");
+    // The writer applies its writes in order: had the end been sent, it is applied now.
+    await f.idle();
+    expect(f.db.query("SELECT ended FROM safety_collections WHERE turn_id='voyage'").get(), "SAFETY_END_WAITS_FOR_A_RECORD_UNDER_WAY").toEqual({ ended: 0 });
+    release();
+    expect(await reported, "SAFETY_RECORD_UNDER_WAY_COMPLETES").toBeNull();
+    await ending;
+    expect(f.db.query("SELECT ended FROM safety_collections WHERE turn_id='voyage'").get(), "SAFETY_END_FOLLOWS_THE_RECORD").toEqual({ ended: 1 });
+    expect(f.recorded(), "SAFETY_STOPPED_TURN_RESULT_IS_RECORDED").toEqual([{ detector: "tool_search_output" }]);
+    // Recorded, so reviewable: the stop leaves no permanent gap of its own.
+    expect(f.failure(), "SAFETY_RECORD_UNDER_WAY_AT_THE_END_IS_NO_GAP").toBeNull();
+    expect(f.chat().unresolvedCount, "SAFETY_RECORD_UNDER_WAY_AWAITS_REVIEW").toBe(1);
+    expect(f.chat().coverage.state, "SAFETY_RECORD_UNDER_WAY_KEEPS_COVERAGE").toBe("complete");
+  } finally { release(); await reported; await f.close(); }
 });

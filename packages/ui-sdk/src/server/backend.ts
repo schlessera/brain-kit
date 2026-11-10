@@ -193,8 +193,18 @@ export interface BackendBridge {
      * Every call `begin` admits owes its `result` until one is recorded or
      * this says it never ran; still owed when the turn ends, it leaves the
      * turn's chat a permanent gap. Call it for every refusal the backend
-     * returns, before returning it. Never rejects. */
+     * returns, before returning it. A refusal after `allowed` proves
+     * nothing about a call that may already have run, and discharges
+     * nothing. Never rejects. */
     refused?(toolUseId: string): Promise<void>;
+    /** @internal The backend lets this call run. From now on only its
+     * recorded `result` discharges it: a later refusal, a rejected `begin`,
+     * a stopped turn or a replayed request for the same id proves nothing
+     * about a call that may already have run. Call it before returning every
+     * allow; a backend that calls `refused` must call this too. Rejects when
+     * the call was refused or its admission did not complete; the backend
+     * then refuses the call instead. */
+    allowed?(toolUseId: string): Promise<void>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;

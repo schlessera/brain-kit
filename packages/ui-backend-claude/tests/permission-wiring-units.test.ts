@@ -119,17 +119,18 @@ describe("the extracted callbacks", () => {
 describe("refusals owe no result", () => {
   // A deny this backend returns is final: the runtime never runs the call,
   // so the host's collector stops waiting for its result (#3812).
-  function wiring(signal: AbortSignal) {
-    const refused: string[] = [];
+  function wiring(signal: AbortSignal, unnoted?: string) {
+    const refused: string[] = [], allowed: string[] = [], released: string[] = [];
     const { canUseTool, hooks } = createPermissionWiring({
       req: { prompt: "Count the suitors in the hall", signal,
         bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }),
-          inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); } } } } as never,
+          inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); },
+            allowed: async (id: string) => { if (id === unnoted) throw new Error("Safety operation was refused or not admitted; the call does not run"); allowed.push(id); } } } } as never,
       allowedTools: ["Read"], confirmPatterns: [], brainPath: "/srv/odysseus-brain",
-      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, childEnv: {}, log: () => {},
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool(id: string) { released.push(id); } } as never, childEnv: {}, log: () => {},
     });
     const preToolUse = hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
-    return { canUseTool: canUseTool!, preToolUse, refused };
+    return { canUseTool: canUseTool!, preToolUse, refused, allowed, released };
   }
 
   test("a call the backend denies tells the collector it never runs", async () => {
@@ -144,9 +145,21 @@ describe("refusals owe no result", () => {
 
   test("a call the backend lets run stays owed", async () => {
     const live = new AbortController();
-    const { canUseTool, preToolUse, refused } = wiring(live.signal);
+    const { canUseTool, preToolUse, refused, allowed } = wiring(live.signal);
     expect((await canUseTool("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: live.signal } as never))?.behavior).toBe("allow");
     await preToolUse(...hookCall("Read", { file_path: "/srv/odysseus-brain/notes/ithaca.md" }));
     expect(refused, "CLAUDE_ALLOW_LEAVES_THE_CALL_OWED").toEqual([]);
+    // The callback's allow is the runtime's last gate, so it is noted before
+    // the call runs: no later deny for the same id can discharge it (#3812).
+    expect(allowed, "CLAUDE_CALLBACK_ALLOW_IS_NOTED").toEqual(["oar-1"]);
+  });
+
+  test("a callback allow the collector cannot note is denied instead", async () => {
+    const live = new AbortController();
+    const { canUseTool, refused, released } = wiring(live.signal, "oar-1");
+    const answer = await canUseTool("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: live.signal } as never);
+    expect(answer, "CLAUDE_UNNOTED_ALLOW_IS_DENIED").toMatchObject({ behavior: "deny", message: expect.stringContaining("does not run") });
+    expect(refused, "CLAUDE_UNNOTED_ALLOW_IS_REFUSED").toEqual(["oar-1"]);
+    expect(released, "CLAUDE_UNNOTED_ALLOW_RELEASES_ITS_LOCK").toContain("oar-1");
   });
 });

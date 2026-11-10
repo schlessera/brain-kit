@@ -671,9 +671,21 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // its result is recorded, whatever the runtime then delivers (#3812).
   const refuse = async (toolUseId: string | undefined) => { if (toolUseId) await req.bridge.inputSafety?.refused?.(toolUseId).catch(() => {}); };
   const decideToolUse = canUseToolFor(ctx);
+  // The callback's allow is the runtime's last gate: the call runs. Noted
+  // first, so no later deny for the same id discharges a call that may have
+  // run; one the host can no longer allow is denied instead. A PreToolUse
+  // hook's allow is no such gate, since a parallel hook's deny wins.
   const canUseTool: typeof decideToolUse = async (toolName, input, opts) => {
     const result = await decideToolUse(toolName, input, opts);
     if (result?.behavior === "deny") await refuse(opts.toolUseID);
+    else if (result?.behavior === "allow" && req.bridge.inputSafety?.allowed) {
+      try { await req.bridge.inputSafety.allowed(opts.toolUseID); }
+      catch (error) {
+        turnLock.releaseForTool(opts.toolUseID);
+        await refuse(opts.toolUseID);
+        return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." };
+      }
+    }
     return result;
   };
   const mutatingHook = mutatingHookFor(ctx);

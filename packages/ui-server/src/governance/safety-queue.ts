@@ -7,10 +7,12 @@ const queues=new WeakMap<Database,{pending:Set<PendingSafety>;bytes:number;faile
  latchRevision:string|null;
  lostTurns:Set<string>;unscopedLoss:boolean;listeners:Set<()=>void>;recovery:{timer:ReturnType<typeof setTimeout>|null;attempt:number};
  /** First cause of a loss only this process holds, kept for the recovery audit. */
- lossCause:{errorClass:string;message:string;site:string;turnId:string|null;at:number;count:number}|null}>();
+ lossCause:{errorClass:string;message:string;site:string;turnId:string|null;at:number;count:number}|null;
+ /** Each turn's tool-result records under way; its collection's end waits for them. */
+ recording:Map<string,Set<Promise<void>>>}>();
 export function safetyQueue(db:Database){
  let queue=queues.get(db);
- if(!queue){queue={pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null};queues.set(db,queue);}
+ if(!queue){queue={pending:new Set(),bytes:0,failed:false,inflight:0,latchRevision:null,lostTurns:new Set(),unscopedLoss:false,listeners:new Set(),recovery:{timer:null,attempt:0},lossCause:null,recording:new Map()};queues.set(db,queue);}
  return queue;
 }
 

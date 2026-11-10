@@ -279,10 +279,21 @@ export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: 
     // collector leaves its chat a permanent gap instead (#3812).
     const result = msg.method === "safetyResult", safety = context.turn.bridge?.inputSafety;
     // Pi runs a call only on an "allow" answer: a denial or a rejection
-    // blocks it before it executes, so the call owes no result (#3812).
-    const permission = msg.method === "permission" && safety?.refused ? safety : undefined;
+    // blocks it before it executes, so the call owes no result (#3812). An
+    // allow is noted first, so a later denial, rejection, stopped turn or
+    // replay of a request for the same call cannot discharge a call that may
+    // have run; one the host can no longer allow is denied instead.
+    const permission = msg.method === "permission" && safety?.refused && safety.allowed ? safety : undefined;
     const refuse = <T>(outcome: Promise<T>): Promise<T> => !permission ? outcome : outcome.then(
-      async answer => { if ((answer as { behavior?: string } | null)?.behavior !== "allow") await permission.refused!(msg.toolCallId); return answer; },
+      async answer => {
+        if ((answer as { behavior?: string } | null)?.behavior !== "allow") { await permission.refused!(msg.toolCallId); return answer; }
+        try { await permission.allowed!(msg.toolCallId); return answer; }
+        catch (error) {
+          context.grants.delete(msg.toolCallId);
+          await permission.refused!(msg.toolCallId);
+          return { behavior: "deny", message: error instanceof Error ? error.message : "Safety recording refused this call." } as T;
+        }
+      },
       async error => { await permission.refused!(msg.toolCallId); throw error; });
     try {
       if (!result || !safety) context.live();
