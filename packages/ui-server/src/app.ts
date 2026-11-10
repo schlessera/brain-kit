@@ -1221,8 +1221,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createModelRoutes({ registry, db, settingsWrites, pricing, log: observability.logger("models") })
   );
-  app.route("/api", createPiAuthRoutes({ agent: config.agent }));
-  app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  // A backend excluded at boot never executes, including its auth and extension services (#3817).
+  const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
+  app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
+  app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
   const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });

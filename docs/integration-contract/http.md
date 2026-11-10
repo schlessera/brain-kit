@@ -160,7 +160,7 @@ conflicts, unavailable detail, unknown outcomes and partial work remain explicit
 voice, agent and autonomous execution do not gain a history action. This is
 additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
-<a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
 
 ### Degraded backend availability and unknown expiry (additive, #3817)
 
@@ -182,6 +182,8 @@ in 0.45.0; no CLI/MCP envelope or provider history changes. The exported
 `assertBackendResolvable` now returns the excluded secondary backends as
 `BackendBootFailure[]`; callers that ignored its former void return continue
 to work. Primary-backend and shared profile-configuration errors still throw.
+
+<a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 ### Published React health and sync helpers (breaking health correction)
 
