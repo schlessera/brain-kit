@@ -228,6 +228,7 @@ test("multi-digit shared keys reserve header space and remain attached to actual
   const keys=[...group.querySelectorAll<SVGGElement>("[data-callout-header-key]")],headers=[...group.querySelectorAll<SVGGElement>("[data-callout-group-heading]")];
   for(let i=0;i<keys.length;i++)expect(separated(keys[i]!.getBBox(),headers[i]!.getBBox(),4),"MULTIDIGIT_KEY_HEADER_CLEARANCE").toBe(true);
  }
+ expect(svg.querySelectorAll("[data-callout-header-key]"),"MULTIDIGIT_HEADER_KEYS_RENDERED").toHaveLength(100);
  await commands.diagramCapture('[data-content-renderer="diagram"]',"callouts-multidigit-keys");
 });
 test("narrow unbreakable text uses readable full summary and retains all 1024 source indices",async()=>{
