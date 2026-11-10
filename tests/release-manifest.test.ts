@@ -83,14 +83,14 @@ describe("release manifests", () => {
       join(PACKAGES_DIR, uiServer.dir, "src", "bin", "brain-ui-cron.ts"),
       "utf8"
     );
-    expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
+    expect(source).toStartWith("#!/usr/bin/env bun\n");
   });
 
   test("ui-server ships the operational recovery bin with a packed runtime check", () => {
     const uiServer = packages.find(p => p.manifest.name === "@schlessera/brain-ui-server")!;
     expect(uiServer.manifest.bin?.["brain-ui-inbox"]).toBe("./dist/bin/brain-ui-inbox.js");
     const source = readFileSync(join(PACKAGES_DIR, uiServer.dir, "src/bin/brain-ui-inbox.ts"), "utf8");
-    expect(source.startsWith("#!/usr/bin/env bun\n")).toBe(true);
+    expect(source).toStartWith("#!/usr/bin/env bun\n");
     expect(CONSUMER_CHECKS.map((check) => check.script)).toContain("check-inbox-package.ts");
   });
 
