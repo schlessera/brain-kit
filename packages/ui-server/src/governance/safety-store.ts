@@ -74,7 +74,7 @@ export function advance(db: Database): string {
 }
 
 /** Where a safety-recording failure was raised. */
-export type SafetyFailureSite = "safetyBegin"|"safetyReserve"|"safetyCommit"|"record"|"safetyFail"|"safetyEnd"|"migrate"|"boot-pending";
+export type SafetyFailureSite = "safetyBegin"|"safetyReserve"|"safetyCommit"|"record"|"safetyFail"|"safetyEnd"|"migrate"|"boot-pending"|"boot-obligation";
 export type SafetyFailureReason = "recording_failed"|"capacity";
 /** A failure's cause: identifiers and error text only, never message content. */
 export interface SafetyFailureCause { errorClass:string; message:string; stack:string|null; site:SafetyFailureSite; turnId:string|null; at:number }
@@ -347,8 +347,50 @@ export function appendSafetyEvent(db:Database,row:GovernanceEventRow,reserved=fa
   return null;
  }
 }
+/** A collection may hold this many calls that still owe their results. */
+const OBLIGATIONS = 2048;
+const clipText=(text:string)=>clip(text.replace(/[\u0000-\u001f\u007f]/g," "),128);
+/**
+ * A tool call admitted before it runs owes its result's record (#3812). It
+ * is owed until that record is durable, or until the backend refuses the
+ * call, which proves it never ran. Owing it is restrictive only: it needs no
+ * healthy recorder, only an open collection to gap if the result never comes.
+ */
+export function openSafetyObligation(db:Database,turnId:string,id:string,toolUseId:string,tool:string,at=Date.now()):void {
+ db.transaction(()=>{
+  if(!/^[A-Za-z0-9_-]{1,128}$/.test(id))throw new SafetyUnavailable("Invalid safety obligation identity");
+  const c=collection(db,turnId);if(!c)throw new SafetyUnavailable("Safety obligation requires a collection");
+  live(db,c,true);
+  const prior=one<{collection_id:string}|null>(db,"SELECT collection_id FROM safety_obligations WHERE id=?",id);
+  if(prior){if(prior.collection_id!==c.id)throw new SafetyUnavailable("Conflicting safety obligation");return;}
+  if(one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_obligations WHERE collection_id=?",c.id).n>=OBLIGATIONS)
+   throw new SafetyCapacityExhausted("Safety obligation capacity exhausted","turn");
+  db.query("INSERT INTO safety_obligations(id,collection_id,tool_use_id,tool,opened_at) VALUES(?,?,?,?,?)").run(id,c.id,clipText(toolUseId),clipText(tool),at);
+ }).immediate();
+}
+/** Its result is durably recorded, or the call was refused and never ran.
+ * Once the collection ended the call's gap is already committed: nothing to do. */
+export function dischargeSafetyObligation(db:Database,turnId:string,id:string):void {
+ db.query("DELETE FROM safety_obligations WHERE id=? AND collection_id=(SELECT id FROM safety_collections WHERE turn_id=? AND ended=0)").run(id,turnId);
+}
+/** Every call still owing its result in these collections becomes their
+ * chats' permanent gap, naming the first such call. Returns the causes. */
+function gapOwedResults(db:Database,collectionId:string|null,site:SafetyFailureSite):SafetyFailureCause[] {
+ // With one MIN(), SQLite takes the bare columns from that first-opened row.
+ const owed=db.query<{collection_id:string;turn_id:string;n:number;tool:string;tool_use_id:string},[string|null,string|null]>(`SELECT o.collection_id,c.turn_id,COUNT(*) n,MIN(o.rowid) first,o.tool,o.tool_use_id
+  FROM safety_obligations o JOIN safety_collections c ON c.id=o.collection_id WHERE ? IS NULL OR o.collection_id=? GROUP BY o.collection_id`).all(collectionId,collectionId);
+ const causes:SafetyFailureCause[]=[];
+ for(const row of owed){
+  const cause=safetyFailureCause(new SafetyUnavailable(`A tool result was never recorded: ${row.tool} (${row.tool_use_id})${row.n>1?` and ${row.n-1} more`:""}`),site,row.turn_id);
+  db.query("UPDATE safety_collections SET failure=COALESCE(failure,'recording_failed'),failure_cause=COALESCE(failure_cause,?) WHERE id=?").run(JSON.stringify(cause),row.collection_id);
+  db.query("DELETE FROM safety_obligations WHERE collection_id=?").run(row.collection_id);
+  causes.push(cause);
+ }
+ return causes;
+}
+const logOwed=(causes:SafetyFailureCause[])=>{for(const cause of causes)logSafetyRecording("safety recording failed for one chat",causeAttributes("chat","recording_failed",cause));};
 export function endSafetyCollection(db:Database,turnId:string):void {
- db.transaction(()=>{const c=collection(db,turnId);if(!c||c.ended)return;
+ const owed=db.transaction(()=>{const c=collection(db,turnId);if(!c||c.ended)return [];
  // Lost/incomplete hooks leave exposures open and therefore unresolved.
  db.query("UPDATE safety_collections SET ended=1,end_revision=? WHERE id=?").run(advance(db),c.id);
  // A reservation still open at the end can never commit: an ended epoch
@@ -358,7 +400,12 @@ export function endSafetyCollection(db:Database,turnId:string):void {
   db.query("UPDATE safety_collections SET failure=COALESCE(failure,'recording_failed'),gap=COALESCE(gap,'recording_failed_recovered') WHERE id=?").run(c.id);
   db.query("DELETE FROM safety_pending WHERE collection_id=?").run(c.id);
  }
+ // A call that still owes its result may have run, and the runtime may keep
+ // its output in its session, whether the turn was cancelled, aborted or
+ // never got a result hook. Nothing records it now: its chat keeps the gap.
+ return gapOwedResults(db,c.id,"safetyEnd");
  }).immediate();
+ logOwed(owed);
 }
 export interface SafetyProjection { session:SafetySessionKey|null;evidenceRevision:string;unresolvedCount:number;earliestUnresolvedId:string|null;
  pendingCount:number;restriction:"normal"|"restricted";reasons:string[];
@@ -433,12 +480,18 @@ function readSafetyProjection(db:Database,turnId:string|null,sessionId:string|nu
 }
 /** Explicit detector loss/restart never auto-clears an admitted exposure. */
 export function recoverSafetyCollections(db:Database):void {
- db.transaction(()=>{
+ const owed=db.transaction(()=>{
   const n=one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE ended=0").n;
   if(n){db.query("UPDATE safety_collections SET gap=COALESCE(gap,'host_restart_unknown'),ended=1,end_revision=? WHERE ended=0").run(advance(db));}
+  // A call that owed its result when the process died may have run: its
+  // chat keeps the gap, as if its collection had ended with it owed.
+  const owed=gapOwedResults(db,null,"boot-obligation");
+  if(owed.length&&!n)advance(db);
   if(one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_pending").n)
    latchSafety(db,null,"recording_failed",safetyFailureCause(new SafetyUnavailable("Safety reservations were pending at restart"),"boot-pending",null));
+  return owed;
  }).immediate();
+ logOwed(owed);
 }
 /** Prune only display bytes; identity, counts and reserved audit capacity survive. */
 export function pruneSafetyDetail(db:Database,before:number):number {

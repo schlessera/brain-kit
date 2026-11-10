@@ -189,6 +189,12 @@ export interface BackendBridge {
      * could record it: the turn's chat keeps a permanent gap. Resolves once
      * that gap is durable. */
     lost?(toolUseId: string, toolName: string, cause: unknown): Promise<void>;
+    /** @internal The backend refused this call, so the runtime never runs it.
+     * Every call `begin` admits owes its `result` until one is recorded or
+     * this says it never ran; still owed when the turn ends, it leaves the
+     * turn's chat a permanent gap. Call it for every refusal the backend
+     * returns, before returning it. Never rejects. */
+    refused?(toolUseId: string): Promise<void>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;

@@ -278,6 +278,12 @@ export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: 
     // check refuses the worker. A report refused before it reaches the
     // collector leaves its chat a permanent gap instead (#3812).
     const result = msg.method === "safetyResult", safety = context.turn.bridge?.inputSafety;
+    // Pi runs a call only on an "allow" answer: a denial or a rejection
+    // blocks it before it executes, so the call owes no result (#3812).
+    const permission = msg.method === "permission" && safety?.refused ? safety : undefined;
+    const refuse = <T>(outcome: Promise<T>): Promise<T> => !permission ? outcome : outcome.then(
+      async answer => { if ((answer as { behavior?: string } | null)?.behavior !== "allow") await permission.refused!(msg.toolCallId); return answer; },
+      async error => { await permission.refused!(msg.toolCallId); throw error; });
     try {
       if (!result || !safety) context.live();
       if (msg.id <= lastRpcId) throw resultLoss(new Error("Replayed pi worker RPC"));
@@ -286,8 +292,8 @@ export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: 
       const handler = Object.hasOwn(PI_WORKER_RPC_HANDLERS, msg.method) ? PI_WORKER_RPC_HANDLERS[msg.method] : undefined;
       if (!handler) throw new Error(`Unknown pi worker RPC method: ${String(msg.method)}`);
       const answer = handler(msg, bridge, context);
-      return result && safety ? answer.catch(error => keepResultLoss(safety, msg, error)) : answer;
-    } catch (error) { return result && safety ? keepResultLoss(safety, msg, error) : Promise.reject(error); }
+      return result && safety ? answer.catch(error => keepResultLoss(safety, msg, error)) : refuse(answer);
+    } catch (error) { return result && safety ? keepResultLoss(safety, msg, error) : refuse(Promise.reject(error)); }
   };
 }
 

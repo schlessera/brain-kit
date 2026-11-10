@@ -9,9 +9,13 @@ import { SafetyRecordingUnavailable } from "./safety-store.js";
 
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
  sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null}):NonNullable<BackendBridge["inputSafety"]> {
- // `admitted`: every input signal of its latest begin() is recorded. A result
- // for a call whose begin() failed partway cannot be recorded faithfully.
- const operations=new Map<string,{tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string}>();
+ // `admitted`: every input signal of its latest begin() is recorded, and the
+ // call owes its result. A result for a call whose begin() failed partway
+ // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
+ // `refused`: the backend refused the call, so it never runs.
+ type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean};
+ const operations=new Map<string,Operation>();
+ const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],done:false,admitted:false,signals:[],owed:false,refused:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
  const hash=(value:string)=>new Bun.CryptoHasher("sha256").update(value).digest("hex");
@@ -31,6 +35,12 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   if(failures.length>1)throw new AggregateError(failures,`Safety input refused: ${String(error)}`);
   throw error;
  };
+ // A call that never runs owes nothing. A discharge that cannot commit
+ // leaves the obligation, and so its chat's gap when the collection ends.
+ const discharge=async(op:Operation)=>{
+  if(!op.owed)return;
+  try{await writes.safetyDischarge(options.turnId,op.id);op.owed=false;}catch{/* Still owed: the end gaps it. */}
+ };
  const tails=new Map<string,Promise<void>>();let queued=0;
  const serial=(id:string,work:()=>Promise<void>,afterFailure=false):Promise<void>=>{
   if(queued>=256)return fail(new Error("Safety collection queue capacity exceeded"));
@@ -45,13 +55,22 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  return {
   async ready(backend,version){assertLive();await writes.safetyReady(options.turnId,backend,version);options.onReady?.();},
   async unavailable(){return fail(new Error("Input collection is not qualified for this runtime configuration"));},
+  // Every call begin() admits owes its result's record until that record is
+  // durable or the backend refuses the call. A rejected begin() is such a
+  // refusal: the backend awaits it before running the tool, and runs nothing
+  // on rejection. The obligation is the host's own record, so it holds
+  // whatever the runtime delivers: cancellation, abort, a result hook the
+  // runtime skips, or process death all leave the gap (#3812).
   begin(toolUseId,tool,input){return serial(toolUseId,async()=>{
    assertLive();
+   // Refused: the runtime never runs it, and refusing again is no failure.
+   if(operations.get(toolUseId)?.refused)throw new Error("Safety operation was refused; the call does not run");
+   let op:Operation|undefined;
    try{
     const inputHash=hash(JSON.stringify(input)),previous=operations.get(toolUseId);
     if(previous&&(previous.tool!==tool||previous.done))throw new Error("Safety operation identity already completed or changed tool");
     if(!previous&&operations.size>=2000)throw new Error("Safety tool operation capacity exceeded");
-    const op=previous??{tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[] as string[],done:false,admitted:false,signals:[] as IngestionSignal[]};
+    op=previous??operation(tool);
     if(!op.inputHashes.has(inputHash)&&op.inputHashes.size>=16)throw new Error("Safety input revision capacity exceeded");
     op.inputHashes.add(inputHash);op.admitted=false;operations.set(toolUseId,op);
     for(const signal of inputTaintSignals(tool,input,options.brainPath,marked,options.shellProxied())){
@@ -60,9 +79,14 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
      await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}},{beforeDelivery:true});
      op.occurrences.push(item.id);op.signals.push(signal);
     }
+    if(!op.owed){await writes.safetyOblige(options.turnId,op.id,toolUseId,tool);op.owed=true;}
     op.admitted=true;
     assertLive();
-   }catch(error){return fail(error,true);}
+   }catch(error){
+    // The backend refuses the call, so it never runs and owes nothing.
+    if(op)await discharge(op);
+    return fail(error,true);
+   }
   });},
   // A result already exists when it reaches the host, and the runtime may keep
   // it in its session. So nothing between the tool running and its record
@@ -88,8 +112,20 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     const state=finalized&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
     for(const id of op.occurrences)await writes.record({...base(),kind:"taint_exposure",dedupeKey:id,payload:{occurrenceId:id,state}});
     op.done=true;op.outputHash=outputHash;
+    // Recorded: the call owes nothing. A discharge that cannot commit stays
+    // owed, which only gaps the chat; it is no loss of this record.
+    await discharge(op);
    }catch(error){return fail(error);}
   },true);},
+  // The backend refused this call, which proves it never runs: it owes no
+  // result. Never rejects; an obligation it cannot discharge stays a gap.
+  // A later begin() for it is refused too, so a parallel hook cannot reopen it.
+  refused(toolUseId){return serial(toolUseId,async()=>{
+   const op=operations.get(toolUseId);
+   if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
+   op.refused=true;
+   if(!op.done)await discharge(op);
+  },true).catch(()=>{});},
   // A result the backend could not hand over (a refused or malformed report):
   // its chat keeps a permanent gap. Resolves once that gap is durable.
   async lost(toolUseId,tool,cause){

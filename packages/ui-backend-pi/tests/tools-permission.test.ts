@@ -80,6 +80,18 @@ describe("approval policy (approvalReason)", () => {
 });
 
 describe("tool_call permission gate", () => {
+  test("a call the gate blocks tells the collector it never runs", async () => {
+    // A blocked call never executes, so it owes no result record (#3812).
+    const refused: string[] = [];
+    const turn = createTurnContext();
+    const mock = makeMockBridge({ decision: { behavior: "deny", message: "Penelope declines" } });
+    turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); } } };
+    const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
+    expect(await handler({ toolName: "write_file", toolCallId: "allowed", input: { path: "a.md", content: "x" } })).toBeUndefined();
+    expect(await handler({ toolName: "brain_archive", toolCallId: "declined", input: { path: "notes/suitors.md" } })).toMatchObject({ block: true });
+    expect(refused, "PI_GATE_BLOCK_REFUSES_THE_CALL").toEqual(["declined"]);
+  });
+
   test("default brain_read_base executes in-process without an approval card", async () => {
     const brain = makeEmptyBrain();
     try {

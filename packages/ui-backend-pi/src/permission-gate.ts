@@ -33,7 +33,7 @@
  * executes.
  */
 
-import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import type { InlineExtension, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
   APIFY_TOOL_NAMES,
   WEB_TOOL_NAME_LIST,
@@ -108,6 +108,12 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
     name: "brain-permission-gate",
     factory: (pi) => {
       pi.on("tool_call", async (event) => {
+        const answer = await admit(event);
+        // A blocked call never runs, so it owes no result record (#3812).
+        if (answer?.block) await turn.bridge?.inputSafety?.refused?.(event.toolCallId);
+        return answer;
+      });
+      async function admit(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
         if (turn.signal?.aborted) return { block: true, reason: "Turn cancelled before tool admission." };
         if (isCompletedAutonomousToolCall(turn.autonomous, event.toolName, event.input))
           return { block: true, reason: "This call already completed before yielding; inspect its retained result instead of replaying it." };
@@ -135,7 +141,7 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           Object.assign(target, decision.updatedInput);
         }
         return undefined;
-      });
+      }
     },
   };
 }

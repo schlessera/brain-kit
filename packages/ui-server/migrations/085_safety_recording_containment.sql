@@ -29,3 +29,13 @@ CREATE TABLE safety_recoveries (
   trigger TEXT NOT NULL CHECK(trigger IN ('boot','automatic','owner')), actor TEXT NOT NULL,
   scope TEXT NOT NULL, cause TEXT, gapped INTEGER NOT NULL
 );
+-- A tool call admitted before it runs owes its result's record. Its row is
+-- the obligation: it goes when that record is durable, or when the backend
+-- refuses the call, which proves it never ran. A row still here when its
+-- collection ends, or at boot, leaves that chat a permanent gap.
+CREATE TABLE safety_obligations (
+  id TEXT PRIMARY KEY,
+  collection_id TEXT NOT NULL REFERENCES safety_collections(id) ON DELETE CASCADE,
+  tool_use_id TEXT NOT NULL, tool TEXT NOT NULL, opened_at INTEGER NOT NULL
+);
+CREATE INDEX safety_obligations_collection ON safety_obligations(collection_id);

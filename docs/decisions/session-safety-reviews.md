@@ -98,7 +98,14 @@ running under the tainted policy, not refusing.
   stopped turn still records the result (stopping refuses new tools, never a
   record), a report the host refuses before its record (a malformed or
   replayed Pi report) and a result for a call whose input record failed both
-  leave the gap.
+  leave the gap. The host does not rely on the runtime to report a result:
+  the Claude runtime dispatches neither result hook for a turn stopped while
+  a tool runs, and still keeps that call in its session. So every call
+  `begin()` admits is an obligation, recorded before the tool runs, until its
+  result is durably recorded or the backend refuses the call (a refusal, or
+  a rejected `begin()`, proves it never ran). A collection that ends owing
+  one, however it ended, and an obligation still open at boot, leave the
+  same permanent gap.
 - **Evidence store unwritable** (the chat fact cannot commit): the brain
   latches through the emergency reserve, or, when even that fails, in the
   host process. New turns still begin, each with a permanent

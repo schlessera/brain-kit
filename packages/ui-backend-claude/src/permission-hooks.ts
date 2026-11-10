@@ -666,13 +666,28 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   const ctx = createPermissionContext(options, nativeRefusal);
   const { enforced } = ctx;
   const enforcementHook = enforcementHookFor(ctx);
-  const canUseTool = canUseToolFor(ctx);
+  // A deny this backend returns is final: the runtime never runs that call,
+  // so it owes no result record. Every other admitted call stays owed until
+  // its result is recorded, whatever the runtime then delivers (#3812).
+  const refuse = async (toolUseId: string | undefined) => { if (toolUseId) await req.bridge.inputSafety?.refused?.(toolUseId).catch(() => {}); };
+  const decideToolUse = canUseToolFor(ctx);
+  const canUseTool: typeof decideToolUse = async (toolName, input, opts) => {
+    const result = await decideToolUse(toolName, input, opts);
+    if (result?.behavior === "deny") await refuse(opts.toolUseID);
+    return result;
+  };
   const mutatingHook = mutatingHookFor(ctx);
   const { agentHook, rtkHook } = createRewriteHooks(ctx, options);
   // Claude runs matching hooks in parallel. Every hook, including a read
   // observation or rewrite that finishes last, must fence its own final wait.
   // Outward gates still recompute standing/per-use authority in their bodies.
   const fence: (hook: HookCallback) => HookCallback = hook => async (...args) => {
+    const output = await fenced(hook, args);
+    if (args[0].hook_event_name === "PreToolUse" && "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse"
+      && output.hookSpecificOutput.permissionDecision === "deny") await refuse(args[0].tool_use_id);
+    return output;
+  };
+  async function fenced(hook: HookCallback, args: Parameters<HookCallback>): Promise<Awaited<ReturnType<HookCallback>>> {
     let snapshot: AdmissionSafetySnapshot | undefined;
     let output: Awaited<ReturnType<HookCallback>>;
     try {
@@ -690,7 +705,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
       return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: refusal } };
     }
     return output;
-  };
+  }
   const safetyResult: HookCallback = async input => {
     if((input.hook_event_name==="PostToolUse"||input.hook_event_name==="PostToolUseFailure")&&req.bridge.inputSafety){
       const response=input.hook_event_name==="PostToolUse"?input.tool_response:input.error;

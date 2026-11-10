@@ -1,8 +1,11 @@
 /** Every exit between a tool running and its result's record either records
  * the result or leaves its chat a permanent gap, in both backends (#3812).
- * The installed Claude runtime's replay of a stopped turn's result is proved
- * in `safety-result-retention.test.ts`; these drive the remaining exits
- * against the real host ledger. Keyless and offline. */
+ * Every call `begin()` admits owes its result until the record is durable or
+ * the backend refuses the call; one still owed when its collection ends, or
+ * at boot, is a gap. The installed Claude runtime's replay of a stopped
+ * turn's result, and its skipped result hooks, are proved in
+ * `safety-result-retention.test.ts`; these drive the remaining exits against
+ * the real host ledger. Keyless and offline. */
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,10 +43,12 @@ async function voyage() {
   const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, backendId: "pi", sessionId: () => "ithaca", brainPath: brain,
     shellProxied: () => false, signal: controller.signal, stop: error => controller.abort(error) });
   await collector.ready("pi", 1);
-  return { db, writes, collector, controller,
+  return { db, writes, collector, controller, path: join(root, "ui.db"),
     failure: () => (db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get() as { failure: string | null }).failure,
     recorded: () => db.query(`SELECT r.detector FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id
       WHERE c.turn_id='voyage' AND r.kind='occurrence'`).all(),
+    cause: () => JSON.parse((db.query("SELECT failure_cause FROM safety_collections WHERE turn_id='voyage'").get() as { failure_cause: string | null }).failure_cause ?? "null"),
+    owed: () => (db.query("SELECT COUNT(*) n FROM safety_obligations").get() as { n: number }).n,
     chat: () => writes.safety(null, "ithaca"),
     async close() { await writer.close(); db.close(); } };
 }
@@ -128,4 +133,87 @@ test("a Pi result is still reported when the session's own after-hook fails", as
     expect(f.recorded(), "SAFETY_PI_RESULT_SURVIVES_A_FAILED_AFTER_HOOK").toEqual([{ detector: "tool_search_output" }]);
     expect(stopped, "SAFETY_PI_FAILED_AFTER_HOOK_STOPS_THE_WORKER").toBe(1);
   } finally { await f.close(); }
+});
+
+test("a call admitted and never reported leaves its chat a permanent gap when its collection ends", async () => {
+  const f = await voyage(); try {
+    // A runtime that ran the search but never reported it: no result hook,
+    // no worker report. Only the call's admission stands for its result.
+    await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
+    expect(f.owed(), "SAFETY_ADMITTED_CALL_OWES_ITS_RESULT").toBe(1);
+    await f.writes.safetyEnd("voyage");
+    expect(f.failure(), "SAFETY_OWED_RESULT_IS_A_DURABLE_GAP").toBe("recording_failed");
+    expect(f.cause(), "SAFETY_OWED_RESULT_NAMES_ITS_CALL").toMatchObject({ site: "safetyEnd", turnId: "voyage", message: expect.stringContaining("grep (call_raft)") });
+    expect(f.owed(), "SAFETY_ENDED_COLLECTION_OWES_NOTHING_MORE").toBe(0);
+    expect(f.chat().restriction, "SAFETY_OWED_RESULT_RESTRICTS_ITS_CHAT").toBe("restricted");
+    expect(f.chat().coverage.state, "SAFETY_OWED_RESULT_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+  } finally { await f.close(); }
+});
+
+test("a call the backend refuses owes nothing, and a recorded result discharges its call", async () => {
+  const f = await voyage(); try {
+    await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
+    await f.collector.begin("call_oar", "grep", { pattern: "oar" });
+    // The gate refuses the first call after admitting it: it never runs.
+    await f.collector.refused!("call_raft");
+    // A refused call stays refused: a parallel admission cannot reopen it.
+    expect(String((await refusal(f.collector.begin("call_raft", "grep", { pattern: "sirens" })))?.message), "SAFETY_REFUSED_CALL_STAYS_REFUSED").toContain("refused");
+    expect(f.controller.signal.aborted, "SAFETY_REFUSED_CALL_DOES_NOT_STOP_ITS_TURN").toBe(false);
+    await f.collector.result("call_oar", "grep", "", true);
+    expect(f.owed(), "SAFETY_REFUSED_AND_RECORDED_CALLS_OWE_NOTHING").toBe(0);
+    await f.writes.safetyEnd("voyage");
+    expect(f.failure(), "SAFETY_REFUSED_CALL_LEAVES_NO_GAP").toBeNull();
+    expect(f.chat().coverage.state, "SAFETY_DISCHARGED_CALLS_KEEP_COVERAGE").toBe("complete");
+  } finally { await f.close(); }
+});
+
+test("a call refused when its edited input cannot be recorded owes nothing", async () => {
+  const f = await voyage(); try {
+    await f.collector.begin("call_aeolus", "WebFetch", { url: "https://example.com/aeolus" });
+    expect(f.owed(), "SAFETY_ADMITTED_FETCH_OWES_ITS_RESULT").toBe(1);
+    // An approval edits the call; recording the edited input is refused, so
+    // the backend refuses the call, which never runs.
+    f.db.exec("CREATE TRIGGER refuse_input BEFORE INSERT ON safety_pending BEGIN SELECT RAISE(ABORT,'forced input reservation failure'); END");
+    expect(await refusal(f.collector.begin("call_aeolus", "WebFetch", { url: "https://example.com/zephyr" })), "SAFETY_UNRECORDED_EDIT_REFUSES_THE_CALL").toBeInstanceOf(Error);
+    f.db.exec("DROP TRIGGER refuse_input");
+    expect(f.owed(), "SAFETY_REFUSED_EDIT_OWES_NOTHING").toBe(0);
+    await f.writes.safetyEnd("voyage");
+    expect(f.failure(), "SAFETY_REFUSED_EDIT_LEAVES_NO_GAP").toBeNull();
+  } finally { await f.close(); }
+});
+
+test("a call whose admission cannot be recorded never runs, owes nothing and leaves no gap", async () => {
+  const f = await voyage(); try {
+    f.db.exec("CREATE TRIGGER refuse_obligation BEFORE INSERT ON safety_obligations BEGIN SELECT RAISE(ABORT,'forced obligation failure'); END");
+    const begun = await refusal(f.collector.begin("call_raft", "grep", { pattern: "sirens" }));
+    f.db.exec("DROP TRIGGER refuse_obligation");
+    // Refused before the tool ran: the backend refuses the call.
+    expect((begun as { code?: string } | null)?.code, "SAFETY_UNRECORDED_ADMISSION_REFUSES_THE_CALL").toBe("safety_recording_unavailable");
+    expect(f.owed(), "SAFETY_UNRECORDED_ADMISSION_OWES_NOTHING").toBe(0);
+    await f.writes.safetyEnd("voyage");
+    expect(f.failure(), "SAFETY_UNRECORDED_ADMISSION_LEAVES_NO_GAP").toBeNull();
+  } finally { await f.close(); }
+});
+
+test("a call still owed when the host dies leaves its chat a permanent gap at boot", async () => {
+  const f = await voyage();
+  await f.collector.begin("call_oar", "grep", { pattern: "oar" });
+  await f.collector.result("call_oar", "grep", "", true);
+  await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
+  expect(f.owed(), "SAFETY_ONLY_THE_UNREPORTED_CALL_IS_OWED").toBe(1);
+  // The process dies mid-search: nothing ends the collection.
+  await f.close();
+  const db = createUiDb(f.path), writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer);
+  holdSafetyRecovery(db);
+  try {
+    const voyage = db.query("SELECT failure,failure_cause,gap FROM safety_collections WHERE turn_id='voyage'").get() as { failure: string | null; failure_cause: string; gap: string | null };
+    expect(voyage.failure, "SAFETY_OWED_AT_RESTART_IS_A_DURABLE_GAP").toBe("recording_failed");
+    // It names the call still owed, not the one already recorded.
+    expect(JSON.parse(voyage.failure_cause), "SAFETY_OWED_AT_RESTART_NAMES_ITS_CALL").toMatchObject({ site: "boot-obligation", turnId: "voyage", message: "A tool result was never recorded: grep (call_raft)" });
+    expect(voyage.gap, "SAFETY_RESTART_STILL_CLASSIFIES_THE_OPEN_COLLECTION").toBe("host_restart_unknown");
+    expect((db.query("SELECT COUNT(*) n FROM safety_obligations").get() as { n: number }).n, "SAFETY_BOOT_LEAVES_NOTHING_OWED").toBe(0);
+    const chat = writes.safety(null, "ithaca");
+    expect(chat.restriction, "SAFETY_OWED_AT_RESTART_RESTRICTS_ITS_CHAT").toBe("restricted");
+    expect(chat.coverage.epochs.find(epoch => epoch.reason === "recording_failed"), "SAFETY_OWED_AT_RESTART_IS_A_RECORDING_GAP").toBeDefined();
+  } finally { await writer.close(); db.close(); }
 });

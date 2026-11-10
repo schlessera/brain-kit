@@ -8,7 +8,7 @@
  */
 import { retainSafetyLoss, safetyQueue, notifySafetyChanged } from "./safety-queue.js";
 import { prepareSafetyReview, commitSafetyReview, type SafetyReviewBody, type SafetyReviewer, type SafetyReviewReceipt } from "./safety-reviews.js";
-import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite,
+import { beginSafetyCollection, acknowledgeSafety, endSafetyCollection, safetyProjection, reserveSafetyWrite, releaseSafetyWrite, openSafetyObligation, dischargeSafetyObligation,
   ensureSafetyEventCollection, recordSafetyFailure, recoverSafetyRecording, migrateSafetyHistory, logSafetyRecording, safetyRecordingStatus,
   SafetyCapacityExhausted, SafetyRecordingUnavailable, SafetyUnavailable, safetyScopeTurns, type SafetyCollectionInput, type SafetyProjection,
   type SafetyFailureSite, type SafetyRecovery, type SafetyRecordingStatus } from "./safety-store.js";
@@ -43,6 +43,8 @@ export function setup(db: Database): WriteProcedures {
     // latches nothing (#3812). The app side names the retryable refusal.
     safetyBegin: (input:SafetyCollectionInput) => beginSafetyCollection(db,input),
     safetyReady: (turnId:string,backendId:string,version:number) => acknowledgeSafety(db,turnId,backendId,version),
+    safetyOblige: (turnId:string,id:string,toolUseId:string,tool:string) => openSafetyObligation(db,turnId,id,toolUseId,tool),
+    safetyDischarge: (turnId:string,id:string) => dischargeSafetyObligation(db,turnId,id),
     safetyEnd: (turnId:string,loss=false) => {
       // Never seal an apparently complete epoch if its loss notice rolled
       // back. A failed retry leaves it open for restart classification.
@@ -79,6 +81,15 @@ export interface GovernanceWrites {
   /** Refuses with `SafetyRecordingUnavailable` when the collection cannot commit; nothing is latched. */
   safetyBegin(input:SafetyCollectionInput):Promise<string>;
   safetyReady(turnId:string,backendId:string,version:number):Promise<void>;
+  /** A tool call admitted before it runs owes its result's record from now
+   * until `safetyDischarge`; still owed when its collection ends, or at boot,
+   * it leaves its chat a permanent gap (#3812). Refuses with
+   * `SafetyRecordingUnavailable`: the call has not run, and the backend
+   * refuses it. */
+  safetyOblige(turnId:string,obligationId:string,toolUseId:string,tool:string):Promise<void>;
+  /** The call's result is durably recorded, or the backend refused the call
+   * and it never ran. A failure leaves the obligation, and so the gap. */
+  safetyDischarge(turnId:string,obligationId:string):Promise<void>;
   safetyEnd(turnId:string):Promise<void>;
   /** Marks the turn's chat failed (`cause` is error text only); the brain only when that cannot commit. */
   safetyFail(turnId:string,cause?:unknown):Promise<void>;
@@ -239,6 +250,17 @@ export function createGovernanceWrites(db: Database, writer?: SqliteWriter): Gov
       }
     },
     safetyReady: (turnId,backendId,version)=>call("safetyReady",turnId,backendId,version),
+    async safetyOblige(turnId,obligationId,toolUseId,tool){
+      try{await call<void>("safetyOblige",turnId,obligationId,toolUseId,tool);}
+      catch(error){
+        if((error as {code?:string})?.code==="chat_retired")throw error;
+        // Before the call runs: the backend refuses it, and nothing latches.
+        logSafetyRecording("safety recording refused one tool call before it ran",{"safety.scope":"turn","safety.site":"safetyOblige","safety.turn_id":turnId,
+          "error.class":error instanceof Error?error.constructor?.name??error.name:"Error","error.message":error instanceof Error?error.message:String(error)});
+        throw new SafetyRecordingUnavailable(brainFailed(),error);
+      }
+    },
+    safetyDischarge: (turnId,obligationId)=>call("safetyDischarge",turnId,obligationId),
     safetyEnd: turnId=>call("safetyEnd",turnId,shared.unscopedLoss||shared.lostTurns.has(turnId)),
     safetyFail,
     safety: (turnId,sessionId)=>snapshot(()=>{

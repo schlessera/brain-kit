@@ -211,3 +211,20 @@ test("an unavailable collector notice awaits durable failure and carries no tool
  await Promise.resolve();expect(returned,"PI_SAFETY_UNAVAILABLE_WAITS_FOR_COMMIT").toBe(false);
  expect(called).toBe(1);release();expect(String(await result)).toContain("Unqualified Pi input transformations");
 });
+
+test("every permission answer but allow tells the collector the call never runs", async () => {
+  // Pi runs a call only on "allow": a denial or a rejection blocks it before
+  // it executes, so the call owes no result record (#3812).
+  const refused: string[] = [];
+  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); } };
+  const routed = harness({}, { applyBrain: async () => ({ ok: true }) as never, inputSafety });
+  expect(await routed.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-allowed"))).toEqual({ behavior: "allow" });
+  const unrouted = harness({}, { inputSafety });
+  expect(await unrouted.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-denied"))).toMatchObject({ behavior: "deny" });
+  // Stopped after admission, before its answer: the worker blocks the call.
+  let checks = 0;
+  const stopped = harness({ live: () => { if (++checks > 1) throw new Error("Pi worker RPC refused: turn is inactive, cancelled or revoked."); } },
+    { applyBrain: async () => ({ ok: true }) as never, inputSafety });
+  await expect(stopped.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-stopped"))).rejects.toThrow("turn is inactive");
+  expect(refused, "PI_NON_ALLOW_PERMISSION_REFUSES_THE_CALL").toEqual(["call-denied", "call-stopped"]);
+});

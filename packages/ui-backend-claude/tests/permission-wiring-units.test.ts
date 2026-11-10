@@ -14,6 +14,7 @@ import {
   mutatingHookFor,
   createNativeFileGuards,
   createPermissionContext,
+  createPermissionWiring,
   outsideEnforcedAllowlist,
   reusablePerUseDecision,
   type PermissionWiringOptions,
@@ -112,5 +113,40 @@ describe("the extracted callbacks", () => {
     expect(result).toEqual({ behavior: "allow" });
     expect(requests.map(request => request.kind)).toEqual(["tool"]);
     expect(locks).toEqual(["oar-1"]);
+  });
+});
+
+describe("refusals owe no result", () => {
+  // A deny this backend returns is final: the runtime never runs the call,
+  // so the host's collector stops waiting for its result (#3812).
+  function wiring(signal: AbortSignal) {
+    const refused: string[] = [];
+    const { canUseTool, hooks } = createPermissionWiring({
+      req: { prompt: "Count the suitors in the hall", signal,
+        bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }),
+          inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {}, refused: async (id: string) => { refused.push(id); } } } } as never,
+      allowedTools: ["Read"], confirmPatterns: [], brainPath: "/srv/odysseus-brain",
+      turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never, childEnv: {}, log: () => {},
+    });
+    const preToolUse = hooks!.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
+    return { canUseTool: canUseTool!, preToolUse, refused };
+  }
+
+  test("a call the backend denies tells the collector it never runs", async () => {
+    const stopped = new AbortController(); stopped.abort();
+    const { canUseTool, preToolUse, refused } = wiring(stopped.signal);
+    expect((await canUseTool("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: stopped.signal } as never))?.behavior).toBe("deny");
+    const [input, , options] = hookCall("Grep", { pattern: "suitors" });
+    const output = await preToolUse({ ...(input as object), tool_use_id: "oar-2" } as never, "oar-2", options);
+    expect((output as { hookSpecificOutput?: { permissionDecision?: string } }).hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(refused, "CLAUDE_DENY_REFUSES_THE_CALL").toEqual(["oar-1", "oar-2"]);
+  });
+
+  test("a call the backend lets run stays owed", async () => {
+    const live = new AbortController();
+    const { canUseTool, preToolUse, refused } = wiring(live.signal);
+    expect((await canUseTool("Glob", { pattern: "ithaca/*.md" }, { toolUseID: "oar-1", signal: live.signal } as never))?.behavior).toBe("allow");
+    await preToolUse(...hookCall("Read", { file_path: "/srv/odysseus-brain/notes/ithaca.md" }));
+    expect(refused, "CLAUDE_ALLOW_LEAVES_THE_CALL_OWED").toEqual([]);
   });
 });
