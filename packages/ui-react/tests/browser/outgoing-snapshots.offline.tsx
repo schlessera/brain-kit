@@ -430,3 +430,25 @@ test("case 28: Delete… on a returned snapshot drops its references; the host k
   // No bubble, no transcript node: the last message stays the column's last row (#1013).
   expect(s.host.querySelector("[data-transcript]")!.children, "nothing left in the transcript").toHaveLength(0);
 });
+
+test("a message refused because safety recording failed says so, not that the brain refused it (#3810, #3812)", async () => {
+  const fixture = snapshotHost();
+  const s = await mount(fixture);
+  const refuse = async (text: string, frame: Record<string, unknown>) => {
+    await typed(s, text);
+    s.sendButton().click();
+    await expect.poll(() => s.messages().some((m) => m.text === text), { timeout: 5_000 }).toBe(true);
+    const sent = s.messages().find((m) => m.text === text)!;
+    s.socket.deliver({ type: "error", requestId: sent.requestId, ...frame });
+    await expect.poll(() => s.bubble(text)?.querySelector("[data-snapshot-why]")?.textContent ?? null, { timeout: 5_000 }).not.toBeNull();
+    return s.bubble(text)!.querySelector("[data-snapshot-why]")!.textContent;
+  };
+  expect(await refuse("Sail past the sirens.", { code: "SAFETY_RECORDING_UNAVAILABLE", message: "paused",
+    failure: { errorClass: "safety_recording_paused", message: "paused" } }), "the paused recorder is named")
+    .toBe("Safety recording is paused on this server. Nothing was sent; try again in a minute.");
+  expect(await refuse("Bind me to the mast.", { code: "SAFETY_RECORDING_UNAVAILABLE", message: "failed",
+    failure: { errorClass: "safety_recording_unavailable", message: "failed" } }), "a one-turn recording failure is retryable")
+    .toBe("Safety recording failed before this was sent. Nothing ran; try again.");
+  expect(await refuse("Steer for Ithaca.", { code: "BACKEND_ERROR", message: "refused" }), "other refusals keep their copy")
+    .toBe("The brain refused this message.");
+});

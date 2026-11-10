@@ -14,8 +14,30 @@ const HEADLINES: Record<string, string> = {
   worker_resource_limit: "The agent hit this server's resource limit and was stopped.",
 };
 
+/**
+ * What a returned message says when the host refused it before any turn ran.
+ * Undefined keeps the generic refusal copy.
+ */
+export function refusalReason(frame: { code?: string; failure?: { errorClass?: string } }): string | undefined {
+  if (frame.code !== "SAFETY_RECORDING_UNAVAILABLE") return undefined;
+  return frame.failure?.errorClass === "safety_recording_paused"
+    ? "Safety recording is paused on this server. Nothing was sent; try again in a minute."
+    : "Safety recording failed before this was sent. Nothing ran; try again.";
+}
+
 /** Class-driven copy; a class never establishes whether tools already ran. */
 export function failurePresentation(failure: TurnFailure) {
+  // Refused before delivery (#3812, #3810): nothing reached the model.
+  if (failure.errorClass === "safety_recording_unavailable") return {
+    headline: "Safety recording failed before this message was sent.",
+    explanation: "Nothing ran. Try again.",
+    operator: false, tone: "gold" as const, retry: true, report: false,
+  };
+  if (failure.errorClass === "safety_recording_paused") return {
+    headline: "Safety recording is paused on this server.",
+    explanation: "Nothing was sent. The server is recovering it by itself; try again in a minute.",
+    operator: true, tone: "gold" as const, retry: true, report: false,
+  };
   if (failure.errorClass === "budget_unavailable") return {
     headline:"Inference budget accounting became unavailable.",explanation:failure.message,
     operator:true,tone:"red" as const,retry:false,report:true,
