@@ -58,8 +58,12 @@ start: a run reads a great deal, and most of it can be avoided.
    git worktree add <dir> -b <batch.branch> <batch.base>
    # batch.isNew is false:
    git worktree add <dir> <batch.branch> && git -C <dir> merge --no-edit <batch.base>
-   cd <dir> && bun install --frozen-lockfile
+   cd <dir> && bun install --frozen-lockfile && bun run build
    ```
+
+   Browser and layout files load the built packages. In a worktree without
+   the build they fail before collecting a test, and `measure` reports them
+   `not-collected`.
 
 4. **Audit each cluster, in order.** Stop taking new clusters when the time
    budget you were given is spent (45 minutes if none was given). A cluster you
