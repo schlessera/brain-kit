@@ -97,14 +97,19 @@ export function PersonaSettings({ active }: { active: boolean }) {
 
   const select = async (value: string) => {
     if (!selection) return;
+    const before = selection;
+    // Shown at once, as the Dictation radios do; a refused save puts it back.
+    setSelection({ value, revision: before.revision });
+    setStatus((current) => current && { ...current, selectedMissing: false });
     setNotice("Saving…"); setFailure("");
     try {
-      const saved = await api.saveLivePersonaSelection(value, selection.revision);
+      const saved = await api.saveLivePersonaSelection(value, before.revision);
       setSelection(saved.persona); setStatus(saved.livePersona); setNotice("");
     } catch (error) {
       if (error instanceof ApiRequestError && error.message === "LIVE_PERSONA_CHANGED") {
         setNotice("Changed on another device. Showing the latest."); await refresh(); return;
       }
+      setSelection(before);
       setNotice(""); setFailure(error instanceof ApiRequestError && error.status === 403 ? "Only the owner can change this." : "Couldn't save the persona choice.");
     }
   };
