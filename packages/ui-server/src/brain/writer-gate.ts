@@ -113,9 +113,12 @@ const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
 
 const UNRETAINED_PEER = "An active peer did not retain the requested provider folders; finish that peer and retry admission";
 
-function pause(ms: number, signal?: AbortSignal): Promise<void> {
+function pause(ms: number, signal?: AbortSignal, background = false): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, ms);
+    // A background retry never keeps the process alive: an exited process's
+    // row is stale, and the next gate read prunes it.
+    if (background) timer.unref?.();
     const stop = () => { clearTimeout(timer); reject(signal!.reason); };
     signal?.addEventListener("abort", stop, { once: true });
   });
@@ -339,7 +342,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
             try { await submit("cleanupFailure", id, operation, cause.message, cause.at); recorded = true; }
             catch { /* Retry the independent diagnostic after the next delete attempt. */ }
           }
-          await pause(Math.min(30_000, Math.max(1, pollMs) * 2 ** Math.min(attempt++, 10)));
+          await pause(Math.min(30_000, Math.max(1, pollMs) * 2 ** Math.min(attempt++, 10)), undefined, true);
         }
       }
     })();
