@@ -1,54 +1,54 @@
 # Test health
 
-Generated 2026-11-10T18:05:01.984Z at `8baf700769da`.
+Generated 2026-11-10T18:19:03.172Z at `f0e68550a036`.
 
 ## Coverage of the rotation
 
 | Measure | Value |
 | --- | --- |
 | Test files | 1835 |
-| Audited at their current content | 438 (23.9%) |
+| Audited at their current content | 595 (32.4%) |
 | Changed since their audit | 0 |
-| Never audited | 1397 |
+| Never audited | 1240 |
 | Median audit age in days | 0 |
 
 ## What the audits found
 
 | Measure | Value |
 | --- | --- |
-| Runs | 6 (completed 5, nothing-to-do 1) |
-| Runs by agent | claude-opus-5-5 6 |
-| Files audited | 438 |
-| Files changed | 127 |
-| Findings | 777 (1.77 per audited file) |
-| By lens | cannot-fail 343, nondeterminism 180, hygiene 100, cost 65, failure-issues 43, overlap 24, not-running 20, tier-and-doubles 2 |
-| By action | none 582, cleanup 68, strengthen 67, deflake 27, file-issue 12, rewrite 11, speed-up 7, remove 2, move-tier 1 |
-| By status | accepted 582, fixed 160, deferred 25, filed 10 |
+| Runs | 7 (completed 6, nothing-to-do 1) |
+| Runs by agent | claude-opus-5-5 7 |
+| Files audited | 595 |
+| Files changed | 141 |
+| Findings | 980 (1.65 per audited file) |
+| By lens | cannot-fail 431, nondeterminism 234, hygiene 128, cost 78, failure-issues 47, overlap 36, not-running 23, tier-and-doubles 3 |
+| By action | none 762, cleanup 77, strengthen 73, deflake 28, file-issue 14, rewrite 12, speed-up 7, remove 5, move-tier 2 |
+| By status | accepted 762, fixed 176, deferred 31, filed 11 |
 
 ## Proof and efficacy
 
 | Measure | Value |
 | --- | --- |
-| Tests fixed that could not fail | 66 |
-| Mutations killed | 72 |
-| Tests made deterministic | 18 |
+| Tests fixed that could not fail | 73 |
+| Mutations killed | 80 |
+| Tests made deterministic | 19 |
 | Seconds saved per run of the changed files | 42.8 |
-| Test declarations in changed files | 1583 before, 1583 after (0 removed, each declared with its obligation map) |
-| Executed cases in changed files | 1961 before, 1961 after |
-| Executed assertions in changed files | 11336 before, 11471 after |
+| Test declarations in changed files | 1657 before, 1657 after (0 removed, each declared with its obligation map) |
+| Executed cases in changed files | 2030 before, 2030 after |
+| Executed assertions in changed files | 11758 before, 11892 after |
 | Re-audits that found what an earlier audit missed | n/a |
 
 ## Landing
 
 | Measure | Value |
 | --- | --- |
-| Batches landed | 1 |
-| Batches open | 14 (126 changed files waiting) |
+| Batches landed | 3 |
+| Batches open | 14 (88 changed files waiting) |
 | Batches abandoned | 0 |
 | Commits dropped from a batch | 0 |
-| Landing attempts | 6 |
-| Mean changed files per landed batch | 1 |
-| Mean hours from first commit to landing | 1.7 |
+| Landing attempts | 8 |
+| Mean changed files per landed batch | 17.7 |
+| Mean hours from first commit to landing | 1.6 |
 
 ## Suite trend
 
@@ -56,9 +56,9 @@ Generated 2026-11-10T18:05:01.984Z at `8baf700769da`.
 | --- | --- |
 | Measured cost of one full pass, in seconds | 10388.2 to 10388.2 |
 | Share of that cost in the 50 slowest files | 0.639 to 0.639 |
-| Open failure issues | 69 to 74 |
-| Sleep-shaped call sites | 888 to 888 |
-| Weak matchers | 1295 to 1292 |
+| Open failure issues | 69 to 75 |
+| Sleep-shaped call sites | 888 to 887 |
+| Weak matchers | 1295 to 1295 |
 | Conditionally skipped tests | 139 to 139 |
 
 Signal counts are scanner leads, not defects. Timings saved are local medians of the changed files, not a hosted benchmark.
