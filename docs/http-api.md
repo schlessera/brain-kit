@@ -348,13 +348,16 @@ universal Cache-Control header is promised.
 the app's SQLite schema. Healthy: 200
 `{ status: "healthy", uptime: number, timestamp: string }`, where uptime is
 milliseconds since the route module initialized and timestamp is ISO UTC.
+A failed secondary backend returns 200 with `status: "degraded"` and
+`reasons: ["backend_unavailable"]`, retaining uptime and timestamp. Error text
+and backend identities remain behind authentication on `/api/status`.
 An unreadable database yields 503 `{ status: "unhealthy" }`, without detail.
 It never exposes release, source commit, runtime, credentials or session state;
 healthy does not certify upstream model or brain CLI availability.
 
 **GET /api/status** is protected, accepts no inputs, and returns
-`{ healthy: true, uptime, version, software, cronJobs, activeSession, metrics,
-runtime?, subscription? }`. `version` is the configured source commit (default
+`{ healthy: boolean, uptime, version, software, cronJobs, activeSession, metrics,
+runtime?, subscription?, backendAvailability? }`. `version` is the configured source commit (default
 `"dev"`), not a release; `software` is `{ release, sourceCommit }`. `cronJobs`
 contains `{ name, lastRunAt, lastStatus, lastDurationMs, lastError }`, nullable
 when a job has not run; it includes recorded jobs and configured in-process
@@ -363,6 +366,15 @@ jobs. `activeSession` means any active turn, not simply an open socket.
 series have name, kind (counter/updowncounter/histogram/gauge), numeric
 value and scalar attributes; histogram value is the observation count.
 Operational reads can fail with the common 500.
+
+`backendAvailability` contains `unavailable` (this boot's excluded backends) and
+`lastFailures` (the latest persisted failure per backend, retained after repair).
+Each record has `backendId`, `phase: "resolution" | "runtime"`, `errorClass`,
+`message`, `site` (the failed boot check) and ISO `at`. `healthy` is false while `unavailable` is nonempty.
+The default backend must pass boot validation; unavailable secondary backends
+are never constructed or routed to. Correct the package/runtime or host
+configuration and start again to revalidate. Prior records alone do not imply
+current degradation.
 
 `runtime.workerHost` is whether this host can run agent workers (#1632):
 `{ ordinary?, restricted? }`, each `{ available, checkedAt, trigger }` plus
@@ -400,7 +412,12 @@ and the [sync reporting contract](integration-contract/wire.md#activity-stream-r
 `subscription` contains `tokenSet`, nullable ISO `mintedAt`, `expiresAt`,
 `lastProvenAt`, `provenBy: "turn" | "model_discovery" | null` and nullable
 `lastAuthFailure` (`errorClass`, ISO `at`, `action`, `source`, optional
-`runId`, `message`, `status`). It never returns the token. Optional monitoring
+`runId`, `message`, `status`). An invalid configured mint date leaves
+`mintedAt` and `expiresAt` null and adds `expiryWarning` with
+`reason: "invalid_mint_date"`, `message` starting "expiry unknown: invalid mint date",
+`errorClass` and ISO `at`. It warns at boot and retains the last cause in the
+operational settings store; it never refuses serving or changes authentication.
+It never returns the token. Optional monitoring
 fields reflect injected capabilities; they are not a liveness requirement.
 
 ## Login, passkeys and delegated credentials
@@ -2053,3 +2070,10 @@ principal, generation, finalized-exposure and permanent retirement fences in
 the writer and SQLite trigger. Resolving a known event cannot repair unknown
 detector coverage, recording loss or another unresolved event. No model/voice
 tool, WS mutation frame, Settings rule or provider transcript edit is added.
+
+
+The authenticated status response also includes `journalCleanup` (#3815):
+current retained-checkpoint counts and bytes, plus `lastFailure`, a durable
+historical cause even when cleanup failed before the first turn. The historical
+record survives successful cleanup; current retained charges are reported
+separately. It is never part of public `/health`.

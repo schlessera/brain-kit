@@ -814,6 +814,13 @@ and error answers. Server checkpoint settlement uses these receipts as described
 in the [budget guide](../inbox-budget.md). Backends without this optional reporting
 retain conservative missing-receipt settlement.
 
+The additive server-only `BackendActivityEvent` variant `worker_cleanup`
+(#3815) contains `{ state: "retrying" | "resolved", bytes, turnTempBytes,
+errorClass?, message? }`. Both backends report retained cleanup allowances and
+their confirmation, including after a turn ends. The host records these as
+`worker_cleanup` Activity events on the original run without changing its
+terminal outcome. They never enter provider history and add no client frame.
+
 The additive server-only `BackendActivityEvent` variant `resource_limit`
 (#1660) contains `{ limits, fatal }`: each new host resource-limit hit of the
 turn's worker, `{ limit, source, value, events }`, reported next to the step
@@ -5179,3 +5186,9 @@ model tool or publication seam. Historical receipt projections and fresh
 its read-only reason additionally accepts `owner_required` or null; optional
 literal review lifetime/body bounds describe a supporting host. Absent or
 unsupported capability remains unavailable and grants no mutation authority.
+
+
+The journal host's additive `cleanupStatus()` method (#3815) returns
+`{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
+current accounting and historical diagnostic record exposed as
+[`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).

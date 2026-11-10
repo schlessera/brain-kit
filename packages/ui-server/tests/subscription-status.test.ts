@@ -33,6 +33,7 @@ import { type BrainUiApp } from "../src/app";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { resolveServerConfig } from "../src/config/env";
 import { createUiDb } from "../src/db/client";
+import { getSetting } from "../src/db/settings";
 import { resolveAmbientPrincipal } from "../src/db/principals";
 import { createRecordingObservability, type RecordingObservability } from "../src/observability/index";
 import type { WSContext } from "../src/ws/clients";
@@ -551,9 +552,18 @@ describe("/api/status's subscription", () => {
     }
   });
 
-  test("an unparseable mint date refuses boot, naming the variable", async () => {
+  test("an unparseable mint date boots with an explicit unknown expiry and runs turns", async () => {
     const at = host();
-    await expect(boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN, [MINTED_AT_ENV]: "last spring" })).rejects.toThrow(MINTED_AT_ENV);
+    const { app, observability } = await boot(at, { CLAUDE_CODE_OAUTH_TOKEN: FAKE_TOKEN, [MINTED_AT_ENV]: "last spring" }, subscriptionRun);
+    try {
+      const warning = (await status(app)).subscription;
+      expect(warning).toMatchObject({ mintedAt: null, expiresAt: null,
+        expiryWarning: { reason: "invalid_mint_date", message: expect.stringContaining("expiry unknown: invalid mint date") } });
+      expect(warnings(observability, "expiry unknown: invalid mint date")).toHaveLength(1);
+      expect(getSetting<SubscriptionStatus["expiryWarning"] | null>(app.db, "subscription.invalidMintDate", null)).toEqual(warning.expiryWarning);
+      await turn(app);
+      expect((await status(app)).subscription.lastProvenAt).not.toBeNull();
+    } finally { await app.close(); }
   });
 });
 

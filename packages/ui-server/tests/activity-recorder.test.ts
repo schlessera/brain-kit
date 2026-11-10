@@ -353,3 +353,19 @@ describe("a denial the host never saw (#110)", () => {
     ).toContain("approval_decision");
   });
 });
+
+test("cleanup diagnostics remain durable after the turn finishes without changing its outcome", async () => {
+  const { db, store, recorder } = setup("odysseus-cleanup");
+  try {
+    recorder.finish("error");
+    recorder.observeActivity({ kind: "worker_cleanup", state: "retrying", bytes: 4096, turnTempBytes: 8192,
+      errorClass: "Error", message: "worker_identity_cleanup_unconfirmed" });
+    await recorder.settled();
+    const events = db.query("SELECT payload FROM activity_events WHERE span_id=? AND event_type='worker_cleanup'").all("odysseus-cleanup:turn");
+    expect(JSON.stringify(events), "OWNER_CLEANUP_CAUSE_DURABLE").toContain("worker_identity_cleanup_unconfirmed");
+    recorder.observeActivity({ kind: "worker_cleanup", state: "resolved", bytes: 4096, turnTempBytes: 8192 });
+    await recorder.settled();
+    expect(JSON.stringify(db.query("SELECT * FROM activity_events WHERE span_id=?").all("odysseus-cleanup:turn"))).toContain("resolved");
+    expect(store.getSpan("odysseus-cleanup:turn")!.outcome).toBe("error");
+  } finally { db.close(); }
+});

@@ -55,8 +55,7 @@ design, not an afterthought.
    - Proportionate: an uncertain worker cleanup stays charged and is retried
      until a close is confirmed.
    - Disproportionate: after five refused closes, the allowance stays charged
-     until the server restarts (`const attempt`,
-     `packages/ui-backend-claude/src/cleanup-reconciler.ts:78-90`).
+     until the server restarts (the terminal give-up removed by #3815).
 4. **Boot.** A recoverable historical record (a corrupt object, a malformed
    intent, an interrupted cleanup) is quarantined and marked, and the host
    boots. If it must, it boots restricted, with the unsafe operation still
@@ -109,3 +108,46 @@ A PR that adds or changes a fail-closed guard answers these in its body:
   (#3810).
 - **Restart the server on latch.** Rejected: a durable latch survives restart
   by design, and a process-lifetime one hides the cause.
+
+## The two historical boot gates traced in #3817
+
+The acceptance criteria permit retaining a boot refusal where tracing shows
+that the current host cannot enforce the proposed restricted mode. These two
+refusals remain; they are not covered by secondary-backend degraded health.
+
+**Failed protected-file quarantine.** The result is a protected executable
+input still in the brain, not merely a missing history record. The host
+reconciles before it prepares the boundary or invokes the brain's CLI;
+`reconcileExisting` refuses before installing its writer gate
+(`reconcileExisting()`, `packages/ui-server/src/brain/host-execution.ts:100-113`).
+The CLI version probe itself evaluates the brain's execution environment.
+A read-only UI that continued this normal startup would already have crossed
+the forbidden evaluation boundary before serving diagnostics. Neither a
+strict turn profile nor a writer lock makes that configuration trusted.
+Therefore the full app still refuses when quarantine cannot move the input.
+The manifest retains the failed paths and error text with an open end record;
+reconciliation retries the move on the next start
+(`const close`, `packages/ui-server/src/brain/governed-manifest.ts:258-267`).
+Repairing the quarantine destination preserves the bytes and permits that
+retry; removing a protected input requires the owner's judgment. A separate
+boot path that never evaluates the brain would be needed to serve recovery
+while this guard is active; removing the assertion alone is unsafe.
+
+**Interrupted operational restore.** This is an incomplete replacement of the
+whole operational database and staging tree, including principals, schedules,
+retained dialogue authority and budget reservations. It is not a single inbox
+item. Resume accepts only the original snapshot checksum and root and an
+unchanged logical database
+(`restoreInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:428-445`).
+Even ordinary authentication writes would make that target fail the equality
+check. The final transaction settles reservations conservatively, pauses
+schedules and invalidates old dialogue authority before marking it ready
+(`const recovered`, `packages/ui-server/src/inbox/snapshot.ts:463-480`).
+Starting the regular authenticated app over the pending database cannot
+preserve this recovery contract, so its refusal remains. The existing local
+`brain-ui-inbox restore --db <database> --brain-root <brain> --file <snapshot>
+--json` operation resumes the same snapshot without starting the app. Choosing
+the snapshot is an owner action; the snapshot bytes are not retained by the
+pending row, so startup cannot reconstruct them automatically. Serving a
+recovery UI here would require authentication independent of the database
+being restored, rather than treating its historical principals as current.
