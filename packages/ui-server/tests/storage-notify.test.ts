@@ -46,7 +46,7 @@ test("multiple Critical capacities coalesce into one generic push and durably re
   const f = fixture(); f.device("Ithaca"); f.observe(start, 5000, 4);
   expect(await f.deliver()).toBe(1); expect(f.sent).toHaveLength(1);
   expect(f.sent[0]!.payload).toEqual({ title: "Storage needs attention.", body: "Open Storage for details.", tag: expect.stringMatching(/^brain-storage:[a-f0-9]{32}$/), url: "/#/settings/storage" });
-  const rows = f.notices.receipts(f.owner.id, start); expect(rows).toHaveLength(4); expect(rows.every(row => row.state === "accepted" && row.attempts === 1)).toBe(true);
+  const rows = f.notices.receipts(f.owner.id, start); expect(rows).toHaveLength(4); expect(rows.map(row => [row.state, row.attempts])).toEqual(Array(4).fill(["accepted", 1]));
   expect(await f.deliver(), "STORAGE_PUSH_DURABLE_DEDUP").toBe(0);
   const db = createUiDb(f.path); close.push(() => db.close());
   const other = createStorageNotifier(db, createStorageHistory(db, f.root));
@@ -134,7 +134,7 @@ test("native concurrent senders submit once; a SIGKILL after transport entry is 
     try {
       const deadline = Date.now() + 5000;
       while (!outputs.every(value => value.includes("READY\n")) && Date.now() < deadline) await sleep(10);
-      expect(outputs.every(value => value.includes("READY\n"))).toBe(true);
+      expect(outputs.map(value => value.includes("READY\n")), outputs.join("\n")).toEqual(children.map(() => true));
       for (const child of children) { child.stdin.write("deliver\n"); child.stdin.end(); }
       if (mode === "crash") {
         while (!existsSync(marker) && Date.now() < deadline) await sleep(10);
