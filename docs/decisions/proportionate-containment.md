@@ -55,8 +55,7 @@ design, not an afterthought.
    - Proportionate: an uncertain worker cleanup stays charged and is retried
      until a close is confirmed.
    - Disproportionate: after five refused closes, the allowance stays charged
-     until the server restarts (`const attempt`,
-     `packages/ui-backend-claude/src/cleanup-reconciler.ts:78-90`).
+     until the server restarts (the terminal give-up removed by #3815).
 4. **Boot.** A recoverable historical record (a corrupt object, a malformed
    intent, an interrupted cleanup) is quarantined and marked, and the host
    boots. If it must, it boots restricted, with the unsafe operation still

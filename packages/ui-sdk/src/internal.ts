@@ -96,3 +96,6 @@ export type { RemovalRun, SessionRetirement, SessionRetirementOptions } from "./
 export { sessionReplayLocation } from "./server/session-replay.js";
 export { sessionPromptContextLocation } from "./server/session-prompt-context.js";
 export { nativeObservationIdentity } from "./server/native-observation-storage.js";
+
+export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMPTS, CLEANUP_RETRY_BASE_MS, CLEANUP_RETRY_MAX_MS } from "./server/cleanup-reconciler.js";
+export type { CleanupNotice, CleanupReconciler, CleanupReconcilerOptions, RetainedCleanup } from "./server/cleanup-reconciler.js";
