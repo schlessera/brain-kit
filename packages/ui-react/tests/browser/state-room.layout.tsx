@@ -79,8 +79,10 @@ function result(socket: Socket, percent = 80, allowance = 64 * MIB, observedAt =
 }
 const notice = () => host!.querySelector<HTMLElement>("[data-state-room-notice]");
 
-for (const width of [320, 1280]) for (const theme of ["light", "dark"]) test(`${width} ${theme}: factual warning, usable targets and no unsolicited focus or work`, async () => {
-  const { socket } = await mount(width, theme);
+// One theme per scenario: nothing measured here takes a theme-specific class,
+// and Storybook owns light/dark parity.
+for (const width of [320, 1280]) test(`${width}: factual warning, usable targets and no unsolicited focus or work`, async () => {
+  const { socket } = await mount(width, "light");
   const composer = host!.querySelector<HTMLTextAreaElement>("[data-composer] textarea")!;
   composer.focus();
   result(socket, 50);
@@ -91,6 +93,7 @@ for (const width of [320, 1280]) for (const theme of ["light", "dark"]) test(`${
   expect(notice()!.textContent).toContain("As of the last turn");
   expect(document.activeElement).toBe(composer);
   expect(notice()!.scrollWidth).toBeLessThanOrEqual(notice()!.clientWidth + 1);
+  expect([...notice()!.querySelectorAll<HTMLElement>('[role="button"]')].map(target => target.textContent), "STATE_ROOM_NOTICE_ACTIONS").toEqual(["Continue in a new conversation", "Not now"]);
   for (const target of notice()!.querySelectorAll<HTMLElement>('[role="button"]')) {
     const box = target.getBoundingClientRect(); expect(touchFloor(target), "notice action meets the touch floor (#3252)").toBe("met");
     expect(box.right).toBeLessThanOrEqual(width + 1);
@@ -258,12 +261,13 @@ test("continuation keeps reviewed cost, source preference, cancellation focus an
   expect(ui.stores.chat.getState().buffers[SESSION]!.messages).toHaveLength(2);
 });
 
-for (const theme of ["light", "dark"]) test(`${theme}: reflow at the 640 CSS pixels of a 1280px desktop at 200% zoom`, async () => {
+test("reflow at the 640 CSS pixels of a 1280px desktop at 200% zoom", async () => {
   // Browser zoom halves its layout viewport, including media queries. CSS
   // zoom on one subtree would leave desktop panes active and is not that proof.
-  const { socket } = await mount(640, theme, null, 400); result(socket);
+  const { socket } = await mount(640, "dark", null, 400); result(socket);
   await expect.poll(notice).not.toBeNull();
   expect(notice()!.scrollWidth).toBeLessThanOrEqual(notice()!.clientWidth + 1);
+  expect([...notice()!.querySelectorAll<HTMLElement>('[role="button"]')].map(target => target.textContent), "STATE_ROOM_REFLOW_ACTIONS").toEqual(["Continue in a new conversation", "Not now"]);
   for (const target of notice()!.querySelectorAll<HTMLElement>('[role="button"]')) {
     expect(touchFloor(target), "notice action meets the touch floor (#3252)").toBe("met");
     expect(target.getBoundingClientRect().right).toBeLessThanOrEqual(641);
