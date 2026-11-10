@@ -26,6 +26,8 @@ export const Phone = meta.story({ render: () => <CodeFenceTheme/>, play: async (
   await waitFor(() => expect(canvasElement.querySelector('[data-code-theme-preview]')?.shadowRoot?.querySelectorAll('.hljs-keyword').length ?? 0).toBeGreaterThan(0));
   const shadow = canvasElement.querySelector('[data-code-theme-preview]')!.shadowRoot!;
   await expect(shadow.querySelectorAll('[data-kit-code-block]')).toHaveLength(3);
-  for (const button of shadow.querySelectorAll('button')) await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  const buttons = shadow.querySelectorAll('button');
+  await expect(buttons, 'one copy button per code block').toHaveLength(3);
+  for (const button of buttons) await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 } });
 export const Desktop = Phone.extend({ parameters: wide });
