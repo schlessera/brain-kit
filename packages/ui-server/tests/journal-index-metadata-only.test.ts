@@ -97,7 +97,7 @@ test("observed index refreshes keep path, size and change evidence without retai
     }
     const wal = index.filter(change => change.path === ".brain-index/brain.db-wal");
     expect(new Set(wal.map(change => change.after?.stamp)).size, "INDEX_EQUAL_SIZE_VERSIONS_HAVE_DISTINCT_STAMPS").toBe(3);
-    expect(wal.every(change => change.before?.stamp !== change.after?.stamp), "INDEX_STAMP_CHANGES_WITH_EACH_REFRESH").toBe(true);
+    expect(wal.filter(change => change.before?.stamp === change.after?.stamp), "INDEX_STAMP_CHANGES_WITH_EACH_REFRESH").toEqual([]);
     expect(index.findLast(change => change.path === ".brain-index/brain.db-journal")?.after?.kind, "INDEX_SYMLINK_OBSERVED").toBe("symlink");
     const kept = f.retained();
     expect([...written].filter(hash => kept.has(hash)), "INDEX_BYTES_NEVER_RETAINED").toEqual([]);
@@ -133,7 +133,9 @@ test("before-version capture and removal coverage never retain the index family,
     }
     // Even naming a genuinely retained object, a metadata-only version is never a recovery source.
     expect(f.journal.hasRetainedVersion("removal", { ...original!, metadataOnly: true }), "METADATA_ONLY_VERSION_NEVER_RETAINED").toBe(false);
-    await expect(f.journal.withRetainedVersion({ ...original!, metadataOnly: true }, () => "copied"), "METADATA_ONLY_VERSION_NEVER_COPIED").rejects.toThrow("retained version is unavailable");
+    // Settled, not `expect(...).rejects`: a wrongly resolved copy must fail here, not stall on the journal's write worker.
+    const copied = await f.journal.withRetainedVersion({ ...original!, metadataOnly: true }, () => "copied").then(value => value, error => error);
+    expect(String(copied), "METADATA_ONLY_VERSION_NEVER_COPIED").toContain("retained version is unavailable");
     await f.journal.finish("removal");
   } finally { await f.close(); }
 });
@@ -169,6 +171,7 @@ test("history revert excludes the index family as metadata-only, including earli
     expect(readFileSync(join(f.brain, ".brain-index/brain.db"), "utf8"), "INDEX_LEFT_FOR_REBUILD").toBe("refreshed index");
     expect(readFileSync(join(f.brain, LOCK[0]!), "utf8"), "LOCK_LEFT_IN_PLACE").toBe("embedding lock taken");
     expect(existsSync(join(f.brain, ".brain-index/brain.db.embedding-lock.db.bak")), "SIMILAR_LOCK_NAME_REVERTED").toBe(false);
-    await expect(f.reverts.start("odysseus", "ithaca", "return", { id: "odysseus_index_revert_02", path: ".brain-index/brain.db" }), "INDEX_SINGLE_PATH_REVERT_REFUSED").rejects.toThrow();
+    const single = await f.reverts.start("odysseus", "ithaca", "return", { id: "odysseus_index_revert_02", path: ".brain-index/brain.db" }).then(value => value, error => error);
+    expect(single, "INDEX_SINGLE_PATH_REVERT_REFUSED").toBeInstanceOf(Error);
   } finally { await f.close(); }
 });
