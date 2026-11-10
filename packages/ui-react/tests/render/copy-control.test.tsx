@@ -156,12 +156,25 @@ describe("ClampedPre", () => {
   test("inside the timeline, one control copies the output instead of two stacked", () => {
     const copied = mockClipboard();
     const tool: ToolCall = { id: "tool-2", name: "Bash", input: { command: "ls" }, inputJson: '{"command":"ls"}', status: "complete", output: text };
-    const view = render(<ToolCallTimeline toolCalls={[tool]} onApproval={() => {}} live />);
-    fireEvent.click(view.getByText("ls"));
-    const buttons = view.getAllByRole("button", { name: "Copy output" });
-    expect(buttons).toHaveLength(1);
-    fireEvent.click(buttons[0]!);
-    expect(copied).toEqual([text]);
+    // Its own root: the default root's chat store may carry another file's
+    // active session and backend, which would resolve `Bash` to the generic
+    // renderer (#3720).
+    const root = createBrainUiRoot({ storage: null });
+    const view = render(
+      <BrainUiProvider root={root}>
+        <ToolCallTimeline toolCalls={[tool]} onApproval={() => {}} live />
+      </BrainUiProvider>
+    );
+    try {
+      fireEvent.click(view.getByText("ls"));
+      const buttons = view.getAllByRole("button", { name: "Copy output" });
+      expect(buttons).toHaveLength(1);
+      fireEvent.click(buttons[0]!);
+      expect(copied).toEqual([text]);
+    } finally {
+      view.unmount();
+      root.dispose();
+    }
   });
 });
 
