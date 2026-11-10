@@ -18,7 +18,7 @@ function steady(days = 30, available: (index: number) => number = index => 900_0
 test("one observation updates all tiers, Monday weeks and actual endpoint timestamps", () => {
   const payload = retainAggregate(empty(), observation(at + 10 * HOUR));
   expect(payload.samples.map(row => row[1])).toEqual([0, 1, 2]);
-  expect(payload.samples.every(row => row[3] === at + 10 * HOUR)).toBe(true);
+  expect(payload.samples.filter(row => row[3] !== at + 10 * HOUR)).toEqual([]);
   expect(new Date(bucketStart(2, bucket(2, at))).getUTCDay()).toBe(1);
   expect(payload.samples.map(row => row[2])).toEqual([0, 1, 1]);
 });
@@ -32,7 +32,7 @@ test("186 full records remain bounded by tier age, slots, dictionaries and canon
   expect(payload.samples.length, "STORAGE_HISTORY_186_SLOTS").toBe(186);
   expect(([0, 1, 2] as const).map(tier => payload.samples.filter(row => row[1] === tier).length)).toEqual([64, 90, 32]);
   const latest = payload.samples.at(-1)![3];
-  expect(payload.samples.every(row => bucket(row[1], row[3]) >= bucket(row[1], latest) - HISTORY_LIMITS.slots[row[1]] + 1)).toBe(true);
+  expect(payload.samples.filter(row => bucket(row[1], row[3]) < bucket(row[1], latest) - HISTORY_LIMITS.slots[row[1]] + 1)).toEqual([]);
   expect(jsonBytes(payload)).toBeLessThanOrEqual(262144);
   expect(jsonBytes(payload.metadata)).toBeLessThanOrEqual(40960);
   expect(Object.keys(payload.metadata.samples)).toHaveLength(1);
@@ -51,9 +51,9 @@ test("worst safe numeric fields obey per-sample and combined metadata limits", (
 test("partial refresh preserves complete endpoints but makes bucket gaps sticky", () => {
   let payload = retainAggregate(empty(), observation(at));
   payload = retainAggregate(payload, observation(at + HOUR, 100_000, true));
-  expect(payload.samples.every(row => row[3] === at && row[2] === 1 && row[7] === 0)).toBe(true);
+  expect(payload.samples.filter(row => !(row[3] === at && row[2] === 1 && row[7] === 0))).toEqual([]);
   payload = retainAggregate(payload, observation(at + 2 * HOUR));
-  expect(payload.samples.every(row => row[3] === at + 2 * HOUR && row[2] === 1)).toBe(true);
+  expect(payload.samples.filter(row => !(row[3] === at + 2 * HOUR && row[2] === 1))).toEqual([]);
 });
 test("missed final intervals, outages and scope changes mark actual points without filling gaps", () => {
   let payload = retainAggregate(empty(), observation(at));
@@ -62,7 +62,7 @@ test("missed final intervals, outages and scope changes mark actual points witho
   expect(payload.samples.find(row => row[1] === 1 && row[3] === at)?.[2]).toBe(1);
   const changed = observation(at + 2 * DAY + RECENT); changed.descriptor[1] = hashScope("Troy stores");
   payload = retainAggregate(payload, changed);
-  expect(payload.samples.filter(row => row[3] === changed.at).every(row => row[2] === 1)).toBe(true);
+  expect(payload.samples.filter(row => row[3] === changed.at && row[2] !== 1)).toEqual([]);
   const later = retainAggregate(payload, observation(at + 300 * DAY));
   expect(later.samples).toHaveLength(3);
 });
