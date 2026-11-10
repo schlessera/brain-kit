@@ -145,6 +145,8 @@ async function agree(pending: number, options: { sync?: boolean; selected?: bool
   expect(parity!.cli.media, "MEDIA_FLOW_BROWSER_CLI_COUNT").toEqual(parity!.server.media);
   if (options.selected !== false) expect(parity!.cli.findingId, "MEDIA_FLOW_BROWSER_SELECTION").toBe(parity!.server.findingId);
   else if (parity!.server.findingId) expect(parity!.eligible, "MEDIA_FLOW_BROWSER_SELECTION_ELIGIBLE").toBe(true);
+  // A requested sync must answer: a missing one would skip every check below.
+  expect(parity!.sync === null, "MEDIA_FLOW_BROWSER_SYNC_RAN").toBe(options.sync === false);
   if (parity!.sync) {
     expect(parity!.sync.pending, "MEDIA_FLOW_BROWSER_SYNC_COUNT").toBe(pending);
     expect(parity!.sync.report).toContain(`Media awaiting review: ${pending}`);
