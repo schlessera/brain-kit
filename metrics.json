@@ -1,44 +1,44 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T21:21:44.003Z",
-  "sha": "514a9c9c6c2731d0ce1532d69d11953004b97c79",
+  "generatedAt": "2026-11-10T21:23:43.994Z",
+  "sha": "d425b3927938e88d82d83e5737075bb83e4839f1",
   "coverage": {
     "files": 1835,
-    "auditedCurrent": 1576,
+    "auditedCurrent": 1578,
     "stale": 0,
-    "never": 259,
-    "share": 0.859,
+    "never": 257,
+    "share": 0.86,
     "medianAuditAgeDays": 0.1
   },
   "runs": {
-    "total": 30,
+    "total": 31,
     "byOutcome": {
-      "completed": 25,
+      "completed": 26,
       "nothing-to-do": 5
     },
     "byAgent": {
-      "claude-opus-5-5": 30
+      "claude-opus-5-5": 31
     },
     "byProfile": {
       "cron": 2,
-      "push": 28
+      "push": 29
     }
   },
   "audits": {
-    "clusters": 845,
-    "files": 1593,
-    "filesChanged": 416
+    "clusters": 846,
+    "files": 1595,
+    "filesChanged": 418
   },
   "findings": {
-    "total": 2605,
+    "total": 2610,
     "perAuditedFile": 1.64,
     "byLens": {
       "failure-issues": 124,
-      "overlap": 149,
+      "overlap": 150,
       "nondeterminism": 765,
-      "cannot-fail": 951,
+      "cannot-fail": 953,
       "not-running": 47,
-      "hygiene": 382,
+      "hygiene": 384,
       "cost": 175,
       "tier-and-doubles": 12
     },
@@ -49,13 +49,13 @@
       "settling-sleep": 259,
       "shared-state": 146,
       "weak-matcher": 343,
-      "conditional-assertion": 394,
+      "conditional-assertion": 395,
       "unseeded-random": 5,
       "fixed-resource": 74,
       "conditional-skip": 47,
-      "opaque-failure": 354,
+      "opaque-failure": 356,
       "spawn-per-assertion": 25,
-      "earlier-layer-answers": 21,
+      "earlier-layer-answers": 22,
       "long-timeout": 55,
       "no-assertion": 81,
       "duplicate-case": 11,
@@ -79,7 +79,7 @@
       "order-dependent": 17,
       "masked-assertion": 6,
       "unawaited-async": 3,
-      "edge-cases-at-high-tier": 1,
+      "edge-cases-at-high-tier": 2,
       "product-fault": 6,
       "implementation-coupled": 2,
       "dead-support": 1,
@@ -88,9 +88,9 @@
     "byAction": {
       "deflake": 92,
       "remove": 35,
-      "none": 1973,
-      "strengthen": 161,
-      "cleanup": 254,
+      "none": 1975,
+      "strengthen": 162,
+      "cleanup": 256,
       "file-issue": 46,
       "rewrite": 22,
       "speed-up": 14,
@@ -101,32 +101,32 @@
     },
     "byStatus": {
       "deferred": 92,
-      "accepted": 1973,
-      "fixed": 507,
+      "accepted": 1975,
+      "fixed": 510,
       "filed": 33
     }
   },
   "proof": {
-    "mutationsKilled": 199,
-    "testsThatCouldNotFail": 152,
+    "mutationsKilled": 200,
+    "testsThatCouldNotFail": 153,
     "deflaked": 65,
     "secondsSavedPerRun": 73.6,
     "testsRemoved": 24
   },
   "accounting": {
-    "testsBefore": 4462,
-    "testsAfter": 4462,
+    "testsBefore": 4494,
+    "testsAfter": 4494,
     "declaredRemoved": 1,
-    "casesBefore": 5197,
-    "casesAfter": 5187,
-    "assertionsBefore": 52257,
-    "assertionsAfter": 52448
+    "casesBefore": 5229,
+    "casesAfter": 5219,
+    "assertionsBefore": 52532,
+    "assertionsAfter": 52722
   },
   "batches": {
-    "open": 30,
+    "open": 31,
     "landed": 5,
     "abandoned": 0,
-    "parkedChangedFiles": 340,
+    "parkedChangedFiles": 342,
     "droppedCommits": 0,
     "landingAttempts": 19,
     "meanFilesPerLanded": 14.2,
@@ -1217,6 +1217,42 @@
       "openIssues": 105,
       "openIssuesNeedingRepro": 24,
       "at": "2026-11-10T21:21:40.194Z"
+    },
+    {
+      "sha": "d425b3927938e88d82d83e5737075bb83e4839f1",
+      "files": 1835,
+      "scenarios": 15855,
+      "assertions": 65355,
+      "costSeconds": 10388.2,
+      "top50CostShare": 0.639,
+      "signals": {
+        "asserts-the-double": 2,
+        "conditional-assertion": 2670,
+        "conditional-skip": 139,
+        "fixed-resource": 221,
+        "giant-test": 15,
+        "leaked-resource": 5,
+        "long-timeout": 328,
+        "matrix-multiplier": 399,
+        "no-assertion": 177,
+        "not-throw-only": 14,
+        "opaque-failure": 1431,
+        "per-test-setup": 63,
+        "real-time-wait": 91,
+        "self-comparison": 12,
+        "settling-sleep": 887,
+        "shared-state": 942,
+        "spawn-per-assertion": 50,
+        "unawaited-async": 3,
+        "unclear-name": 9,
+        "unrestored-global": 1190,
+        "unseeded-random": 10,
+        "wall-clock": 1099,
+        "weak-matcher": 1292
+      },
+      "openIssues": 106,
+      "openIssuesNeedingRepro": 24,
+      "at": "2026-11-10T21:23:39.552Z"
     }
   ]
 }
