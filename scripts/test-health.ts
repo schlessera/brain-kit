@@ -299,6 +299,7 @@ async function commandMeasure(session: Session, files: string[]): Promise<unknow
       ...(entry.failingCases.length ? { failingCases: some(entry.failingCases.map(failing => failing.name), 5) } : {}),
       ...(entry.zeroAssertionCases.length ? { zeroAssertionCases: some(entry.zeroAssertionCases, 10) } : {}),
       ...(entry.skippedCases.length ? { skippedCases: entry.skippedCases.length } : {}),
+      ...(entry.setupError !== undefined ? { setupError: entry.setupError } : {}),
       slowestCases: entry.slowestCases.slice(0, 3) })) };
 }
 

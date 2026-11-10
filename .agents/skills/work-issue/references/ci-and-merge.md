@@ -266,8 +266,10 @@ slice. Queued PRs require actual merge-group and eventual landing evidence.
 
 For ordinary PRs, use `bun scripts/integrate.ts confirm <pr> --issues
 owner/repo#N,...` before requesting full confirmation. The explicit comma-separated
-list accepts at most 100 references, must include every closing issue, and
-checks every listed issue against the PR release milestone. It acquires the remote
+list accepts at most 100 references, must name at least one issue including
+every closing issue, and checks every listed issue against the PR release
+milestone. It refuses an empty or incomplete list, or a milestone mismatch,
+before taking a lease or spending candidate CI (#3850). It acquires the remote
 exact PR/head/base reservation, renews every minute, waits for actual complete
 candidate proof, and uses the shared merge path. It first waits for the
 newest exact-head contract run and refuses, before taking a lease or spending
