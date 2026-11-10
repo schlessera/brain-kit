@@ -5187,8 +5187,36 @@ its read-only reason additionally accepts `owner_required` or null; optional
 literal review lifetime/body bounds describe a supporting host. Absent or
 unsupported capability remains unavailable and grants no mutation authority.
 
+### Native recovery quarantine status (#3816)
+
+`NativeManagerReady` gains optional `recovery` with `quarantinedIntents`,
+`stagingChargedBytes` (null when no safe stage bound is known) and
+`diagnosticsPath`. It is present when historical native
+intents cannot be read. Those identities remain fenced; staging capacity and
+unknown checkpoint dependencies remain charged. The manager serves readiness
+and unrelated checkpoint operations. A recovery page containing a quarantined
+identity refuses explicitly rather than reporting an incomplete inventory as
+complete. Causes remain in the host-private diagnostics directory. Authenticated
+`GET /api/status` exposes the boot report as optional `nativeRecovery`, also
+added to `SystemStatus`. A null staging charge makes `healthy` false and new
+staging returns a recovery refusal, not a retryable capacity error. A confirmed
+absent stage directory or invalid UUID charges zero; a surviving stage retains
+its independently persisted historical tmpfs cap. Public `/api/health` remains
+unchanged.
 
 The journal host's additive `cleanupStatus()` method (#3815) returns
 `{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
 current accounting and historical diagnostic record exposed as
 [`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).
+
+
+### Unresolved recovery summaries (#3826)
+
+`NativeManagerReady.recovery` and `SystemStatus.nativeRecovery` add optional
+`stagingRefusal`, a recovery explanation when quarantine prevents admission of
+the configured allowance. The manager tests each stage's actual allowance
+before classifying its refusal. `JournalRecoveryStatus` and optional
+`SystemStatus.journalRecovery` expose the count and first cause of unresolved
+object reservations from boot. The journal host adds `recoveryStatus()` returning
+that summary. Fields and recovery semantics are in the
+[HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).

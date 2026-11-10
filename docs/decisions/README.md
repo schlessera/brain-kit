@@ -14,6 +14,7 @@ somebody already learn the hard way?*
 | [apify-actor-approval.md](apify-actor-approval.md) | Actor-scoped approve once/always/deny, credential-extraction scanning, shared Apify/turn spending and module availability; supersedes qualified-build admission. |
 | [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
 | [ci-utility.md](ci-utility.md) | Complete affected hosted proof, cheap local feedback and concurrent ready-PR scheduling without removing tests or blocking unrelated merges. |
+| [test-health.md](test-health.md) | Why existing tests are kept in shape by a recurring scripted audit that lands unreviewed per-package batches behind mechanical proof, with its ledger on a separate ref and a full-pass wrapper that adds only scale. |
 | [isolated-ci-build.md](isolated-ci-build.md) | Dormant fixed CI build operation, explicit activation deferral and conservative ordinary-build fallback. |
 | [tag-aliases.md](tag-aliases.md) | No-go for the tested semantic alias pipeline: Jev recognizes the aliases, but candidate retrieval misses one found by the shipped audit skill. |
 | [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
