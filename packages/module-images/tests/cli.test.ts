@@ -10,8 +10,8 @@ import { buildTaxonomy } from "@schlessera/brain/module";
 import { imageCommand } from "../src/cli";
 import { configSchema } from "../src/module";
 
-const SUNBURST = "gpt-image-2.5-sunburst";
-const FLARE = "gpt-image-2.5-flare";
+const SUNBURST = "gpt-image-2.6-sunburst";
+const FLARE = "gpt-image-2.6-flare";
 const PNG_B64 = Buffer.from("fake-png-bytes").toString("base64");
 
 let root: string;
@@ -155,7 +155,8 @@ describe("brain image — refused before the provider is called", () => {
   }
 
   test("OpenAI disabled entirely leaves transparency impossible, not rerouted", async () => {
-    expect(await run(["x", "--transparent"], { disabledModels: [SUNBURST, FLARE] })).toBe(1);
+    const openai = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"];
+    expect(await run(["x", "--transparent"], { disabledModels: openai })).toBe(1);
     expect(calls).toHaveLength(0);
   });
 });
@@ -183,7 +184,7 @@ describe("brain image — what it reports without spending", () => {
   });
 
   test("a dry run with auto quality or no size stays unpriced", async () => {
-    for (const argv of [["--quality", "auto", "--size", "1024x1024"], ["--quality", "high"], ["--size", "1024x1024"]]) {
+    for (const argv of [["--quality", "auto", "--size", "1024x1024"], ["--quality", "high"], []]) {
       out.length = 0;
       expect(await run(["x", "--dry-run", ...argv])).toBe(0);
       expect(report().estimatedCostUsd).toBeNull();
@@ -191,10 +192,10 @@ describe("brain image — what it reports without spending", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("`models` lists both 2.5 models with no borrowed price, and no retired model", async () => {
+  test("`models` lists the 2.6 and 2.5 models with no borrowed price, and no retired model", async () => {
     expect(await run(["models"])).toBe(0);
     const rows = report().models as { model: string; approxCostUsd1K: number | null }[];
-    expect(rows.map((r) => r.model)).toEqual([SUNBURST, FLARE]);
+    expect(rows.map((r) => r.model)).toEqual([SUNBURST, FLARE, "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]);
     for (const r of rows) expect(r.approxCostUsd1K).toBeNull();
   });
 });
@@ -233,5 +234,89 @@ describe("brain image — keys withheld from an agent worker (#1666)", () => {
     delete process.env.OPENAI_API_KEY;
     expect(await run(["a harbour at dawn", "--out", "h.png"])).toBe(1);
     expect(out.join("\n")).toStartWith("No image provider is configured.");
+  });
+});
+
+// GPT Image 2.6 (#3782): the default model, and the highest quality and
+// complexity unless the request states otherwise.
+describe("brain image — GPT Image 2.6 defaults (#3782)", () => {
+  const SUNBURST_26 = "gpt-image-2.6-sunburst";
+  const FLARE_26 = "gpt-image-2.6-flare";
+  const SUNBURST_25 = "gpt-image-2.5-sunburst";
+  const FLARE_25 = "gpt-image-2.5-flare";
+
+  test("an unpinned generation sends 2.6 Sunburst at max quality and high complexity", async () => {
+    expect(await run(["a heat pump", "--out", "a.png"])).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(sentJson(), "IMAGE_26_DEFAULTS_GENERATION").toMatchObject({
+      model: SUNBURST_26, quality: "max", complexity: "high",
+    });
+    expect(report()).toMatchObject({ model: SUNBURST_26 });
+  });
+
+  test("an unpinned edit carries the same defaults over multipart", async () => {
+    expect(await run(["repaint the door", "--ref", "photos/house.png", "--out", "e.png"])).toBe(0);
+    expect(calls[0].url).toEndWith("/images/edits");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("model")).toBe(SUNBURST_26);
+    expect(form.get("quality"), "IMAGE_26_DEFAULTS_EDIT").toBe("max");
+    expect(form.get("complexity")).toBe("high");
+  });
+
+  test("an explicit quality and complexity are sent as given, auto included", async () => {
+    expect(await run(["x", "--model", FLARE_26, "--quality", "low", "--complexity", "medium", "--out", "x.png"])).toBe(0);
+    expect(sentJson()).toMatchObject({ model: FLARE_26, quality: "low", complexity: "medium" });
+    calls.length = 0;
+    expect(await run(["x", "--quality", "auto", "--out", "y.png"])).toBe(0);
+    expect(sentJson().quality).toBe("auto");
+  });
+
+  for (const model of [SUNBURST_25, FLARE_25]) {
+    test(`${model} stays selectable, defaults to max and never receives complexity`, async () => {
+      expect(await run(["x", "--model", model, "--out", "x.png"])).toBe(0);
+      const body = sentJson();
+      expect(body).toMatchObject({ model, quality: "max" });
+      expect(body, "IMAGE_25_NO_COMPLEXITY").not.toHaveProperty("complexity");
+    });
+
+    test(`--complexity on ${model} refuses before any request`, async () => {
+      expect(await run(["x", "--model", model, "--complexity", "low"])).toBe(1);
+      expect(calls, "IMAGE_COMPLEXITY_GUARD").toHaveLength(0);
+      expect(out.join("\n")).toContain(SUNBURST_26);
+    });
+  }
+
+  test("--complexity on Gemini refuses before any request", async () => {
+    process.env.GEMINI_API_KEY = "placeholder-never-sent";
+    expect(await run(["x", "--provider", "gemini", "--complexity", "high"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/complexity/);
+  });
+
+  test("an unknown complexity refuses before routing", async () => {
+    expect(await run(["x", "--complexity", "max"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toContain("low, medium, high");
+  });
+
+  test("a dry run prices the defaulted max quality", async () => {
+    expect(await run(["x", "--dry-run", "--aspect", "1:1"])).toBe(0);
+    expect(calls).toHaveLength(0);
+    // 1:1 at 1K is 1024x1024: 96 tokens a side at max, 7024 tokens at $30/M.
+    expect(report()).toMatchObject({ model: SUNBURST_26 });
+    expect(report().estimatedCostUsd, "IMAGE_26_DRY_RUN_MAX").toBeCloseTo(0.21072, 10);
+  });
+
+  test("`models` lists the 2.6 pair first, then the 2.5 pair", async () => {
+    expect(await run(["models"])).toBe(0);
+    expect((report().models as { model: string }[]).map((r) => r.model)).toEqual([
+      SUNBURST_26, FLARE_26, SUNBURST_25, FLARE_25,
+    ]);
+  });
+
+  test("the retired-model message names the 2.6 replacements", async () => {
+    expect(await run(["x", "--model", "gpt-image-2"])).toBe(1);
+    expect(out.join("\n")).toContain(SUNBURST_26);
+    expect(out.join("\n")).toContain(FLARE_26);
   });
 });
