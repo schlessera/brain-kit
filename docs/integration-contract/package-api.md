@@ -814,6 +814,13 @@ and error answers. Server checkpoint settlement uses these receipts as described
 in the [budget guide](../inbox-budget.md). Backends without this optional reporting
 retain conservative missing-receipt settlement.
 
+The additive server-only `BackendActivityEvent` variant `worker_cleanup`
+(#3815) contains `{ state: "retrying" | "resolved", bytes, turnTempBytes,
+errorClass?, message? }`. Both backends report retained cleanup allowances and
+their confirmation, including after a turn ends. The host records these as
+`worker_cleanup` Activity events on the original run without changing its
+terminal outcome. They never enter provider history and add no client frame.
+
 The additive server-only `BackendActivityEvent` variant `resource_limit`
 (#1660) contains `{ limits, fatal }`: each new host resource-limit hit of the
 turn's worker, `{ limit, source, value, events }`, reported next to the step

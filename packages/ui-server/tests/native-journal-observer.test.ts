@@ -155,14 +155,14 @@ test("invalid UTF-8 initial names refuse and release the initial root",async()=>
 });
 
 /** Copied roots whose releases wait for the test, one deferred per release. */
-function releaseFixture() {
+function releaseFixture(retryMs?: number) {
   const root=mkdtempSync(join(tmpdir(),"native-observer-release-odysseus-")),brain=join(root,"brain");
   mkdirSync(join(brain,"notes"),{recursive:true});writeFileSync(join(brain,"notes","ithaca.md"),"Penelope waits at Ithaca.\n");
   const native=createNativeJournalFixture(brain,root),release=native.manager.release.bind(native.manager),checkpoint=native.manager.checkpoint.bind(native.manager);
   const counts={checkpoints:0};native.manager.checkpoint=(id,signal)=>{counts.checkpoints++;return checkpoint(id,signal);};
   const waiting:{id:string;settle(error?:Error):void}[]=[],unsettled=new Set<{settle(error?:Error):void}>(),failures:unknown[]=[];
   native.manager.release=id=>new Promise((resolve,reject)=>{const entry={id,settle(error?:Error){unsettled.delete(entry);if(error)reject(error);else resolve(release(id));}};unsettled.add(entry);waiting.push(entry);});
-  const observer=createNativeJournalObserver(native.manager,undefined,error=>failures.push(error));
+  const observer=createNativeJournalObserver(native.manager,undefined,error=>failures.push(error),retryMs);
   const next=async()=>{for(let attempt=0;attempt<200&&!waiting.length;attempt++)await Bun.sleep(5);return waiting.shift()!;};
   return {brain,native,observer,waiting,failures,next,counts,async close(){native.manager.release=release;waiting.length=0;for(const entry of [...unsettled])entry.settle();await observer.close().catch(()=>{});await native.close();rmSync(root,{recursive:true,force:true});}};
 }
@@ -295,4 +295,27 @@ test("repeating a commit hands its checkpoint over once, and retries it after a 
     expect(requested,"NATIVE_REPEATED_COMMIT_RETRIES_FAILED_RELEASE").toEqual([result.beforeRoot.id,result.beforeRoot.id]);
     expect(f.observer.releases()).toEqual({pending:0,failed:0,retainedBytes:0});
   }finally{await f.close();}
+});
+
+
+test("a superseded checkpoint retries without another observation and keeps its bytes until confirmed", async () => {
+  const f = releaseFixture(5);
+  try {
+    await f.observer.initialize();
+    const first = f.observer.currentRoot();
+    writeFileSync(join(f.brain, "notes", "ithaca.md"), "The suitors are gone.\n");
+    await (await f.observer.observe()).commit();
+    const failed = await f.next();
+    expect(failed.id).toBe(first.id);
+    failed.settle(new Error("Odysseus checkpoint delete refused"));
+    await f.observer.releasesSettled();
+    expect(f.observer.releases().retainedBytes).toBe("Penelope waits at Ithaca.\n".length);
+    const retry = await f.next();
+    expect(retry, "CHECKPOINT_BACKGROUND_RETRY_OWNED").toBeDefined();
+    expect(retry.id).toBe(first.id);
+    expect(f.observer.releases().retainedBytes).toBe("Penelope waits at Ithaca.\n".length);
+    retry.settle();
+    await f.observer.releasesSettled();
+    expect(f.observer.releases()).toEqual({ pending: 0, failed: 0, retainedBytes: 0 });
+  } finally { await f.close(); }
 });
