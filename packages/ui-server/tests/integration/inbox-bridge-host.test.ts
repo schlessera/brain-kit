@@ -24,8 +24,9 @@ test("the authenticated app attaches durable tools to the live turn bridge and r
   void proof.catch(() => {});
   const backend = makeFakeBackend({ id: "fixture", startTurn: async req => {
     try {
-      expect(req.bridge.inboxList).toBeDefined(); expect(req.bridge.inboxGet).toBeDefined();
-      expect(req.bridge.inboxAdd).toBeDefined(); expect(req.bridge.resolveAction).toBeDefined();
+      const listed = await req.bridge.inboxList!({ view: "queue" });
+      expect(listed.items.map(item => item.id)).toEqual(["arrival"]);
+      expect(listed.threads).toMatchObject([{ id: "share", trustClass: "untrusted" }]);
       const read = await req.bridge.inboxGet!({ itemId: "arrival" });
       expect(read.thread).toMatchObject({ id: "share", trustClass: "untrusted" });
       const added = await req.bridge.inboxAdd!({ text: "Odysseus inspects the harbor", idempotencyKey: "harbor" });
