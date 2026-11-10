@@ -1,15 +1,15 @@
 # Test health
 
-Generated 2026-11-10T21:29:04.332Z at `34f14b1c2e34`.
+Generated 2026-11-10T21:29:28.343Z at `738a383d7873`.
 
 ## Coverage of the rotation
 
 | Measure | Value |
 | --- | --- |
 | Test files | 1835 |
-| Audited at their current content | 1601 (87.2%) |
+| Audited at their current content | 1602 (87.3%) |
 | Changed since their audit | 1 |
-| Never audited | 233 |
+| Never audited | 232 |
 | Median audit age in days | 0.1 |
 
 ## What the audits found
@@ -18,12 +18,12 @@ Generated 2026-11-10T21:29:04.332Z at `34f14b1c2e34`.
 | --- | --- |
 | Runs | 34 (completed 28, nothing-to-do 6) |
 | Runs by agent | claude-opus-5-5 34 |
-| Files audited | 1619 |
+| Files audited | 1620 |
 | Files changed | 435 |
-| Findings | 2693 (1.66 per audited file) |
-| By lens | cannot-fail 979, nondeterminism 784, hygiene 395, cost 187, overlap 158, failure-issues 128, not-running 50, tier-and-doubles 12 |
-| By action | none 2027, cleanup 267, strengthen 173, deflake 94, file-issue 46, remove 36, rewrite 23, speed-up 19, move-tier 3, unskip 2, split 2, merge 1 |
-| By status | accepted 2027, fixed 538, deferred 95, filed 33 |
+| Findings | 2695 (1.66 per audited file) |
+| By lens | cannot-fail 979, nondeterminism 785, hygiene 395, cost 188, overlap 158, failure-issues 128, not-running 50, tier-and-doubles 12 |
+| By action | none 2028, cleanup 267, strengthen 173, deflake 95, file-issue 46, remove 36, rewrite 23, speed-up 19, move-tier 3, unskip 2, split 2, merge 1 |
+| By status | accepted 2028, fixed 538, deferred 96, filed 33 |
 
 ## Proof and efficacy
 

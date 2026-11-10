@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T21:29:04.332Z",
-  "sha": "34f14b1c2e348d2797ba91fb49af84fca0a41b3a",
+  "generatedAt": "2026-11-10T21:29:28.343Z",
+  "sha": "738a383d7873c632775b375844d66f64503df46c",
   "coverage": {
     "files": 1835,
-    "auditedCurrent": 1601,
+    "auditedCurrent": 1602,
     "stale": 1,
-    "never": 233,
-    "share": 0.872,
+    "never": 232,
+    "share": 0.873,
     "medianAuditAgeDays": 0.1
   },
   "runs": {
@@ -25,28 +25,28 @@
     }
   },
   "audits": {
-    "clusters": 858,
-    "files": 1619,
+    "clusters": 859,
+    "files": 1620,
     "filesChanged": 435
   },
   "findings": {
-    "total": 2693,
+    "total": 2695,
     "perAuditedFile": 1.66,
     "byLens": {
       "failure-issues": 128,
       "overlap": 158,
-      "nondeterminism": 784,
+      "nondeterminism": 785,
       "cannot-fail": 979,
       "not-running": 50,
       "hygiene": 395,
-      "cost": 187,
+      "cost": 188,
       "tier-and-doubles": 12
     },
     "bySmell": {
       "test-fault": 64,
       "unreproduced": 58,
       "matrix-multiplier": 141,
-      "settling-sleep": 266,
+      "settling-sleep": 267,
       "shared-state": 150,
       "weak-matcher": 351,
       "conditional-assertion": 406,
@@ -56,7 +56,7 @@
       "opaque-failure": 362,
       "spawn-per-assertion": 29,
       "earlier-layer-answers": 25,
-      "long-timeout": 57,
+      "long-timeout": 58,
       "no-assertion": 81,
       "duplicate-case": 14,
       "real-time-wait": 36,
@@ -88,9 +88,9 @@
       "oversized-fixture": 1
     },
     "byAction": {
-      "deflake": 94,
+      "deflake": 95,
       "remove": 36,
-      "none": 2027,
+      "none": 2028,
       "strengthen": 173,
       "cleanup": 267,
       "file-issue": 46,
@@ -102,8 +102,8 @@
       "merge": 1
     },
     "byStatus": {
-      "deferred": 95,
-      "accepted": 2027,
+      "deferred": 96,
+      "accepted": 2028,
       "fixed": 538,
       "filed": 33
     }
