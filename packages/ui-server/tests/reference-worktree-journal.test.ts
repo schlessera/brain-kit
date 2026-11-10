@@ -9,6 +9,9 @@ import { reversibleJournalPath } from "../src/brain/revert-files.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { referencePoolDouble } from "./helpers/reference-pool-double.js";
 
+import { cleanupTimers } from "./helpers/cleanup-timers.js";
+import { createStatusRoutes } from "../src/routes/health.js";
+
 type Facts = { changedPaths: number; observedBytes: number; partial: boolean };
 
 async function fixture() {
@@ -106,4 +109,169 @@ test("a worktree capture that fails leaves its holding turn partial and stopped,
     expect(f.journal.worktrees("turn-ithaca"), "REFERENCE_WORKTREE_FAILED_ROOT_DROPPED").toEqual([]);
     expect(f.facts.get("turn-ithaca"), "REFERENCE_WORKTREE_PARTIAL_FACTS_NOT_HEADROOM").toMatchObject({ partial: true });
   } finally { await f.close(); }
+});
+
+test("ended worktree cleanup stays visible and retries until confirmed without blocking another turn", async () => {
+  const timers = cleanupTimers(), f = await fixture();
+  const release = f.pool.poolRelease;
+  let failing = true, attempts = 0;
+  let checkpoint: string;
+  try {
+    const tree = await f.worktree();
+    await f.begin("turn-ithaca");
+    await f.journal.attachWorktree("turn-ithaca", tree.id);
+    checkpoint = [...f.ledger][0]!;
+    f.pool.poolRelease = async id => {
+      if (id === checkpoint) { attempts++; if (failing) throw new Error("Odysseus checkpoint deletion refused"); }
+      return release(id);
+    };
+    writeFileSync(join(tree.path!, "odyssey", "book-1.md"), "Telemachus sets sail.\n");
+    await f.journal.finish("turn-ithaca");
+    await f.journal.idle();
+    expect(f.journal.summary("turn-ithaca").state).toBe("complete");
+    expect(f.journal.worktrees("turn-ithaca")).toEqual([]);
+    const retained = { pending: 0, failed: 1, retainedBytes: "Sing, Muse.\n".length };
+    expect(f.journal.cleanupStatus().retained, "ENDED_WORKTREE_RELEASE_STAYS_VISIBLE").toEqual(retained);
+    expect(f.ledger.has(checkpoint), "ENDED_WORKTREE_LEASE_STAYS_CHARGED").toBe(true);
+    expect(f.pool.records.get(checkpoint)?.state).toBe("sealed");
+    const routes = createStatusRoutes({ sourceCommit: "fixture", getCronStatus: () => [], isTurnActive: () => false,
+      getJournalCleanup: () => f.journal.cleanupStatus() });
+    const status = async () => (await (await routes.request("/status")).json()) as { journalCleanup: ReturnType<typeof f.journal.cleanupStatus> };
+    expect((await status()).journalCleanup).toMatchObject({ retained,
+      lastFailure: { cause: "Error: Odysseus checkpoint deletion refused", checkpointId: checkpoint } });
+    await f.begin("turn-other");
+    await f.journal.finish("turn-other");
+    expect(f.journal.summary("turn-other").state, "RETAINED_WORKTREE_LEAVES_OTHER_TURN_USABLE").toBe("complete");
+    for (let pass = 0; pass < 3; pass++) {
+      const before = attempts;
+      expect(timers.pending.size, "ENDED_WORKTREE_HAS_RETRY_OWNER").toBe(1);
+      expect(timers.handles.every(handle => handle.unrefed), "CLEANUP_RETRIES_DO_NOT_KEEP_HOST_ALIVE").toBe(true);
+      timers.fire(); await f.journal.idle();
+      expect(attempts, "ENDED_WORKTREE_RETRIES_WHILE_IDLE").toBe(before + 1);
+      expect(f.journal.cleanupStatus().retained).toEqual(retained);
+      expect(f.ledger.has(checkpoint)).toBe(true);
+    }
+    failing = false;
+    timers.fire(); await f.journal.idle();
+    expect(f.ledger.has(checkpoint), "ENDED_WORKTREE_RELEASE_CONFIRMED").toBe(false);
+    expect(f.pool.records.get(checkpoint)?.state).toBe("reclaimed");
+    expect((await status()).journalCleanup.retained).toEqual({ pending: 0, failed: 0, retainedBytes: 0 });
+    expect(timers.pending.size, "ENDED_WORKTREE_RETRY_RETIRES_ON_SUCCESS").toBe(0);
+  } finally { f.pool.poolRelease = release; await f.close(); timers.restore(); }
+});
+
+test("shutdown cancels ended worktree retries and preserves unconfirmed charges", async () => {
+  const timers = cleanupTimers(), f = await fixture();
+  const release = f.pool.poolRelease;
+  let attempts = 0, closed = false;
+  try {
+    const tree = await f.worktree();
+    await f.begin("turn-ithaca"); await f.journal.attachWorktree("turn-ithaca", tree.id);
+    const checkpoint = [...f.ledger][0]!;
+    f.pool.poolRelease = async id => { if (id === checkpoint) { attempts++; throw new Error("Odysseus checkpoint still pinned"); } return release(id); };
+    writeFileSync(join(tree.path!, "odyssey", "book-1.md"), "Telemachus sets sail.\n");
+    await f.journal.finish("turn-ithaca");
+    expect(timers.pending.size, "SHUTDOWN_TEST_HAS_PENDING_WORKTREE_RETRY").toBe(1);
+    await f.journal.close(); closed = true;
+    const before = attempts;
+    expect(timers.pending.size, "SHUTDOWN_CANCELS_WORKTREE_RETRY").toBe(0);
+    timers.fire();
+    expect(attempts, "SHUTDOWN_NEVER_RETRIES_CLOSED_POOL").toBe(before);
+    expect(f.ledger.has(checkpoint), "SHUTDOWN_PRESERVES_UNCONFIRMED_LEASE").toBe(true);
+    expect(f.pool.records.get(checkpoint)?.state).toBe("sealed");
+  } finally { f.pool.poolRelease = release; if (!closed) await f.journal.close(); await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); timers.restore(); }
+});
+
+test("shutdown drains an in-flight worktree retry without scheduling another or forgetting its charge", async () => {
+  const timers = cleanupTimers(), f = await fixture();
+  const release = f.pool.poolRelease;
+  const entered = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>();
+  let hold = false, closed = false;
+  try {
+    const tree = await f.worktree();
+    await f.begin("turn-ithaca"); await f.journal.attachWorktree("turn-ithaca", tree.id);
+    const checkpoint = [...f.ledger][0]!;
+    f.pool.poolRelease = async id => {
+      if (id === checkpoint) {
+        if (hold) { entered.resolve(); await resume.promise; }
+        throw new Error("Odysseus checkpoint still pinned");
+      }
+      return release(id);
+    };
+    writeFileSync(join(tree.path!, "odyssey", "book-1.md"), "Telemachus sets sail.\n");
+    await f.journal.finish("turn-ithaca");
+    hold = true; timers.fire(); await entered.promise;
+    let settled = false;
+    const closing = f.journal.close().then(() => { closed = true; settled = true; });
+    // The explicit release barrier outlives a complete close; the bounded
+    // negative wait detects a host that closes its ledger underneath it.
+    await Promise.race([closing, Bun.sleep(1_000)]);
+    expect(settled, "SHUTDOWN_DRAINS_INFLIGHT_WORKTREE_RELEASE").toBe(false);
+    resume.resolve(); await closing;
+    expect(timers.pending.size, "SHUTDOWN_INFLIGHT_FAILURE_DOES_NOT_RESCHEDULE").toBe(0);
+    expect(f.ledger.has(checkpoint)).toBe(true);
+    expect(f.pool.records.get(checkpoint)?.state).toBe("sealed");
+  } finally {
+    resume.resolve(); f.pool.poolRelease = release;
+    if (!closed) await f.journal.close();
+    await f.native.close(); f.db.close(); rmSync(f.root, { recursive: true, force: true }); timers.restore();
+  }
+});
+
+test("failed worktree capture hands all unreleased checkpoints to cleanup and keeps another turn usable", async () => {
+  const timers = cleanupTimers(), f = await fixture();
+  const release = f.pool.poolRelease, delta = f.pool.poolDelta;
+  try {
+    const tree = await f.worktree();
+    await f.begin("turn-ithaca"); await f.begin("turn-other");
+    await f.journal.attachWorktree("turn-ithaca", tree.id);
+    f.pool.poolDelta = async () => { throw new Error("Odysseus worktree unreadable"); };
+    f.pool.poolRelease = async () => { throw new Error("Odysseus checkpoint deletion refused"); };
+    await f.journal.observe(); await f.journal.idle();
+    expect(f.journal.worktrees("turn-ithaca")).toEqual([]);
+    expect(f.journal.summary("turn-ithaca").state).toBe("partial");
+    expect(f.stopped.has("turn-other")).toBe(false);
+    expect(f.journal.summary("turn-other").state).toBe("recording");
+    expect(f.ledger.size).toBe(2);
+    expect(f.journal.cleanupStatus().retained.failed, "FAILED_CAPTURE_ALL_RETAINED_ROOTS_VISIBLE").toBe(2);
+    expect(f.journal.cleanupStatus().lastFailure).toMatchObject({ cause: "Error: Odysseus checkpoint deletion refused" });
+    f.pool.poolRelease = release; f.pool.poolDelta = delta;
+    timers.fire(); await f.journal.idle();
+    expect(f.ledger.size, "FAILED_CAPTURE_RELEASES_RECOVER_WITHOUT_NEW_TURN").toBe(0);
+    expect(f.journal.cleanupStatus().retained.failed).toBe(0);
+    expect(timers.pending.size).toBe(0);
+  } finally { f.pool.poolRelease = release; f.pool.poolDelta = delta; await f.close(); timers.restore(); }
+});
+
+test("the worktree retry owner joins a capture still closing at turn end", async () => {
+  const timers = cleanupTimers(), f = await fixture();
+  const release = f.pool.poolRelease;
+  const entered = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>();
+  let first: string, second: string, attempts = 0;
+  let finishing: Promise<void> | undefined;
+  try {
+    const one = await f.worktree();
+    await f.begin("turn-ithaca"); await f.journal.attachWorktree("turn-ithaca", one.id);
+    first = [...f.ledger][0]!;
+    f.pool.poolRelease = async id => {
+      if (id === second) {
+        attempts++;
+        if (attempts >= 2) { entered.resolve(); await resume.promise; }
+      }
+      if (id === first || id === second) throw new Error("Odysseus checkpoint still pinned");
+      return release(id);
+    };
+    await f.journal.finish("turn-ithaca");
+    const two = await f.worktree();
+    await f.begin("turn-other"); await f.journal.attachWorktree("turn-other", two.id);
+    second = [...f.ledger].find(id => id !== first)!;
+    finishing = f.journal.finish("turn-other");
+    await entered.promise;
+    expect(timers.pending.size).toBe(1);
+    timers.fire();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    resume.resolve();
+    await finishing; await f.journal.idle();
+    expect(attempts, "WORKTREE_RETRY_JOINS_PENDING_CLOSE").toBe(2);
+  } finally { resume.resolve(); await finishing; f.pool.poolRelease = release; await f.close(); timers.restore(); }
 });
