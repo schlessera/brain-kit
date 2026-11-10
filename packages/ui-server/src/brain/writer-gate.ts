@@ -333,7 +333,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
         } catch (error) {
           if (!cause) {
             cause = { message: `${error instanceof Error ? error.name : "Error"}: ${error instanceof Error ? error.message : String(error)}`.slice(0, 1000), at: Date.now() };
-            console.error(JSON.stringify({ kind: "writer_gate_cleanup", operation, id, ...cause }));
+            process.stderr.write(JSON.stringify({ kind: "writer_gate_cleanup", operation, id, ...cause }) + "\n");
           }
           if (!recorded) {
             try { await submit("cleanupFailure", id, operation, cause.message, cause.at); recorded = true; }

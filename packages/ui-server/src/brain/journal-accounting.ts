@@ -249,8 +249,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
         } catch (error) {
           // An I/O refusal proves neither existence nor corruption. Keep the
           // reservation and its state untouched for the next recovery pass.
-          console.error(JSON.stringify({ kind: "journal_object_recovery_pending", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
-            errorClass: error instanceof Error ? error.name : "Error", message: String(error) }));
+          process.stderr.write(JSON.stringify({ kind: "journal_object_recovery_pending", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+            errorClass: error instanceof Error ? error.name : "Error", message: String(error) }) + "\n");
           continue;
         }
         if (!published && db.query("SELECT 1 FROM turn_journal_object_refs WHERE hash=? LIMIT 1").get(row.hash))
@@ -284,8 +284,8 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
           db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id);
           if (!published && !corrupt) db.query("DELETE FROM turn_journal_objects WHERE hash=? AND state='pending' AND NOT EXISTS (SELECT 1 FROM turn_journal_reservations WHERE hash=?)").run(row.hash, row.hash);
         });
-        if (quarantined) console.error(JSON.stringify({ kind: "journal_object_quarantined", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
-          errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }));
+        if (quarantined) process.stderr.write(JSON.stringify({ kind: "journal_object_quarantined", hash: row.hash, site: "journal-accounting.recover", at: Date.now(),
+          errorClass: corrupt instanceof Error ? corrupt.name : "Error", message: corrupt instanceof Error ? corrupt.message : String(corrupt) }) + "\n");
       }
     },
     reserve(bytes, hash) {
