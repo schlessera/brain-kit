@@ -839,8 +839,12 @@ describe("login outcomes are observable", () => {
   });
 });
 
-describe.skipIf(!CAN_BIND_LOOPBACK)("password login over a real socket", () => {
-  beforeEach(() => resetVerificationReservations());
+describe("password login over a real socket", () => {
+  // Loopback binding is a hosted-proof prerequisite: its absence fails loudly instead of skipping.
+  beforeEach(() => {
+    if (!CAN_BIND_LOOPBACK) throw new Error("Prerequisite missing: binding a loopback socket");
+    resetVerificationReservations();
+  });
 
   test("a chunked over-cap body gets 413 without losing the socket IP", async () => {
     const runtime = auth({
