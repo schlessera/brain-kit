@@ -1,7 +1,7 @@
 import { useStore } from "zustand";
 import { ConversationUnassigned } from "../voice/conversation-unassigned.js";
 import { ConversationField } from "../voice/conversation-field.js";
-import { Button, Callout, InlineToast } from "@schlessera/brain-ui-kit";
+import { Button, Callout, InlineToast, VoiceNotice } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
 import { resolveThinkingLevel } from "@schlessera/brain-ui-sdk/internal/client";
@@ -18,6 +18,7 @@ import {
 import { ShareIntake } from "./share-card.js";
 import { CommandPalette, exactCommand, matchCommands } from "./command-palette.js";
 import { ComposerView } from "./composer-view.js";
+import { ComposerMic } from "./composer-mic.js";
 import { RecordingsTray } from "../voice/recordings-tray.js";
 import { LocalRecordingSheet } from "../voice/local-recording-sheet.js";
 import { DictationSheet } from "../voice/dictation-sheet.js";
@@ -364,6 +365,14 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const dictationUnavailable = micMode === "dictate" && voiceMode !== "dictate" && discovery?.providers.length === 0
     ? "Dictation isn\u0027t set up on this host." : undefined;
 
+  const micLabel = micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save";
+  // The hold-to-talk mic at rest (#3693, drawn as signed off on #3727): it
+  // dictates, or records on the device with no hold (M1). Dictating, a
+  // recording in progress and a mic still deciding keep the kit's own mic.
+  // With neither dictation nor live conversation here, the kit's disabled
+  // mic still says why, since a hold would have nothing to offer.
+  const restingMic = (micMode === "dictate" && voiceMode !== "dictate" && !(dictationUnavailable && !conversation.available))
+    || (micMode === "local" && (localPhase === "idle" || localPhase === "opening"));
   const [dismissedLocalNotice, setDismissedLocalNotice] = useState<string | null>(null);
   const captureNotice = micMode === "unsupported"
     ? "This browser can't save recordings on the device. You can type a note and send it when you're back online."
@@ -868,6 +877,29 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
     }
   }
 
+  // The mic's hold (#3693): Start when live conversation is offered here,
+  // otherwise the S4 notice (V4). A hold itself captures nothing.
+  const [liveNotice, setLiveNotice] = useState(false);
+  function handleTalkLive() {
+    setAttachMenuOpen(false);
+    setProviderMenuOpen(false);
+    const voice = root.stores.voice.getState();
+    if (voice.mode !== "idle" || voice.local !== "idle") return;
+    if (root.connection.conversation.state.getState().available) { setLiveNotice(false); root.connection.conversation.enter(); }
+    else setLiveNotice(true);
+  }
+  function dismissLiveNotice() {
+    setLiveNotice(false);
+    focusMic();
+  }
+  // The notice answers one hold; it goes once the mic does something else.
+  useEffect(() => { if (voiceMode !== "idle" || conversation.active) setLiveNotice(false); }, [voiceMode, conversation.active]);
+  useEffect(() => {
+    if (!liveNotice) return;
+    const ok = [...frameRef.current?.querySelectorAll<HTMLElement>("[data-live-notice] button") ?? []].find(b => b.textContent === "OK");
+    ok?.focus({ preventScroll: true });
+  }, [liveNotice]);
+
   function handleVoiceSend() {
     if (!draftText() || isStreaming || wsStatus !== "connected") {
       // If we cannot send right now, fall back to editing
@@ -989,8 +1021,10 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         {filesOn && <input ref={fileInputRef} type="file" multiple hidden onChange={onFilePick} data-files-input="" />}
 
         <ComposerView
-          onConversation={conversation.available && micMode !== "local" && voiceMode !== "dictate" ? () => { setAttachMenuOpen(false); root.connection.conversation.enter(); } : undefined}
-          dictation={<><DictationSheet open={voiceMode === "dictate"}
+          micControl={restingMic ? <ComposerMic name={micLabel} onTap={handleMicTap} onTalkLive={micMode === "dictate" ? handleTalkLive : undefined} /> : undefined}
+          dictation={<>{liveNotice && <div className="mb-2" data-live-notice="">
+            <VoiceNotice tone="idle" icon="fyi" title="Live conversation isn’t set up here" body="Whoever runs this brain can add a live service. Dictation still works." actions={[{ label: "OK", onClick: dismissLiveNotice }]} />
+          </div>}<DictationSheet open={voiceMode === "dictate"}
             composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} onConfirm={dictation.confirm}
             onOpenSettings={() => { dictation.cancel(); root.stores.ui.getState().openSettings("voice"); }} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
@@ -999,7 +1033,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
           captureNotice={captureNotice !== dismissedLocalNotice ? captureNotice : undefined}
           onDismissCaptureNotice={() => dismissNotice("local")}
           mic={micMode !== "unsupported"}
-          micLabel={micMode !== "local" ? voiceMode === "dictate" ? undefined : dictateLabel : localPhase === "idle" || localPhase === "opening" ? "Record on this device" : "Stop and save"}
+          micLabel={micLabel}
           micTip={micMode === "dictate" && voiceMode !== "dictate" && dictateLabel !== undefined}
           micUnavailable={dictationUnavailable}
           value={input}

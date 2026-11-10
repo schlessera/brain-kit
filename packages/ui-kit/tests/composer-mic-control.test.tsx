@@ -48,7 +48,7 @@ describe("Composer micControl", () => {
     expect(fieldStyle(html)).toContain("align-items:flex-end");
     // (36 - 28) / 2 for attach and Send; (36 - 13.5 × 1.45) / 2 for the text's last line.
     expect(html.match(/margin-bottom:4px/g)).toHaveLength(2);
-    expect(html).toContain("margin-bottom:8.2125px");
+    expect(html).toContain("margin:0 0 8.2125px");
   });
 
   test("set while streaming, Stop sits on the last line as Send would", () => {

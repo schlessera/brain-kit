@@ -83,7 +83,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech"): Pr
   return { ui, host, net };
 }
 
-const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label^="Dictate"]');
+const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label^="Dictate"]');
 
 /** Taps Dictate and waits for the provider's client to be listening. */
 async function startDictating(s: Scene) {

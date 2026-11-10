@@ -90,7 +90,7 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech", loc
   return { ui, host, net, snapshot };
 }
 
-const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label^="Dictate"]');
+const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label^="Dictate"]');
 
 /** Taps Dictate and waits for the provider's client to be listening. */
 async function startDictating(s: Scene) {
@@ -140,7 +140,7 @@ test("transport drop keeps local capture and protected views mounted; auth expir
  s.net.drop();
  await expect.poll(()=>s.ui.stores.connection.getState().wsStatus).toBe("disconnected");
  await settle();
- const local=()=>s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label="Record on this device"]');
+ const local=()=>s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label="Record on this device"]');
  await expect.poll(local).not.toBeNull(); await userEvent.click(local()!);
  await expect.poll(()=>s.ui.stores.voice.getState().local).toBe("recording");
  expect(mic.streams.length).toBeGreaterThan(0);
