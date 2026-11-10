@@ -108,6 +108,17 @@ describe("measuring repeated runs", () => {
     expect([flaky.verdict, flaky.failures, flaky.failingCases]).toEqual(["flaky", 1, [{ name: "counts the oars", failures: 1, message: "Expected: 12" }]]);
   });
 
+  test("red before collecting any case is not-collected, with the runner's last lines as the cause (#3847)", async () => {
+    const lines = Array.from({ length: 22 }, (_, index) => `line ${index + 1}`);
+    const unbuilt = (): RunOutput => ({ exitCode: 1, wallMs: 100, cases: [], output: `${lines.join("\n")}\n\n\u001b[41m FAIL \u001b[49m oars\n` });
+    const result = await verdict(scripted(unbuilt));
+    expect([result.verdict, result.failures, result.failingCases, result.setupError])
+      .toEqual(["not-collected", 4, [], [...lines.slice(3), " FAIL  oars"].join("\n")]);
+    // One collected run means the tests were reached: that file is failing, and has no setup error.
+    const reached = await verdict(scripted((_request, call) => call === 2 ? fail() : unbuilt()));
+    expect([reached.verdict, reached.setupError]).toEqual(["failing", undefined]);
+  });
+
   test("green in order and red when shuffled is order-dependent", async () => {
     expect((await verdict(scripted(request => request.seed === 2 ? fail() : pass()), { shuffle: true })).verdict).toBe("order-dependent");
   });

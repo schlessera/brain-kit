@@ -17,6 +17,7 @@ The `measure` output gives each file a verdict:
 | `leaks-between-files` | Green alone, red when run with its cluster | Globals, env, ports, files shared across files |
 | `load-sensitive` | Green when idle, red with every CPU busy | Fixed delays and tight deadlines |
 | `failing` | Red every time | Not this lens: [failure issues](failure-issues.md) |
+| `not-collected` | Red every time before a single case ran | Not the test: `setupError` names the cause, usually a missing `bun run build` or a load error. Fix the setup and measure again |
 
 `--stress` is not in the default baseline because it occupies every CPU. Add
 it for a file with timing signals or an open flake issue:
