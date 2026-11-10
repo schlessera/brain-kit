@@ -1,8 +1,9 @@
 /** Every exit between a tool running and its result's record either records
  * the result or leaves its chat a permanent gap, in both backends (#3812).
  * Every call `begin()` admits owes its result until the record is durable,
- * and no refusal discharges it; one still owed when its collection ends, or
- * at boot, is a gap. The installed Claude runtime's replay of a stopped
+ * or until the backend's own denial of the id's only admission, under one
+ * tool name and never allowed, proves it never ran; one still owed when its
+ * collection ends, or at boot, is a gap. The installed Claude runtime's replay of a stopped
  * turn's result, and its skipped result hooks, are proved in
  * `safety-result-retention.test.ts`; these drive the remaining exits against
  * the real host ledger. Keyless and offline. */
@@ -194,15 +195,18 @@ test("a call refused when its edited input cannot be recorded owes nothing", asy
 // A refusal proves an admitted call never ran only when it is the backend's
 // own denial of the id's only admission, which nothing let run. Anything
 // else leaves the call to its recorded result (#3812): a rejected request (a
-// stopped turn, a replay), a second admission of the id (the installed Claude
-// runtime admits two calls under one id: `safety-result-retention.test.ts`),
-// an allow before the refusal, or an id whose admissions were never reported.
-for (const why of ["rejected", "readmitted", "allowed", "unreported"] as const) test(`a refusal that cannot prove an admitted call never ran leaves it owed: ${why}`, async () => {
+// stopped turn, a replay), a second admission of the id under the same tool
+// or another (the installed Claude runtime admits two calls under one id:
+// `safety-result-retention.test.ts`), an allow before the refusal, or an id
+// whose admissions were never reported.
+for (const why of ["rejected", "readmitted", "retooled", "allowed", "unreported"] as const) test(`a refusal that cannot prove an admitted call never ran leaves it owed: ${why}`, async () => {
   const f = await voyage(); try {
-    if (why !== "unreported") f.collector.admitting?.("call_raft");
+    if (why !== "unreported") f.collector.admitting?.("call_raft", "grep");
     await f.collector.begin("call_raft", "grep", { pattern: "sirens" });
     if (why === "allowed") await f.collector.allowed!("call_raft");
-    if (why === "readmitted") f.collector.admitting?.("call_raft");
+    if (why === "readmitted") f.collector.admitting?.("call_raft", "grep");
+    // Another tool reuses the id: its one admission is the id's second.
+    if (why === "retooled") f.collector.admitting?.("call_raft", "bash");
     await f.collector.refused!("call_raft", why !== "rejected");
     expect(f.owed(), "SAFETY_UNPROVEN_REFUSAL_KEEPS_THE_OBLIGATION").toBe(1);
     await f.writes.safetyEnd("voyage");

@@ -109,14 +109,16 @@ running under the tainted policy, not refusing.
      permission callback deny (a denied permission card) or `PreToolUse`
      hook deny, a Pi permission deny or gate block;
   2. it is the id's only admission: the runtime asked once to admit a call
-     under that id (each admission is counted before anything of it is
-     decided, whichever hook of it starts first);
+     under that id, under one tool name (each admission is counted per tool
+     name before anything of it is decided, whichever hook of it starts
+     first, so a reused id under another tool counts even when its hooks
+     differ);
   3. the backend never let a call under that id run.
 
   Anything else proves nothing, and only the recorded result discharges:
-  a second admission of the id (the installed Claude runtime admits two
-  calls under one id, and runs a bare `allowedTools` entry or a rewrite
-  hook's allow without asking), an allow followed by a refusal, a rejected
+  a second admission of the id, under the same tool name or another (the
+  installed Claude runtime admits two calls under one id, and runs a bare
+  `allowedTools` entry or a rewrite hook's allow without asking), an allow followed by a refusal, a rejected
   request (a stopped turn, a replayed Pi request), or an id whose
   admissions the backend never reported. Such a call leaves the gap even
   if it never ran. A rejected `begin()` discharges nothing by itself; the

@@ -218,7 +218,7 @@ test("every permission answer but allow refuses the call at the collector, and a
   // answer is the host's own denial, which can prove the call never ran; a
   // rejection proves nothing. Every request is one admission (#3812).
   const refused: [string, boolean | undefined][] = [], allowed: string[] = [], admitted: string[] = [];
-  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, admitting: (id: string) => { admitted.push(id); },
+  const inputSafety = { ready: async () => {}, begin: async () => {}, result: async () => {}, admitting: (id: string, tool?: string) => { admitted.push(`${tool}:${id}`); },
     refused: async (id: string, denied?: boolean) => { refused.push([id, denied]); }, allowed: async (id: string) => { allowed.push(id); } };
   const routed = harness({}, { applyBrain: async () => ({ ok: true }) as never, inputSafety });
   expect(await routed.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-allowed"))).toEqual({ behavior: "allow" });
@@ -233,7 +233,7 @@ test("every permission answer but allow refuses the call at the collector, and a
   expect(allowed, "PI_ALLOWED_PERMISSION_IS_CHECKED_BEFORE_IT_RUNS").toEqual(["call-allowed"]);
   // A later request in the stopped turn is an admission too, and only rejected.
   await expect(stopped.dispatch(rpc("permission", "brain_add", { content: "Ithaca" }, "call-stopped"))).rejects.toThrow();
-  expect(admitted, "PI_EVERY_PERMISSION_REQUEST_IS_AN_ADMISSION").toEqual(["call-allowed", "call-denied", "call-stopped", "call-stopped"]);
+  expect(admitted, "PI_EVERY_PERMISSION_REQUEST_IS_AN_ADMISSION").toEqual(["brain_add:call-allowed", "brain_add:call-denied", "brain_add:call-stopped", "brain_add:call-stopped"]);
   expect(refused.at(-1), "PI_REJECTED_REQUEST_IS_NO_DENIAL").toEqual(["call-stopped", undefined]);
 });
 

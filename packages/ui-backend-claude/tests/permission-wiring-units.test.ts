@@ -183,4 +183,21 @@ describe("admissions, refusals and the collector's last check", () => {
     await Promise.all([second, ...matching.slice(0, -1).map(hook => hook(...call))]);
     expect(admitted, "CLAUDE_SECOND_ADMISSION_IS_REPORTED_ONCE").toEqual(["oar-3", "oar-3"]);
   });
+
+  test("a reused id under another tool name is a new admission, reported by its first hook even when that hook never saw the id", async () => {
+    const live = new AbortController();
+    const { hooks, admitted } = wiring(live.signal);
+    const common = hooks.PreToolUse!.find(group => !group.matcher)!.hooks[0]!;
+    const mutating = hooks.PreToolUse!.find(group => group.matcher && new RegExp(group.matcher).test("Bash") && !/Agent/.test(group.matcher))!.hooks[0]!;
+    const as = (tool_name: string, tool_input: Record<string, unknown>) => [{ hook_event_name: "PreToolUse", tool_name, tool_input, tool_use_id: "oar-4" } as never, "oar-4", { signal: live.signal }] as const;
+    // The runtime admits a search: only the common hook matches it.
+    await common(...as("Grep", { pattern: "suitors" }));
+    expect(admitted, "CLAUDE_SEARCH_ADMISSION_IS_REPORTED").toEqual(["oar-4"]);
+    // A shell call reuses the id. Its mutating hook starts first and has never
+    // seen the id, yet the admission is reported before that hook decides.
+    const shell = mutating(...as("Bash", { command: "echo rafts", run_in_background: true }));
+    expect(admitted, "CLAUDE_REUSED_ID_UNDER_ANOTHER_TOOL_IS_A_NEW_ADMISSION").toEqual(["oar-4", "oar-4"]);
+    await shell; await common(...as("Bash", { command: "echo rafts", run_in_background: true }));
+    expect(admitted, "CLAUDE_REUSED_ID_ADMISSION_IS_REPORTED_ONCE").toEqual(["oar-4", "oar-4"]);
+  });
 });

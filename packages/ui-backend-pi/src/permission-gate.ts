@@ -111,7 +111,7 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
         // Each tool_call event is one admission of its id, counted before
         // anything is decided (#3812).
         const safety = turn.bridge?.inputSafety;
-        safety?.admitting?.(event.toolCallId);
+        safety?.admitting?.(event.toolCallId, event.toolName);
         const answer = await admit(event);
         // A block is this host's denial before the call runs. It refuses the
         // id at the collector, so nothing later under it is admitted or let

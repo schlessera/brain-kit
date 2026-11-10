@@ -88,12 +88,12 @@ describe("tool_call permission gate", () => {
     const turn = createTurnContext();
     const mock = makeMockBridge({ decision: { behavior: "deny", message: "Penelope declines" } });
     turn.bridge = { ...mock.bridge, inputSafety: { ready: async () => {}, begin: async () => {}, result: async () => {},
-      admitting: (id: string) => { admitted.push(id); }, refused: async (id: string, denied?: boolean) => { refused.push([id, denied]); } } };
+      admitting: (id: string, tool?: string) => { admitted.push(`${tool}:${id}`); }, refused: async (id: string, denied?: boolean) => { refused.push([id, denied]); } } };
     const handler = gateHandler({ turn, allowedTools: ALLOWED, confirmPatterns: CONFIRM });
     expect(await handler({ toolName: "write_file", toolCallId: "allowed", input: { path: "a.md", content: "x" } })).toBeUndefined();
     expect(await handler({ toolName: "brain_archive", toolCallId: "declined", input: { path: "notes/suitors.md" } })).toMatchObject({ block: true });
     expect(refused, "PI_GATE_BLOCK_REFUSES_THE_CALL").toEqual([["declined", true]]);
-    expect(admitted, "PI_GATE_EVERY_TOOL_CALL_IS_AN_ADMISSION").toEqual(["allowed", "declined"]);
+    expect(admitted, "PI_GATE_EVERY_TOOL_CALL_IS_AN_ADMISSION").toEqual(["write_file:allowed", "brain_archive:declined"]);
   });
 
   test("a call the gate lets through is checked by the collector first, and one the check refuses is blocked", async () => {

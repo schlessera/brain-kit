@@ -41,8 +41,12 @@ function installedRipgrep(root:string):string {
  * admits both, and the second admission is denied once the first search has
  * printed its matches, stopping the turn while that search runs.
  * `denied`: nothing interrupts; the search is outside the turn's allowlist,
- * the runtime asks the permission callback, and Penelope denies the card. */
-type Interruption="refused"|"cancelled"|"running"|"duplicate"|"denied";
+ * the runtime asks the permission callback, and Penelope denies the card.
+ * `retooled`: the model sends the search and a Read of the note under the
+ * same id. The Read's native-read hook, which never saw that id, waits until
+ * the search has printed its matches, stops the turn and denies the Read;
+ * the hook shared by both tools is held until that denial has landed. */
+type Interruption="refused"|"cancelled"|"running"|"duplicate"|"denied"|"retooled";
 /** One model reply carrying each call as its own tool_use block. */
 function modelCalls(calls:{name:string;id:string;input:Record<string,unknown>}[]):Response {
  const events:unknown[]=[{type:"message_start",message:{id:"msg_ithaca",type:"message",role:"assistant",model:"claude-probe",content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
@@ -82,6 +86,7 @@ esac
   const first=turn===0&&requests.filter(r=>r.turn===0).length===1;
   const search={name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}};
   if(first&&interruption==="duplicate")return modelCalls([search,search]);
+  if(first&&interruption==="retooled")return modelCalls([search,{name:"Read",id:search.id,input:{file_path:path}}]);
   return nativeModelReply(first?search:undefined);
  }});
  async function voyage(turnId:string,sessionId:string|null,interrupt:boolean,resume?:string){
@@ -107,7 +112,7 @@ esac
    throw new Error("The second search under the same id is denied");
   };
   // What the host reports to the collector, counted as it passes.
-  const inputSafety={...collector,admitting:(id:string)=>{admitted++;collector.admitting?.(id);},
+  const inputSafety={...collector,admitting:(id:string,tool?:string)=>{admitted++;collector.admitting?.(id,tool);},
    refused:async(id:string,denied?:boolean)=>{await collector.refused!(id,denied);refusals++;refusal();}};
   // The runtime lists Grep only when its allowlist names it, and then runs it
   // without asking. So the denied search runs under an enforced turn
@@ -115,7 +120,19 @@ esac
   // consults the callback, as it does for every call outside it.
   const denying=interrupt&&interruption==="denied";
   const requestPermission=async()=>{cards++;return denying?{behavior:"deny" as const,message:"Penelope declines the search"}:{behavior:"allow" as const};};
-  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,enforceAllowedTools:denying,bridge:{emit(){},requestPermission,inputSafety,awaitIndex}},allowedTools:denying?[]:["Grep"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
+  // Under `retooled`, the Read's native-read hook stops the turn once the
+  // search has printed its matches, and refuses the Read.
+  const retooling=interrupt&&interruption==="retooled",tools=retooling?["Grep","Read"]:["Grep"];
+  const fileVersions={beginRead:async()=>{
+   const deadline=Date.now()+15000;
+   while(!existsSync(searched)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
+   if(!existsSync(searched))throw new Error("The search never ran");
+   controller.abort(new Error("Odysseus stopped the turn after the search ran"));
+   throw new Error("The Read under the same id is refused");
+  }};
+  const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,enforceAllowedTools:denying,bridge:{emit(){},requestPermission,inputSafety,awaitIndex}},allowedTools:denying?[]:tools,confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},...(retooling?{fileVersions:fileVersions as never}:{}),log(){}});
+  // The hook both tools share is held for the Read until its denial landed.
+  if(retooling)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Read")await refused;return hook(...args);});
   let results=0,failures=0;
   if(interrupt){
    // The Grep result exists and the runtime holds it; only its record is at risk.
@@ -132,16 +149,16 @@ esac
   // Stop the turn the moment the search has printed its matches.
   const watching=interrupt&&interruption==="running"?setInterval(()=>{if(existsSync(searched))controller.abort(new Error("Odysseus stopped the turn while the search ran"));},5):undefined;
   const timer=setTimeout(()=>controller.abort(),20000);
-  try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:["Grep"],...wiring,abortController:controller,
+  try{for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:2,permissionMode:"default",allowedTools:tools,...wiring,abortController:controller,
    ...(resume?{resume}:{}),
-   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
+   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),...(interruption==="running"||interruption==="duplicate"||interruption==="denied"||interruption==="retooled"?{PATH:`${bin}:${process.env.PATH??"/usr/bin:/bin"}`,USE_BUILTIN_RIPGREP:"0"}:{PATH:process.env.PATH??"/usr/bin:/bin"}),ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
     if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;
     if("session_id" in message&&typeof message.session_id==="string")runtimeSession=message.session_id;
    }}catch{/* The interrupted turn is stopped. */}
   finally{
    clearInterval(watching);clearTimeout(timer);db.exec("DROP TRIGGER IF EXISTS refuse_result");
    // The denial lands before the turn's end, as it would once the hook returns.
-   if(interrupt&&interruption==="duplicate")await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
+   if(interrupt&&(interruption==="duplicate"||interruption==="retooled"))await Promise.race([refused,new Promise(resolve=>setTimeout(resolve,2000))]);
    await writes.safetyEnd(turnId);
   }
   return {results,failures,aborted:controller.signal.aborted,indexWaits,admitted,cards,refusals};
@@ -149,7 +166,7 @@ esac
  try{
   const first=await voyage("voyage",null,true);
   expect(version,"SAFETY_ACTUAL_INSTALLED_RUNTIME").toBe(MEASURED_RUNTIME.claudeCode);
-  if(interruption==="running"||interruption==="duplicate")expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true);
+  if(interruption==="running"||interruption==="duplicate"||interruption==="retooled")expect(existsSync(searched),"SAFETY_ACTUAL_SEARCH_RAN").toBe(true);
   if(interruption!=="denied")expect(first.aborted,"SAFETY_INTERRUPTED_RESULT_STOPS_ITS_TURN").toBe(true);
   expect(runtimeSession,"SAFETY_RUNTIME_SESSION_TO_RESUME").toBeDefined();
   turn=1;
@@ -247,3 +264,70 @@ test("a search denied at its permission card never runs, and its chat stays norm
  expect(first.admitted,"SAFETY_RUNTIME_ADMITS_THE_DENIED_SEARCH_ONCE").toBe(1);
  expect(first.refusals,"SAFETY_CARD_DENY_IS_REPORTED").toBeGreaterThan(0);
 }),60000);
+
+test("a denial of another tool under the search's id cannot settle the search that already ran, so its chat keeps a permanent gap",()=>voyageHome("retooled",({db,writes,first})=>{
+ // The runtime ran the search and was stopped before either result hook.
+ expect(first.results+first.failures,"SAFETY_RUNTIME_SKIPPED_BOTH_RESULT_HOOKS").toBe(0);
+ // The Read's own hook denied it before the shared hook counted it: that
+ // denial proves nothing about the search under the same id.
+ const chat=writes.safety("homeward","ithaca");
+ expect(chat.restriction,"SAFETY_RETOOLED_DENIAL_CANNOT_SETTLE_THE_RUN_SEARCH").toBe("restricted");
+ expect(chat.coverage.state,"SAFETY_RETOOLED_DENIAL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+ const voyage=db.query("SELECT failure,failure_cause FROM safety_collections WHERE turn_id='voyage'").get() as {failure:string|null;failure_cause:string|null};
+ expect(voyage.failure,"SAFETY_RETOOLED_DENIAL_GAP_IS_DURABLE").toBe("recording_failed");
+ expect(JSON.parse(voyage.failure_cause??"{}"),"SAFETY_RETOOLED_DENIAL_NAMES_ITS_CALL").toMatchObject({site:"safetyEnd",turnId:"voyage",message:expect.stringContaining("(toolu_sirens)")});
+ // What kept it: the Read was reported as a second admission of the id.
+ expect(first.admitted,"SAFETY_HOST_REPORTS_THE_READ_AS_A_SECOND_ADMISSION").toBeGreaterThanOrEqual(2);
+}),60000);
+
+/** The model searches, then reuses the search's id for a background shell
+ * call. The runtime runs the search, whose result report is dropped here,
+ * the way a stopped turn loses it, and then admits the shell call. That
+ * call's own hook, which never saw the id, denies it, in the runtime's own
+ * hook order or with the hook both tools share starting late. */
+for(const late of [false,true])test(`a denied shell call reusing a search's id cannot settle the search that ran${late?", even when the shared hook starts late":""}`,async()=>{
+ const root=mkdtempSync(join(tmpdir(),"odysseus-safety-retool-")),brain=join(root,"brain"),home=join(root,"home");
+ mkdirSync(join(brain,"notes"),{recursive:true});mkdirSync(home);
+ const path=join(brain,"notes","sirens.md");writeFileSync(path,`${SONG}\n`);
+ const db=createUiDb(join(root,"ui.db")),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
+ holdSafetyRecovery(db);
+ const controller=new AbortController(),bindingId=crypto.randomUUID();
+ await writes.safetyBegin({turnId:"voyage",bindingId,sessionId:null,principalId:"odysseus",backendId:"claude",at:0});
+ db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners VALUES('ithaca','odysseus',0)");
+ safetyCatalogCreated(db,"ithaca","odysseus","voyage");await writes.bind("voyage","ithaca");
+ const collector=createSafetyCollector(db,writes,{turnId:"voyage",bindingId,backendId:"claude",sessionId:()=>"ithaca",brainPath:brain,shellProxied:()=>false,signal:controller.signal});
+ await collector.ready("claude",1);
+ let admitted=0,refusals=0,requests=0,replayed=false,version:string|undefined;
+ const inputSafety={...collector,admitting:(id:string,tool?:string)=>{admitted++;collector.admitting?.(id,tool);},
+  refused:async(id:string,denied?:boolean)=>{await collector.refused!(id,denied);refusals++;},
+  // The search's result never reaches the host.
+  result:async()=>{}};
+ const wiring=createPermissionWiring({req:{prompt:"Listen for the sirens.",signal:controller.signal,bridge:{emit(){},requestPermission:async()=>({behavior:"allow"}),inputSafety}},allowedTools:["Grep","Bash"],confirmPatterns:[],brainPath:brain,turnLock:{acquireForTool:async()=>({ok:true}),releaseForTool(){}} as never,childEnv:{PATH:"/usr/bin:/bin"},log(){}});
+ if(late)for(const group of wiring.hooks!.PreToolUse!)if(!group.matcher)group.hooks=group.hooks.map(hook=>async(...args)=>{if((args[0] as {tool_name?:string}).tool_name==="Bash")await new Promise(resolve=>setTimeout(resolve,150));return hook(...args);});
+ const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
+  if(new URL(request.url).pathname!=="/v1/messages")return Response.json({});
+  const raw=await request.text(),body=JSON.parse(raw);
+  if(!Array.isArray(body.tools)||!body.tools.length)return nativeModelReply();
+  requests++;if(requests>1&&raw.includes(SONG))replayed=true;
+  return nativeModelReply(requests===1?{name:"Grep",id:"toolu_sirens",input:{pattern:"sirens",path,output_mode:"content"}}
+   :requests===2?{name:"Bash",id:"toolu_sirens",input:{command:"echo rafts",run_in_background:true}}:undefined);
+ }});
+ const timer=setTimeout(()=>controller.abort(),20000);
+ try{
+  for await(const message of query({prompt:"Listen for the sirens.",options:{cwd:brain,settingSources:[],model:"claude-sonnet-4-6",maxTurns:4,permissionMode:"default",allowedTools:["Grep","Bash"],...wiring,abortController:controller,
+   env:{HOME:home,CLAUDE_CONFIG_DIR:join(home,".claude"),PATH:process.env.PATH??"/usr/bin:/bin",ANTHROPIC_BASE_URL:origin.url.origin,ANTHROPIC_API_KEY:"odysseus-offline-only-key",ANTHROPIC_AUTH_TOKEN:undefined,CLAUDE_CODE_OAUTH_TOKEN:undefined,CLAUDE_CODE_USE_BEDROCK:"",CLAUDE_CODE_USE_VERTEX:"",CLAUDE_CODE_USE_FOUNDRY:"",CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:"1"}}})){
+   if(message.type==="system"&&message.subtype==="init")version=message.claude_code_version;
+  }
+  await writes.safetyEnd("voyage");
+  expect(version,"SAFETY_ACTUAL_INSTALLED_RUNTIME").toBe(MEASURED_RUNTIME.claudeCode);
+  expect(replayed,"SAFETY_RUN_SEARCH_REACHED_THE_MODEL").toBe(true);
+  expect(refusals,"SAFETY_SHELL_CALL_UNDER_THE_SEARCH_ID_IS_DENIED").toBeGreaterThan(0);
+  // The shell call's denial proves nothing about the search under its id.
+  const chat=writes.safety(null,"ithaca");
+  expect(chat.restriction,"SAFETY_RETOOLED_SHELL_DENIAL_CANNOT_SETTLE_THE_RUN_SEARCH").toBe("restricted");
+  expect(chat.coverage.state,"SAFETY_RETOOLED_SHELL_DENIAL_NEVER_LOOKS_COMPLETE").toBe("incomplete");
+  expect(db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get(),"SAFETY_RETOOLED_SHELL_DENIAL_GAP_IS_DURABLE").toEqual({failure:"recording_failed"});
+  // What kept it: the shell call was reported as a second admission of the id.
+  expect(admitted,"SAFETY_HOST_REPORTS_THE_SHELL_CALL_AS_A_SECOND_ADMISSION").toBeGreaterThanOrEqual(2);
+ }finally{clearTimeout(timer);origin.stop(true);await writer.close();db.close();rmSync(root,{recursive:true,force:true});}
+},60000);

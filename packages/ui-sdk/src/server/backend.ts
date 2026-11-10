@@ -190,10 +190,12 @@ export interface BackendBridge {
      * that gap is durable. */
     lost?(toolUseId: string, toolName: string, cause: unknown): Promise<void>;
     /** @internal The runtime asks the backend to admit one call under this
-     * id. Call it once per admission, before the backend decides anything
-     * about it, however many gates (hooks, callbacks) that one admission
-     * passes through. A backend that calls `refused` must call this too. */
-    admitting?(toolUseId: string): void;
+     * id, for this tool. Call it once per admission, before the backend
+     * decides anything about it, however many gates (hooks, callbacks) that
+     * one admission passes through. An id admitted more than once, or under
+     * more than one tool name, is never discharged by a refusal. A backend
+     * that calls `refused` must call this too. */
+    admitting?(toolUseId: string, toolName?: string): void;
     /** @internal The backend refused a call with this id. Every call `begin`
      * admits owes its `result` from then on; still owed when the turn ends,
      * it leaves the turn's chat a permanent gap. A refusal discharges it only

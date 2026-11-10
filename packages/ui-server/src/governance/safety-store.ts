@@ -352,10 +352,10 @@ const OBLIGATIONS = 2048;
 const clipText=(text:string)=>clip(text.replace(/[\u0000-\u001f\u007f]/g," "),128);
 /**
  * A tool call admitted before it runs owes its result's record (#3812). It
- * is owed until that record is durable; no refusal discharges it, since none
- * proves an admitted call did not run. Owing it is restrictive only: it needs
- * no healthy recorder, only an open collection to gap if the result never
- * comes.
+ * is owed until that record is durable, or until the backend's own denial of
+ * the only admission under its id, under one tool name and never allowed,
+ * proves it never ran. Owing it is restrictive only: it needs no healthy
+ * recorder, only an open collection to gap if the result never comes.
  */
 export function openSafetyObligation(db:Database,turnId:string,id:string,toolUseId:string,tool:string,at=Date.now()):void {
  db.transaction(()=>{

@@ -674,19 +674,24 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // runs a bare `allowedTools` entry or a rewrite hook's allow without asking,
   // so a deny of a second admission proves nothing about the first (#3812).
   const refuse = async (toolUseId: string | undefined) => { if (toolUseId) await req.bridge.inputSafety?.refused?.(toolUseId, true).catch(() => {}); };
-  // The runtime dispatches every matching PreToolUse hook once per call it
-  // admits, all under that call's id. Each hook counts its own invocations
-  // per id, and the highest count is how many calls the runtime admitted
-  // under the id. So whichever hook of a second admission starts first
-  // reports it, before any of that admission's waits, decisions or begin().
-  // Counting begin() calls instead would be wrong both ways: one admission
-  // records its input from several hooks, and a second admission can be
-  // denied before its begin() (#3812).
+  // The runtime dispatches every PreToolUse hook whose matcher takes the
+  // call's tool name, once per call it admits, under that call's id. So for
+  // one tool name the same hooks run on every admission. Each hook counts its
+  // own invocations per (tool name, id), and the highest count is how many
+  // calls the runtime admitted under that id for that tool: whichever hook of
+  // a later admission starts first reports it, before any of that
+  // admission's waits, decisions or begin(). Keyed by id alone, a call under
+  // a reused id with another tool name would pass hooks that never saw the
+  // id, and its denial could land before a shared hook counted it. Counting
+  // begin() calls instead would be wrong both ways: one admission records its
+  // input from several hooks, and a later admission can be denied before its
+  // begin() (#3812).
   const admissions = new Map<string, number>();
-  const admit = (toolUseId: string, seen: Map<string, number>) => {
-    const count = (seen.get(toolUseId) ?? 0) + 1;
-    seen.set(toolUseId, count);
-    if (count > (admissions.get(toolUseId) ?? 0)) { admissions.set(toolUseId, count); req.bridge.inputSafety?.admitting?.(toolUseId); }
+  const admit = (toolUseId: string, toolName: string, seen: Map<string, number>) => {
+    const key = JSON.stringify([toolName, toolUseId]);
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    if (count > (admissions.get(key) ?? 0)) { admissions.set(key, count); req.bridge.inputSafety?.admitting?.(toolUseId, toolName); }
   };
   const decideToolUse = canUseToolFor(ctx);
   // The callback's allow is the runtime's last gate: the call runs. The
@@ -712,7 +717,7 @@ export function createPermissionWiring(options: PermissionWiringOptions): Pick<O
   // observation or rewrite that finishes last, must fence its own final wait.
   // Outward gates still recompute standing/per-use authority in their bodies.
   const fence: (hook: HookCallback) => HookCallback = hook => { const seen = new Map<string, number>(); return async (...args) => {
-    if (args[0].hook_event_name === "PreToolUse") admit(args[0].tool_use_id, seen);
+    if (args[0].hook_event_name === "PreToolUse") admit(args[0].tool_use_id, args[0].tool_name, seen);
     const output = await fenced(hook, args);
     if (args[0].hook_event_name === "PreToolUse" && "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse"
       && output.hookSpecificOutput.permissionDecision === "deny") await refuse(args[0].tool_use_id);

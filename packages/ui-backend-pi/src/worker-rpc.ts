@@ -312,7 +312,7 @@ export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: 
       },
       async error => { await permission.refused!(msg.toolCallId); throw error; });
     try {
-      permission?.admitting?.(msg.toolCallId);
+      permission?.admitting?.(msg.toolCallId, msg.toolName);
       if (!result || !safety) context.live();
       if (msg.id <= lastRpcId) throw resultLoss(new Error("Replayed pi worker RPC"));
       lastRpcId = msg.id;

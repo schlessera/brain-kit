@@ -18,12 +18,17 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean};
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
- // to admit a call under it, and whether the backend ever let one run. Kept
- // in memory, apart from `operations` and the obligation rows: an admission
- // can be denied before any begin(), so before any row exists (the reviewer's
- // duplicate-id run), and only this collector discharges this turn's
- // obligations; a restart gaps every open obligation whatever these say.
- const calls=new Map<string,{admissions:number;allowed:boolean}>();
+ // to admit a call under it, for each tool name it came under, and whether
+ // the backend ever let one run. Kept in memory, apart from `operations` and
+ // the obligation rows: an admission can be denied before any begin(), so
+ // before any row exists (the reviewer's duplicate-id run), and only this
+ // collector discharges this turn's obligations; a restart gaps every open
+ // obligation whatever these say. Two tool names already make the id
+ // unprovable, so a third is not kept.
+ const calls=new Map<string,{tools:Map<string,number>;allowed:boolean}>();
+ // A refusal can prove the call never ran only for an id admitted once,
+ // under one tool name, and never allowed.
+ const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
  const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],done:false,admitted:false,signals:[],owed:false,refused:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
@@ -142,27 +147,29 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     await discharge(op);
    }catch(error){return fail(error);}
   },true));},
-  // The runtime asks to admit one call under this id. Counted at once, not
-  // queued: a refusal already queued for the id then sees the new admission
-  // and proves nothing. An id the collector cannot track keeps no count, so
-  // no refusal discharges it.
-  admitting(toolUseId){
-   const call=calls.get(toolUseId);
-   if(call)call.admissions++;else if(calls.size<2000)calls.set(toolUseId,{admissions:1,allowed:false});
+  // The runtime asks to admit one call under this id, for this tool. Counted
+  // at once, not queued: a refusal already queued for the id then sees the
+  // new admission and proves nothing. An id the collector cannot track keeps
+  // no count, so no refusal discharges it.
+  admitting(toolUseId,toolName=""){
+   let call=calls.get(toolUseId);
+   if(!call){if(calls.size>=2000)return;calls.set(toolUseId,call={tools:new Map(),allowed:false});}
+   if(call.tools.has(toolName)||call.tools.size<2)call.tools.set(toolName,(call.tools.get(toolName)??0)+1);
   },
   // The backend refused a call with this id; a later begin() or allow for the
   // id is refused too, so a parallel hook or request cannot reopen it. The
   // refusal proves the call never ran, and discharges its obligation, only
   // when it is the backend's own denial (`denied`: a Claude permission
   // callback or PreToolUse hook deny, a Pi permission deny or gate block), of
-  // the only admission ever made under the id, and the backend never let a
-  // call under it run. Anything else proves nothing and leaves the
-  // obligation to its recorded result: a second admission of the id (the
-  // Claude runtime admits two calls under one id), an allow followed by a
-  // refusal, a rejected request (a stopped turn, a replay). Never rejects.
+  // the only admission ever made under the id, under its only tool name, and
+  // the backend never let a call under it run. Anything else proves nothing
+  // and leaves the obligation to its recorded result: a second admission of
+  // the id, under the same tool or another (the Claude runtime admits two
+  // calls under one id), an allow followed by a refusal, a rejected request
+  // (a stopped turn, a replay). Never rejects.
   refused(toolUseId,denied=false){return serial(toolUseId,async()=>{
-   const op=operations.get(toolUseId),call=calls.get(toolUseId);
-   const proves=denied&&call?.admissions===1&&!call.allowed;
+   const op=operations.get(toolUseId);
+   const proves=denied&&once(calls.get(toolUseId));
    if(!op){if(operations.size<2000)operations.set(toolUseId,{...operation(""),refused:true});return;}
    op.refused=true;
    if(proves&&!op.done)await discharge(op);
@@ -177,7 +184,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
    if(op&&(op.refused||!op.admitted))throw new Error("Safety operation was refused or not admitted; the call does not run");
    const call=calls.get(toolUseId);
    if(call)call.allowed=true;
-   else if(calls.size<2000)calls.set(toolUseId,{admissions:0,allowed:true});
+   else if(calls.size<2000)calls.set(toolUseId,{tools:new Map(),allowed:true});
    else throw new Error("Safety allowance capacity exceeded; the call does not run");
   },true);},
   // A result the backend could not hand over (a refused or malformed report):
