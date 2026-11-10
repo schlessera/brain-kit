@@ -87,7 +87,13 @@ describe("module manifest", () => {
   });
 
   test("configSchema accepts the documented config block", () => {
-    expect(() => configSchema.parse({ clientsDir: "clients", feeTolerance: 30 })).not.toThrow();
+    // The README's block names two keys; the parsed config keeps them and fills the rest.
+    expect(configSchema.parse({ clientsDir: "clients", feeTolerance: 30 })).toEqual({
+      clientsDir: "clients",
+      feeTolerance: 30,
+      currency: "USD",
+      termsDays: 30,
+    });
   });
 
   test("taxonomy roundtrip: dirForType/typeForPath are inverse for finance", () => {
@@ -177,7 +183,9 @@ describe("the generated region (#403)", () => {
         expect({ path, markerLines }).toEqual({ path, markerLines: ["<!-- brain:generated:finance -->", CLOSE] });
         const region = readGeneratedRegion(text, "finance")!;
         // Every table row is still one line with its own cells.
-        for (const row of region.split("\n").filter((line) => line.startsWith("|"))) expect(row.endsWith("|")).toBe(true);
+        const rows = region.split("\n").filter((line) => line.startsWith("|"));
+        expect(rows.length).toBeGreaterThan(0);
+        expect({ path, unclosedRows: rows.filter((row) => !row.endsWith("|")) }).toEqual({ path, unclosedRows: [] });
       }
       expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("wire &lt;!-- /brain:generated:finance --> rest");
       expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("| 2026-acme\\|01 |");
