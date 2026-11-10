@@ -113,7 +113,7 @@ export const Destination = meta.story({
   play: async ({ canvas, canvasElement }) => {
     const card = await canvas.findByRole("region", { name: "Link to ithaca-harbour.example" });
     // The host is the first text in the card, and the card is not itself a target.
-    await expect(card.textContent!.startsWith("ithaca-harbour.example")).toBe(true);
+    await expect(card.textContent).toMatch(/^ithaca-harbour\.example/);
     await expect(canvasElement.querySelector('[role="button"], [tabindex="0"]')).toBeNull();
     await expect(canvas.getByText("Title and summary by the brain · page not opened or checked")).toBeVisible();
     const open = canvas.getByRole("link", { name: "Open ithaca-harbour.example in a new tab" });
