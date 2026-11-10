@@ -77,7 +77,7 @@ describe("composeSubject", () => {
   test("a first title too long alone is shortened, still within 72 characters", () => {
     const subject = composeSubject("Add", ["routes"], ["A".repeat(100), "B"]);
     expect([...subject].length).toBeLessThanOrEqual(72);
-    expect(subject.endsWith("… (+1 more)")).toBe(true);
+    expect(subject).toEndWith("… (+1 more)");
   });
 });
 
@@ -91,7 +91,7 @@ describe("planCommits", () => {
 
     const plan = planCommits(root, groups);
     expect(plan.commits.map((c) => c.files.length)).toEqual([10, 2]);
-    expect(plan.commits.every((c) => c.domains.join() === "routes")).toBe(true);
+    expect(plan.commits.map((c) => c.domains)).toEqual([["routes"], ["routes"]]);
     expect(plan.commits[1]!.subject).toBe("Add routes: Route 11, Route 12");
   });
 
@@ -261,7 +261,7 @@ describe("applyCommitPlan", () => {
     const results = applyCommitPlan(root, planCommits(root, [groups[0]!, groups[1]!]), allowed);
     expect(filesOf(root, "HEAD").sort()).toEqual(["routes/lake.md", "routes/ridge.md"]);
     expect(git(root, "diff", "--cached", "--name-only")).toBe("gear/radio.md\nstaged.md");
-    expect("sha" in results[0]!).toBe(true);
+    expect(results[0]).toHaveProperty("sha");
   });
 
   test("a file outside the allowed set refuses the whole plan and commits nothing", () => {
@@ -269,8 +269,8 @@ describe("applyCommitPlan", () => {
     const head = git(root, "rev-parse", "HEAD");
     const plan = planCommits(root, [...groups, { domain: "misc", status: "A", path: "staged.md" }]);
     const results = applyCommitPlan(root, plan, allowed);
-    expect(results.every((r) => "error" in r)).toBe(true);
-    expect(results.some((r) => "error" in r && r.error === "refused: not in the assessed set: staged.md")).toBe(true);
+    expect(results.filter((r) => !("error" in r))).toEqual([]);
+    expect(results.map((r) => ("error" in r ? r.error : null))).toContain("refused: not in the assessed set: staged.md");
     expect(git(root, "rev-parse", "HEAD")).toBe(head);
   });
 
@@ -292,7 +292,7 @@ describe("applyCommitPlan", () => {
     write(root, "a*.md", "star\n");
     write(root, "ab.md", "not allowed\n");
     const results = applyCommitPlan(root, { commits: [{ domains: ["x"], files: [{ path: "a*.md", status: "?" }], subject: "Add x: a*", body: "" }] }, new Set(["a*.md"]));
-    expect("sha" in results[0]!).toBe(true);
+    expect(results[0]).toHaveProperty("sha");
     expect(filesOf(root, "HEAD")).toEqual(["a*.md"]);
     expect(git(root, "status", "--porcelain")).toBe("?? ab.md");
   });
@@ -303,7 +303,7 @@ describe("applyCommitPlan", () => {
     writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
     write(root, "routes/lake.md", note("Cave Path"));
     const results = applyCommitPlan(root, planCommits(root, [{ domain: "routes", status: "?", path: "routes/lake.md" }]), new Set(["routes/lake.md"]));
-    expect("error" in results[0]!).toBe(true);
+    expect(results[0]).toHaveProperty("error");
     expect(git(root, "status", "--porcelain", "-uall")).toBe("?? routes/lake.md");
   });
 });

@@ -28,7 +28,8 @@ const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 function git(cwd: string, ...args: string[]) {
-  const r = Bun.spawnSync(["git", "-C", cwd, ...args]);
+  // Command-scoped, so neither a global nor an environment-scoped commit.gpgsign reaches the fixture commit.
+  const r = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", cwd, ...args]);
   if (r.exitCode !== 0) throw new Error(r.stderr.toString());
 }
 function put(root: string, path: string, bytes: string | Buffer) {

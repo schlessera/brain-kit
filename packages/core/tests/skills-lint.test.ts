@@ -71,7 +71,7 @@ describe("lint rules — one fixture per rule", () => {
   test("missing description → error", () => {
     const s = mkSkill("nodesc", { name: "nodesc" });
     const findings = lintSkills([s]);
-    expect(findings.some((f) => f.rule === "frontmatter" && f.severity === "error")).toBe(true);
+    expect(findings).toContainEqual(expect.objectContaining({ rule: "frontmatter", severity: "error" }));
   });
 
   test("Claude-only tool in body → error", () => {
@@ -201,8 +201,7 @@ describe("lint rules — one fixture per rule", () => {
       extraFm: { "allowed-tools": "Bash", "disable-model-invocation": true },
     });
     const findings = lintSkills([s]).filter((f) => f.rule === "claude-specific-frontmatter");
-    expect(findings).toHaveLength(2);
-    expect(findings.every((f) => f.severity === "info")).toBe(true);
+    expect(findings.map((f) => f.severity)).toEqual(["info", "info"]);
   });
 
   test("absolute path in body → warning", () => {
@@ -231,7 +230,7 @@ describe("lint rules — one fixture per rule", () => {
     const b = mkSkill("b-bad", { name: "b-bad", description: "d", body: "Claude should do it." });
     const findings = lintSkills([a, b]);
     expect(findings).toContainEqual(expect.objectContaining({ skill: "b-bad", rule: "acting-agent", severity: "warning" }));
-    expect(findings.every((f) => f.skill === "b-bad")).toBe(true);
+    expect(findings.filter((f) => f.skill !== "b-bad")).toEqual([]);
   });
 });
 
