@@ -51,15 +51,26 @@ git push -u origin <batch.branch>
 ```
 
 The second line keeps the receipt block for the pull request body. Add a
-changeset only if `check:pr` asks for one. Then open the pull request as a draft, against the branch that
-`batch.base` names:
+changeset only if `check:pr` asks for one.
+
+**The batch's own issue.** File one issue for the batch before opening its
+pull request, with the GitHub skill: title `<package>: test-health batch
+<batch id>`, a body that names each fixed finding (file, smell, one line on
+what was wrong), labels `type: test` and the package's `area:` label, and
+the release milestone. The pull request closes it. Merging into `main`
+needs at least one delivered issue (`--issues` in step 4), and most batches
+resolve no failure issue of their own.
+
+Then open the pull request as a draft, against the branch that `batch.base`
+names:
 
 - Title: `test(<package>): test-health batch <batch id>`.
-- Body: what the batch does in numbers (clusters, files changed, findings fixed
-  by lens, tests removed with their obligation maps, mutations killed), the
-  gate's `stats`, `Closes #N` or `Refs #N` for each failure issue it resolves
-  or advances, and the `check:pr` receipt block. Use the repository template.
-  Screen the text as the GitHub skill requires.
+- Body: `Closes #N` for the batch's own issue; what the batch does in numbers
+  (clusters, files changed, findings fixed by lens, tests removed with their
+  obligation maps, mutations killed), the gate's `stats`, `Closes #N` or
+  `Refs #N` for each failure issue it resolves or advances, and the
+  `check:pr` receipt block. Use the repository template. Screen the text as
+  the GitHub skill requires.
 - Labels: `type: test` and the package's `area:` label.
 
 Record it: `TH record batch --batch <id> --event pr --pr <number>`.
@@ -73,7 +84,9 @@ Record every confirmation request first: `TH record batch --batch <id> --event a
 before expensive confirmation" through "Merge and verify": record collisions
 with `bun scripts/collisions.ts --json --pr <number>`, set the release milestone
 on the pull request and on each issue it closes or advances, then
-`bun scripts/integrate.ts confirm <number> --issues <owner/repo#N,...>`. While
+`bun scripts/integrate.ts confirm <number> --issues <owner/repo#N,...>`, listing
+the batch's own issue and every issue the body closes or advances. `confirm`
+checks that list and its milestones before it takes the reservation. While
 main is red, `confirm` refuses; stop and leave the batch for a later run.
 
 **The base is another branch** (an integration branch a wrapper gave you).
