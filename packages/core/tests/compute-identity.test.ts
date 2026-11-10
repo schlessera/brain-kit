@@ -58,7 +58,7 @@ test("a raw sandbox or command id is not a job id", async () => {
     const result = await svc.status(PENELOPE, id);
     expect(result.ok ? "found" : result.code).toBe("job_unknown");
   }
-  expect(JSON.stringify(run.job).includes(sbx)).toBe(false);
+  expect(JSON.stringify(run.job)).not.toContain(sbx);
 });
 
 test("a job of another brain sharing the state directory is unknown here", async () => {
