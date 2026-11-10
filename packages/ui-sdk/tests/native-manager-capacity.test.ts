@@ -52,7 +52,7 @@ function fixture() {
       return read(path, options);
     }) as typeof fs.readFileSync),
     spyOn(fs, "readdirSync").mockImplementation(((path: string, options?: never) =>
-      path === `/sys/fs/btrfs/${config.fsid}/devices` ? ["device"] : list(path, options)) as typeof fs.readdirSync),
+      path === `/sys/fs/btrfs/${config.fsid}/devices` ? ["device"] : path === state ? list(path).sort() : list(path, options)) as typeof fs.readdirSync),
     spyOn(fs, "statfsSync").mockReturnValue({ type: 0x9123683e, bavail: 1000, bsize: 4096 } as fs.StatsFs),
     spyOn(inspection, "createNativeIdentityInspector").mockReturnValue({ launches: 0, async close() {}, async run(_program, path) {
       return { code: 0, errors: "", text: JSON.stringify({ fsid: config.fsid, devices: 1, uuid: path === join(root, "brain") ? config.brainUuid : "b".repeat(32),
@@ -103,6 +103,7 @@ test("malformed receipt without a stage admits a healthy stage at a one-allowanc
 
 test("a non-UUID receipt is quarantined without charging impossible staging storage", async () => {
   const f = fixture(); fs.writeFileSync(join(f.state, "invalid.json"), "{broken");
+  fs.mkdirSync(join(f.stageRoot, "invalid"));
   const manager = await f.manager();
   await manager.run({ operation: "checkpoint", id: id(3) });
   const stage = await manager.run({ operation: "prepareStage", id: id(4), checkpointId: id(3), allowanceBytes: 4096 });
@@ -153,4 +154,38 @@ test("stage close failure retains its charge and independent bound until confirm
   await manager.run({ operation: "releaseStage", id: id(2) });
   expect(fs.existsSync(join(f.stageRoot, `${id(2)}.allowance`))).toBe(false);
   await manager.run({ operation: "prepareStage", id: id(4), checkpointId: id(3), allowanceBytes: 4096 });
+});
+
+
+test("bounded quarantine alone refuses staging as recovery and reports its cause", async () => {
+  const f = fixture(); let manager = await f.manager();
+  await manager.run({ operation: "checkpoint", id: id(3) });
+  await manager.run({ operation: "prepareStage", id: id(2), checkpointId: id(3), allowanceBytes: 4096 });
+  await manager.close();
+  fs.writeFileSync(join(f.state, `${id(2)}.json`), "{broken");
+  manager = await f.manager();
+  await expect(manager.run({ operation: "prepareStage", id: id(4), checkpointId: id(3), allowanceBytes: 4096 }),
+    "NATIVE_BOUNDED_QUARANTINE_IS_RECOVERY_NOT_BUSY").rejects.toMatchObject({ code: "unknown", message: expect.stringContaining("restart") });
+  const report = (await (await manager.run({ operation: "ready" })).json()).recovery;
+  expect(report.stagingChargedBytes).toBe(4096);
+  expect(report.stagingRefusal, "NATIVE_BOUNDED_QUARANTINE_REPORTS_CAUSE").toContain("quarantined");
+  expect(report.stagingRefusal).toContain("restart");
+  // The restriction is on staging: independent checkpoint admission still works.
+  expect((await (await manager.run({ operation: "checkpoint", id: id(5) })).json()).id).toBe(id(5));
+  expect(f.prepared).toHaveLength(1);
+});
+
+test("an unknown quarantine charge does not invent overflow for later valid bounds", async () => {
+  const f = fixture();
+  for (const n of [2, 3]) {
+    fs.writeFileSync(join(f.state, `${id(n)}.json`), "{broken");
+    fs.mkdirSync(join(f.stageRoot, id(n)));
+  }
+  fs.writeFileSync(join(f.stageRoot, `${id(3)}.allowance`), "4096", {mode: 0o600});
+  const manager = await f.manager();
+  const report = (await (await manager.run({ operation: "ready" })).json()).recovery;
+  expect(report.stagingChargedBytes).toBeNull();
+  const diagnostics = fs.readdirSync(report.diagnosticsPath).map(name => fs.readFileSync(join(report.diagnosticsPath, name), "utf8")).join("\n");
+  expect(diagnostics, "NATIVE_UNKNOWN_CHARGE_HAS_NO_FALSE_OVERFLOW").not.toContain("exceeds safe accounting range");
+  expect(diagnostics).toContain("recoverStageAllowance");
 });

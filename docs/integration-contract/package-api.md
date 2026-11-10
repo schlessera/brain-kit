@@ -5208,3 +5208,15 @@ The journal host's additive `cleanupStatus()` method (#3815) returns
 `{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
 current accounting and historical diagnostic record exposed as
 [`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).
+
+
+### Unresolved recovery summaries (#3826)
+
+`NativeManagerReady.recovery` and `SystemStatus.nativeRecovery` add optional
+`stagingRefusal`, a recovery explanation when quarantine prevents admission of
+the configured allowance. The manager tests each stage's actual allowance
+before classifying its refusal. `JournalRecoveryStatus` and optional
+`SystemStatus.journalRecovery` expose the count and first cause of unresolved
+object reservations from boot. The journal host adds `recoveryStatus()` returning
+that summary. Fields and recovery semantics are in the
+[HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).

@@ -1892,9 +1892,17 @@ export type GovernedStatus = {
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
+/** Unresolved object verification at journal boot; charges remain reserved. */
+export interface JournalRecoveryStatus {
+  unresolvedRecords: number;
+  firstCause: { reservationId: string; hash: string; at: number; errorClass: string; message: string; site: string } | null;
+}
+
 export interface SystemStatus {
+  /** Journal I/O recovery at server boot; only on authenticated status. */
+  journalRecovery?: JournalRecoveryStatus;
   /** Native quarantine reported at server boot; only on authenticated status. */
-  nativeRecovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; diagnosticsPath: string };
+  nativeRecovery?: { quarantinedIntents: number; stagingChargedBytes: number | null; stagingRefusal?: string; diagnosticsPath: string };
   healthy: boolean;
   uptime: number;
   /** The configured source commit (`"dev"` by default), never a release. */
