@@ -358,6 +358,7 @@ signatures (every public export and the types it is made of)
         disclosureOpen: boolean;
         profile: ServerConversationOpened | null;
         conversationProfile: ConversationProfile | null;
+        livePersona: LivePersonaStatus | null;
         durableAvailable: boolean;
         sessionId: string | null;
         agentProviderId: string | null;
@@ -1108,6 +1109,8 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<WorkerHostStatus>;
+        createLivePersona: (request: LivePersonaCreateRequest) => Promise<LivePersona>;
+        deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
         dictationSettings: () => Promise<DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
@@ -1129,6 +1132,8 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<HygieneReviewRead>;
         hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => Promise<HygienePreviewResponse>;
         hygieneReview: () => Promise<HygieneReviewRead>;
+        livePersona: (id: string) => Promise<LivePersona>;
+        livePersonas: () => Promise<LivePersonaListResponse>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1231,6 +1236,7 @@ signatures (every public export and the types it is made of)
         }>;
         refreshModels: () => Promise<ModelCatalogResponse>;
         saveDictationSettings: (settings: DictationSettings) => Promise<DictationSettings>;
+        saveLivePersonaSelection: (value: string, revision: number) => Promise<VoiceSettingsResponse>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<SessionRecoveryResult>;
@@ -1332,12 +1338,14 @@ signatures (every public export and the types it is made of)
         }>;
         turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
         turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        updateLivePersona: (id: string, request: LivePersonaUpdateRequest) => Promise<LivePersona>;
         voiceKeyterms: () => Promise<VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: PronunciationOverride[];
         }>;
         voiceProviders: () => Promise<VoiceProvidersResponse>;
         voiceSession: (signal?: AbortSignal, selection?: VoiceSessionRequest) => Promise<VoiceSessionResponse>;
+        voiceSettings: () => Promise<VoiceSettingsResponse>;
         voiceToken: () => Promise<VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;
@@ -1612,6 +1620,8 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<import("@schlessera/brain-ui-sdk").WorkerHostStatus>;
+        createLivePersona: (request: import("@schlessera/brain-ui-sdk").LivePersonaCreateRequest) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
+        deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
         dictationSettings: () => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
@@ -1633,6 +1643,8 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").HygienePreviewResponse>;
         hygieneReview: () => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        livePersona: (id: string) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
+        livePersonas: () => Promise<import("@schlessera/brain-ui-sdk").LivePersonaListResponse>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1735,6 +1747,7 @@ signatures (every public export and the types it is made of)
         }>;
         refreshModels: () => Promise<import("@schlessera/brain-ui-sdk").ModelCatalogResponse>;
         saveDictationSettings: (settings: import("@schlessera/brain-ui-sdk").DictationSettings) => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
+        saveLivePersonaSelection: (value: string, revision: number) => Promise<import("@schlessera/brain-ui-sdk").VoiceSettingsResponse>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<import("@schlessera/brain-ui-sdk").SessionRecoveryResult>;
@@ -1836,12 +1849,14 @@ signatures (every public export and the types it is made of)
         }>;
         turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
         turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        updateLivePersona: (id: string, request: import("@schlessera/brain-ui-sdk").LivePersonaUpdateRequest) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
         voiceKeyterms: () => Promise<import("@schlessera/brain-ui-sdk").VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: import("@schlessera/brain-ui-sdk").PronunciationOverride[];
         }>;
         voiceProviders: () => Promise<import("@schlessera/brain-ui-sdk").VoiceProvidersResponse>;
         voiceSession: (signal?: AbortSignal, selection?: import("@schlessera/brain-ui-sdk").VoiceSessionRequest) => Promise<import("@schlessera/brain-ui-sdk").VoiceSessionResponse>;
+        voiceSettings: () => Promise<import("@schlessera/brain-ui-sdk").VoiceSettingsResponse>;
         voiceToken: () => Promise<import("@schlessera/brain-ui-sdk").VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;

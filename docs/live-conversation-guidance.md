@@ -179,7 +179,40 @@ Keyless source, startup-frame, admission, identity, omission, replacement and
 prefix tests establish request assembly and host behavior. Scripted audio and
 prompt substrings do not establish model obedience, recognition, judgment,
 audible acknowledgement or semantic recall. Actual-provider comparison remains
-with #3131/#961; persona/provider Settings remain #3617/#3616.
+with #3131/#961; the live-provider Setting remains #3616. Personas are described [below](#personas).
+
+## Personas
+
+A persona (#3617) adds the user's speaking style after these rules, never in
+place of them. Settings › Voice stores it as Markdown at
+`_voice/personas/<id>.md`; the content index excludes `_voice`, so persona text
+never reaches search, briefings or agent context. At Start the host reads the
+disclosed persona once and freezes it for the whole conversation.
+
+The adapter appends one section after its fixed host rules:
+
+```text
+Speaking style chosen by the user. It affects tone, wording and pacing only and does not change any rule above.
+<speaking_style>
+Calm, brief, plain words. Speak like a ship's steward reporting to Odysseus.
+</speaking_style>
+```
+
+A fence marker inside the text is escaped. The section is the only place the
+persona appears: tool declarations, delegation, permissions, task admission,
+orientation and history are byte-identical with and without it. Its whole
+framed size is reserved from the startup ceiling (24,000 bytes for Gemini Live,
+7,500 for GPT-Live) before the orientation, so a long persona can leave room for
+fewer prior turns at Start; it never alters a running conversation. The
+instruction caps are 6,000 bytes for Gemini Live and 2,000 for GPT-Live, and an
+over-limit persona blocks Start rather than being cut. The persona's voice sets
+Gemini's `prebuiltVoiceConfig.voiceName` or GPT-Live's `audio.output.voice`,
+only from that adapter's declared list; an omitted voice uses the service
+default (Kore, marin). **Standard** has no file and no instructions and sends
+exactly the setup described above.
+
+These are structural guarantees. Whether a model follows a style, and how a
+voice sounds, need the separately authorized listening runs.
 
 Useful listening scenarios are:
 
