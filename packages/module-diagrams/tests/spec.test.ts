@@ -35,6 +35,8 @@ test("free boxes require a 4px grid and may touch but cannot overlap", () => {
   expect(check(spec).valid).toBe(true);
   spec.nodes[1].at = [184, 120];
   expect(check(spec).errors).toContainEqual({ path: "$.nodes[1].at", code: "overlap", message: "Node 'ithaca' overlaps 'raft'" });
+  spec.nodes[1].at = [190, 120];
+  expect(check(spec).errors, "EVEN_OFF_GRID_REFUSED").toContainEqual({ path: "$.nodes[1].at[0]", code: "grid", message: "Structural geometry must align to the 4px grid" });
   spec.nodes[1].at = [189, 120];
   expect(check(spec).errors).toContainEqual({ path: "$.nodes[1].at[0]", code: "grid", message: "Structural geometry must align to the 4px grid" });
   spec.nodes[1].size = [149, 64];
