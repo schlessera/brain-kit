@@ -206,7 +206,8 @@ describe("simplify", () => {
       { length: 50_000 },
       (_, i) => [15.6 + i * 1e-6, 38.2 + (i % 2) * 1e-9] as Coord,
     );
-    expect(() => simplify(long, 50, 38.2)).not.toThrow();
+    // A 1e-9 degree zigzag is far inside 50 m: only the endpoints survive.
+    expect(simplify(long, 50, 38.2)).toEqual([long[0], long.at(-1)]);
   });
 });
 
