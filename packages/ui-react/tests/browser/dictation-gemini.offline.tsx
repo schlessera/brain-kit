@@ -127,6 +127,10 @@ function hardware(ctx: TestContext, rate: number) {
   return { contexts, streams, worklet };
 }
 
+/** The voice field's ✓, which ends the take as Done did (#3694). */
+const finish = (s: Scene) => s.host.querySelector<HTMLElement>('[aria-label="Finish dictation"]')!;
+/** The draft: what a take heard joins it as editable text (D6, #3694). */
+const draft = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")?.value ?? null;
 const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label^="Dictate"]');
 
 async function startDictating(s: Scene): Promise<FaultSocket> {
@@ -168,7 +172,7 @@ function dominant(samples: Float32Array, rate: number): number {
 }
 
 for (const rate of [44_100, 48_000]) {
-  test(`a ${rate} Hz context streams 100 ms PCM16 at 16 kHz, maps interim and final text, and Done drains into review`, { timeout: 30_000 }, async (ctx) => {
+  test(`a ${rate} Hz context streams 100 ms PCM16 at 16 kHz, maps interim and final text, and Finish drains into the draft`, { timeout: 30_000 }, async (ctx) => {
     const audio = hardware(ctx, rate);
     const s = await mount(ctx);
     const speech = await startDictating(s);
@@ -208,7 +212,7 @@ for (const rate of [44_100, 48_000]) {
     speech.deliver({ serverContent: { interimInputTranscription: { text: "And the" } } });
     await expect.poll(() => s.ui.stores.voice.getState().partial).toBe("And the");
 
-    await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find((el) => el.textContent?.trim() === "Done")!);
+    await userEvent.click(finish(s));
     await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
     expect(audio.streams[0]!.getTracks().map((track) => track.readyState), "Done closes the microphone first").toEqual(["ended"]);
     expect(s.ui.stores.voice.getState().mode, "Done waits for the last final").toBe("dictate");
@@ -220,7 +224,7 @@ for (const rate of [44_100, 48_000]) {
     speech.deliver({ serverContent: { speechState: "NON_SPEECH" }, voiceActivity: { type: "ACTIVITY_END", audioOffset: `${(Math.floor(streamed / 160) / 100).toFixed(2)}s` } });
     // Well inside the 1.5 s tail window and the 3 s cap: Google's answer ended it.
     await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "GEMINI_BROWSER_DRAIN_ON_ANSWER", timeout: 1_000 }).toBe("idle");
-    expect(s.ui.stores.voice.getState().reviewText, "each final commits exactly once").toBe("Ask Nestor about the ships. And the harbor.");
+    await expect.poll(() => draft(s), { message: "each final commits exactly once" }).toBe("Ask Nestor about the ships. And the harbor.");
     await expect.poll(() => audio.contexts[0]!.state, { message: "GEMINI_BROWSER_TEARDOWN_CONTEXT_CLOSED" }).toBe("closed");
     expect(speech.readyState).toBe(3);
   });
@@ -246,13 +250,13 @@ test("a stalled upload fails the take with a connection notice and keeps the wor
   await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe("Ask Nestor about the ships.");
   Object.defineProperty(speech, "bufferedAmount", { configurable: true, value: 256 * 1024 + 1 });
   await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the backlog ended the take", timeout: 5_000 }).toBe("idle");
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Ask Nestor about the ships.");
-  expect(s.ui.stores.voice.getState().dictationNotice).toEqual({ reason: "network", phase: "ended", retained: true });
+  await expect.poll(() => draft(s)).toBe("Ask Nestor about the ships.");
+  expect(s.ui.stores.voice.getState().dictationNotice).toEqual({ reason: "network", phase: "ended", retained: true, kept: "Ask Nestor about the ships." });
   await expect.poll(() => audio.contexts[0]!.state).toBe("closed");
   expect(audio.streams[0]!.getTracks().map((track) => track.readyState)).toEqual(["ended"]);
 });
 
-test("Google ending the session hands what was heard to review once", { timeout: 30_000 }, async (ctx) => {
+test("Google ending the session hands what was heard to the draft once", { timeout: 30_000 }, async (ctx) => {
   const audio = hardware(ctx, 44_100);
   const s = await mount(ctx);
   const speech = await startDictating(s);
@@ -262,7 +266,7 @@ test("Google ending the session hands what was heard to review once", { timeout:
   await expect.poll(() => s.ui.stores.voice.getState().partial).toBe("about the ships");
   speech.finish(1000, "", true);
   await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the provider ended the dictation" }).toBe("idle");
-  expect(s.ui.stores.voice.getState().reviewText).toBe("Ask Nestor about the ships");
+  await expect.poll(() => draft(s)).toBe("Ask Nestor about the ships");
   expect(s.ui.stores.voice.getState().finalText).toBe("");
   await expect.poll(() => audio.contexts[0]!.state).toBe("closed");
 });
@@ -296,7 +300,7 @@ test("Done keeps the worklet's partial block: every captured sample reaches Goog
   await expect.poll(() => audio.worklet.blocks.length, { timeout: 5_000 }).toBeGreaterThan(posted);
   await new Promise((resolve) => setTimeout(resolve, 40));
   await audio.contexts[0]!.suspend();
-  await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find((el) => el.textContent?.trim() === "Done")!);
+  await userEvent.click(finish(s));
   await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
   expect(audio.worklet.flushed, "GEMINI_BROWSER_DONE_KEEPS_TAIL: the worklet handed over its partial block").toHaveLength(1);
   expect(audio.worklet.flushed[0]!.length, "GEMINI_BROWSER_DONE_KEEPS_TAIL: the tail is short of a block and not empty").toBeGreaterThan(0);
@@ -322,17 +326,17 @@ test("Google closing with 1011 while Done drains keeps the words and explains th
   speech.deliver({ setupComplete: {} });
   speech.deliver({ serverContent: { inputTranscription: { text: "Ask Nestor about the ships.", finished: true } } });
   await expect.poll(() => s.ui.stores.voice.getState().finalText).toBe("Ask Nestor about the ships.");
-  // Speech still pending at Done, so the drain waits for Google.
+  // Speech still pending at Finish, so the drain waits for Google.
   speech.deliver({ serverContent: { interimInputTranscription: { text: "And the" } } });
   await expect.poll(() => s.ui.stores.voice.getState().partial).toBe("And the");
-  await userEvent.click([...s.host.querySelectorAll<HTMLElement>("button")].find((el) => el.textContent?.trim() === "Done")!);
+  await userEvent.click(finish(s));
   await expect.poll(() => json(speech).some((frame) => frame.realtimeInput?.audioStreamEnd === true), { message: "Done ends the input stream" }).toBe(true);
   expect(s.ui.stores.voice.getState().mode, "Done waits for the last final").toBe("dictate");
   // Google's own close frame with an internal-error code: a completed close
   // handshake (no error event), so only the code says the take failed.
   speech.finish(1011, "", true);
   await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the close settled the drain" }).toBe("idle");
-  expect(s.ui.stores.voice.getState().reviewText, "the words still pending at the close are kept").toBe("Ask Nestor about the ships. And the");
-  expect(s.ui.stores.voice.getState().dictationNotice, "GEMINI_BROWSER_DRAIN_CLOSE_NOTICE").toEqual({ reason: "network", phase: "ended", retained: true });
+  await expect.poll(() => draft(s), { message: "the words still pending at the close are kept" }).toBe("Ask Nestor about the ships. And the");
+  expect(s.ui.stores.voice.getState().dictationNotice, "GEMINI_BROWSER_DRAIN_CLOSE_NOTICE").toEqual({ reason: "network", phase: "ended", retained: true, kept: "Ask Nestor about the ships. And the" });
   await expect.poll(() => audio.contexts[0]!.state).toBe("closed");
 });

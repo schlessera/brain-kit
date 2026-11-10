@@ -22,7 +22,7 @@ test("the actual browser config gives the complete dictation file exactly one is
   }>;
   const dictation = projects.find(project => project.name === "dictation");
   const visual = projects.find(project => project.name === "visual")!;
-  expect(dictation, "all incumbent dictation cases have a configured project").toBeDefined();
+  expect(dictation, "the dictation states have a configured project").toBeDefined();
   expect(dictation!.include).toEqual(["tests/visual/dictation-panel.visual.tsx"]);
   expect(visual.exclude).toContain("tests/visual/dictation-panel.visual.tsx");
   expect(dictation!.isolated).toBe(true);
@@ -58,7 +58,7 @@ async function wrapper(...args: string[]) {
 test("the default browser wrapper includes isolated dictation in each sharded invocation", async () => {
   for (const shard of ["1/2", "2/2"]) {
     const argv = await wrapper(`--shard=${shard}`, "--update");
-    expect(argv, "the default matrix cannot silently omit 65 incumbent dictation cases").toEqual([
+    expect(argv, "the default matrix cannot silently omit the dictation states").toEqual([
       "run", "--project=storybook", "--project=storybook-light", "--project=visual",
       "--project=rank-footer-touch", "--project=module-settings", "--project=subjects", "--project=dictation", "--project=rail-fine", "--project=rail-coarse", "--project=rail-mixed", "--project=keyboard-hints-live", "--project=diagrams-chromium", "--project=diagrams-webkit",
       "--browser.fileParallelism=false", "--update", `--shard=${shard}`,
