@@ -15,7 +15,9 @@ if (role === "attach") {
 } else {
   if (role === "race-reserve") { answer({ waiting: true, pid: process.pid }); await ledgerLine(Bun.stdin.stream()); }
   let reservation: MaintenanceTempReservation;
-  try { reservation = reserveMaintenanceTemp(JSON.parse(raw!)); }
+  // A test's private ledger, when it names one; the host default otherwise.
+  const { statePath, ...limits } = JSON.parse(raw!) as { allowanceBytes: number; budgetBytes: number; statePath?: string };
+  try { reservation = reserveMaintenanceTemp(limits, statePath ? { statePath } : undefined); }
   catch (error) { answer({ admitted: false, errorClass: (error as { errorClass?: string }).errorClass, error: error instanceof Error ? error.message : String(error) }); process.exit(0); }
   if (marker) writeFileSync(marker, "admitted");
   if (role === "owner-with-worker") {

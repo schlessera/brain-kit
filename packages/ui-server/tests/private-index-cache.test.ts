@@ -705,7 +705,7 @@ test("advances share one checkpoint, move bases without renewing them, and fail 
     expect((await b.prepare("three")).kind).toBe("built");
     b.state.failAcquire = true;
     expect(await b.advance(), "NO_CHECKPOINT_NO_ADVANCE").toEqual([]);
-    expect(reports.some(report => report.includes("the manager is busy")), "REPORTED").toBe(true);
+    expect(reports, "REPORTED").toContainEqual(expect.stringContaining("the manager is busy"));
     expect(b.bases().length, "THE_BASE_STAYS").toBe(1);
     await b.cache.close();
     expect(clock.deadlines(), "CLOSE_CANCELS_THE_REMAINING_IDLE_TIMER").toEqual([]);

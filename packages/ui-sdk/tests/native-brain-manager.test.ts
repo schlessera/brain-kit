@@ -72,14 +72,15 @@ test("native EOF alone never proves successful broker completion", async () => {
 
 test("failed, mismatched and trailing completion cannot be called a complete delta", async () => {
   const data = nativeManagerFrame(1, Uint8Array.from([1]));
-  for (const parts of [
-    [data, nativeManagerFrame(2, encode({ ok: true, exitCode: 1, bytes: 1 }))],
-    [data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 2 }))],
-    [data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 1 })), Uint8Array.from([0])],
-  ]) {
+  const unproven = "Native manager did not prove successful delta completion.";
+  for (const [parts, refusal] of [
+    [[data, nativeManagerFrame(2, encode({ ok: true, exitCode: 1, bytes: 1 }))], unproven],
+    [[data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 2 }))], unproven],
+    [[data, nativeManagerFrame(2, encode({ ok: true, exitCode: 0, bytes: 1 })), Uint8Array.from([0])], "Native delta contained bytes after broker completion."],
+  ] as const) {
     const decoded = decodeNativeDelta(stream(...parts), 64);
-    await expect(collect(decoded.stream), "NATIVE_NO_FALSE_COMPLETE_OR_TRAILING_BYTES").rejects.toThrow();
-    await expect(decoded.completed).rejects.toThrow();
+    await expect(collect(decoded.stream), "NATIVE_NO_FALSE_COMPLETE_OR_TRAILING_BYTES").rejects.toThrow(refusal);
+    await expect(decoded.completed).rejects.toThrow(refusal);
   }
 });
 

@@ -26,7 +26,7 @@ test("native-style FIFO secret aliases and destinations are masked before execut
       console.log(JSON.stringify([inspect(".env"),inspect("tokens/private-channel")]));`] });
   expect(result.exitCode, result.stderr).toBe(0);
   const receipt = JSON.parse(result.stdout);
-  expect(receipt.every((value: unknown) => value === false || value === "EACCES"), "SPECIAL_NODE_SECRET_DESTINATION_MASKED").toBe(true);
+  expect(receipt.map((value: unknown) => value === false || value === "EACCES" ? "masked" : value), "SPECIAL_NODE_SECRET_DESTINATION_MASKED").toEqual(["masked", "masked"]);
 });
 
 const cleanup: (() => void)[] = [];
