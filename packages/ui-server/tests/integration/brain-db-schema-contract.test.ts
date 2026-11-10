@@ -172,7 +172,7 @@ describe("graph reader returns real content from a core-indexed corpus", () => {
     expect(plan?.pagerank, DRIFT).toBeGreaterThan(0);
     // The node's community is one the meta lists, not merely present.
     const communities = getGraphMeta(graph, { brainPath }).communities.map((c) => c.community);
-    expect(communities, DRIFT).toContain(plan?.community);
+    expect(communities, DRIFT).toContain(plan?.community ?? -1);
     expect((plan?.inDegree ?? 0) + (plan?.outDegree ?? 0), DRIFT).toBeGreaterThan(0);
     expect(clusters.edges.length, DRIFT).toBeGreaterThan(10);
   });
