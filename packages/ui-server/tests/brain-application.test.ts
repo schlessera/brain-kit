@@ -87,7 +87,7 @@ describe("server-owned application boundary", () => {
     beforeCommit = () => { renameSync(join(root, "notes"), join(root, "old-notes")); symlinkSync(join(root, "context/policies"), join(root, "notes")); };
     await denied(write(), "topology_changed");
     expect(readFileSync(join(root, "old-notes/raft.md"), "utf8")).toBe(raw);
-    expect(readdirSync(join(root, "old-notes")).some(name => name.startsWith(".brain-apply"))).toBe(false);
+    expect(readdirSync(join(root, "old-notes")).filter(name => name.startsWith(".brain-apply"))).toEqual([]);
   });
   test("payload over the bound refuses", async () => {
     await denied(write(path, "x".repeat(BRAIN_APPLICATION_MAX_BYTES)), "payload_too_large");
@@ -211,7 +211,7 @@ describe("server-owned application boundary", () => {
     expect(result.ok).toBe(false); expect(result.message).toMatch(/EFBIG|File too large/i);
     expect(result.changes).toEqual([]); expect(recorded).toEqual([result]);
     expect(readFileSync(join(root, path), "utf8")).toBe(raw);
-    expect(readdirSync(join(root, "notes")).some(name => name.startsWith(".brain-apply"))).toBe(false);
+    expect(readdirSync(join(root, "notes")).filter(name => name.startsWith(".brain-apply"))).toEqual([]);
   });
   test("applications preserve existing document modes including archive moves", async () => {
     chmodSync(join(root, path), 0o640);
@@ -255,7 +255,7 @@ describe("server-owned application boundary", () => {
     beforeCommit = () => signal.abort();
     await denied(write(), "cancelled");
     expect(readFileSync(join(root, path), "utf8")).toBe(raw);
-    expect(readdirSync(join(root, "notes")).some(name => name.startsWith(".brain-apply"))).toBe(false);
+    expect(readdirSync(join(root, "notes")).filter(name => name.startsWith(".brain-apply"))).toEqual([]);
   });
   test("cancellation after commit records the complete Markdown effect", async () => {
     beforeCommit = () => queueMicrotask(() => signal.abort());
