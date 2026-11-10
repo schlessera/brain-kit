@@ -115,6 +115,7 @@ test("ended worktree cleanup stays visible and retries until confirmed without b
   const timers = cleanupTimers(), f = await fixture();
   const release = f.pool.poolRelease;
   let failing = true, attempts = 0;
+  let hang: Promise<void> | undefined, unhang: (() => void) | undefined;
   let checkpoint: string;
   try {
     const tree = await f.worktree();
@@ -122,7 +123,7 @@ test("ended worktree cleanup stays visible and retries until confirmed without b
     await f.journal.attachWorktree("turn-ithaca", tree.id);
     checkpoint = [...f.ledger][0]!;
     f.pool.poolRelease = async id => {
-      if (id === checkpoint) { attempts++; if (failing) throw new Error("Odysseus checkpoint deletion refused"); }
+      if (id === checkpoint) { attempts++; if (hang) await hang; if (failing) throw new Error("Odysseus checkpoint deletion refused"); }
       return release(id);
     };
     writeFileSync(join(tree.path!, "odyssey", "book-1.md"), "Telemachus sets sail.\n");
@@ -146,18 +147,24 @@ test("ended worktree cleanup stays visible and retries until confirmed without b
       const before = attempts;
       expect(timers.pending.size, "ENDED_WORKTREE_HAS_RETRY_OWNER").toBe(1);
       expect(timers.handles.every(handle => handle.unrefed), "CLEANUP_RETRIES_DO_NOT_KEEP_HOST_ALIVE").toBe(true);
-      timers.fire(); await f.journal.idle();
+      timers.fire(); await f.journal.releasesSettled();
       expect(attempts, "ENDED_WORKTREE_RETRIES_WHILE_IDLE").toBe(before + 1);
       expect(f.journal.cleanupStatus().retained).toEqual(retained);
       expect(f.ledger.has(checkpoint)).toBe(true);
     }
+    // A hung background release never delays the barrier other turns' host effects wait on.
+    hang = new Promise<void>(resolve => { unhang = resolve; });
+    timers.fire();
+    const barrier = await Promise.race([f.journal.idle().then(() => "idle"), Bun.sleep(1_000).then(() => "blocked")]);
+    expect(barrier, "HUNG_WORKTREE_RETRY_DOES_NOT_BLOCK_IDLE").toBe("idle");
+    unhang!(); hang = undefined; await f.journal.releasesSettled();
     failing = false;
-    timers.fire(); await f.journal.idle();
+    timers.fire(); await f.journal.releasesSettled();
     expect(f.ledger.has(checkpoint), "ENDED_WORKTREE_RELEASE_CONFIRMED").toBe(false);
     expect(f.pool.records.get(checkpoint)?.state).toBe("reclaimed");
     expect((await status()).journalCleanup.retained).toEqual({ pending: 0, failed: 0, retainedBytes: 0 });
     expect(timers.pending.size, "ENDED_WORKTREE_RETRY_RETIRES_ON_SUCCESS").toBe(0);
-  } finally { f.pool.poolRelease = release; await f.close(); timers.restore(); }
+  } finally { unhang?.(); f.pool.poolRelease = release; await f.close(); timers.restore(); }
 });
 
 test("shutdown cancels ended worktree retries and preserves unconfirmed charges", async () => {
@@ -236,7 +243,7 @@ test("failed worktree capture hands all unreleased checkpoints to cleanup and ke
     expect(f.journal.cleanupStatus().retained.failed, "FAILED_CAPTURE_ALL_RETAINED_ROOTS_VISIBLE").toBe(2);
     expect(f.journal.cleanupStatus().lastFailure).toMatchObject({ cause: "Error: Odysseus checkpoint deletion refused" });
     f.pool.poolRelease = release; f.pool.poolDelta = delta;
-    timers.fire(); await f.journal.idle();
+    timers.fire(); await f.journal.releasesSettled();
     expect(f.ledger.size, "FAILED_CAPTURE_RELEASES_RECOVER_WITHOUT_NEW_TURN").toBe(0);
     expect(f.journal.cleanupStatus().retained.failed).toBe(0);
     expect(timers.pending.size).toBe(0);

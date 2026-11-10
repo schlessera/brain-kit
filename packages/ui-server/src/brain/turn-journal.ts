@@ -626,7 +626,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     async idle(): Promise<void> {
       let waiting: Promise<unknown>;
       do { waiting = tail; await waiting; } while (waiting !== tail);
-      await worktreeRetry;
+      // Background worktree cleanup (#3825) is not awaited here: every turn's
+      // host effects wait on idle(), and one ended turn's slow release must not
+      // delay them. releasesSettled() waits for it.
       await Promise.allSettled([...unserialized]);
     },
     /** Settles once startup recovery has run; rejects with its refusal. */
