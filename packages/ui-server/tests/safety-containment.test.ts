@@ -380,6 +380,35 @@ for (const loss of ["retained", "durable"] as const) test(`automatic recovery wa
   } finally { await f.close(); }
 });
 
+for (const loss of ["retained", "durable"] as const) test(`a turn begun restricted under an earlier latch drains before a later latch clears: ${loss}`, async () => {
+  const f = fixture(); try {
+    holdSafetyRecovery(f.db);
+    latchSafety(f.db, null, "recording_failed", safetyFailureCause(new Error("the first storm"), "record", null));
+    // Begun restricted under the first latch, and still sailing when it clears.
+    await next(f, "still-sailing", null);
+    expect(attemptSafetyRecovery(f.db), "SAFETY_LATCH_CLEARS_BESIDE_ITS_OWN_RESTRICTED_TURN").toBe(true);
+    expect(f.writes.recordingStatus().latched).toBe(false);
+    // A second latch while that turn is still open: it predates this one.
+    if (loss === "retained") {
+      refuseLossNotices(f);
+      await f.writes.safetyFail(null as never, new Error("the second storm")).catch(() => {});
+      f.db.exec("DROP TRIGGER no_chat_fact; DROP TRIGGER no_brain_fact");
+    } else latchSafety(f.db, null, "recording_failed", safetyFailureCause(new Error("the second storm"), "record", null));
+    expect(f.writes.recordingStatus().latched).toBe(true);
+    expect(f.db.query("SELECT ended FROM safety_collections WHERE turn_id='still-sailing'").get()).toEqual({ ended: 0 });
+    expect(attemptSafetyRecovery(f.db), "SAFETY_LATER_LATCH_DRAINS_AN_EARLIER_RESTRICTED_TURN").toBe(false);
+    expect(f.writes.recordingStatus().latched, "SAFETY_UNDRAINED_LATER_LATCH_STAYS_SET").toBe(true);
+    // A turn begun under the second latch never holds it back.
+    await next(f, "new-voyage", null);
+    await f.writes.safetyEnd("still-sailing");
+    expect(attemptSafetyRecovery(f.db), "SAFETY_LATER_LATCH_CLEARS_BESIDE_ITS_OWN_RESTRICTED_TURN").toBe(true);
+    expect(f.writes.recordingStatus().latched).toBe(false);
+    // Neither restricted turn's gap is cleared.
+    expect(f.db.query("SELECT turn_id,gap FROM safety_collections WHERE turn_id IN ('still-sailing','new-voyage') ORDER BY turn_id").all())
+      .toEqual([{ turn_id: "new-voyage", gap: "recording_failed" }, { turn_id: "still-sailing", gap: "recording_failed" }]);
+  } finally { await f.close(); }
+});
+
 test("status shows the cause this process holds while its loss notice cannot commit", async () => {
   const f = fixture(); try {
     await chat(f, "voyage", "ithaca");
@@ -429,6 +458,56 @@ test("spent safety room says what to do instead of asking for a retry", async ()
     expect(frame.failure.errorClass).toBe("safety_recording_brain_full");
     expect(refusalReason(frame), "SAFETY_FULL_BRAIN_SAYS_RETRY_WONT_HELP").toBe("This server has no room left for safety records. Nothing was sent, and retrying won't help.");
     expect(failurePresentation(frame.failure as never), "SAFETY_FULL_BRAIN_IS_NOT_RETRYABLE").toMatchObject({ retry: false, report: true });
+  } finally { await f.close(); }
+});
+
+test("room for turns not yet in a chat is spent for good only when nothing can free it", async () => {
+  const f = fixture(); try {
+    holdSafetyRecovery(f.db);
+    // One first turn is still running, not yet in its chat.
+    await next(f, "landfall", null);
+    const fill = (from: number, to: number) => f.db.query(`WITH RECURSIVE n(x) AS (VALUES(${from}) UNION ALL SELECT x+1 FROM n WHERE x<${to})
+      INSERT INTO safety_collections(id,turn_id,session_id,history_owner_id,generation,backend_id,started_at,ended,acknowledged,start_revision,end_revision)
+      SELECT 'unbound_'||x,'unbound_turn_'||x,NULL,NULL,'1','pi',0,1,'[]','0','0' FROM n`).run();
+    const begin = (turnId: string) => f.writes.safetyBegin({ turnId, bindingId: crypto.randomUUID(), sessionId: null, principalId: "odysseus", backendId: "pi", at: 1 })
+      .then(() => null, error => error as SafetyRecordingUnavailable);
+    // Ended unbound collections plus the running one fill the pool.
+    fill(1, 1023);
+    const waiting = await begin("waiting");
+    expect(waiting, "SAFETY_UNBOUND_CEILING_REFUSES").toBeInstanceOf(SafetyRecordingUnavailable);
+    expect(waiting, "SAFETY_UNBOUND_ROOM_A_RUNNING_TURN_FREES_IS_RETRYABLE").toMatchObject({ capacity: true, full: null });
+    // That turn joins its chat; the same retry now starts, with no limit raised.
+    f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners VALUES('ithaca','odysseus',0)");
+    safetyCatalogCreated(f.db, "ithaca", "odysseus", "landfall"); await f.writes.bind("landfall", "ithaca");
+    expect(await begin("waiting"), "SAFETY_UNBOUND_RETRY_STARTS_ONCE_ROOM_FREES").toBeNull();
+    // Once only ended unbound collections remain, retrying can never help.
+    await f.writes.safetyEnd("waiting"); await f.writes.safetyEnd("landfall");
+    fill(1024, 1025);
+    expect(await begin("wooden-horse"), "SAFETY_UNBOUND_ROOM_NOTHING_FREES_IS_A_FULL_BRAIN").toMatchObject({ capacity: true, full: "brain" });
+  } finally { await f.close(); }
+});
+
+test("unbound byte room a running first turn holds is retryable; ballast that ended is not", async () => {
+  const f = fixture(); try {
+    holdSafetyRecovery(f.db);
+    await next(f, "landfall", null);
+    const unbound = (turnId: string) => (f.db.query("SELECT id FROM safety_collections WHERE turn_id=?").get(turnId) as { id: string }).id;
+    const ballast = (id: string, collection: string, bytes: number) => f.db.query(`INSERT INTO safety_records(id,collection_id,sequence,observed_at,kind,occurrence_id,
+      source,detector,state,payload,bytes,reserved_rows,reserved_bytes,detail_pruned) VALUES(?,?,'ballast_'||?,0,'occurrence',?,NULL,NULL,'finalized','{}',2,0,?,0)`).run(id, collection, id, id, bytes);
+    f.db.query(`INSERT INTO safety_collections(id,turn_id,session_id,history_owner_id,generation,backend_id,started_at,ended,acknowledged,start_revision,end_revision)
+      VALUES('hold','hold_turn',NULL,NULL,'1','pi',0,1,'[]','0','0')`).run();
+    // The running first turn's own records fill the unbound byte room.
+    ballast("cargo", unbound("landfall"), 4194304); ballast("hold_cargo", "hold", 4190000);
+    const begin = (turnId: string) => f.writes.safetyBegin({ turnId, bindingId: crypto.randomUUID(), sessionId: null, principalId: "odysseus", backendId: "pi", at: 1 })
+      .then(() => null, error => error as SafetyRecordingUnavailable);
+    expect(await begin("waiting"), "SAFETY_UNBOUND_BYTES_A_RUNNING_TURN_HOLDS_ARE_RETRYABLE").toMatchObject({ capacity: true, full: null });
+    f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('ithaca',0,0); INSERT INTO chat_session_owners VALUES('ithaca','odysseus',0)");
+    safetyCatalogCreated(f.db, "ithaca", "odysseus", "landfall"); await f.writes.bind("landfall", "ithaca");
+    expect(await begin("waiting"), "SAFETY_UNBOUND_BYTE_RETRY_STARTS_ONCE_ROOM_FREES").toBeNull();
+    // Ended ballast alone leaves no room: retrying can never help.
+    await f.writes.safetyEnd("waiting");
+    ballast("more_cargo", "hold", 8388608);
+    expect(await begin("wooden-horse"), "SAFETY_ENDED_UNBOUND_BYTES_ARE_A_FULL_BRAIN").toMatchObject({ capacity: true, full: "brain" });
   } finally { await f.close(); }
 });
 

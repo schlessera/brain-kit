@@ -116,8 +116,8 @@ export function latchSafety(db:Database,turnId:string|null,reason:SafetyFailureR
   db.transaction(()=>{
     db.query("UPDATE safety_emergency_reserve SET padding=zeroblob(0) WHERE singleton=1").run();
     db.query("UPDATE safety_meta SET failed=1,reason=CASE WHEN reason='capacity' THEN reason ELSE ? END WHERE singleton=1").run(reason);
-    db.query(`INSERT INTO safety_latch(singleton,since,reason,site,turn_id,error_class,message,stack,unscoped) VALUES(1,?,?,?,?,?,?,?,?)
-      ON CONFLICT(singleton) DO UPDATE SET count=count+1,unscoped=MAX(unscoped,excluded.unscoped)`).run(cause.at,reason,cause.site,cause.turnId,cause.errorClass,cause.message,cause.stack,unscoped?1:0);
+    db.query(`INSERT INTO safety_latch(singleton,since,reason,site,turn_id,error_class,message,stack,unscoped,revision) VALUES(1,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(singleton) DO UPDATE SET count=count+1,unscoped=MAX(unscoped,excluded.unscoped)`).run(cause.at,reason,cause.site,cause.turnId,cause.errorClass,cause.message,cause.stack,unscoped?1:0,meta(db).revision);
     if(turnId) db.query("UPDATE safety_collections SET failure=CASE WHEN failure='capacity' THEN failure ELSE ? END,failure_cause=COALESCE(failure_cause,?) WHERE turn_id=?").run(reason,JSON.stringify(cause),turnId);
     if(BigInt(meta(db).revision)<MAX_REVISION)advance(db);
   }).immediate();
@@ -157,6 +157,16 @@ function live(db:Database,c:Collection,reserved=false):void {
   // brain-wide latch cannot make its evidence any less complete.
   if(!reserved&&(c.failure||(meta(db).failed&&!c.restricted_begin)))throw new SafetyUnavailable("Safety collection requires recovery");
 }
+/** Room for collections not yet in a chat frees itself as open ones bind to
+ * their chats and pending writes settle. Only ended unbound collections hold
+ * it for good: the brain's room is spent only when they alone leave no room
+ * for one more collection. */
+function unboundScope(db:Database):SafetyCapacityScope {
+  const ended=one<{n:number;bytes:number}>(db,`SELECT COUNT(*) n,COALESCE((SELECT SUM(r.reserved_bytes) FROM safety_records r
+    JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL AND c.ended=1),0) bytes
+    FROM safety_collections WHERE session_id IS NULL AND ended=1`);
+  return ended.n>=SAFETY_LIMITS.unbound||ended.bytes+(ended.n+1)*2048>SAFETY_LIMITS.unboundBytes?"brain":"turn";
+}
 function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
   const all=meta(db);
   const {scope,args}=safetyScope(db,c.turn_id,c.session_id);
@@ -176,7 +186,7 @@ function capacity(db:Database,c:Collection,rows:number,bytes:number):void {
   if(c.session_id===null){
     const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r
       JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
-    if(unbound.bytes+pending.bytes+bytes+one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL").n*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted","brain");
+    if(unbound.bytes+pending.bytes+bytes+one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL").n*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted",unboundScope(db));
   }
 }
 /** Must commit before any first-turn bytes or tool execution. Callbacks cannot create a session. */
@@ -207,11 +217,11 @@ export function beginSafetyCollection(db:Database,input:SafetyCollectionInput):s
   assertLive(db,[["dialogue_owner",owner]]);
   if(session?.principal_id&&session.principal_id!==input.principalId)throw new SafetyUnavailable("Safety principal mismatch");
   const n=one<{n:number}>(db, input.sessionId?"SELECT COUNT(*) n FROM safety_collections WHERE session_id=?":"SELECT COUNT(*) n FROM safety_collections WHERE session_id IS NULL",...(input.sessionId?[input.sessionId]:[]));
-  if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyCapacityExhausted("Safety coverage capacity exhausted",input.sessionId?"chat":"brain");
+  if(n.n>=(input.sessionId?SAFETY_LIMITS.epochs:SAFETY_LIMITS.unbound))throw new SafetyCapacityExhausted("Safety coverage capacity exhausted",input.sessionId?"chat":unboundScope(db));
   if(input.sessionId===null){
     const unbound=one<{bytes:number}>(db,`SELECT COALESCE(SUM(r.reserved_bytes),0) bytes FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE c.session_id IS NULL`);
     const pending=one<{bytes:number}>(db,`SELECT COALESCE(SUM(p.reserved_bytes),0) bytes FROM safety_pending p JOIN safety_collections c ON c.id=p.collection_id WHERE c.session_id IS NULL`);
-    if(unbound.bytes+pending.bytes+(n.n+1)*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted","brain");
+    if(unbound.bytes+pending.bytes+(n.n+1)*2048>SAFETY_LIMITS.unboundBytes)throw new SafetyCapacityExhausted("Safety unbound byte capacity exhausted",unboundScope(db));
   }
   const ledger=meta(db),pending=one<{rows:number;bytes:number}>(db,"SELECT COALESCE(SUM(rows),0) rows,COALESCE(SUM(reserved_bytes),0) bytes FROM safety_pending");
   if(ledger.used_rows+ledger.scope_rows+pending.rows+1>SAFETY_LIMITS.brainRows||ledger.used_bytes+ledger.scope_bytes+pending.bytes+2048>SAFETY_LIMITS.brainBytes)
@@ -546,20 +556,30 @@ export function safetyRecordingStatus(db:Database):SafetyRecordingStatus {
  * gap, so its chat stays restricted until reviewed.
  *
  * `owner` and `boot` recovery require every producer to have stopped.
- * `automatic` recovery runs beside turns begun restricted: they began after
- * the latch, each with a permanent gap. Every other producer was in flight
- * when the latch was set, failed or not, and must end first (#3812).
+ * `automatic` recovery runs beside turns begun restricted after the latch it
+ * clears, each with a permanent gap. Every other producer was in flight when
+ * that latch was set, failed or not, or begun restricted under an earlier
+ * latch, and must end first (#3812).
  */
 export function recoverSafetyRecording(db:Database,options:{trigger?:SafetyRecoveryTrigger;actor?:string}={}):SafetyRecovery {
  const local=safetyQueue(db),trigger=options.trigger??"owner",actor=options.actor??"host",at=Date.now();
  const automatic=trigger==="automatic";
- const begunRestricted=(turnId:string|null)=>turnId!==null&&!!db.query("SELECT 1 FROM safety_collections WHERE turn_id=? AND restricted_begin=1").get(turnId);
- if(automatic?[...local.pending].some(p=>!begunRestricted(p.turnId)):(local.pending.size||local.inflight))
+ // The earliest latch still set, durable or in process. A producer begun
+ // restricted under an earlier, recovered latch predates this one.
+ const since=()=>{
+  const durable=one<{revision:string}|null>(db,"SELECT revision FROM safety_latch WHERE singleton=1")?.revision;
+  const marks=[durable,local.failed?local.latchRevision??MAX_REVISION.toString():undefined].filter((r):r is string=>r!==undefined).map(r=>BigInt(r));
+  return marks.length?marks.reduce((a,b)=>a<b?a:b):null;
+ };
+ const begunRestricted=(c:{restricted_begin:number;start_revision:string}|null,latch:bigint|null)=>!!c?.restricted_begin&&(latch===null||BigInt(c.start_revision)>latch);
+ const collectionOf=(turnId:string|null)=>turnId===null?null:one<{restricted_begin:number;start_revision:string}|null>(db,"SELECT restricted_begin,start_revision FROM safety_collections WHERE turn_id=?",turnId);
+ if(automatic?(()=>{const latch=since();return [...local.pending].some(p=>!begunRestricted(collectionOf(p.turnId),latch));})():(local.pending.size||local.inflight))
   throw new SafetyUnavailable("Stop all safety producers before recovery");
  let cause:SafetyLatchCause|null=null,gapped=0,recovered=false;
  db.transaction(()=>{
-  const open=db.query<{restricted_begin:number},[]>("SELECT restricted_begin FROM safety_collections WHERE ended=0").all();
-  if(automatic?open.some(c=>!c.restricted_begin):open.length)
+  const open=db.query<{restricted_begin:number;start_revision:string},[]>("SELECT restricted_begin,start_revision FROM safety_collections WHERE ended=0").all();
+  const latch=since();
+  if(automatic?open.some(c=>!begunRestricted(c,latch)):open.length)
    throw new SafetyUnavailable("Stop all safety producers before recovery");
   const totals=meta(db);
   if(!totals.failed&&!local.failed&&!one<{n:number}>(db,"SELECT COUNT(*) n FROM safety_pending").n)return;
@@ -586,7 +606,7 @@ export function recoverSafetyRecording(db:Database,options:{trigger?:SafetyRecov
   advance(db);recovered=true;
  }).immediate();
  if(recovered){
-  local.failed=false;local.lostTurns.clear();local.unscopedLoss=false;local.lossCause=null;
+  local.failed=false;local.latchRevision=null;local.lostTurns.clear();local.unscopedLoss=false;local.lossCause=null;
   const c=cause as SafetyLatchCause|null;
   logSafetyRecording("safety recording recovered for the brain",{"safety.scope":"brain","safety.trigger":trigger,"safety.actor":actor,"safety.gapped":gapped,
    "safety.reason":c?.reason??null,"safety.site":c?.site??null,"error.class":c?.errorClass??null,"error.message":c?.message??null});

@@ -185,6 +185,10 @@ export interface BackendBridge {
     unavailable?(): Promise<void>;
     begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
     result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
+    /** @internal A tool ran, but its result report was refused before `result`
+     * could record it: the turn's chat keeps a permanent gap. Resolves once
+     * that gap is durable. */
+    lost?(toolUseId: string, toolName: string, cause: unknown): Promise<void>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;

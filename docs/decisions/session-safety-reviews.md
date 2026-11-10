@@ -86,11 +86,19 @@ running under the tainted policy, not refusing.
   on resume), so a result that cannot be recorded is lost after delivery.
   A refusal for spent room says what frees it: a full chat needs a new chat
   (`safety_recording_chat_full`), and a full brain cannot be helped by a
-  retry (`safety_recording_brain_full`).
+  retry (`safety_recording_brain_full`). The room for first turns not yet in
+  a chat is full only when ended collections alone fill it; room that a
+  running turn or a pending write holds frees itself, so that refusal is a
+  plain retry.
 - **Lost after delivery**: the turn's own collection takes the failure and its
   first cause, so its chat keeps a permanent gap projected as
   `recording_failed` and that producer stops. Other chats are unaffected. A
   reservation still open when its collection ends becomes the same gap.
+  Between a tool running and its result's record, nothing may skip both: a
+  stopped turn still records the result (stopping refuses new tools, never a
+  record), a report the host refuses before its record (a malformed or
+  replayed Pi report) and a result for a call whose input record failed both
+  leave the gap.
 - **Evidence store unwritable** (the chat fact cannot commit): the brain
   latches through the emergency reserve, or, when even that fails, in the
   host process. New turns still begin, each with a permanent
@@ -98,7 +106,8 @@ running under the tainted policy, not refusing.
   is refused only when that restricted begin itself cannot commit
   (`safety_recording_paused`). The host keeps retrying, backing off to once a
   minute, and clears the latch itself with `recoverSafetyRecording` semantics
-  once every producer that predates it has ended, failed or not.
+  once every producer that predates it has ended, failed or not; only turns
+  begun restricted after that latch run beside it.
 - **Boot** resolves a set latch and pending reservations after restart
   classification, gaps first. A legacy row that cannot migrate gaps its own
   turn. The server never boots into refusing every turn.

@@ -258,7 +258,7 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
     throw new Error("Unqualified Pi input transformations");
   },
   safetyResult: async(msg,bridge,context)=>{
-    if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw new Error("Malformed safety result");
+    if(Object.keys(msg.input).some(key=>!["output","segments"].includes(key))||typeof msg.input.output!=="string"||msg.input.segments!==undefined&&(!Array.isArray(msg.input.segments)||(msg.input.segments as unknown[]).some(v=>typeof v!=="string")))throw resultLoss(new Error("Malformed safety result"));
     const execution=context.executed(msg);
     const bounded=execution.name===msg.toolName&&context.canFinalizeSafety?.(msg.toolName,msg.toolCallId)===true;
     await bridge.inputSafety?.result(msg.toolCallId,msg.toolName,msg.input.output,bounded,msg.input.segments as string[]|undefined);
@@ -273,14 +273,32 @@ export const PI_WORKER_RPC_HANDLERS: Readonly<Record<PiWorkerRpcMethod, PiWorker
 export function createPiWorkerRpcDispatcher(context: PiWorkerRpcContext): (msg: PiWorkerRpc) => Promise<unknown> {
   let lastRpcId = 0;
   return msg => {
+    // A tool already ran when its result arrives, and recording it only
+    // restricts: a stopped turn still records it, then the post-record live
+    // check refuses the worker. A report refused before it reaches the
+    // collector leaves its chat a permanent gap instead (#3812).
+    const result = msg.method === "safetyResult", safety = context.turn.bridge?.inputSafety;
     try {
-      context.live();
-      if (msg.id <= lastRpcId) throw new Error("Replayed pi worker RPC");
+      if (!result || !safety) context.live();
+      if (msg.id <= lastRpcId) throw resultLoss(new Error("Replayed pi worker RPC"));
       lastRpcId = msg.id;
       const bridge = context.turn.bridge!;
       const handler = Object.hasOwn(PI_WORKER_RPC_HANDLERS, msg.method) ? PI_WORKER_RPC_HANDLERS[msg.method] : undefined;
       if (!handler) throw new Error(`Unknown pi worker RPC method: ${String(msg.method)}`);
-      return handler(msg, bridge, context);
-    } catch (error) { return Promise.reject(error); }
+      const answer = handler(msg, bridge, context);
+      return result && safety ? answer.catch(error => keepResultLoss(safety, msg, error)) : answer;
+    } catch (error) { return result && safety ? keepResultLoss(safety, msg, error) : Promise.reject(error); }
   };
+}
+
+/** Marks a result report refused before the collector saw it. A rejection
+ * from the collector itself already left its own gap. */
+const LOST = Symbol("pi safety result refused before its record");
+function resultLoss(error: Error): Error { return Object.assign(error, { [LOST]: true }); }
+async function keepResultLoss(safety: NonNullable<BackendBridge["inputSafety"]>, msg: PiWorkerRpc, error: unknown): Promise<never> {
+  if ((error as { [LOST]?: boolean } | null)?.[LOST]) {
+    // A loss notice that cannot commit is held by the host; the report is refused either way.
+    try { await safety.lost?.(msg.toolCallId, msg.toolName, error); } catch { /* The host retains it in process. */ }
+  }
+  throw error;
 }
