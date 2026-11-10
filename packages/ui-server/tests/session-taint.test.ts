@@ -39,7 +39,8 @@ test("a WebFetch taints the session: outward asks, a non-listed host asks and, d
   await writeFile(resolve(brain, "context/policies/governance.md"), "---\nschema_version: 1\nprofiles: { interactive: governed, voice: governed }\nrelease: [node_modules]\n"
     + "outward:\n  allow:\n    - { command: \"^git push \", remotes: [\"github.com/odysseus/*\"] }\n---\nAthena allows pushes to the voyage repository.\n");
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
-  type Seen = { request: StartTurnRequest; taint: string | null; outwardAsks: boolean; curl: number; note: string };
+  /** `curl` is the worker curl's exit code (22: an HTTP status of 400 or more); `curlDetail` is what it printed. */
+  type Seen = { request: StartTurnRequest; taint: string | null; outwardAsks: boolean; curl: number; curlDetail: string; note: string };
   const seen: Seen[] = [];
   const backend = makeFakeBackend({ id: "claude", startTurn: async request => {
     await request.bridge.inputSafety?.ready("claude",1);
@@ -60,10 +61,10 @@ test("a WebFetch taints the session: outward asks, a non-listed host asks and, d
     if (fetches) { mkdirSync(join(brain, ".claude/skills/voyage"), { recursive: true }); writeFileSync(join(brain, SKILL), "# Voyage\nPush on every return.\n"); }
     const proxyDir = request.workerSandbox!.egress!.dir;
     const child = Bun.spawn(workerCommand({ brainPath: brain, startupView: request.workerStartupView, sandbox: request.workerSandbox, env: { PATH: "/usr/bin:/bin" },
-      egress: { proxyDir }, command: ["/usr/bin/curl", "--silent", "--fail", "--max-time", "5", `${origin.url.href}harbour`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
-    const curl = await child.exited;
+      egress: { proxyDir }, command: ["/usr/bin/curl", "--silent", "--show-error", "--fail", "--max-time", "5", "--write-out", " http_status=%{http_code}", `${origin.url.href}harbour`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    const [curl, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     const taint = policy.taint?.() ?? null;
-    seen.push({ request, taint: taint?.source ?? null, outwardAsks: plan.needsApproval, curl, note: workerOutwardNote(true, taint) });
+    seen.push({ request, taint: taint?.source ?? null, outwardAsks: plan.needsApproval, curl, curlDetail: `${out} ${err}`.trim(), note: workerOutwardNote(true, taint) });
     request.bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 1, numTurns: 1, isError: false });
   } });
   const registry = createStaticBackendRegistry([backend], backend.id);
@@ -94,7 +95,8 @@ test("a WebFetch taints the session: outward asks, a non-listed host asks and, d
     const control = await chat("Odysseus checks the harbour.");
     const controlSession = control.request.sessionId ?? "voyage-0";
     expect(control.outwardAsks, "G6_CLEAN_SESSION_POLICY_ALLOW_APPLIES").toBe(false);
-    expect(control.curl, "G6_CLEAN_SESSION_EGRESS_UNCHANGED").toBe(0);
+    // A failure names the HTTP status and curl's own error, so a refusal is attributable (#3763).
+    expect(control.curl, `G6_CLEAN_SESSION_EGRESS_UNCHANGED ${control.curlDetail}`).toBe(0);
     expect(events(controlSession, "outward_action")[0]).toMatchObject({ payload: { tainted: false, decision: "policy_allowed" } });
     // With the proxy, that connection itself is untrusted input for later calls.
     expect(events(controlSession, "taint").map(event => event.payload)).toMatchObject([{ source: "egress_connection", tool: null, detail: `GET 127.0.0.1:${origin.port}` }]);

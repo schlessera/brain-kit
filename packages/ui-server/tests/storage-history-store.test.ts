@@ -26,7 +26,7 @@ test("SQLite migrations retain tiers and stable opaque identity across reopen; o
   expect(revision(), "STORAGE_HISTORY_ONE_TRANSACTION_PER_MINUTE").toBe(1);
   expect(f.history.status().pending).toBe(true);
   f.advance(start + 60_000); expect(f.history.flush()).toBe(true); expect(revision()).toBe(2);
-  expect(f.history.read()!.samples.every(row => row[3] === start + 59_000)).toBe(true);
+  expect(f.history.read()!.samples.filter(row => row[3] !== start + 59_000)).toEqual([]);
   f.history.close();
   const db = createUiDb(f.path); databases.push(db);
   const reopened = createStorageHistory(db, f.root, { now: () => start + 60_001 });
@@ -68,7 +68,7 @@ test("failed refresh and clock reversal never manufacture new endpoints or clear
   expect(f.history.read()!.metadata.state.pressures[0]!.severity).toBe("critical");
   f.advance(start + 60_000); f.history.failure();
   const after = f.history.read()!;
-  expect(after.samples.every(row => row[3] === start && row[2] === 1)).toBe(true);
+  expect(after.samples.filter(row => !(row[3] === start && row[2] === 1))).toEqual([]);
   expect(after.metadata.state.pressures[0]!.severity).toBe("critical");
   expect(after.metadata.state.pressures[0]!.supportAt).toBeNull();
   f.advance(start - 1); f.history.offer(aggregate(start - 1));
@@ -127,7 +127,7 @@ test("an intervening buffered failure resets recovery even when the newest pendi
   f.advance(start + 120_000); f.history.flush();
   const result = f.history.read()!;
   expect(result.metadata.state.pressures[0], "STORAGE_PENDING_FAILURE_RESETS_PAIR").toMatchObject({ severity: "critical", recoveryAt: start + 80_000 });
-  expect(result.samples.every(row => row[2] === 1)).toBe(true);
+  expect(result.samples.filter(row => row[2] !== 1)).toEqual([]);
 });
 
 test("buffered owning-operation refusals survive a newer capacity sample and require matching writes", () => {

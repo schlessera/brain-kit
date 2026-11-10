@@ -117,7 +117,7 @@ describe("principal store", () => {
 
     expect(new Set(ids).size).toBe(ids.length);
     const values = ids.map((id) => Buffer.from(id, "base64url"));
-    expect(values.every((value) => value.length === 16)).toBe(true);
+    expect(values.map((value) => value.length)).toEqual(ids.map(() => 16));
     const deltas = values.slice(1).map((value, i) => {
       const current = BigInt(`0x${value.toString("hex")}`);
       const previous = BigInt(`0x${values[i]!.toString("hex")}`);
