@@ -11,7 +11,7 @@ import type { JournalObservationReference, JournalVersion } from "@schlessera/br
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
 import { recordGovernanceEvent } from "../governance/events.js";
 import { sessionTaint } from "../governance/session-taint.js";
-import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
+import { JournalObjectQuarantined, createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { configurationSet, recordedConfigurationSet } from "./journal-configuration-sets.js";
 import { createJournalObjects, JournalCapacityError, type JournalObjectReservation } from "./journal-objects.js";
 import { INDEX_FAMILY_PATHS, INDEX_PUBLICATION_COPY } from "./native-journal-policy.js";
@@ -35,7 +35,8 @@ export const journalCheck = (sql: string, refusal: string, ...params: SQLQueryBi
 
 /** Journal refusals keep their class and message across the worker boundary. */
 export function reviveJournalError(wire: WireError): Error | undefined {
-  const error = wire.name === "JournalCapacityError" ? new JournalCapacityError(wire.message)
+  const error = wire.name === "JournalObjectQuarantined" ? new JournalObjectQuarantined()
+    : wire.name === "JournalCapacityError" ? new JournalCapacityError(wire.message)
     : wire.name === "JournalStorageUnavailable" ? new JournalStorageUnavailable("")
     : wire.name === "JournalStatementRefused" ? new JournalStatementRefused(wire.message) : undefined;
   if (error) error.message = wire.message;
@@ -115,6 +116,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     const unused = db.query("SELECT hash,bytes FROM turn_journal_objects WHERE state='present' AND hash NOT IN (SELECT hash FROM turn_journal_object_refs) AND hash NOT IN (SELECT hash FROM turn_journal_reservations WHERE hash IS NOT NULL)").all() as { hash: string; bytes: number }[];
     for (const row of unused) {
       if (objects.has(row.hash)) objects.remove(row.hash);
+      db.query("DELETE FROM turn_journal_object_quarantine WHERE hash=?").run(row.hash);
       db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
     }
     return { objects: unused.length, bytes: unused.reduce((sum, row) => sum + row.bytes, 0) };
@@ -286,6 +288,7 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
           for (const item of record.unreadable) {
             const { ms, ...known } = item;
             missing.set(item.path, known);
+            if (item.reason === "retained_object_corrupt") continue; // Quarantine already owns the durable cause.
             const signature = `journal_reader:${item.kind ?? "unknown"}:${item.bytes ?? "unknown"}:${item.path}`.slice(0, 1000);
             recordGovernanceEvent(db, { kind: "roadblock", sessionId: metadata.session_id, turnId, actor: metadata.actor,
               model: metadata.model, profile: metadata.profile, at, dedupeKey: `journal-reader:${turnId}:${item.path}`,
