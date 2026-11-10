@@ -65,7 +65,7 @@ describe("the default body is an allowlist", () => {
       "failed steps: Bash, other tool",
       "billing: subscription",
     ]);
-    expect(body.startsWith("## What were you doing?\n\n## Steps to reproduce\n1.\n\n## Expected\n\n## Actual\n")).toBe(true);
+    expect(body).toStartWith("## What were you doing?\n\n## Steps to reproduce\n1.\n\n## Expected\n\n## Actual\n");
   });
 
   test("secrets, paths, hosts, private prose, job names, IDs and payloads are absent by default", () => {
@@ -155,7 +155,7 @@ describe("version lines (acceptance check 11, amended)", () => {
 describe("opt-in inclusions", () => {
   test("the failure reason is redacted and labelled", () => {
     const block = failureReasonInclusion(run, spans)!;
-    expect(block.startsWith("Failure reason (review before sharing):\n")).toBe(true);
+    expect(block).toStartWith("Failure reason (review before sharing):\n");
     expect(block).not.toContain(SECRET);
     expect(block).not.toContain(PATH);
     expect(block).not.toContain(HOST);
@@ -183,7 +183,7 @@ describe("opt-in inclusions", () => {
 
   test("a job name is operator text: redacted and visibly capped like the reason", () => {
     const named = jobNameInclusion({ ...run, jobName: `sync ${PATH} via ${HOST} token=${SECRET}` })!;
-    expect(named.startsWith("job: sync [redacted path]")).toBe(true);
+    expect(named).toStartWith("job: sync [redacted path]");
     for (const leak of [PATH, HOST, SECRET]) expect(named).not.toContain(leak);
     const long = jobNameInclusion({ ...run, jobName: "Scylla ".repeat(600).trim() })!;
     expect(long.split("\n")[0]!.length).toBe("job: ".length + INCLUDED_TEXT_CAP);
