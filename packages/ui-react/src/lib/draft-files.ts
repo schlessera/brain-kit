@@ -2,6 +2,7 @@ import type { AttachmentFile } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { apiBaseFor } from "./backend.js";
 import { createAttachmentQueue, queuedPending, type AttachmentQueue, type QueuedFile } from "./attachment-queue.js";
+import { disposeFrames, ensureFrame } from "./image-frames.js";
 
 /**
  * One root's generic upload queues, per composer view (#3155).
@@ -40,18 +41,22 @@ function guardLeaving(reg: Registry) {
   }
 }
 
-/** The stored original joins its draft, or the held snapshot it belongs to: the next save binds it. */
+/**
+ * The stored original joins its draft, or the held snapshot it belongs to:
+ * the next save binds it. An image's frame is then made from the very bytes
+ * that were uploaded.
+ */
 function storedInto(root: BrainUiServices, sessionId: string | null, item: QueuedFile, file: AttachmentFile) {
   const draftId = item.draftId;
   const drafts = root.stores.drafts.getState();
   if (item.snapshotId) {
     drafts.snapshotStored(drafts.resolveId(draftId), item.snapshotId, item.id, file);
-    return;
+  } else {
+    const { draftId: target } = drafts.resolveTarget(draftId, sessionId);
+    const current = drafts.drafts[target]?.files ?? [];
+    if (!current.some((f) => f.file.fileId === file.fileId)) drafts.edit(draftId, sessionId, { files: [...current, { file, lineage: draftId }] });
   }
-  const { draftId: target } = drafts.resolveTarget(draftId, sessionId);
-  const current = drafts.drafts[target]?.files ?? [];
-  if (current.some((f) => f.file.fileId === file.fileId)) return;
-  drafts.edit(draftId, sessionId, { files: [...current, { file, lineage: draftId }] });
+  ensureFrame(root, file, item.file);
 }
 
 export function filesFor(root: BrainUiServices, key: string, sessionId: string | null): Entry {
@@ -115,6 +120,7 @@ export function uploadingNames(root: BrainUiServices): Array<{ draftId: string; 
 
 /** The root is going: every upload is aborted, and none starts another. */
 export function disposeFiles(root: BrainUiServices): void {
+  disposeFrames(root);
   const reg = registries.get(root.stores);
   if (!reg) return;
   for (const entry of reg.entries.values()) entry.queue.dispose();
