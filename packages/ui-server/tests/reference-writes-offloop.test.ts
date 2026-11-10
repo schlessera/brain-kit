@@ -228,7 +228,7 @@ test("an admitted renewal commits before the ended turn's release and generation
     const releasing = f.worktrees.release({ worktreeId: tree.id, principalId: PRINCIPAL });
     const closing = f.worktrees.closeGeneration(generation.id);
     await pending(releasing, "REFERENCE_END_RELEASE_QUEUED_BEHIND_ADMITTED_RENEWAL");
-    expect(f.pool.events.some(event => event.operation === "access-close"), "REFERENCE_END_PARKING_QUEUED_BEHIND_ADMITTED_RENEWAL").toBe(false);
+    expect(f.pool.events.map(event => event.operation), "REFERENCE_END_PARKING_QUEUED_BEHIND_ADMITTED_RENEWAL").not.toContain("access-close");
     expect(f.read(tree.id)).toMatchObject({ state: "active", accessedAt: AT, releasedAt: null, generation: generation.id });
     expect(await renewal, "REFERENCE_ADMITTED_RENEWAL_COMMITS").toMatchObject({ ok: true, worktree: { lastActivityAt: new Date(renewedAt).toISOString(), state: "active" } });
     expect(await late, "REFERENCE_TOOLS_ENDED_TURN_RENEW_FENCED").toMatchObject({ ok: false, code: "unavailable" });
@@ -310,7 +310,7 @@ test("revocation sees a first private publication submitted before it and withdr
     await revoking; await publication;
     expect(f.db.query("SELECT root_id FROM reference_sources WHERE root_id IS NOT NULL").all(), "REFERENCE_REVOCATION_WITHDRAWS_FIRST_PUBLICATION").toEqual([]);
     expect(f.db.query("SELECT id FROM reference_roots").all(), "REFERENCE_REVOKED_ROOT_RELEASE_COMMITTED").toEqual([]);
-    expect(f.pool.events.some(event => event.operation === "unpublish"), "REFERENCE_REVOKED_SOURCE_UNPUBLISHED").toBe(true);
+    expect(f.pool.events.map(event => event.operation), "REFERENCE_REVOKED_SOURCE_UNPUBLISHED").toContain("unpublish");
   } finally { await f.close(); }
 });
 
