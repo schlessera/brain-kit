@@ -31,6 +31,7 @@ import {
   IMAGE_FORMATS,
   IMAGE_QUALITIES,
   ImageProviderError,
+  mimeExtension,
   type ImageComplexity,
   type ImageInput,
   type ImageQuality,
@@ -60,12 +61,16 @@ Output:
   --scratch               Write to the brain's scratch area instead (.brain/scratch/): for a
                           draft that should not become part of the brain. Never committed;
                           pruned after 7 days or past 1 GB.
-  --format png|jpeg|webp|gif
+  --format png|jpeg|webp|gif|svg
                           Default: whatever the chosen model returns
                           (every Gemini image model serves JPEG only). gif is an
                           animated GIF from GPT Image 2.6 only; it needs GIF preview
                           access on the OpenAI organization, takes no --mask or
-                          --transparent, and a dry run cannot price it
+                          --transparent, and a dry run cannot price it.
+                          svg is a static SVG authored by GPT Image 2.6, for a new
+                          image only (no --ref, --mask or --transparent). One with
+                          scripts, event handlers or outside references is refused
+                          and not written. Its cost is reported as unknown
 
 Animation (--format gif only):
   --frames <n>            2-16 frames. Default: the API's, 9
@@ -363,9 +368,10 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       // The GPT Image models have no card price, but a quality (stated, or the
       // max default) and a size have a published output-token count; `auto`
       // or an unstated size stays unknown.
-      // GIF has no published per-frame token count, so it is never priced.
+      // GIF has no published per-frame token count and SVG authoring has no
+      // published rate here, so neither is ever priced.
       const estimatedCostUsd =
-        request.format === "gif"
+        request.format === "gif" || request.format === "svg"
           ? null
           : model.provider === "openai"
           ? (estimateOpenAiOutputCost(model.id, openAiRequestQuality(request), openAiRequestSize(request, model.id)) ?? null)
@@ -383,6 +389,8 @@ export const imageCommand: CommandModule<ImagesConfig> = {
         const cost =
           request.format === "gif"
             ? "cost unknown — OpenAI publishes no per-frame token count for GIF"
+            : request.format === "svg"
+            ? "cost unknown — SVG authoring is billed at a rate not published here"
             : estimatedCostUsd === null && model.provider === "openai"
             ? "cost unknown — pass --size or --aspect (and a quality other than auto) to price it"
             : price(estimatedCostUsd);
@@ -416,7 +424,7 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     // different format than the extension implies, and writing those bytes
     // under the wrong name only surfaces when something tries to open it.
     const [first, ...rest] = result.images;
-    const actualExt = first.mime.replace("image/", "").replace("jpg", "jpeg");
+    const actualExt = mimeExtension(first.mime);
     let finalRel = outRel;
     let renamed: string | undefined;
     if (extname(outRel).slice(1).toLowerCase().replace("jpg", "jpeg") !== actualExt) {
