@@ -15,7 +15,7 @@ whole brain (`latchSafety`,
 `packages/ui-server/src/governance/safety-store.ts:115-125`). From then on, turn
 admission threw for every chat, including new chats that had never seen
 untrusted input (`beginSafetyCollection`,
-`packages/ui-server/src/governance/safety-store.ts:183-192`). The error that
+`packages/ui-server/src/governance/safety-store.ts:193-202`). The error that
 set the flag was recorded as "capacity" while the store was at a fraction of a
 percent of its limits, and its real cause was never stored. The only way back
 was to stop the server and run `recoverSafetyRecording` from a script, a

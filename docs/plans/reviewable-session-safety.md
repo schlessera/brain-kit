@@ -25,7 +25,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:357-362`). Legacy rows prove
+  `packages/ui-server/src/governance/safety-store.ts:415-420`). Legacy rows prove
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
