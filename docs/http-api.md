@@ -2070,3 +2070,10 @@ principal, generation, finalized-exposure and permanent retirement fences in
 the writer and SQLite trigger. Resolving a known event cannot repair unknown
 detector coverage, recording loss or another unresolved event. No model/voice
 tool, WS mutation frame, Settings rule or provider transcript edit is added.
+
+
+The authenticated status response also includes `journalCleanup` (#3815):
+current retained-checkpoint counts and bytes, plus `lastFailure`, a durable
+historical cause even when cleanup failed before the first turn. The historical
+record survives successful cleanup; current retained charges are reported
+separately. It is never part of public `/health`.

@@ -16,7 +16,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
    */
   rootScope: { steering: boolean; index: boolean } = { steering: true, index: true },
   /** A previous checkpoint's release failed after its observation committed (#2872). */
-  releaseFailed?: (error: unknown) => void) {
+  releaseFailed?: (error: unknown, checkpointId: string) => void) {
   const workerUid = () => {
     if (!identity || !workerIdentityHelper()) return undefined;
     const actual = verifiedWorkerIdentity(identity.brainPath);

@@ -133,11 +133,13 @@ Recovery copies reserve the existing aggregate output-staging budget in
 addition to retained source storage. Closing a handle aborts its pending copy;
 the copy reservation remains until that work drains and owned cleanup is
 confirmed. An unconfirmed cleanup retains ownership and reservations for
-reconciliation rather than reporting successful reclamation. For a Claude
-turn's end-of-turn cleanup, the server retries the close a few times with
-growing delays and releases the reservation once a retry is confirmed. If
-every retry is refused, the server log names the allowance that stays charged
-until the server restarts.
+reconciliation rather than reporting successful reclamation. For
+end-of-turn cleanup, both backends keep retrying with capped backoff
+and release the reservation only once a close is confirmed. Pi initialization
+failures retain the same retry owner. The original turn's Activity events
+record the cleanup cause, retained allowances and eventual confirmation,
+including confirmation after the turn has ended. After five failed retries a
+host diagnostic reports slow reconciliation; retries continue without a restart.
 
 Files made private are read by fixed, uncredentialed worker-UID code through
 authorized retained roots: no repository imports/evaluation, path escapes,

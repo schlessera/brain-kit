@@ -1469,7 +1469,7 @@ starts one per result and carries on
 (`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:272`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
-(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:240-261`),
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:246-267`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
 `packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
@@ -1481,7 +1481,7 @@ tracked the hold, not the bridge call.
 proven read-only, no other call of an active turn is still running, and no
 active turn has run a call whose effects may outlast it
 (`toolEnded(turnId: string, toolUseId: string)`,
-`packages/ui-server/src/brain/turn-journal.ts:550-557`). Admission, turn end,
+`packages/ui-server/src/brain/turn-journal.ts:551-558`). Admission, turn end,
 the 15-second timer, scope-limit observations, approved policy writes and
 removal coverage observe exactly as before.
 
@@ -1606,7 +1606,7 @@ these versions as metadata-only and never open them for retention
 kind, mode, size and its ignored flag, carries `metadataOnly: true` and records
 its opaque change stamp, with no content hash and no symlink target. Two
 versions of equal size are told apart by that stamp, as ignored ones are
-(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:76`),
+(`const identity`, `packages/ui-server/src/brain/turn-journal.ts:81`),
 so every observed refresh remains a recorded change. A metadata-only version is an intentional
 observation state: it adds no `missing` entry and does not make the turn
 partial. Removal coverage never treats the family as eligible, and history
@@ -1618,7 +1618,7 @@ stays now counts its largest size once too, rather than each version.
 **History.** History presents every index-family version as metadata-only
 however it was recorded, so a version an earlier release retained is no
 longer read
-(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:69-74`).
+(`const presented`, `packages/ui-server/src/brain/turn-journal.ts:74-79`).
 The reader groups these entries as the search index, recorded by size and
 timestamps only, with no review action. Preview reports `metadata_only` and
 download has nothing to serve. History revert and Undo read that same
@@ -1853,7 +1853,7 @@ brain and every managed worktree, has its own owner, and each owner keeps at
 most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
 queued or failed. An observation makes room before it takes its own
 checkpoint (`async function reserveRelease`,
-`packages/ui-server/src/brain/native-journal-observer.ts:330-336`): it waits
+`packages/ui-server/src/brain/native-journal-observer.ts:349-355`): it waits
 inside the hold for the oldest queued release, or, when failed releases fill
 the bound, retries the oldest one inside the hold, as every release ran
 before. If that retry fails, the observation is refused before it takes a
@@ -1861,7 +1861,7 @@ checkpoint, so the bound is never exceeded. Each retained checkpoint is charged 
 it holds that the live root no longer has: the bytes of every file version
 replaced or removed since it was taken
 (`releases(): NativeJournalReleaseAccounting`,
-`packages/ui-server/src/brain/native-journal-observer.ts:483-487`).
+`packages/ui-server/src/brain/native-journal-observer.ts:505-509`).
 Directory and other metadata extents are not counted. The store's free space,
 which the `free_space_floor` scope limit reads, counts the actual extents until
 each release completes. Shutdown waits for every queued release, retries
@@ -1870,17 +1870,15 @@ checkpoint still retained; startup recovery releases those. A release that
 never settles is bounded by the manager client's transport deadline, not by
 the owner.
 
-**A failed release.** The checkpoint stays retained and charged until a
-retry, and the journal treats the failure as the hold did
-(`const releaseFailed`, `packages/ui-server/src/brain/turn-journal.ts:182-190`):
-every active turn stops and its record is partial, a hold the failure
-overlaps kills its held workers instead of resuming them, and an admission
-requested before the failure, even one still queued behind other journal work,
-is refused. A turn that finished before the failure keeps its record:
-its terminal capture was recorded before the release began, and the failure
-concerns storage cleanup, not what the journal holds. A failure inside the
-hold, of a checkpoint, a delta, a capture, the retry of a failed release or the
-release of an aborted observation, is unchanged.
+**A failed release (revised by #3815).** The superseded checkpoint stays
+retained and charged, and its owner retries every thirty seconds without a new
+observation. Its replacement observation already committed, so the failure
+neither stops active turns nor makes their records partial, and admissions
+continue while the retained-checkpoint bound has room. The cause and checkpoint
+identity are logged and recorded in the affected turns' authenticated Activity.
+Only a full backlog that cannot make room refuses the next safe observation.
+Failures taking a checkpoint, reading its delta, capturing its versions or
+committing the observation retain their existing containment.
 
 **Tests.** A fresh launch and the shared interpreter answer each refused
 inspection with the same exit status, output and traceback; every request sees
@@ -3707,10 +3705,10 @@ end-of-turn cleanup that the awaited close above could not confirm.
 
 - **The turn still fails.** The refusal is the turn's, as before; the
   reconciler only takes ownership of the retryable close and the reservation.
-- **Finite retries, then observable failure.** It retries the close with
-  capped exponential backoff and a finite number of attempts. A close still
-  refused after the last attempt is logged with the runtime-state and
-  turn-temp allowance it keeps charged until the server restarts.
+- **Capped backoff without giving up (revised by #3815).** Both backends
+  retain a retry owner, including Pi initialization failures. After the
+  foreground retry count, the owner continues at the capped delay. Activity
+  records the cause, charged allowances and later confirmation.
 - **Release once, only on confirmation.** The reservation is released exactly
   once, after a retry resolves. An unconfirmed close never releases it.
 - **Shutdown releases nothing and waits for nothing.** It cancels pending
@@ -3719,10 +3717,10 @@ end-of-turn cleanup that the awaited close above could not confirm.
   never hold the process open.
 
 The owner is the reconciler
-(`export function createCleanupReconciler`, `packages/ui-backend-claude/src/cleanup-reconciler.ts:66-125`), and the turn
+(`export function createCleanupReconciler`, `packages/ui-sdk/src/server/cleanup-reconciler.ts:75-148`), and the turn
 hands its refusal over where it awaits the close
-(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi and a launch
-whose own cleanup is unconfirmed are outside this ruling.
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi supervision now uses the same owner; launch failures before a handle is
+returned remain the launcher's responsibility.
 
 ### Turn completion includes worker teardown — 2026-10-25
 
@@ -4321,7 +4319,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:375-440`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:380-445`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -4344,7 +4342,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:647-677`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:657-687`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
 
 ### Concurrent edits
