@@ -83,7 +83,7 @@ describe("operational state boot refusal (#1649)", () => {
         expect(failure?.name, "OPERATIONAL_STATE_BOOT_REFUSAL").toBe("OperationalStateInBrainError");
         expect((failure as Error & { status: unknown }).status).toMatchObject({ available: false,
           reason: layout === "private token" || layout === "linked quarantine" ? "private_state_in_brain" : "database_in_brain" });
-        expect(observability.logs.records().map(record => [record.body, record.attributes["boot.refusal"]])).toContainEqual([failure?.message, failure?.name]);
+        expect(observability.logs.records().map(record => [record.body, record.attributes["boot.refusal"]])).toContainEqual([failure!.message, failure!.name]);
         expect(failure?.message).toContain("move the state directory outside the brain");
         expect(failure?.message).toContain(layout === "private token" ? "BRAIN_UI_INBOX_POKE_TOKEN_FILE" : "DB_PATH");
         expect(existsSync(f.sentinel), "NO_BRAIN_EXECUTION_BEFORE_LAYOUT_REFUSAL").toBe(false);
