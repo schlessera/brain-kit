@@ -1,15 +1,15 @@
 # Test health
 
-Generated 2026-11-10T21:05:05.727Z at `09e373962a68`.
+Generated 2026-11-10T21:07:24.015Z at `39865be95d7c`.
 
 ## Coverage of the rotation
 
 | Measure | Value |
 | --- | --- |
 | Test files | 1835 |
-| Audited at their current content | 1544 (84.1%) |
+| Audited at their current content | 1546 (84.3%) |
 | Changed since their audit | 0 |
-| Never audited | 291 |
+| Never audited | 289 |
 | Median audit age in days | 0.1 |
 
 ## What the audits found
@@ -18,12 +18,12 @@ Generated 2026-11-10T21:05:05.727Z at `09e373962a68`.
 | --- | --- |
 | Runs | 24 (completed 20, nothing-to-do 4) |
 | Runs by agent | claude-opus-5-5 24 |
-| Files audited | 1561 |
-| Files changed | 403 |
-| Findings | 2548 (1.63 per audited file) |
-| By lens | cannot-fail 927, nondeterminism 749, hygiene 374, cost 172, overlap 145, failure-issues 123, not-running 46, tier-and-doubles 12 |
-| By action | none 1937, cleanup 246, strengthen 153, deflake 90, file-issue 45, remove 33, rewrite 22, speed-up 14, move-tier 3, unskip 2, split 2, merge 1 |
-| By status | accepted 1937, fixed 490, deferred 89, filed 32 |
+| Files audited | 1563 |
+| Files changed | 404 |
+| Findings | 2551 (1.63 per audited file) |
+| By lens | cannot-fail 928, nondeterminism 751, hygiene 374, cost 172, overlap 145, failure-issues 123, not-running 46, tier-and-doubles 12 |
+| By action | none 1939, cleanup 247, strengthen 153, deflake 90, file-issue 45, remove 33, rewrite 22, speed-up 14, move-tier 3, unskip 2, split 2, merge 1 |
+| By status | accepted 1939, fixed 491, deferred 89, filed 32 |
 
 ## Proof and efficacy
 
@@ -33,7 +33,7 @@ Generated 2026-11-10T21:05:05.727Z at `09e373962a68`.
 | Mutations killed | 191 |
 | Tests made deterministic | 63 |
 | Seconds saved per run of the changed files | 73.6 |
-| Test declarations in changed files | 4344 before, 4344 after (1 removed, each declared with its obligation map) |
+| Test declarations in changed files | 4346 before, 4346 after (1 removed, each declared with its obligation map) |
 | Executed cases in changed files | 5029 before, 5019 after |
 | Executed assertions in changed files | 51672 before, 51861 after |
 | Re-audits that found what an earlier audit missed | 1 of 17 |
@@ -43,7 +43,7 @@ Generated 2026-11-10T21:05:05.727Z at `09e373962a68`.
 | Measure | Value |
 | --- | --- |
 | Batches landed | 5 |
-| Batches open | 25 (327 changed files waiting) |
+| Batches open | 26 (328 changed files waiting) |
 | Batches abandoned | 0 |
 | Commits dropped from a batch | 0 |
 | Landing attempts | 18 |

@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-10T21:05:05.727Z",
-  "sha": "09e373962a68d5dc1efb4685b14dc831c89eebdf",
+  "generatedAt": "2026-11-10T21:07:24.015Z",
+  "sha": "39865be95d7c1e4b428dfc4ac222ab22383336eb",
   "coverage": {
     "files": 1835,
-    "auditedCurrent": 1544,
+    "auditedCurrent": 1546,
     "stale": 0,
-    "never": 291,
-    "share": 0.841,
+    "never": 289,
+    "share": 0.843,
     "medianAuditAgeDays": 0.1
   },
   "runs": {
@@ -25,18 +25,18 @@
     }
   },
   "audits": {
-    "clusters": 832,
-    "files": 1561,
-    "filesChanged": 403
+    "clusters": 834,
+    "files": 1563,
+    "filesChanged": 404
   },
   "findings": {
-    "total": 2548,
+    "total": 2551,
     "perAuditedFile": 1.63,
     "byLens": {
       "failure-issues": 123,
       "overlap": 145,
-      "nondeterminism": 749,
-      "cannot-fail": 927,
+      "nondeterminism": 751,
+      "cannot-fail": 928,
       "not-running": 46,
       "hygiene": 374,
       "cost": 172,
@@ -47,8 +47,8 @@
       "unreproduced": 55,
       "matrix-multiplier": 133,
       "settling-sleep": 253,
-      "shared-state": 144,
-      "weak-matcher": 335,
+      "shared-state": 145,
+      "weak-matcher": 336,
       "conditional-assertion": 381,
       "unseeded-random": 5,
       "fixed-resource": 74,
@@ -60,7 +60,7 @@
       "no-assertion": 81,
       "duplicate-case": 11,
       "real-time-wait": 36,
-      "unrestored-global": 144,
+      "unrestored-global": 145,
       "slow-file": 44,
       "wrong-object": 6,
       "unclear-name": 6,
@@ -88,9 +88,9 @@
     "byAction": {
       "deflake": 90,
       "remove": 33,
-      "none": 1937,
+      "none": 1939,
       "strengthen": 153,
-      "cleanup": 246,
+      "cleanup": 247,
       "file-issue": 45,
       "rewrite": 22,
       "speed-up": 14,
@@ -101,8 +101,8 @@
     },
     "byStatus": {
       "deferred": 89,
-      "accepted": 1937,
-      "fixed": 490,
+      "accepted": 1939,
+      "fixed": 491,
       "filed": 32
     }
   },
@@ -114,8 +114,8 @@
     "testsRemoved": 24
   },
   "accounting": {
-    "testsBefore": 4344,
-    "testsAfter": 4344,
+    "testsBefore": 4346,
+    "testsAfter": 4346,
     "declaredRemoved": 1,
     "casesBefore": 5029,
     "casesAfter": 5019,
@@ -123,10 +123,10 @@
     "assertionsAfter": 51861
   },
   "batches": {
-    "open": 25,
+    "open": 26,
     "landed": 5,
     "abandoned": 0,
-    "parkedChangedFiles": 327,
+    "parkedChangedFiles": 328,
     "droppedCommits": 0,
     "landingAttempts": 18,
     "meanFilesPerLanded": 14.2,
