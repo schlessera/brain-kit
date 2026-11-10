@@ -86,7 +86,7 @@ test.skipIf(!executablePath)("a browser rejection preserves creation before a la
     await finished; // Browser-side fetch completion can precede driver event delivery.
     expect(trace.filter(event => event.phase === "enqueue").map(event => event.method)).toEqual(["__create__", "response", "requestFinished"]);
     expect(trace.filter(event => event.phase === "deliver").map(event => event.method)).toEqual(["__create__", "response", "requestFinished"]);
-    expect(trace.filter(event => event.phase === "deliver" && event.method !== "__create__").every(event => event.bound)).toBe(true);
+    expect(trace.filter(event => event.phase === "deliver" && event.method !== "__create__").map(event => [event.method, event.bound]), "later deliveries reach a bound Response").toEqual([["response", true], ["requestFinished", true]]);
     passed = true;
   } finally {
     if (!passed) console.error("BROWSER_REJECTION_PROTOCOL", JSON.stringify(trace));
