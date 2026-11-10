@@ -508,6 +508,14 @@ unrecorded input into normal state by losing an in-memory pending entry.
 At capacity, reviewing already retained finalized events is still possible;
 starting a new chat does not bypass brain-wide capacity.
 
+The scope and recovery of that latch follow
+[proportionate containment](../decisions/proportionate-containment.md):
+"restricted" means running under the tainted policy, not refusing; a failure
+before any bytes are delivered refuses only its turn; lost evidence after
+delivery restricts only its chat; only an unwritable evidence store restricts
+the brain, and the host clears that itself once the gap facts are durable
+(maintainer ruling, 2026-11-09, #3812).
+
 Permanent content-free retirement fences belong to the existing chat lifecycle,
 not a TTL cache. Never expire or evict them to fit the limits above. Enforce
 capacity before admitting new session identities if that owner cannot retain

@@ -173,6 +173,17 @@ describe("GET /web-search", () => {
   });
 });
 
+describe("a pi backend excluded at boot (#3817)", () => {
+  test("reports not-configured and refuses writes without touching the config", async () => {
+    const path = tempConfigPath();
+    const app = createWebSearchRoutes({ agent: agentFor({ BRAIN_UI_PI_PROFILES: PROFILES }), configPath: path, env: CLEAN_ENV, excluded: () => true,
+      importer: async () => { throw new Error("an excluded backend is never loaded"); } });
+    expect(await get(app)).toMatchObject({ configured: false, providers: [] });
+    expect((await put(app, { enabled: ["exa"] })).status).toBe(409);
+    expect(existsSync(path)).toBe(false);
+  });
+});
+
 describe("PUT /web-search", () => {
   test("rejected when pi is not configured", async () => {
     const res = await put(appFor(), { enabled: { exa: true } });

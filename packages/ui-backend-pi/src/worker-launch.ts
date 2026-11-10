@@ -8,7 +8,7 @@
  */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { workerCleanupUnconfirmed, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
+import { processCleanupReconciler, type CleanupReconciler, workerCleanupUnconfirmed, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
 import { stateRoomCopy, stateRoomWarning, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -100,7 +100,7 @@ export async function admitPiWorker(request: PiWorkerAdmissionRequest): Promise<
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, ...workerSessionEnv } = env;
+  const { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, cleanupActivity: _cleanupActivity, ...workerSessionEnv } = env;
   const npmPath = envelope ? undefined : join(agentDir, "npm", "node_modules");
   let cachedNpmModules: string | undefined;
   if (npmPath && existsSync(npmPath)) {
@@ -287,7 +287,7 @@ export interface PiWorkerSupervision {
  * turn temp, relays, locks, stderr and host-limit reports.
  */
 export function superviseWorker(worker: { child: LaunchedWorker; reservation: Reservation; turnTemp: WorkerStateHandle | undefined;
-  env: SessionEnv; turnContext: TurnContext; admission: Pick<PiWorkerAdmission, "envelope" | "hostInference">; answerText(): string }): PiWorkerSupervision {
+  env: SessionEnv; turnContext: TurnContext; admission: Pick<PiWorkerAdmission, "envelope" | "hostInference">; answerText(): string; cleanup?: CleanupReconciler }): PiWorkerSupervision {
   const { child, reservation, turnTemp, env, turnContext, answerText } = worker;
   const { envelope, hostInference } = worker.admission;
   const held = reservation;
@@ -298,8 +298,18 @@ export function superviseWorker(worker: { child: LaunchedWorker; reservation: Re
    * separate-UID worker's broker cleanup is confirmed; a refusal keeps it
    * charged, and the next call tries again (#2854).
    */
-  const closeTurnTemp = (): Promise<void> => turnTempClosing ??= (async () => { await turnTemp?.closeAsync(); held.release(); })()
-    .catch((error: unknown) => { turnTempClosing = undefined; throw error; });
+  let released = false;
+  const releaseReservation = () => { if (!released) { released = true; held.release(); } };
+  const activity = env.cleanupActivity ?? turnContext.bridge?.activity;
+  const cleanup = { bytes: held.bytes, turnTempBytes: held.turnTempBytes, close: () => closeStorage(), release: releaseReservation,
+    report: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => activity?.({ kind: "worker_cleanup", ...notice }) };
+  const closeStorage = (): Promise<void> => turnTempClosing ??= (async () => { await turnTemp?.closeAsync(); })()
+    .catch((error: unknown) => {
+      turnTempClosing = undefined;
+      (worker.cleanup ?? processCleanupReconciler()).retain(cleanup, error);
+      throw error;
+    });
+  const closeTurnTemp = async () => { await closeStorage(); releaseReservation(); };
   // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
   let workerLive = true;
   void child.exited.finally(() => { workerLive = false; }).catch(() => {});

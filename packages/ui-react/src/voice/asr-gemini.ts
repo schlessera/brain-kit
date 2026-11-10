@@ -24,8 +24,25 @@ export const GEMINI_PRESETUP_FRAMES = 50;
 export const GEMINI_HANDSHAKE_MS = 10_000;
 /** Upload backlog at which the take fails rather than grow without bound. */
 export const GEMINI_MAX_BUFFERED_BYTES = 256 * 1024;
-/** Done waits this long for the last final after audioStreamEnd. */
+/** Done waits at most this long for the last final after audioStreamEnd. */
 export const GEMINI_DRAIN_MS = 3_000;
+/**
+ * With nothing pending at audioStreamEnd, Done ends after this much quiet.
+ * Google sends nothing at all after audioStreamEnd when no speech is pending
+ * (#3710), so without it every such Done waited the full cap (#3768).
+ */
+export const GEMINI_DRAIN_QUIET_MS = 300;
+/**
+ * The quiet window when the microphone heard voice that Google has not yet
+ * placed in a segment: its speech signal is still on the way. Google signalled
+ * speech about 75 ms after the audio reached it in #3710, so this leaves room
+ * for a slow network; if Google never calls it speech, Done ends here.
+ */
+export const GEMINI_DRAIN_TAIL_MS = 1_500;
+/** Block RMS that counts as voice; the conversation capture uses the same bar. */
+const GEMINI_VOICE_RMS = 0.015;
+/** Google reports audioOffset in 10 ms steps; one frame absorbs its rounding. */
+const OFFSET_SLACK = GEMINI_FRAME_SAMPLES;
 const MAX_MESSAGE_BYTES = 262_144;
 const MODEL = "models/gemini-3.5-transcribe-live";
 const MIME = `audio/pcm;rate=${GEMINI_SAMPLE_RATE}`;
@@ -37,19 +54,25 @@ const messageSchema = z.object({
     interimInputTranscription: transcript.optional(),
     inputTranscription: transcript.optional(),
     turnComplete: z.boolean().optional(),
+    generationComplete: z.boolean().optional(),
+    speechState: z.string().max(32).optional(),
   }).optional(),
+  // Google's voice activity detection; audioOffset is a Duration ("3.310s")
+  // from the first audio of the stream.
+  voiceActivity: z.object({ type: z.string().max(32).optional(), audioOffset: z.string().max(32).optional() }).optional(),
   goAway: z.object({}).optional(),
   // Remote error text is deliberately never surfaced: it may echo request details.
   error: z.unknown().optional(),
 });
 const vocabularySchema = z.array(z.string().min(1).max(64)).max(100);
+const languageCodesSchema = z.array(z.string().regex(/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8}){0,3}$/)).min(1).max(4);
 
 interface GeminiAsrClientOptions {
   /** Constrained Live endpoint, from the server. */
   url: string;
   /** Single-use ephemeral token (`auth_tokens/…`), from the server. */
   token: string;
-  /** `model`, `mode` (SMART/VERBATIM) and `vocabulary` (JSON array), from the server. */
+  /** `model`, `mode` (SMART/VERBATIM), `vocabulary` and `languageCodes` (JSON arrays), from the server. */
   params: Record<string, string>;
   onEvent: (event: AsrEvent) => void;
   onError?: (error: Error) => void;
@@ -75,6 +98,21 @@ export class GeminiAsrClient implements AsrClient {
   /** Done has the worklet's tail and the partial frame; audioStreamEnd may follow. */
   private tailFlushed = false;
   private inbound: Promise<void> = Promise.resolve();
+  /** Speech or an interim arrived that no final or generationComplete has closed yet. */
+  private pending = false;
+  /** audioStreamEnd has been sent; only now can generationComplete end the drain. */
+  private streamEnded = false;
+  private quiet: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped on every (re)arm and disarm, so a stale quiet callback does nothing. */
+  private quietRound = 0;
+  /** Length of the window now armed, or 0. */
+  private quietMs = 0;
+  /** Samples captured for the stream so far: the stream offset of the next one. */
+  private captured = 0;
+  /** Stream offset just past the last block the microphone heard voice in. */
+  private voicedTo = 0;
+  /** Stream offset up to which Google has closed segments (ACTIVITY_END). */
+  private heardTo = 0;
   private readonly setup: string;
 
   constructor(private readonly opts: GeminiAsrClientOptions) {
@@ -82,11 +120,15 @@ export class GeminiAsrClient implements AsrClient {
     const mode = params.mode === "VERBATIM" ? "VERBATIM" : "SMART";
     let vocabulary: string[] = [];
     try { vocabulary = vocabularySchema.parse(JSON.parse(params.vocabulary ?? "[]")); } catch { vocabulary = []; }
+    // The token locks the language server side; a missing or malformed hint
+    // here only omits the repeat, it cannot unlock anything.
+    let languageCodes: string[] = [];
+    try { languageCodes = languageCodesSchema.parse(JSON.parse(params.languageCodes ?? "null")); } catch { languageCodes = []; }
     this.setup = JSON.stringify({
       setup: {
         model: params.model || MODEL,
         generationConfig: { responseModalities: ["TEXT"] },
-        inputAudioTranscription: { mode, ...(vocabulary.length ? { customVocabulary: vocabulary } : {}) },
+        inputAudioTranscription: { mode, ...(languageCodes.length ? { languageCodes } : {}), ...(vocabulary.length ? { customVocabulary: vocabulary } : {}) },
       },
     });
   }
@@ -142,7 +184,8 @@ export class GeminiAsrClient implements AsrClient {
 
   /**
    * Done: flush the worklet's partial block, send it and audioStreamEnd, wait
-   * for the last final, then close; all of it within 3 s. Heard words are kept.
+   * for the last final (generationComplete) or, with nothing pending, a short
+   * quiet, then close; all of it within 3 s. Heard words are kept.
    */
   async drainAndStop(): Promise<void> {
     if (this.phase !== "live") { this.stop(); return; }
@@ -175,6 +218,8 @@ export class GeminiAsrClient implements AsrClient {
     // During Done the flush still delivers the worklet's last samples.
     if (this.phase === "draining" ? this.tailFlushed : this.phase !== "live") return;
     if (this.phase === "live") this.opts.onAudioLevel?.(Math.min(1, rms * 4));
+    if (rms >= GEMINI_VOICE_RMS) this.voicedTo = this.captured + pcm.length;
+    this.captured += pcm.length;
     const drain = this.settleDrain;
     // A failure ends the loop: it closes a live take or settles the drain.
     const open = () => this.phase === "live" || (this.phase === "draining" && this.settleDrain === drain);
@@ -214,7 +259,62 @@ export class GeminiAsrClient implements AsrClient {
 
   private endInput(): void {
     for (const frame of this.queue.splice(0)) if (!this.send(frame)) return;
-    this.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+    if (!this.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }))) return;
+    this.streamEnded = true;
+    this.settleOrWait(false);
+  }
+
+  /** The microphone heard voice past the last segment Google closed. */
+  private unplaced(): boolean {
+    return this.voicedTo > this.heardTo + OFFSET_SLACK;
+  }
+
+  /** Google's last ACTIVITY_END reaches the end of the stream. */
+  private covered(): boolean {
+    return this.heardTo + OFFSET_SLACK >= this.captured;
+  }
+
+  /**
+   * After audioStreamEnd, decide whether Done is complete. Google answers it
+   * with the pending final, generationComplete and an ACTIVITY_END at the
+   * stream end (+253 ms in #3710), and with nothing at all when no speech is
+   * pending; it never sent finished or turnComplete. So Done:
+   * - waits while a segment is open;
+   * - waits the tail window while the microphone heard voice past Google's
+   *   last ACTIVITY_END, since an earlier segment's answer can arrive before
+   *   the new speech is signalled (a window already running is not extended);
+   * - ends at once when Google's answer has an ACTIVITY_END reaching the
+   *   stream end;
+   * - otherwise ends after the short quiet, restarted by each speech message,
+   *   because voice too quiet for the RMS bar may still be signalled.
+   * The 3 s cap bounds every wait.
+   */
+  private settleOrWait(answered: boolean): void {
+    if (this.pending) this.disarmQuiet();
+    else if (this.unplaced()) { if (this.quietMs !== GEMINI_DRAIN_TAIL_MS) this.armQuiet(GEMINI_DRAIN_TAIL_MS); }
+    else if (answered && this.covered()) this.finishDrain();
+    else this.armQuiet(GEMINI_DRAIN_QUIET_MS);
+  }
+
+  /**
+   * (Re)start a quiet window. When it lapses, messages that already arrived
+   * are processed first (a Blob decodes asynchronously), and any of them that
+   * re-armed or disarmed the window wins.
+   */
+  private armQuiet(ms: number): void {
+    this.disarmQuiet();
+    const round = this.quietRound;
+    this.quietMs = ms;
+    this.quiet = setTimeout(() => {
+      this.quiet = null;
+      void this.inbound.then(() => { if (this.quietRound === round) this.finishDrain(); });
+    }, ms);
+  }
+
+  private disarmQuiet(): void {
+    this.quietRound++;
+    this.quietMs = 0;
+    if (this.quiet) { clearTimeout(this.quiet); this.quiet = null; }
   }
 
   private receive(text: string | null): void {
@@ -228,6 +328,7 @@ export class GeminiAsrClient implements AsrClient {
       return;
     }
     if (message.error !== undefined) { this.fail("Gemini reported an error", "unknown"); return; }
+    const endedBefore = this.streamEnded;
     if (message.setupComplete && !this.setupDone) {
       this.setupDone = true;
       if (this.handshake) { clearTimeout(this.handshake); this.handshake = null; }
@@ -241,12 +342,26 @@ export class GeminiAsrClient implements AsrClient {
     if (interim) this.opts.onEvent({ type: "partial", text: interim });
     const final = content?.inputTranscription;
     if (final?.text) this.opts.onEvent({ type: "final", text: final.text, endsTurn: final.finished ?? true });
-    if (this.phase === "draining" && (final?.finished === true || content?.turnComplete === true)) this.finishDrain();
+    const activity = message.voiceActivity;
+    const turnEnded = final?.finished === true || content?.turnComplete === true;
+    if (interim || content?.speechState === "SPEECH") this.pending = true;
+    if (final?.text || content?.generationComplete === true || turnEnded) this.pending = false;
+    if (activity?.type === "ACTIVITY_END") {
+      const seconds = /^(\d{1,6}(?:\.\d{1,9})?)s$/.exec(activity.audioOffset ?? "")?.[1];
+      if (seconds !== undefined) this.heardTo = Math.max(this.heardTo, Math.ceil(Number(seconds) * GEMINI_SAMPLE_RATE));
+    }
+    // Only speech messages bear on Done; a setupComplete that just sent
+    // audioStreamEnd has already decided. finished and turnComplete close the
+    // segment like generationComplete, and nothing more.
+    const speech = interim || final !== undefined || content?.speechState !== undefined
+      || content?.generationComplete !== undefined || content?.turnComplete !== undefined || activity !== undefined;
+    if (this.phase === "draining" && endedBefore && speech) this.settleOrWait(true);
     // The session is about to end: what was heard is kept, the take ends.
     if (message.goAway) this.fail("Gemini session ending", "network");
   }
 
   private finishDrain(): void {
+    this.disarmQuiet();
     const settle = this.settleDrain;
     this.settleDrain = null;
     settle?.();

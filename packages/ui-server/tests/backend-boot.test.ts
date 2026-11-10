@@ -30,7 +30,7 @@ const agent = (backend: string | null) =>
 
 /** A resolver simulating "this package is not installed". */
 const absent = (specifier: string) => {
-  throw new Error(`Cannot find module '${specifier}'`);
+  throw Object.assign(new Error(`Cannot find module '${specifier}'`), { code: "MODULE_NOT_FOUND" });
 };
 
 describe("assertBackendResolvable", () => {
@@ -52,7 +52,7 @@ describe("assertBackendResolvable", () => {
     );
   });
 
-  test("BRAIN_UI_PI_PROFILES with a missing pi package refuses at boot", () => {
+  test("BRAIN_UI_PI_PROFILES with a missing pi package marks only pi unavailable", () => {
     const withPiProfiles = resolveServerConfig({
       BRAIN_UI_PI_PROFILES: JSON.stringify([
         { id: "gpt-sol", label: "Sol", vendor: "openai-codex", model: "gpt-5.6-sol" },
@@ -62,9 +62,10 @@ describe("assertBackendResolvable", () => {
     const claudeOnly = (specifier: string) => {
       if (specifier.includes("backend-pi")) absent(specifier);
     };
-    expect(() => assertBackendResolvable(withPiProfiles, claudeOnly)).toThrow(
-      'BRAIN_UI_PI_PROFILES is set but "@schlessera/brain-backend-pi" is not installed'
-    );
+    expect(assertBackendResolvable(withPiProfiles, claudeOnly)).toEqual([expect.objectContaining({
+      backendId: "pi", phase: "resolution", errorClass: "Error",
+      message: expect.stringContaining('BRAIN_UI_PI_PROFILES is set but "@schlessera/brain-backend-pi" is not installed'),
+    })]);
     // With everything resolvable, the opt-in passes.
     expect(() => assertBackendResolvable(withPiProfiles)).not.toThrow();
   });

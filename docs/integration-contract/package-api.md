@@ -277,6 +277,34 @@ The kit's `StatusIndicatorProps.announce` is described with
 [the indicator](#ui-kit-compact-operation-status-additive-3281). No other
 export changes.
 
+## Composer draft indicator (additive, 0.45.0, #3155)
+
+`ComposerProps` in `@schlessera/brain-ui-kit` gains optional
+`status?: ReactNode`. It is a compact status placed beside the attach trigger,
+in the order attach · status · field · mic · send/stop. The kit places it in a
+44px box that takes a 28px place in the row, so the field keeps its height,
+and draws nothing for it on a `plain` surface. Omitted, the row is unchanged.
+`@schlessera/brain-ui-react`'s composer passes its draft indicator, a
+`StatusIndicator`, there. The indicator replaces the save line that was under
+the field
+([the D52 amendment](../decisions/design-kit/sessions-and-drafts.md)).
+`DraftSaveLine`'s behaviour is unchanged where it is still used.
+
+`BrainUiConnection.drafts` gains `checkSave(draftId)`. It is Check again for a
+draft save whose answer was lost: one `GET /api/drafts/:draftId`, never a save.
+It resolves to one of these:
+
+- `saved`: the host's revision is the one that save would have made, with the
+  same text, images, original bindings and snapshot list. The draft takes it
+  as acknowledged.
+- `not_saved`: the host still holds the revision before the save.
+- `changed`: the host holds something else.
+- `unreachable`
+- `none`: no save of that draft is unanswered.
+
+No route, wire frame or other export changes. `api-report/` records the added
+prop.
+
 ## Reading composer attachments (additive, 0.45.0, #3154)
 
 `@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
@@ -291,12 +319,35 @@ toolkit helpers `handleReadAttachment(input, bridge)` and
 `formatAttachmentRead(result, nonce?)`, and `BackendBridge` the optional
 `readAttachment(input)`. No existing export changes.
 
+## Host-owned web tools (additive, 0.45.0, #3685)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (and `/server`, which re-exports it)
+gains `WEB_TOOL_NAMES`, `WEB_TOOL_NAME_LIST`, `isWebToolName`,
+`WEB_TOOL_PROVIDERS`, `WEB_TOOL_LIMITS`, `WEB_TOOL_ERROR_CODES`, the four input
+schemas `WEB_SEARCH_INPUT_SCHEMA`, `FETCH_CONTENT_INPUT_SCHEMA`,
+`GET_SEARCH_CONTENT_INPUT_SCHEMA` and `SOURCE_CHECK_INPUT_SCHEMA`,
+`WEB_TOOL_CONTRACTS`, `parseWebToolInput(name, input)`,
+`webToolProviders(input)` and the types `WebToolName`, `WebToolProvider`,
+`WebToolErrorCode`, `WebToolEnvelope`, `WebToolParse`, `WebToolCall`,
+`WebToolInput` and each tool's input type, as
+[the MCP component](mcp.md#host-owned-web-tools-additive-0450-3685) describes.
+`@schlessera/brain-ui-sdk/server` gains the experimental backend toolkit
+helper `handleWebTool(name, input, bridge, toolCallId)`, and `BackendBridge`
+the optional `webAccess(call)`. No existing export changes.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated
 full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
 already uses for Open diagram. The framed diagram renderer's header uses it.
 No existing key, glyph or component changes.
+
+## UI-kit backspace icon (additive, 0.45.0, #3762)
+
+The semantic `IconName` gains `backspace`: discard what is held, as a
+keyboard's backspace key does. It draws lucide's `Delete`, the backspace-key
+glyph. The voice field's Discard draft control uses it. No existing key, glyph
+or component changes. This ships in a minor.
 
 ## UI-kit Button reach (additive #3252)
 
@@ -762,6 +813,13 @@ receipts; pi counts completed assistant `message_end` receipts, excluding aborte
 and error answers. Server checkpoint settlement uses these receipts as described
 in the [budget guide](../inbox-budget.md). Backends without this optional reporting
 retain conservative missing-receipt settlement.
+
+The additive server-only `BackendActivityEvent` variant `worker_cleanup`
+(#3815) contains `{ state: "retrying" | "resolved", bytes, turnTempBytes,
+errorClass?, message? }`. Both backends report retained cleanup allowances and
+their confirmation, including after a turn ends. The host records these as
+`worker_cleanup` Activity events on the original run without changing its
+terminal outcome. They never enter provider history and add no client frame.
 
 The additive server-only `BackendActivityEvent` variant `resource_limit`
 (#1660) contains `{ limits, fatal }`: each new host resource-limit hit of the
@@ -4943,6 +5001,23 @@ the composer renders exactly as before. No wire schema changes.
 `api-report/` records the added prop.
 
 
+<a id="spoken-turn-details-additive-0450-3728"></a>
+
+## Spoken-turn details (additive, 0.45.0, #3728)
+
+`SpokenTurnProps` in `@schlessera/brain-ui-kit` gains optional
+`details?: SpokenTurnDetails`, and the package exports the new type
+`SpokenTurnDetails` (`Omit<TranscriptQualifiersProps, "trigger">`). With it, a
+spoken turn renders one visually hidden "Details" stop, named by the existing
+transcript-qualifier string and marked `aria-haspopup="dialog"`, that shows as a
+pill on keyboard focus or after a 300ms pointer hover. Enter, Space, Shift+F10,
+the ContextMenu key, a right-click (unless text inside the turn is selected) and
+a 500ms touch long-press open the existing transcript details dialog, and focus
+returns to the stop on close. No glyph renders. `TranscriptQualifiersProps`,
+now reachable through that type, gains optional `trigger?: "glyphs" | "reveal"`;
+omitted or `"glyphs"`, the trigger renders exactly as before. A turn without
+`details` is unchanged. `api-report/` records the added props and type.
+
 ## Prospective trust policy data (additive, #3607)
 
 The governance policy types reachable through ui-server's public signatures
@@ -5111,3 +5186,9 @@ model tool or publication seam. Historical receipt projections and fresh
 its read-only reason additionally accepts `owner_required` or null; optional
 literal review lifetime/body bounds describe a supporting host. Absent or
 unsupported capability remains unavailable and grants no mutation authority.
+
+
+The journal host's additive `cleanupStatus()` method (#3815) returns
+`{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
+current accounting and historical diagnostic record exposed as
+[`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).

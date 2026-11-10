@@ -348,13 +348,16 @@ universal Cache-Control header is promised.
 the app's SQLite schema. Healthy: 200
 `{ status: "healthy", uptime: number, timestamp: string }`, where uptime is
 milliseconds since the route module initialized and timestamp is ISO UTC.
+A failed secondary backend returns 200 with `status: "degraded"` and
+`reasons: ["backend_unavailable"]`, retaining uptime and timestamp. Error text
+and backend identities remain behind authentication on `/api/status`.
 An unreadable database yields 503 `{ status: "unhealthy" }`, without detail.
 It never exposes release, source commit, runtime, credentials or session state;
 healthy does not certify upstream model or brain CLI availability.
 
 **GET /api/status** is protected, accepts no inputs, and returns
-`{ healthy: true, uptime, version, software, cronJobs, activeSession, metrics,
-runtime?, subscription? }`. `version` is the configured source commit (default
+`{ healthy: boolean, uptime, version, software, cronJobs, activeSession, metrics,
+runtime?, subscription?, backendAvailability? }`. `version` is the configured source commit (default
 `"dev"`), not a release; `software` is `{ release, sourceCommit }`. `cronJobs`
 contains `{ name, lastRunAt, lastStatus, lastDurationMs, lastError }`, nullable
 when a job has not run; it includes recorded jobs and configured in-process
@@ -363,6 +366,15 @@ jobs. `activeSession` means any active turn, not simply an open socket.
 series have name, kind (counter/updowncounter/histogram/gauge), numeric
 value and scalar attributes; histogram value is the observation count.
 Operational reads can fail with the common 500.
+
+`backendAvailability` contains `unavailable` (this boot's excluded backends) and
+`lastFailures` (the latest persisted failure per backend, retained after repair).
+Each record has `backendId`, `phase: "resolution" | "runtime"`, `errorClass`,
+`message`, `site` (the failed boot check) and ISO `at`. `healthy` is false while `unavailable` is nonempty.
+The default backend must pass boot validation; unavailable secondary backends
+are never constructed or routed to. Correct the package/runtime or host
+configuration and start again to revalidate. Prior records alone do not imply
+current degradation.
 
 `runtime.workerHost` is whether this host can run agent workers (#1632):
 `{ ordinary?, restricted? }`, each `{ available, checkedAt, trigger }` plus
@@ -400,7 +412,12 @@ and the [sync reporting contract](integration-contract/wire.md#activity-stream-r
 `subscription` contains `tokenSet`, nullable ISO `mintedAt`, `expiresAt`,
 `lastProvenAt`, `provenBy: "turn" | "model_discovery" | null` and nullable
 `lastAuthFailure` (`errorClass`, ISO `at`, `action`, `source`, optional
-`runId`, `message`, `status`). It never returns the token. Optional monitoring
+`runId`, `message`, `status`). An invalid configured mint date leaves
+`mintedAt` and `expiresAt` null and adds `expiryWarning` with
+`reason: "invalid_mint_date"`, `message` starting "expiry unknown: invalid mint date",
+`errorClass` and ISO `at`. It warns at boot and retains the last cause in the
+operational settings store; it never refuses serving or changes authentication.
+It never returns the token. Optional monitoring
 fields reflect injected capabilities; they are not a liveness requirement.
 
 ## Login, passkeys and delegated credentials
@@ -1607,7 +1624,7 @@ read by any authenticated principal.
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
 | `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write`, `outward_host_connect` or `compute_run` (a hosted external compute job start, #3108, its `target` the instance id); `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
-| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). |
+| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). Additively since #3685, Pi's host-owned `get_search_content` records `web_fetch` and `source_check` records `web_search`. |
 | `taint_exposure` | 1 | `occurrenceId`, `state` | A separate terminal observation for an open occurrence: `finalized` only after a completed bounded HTTP response, otherwise `interrupted_unknown`. Opaque CONNECT closure never establishes source finalization. This observation authorizes no safe verdict. |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider whose key the host withheld from the worker. Recorded from the token the CLI prints ([CLI contract](integration-contract/cli.md#withheld-provider-keys-additive-0440-1666)), one event per distinct token in a tool result and at most 20 per turn. `capability` is `embeddings`, `completions`, `reranking` or `image`; `command` is the shell command, or the tool's name for any other tool; `degradedTo` names the fallback used (`keyword_search`, `keyword_index`, `lifecycle_order`) or is `null`. The token is text in tool output, so the event is a diagnostic, not proof. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |
@@ -2053,3 +2070,10 @@ principal, generation, finalized-exposure and permanent retirement fences in
 the writer and SQLite trigger. Resolving a known event cannot repair unknown
 detector coverage, recording loss or another unresolved event. No model/voice
 tool, WS mutation frame, Settings rule or provider transcript edit is added.
+
+
+The authenticated status response also includes `journalCleanup` (#3815):
+current retained-checkpoint counts and bytes, plus `lastFailure`, a durable
+historical cause even when cleanup failed before the first turn. The historical
+record survives successful cleanup; current retained charges are reported
+separately. It is never part of public `/health`.

@@ -385,6 +385,60 @@ originals, on a host that advertises `composerFiles`:
   - **Unknown is not unread.** Until a session's records arrive, or on a host
     without `attachmentReads`, a row claims neither *read* nor *not read yet*.
     An image never reads as *not read yet*: it reaches the agent as a frame.
+- **The draft indicator replaces the save line (rev 4 §1, E1 A).** The
+  composer's draft status is the kit `StatusIndicator`, placed beside
+  Attach: attach · indicator · field · mic · send. Its 44px box takes a 28px
+  place in the row, so it touches its neighbours' boxes without growing the
+  field. An empty draft keeps the slot with no control. D52's persistent line
+  is gone from the composer; `DraftSaveLine` stays for the voice strip.
+  - **Success is one fact.** The host acknowledged this exact edit, with
+    every original bound and nothing of the draft still uploading. An
+    acknowledgement of an older edit never shows ✓; the indicator stays
+    active until the newer one is acknowledged.
+  - **The other states keep their facts.** These states come from rev 4 §1:
+    queued while a file uploads, attention when offline (*Last saved* or
+    *never*), unknown when a save's answer was lost, failed or unknown for an
+    upload, and refused for a space refusal (**Open Storage**). D52's too
+    large, host full and unavailable become refused or attention states. A
+    conflict keeps **Compare drafts**, and another tab's version keeps **Open
+    other version**. Both are now detail actions.
+  - **Check again is a read.** A save whose answer was lost is kept in the
+    tab. Check again reads the draft once (`GET /api/drafts/:draftId`, rev 5
+    §1). If the host's revision is the one that save would make, with the
+    same text, images, `files[].fileId` and snapshot list, the save is
+    acknowledged. Anything else changes nothing. It never saves; the save's
+    own idempotent retries go on as before.
+  - **Quiet, and still where it was.** Opening details reads and writes
+    nothing. Closing them returns focus to the indicator. Only active work
+    animates, and reduced motion keeps the glyph still. The indicator passes
+    `announce={false}`: saving was silent before, and upload outcomes keep
+    the composer's own announcement.
+  - **The leave guards are unchanged.** Every state but saved and hidden is
+    at risk. An unacknowledged draft still holds the update reload
+    (`holdsUnsaved`), and a queued upload still arms the browser's leave
+    prompt.
+  - **An upload cut off by a reload is named, not restored (rev 5 §1).** The
+    device-kept work context (#1014) records the names of files still
+    uploading, never their bytes. After a cold reload their chips are gone.
+    That draft's composer then says *{name} was still uploading when the page
+    closed. It isn't attached. Choose it again to attach it.* until it is
+    dismissed. The notice says nothing about storage or cleanup. The host's
+    own references decide that: 1 hour for a file never bound, 7 days from the
+    last reference otherwise.
+- **One end-to-end proof of an on-demand read.**
+  `packages/ui-react/tests/attachment-read-runtime.test.ts` runs the public
+  ChatPage in real Chrome against the real host, keyless and offline. The
+  Files input uploads an Odysseus permit PDF. The test checks that the host
+  stores the original byte for byte under `.brain-ui/attachments/<fileId>/`
+  and that the saved revision binds it. Send carries `attachmentRefs` and the
+  `draftRef`, and the first message names the file without its contents. A
+  scripted turn, registered as `pi` because the bridge offers reads only to
+  the first-party backends, calls the SDK's `handleReadAttachment` through
+  the host bridge. The production reader and PDF extractor return page 2.
+  The reply quotes a sentence found only in the file, the host records the
+  read and sends its `attachment_read` frame, and the sent row shows
+  *read p. 2*. The native tool loops and their provider-history stability
+  stay with each backend's `read-attachment` guard.
 
 
 The rejected options were offered in the rulings above:

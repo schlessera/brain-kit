@@ -165,7 +165,7 @@ export function dictation(id: DictationId, motion?: VoiceMotion): ReactNode {
     case "D6":
       return (
         <VoiceField shape="compact" tone="idle" name="Message" trailing={<><MicButton name="Dictate more" onClick={fn()} motion={motion} />{send}</>} motion={motion}>
-          <VoiceText>
+          <VoiceText text="Ask Calypso about the axe and the sail cloth.">
             <>Ask Calypso about the axe and the <UncertainWord onClick={fn()}>sail</UncertainWord> cloth.</>
           </VoiceText>
         </VoiceField>
@@ -306,15 +306,20 @@ export function draftControls(o: { speaking?: boolean } = {}) {
     <>
       <VoiceControlButton name="Mute" icon="mic" pressed={false} onClick={fn()} />
       {o.speaking ? <VoiceControlButton name="Interrupt" icon="interrupt" onClick={fn()} /> : null}
-      <VoiceControlButton name="Discard draft" icon="withdrawn" onClick={fn()} />
+      <VoiceControlButton name="Discard draft" icon="backspace" onClick={fn()} />
       <VoiceControlButton name="Send now" icon="send" tone="you" onClick={fn()} />
       <VoiceControlButton name="End" icon="dismiss" tone="end" onClick={fn()} />
     </>
   );
 }
 
+/**
+ * Rich draft words pass their plain form as `text` too: they are words, so
+ * the tall field keeps their newest two lines (#3773, R1).
+ */
+const DRAFT_TEXT = "Ask Calypso when the axe is back and add it to the tally.";
 const draftWords = (
-  <VoiceText>
+  <VoiceText text={DRAFT_TEXT}>
     <>Ask Calypso when the axe is back and add it to the <UncertainWord onClick={fn()}>tally</UncertainWord>.</>
   </VoiceText>
 );
@@ -347,7 +352,7 @@ export function live(id: LiveId, motion?: VoiceMotion): ReactNode {
     case "L1d":
       return tall({ tone: "you", icon: "mic", word: "Listening", meta: DRAFT_META, meter: "level", level: 0.85, controls: draftControls(), body: draftWords });
     case "L1u":
-      return tall({ tone: "you", icon: "mic", word: "Listening", meta: DRAFT_META, meter: "level", level: 0.6, controls: draftControls(), body: <VoiceText text="I couldn’t hear that clearly. Review before sending." /> });
+      return tall({ tone: "you", icon: "mic", word: "Listening", meta: DRAFT_META, meter: "level", level: 0.6, controls: draftControls(), body: <VoiceText>I couldn’t hear that clearly. Review before sending.</VoiceText> });
     case "L1o":
       return tall({
         tone: "you",
@@ -363,7 +368,7 @@ export function live(id: LiveId, motion?: VoiceMotion): ReactNode {
             <VoiceControlButton name="End" icon="dismiss" tone="end" onClick={fn()} />
           </>
         ),
-        body: <VoiceText text="Brain’s voice was paused after a dropout. Replies still arrive as text." />,
+        body: <VoiceText>Brain’s voice was paused after a dropout. Replies still arrive as text.</VoiceText>,
       });
     case "L2":
       return tall({ tone: "brain", icon: "loading", word: "Thinking", time: "0:15", meter: "sweep", spin: true });
@@ -376,13 +381,13 @@ export function live(id: LiveId, motion?: VoiceMotion): ReactNode {
     case "L5":
       return tall({ tone: "you", icon: "mic", word: "Listening", time: "0:27", meter: "level", level: 0.75 });
     case "L6":
-      return tall({ tone: "idle", icon: "hand", word: "Needs your tap", time: "0:41", meter: "none", outline: true, body: <VoiceText text="Tap Allow or Deny on the card. Voice can’t approve or refuse with this service." /> });
+      return tall({ tone: "idle", icon: "hand", word: "Needs your tap", time: "0:41", meter: "none", outline: true, body: <VoiceText>Tap Allow or Deny on the card. Voice can’t approve or refuse with this service.</VoiceText> });
     case "L7":
       return tall({ tone: "idle", icon: "mic-off", word: "Muted", time: "0:52", meter: "flat", muted: true });
     case "L8":
       return tall({ tone: "idle", icon: "loading", word: "Reconnecting…", time: "1:03", meter: "hatch" });
     case "L8r":
-      return tall({ tone: "idle", icon: "loading", word: "Reconnecting…", meta: "mic off", meter: "hatch", connecting: true, body: <VoiceText text="Waiting for voice to be ready. Nothing is heard until then." /> });
+      return tall({ tone: "idle", icon: "loading", word: "Reconnecting…", meta: "mic off", meter: "hatch", connecting: true, body: <VoiceText>Waiting for voice to be ready. Nothing is heard until then.</VoiceText> });
     case "L9":
       return (
         <VoiceNotice
@@ -408,6 +413,33 @@ export function live(id: LiveId, motion?: VoiceMotion): ReactNode {
     case "L10":
       return <VoiceField shape="compact" tone="idle" name="Message" trailing={mic(motion)} motion={motion}><VoiceText placeholder="Message" /></VoiceField>;
   }
+}
+
+/* ── The tall field under enlarged text (#3773) ───────────────────────── */
+
+/**
+ * The states that carry a body, and L1 without one as the control. Under
+ * enlarged text the field grows to its content and hides nothing.
+ */
+export const ENLARGED_IDS = ["L1d", "L4d", "L6", "L1o", "L1"] as const satisfies readonly LiveId[];
+
+/**
+ * 200% text, applied the way the app's enlarged-text audit applies it
+ * (`control audit … text 2` in ui-react's `conversation-controls.offline.tsx`):
+ * the surface's text is doubled from 12px, and every block and control inherits
+ * it at a 1.3 line height. Text-only, so it exercises wrapping independently
+ * of viewport zoom. The field sits in the app's 8px phone gutter, so at a
+ * 320px viewport it is the app's 304px.
+ */
+const ENLARGED_TEXT = "[data-enlarged-text] { font-size: 24px } [data-enlarged-text] :is(div,button,[role=button]) { font-size: inherit !important; line-height: 1.3 !important }";
+
+export function EnlargedText({ children }: { children: ReactNode }) {
+  return (
+    <div data-enlarged-text="" style={{ width: "100%", boxSizing: "border-box", padding: "0 8px" }}>
+      <style>{ENLARGED_TEXT}</style>
+      {children}
+    </div>
+  );
 }
 
 /* ── The sheet every state is baselined in ─────────────────────────────── */

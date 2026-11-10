@@ -142,7 +142,7 @@ async function adverseFixture(kind: "inference" | "provider", finalWait = false)
           return { allowed: true };
         }, egress: { relayed: (...args) => observeOperation(proxy.relayed(...args)) } });
   return {
-    db, writer, writes, turn, bridge, catalog, controller, reads, proxy, hold,
+    db, writer, writes, turn, bridge, catalog, controller, reads, proxy, hold, host,
     enteredAdmission: enteredAdmission.promise, finalReached: finalReached.promise, releaseFinal: releaseFinal.resolve,
     revoke() { authorized = false; }, requests: () => requests,
     track(work: Promise<unknown>) { pending.push(work); void work.catch(() => {}); },
@@ -239,3 +239,45 @@ for (const kind of ["inference", "provider"] as const) {
     });
   }
 }
+
+for (const kind of ["inference", "provider"] as const) test(`${kind} own-binding deadline leaves another healthy turn usable`, async () => {
+  const f = await adverseFixture(kind), clock = Object.getOwnPropertyDescriptor(Date, "now")!, now = Date.now;
+  let peer: Awaited<ReturnType<typeof prepareTurnEgress>> | undefined;
+  let relay: ReturnType<typeof startInferenceRelay> | ReturnType<typeof startProviderRelay> | undefined;
+  let requests = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { requests++; return Response.json({ content: [] }); } });
+  try {
+    const held = await f.hold(); f.announce();
+    const refused = f.send(); await f.enteredAdmission;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    Object.defineProperty(Date, "now", { ...clock, value: () => now() + 10001 });
+    expect((await refused).status, "OWN_BINDING_DEADLINE_REFUSES_ONLY_ITS_REQUEST").toBe(403);
+    Object.defineProperty(Date, "now", clock); held.release();
+    await held.committed; await f.catalog.settled!(); await f.proxy.settled();
+    const controller = new AbortController();
+    const turn = { ...f.turn, turnId: "other-voyage", requestId: "pylos-request", sessionId: null, abortController: controller, queue: [] };
+    const bridge = await makeBridge(f.host, turn, { backendId: "claude", promptText: "Nestor reads the harbour notice." });
+    bridge.emit({ type: "session_info", sessionId: "pylos", isNew: true });
+    await f.catalog.settled!();
+    peer = await prepareTurnEgress({ policy: resolveGovernancePolicy({ schema_version: 1 }), bridge, controller,
+      turnId: turn.turnId, sessionId: () => turn.sessionId, model: () => null, profile: "governed", origin: "interactive",
+      governanceDb: f.db, governanceWrites: f.writes, record: event => f.writes.record(event) });
+    relay = kind === "inference"
+      ? startInferenceRelay({ upstream: origin.url.origin, routes: ["/v1/messages"], credentials: { "x-api-key": "odysseus-offline-only-key" }, egress: peer })
+      : startProviderRelay({ origins: new Map([["ODYSSEUS_RELAY_KEY", [origin.url.origin]]]), credential: () => "odysseus-offline-only-key", egress: peer });
+    const status = await new Promise<number>((resolve, reject) => {
+      const body = JSON.stringify({ model: "odysseus", messages: [] });
+      const outgoing = request({ socketPath: relay!.socketPath, path: "/v1/messages", method: "POST", headers: {
+        "content-type": "application/json", "content-length": String(Buffer.byteLength(body)), "x-brain-provider": "anthropic",
+        "x-brain-provider-key": "ODYSSEUS_RELAY_KEY", "x-brain-provider-origin": origin.url.origin,
+      } }, incoming => { incoming.resume(); incoming.on("error", reject); incoming.on("end", () => resolve(incoming.statusCode!)); });
+      outgoing.on("error", reject); outgoing.end(body);
+    });
+    expect(status, "OWN_BINDING_DEADLINE_DOES_NOT_LATCH_ANOTHER_TURN").toBe(200);
+    expect(requests, "HEALTHY_PEER_DISPATCHES_ONCE_WITHOUT_RETRY").toBe(1);
+    expect(f.requests(), "EXPIRED_REQUEST_WAS_NEVER_RETRIED").toBe(0);
+  } finally {
+    Object.defineProperty(Date, "now", clock);
+    await relay?.stop(); peer?.stop(); await peer?.settled(); origin.stop(true); await f.close();
+  }
+});

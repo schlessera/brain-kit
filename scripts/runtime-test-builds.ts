@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 export const runtimeTestBuilds: Readonly<Record<string, readonly string[]>> = Object.fromEntries([
-  "answer-delivery", "approval-recovery", "artifact-recovery", "association-signout", "auth-expiry", "chat-focus",
+  "answer-delivery", "approval-recovery", "artifact-recovery", "attachment-read", "association-signout", "auth-expiry", "chat-focus",
   "connection-continuity", "dictation-selection", "draft", "ended-question", "external-speech", "html-preview", "local-work", "parallel-sessions", "scratch-links", "tracker", "turn-journal", "untrusted-marks",
 ].map(name => [`packages/ui-react/tests/${name}-runtime.test.ts`, ["ui-react", "ui-server", "core"]]));
 const special: Readonly<Record<string, readonly string[]>> = {

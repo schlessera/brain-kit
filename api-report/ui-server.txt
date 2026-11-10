@@ -242,6 +242,15 @@ signatures (every public export and the types it is made of)
     export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
         [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
     };
+  BackendBootFailure (packages/ui-server/src/agent/backend.ts)
+    export interface BackendBootFailure {
+        backendId: string;
+        phase: "resolution" | "runtime";
+        site: "assertBackendResolvable" | "probeBackendRuntimes";
+        errorClass: string;
+        message: string;
+        at: string;
+    }
   BackendRegistry (packages/ui-server/src/agent/backend.ts)
     export interface BackendRegistry {
         getBackends(): Promise<AgentBackend[]>;
@@ -1564,6 +1573,12 @@ signatures (every public export and the types it is made of)
         statCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["statCheckpoint"];
         listCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["listCheckpoint"];
     }
+  NativeJournalReleaseAccounting (packages/ui-server/src/brain/native-journal-observer.ts)
+    export interface NativeJournalReleaseAccounting {
+        pending: number;
+        failed: number;
+        retainedBytes: number;
+    }
   NativeManagerReady (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativeManagerReady {
         brainPath: string;
@@ -2189,6 +2204,7 @@ signatures (every public export and the types it is made of)
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
         idleObservationMs?: number;
+        log?: Logger;
     }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
@@ -2379,7 +2395,7 @@ signatures (every public export and the types it is made of)
         turn_usd: z.ZodNumber;
     }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
-    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
+    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): BackendBootFailure[];
   attribution (packages/ui-server/src/governance/events.ts)
     const attribution: z.ZodObject<{
         actor: z.ZodEnum<{
@@ -2519,6 +2535,10 @@ signatures (every public export and the types it is made of)
             directory: string;
             inode: string;
             note: string;
+        };
+        cleanupStatus(): {
+            lastFailure: unknown;
+            retained: import("./native-journal-observer.js").NativeJournalReleaseAccounting;
         };
         close(): Promise<void>;
         configurationCoverage(): ConfigurationCoverageRead;
