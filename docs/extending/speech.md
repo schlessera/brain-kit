@@ -275,7 +275,7 @@ provider. `VOICE_PROVIDER=gemini` selects it explicitly. Without
 `VOICE_PROVIDER` it is used only when `DEEPGRAM_API_KEY` is unset, so a host
 that already has a Gemini key for chat models keeps dictating to Deepgram.
 Microphone audio then streams from the browser straight to Google, and the
-dictation sheet says so.
+voice field says so ("to Google Gemini").
 
 The key stays on the server. For each take the server sends one
 `POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` with the

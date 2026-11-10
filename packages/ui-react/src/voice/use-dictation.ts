@@ -4,10 +4,28 @@ import { useVoiceStore } from "./voice-store.js";
 import { type AsrClient } from "@schlessera/brain-ui-sdk/client";
 import { speechUiHints } from "@schlessera/brain-ui-sdk/internal/client";
 import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
-import { dictationFailure, dictationExplanation, speechError } from "./dictation-failure.js";
+import { dictationFailure, dictationExplanation, endedNotice, speechError } from "./dictation-failure.js";
 import { registerAsrClients } from "./asr-clients.js";
 import { endDictation, live, owners, release, stopping, type Capture } from "./dictation-capture.js";
 import { acknowledge, dictationTarget, freshDiscovery, invalidateDiscovery, isAcknowledged, loadDiscovery } from "./dictation-providers.js";
+
+/** V3 (#3690): a take with no speech for this long stops on its own, to review or to rest. */
+export const SILENCE_STOP_MS = 30_000;
+/** No speech for this long draws the take as quiet (D4). */
+const QUIET_MS = 1_500;
+/** An input level at or above this counts as speech; transcript events always do. */
+const SPEECH_LEVEL = 0.15;
+
+/**
+ * Whether opening the microphone will ask (D2), read without asking. A
+ * browser that cannot say answers null, and the take stays "Connecting".
+ */
+async function microphonePrompt(): Promise<boolean | null> {
+  try {
+    const status = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+    return status ? status.state === "prompt" : null;
+  } catch { return null; }
+}
 
 /** Apply pronunciation overrides client-side to a finalized transcript. */
 function applyOverrides(
@@ -44,6 +62,10 @@ export function useDictation() {
   const consentRef = useRef<((confirmed: boolean) => void) | null>(null);
   // The last capture this hook started, on the root it started it on.
   const captureRef = useRef<Capture | null>(null);
+  // Ends the silence watch of the capture that is listening (V3).
+  const silenceRef = useRef<(() => void) | null>(null);
+  // stop() is defined after start(); the silence watch calls the current one.
+  const stopRef = useRef<(commitToReview?: boolean) => Promise<void>>(async () => {});
   const setMode = useVoiceStore((s) => s.setMode);
   const setConnecting = useVoiceStore((s) => s.setConnecting);
   const setProviderId = useVoiceStore((s) => s.setProviderId);
@@ -51,6 +73,44 @@ export function useDictation() {
   const appendFinal = useVoiceStore((s) => s.appendFinal);
   const setError = useVoiceStore((s) => s.setError);
   const resetCapture = useVoiceStore((s) => s.resetCapture);
+
+  /**
+   * V3: while the capture listens, speech is a transcript event or an input
+   * level at SPEECH_LEVEL. After QUIET_MS without any the take is quiet (D4);
+   * after SILENCE_STOP_MS it stops as Done would, so what was heard goes to
+   * review (D6), and an empty take simply ends (D1). The watch ends with the
+   * capture, however it ends.
+   */
+  const watchSilence = useCallback((capture: Capture) => {
+    const voice = root.stores.voice;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    let silence: ReturnType<typeof setTimeout> | undefined;
+    const end = () => {
+      clearTimeout(quiet);
+      clearTimeout(silence);
+      unsubscribe();
+      if (silenceRef.current === end) silenceRef.current = null;
+    };
+    const arm = () => {
+      clearTimeout(quiet);
+      clearTimeout(silence);
+      if (voice.getState().quiet) voice.setState({ quiet: false });
+      quiet = setTimeout(() => {
+        if (owners.get(capture.root) === capture && !stopping.has(capture)) voice.setState({ quiet: true });
+      }, QUIET_MS);
+      silence = setTimeout(() => {
+        end();
+        if (owners.get(capture.root) === capture && !stopping.has(capture)) void stopRef.current(true).catch(() => {});
+      }, SILENCE_STOP_MS);
+    };
+    const unsubscribe = voice.subscribe((state, previous) => {
+      if (owners.get(capture.root) !== capture || stopping.has(capture)) { end(); return; }
+      if (state.finalText !== previous.finalText || state.partial !== previous.partial
+        || (state.audioLevel >= SPEECH_LEVEL && state.audioLevel !== previous.audioLevel)) arm();
+    });
+    arm();
+    return end;
+  }, [root]);
 
   const start = useCallback(async () => {
     if (root.authLock.state.getState().phase !== "active") return;
@@ -63,15 +123,18 @@ export function useDictation() {
     consentRef.current?.(false);
     consentRef.current = null;
     root.stores.voice.setState({ dictationGate: null, dictationTarget: null });
-    // Show the sheet immediately, but as "connecting" — the mic is still shut
-    // during the session fetch, so we must not present a live "Listening" state
-    // (or its pulsing dot) until capture is actually open.
+    // Show the field immediately, but as "connecting" (Dc) — the mic is still
+    // shut during the session fetch, so nothing may say "Listening" until
+    // capture is actually open.
     setConnecting(true);
     setMode("dictate");
 
     const abort = new AbortController();
     sessionAbortRef.current = abort;
     const current = () => startGenRef.current === gen && live(capture);
+    // Read alongside the session, so knowing whether the browser will ask
+    // costs the take no time. It never opens the microphone.
+    let prompt: Promise<boolean | null> | null = null;
 
     try {
       // Where the words go, from a snapshot young enough to disclose (#3709).
@@ -104,6 +167,7 @@ export function useDictation() {
       // The take is bound to the provider it disclosed; a default saved
       // elsewhere from now on changes nothing about it.
       root.stores.voice.setState({ dictationTarget: provider });
+      prompt = microphonePrompt();
       // Fetch the dictation session + pronunciation overrides. The AsrClient's
       // start() opens the mic and buffers audio until its stream is ready, so
       // words spoken during connect are not lost.
@@ -163,6 +227,14 @@ export function useDictation() {
       // grab and close it (releasing its MediaStream) while the mic is opening.
       clientRef.current = client;
       capture.client = client;
+      // D2: the browser asks before the microphone opens.
+      if (await prompt) {
+        if (startGenRef.current !== gen || !live(capture)) {
+          if (clientRef.current === client) clientRef.current = null;
+          return;
+        }
+        root.stores.voice.setState({ micPrompt: true });
+      }
       await client.start();
       // Stopped while the mic was opening? Close the client we just started —
       // its start() honors the closed flag and releases the stream.
@@ -171,9 +243,10 @@ export function useDictation() {
         if (clientRef.current === client) clientRef.current = null;
         return;
       }
-      // Capture is live now — drop the connecting state so the sheet can show
+      // Capture is live now — drop the connecting state so the field can show
       // the honest "Listening" indicator.
-      setConnecting(false);
+      root.stores.voice.setState({ connecting: false, micPrompt: false, quiet: false });
+      silenceRef.current = watchSilence(capture);
     } catch (err) {
       // A superseded start failing (e.g. the aborted session fetch) is
       // expected — swallow it so it doesn't surface a spurious error.
@@ -183,7 +256,7 @@ export function useDictation() {
       clientRef.current?.stop();
       clientRef.current = null;
       setError(dictationExplanation(reason, "startup"));
-      root.stores.voice.setState({ dictationNotice: { reason, phase: "startup", retained: false }, dictationGate: null, dictationTarget: null });
+      root.stores.voice.setState({ dictationNotice: { reason, phase: "startup", retained: false }, dictationGate: null, dictationTarget: null, micPrompt: false });
       release(capture);
       setConnecting(false);
       setMode("idle");
@@ -198,6 +271,7 @@ export function useDictation() {
     setPartial,
     appendFinal,
     setError,
+    watchSilence,
   ]);
 
   // Invalidate any in-flight start, cancel its session fetch, and hand back
@@ -205,6 +279,7 @@ export function useDictation() {
   // runs, not when the hook mounted, so it reaches a session started later.
   const releaseCapture = useCallback((): AsrClient | null => {
     startGenRef.current++;
+    silenceRef.current?.();
     consentRef.current?.(false);
     consentRef.current = null;
     sessionAbortRef.current?.abort();
@@ -264,7 +339,7 @@ export function useDictation() {
       // take survived, does not: Done is not a provider failure.
       const { finalText, partial } = root.stores.voice.getState();
       const notice = commitToReview && drained && capture?.drainFailure
-        ? { reason: capture.drainFailure, phase: "ended" as const, retained: Boolean([finalText, partial].join(" ").trim()) }
+        ? endedNotice(capture.drainFailure, [finalText, partial].filter(Boolean).join(" "))
         : null;
       const handled = endDictation(root.stores.voice, commitToReview, {
         ...(drained || ownDrain ? { draining: false } : {}),
@@ -283,6 +358,7 @@ export function useDictation() {
     [releaseCapture, resetCapture, root]
   );
 
+  stopRef.current = stop;
   useEffect(() => root.authLock.registerStop(() => stop(false)), [root, stop]);
 
   const cancel = useCallback(() => {
