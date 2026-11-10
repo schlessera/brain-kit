@@ -88,7 +88,7 @@ describe("brain_context in pi", () => {
     expect(coverage.exhaustive).toBe(false);
     expect(coverage.exclude).toEqual([FOCUS, REGISTRY]);
     expect(coverage.excerpts.length).toBeGreaterThan(0);
-    expect(coverage.excerpts.every((e) => e.lane === "search" || e.lane === "related")).toBe(true);
+    expect(coverage.excerpts.filter((e) => e.lane !== "search" && e.lane !== "related")).toEqual([]);
   });
 
   test("include constrains selection and expansion, and names requested paths it left out", async () => {
@@ -107,6 +107,6 @@ describe("brain_context in pi", () => {
       contextTool().execute("c", { query: SCOPE_QUERY, include: ["../outside.md"] }, undefined, undefined, CTX)
     ).rejects.toThrow("include:");
     const after = await counts();
-    expect(after.every(([rel, n]) => n === before.get(rel))).toBe(true);
+    expect(after).toEqual([...before]);
   });
 });

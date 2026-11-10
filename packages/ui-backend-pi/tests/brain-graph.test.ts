@@ -84,7 +84,7 @@ describe("brain_graph wrapper", () => {
       }
       expect(endpoints.size).toBeGreaterThan(1);
       const expected = [...endpoints].sort().map(expectedNode);
-      expect(expected.every((n) => n.title && n.type)).toBe(true);
+      expect(expected.filter((n) => !n.title || !n.type)).toEqual([]);
       expect(nodes).toEqual(expected);
     });
   }
