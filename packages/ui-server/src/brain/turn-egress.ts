@@ -8,6 +8,7 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyProjection } from "../governance/safety-store.js";
+import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -248,18 +249,20 @@ export async function prepareTurnEgress(options: {
   const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
     const operation = proxy[kind](method, target, signal);
     return { ...operation, async admit() {
-      // A completed worker connection may still be committing its terminal
-      // exposure. Join only this turn proxy's submitted records before taking
-      // a fresh admission snapshot; independent pending input still refuses.
+      // Join this proxy's terminal records and this bridge's announced
+      // session binding before the new snapshot. A concurrent FULL binding
+      // must not change a healthy scope underneath its first admission.
+      // Independent pending input still refuses in the unchanged final fences.
       if (operation.signal.aborted) return false;
       let abort: (() => void) | undefined;
       try {
-        const ready = await Promise.race([settled().then(() => true), new Promise<false>(resolve => {
+        const ready = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => false), new Promise<false>(resolve => {
           abort = () => resolve(false);
           operation.signal.addEventListener("abort", abort, { once: true });
           if (operation.signal.aborted) resolve(false);
         })]);
-        return ready && !operation.signal.aborted && await operation.admit();
+        if (!ready) { operation.finish("denied", "session_binding_unavailable"); return false; }
+        return !operation.signal.aborted && await operation.admit();
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };
   };
