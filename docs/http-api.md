@@ -156,7 +156,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
-| GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Exact authenticated history owner; immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
+| GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
 | POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
@@ -2057,9 +2057,14 @@ and `detailPruned`. Responses are `Cache-Control: no-store` and at most 262144
 UTF-8 bytes. No request invokes a verdict, policy writer, backend turn or
 provider transcript write.
 
-The exact live principal must own the retained history. There is no equivalence
-between separate owner logins, delegated credentials or ambient identities.
-The existing native-history and dialogue APIs keep their visibility rules.
+The live principal must belong to the retained history's account (#3952). A
+principal id always matches itself. Two different ids match only when both
+resolve to the same account partition in every auth mode, which today means
+two owner logins; a delegated, ambient or system principal matches only
+itself, and a missing or unresolvable principal matches no other id. A cursor
+stays with the one login that read it: another login's cursor is refused as
+expired (409). The existing native-history and dialogue APIs keep their
+visibility rules.
 Unknown/unowned legacy safety collections return explicit unavailable; known
 legacy collection gaps never imply normal. Revoked/expired callers receive
 401, malformed queries 400, expired/generation-changed or membership-gap cursors 409, capacity
