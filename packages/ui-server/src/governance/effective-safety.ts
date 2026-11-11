@@ -14,7 +14,7 @@ export interface LiveTrustRevision {
 export function createEffectiveSafety(db: Database, options: {
   turnId: string; sessionId: () => string | null; policyHash: string | null;
   brain?: string;
-  writes?: Pick<GovernanceWrites, "safety">;
+  writes?: Pick<GovernanceWrites, "safety"> & Partial<Pick<GovernanceWrites, "recordingAvailable">>;
   authority(): { current: boolean; epoch: string };
   trust?: LiveTrustRevision;
   signal?: AbortSignal;
@@ -49,7 +49,10 @@ export function createEffectiveSafety(db: Database, options: {
     return { evidenceRevision, trustRevision, authorityEpoch: authority.epoch,
       scope: JSON.stringify([options.brain ?? db.filename, options.turnId, projection.session]), policyHash: options.policyHash,
       restricted: projection.restriction === "restricted",
-      recordingAvailable: !projection.reasons.some(reason => ["recording_pending", "recording_failed", "capacity"].includes(reason)),
+      // The facade also knows a turn begun restricted: its permanent gap
+      // covers anything it loses, so it runs under its tainted policy (#3812).
+      recordingAvailable: options.writes?.recordingAvailable ? options.writes.recordingAvailable(options.turnId, sessionId)
+        : !projection.reasons.some(reason => ["recording_pending", "recording_failed", "capacity"].includes(reason)),
       authorityCurrent: authority.current };
   };
   return {
