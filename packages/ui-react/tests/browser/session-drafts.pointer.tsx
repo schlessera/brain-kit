@@ -334,12 +334,13 @@ async function openSessions(s: Scene, mode: string) {
   await expect.poll(() => s.ui.stores.ui.getState().sessionPanelOpen, { message: "Sessions is open" }).toBe(true);
 }
 
-const THEMES = ["dark", "light"] as const;
+// One theme per scenario: nothing pressed, measured or decoded here takes a
+// theme-specific class, and Storybook owns light/dark parity.
 
-for (const width of [320, 390, 480, 900, 1280, 1440] as const) for (const theme of THEMES) {
-  test(`${width} (${theme}): A's text and image survive New chat, B, Sessions and Actions; B is a Draft entry`, async (ctx) => {
+for (const width of [320, 390, 480, 900, 1280, 1440] as const) {
+  test(`${width}: A's text and image survive New chat, B, Sessions and Actions; B is a Draft entry`, async (ctx) => {
     const mode = pointer();
-    const s = await mount(ctx, width, 800, theme);
+    const s = await mount(ctx, width, 800, "dark");
     const wind = "Ask Aeolus for the west wind";
     await type(s, wind);
     await attach(s, await pngFile("bag-of-winds.png", "#1e5aa0"));
@@ -402,10 +403,10 @@ const entries: Array<{ width: number; via: "disc" | "pane" | "palette" }> = [
   { width: 390, via: "disc" }, { width: 900, via: "disc" }, { width: 900, via: "palette" },
   { width: 1280, via: "pane" }, { width: 1440, via: "palette" },
 ];
-for (const { width, via } of entries) for (const theme of THEMES) {
-  test(`${width} (${theme}): New chat by the ${via} while A streams keeps A's work and draft`, async (ctx) => {
+for (const { width, via } of entries) {
+  test(`${width}: New chat by the ${via} while A streams keeps A's work and draft`, async (ctx) => {
     const mode = pointer();
-    const s = await mount(ctx, width, 800, theme);
+    const s = await mount(ctx, width, 800, "dark");
     s.socket.deliver({ type: "status", sessionId: ITHACA.id, status: "thinking", turnId: "ithaca-turn-5" });
     s.socket.deliver({ type: "text_delta", sessionId: ITHACA.id, turnId: "ithaca-turn-5", text: "Rowing past Scylla" });
     await type(s, "Keep the crew from the cattle of the sun");
@@ -437,8 +438,8 @@ for (const { width, via } of entries) for (const theme of THEMES) {
 
 // Keyboard up (coarse pointers): the soft keyboard is supplied as a visual
 // viewport 260px shorter, which is what `useSoftKeyboard` reads.
-for (const width of [320, 390] as const) for (const theme of THEMES) {
-  test(`${width} (${theme}): with the keyboard up, switching sessions mid-edit keeps each draft`, async (ctx) => {
+for (const width of [320, 390] as const) {
+  test(`${width}: with the keyboard up, switching sessions mid-edit keeps each draft`, async (ctx) => {
     const mode = pointer();
     if (mode === "fine") ctx.skip();
     const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
@@ -448,7 +449,7 @@ for (const width of [320, 390] as const) for (const theme of THEMES) {
       if (original) Object.defineProperty(window, "visualViewport", original);
       else delete (window as { visualViewport?: unknown }).visualViewport;
     });
-    const s = await mount(ctx, width, 568, theme);
+    const s = await mount(ctx, width, 568, "dark");
     await press(s, composer(s), mode);
     expect(document.activeElement, "the composer has focus").toBe(composer(s));
     await type(s, "Half a thought about the Phaeacians");
@@ -468,10 +469,10 @@ for (const width of [320, 390] as const) for (const theme of THEMES) {
 }
 
 // A send the host never confirmed, held for review (D52 §5).
-for (const width of [390, 1280] as const) for (const theme of THEMES) {
-  test(`${width} (${theme}): the socket closing after a send holds it for review; nothing is resent without Send again`, async (ctx) => {
+for (const width of [390, 1280] as const) {
+  test(`${width}: the socket closing after a send holds it for review; nothing is resent without Send again`, async (ctx) => {
     const mode = pointer();
-    const s = await mount(ctx, width, 800, theme);
+    const s = await mount(ctx, width, 800, "dark");
     const harbour = "Which harbour is safest on Ithaca?";
     await type(s, harbour);
     await userEvent.keyboard("{Enter}");
@@ -516,15 +517,15 @@ for (const width of [390, 1280] as const) for (const theme of THEMES) {
 }
 
 // Honest states the host cannot make true.
-for (const width of [390, 1440] as const) for (const theme of THEMES) {
-  test(`${width} (${theme}): a host without drafts keeps them here and says so; a conflict keeps both`, async (ctx) => {
+for (const width of [390, 1440] as const) {
+  test(`${width}: a host without drafts keeps them here and says so; a conflict keeps both`, async (ctx) => {
     const mode = pointer();
-    const local = await mount(ctx, width, 800, theme, { drafts: false });
+    const local = await mount(ctx, width, 800, "dark", { drafts: false });
     await type(local, "Ask Nausicaa about the washing place");
     await expect.poll(() => saveSummary(local), { message: "the unavailable copy" }).toBe("Not saved: this host doesn't keep drafts. Your text is kept on this device.");
     flushSync(() => local.host.remove());
 
-    const s = await mount(ctx, width, 800, theme);
+    const s = await mount(ctx, width, 800, "dark");
     await type(s, "Ask Eumaeus about the swineherd");
     await expect.poll(() => saveLine(s)?.dataset.draftSave).toBe("saved");
     s.drafts.race("Ask Eumaeus at dawn");
@@ -649,10 +650,10 @@ async function openTrackEntry(s: Scene, mode: string) {
   expect(composer(s).value, "no words appeared").toBe("");
 }
 
-for (const width of [320, 390, 900, 1280, 1440] as const) for (const theme of THEMES) {
-  test(`${width} (${theme}): a new chat holding only a staged track stays reachable through New chat; removing it ends the entry`, async (ctx) => {
+for (const width of [320, 390, 900, 1280, 1440] as const) {
+  test(`${width}: a new chat holding only a staged track stays reachable through New chat; removing it ends the entry`, async (ctx) => {
     const mode = pointer();
-    const s = await mount(ctx, width, 800, theme);
+    const s = await mount(ctx, width, 800, "dark");
     await press(s, await must(s, newChatName(width)), mode);
     await expect.poll(() => s.ui.stores.chat.getState().activeSessionId, { message: "a new chat" }).toBeNull();
     await stageReadyTrack(s, "the track is staged");
@@ -690,14 +691,14 @@ for (const width of [320, 390, 900, 1280, 1440] as const) for (const theme of TH
 }
 
 // The reload guard (#1112): a track staged in A while B is in view.
-for (const width of [390, 1280] as const) for (const theme of THEMES) for (const ending of ["removed", "sent"] as const) {
-  test(`${width} (${theme}): an update waits while A holds a staged track and B is in view; it reloads once the track is ${ending}`, async (ctx) => {
+for (const width of [390, 1280] as const) for (const ending of ["removed", "sent"] as const) {
+  test(`${width}: an update waits while A holds a staged track and B is in view; it reloads once the track is ${ending}`, async (ctx) => {
     const mode = pointer();
     const waiting = new WaitingWorker();
     Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: waiting });
     ctx.onTestFinished(() => { delete (navigator as { serviceWorker?: unknown }).serviceWorker; });
     let reloads = 0;
-    const s = await mount(ctx, width, 800, theme, { reload: () => reloads++ });
+    const s = await mount(ctx, width, 800, "dark", { reload: () => reloads++ });
     await stageReadyTrack(s, "A's track is staged");
 
     // B in view, through its Sessions row.
@@ -732,9 +733,9 @@ for (const width of [390, 1280] as const) for (const theme of THEMES) for (const
   });
 }
 
-for (const theme of THEMES) test(`${theme}: attachment removal has a named pointer target and focus ring`, async (ctx) => {
+test("attachment removal has a named pointer target and focus ring", async (ctx) => {
   const mode = pointer();
-  const s = await mount(ctx, 320, 800, theme);
+  const s = await mount(ctx, 320, 800, "light");
   await attach(s, await pngFile("ithaca-port.png", "#5bb5a2"));
   await expect.poll(() => chips(s).length, { message: "attachment fixture is present" }).toBe(1);
   expect(page.getByRole("button", { name: "Remove ithaca-port.png", exact: true }).elements().length, "attachment removal accessible name").toBe(1);
@@ -750,11 +751,11 @@ for (const theme of THEMES) test(`${theme}: attachment removal has a named point
   await expect.poll(() => chips(s).length, { message: "named removal acts on the image" }).toBe(0);
 });
 
-for (const theme of THEMES) test(`${theme}: share actions have names, pointer targets, focus rings and busy state`, async (ctx) => {
+test("share actions have names, pointer targets, focus rings and busy state", async (ctx) => {
   const mode = pointer();
   await resize(320, 800);
-  document.documentElement.dataset.theme = theme;
-  const account = `odysseus-share-pointer-${mode}-${theme}`;
+  document.documentElement.dataset.theme = "light";
+  const account = `odysseus-share-pointer-${mode}`;
   const ui = createBrainUiRoot({ storage: localStorage, storagePrefix: account, request: async () => Response.json({ providers: [], backends: {} }) });
   ui.stores.connection.getState().setVpnStatus("connected", account);
   const host = document.createElement("div");
@@ -791,8 +792,8 @@ for (const theme of THEMES) test(`${theme}: share actions have names, pointer ta
   await expect.poll(() => ui.stores.share.getState().queue.length, { message: "dismiss removes the reviewed share" }).toBe(0);
 });
 
-for (const theme of THEMES) test(`${theme}: earlier messages have a named target, focus ring and keyboard action`, async (ctx) => {
-  const s = await mount(ctx, 320, 800, theme);
+test("earlier messages have a named target, focus ring and keyboard action", async (ctx) => {
+  const s = await mount(ctx, 320, 800, "light");
   s.socket.deliver({ type: "session_history", sessionId: ITHACA.id, messages: Array.from({ length: 45 }, (_, i) => ({ role: "user", content: `Ithaca voyage note ${i + 1}.`, toolCalls: [] })) });
   await settle(s);
   const name = "Show 5 earlier messages · 5 hidden";
@@ -807,9 +808,9 @@ for (const theme of THEMES) test(`${theme}: earlier messages have a named target
   expect(page.getByRole("button", { name, exact: true }).elements().length, "earlier messages keyboard activation expands the window").toBe(0);
 });
 
-for (const theme of THEMES) test(`${theme}: session overflow retains its named target, menu state and row focus ring`, async (ctx) => {
+test("session overflow retains its named target, menu state and row focus ring", async (ctx) => {
   const mode = pointer();
-  const s = await mount(ctx, 320, 800, theme);
+  const s = await mount(ctx, 320, 800, "light");
   await openSessions(s, mode);
   const more = page.getByRole("button", { name: `More for ${ITHACA.title}`, exact: true }).element() as HTMLElement;
   expect([rect(more).width, rect(more).height], "session overflow target").toEqual([44, 44]);
@@ -824,10 +825,10 @@ for (const theme of THEMES) test(`${theme}: session overflow retains its named t
   expect([ring.outlineWidth, ring.outlineStyle, ring.outlineOffset], "session menu row focus ring").toEqual(["2px", "solid", "-2px"]);
 });
 
-for (const theme of THEMES) test(`${theme}: retry inline action has a named 44px reach and focus ring`, async (ctx) => {
+test("retry inline action has a named 44px reach and focus ring", async (ctx) => {
   const mode = pointer();
   await resize(320, 800);
-  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.theme = "light";
   const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ providers: [], backends: {} }) });
   const retry = vi.spyOn(ui.connection, "reconnectNow").mockImplementation(() => {});
   ui.stores.connection.setState({ vpnStatus: "connected", handshakeFailures: 3 });

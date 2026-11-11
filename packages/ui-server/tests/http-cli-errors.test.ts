@@ -31,7 +31,7 @@ test("mounted corpus handlers preserve CLI failures and sync terminates with an 
     expect(sync.headers.get("content-type")).toContain("text/event-stream");
     const frames = (await sync.text()).split("\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
     expect(frames.length).toBeGreaterThan(1);
-    expect(frames.some((frame) => frame.type === "progress" && frame.text.includes("Fixture CLI unavailable"))).toBe(true);
+    expect(frames).toContainEqual({ type: "progress", text: expect.stringContaining("Fixture CLI unavailable") });
     expect(frames.at(-1)).toMatchObject({ type: "done", success: false });
   } finally { await t.close(); }
 });

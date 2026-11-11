@@ -148,7 +148,7 @@ test("without a wired ledger the receipt and limits text stay unchanged", async 
   try {
     const receipt = await f.budgets.begin("penelope", "loom", policy());
     expect(receipt.coverage, "COVERAGE_UNCHANGED_WITHOUT_LEDGER").toBe(TURN_BUDGET_COVERAGE);
-    expect(receipt.scopes.every(scope => !("apifyUsd" in scope))).toBe(true);
+    expect(receipt.scopes.filter(scope => "apifyUsd" in scope)).toEqual([]);
     expect(inferenceBudgetLimits(receipt)).toContain("; Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered)");
   } finally { f.close(); }
 });
@@ -159,7 +159,7 @@ test("an unreadable ledger keeps inference's behaviour and reports Apify as unav
     try {
       const receipt = await f.budgets.begin("eurylochus", "thrinacia", policy());
       expect(receipt.coverage, "COVERAGE_SAYS_APIFY_UNAVAILABLE").toBe(TURN_BUDGET_APIFY_UNAVAILABLE_COVERAGE);
-      expect(receipt.scopes.every(scope => !("apifyUsd" in scope)), "UNAVAILABLE_IS_NOT_ZERO").toBe(true);
+      expect(receipt.scopes.filter(scope => "apifyUsd" in scope), "UNAVAILABLE_IS_NOT_ZERO").toEqual([]);
       expect(turnBudgetReceiptSchema.safeParse(receipt).success).toBe(true);
       // Inference alone still blocks where it always did, and only there.
       expect((await f.budgets.observe("eurylochus", usage(1)))!.blocked).toBeUndefined();

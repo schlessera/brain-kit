@@ -15,6 +15,6 @@ test("attachment consequences include unindexed Markdown links and invalidate wh
     writeFileSync(join(root, "notes/arrival.md"), "[[chart.pdf]]\n");
     const second = inspectStorageAttachmentFacts(root, ["attachments/chart.pdf"]);
     expect(second.fingerprint, "STORAGE_CONSEQUENCES_BOUND_TO_REVIEW").not.toBe(first.fingerprint);
-    expect(second.files[0]?.references.some(value => value.source === "notes/arrival.md" && value.certainty === "possible")).toBe(true);
+    expect(second.files[0]?.references).toContainEqual(expect.objectContaining({ source: "notes/arrival.md", certainty: "possible" }));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

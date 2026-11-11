@@ -46,8 +46,8 @@ describe("credential-free sandboxes", () => {
     const stdout = status.kind === "exited" ? status.stdout ?? "" : "";
     expect(stdout).toContain("VOYAGE=ithaca");
     for (const [name, value] of Object.entries(OWNER_ENV)) expect([name, stdout.includes(value)]).toEqual([name, false]);
-    expect(stdout.includes(KEY)).toBe(false);
+    expect(stdout).not.toContain(KEY);
     const exec = fake.requests.find((r) => r.route === "exec")!;
-    expect(exec.body.includes(KEY)).toBe(false);
+    expect(exec.body).not.toContain(KEY);
   });
 });

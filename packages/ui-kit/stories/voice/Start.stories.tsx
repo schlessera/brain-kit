@@ -135,6 +135,14 @@ export const PersonaKeyboard = meta.story({
     const steward = canvas.getByRole("radio", { name: /Ithaca steward/ });
     await expect(steward).toHaveAttribute("tabindex", "0");
     await expect(canvas.getByRole("radio", { name: /Standard/ })).toHaveAttribute("tabindex", "-1");
+    // The arrow keys move through the group and wrap at either end.
+    steward.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(canvas.getByRole("radio", { name: /Harbour storyteller/ }), "ArrowDown moves to the next persona").toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect(canvas.getByRole("radio", { name: /Standard/ }), "ArrowDown wraps to the first").toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}");
+    await expect(canvas.getByRole("radio", { name: /Harbour storyteller/ }), "ArrowUp wraps to the last").toHaveFocus();
   },
 });
 

@@ -65,8 +65,26 @@ afterEach(() => {
 
 const video = () => ({ kind: "video" as const, path: join(directory, "troy.mp4"), mimeType: "video/mp4" });
 
+/**
+ * Run `fn` with the Files API poll interval (the 1000 ms wait between status
+ * polls in video.ts) moved to the next timer turn; every other timer stays
+ * real. Returns the poll waits it shortened, so a test can say there was one.
+ */
+async function withShortPolls<T>(fn: () => Promise<T>): Promise<{ value: T; polls: number }> {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+  const real = descriptor.value as (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => unknown;
+  let polls = 0;
+  Object.defineProperty(globalThis, "setTimeout", { ...descriptor, value: (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay !== 1000) return real(callback, delay, ...args);
+    polls++;
+    return real(callback, 0, ...args);
+  } });
+  try { return { value: await fn(), polls }; } finally { Object.defineProperty(globalThis, "setTimeout", descriptor); }
+}
+
 test("a relayed local video runs its whole Files lifecycle through the relay socket, with no key", async () => {
-  const answer = await geminiCompletions().complete({ prompt: "What happens first?", parts: [video()] });
+  const { value: answer, polls } = await withShortPolls(() => geminiCompletions().complete({ prompt: "What happens first?", parts: [video()] }));
+  expect(polls).toBe(1);
   expect(answer, "RELAYED_VIDEO_COMPLETES").toContain("The fleet leaves Troy");
   expect(sent.map(request => `${request.method} ${request.url}`), "RELAYED_VIDEO_LIFECYCLE").toEqual([
     "POST /upload/v1beta/files",
@@ -75,21 +93,24 @@ test("a relayed local video runs its whole Files lifecycle through the relay soc
     "POST /v1beta/models/gemini-3-flash-preview:generateContent",
     "DELETE /v1beta/files/troy-1",
   ]);
-  expect(sent.every(request => request.unix === SOCKET), "EVERY_STEP_THROUGH_RELAY_SOCKET").toBe(true);
-  expect(sent.every(request => request.headers["x-brain-provider"] === "gemini" && request.headers["x-brain-provider-origin"] === ORIGIN)).toBe(true);
+  expect(sent.filter(request => request.unix !== SOCKET).map(request => request.url), "EVERY_STEP_THROUGH_RELAY_SOCKET").toEqual([]);
+  expect(sent.filter(request => request.headers["x-brain-provider"] !== "gemini" || request.headers["x-brain-provider-origin"] !== ORIGIN)
+    .map(request => request.url), "EVERY_STEP_NAMES_THE_PROVIDER").toEqual([]);
   expect(sent.filter(request => request.headers["x-goog-api-key"] || request.headers.authorization), "WORKER_SENDS_NO_KEY").toEqual([]);
 });
 
 test("a cancelled relayed video still deletes its uploaded file through the relay", async () => {
   hangAt = "poll";
   const controller = new AbortController();
-  const pending = geminiCompletions().complete({ prompt: "What happens first?", parts: [video()], signal: controller.signal });
-  for (let tries = 0; !sent.some(request => request.method === "GET") && tries < 2000; tries++) await Bun.sleep(5);
-  controller.abort(new Error("Odysseus cancelled the watch"));
-  const failure = await pending.then(() => "", (error: Error) => error.message);
+  const { value: failure } = await withShortPolls(async () => {
+    const pending = geminiCompletions().complete({ prompt: "What happens first?", parts: [video()], signal: controller.signal });
+    for (let tries = 0; !sent.some(request => request.method === "GET") && tries < 2000; tries++) await Bun.sleep(5);
+    controller.abort(new Error("Odysseus cancelled the watch"));
+    return pending.then(() => "", (error: Error) => error.message);
+  });
   expect(failure).toContain("Odysseus cancelled the watch");
   const deletes = sent.filter(request => request.method === "DELETE");
   expect(deletes.map(request => request.url), "CANCELLED_VIDEO_DELETES_OWNED_FILE").toEqual(["/v1beta/files/troy-1"]);
   expect(deletes[0]!.unix, "CANCELLED_CLEANUP_THROUGH_RELAY").toBe(SOCKET);
-  expect(sent.some(request => request.url.endsWith(":generateContent")), "CANCELLED_BEFORE_GENERATION").toBe(false);
+  expect(sent.map(request => request.url).filter(url => url.endsWith(":generateContent")), "CANCELLED_BEFORE_GENERATION").toEqual([]);
 });

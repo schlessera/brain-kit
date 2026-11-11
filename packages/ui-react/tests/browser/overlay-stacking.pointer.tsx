@@ -572,7 +572,7 @@ test("destination opening references survive native completion before sampling",
     animation instanceof CSSAnimation && ["bk-overlay-fade", "bk-overlay-panel"].includes(animation.animationName));
   const effects = nativeOpenings(captured);
   expect(effects.length, "both real scrim and surface openings were captured").toBe(2);
-  expect(effects.every(animation => animation.playState === "paused"), "openings pause before activation returns").toBe(true);
+  expect(effects.map(animation => animation.playState), "openings pause before activation returns").toEqual(["paused", "paused"]);
   // Recreate the late-sample condition with native completion, without a sleep
   // or an invented animation: completed fill-none effects leave getAnimations.
   for (const animation of effects) animation.play();

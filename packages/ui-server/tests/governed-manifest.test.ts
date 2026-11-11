@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client";
@@ -113,7 +114,7 @@ describe("governed manifests", async () => {
       // Once the quarantine is writable again, the same turn reconciles.
       chmodSync(w.quarantine, 0o700);
       expect((await w.manifests.end("turn-stuck")).quarantined.map(q => q.path)).toEqual(["bunfig.toml"]);
-    } finally { chmodSync(w.quarantine, 0o700); w.db.close(); }
+    } finally { if (existsSync(w.quarantine)) chmodSync(w.quarantine, 0o700); w.db.close(); }
   });
 
   test("the manifest records identity and bytes, and appearedSince ignores what was present", () => {
@@ -122,7 +123,10 @@ describe("governed manifests", async () => {
       const start = takeManifest(w.brain);
       const policy = start.entries.find(e => e.path === "context/policies")!;
       expect(policy).toMatchObject({ exists: true, type: "directory" });
-      expect(start.entries.find(e => e.path === "package.json")!.hash).toMatch(/^[0-9a-f]{64}$/);
+      const pkg = lstatSync(join(w.brain, "package.json"));
+      expect(start.entries.find(e => e.path === "package.json"), "the file's inode and its bytes").toMatchObject({
+        exists: true, type: "file", dev: pkg.dev, ino: pkg.ino, hash: createHash("sha256").update("{}\n").digest("hex"),
+      });
       expect(start.env).toEqual([".env"]);
       expect(appearedSince(w.brain, start)).toEqual({ appeared: [], changed: [] });
     } finally { w.db.close(); }

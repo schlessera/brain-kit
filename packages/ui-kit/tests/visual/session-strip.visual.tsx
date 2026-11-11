@@ -176,10 +176,18 @@ function geometry(m: Mounted, n: number, keyboardOpen: boolean, pending: number)
     }
   }
   expect(m.row.getAnimations({ subtree: true }), "nothing in the row animates").toEqual([]);
-  expect(m.row.querySelectorAll('[tabindex="0"], button:not([tabindex="-1"])').length >= 1).toBe(true);
+  expect(m.row.querySelectorAll('[tabindex="0"], button:not([tabindex="-1"])').length, "the row is reachable by Tab").toBeGreaterThanOrEqual(1);
   expect(m.left.querySelectorAll('[tabindex="0"]'), "the strip is one tab stop").toHaveLength(1);
   expect(document.documentElement.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(innerWidth);
 }
+
+/**
+ * Storybook owns light and dark parity (docs/process/theme-parity.md), and
+ * these cases never read a colour, so a theme-blind case runs each width in one
+ * theme, alternating. Pixel baselines, sheet attachments and the subtree-theme
+ * case keep both themes.
+ */
+const oneTheme = (width: number) => ([320, 480, 1280].includes(width) ? "dark" : "light");
 
 function unmount() {
   if (root) flushSync(() => root!.unmount());
@@ -190,6 +198,7 @@ function unmount() {
 
 for (const theme of ["dark", "light"]) {
   for (const width of [320, 390, 480, 900, 1280, 1440]) {
+    if (oneTheme(width) !== theme) continue;
     test(`row geometry, 0–5 sessions, keyboard down and up: ${theme}, ${width}`, async () => {
       pointerScene();
       for (const keyboardOpen of [false, true]) {
@@ -203,7 +212,7 @@ for (const theme of ["dark", "light"]) {
     });
   }
 
-  test(`short viewport, keyboard up: ${theme}, 320 × 308`, async () => {
+  if (theme === oneTheme(320)) test(`short viewport, keyboard up: ${theme}, 320 × 308`, async () => {
     pointerScene();
     const m = await mount({ width: 320, height: 308, theme, sessions: five, pending: 2, keyboardOpen: true });
     geometry(m, 5, true, 2);
@@ -212,6 +221,7 @@ for (const theme of ["dark", "light"]) {
   });
 
   for (const width of [320, 900]) {
+    // Both themes: the overflow sheet's first touch after a width change fails without this case before it (#3880).
     test(`roving group, one tab stop: ${theme}, ${width}`, async () => {
       pointerScene();
       const m = await mount({ width, theme, sessions: five.slice(0, 2) });
@@ -305,7 +315,7 @@ for (const theme of ["dark", "light"]) {
       expect(document.activeElement, "focus is the caller's after opening").not.toBe(items()[1]);
     });
 
-    test(`keyboard-open summary blurs the composer and restores its caret: ${theme}, ${width}`, async () => {
+    if (oneTheme(width) === theme) test(`keyboard-open summary blurs the composer and restores its caret: ${theme}, ${width}`, async () => {
       const mode = pointerScene();
       const m = await mount({ width, theme, sessions: five, keyboardOpen: true });
       const summary = items()[0]!;
@@ -327,7 +337,7 @@ for (const theme of ["dark", "light"]) {
       expect([m.composer.selectionStart, m.composer.selectionEnd], "with the caret restored").toEqual([8, 8]);
     });
 
-    test(`touch and pointer open a pill once, at its corners: ${theme}, ${width}`, async () => {
+    if (oneTheme(width) === theme) test(`touch and pointer open a pill once, at its corners: ${theme}, ${width}`, async () => {
       const mode = pointerScene();
       const m = await mount({ width, theme, sessions: five.slice(0, 2) });
       const pill = items()[1]!;
@@ -389,6 +399,7 @@ async function mountDriven(sessions: WorkingFixture[], theme: string, subtree?: 
 
 for (const theme of ["dark", "light"]) {
   for (const n of [2, 5]) {
+    if ((n === 2) !== (theme === "dark")) continue;
     test(`keyboardOpen driven by composer focus: the press opens the sheet and the caret returns: ${theme}, ${n} sessions`, async () => {
       const mode = pointerScene();
       const { composer } = await mountDriven(five.slice(0, n), theme);
@@ -412,7 +423,7 @@ for (const theme of ["dark", "light"]) {
     });
   }
 
-  test(`a session leaving under the sheet's caret keeps focus in the sheet: ${theme}`, async () => {
+  if (theme === "dark") test(`a session leaving under the sheet's caret keeps focus in the sheet: ${theme}`, async () => {
     pointerScene();
     const { live, draw } = await mountDriven(five, theme);
     items()[1]!.focus();
@@ -448,7 +459,7 @@ for (const theme of ["dark", "light"]) {
 }
 
 for (const theme of ["dark", "light"]) {
-  test(`Shift+Tab from the composer lands on a pill when the summary gives way: ${theme}`, async () => {
+  if (theme === "light") test(`Shift+Tab from the composer lands on a pill when the summary gives way: ${theme}`, async () => {
     pointerScene();
     const { live, composer } = await mountDriven(five.slice(0, 2), theme);
     composer.focus();
@@ -460,7 +471,7 @@ for (const theme of ["dark", "light"]) {
     expect(live.filter((s) => s.onOpen.mock.calls.length === 1), "Enter opens the focused pill").toHaveLength(1);
   });
 
-  test(`the last session leaving closes the sheet and returns to the composer: ${theme}`, async () => {
+  if (theme === "dark") test(`the last session leaving closes the sheet and returns to the composer: ${theme}`, async () => {
     const mode = pointerScene();
     const { draw, composer } = await mountDriven(five, theme);
     composer.focus();
@@ -481,7 +492,7 @@ for (const theme of ["dark", "light"]) {
   });
 }
 
-for (const theme of ["dark", "light"]) {
+for (const theme of ["dark"]) {
   test(`live updates that replace the focused item keep focus in the strip: ${theme}`, async () => {
     pointerScene();
     const m = await mount({ width: 390, theme, sessions: five });
@@ -506,7 +517,7 @@ for (const theme of ["dark", "light"]) {
   });
 }
 
-for (const theme of ["dark", "light"]) {
+for (const theme of ["light"]) {
   test(`a live reorder keeps the roving stop on the focused session: ${theme}`, async () => {
     pointerScene();
     const done = workingSessions[7]!;

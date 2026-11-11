@@ -135,13 +135,13 @@ for (const change of ["backend", "model", "removed", "replaced-id"] as const) te
   s.ui.stores.provider.setState({ available: changed });
   expect(s.client.state.getState().micOn, "PROFILE_CHANGE_REVOKES_CAPTURE_IMMEDIATELY").toBe(false);
   expect(s.client.state.getState().disclosureOpen).toBe(true);
-  expect(mic.streams[0]!.getTracks().every(track => track.readyState === "ended")).toBe(true);
+  expect(mic.streams[0]!.getTracks().map(track => track.readyState), "PROFILE_CHANGE_ENDS_CAPTURE_TRACKS").toEqual(["ended"]);
   s.client.resume();
   expect(mic.opens()).toBe(1);
   s.deliver({ type: "conversation_closed", conversationId: PROFILE.conversationId, epoch: 1, reason: "provider_closed" });
   s.opened(2);
   expect(s.client.state.getState().micOn).toBe(false);
-  expect(s.socket.frames("conversation_audio").some(f => f.epoch === 2)).toBe(false);
+  expect(s.socket.frames("conversation_audio").filter(f => f.epoch === 2), "NO_EPOCH_2_AUDIO_BEFORE_START").toEqual([]);
   s.client.start();
   await expect.poll(() => s.client.state.getState().micOn).toBe(true);
   expect(mic.opens()).toBe(2);

@@ -36,7 +36,7 @@ describe("readDocumentPart", () => {
 
   test("a section runs to the next heading of the same or higher level", () => {
     const out = readDocumentPart(DOC, { section: "Alpha", sectionHint: hint });
-    expect(out.startsWith("## Alpha\n")).toBe(true);
+    expect(out).toStartWith("## Alpha\n");
     expect(out).toContain("### Alpha one");
     expect(out).toContain("## Not a heading");
     expect(out).not.toContain("Beta body.");
@@ -45,7 +45,7 @@ describe("readDocumentPart", () => {
 
   test("a subsection stops at its parent's next sibling", () => {
     const out = readDocumentPart(DOC, { section: "alpha ONE", sectionHint: hint });
-    expect(out.startsWith("### Alpha one\n")).toBe(true);
+    expect(out).toStartWith("### Alpha one\n");
     expect(out).not.toContain("## Beta");
   });
 
@@ -63,7 +63,7 @@ describe("readDocumentPart", () => {
 
   test("over the limit, returns the frontmatter and an outline with token counts", () => {
     const out = readDocumentPart(DOC, { maxTokens: 10, sectionHint: hint });
-    expect(out.startsWith("---\ntitle: Sample\n---\n")).toBe(true);
+    expect(out).toStartWith("---\ntitle: Sample\n---\n");
     expect(out).toContain('read one section with section: "<heading>"');
     // ~4 characters per token over each section's own lines: Alpha's 82
     // characters include its subsection's 59, Beta is 20.
@@ -86,7 +86,7 @@ describe("readDocumentPart", () => {
   test("the outline can exceed max_tokens: it is the threshold, not a cap", () => {
     const frontmatter = `---\nnotes: "${"n".repeat(400)}"\n---\n`;
     const out = readDocumentPart(`${frontmatter}\n## A\n\n${"a".repeat(400)}\n`, { maxTokens: 20, sectionHint: hint });
-    expect(out.startsWith(frontmatter)).toBe(true);
+    expect(out).toStartWith(frontmatter);
     expect(out).toMatch(/^- ## A \(~\d+ tokens\)$/m);
     expect(out.length / 4).toBeGreaterThan(20);
   });
@@ -263,7 +263,7 @@ describe("frontmatter and line endings", () => {
     const doc = "---\n---\n## A\nbody\n\n---\n## B\nb\n";
     expect(section(doc, "A")).toBe("## A\nbody\n\n---\n");
     const outline = readDocumentPart(doc, { maxTokens: 1, sectionHint: hint });
-    expect(outline.startsWith("---\n---\n\n[")).toBe(true);
+    expect(outline).toStartWith("---\n---\n\n[");
     expect(outline).not.toContain("body");
   });
 
@@ -288,7 +288,7 @@ describe("frontmatter and line endings", () => {
     const doc = "\uFEFF---\nnotes: |\n  ## A\n---\n## A\nbody\n";
     expect(section(doc, "A")).toBe("## A\nbody\n");
     const outline = readDocumentPart(doc, { maxTokens: 1, sectionHint: hint });
-    expect(outline.startsWith("\uFEFF---\nnotes: |\n  ## A\n---\n\n[")).toBe(true);
+    expect(outline).toStartWith("\uFEFF---\nnotes: |\n  ## A\n---\n\n[");
     expect(outline.match(/^- ## /gm)).toEqual(["- ## "]);
   });
 

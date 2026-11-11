@@ -45,6 +45,7 @@ function reader(brain: string, source: string, target: string, file: string) {
     "--bind", source, join(brain, target), "--proc", "/proc", "--dev", "/dev", "--chdir", brain,
     "/bin/sh", "-c", `printf 'ready\\n'; IFS= read -r go; cat ${JSON.stringify(file)} 2>/dev/null || printf ABSENT`],
   { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  cleanup.push(() => child.kill());
   const out = child.stdout.getReader();
   return {
     async ready() {

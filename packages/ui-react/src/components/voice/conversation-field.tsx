@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent } from "react";
 import { useStore } from "zustand";
 import { VoiceControlButton, VoiceField, VoiceNotice, VoiceText, type IconName } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -114,6 +114,30 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
     if (s.micOn && !wasOn.current) frame.current?.querySelector<HTMLElement>('[aria-label="Mute"]')?.focus();
     wasOn.current = s.micOn;
   }, [s.micOn]);
+  // A field control that held focus and is now disabled or gone (Interrupt
+  // once the reply stops, Mute while voice readies, Send now after sending)
+  // hands focus on rather than dropping it to the page (#3701): to Mute, or
+  // to the first control still usable here (End, or L9's Close).
+  const held = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const control = held.current;
+    if (!control || control.isConnected && !(control as HTMLButtonElement).disabled) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== control) { held.current = null; return; }
+    held.current = null;
+    const usable = [...frame.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []];
+    (usable.find(b => b.getAttribute("aria-label") === "Mute") ?? usable[0])?.focus({ preventScroll: true });
+  });
+  const onFocus = (event: FocusEvent) => {
+    const target = event.target as HTMLElement;
+    held.current = target.closest(".bk-voice-controls") ? target : null;
+  };
+  // Focus the user moved elsewhere is theirs. The check waits a task, since a
+  // control being removed may blur while still attached; the effect above runs first.
+  const onBlur = (event: FocusEvent) => {
+    const target = event.target as HTMLButtonElement;
+    setTimeout(() => { if (target === held.current && target.isConnected && !target.disabled) held.current = null; }, 0);
+  };
   // Root-owned leases distinguish a true unmount from StrictMode or same-task
   // remounts. Component cleanup must never impersonate a manual Mute.
   useEffect(() => client.attachControls(), [client]);
@@ -143,14 +167,19 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
     : null;
   const meta = draft ? DRAFT_META : outputMuted ? "Reply audio off" : readiness ? "mic off"
     : [service, state === "S5" ? null : clock(seconds)].filter(Boolean).join(" · ") || undefined;
-  return <div ref={frame} data-conversation-field="" data-live-state={s.disclosureOpen ? undefined : state ?? undefined} data-voice-refusal-window={permission.line ? "" : undefined} className="mx-auto max-w-3xl bg-background text-foreground" style={{ overflowWrap: "anywhere" }}>
+  // L6 is an approval request: said at once, with how to answer it (#3701).
+  // The label still says "Needs your tap" politely; this adds what to tap.
+  const urgent = !s.disclosureOpen && state === "L6" ? refusal || "Tap Allow or Deny on the card." : "";
+  return <div ref={frame} data-conversation-field="" data-live-state={s.disclosureOpen ? undefined : state ?? undefined} data-voice-refusal-window={permission.line ? "" : undefined} className="mx-auto max-w-3xl bg-background text-foreground" style={{ overflowWrap: "anywhere" }}
+    onFocus={onFocus} onBlur={onBlur}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{s.announcement}</div>
+    <div className="sr-only" aria-live="assertive" aria-atomic="true" data-conversation-urgent="">{urgent}</div>
     {s.disclosureOpen ? null : state === "L9"
-      ? <div className="pb-2"><VoiceNotice tone="fail" icon="attention" title="Live conversation stopped" body={s.notice || undefined}
+      ? <div className="pb-2"><VoiceNotice tone="fail" icon="attention" live="assertive" title="Live conversation stopped" body={s.notice || undefined}
           actions={[{ label: "Close", onClick: leave }, { label: "Start again", tone: "brain", onClick: client.details }]} /></div>
       : state && <div className="pb-2">
         <VoiceField shape="tall" name="Live conversation" tone={LOOKS[state].tone} outline={LOOKS[state].outline}
-          label={{ icon: LOOKS[state].icon, word: LOOKS[state].word, spin: LOOKS[state].spin, meta }}
+          label={{ icon: LOOKS[state].icon, word: LOOKS[state].word, spin: LOOKS[state].spin, meta, live: "polite" }}
           meter={meter} level={meter === "level" ? level : undefined}
           controls={<>
             <VoiceControlButton name={muted ? "Unmute" : "Mute"} icon={muted ? "mic-off" : "mic"} pressed={muted} disabled={state === "S5" || readiness} onClick={muted ? client.resume : client.mute} />

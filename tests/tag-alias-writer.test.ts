@@ -21,7 +21,7 @@ test("existing chains resolve and cycles retain source bytes through the shipped
       const brain = await initContext({ root: env.root }), before = snapshot(env.root);
       const result = applyTagChanges(env.root, brain.taxonomy, { only: env.fixture.left });
       if (cycle) {
-        expect(result.report.skipped.some(s => s.reason.includes("alias cycle"))).toBe(true);
+        expect(result.report.skipped.map(s => s.reason)).toContainEqual(expect.stringContaining("alias cycle"));
         expect(snapshot(env.root)).toEqual(before);
       } else {
         expect(readFileSync(join(env.root, env.paths[0]), "utf8")).toContain(`tags: [${env.fixture.right}]`);

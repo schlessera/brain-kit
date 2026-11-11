@@ -339,8 +339,9 @@ if (!process.env[CHILD_MARKER]) {
       try {
         opening = () => new Promise((_resolve, reject) => (failOld = reject));
         reactRoot.render(<>{view(0, "out/old.pdf")}<FailOnCommit fire={false} /></>);
-        await settle();
-        expect(failOld).not.toBeNull();
+        // The old file's open has started once its opening effect ran: wait for
+        // that, not for a fixed time a slow first commit can outlast (#1242).
+        await waitFor(() => expect(failOld, "the old file's opening effect ran").not.toBeNull());
 
         opening = async () => fakeDoc([LETTER]);
         reactRoot.render(<>{view(0, "out/new.pdf")}<FailOnCommit fire={true} /></>);

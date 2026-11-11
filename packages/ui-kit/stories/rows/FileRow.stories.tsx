@@ -162,6 +162,9 @@ export const Tapped = meta.story({
 export const Static = meta.story({
   args: { onClick: undefined, active: true },
   play: async ({ canvas, canvasElement }) => {
+    // The row is there, naming its folder and count; only the tree role is gone.
+    await expect(await canvas.findByText("omens")).toBeVisible();
+    await expect(await canvas.findByText("86")).toBeVisible();
     await expect(canvas.queryByRole("treeitem")).toBeNull();
     await expect(canvasElement.querySelector(".bk-row")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();

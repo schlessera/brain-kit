@@ -210,7 +210,7 @@ describe("real travel photo CLI", () => {
     expect(result.code).toBe(2); const photo = report(result.stdout);
     expect(photo.files.map(file => file.source)).toEqual(["inputs/ithaca.jpg"]);
     expect(photo.errors.map(error => error.source)).toEqual(["inputs/troy.jpg", "inputs/absent.jpg"]);
-    expect(photo.errors.every(error => error.message.length > 0)).toBe(true);
+    expect(photo.errors.filter(error => error.message.length === 0)).toEqual([]);
     expect(readdirSync(join(root, "photos"))).toEqual(["ithaca.jpg"]);
     expect(readFileSync(join(root, "inputs/troy.jpg"), "utf8")).toBe("not an image");
   });

@@ -154,7 +154,7 @@ describe("deterministic vector static maps", () => {
     expect(result.png).toBeNull();
     expect(result).toMatchObject({ kind: "none", reason: "render_budget", png: null });
     expect(result.pins).toHaveLength(1_000); expect(result.text).toContain(`Stop 1000: ${pins[999]!.label}`);
-    expect(result.pins.every(pin => !pin.drawn)).toBe(true);
+    expect(result.pins.filter(pin => pin.drawn)).toEqual([]);
   });
 
   test("unsupported font glyphs preserve full text instead of producing a blank or missing stop label", async () => {
@@ -208,7 +208,7 @@ describe("deterministic vector static maps", () => {
     background.value!.coastline = Array.from({ length: 10_001 }, () => []);
     await expect(geo.staticMap({ ...input, background })).rejects.toThrow("geometry budget");
     background.value!.coastline = [[[0, 91]]];
-    await expect(geo.staticMap({ ...input, background })).rejects.toThrow();
+    await expect(geo.staticMap({ ...input, background })).rejects.toThrow("Route coordinates must be finite latitude/longitude");
     expect(requests).toBe(1);
   });
 

@@ -18,6 +18,9 @@ import { useChatStore } from "../../src/stores/chat-store.js";
 const { flushChatDeltas, handleServerMessage } = defaultRoot.connection;
 
 afterEach(cleanup);
+// The default root's chat store outlives this file: hand the next file a fresh one
+// (#3720: a leaked active session and backend scope changed another file's renderer).
+afterAll(() => useChatStore.setState(useChatStore.getInitialState(), true));
 afterAll(unregisterMessageSourceDom);
 
 beforeEach(() => {

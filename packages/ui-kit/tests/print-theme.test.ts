@@ -85,7 +85,8 @@ describe("print theme", () => {
 
   test("printThemeCss sets every token on :root, in light colour-scheme", () => {
     const css = printThemeCss();
-    expect(css.startsWith(":root{color-scheme:light;")).toBe(true);
+    const opening = ":root{color-scheme:light;";
+    expect(css.slice(0, opening.length)).toBe(opening);
     for (const [name, value] of Object.entries(PRINT_TOKENS)) expect(css).toContain(`--bk-${name}:${value};`);
   });
 });

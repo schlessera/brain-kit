@@ -86,10 +86,14 @@ const workingItems = () => [...host!.querySelectorAll<HTMLElement>('[data-sessio
 const popovers = () => [...host!.querySelectorAll<HTMLElement>("[data-follow-up-text]")];
 
 const WIDTHS = [320, 390, 480, 900, 1279];
+/** Storybook owns light and dark parity (docs/process/theme-parity.md); the
+ * geometry below never reads a colour, so each width runs in one theme. */
+const oneTheme = (width: number) => ([320, 480, 1279].includes(width) ? "dark" : "light");
 const COUNTS = [1, 2, 3, 6];
 
 for (const theme of ["dark", "light"]) {
   for (const width of WIDTHS) {
+    if (oneTheme(width) !== theme) continue;
     for (const keyboardOpen of [false, true]) {
       test(`the halves never overlap, the disc stays clear: ${theme}, ${width}${keyboardOpen ? ", keyboard up" : ""}`, async () => {
         pointerScene();

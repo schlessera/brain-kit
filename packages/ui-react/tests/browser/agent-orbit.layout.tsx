@@ -44,7 +44,7 @@ function noIntersections(elements: HTMLElement[]) {
   expect(elements.length).toBeGreaterThan(0);
   for(const [i,a] of elements.entries())for(const b of elements.slice(i+1)) {
     const x=a.getBoundingClientRect(),y=b.getBoundingClientRect();
-    expect(x.right<=y.left+.5||y.right<=x.left+.5||x.bottom<=y.top+.5||y.bottom<=x.top+.5).toBe(true);
+    expect(x.right<=y.left+.5||y.right<=x.left+.5||x.bottom<=y.top+.5||y.bottom<=x.top+.5,`ORBIT_OVERLAP ${a.outerHTML.slice(0,80)} ${JSON.stringify(x)} overlaps ${b.outerHTML.slice(0,80)} ${JSON.stringify(y)}`).toBe(true);
   }
 }
 for(const width of [320,390,1280])for(const theme of ["dark","light"]) {

@@ -37,8 +37,8 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     expect(tool?.input_schema).toBeDefined();
     expect(tool?.defer_loading).not.toBe(true);
   }
-  expect(capture.request.tools.some(tool => tool.name === "Skill")).toBe(true);
-  expect(capture.request.tools.some(tool => tool.name === "Read")).toBe(true);
+  expect(capture.request.tools.map(tool => tool.name)).toContain("Skill");
+  expect(capture.request.tools.map(tool => tool.name)).toContain("Read");
   const text = JSON.stringify(capture.request.messages);
   expect(capture.fixtureSkills).toHaveLength(3);
   for (const skill of capture.fixtureSkills) expect(text).toContain(`${skill.name}: ${skill.description}`);

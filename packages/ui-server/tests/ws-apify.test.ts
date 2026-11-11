@@ -71,8 +71,7 @@ async function hostedTurn(backendId: "pi" | "claude", policy: Record<string, unk
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Chart the way home", requestId: "apify-request" }) } as MessageEvent, ws);
     const until = Date.now() + 45_000;
-    while (!finished) { if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`); await Bun.sleep(10); }
-    await Bun.sleep(50);
+    while (!finished || app.isTurnActive()) { if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`); await Bun.sleep(10); }
     if (scriptError) throw scriptError;
     const taint = app.db.query("SELECT session_id, turn_id, payload FROM governance_events WHERE kind = 'taint'").all() as Array<{ session_id: string | null; turn_id: string | null; payload: string }>;
     return { root, fake, sent, taint, ledger: resolve(root, "ui.db.apify-ledger.sqlite") };
@@ -121,7 +120,7 @@ test("a pi turn reaches the hosted operations with its own context, ledger and t
     expect(envelopes.map(envelope => envelope.ok ? "ok" : envelope.error.code), "APIFY_APP_WIRING_SEQUENCE").toEqual(["ok", "ok", "ok", "ok"]);
     expect((envelopes[1] as { data: { eligibility: { executable: boolean } } }).data.eligibility.executable, "APIFY_NO_PROFILE_GATE").toBe(true);
     expect(outcome.fake.starts(), "APIFY_APP_APPROVED_ACTOR_STARTED").toBe(1);
-    expect(outcome.sent.some(text => { const frame = JSON.parse(text); return frame.type === "tool_approval_request" && frame.kind === "actor"; }), "APIFY_ACTOR_APPROVAL_CARD").toBe(true);
+    expect(outcome.sent.map(text => JSON.parse(text)).filter(frame => frame.type === "tool_approval_request").map(frame => frame.kind), "APIFY_ACTOR_APPROVAL_CARD").toContain("actor");
     // Discovery and inspection each delivered a separate untrusted page.
     expect(outcome.taint.map(row => ({ session: row.session_id, source: JSON.parse(row.payload).source })), "APIFY_TAINTS_SESSION")
       .toEqual([{ session: "sess-ithaca-apify", source: "apify_result" }, { session: "sess-ithaca-apify", source: "apify_result" }]);

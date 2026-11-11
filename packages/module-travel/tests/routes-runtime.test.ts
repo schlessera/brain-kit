@@ -123,8 +123,9 @@ describe("real route CLI", () => {
       const result = await replayCli(root, source!, { ...robots(url.origin), [url.href]: { body } });
       expect(result.code).toBe(0);
       expect(result.requests.map((r) => r.url)).toEqual([`${url.origin}/robots.txt`, url.href]);
-      expect(result.requests.every((r) => r.method === "GET" && r.headers["user-agent"]?.includes("brain-scrape"))).toBe(true);
-      expect(result.requests.some((r) => r.headers.cookie || r.headers.authorization)).toBe(false);
+      expect(result.requests.map((r) => r.method)).toEqual(["GET", "GET"]);
+      expect(result.requests.map((r) => r.headers["user-agent"])).toEqual([expect.stringContaining("brain-scrape"), expect.stringContaining("brain-scrape")]);
+      expect(result.requests.flatMap((r) => Object.keys(r.headers).filter((name) => ["cookie", "authorization"].includes(name.toLowerCase())))).toEqual([]);
       const { route } = JSON.parse(result.stdout);
       const saved = parseGpx(readFileSync(join(root, route.gpx), "utf8"));
       expect(saved.segments[0]!.length).toBeGreaterThan(1);

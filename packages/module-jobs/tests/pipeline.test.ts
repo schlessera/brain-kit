@@ -111,7 +111,7 @@ describe("jobs pipeline", () => {
     const text = readFileSync(join(root, INDEX), "utf8");
     // Every byte of the old frontmatter survives, the spec appended after it;
     // only `updated` moves, because the region changed.
-    expect(text.replace(/^updated: \S+$/m, "updated: 2026-01-01").startsWith(`${head}registry:\n`)).toBe(true);
+    expect(text.replace(/^updated: \S+$/m, "updated: 2026-01-01")).toStartWith(`${head}registry:\n`);
     expect(text).toContain(`\n---\n\n${prose}\n<!-- brain:generated:registry -->`);
     const { active, closed } = tables(text);
     expect(active.length).toBeGreaterThan(0);

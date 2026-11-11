@@ -212,7 +212,7 @@ describe("liveness over a real socket", () => {
     expect(await a.waitFor(() => a.c.supportsAskReceipts)).toBe(true);
     expect(await a.waitFor(() => a.events.some((e) => e.type === "pong"), 2000)).toBe(true);
     await Bun.sleep(400);
-    expect(a.events.some((e) => e.type === "stale")).toBe(false);
+    expect(a.events.filter((e) => e.type === "stale")).toEqual([]);
     expect(r.state.accepted).toBe(1);
   });
 

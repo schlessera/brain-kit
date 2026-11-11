@@ -18,6 +18,7 @@ import { applyIndexReads, applyLiveAuthority, settleTurnIndex } from "../src/ws/
 import { createBridgeContext, type BridgeContext, type MakeBridgeOptions } from "../src/ws/bridge-capabilities/context.js";
 import { createEmission, createTurnTranscript } from "../src/ws/bridge-capabilities/emission.js";
 import { createActivity, guardMaskedRecords, openInbox } from "../src/ws/bridge-capabilities/activity.js";
+import { ProviderRecordsRefusedError } from "../src/brain/provider-mask-refusal.js";
 import { createPermissions } from "../src/ws/bridge-capabilities/permissions.js";
 import { createAsks } from "../src/ws/bridge-capabilities/asks.js";
 import { createLocationAndMask, createMaskApplicationSlice } from "../src/ws/bridge-capabilities/location-mask.js";
@@ -196,8 +197,8 @@ test("activity/inbox: the inbox opens with the turn's membership; masked records
     expect(await bridge.inboxList!({} as never), "UNMASKED_TURN_KEEPS_ITS_RECORDS").toEqual([] as never);
     const guard = { folders: ["me"], assert() {} };
     guardMaskedRecords({ ...f.ctx, maskGuard: guard }, bridge);
-    await expect(bridge.inboxList!({} as never)).rejects.toThrow();
-    await expect(bridge.queryActivity!({} as never)).rejects.toThrow();
+    await expect(bridge.inboxList!({} as never)).rejects.toBeInstanceOf(ProviderRecordsRefusedError);
+    await expect(bridge.queryActivity!({} as never)).rejects.toBeInstanceOf(ProviderRecordsRefusedError);
   } finally { f.cleanup(); }
 });
 
