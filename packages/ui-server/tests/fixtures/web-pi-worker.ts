@@ -40,8 +40,15 @@ async function call(step: number, name: string, input: Record<string, unknown>, 
   return envelope;
 }
 
-async function run(mode: string) {
-  if (mode === "forged") await call(0, "web_search", { query: "Odysseus mast" }, true);
+async function run(mode: string, detail: string) {
+  if (mode === "host") {
+    // The real executor (#3686): its stored results are paged by query index.
+    const found = await call(0, "web_search", { query: "Odysseus mast" });
+    if (found?.responseId) await call(1, "get_search_content", { responseId: found.responseId, queryIndex: 0 });
+    await call(2, "fetch_content", { url: detail });
+    await call(3, "source_check", { claim: "The raft reaches Ithaca at dawn" });
+  } else if (mode === "host-slow") await call(0, "web_search", { query: "slow Odysseus mast" });
+  else if (mode === "forged") await call(0, "web_search", { query: "Odysseus mast" }, true);
   else if (mode === "unsupported") {
     await call(0, "web_search", { query: "Odysseus mast", workflow: "summary-review" });
     await call(1, "fetch_content", { url: "https://ithaca.example/log", mode: "answer", prompt: "When?" });
@@ -57,7 +64,7 @@ async function run(mode: string) {
 for await (const message of pipeMessages(process.stdin)) {
   const value = message as any;
   if (value.type === "init") send({ type: "ready", sessionId: value.sessionId, levels: [], cost: 0 });
-  else if (value.type === "prompt") void run(value.text.split("\n", 1)[0]).catch(error => send({ type: "error", message: error.message }));
+  else if (value.type === "prompt") { const [mode, detail = ""] = value.text.split("\n"); void run(mode!, detail).catch(error => send({ type: "error", message: error.message })); }
   else if (value.type === "answer") {
     const waiter = pending.get(value.id); pending.delete(value.id);
     if (value.error) waiter?.reject(new Error(value.error)); else waiter?.resolve(value.value);

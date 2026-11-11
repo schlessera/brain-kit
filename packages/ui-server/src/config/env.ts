@@ -1470,9 +1470,11 @@ export function resolvePiConfigDir(env: EnvRecord = process.env): string {
  * The environment the web-search surface reads: the variables that locate the
  * extension's `web-search.json`, plus each provider's API-key variable.
  *
- * PRESENCE is all anything does with the key values — they are never logged,
- * returned over the API, or copied into the config file. Reading them here
- * keeps the rest of the package taking configuration as a value.
+ * The Settings surface checks only the PRESENCE of the key values; the host
+ * web executor (#3686) receives them in its own environment, never a
+ * worker's. They are never logged, returned over the API, or copied into the
+ * config file. Reading them here keeps the rest of the package taking
+ * configuration as a value.
  */
 export function resolveWebSearchEnv(
   env: NodeJS.ProcessEnv = process.env
@@ -1492,8 +1494,9 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
     source: "web-search provider catalog (`WEB_SEARCH_PROVIDERS`)",
     description:
       "Presence checks for catalog-declared API-key names when reporting " +
-      "web-search provider availability. Credentials are not returned over " +
-      "the API, logged or copied into web-search.json.",
+      "web-search provider availability, and the values handed to the host " +
+      "web executor's own environment (#3686). Credentials are not returned " +
+      "over the API, logged, given to workers or copied into web-search.json.",
   },
   {
     source: "filtered environment snapshot (`subprocessEnv`)",

@@ -25,7 +25,7 @@ beforeEach(() => {
   mkdirSync(join(brain, "notes"), { recursive: true }); mkdirSync(executorDir);
   receipts = [];
   broker = createWebBroker({
-    executor: createChildWebExecutor({ command: [process.execPath, join(import.meta.dir, "fixtures/web-executor.ts")], env: { PATH: process.env.PATH!, WEB_FIXTURE_DIR: executorDir } }),
+    executor: createChildWebExecutor({ launch: { command: [process.execPath, join(import.meta.dir, "fixtures/web-executor.ts")], env: { PATH: process.env.PATH!, WEB_FIXTURE_DIR: executorDir } } }),
     admittedProviders: () => ["exa"], onReceipt: receipt => receipts.push(receipt),
   });
 });
