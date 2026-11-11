@@ -137,7 +137,7 @@ describe("brain image — refused before the provider is called", () => {
   });
 
   test("an unknown format", async () => {
-    expect(await run(["x", "--format", "gif"])).toBe(1);
+    expect(await run(["x", "--format", "tiff"])).toBe(1);
     expect(calls).toHaveLength(0);
   });
 
@@ -318,5 +318,116 @@ describe("brain image — GPT Image 2.6 defaults (#3782)", () => {
     expect(await run(["x", "--model", "gpt-image-2"])).toBe(1);
     expect(out.join("\n")).toContain(SUNBURST_26);
     expect(out.join("\n")).toContain(FLARE_26);
+  });
+});
+
+describe("brain image — animated GIF on GPT Image 2.6 (#3783)", () => {
+  const SUNBURST_25 = "gpt-image-2.5-sunburst";
+
+  test("--format gif sends the GIF fields and the 2.6 defaults, and writes a .gif", async () => {
+    expect(await run(["a waving flag", "--format", "gif", "--frames", "12", "--frame-duration", "150", "--out", "flag.gif"])).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toEndWith("/images/generations");
+    expect(sentJson(), "IMAGE_GIF_GENERATION").toMatchObject({
+      model: SUNBURST, output_format: "gif", frame_count: 12, frame_duration_ms: 150, quality: "max", complexity: "high",
+    });
+    expect(report().output).toBe("flag.gif");
+    expect(report().renamed).toBeNull();
+  });
+
+  test("the default output path ends in .gif", async () => {
+    expect(await run(["a waving flag", "--format", "gif"])).toBe(0);
+    expect(report().output).toEndWith(".gif");
+  });
+
+  test("omitted frame flags leave the API's own defaults in charge", async () => {
+    expect(await run(["a waving flag", "--format", "gif", "--out", "flag.gif"])).toBe(0);
+    const body = sentJson();
+    expect(body.output_format).toBe("gif");
+    expect(body, "IMAGE_GIF_NO_FRAME_DEFAULTS").not.toHaveProperty("frame_count");
+    expect(body).not.toHaveProperty("frame_duration_ms");
+  });
+
+  test("a GIF edit with --ref carries the same fields over multipart", async () => {
+    expect(await run(["make the door swing", "--ref", "photos/house.png", "--format", "gif", "--frames", "12", "--frame-duration", "150", "--out", "door.gif"])).toBe(0);
+    expect(calls[0].url).toEndWith("/images/edits");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("model")).toBe(SUNBURST);
+    expect(form.get("output_format"), "IMAGE_GIF_EDIT").toBe("gif");
+    expect(form.get("frame_count")).toBe("12");
+    expect(form.get("frame_duration_ms")).toBe("150");
+    expect(form.get("quality")).toBe("max");
+    expect(form.get("complexity")).toBe("high");
+  });
+
+  const outOfRange: [string, string[], string][] = [
+    ["--frames 1", ["--frames", "1"], "2 to 16"],
+    ["--frames 17", ["--frames", "17"], "2 to 16"],
+    ["--frames 4.5", ["--frames", "4.5"], "2 to 16"],
+    ["--frame-duration 10", ["--frame-duration", "10"], "20 to 2000"],
+    ["--frame-duration 2001", ["--frame-duration", "2001"], "20 to 2000"],
+  ];
+  for (const [label, flags, range] of outOfRange) {
+    test(`${label} refuses with zero requests and names the range`, async () => {
+      expect(await run(["x", "--format", "gif", ...flags])).toBe(1);
+      expect(calls, "IMAGE_GIF_FRAME_RANGE").toHaveLength(0);
+      expect(out.join("\n")).toContain(range);
+    });
+  }
+
+  for (const flags of [["--frames", "9"], ["--frame-duration", "200"]]) {
+    test(`${flags[0]} without --format gif refuses with zero requests`, async () => {
+      expect(await run(["x", ...flags])).toBe(1);
+      expect(calls).toHaveLength(0);
+      expect(out.join("\n")).toContain("--format gif");
+    });
+  }
+
+  test("GIF with --mask refuses before any request", async () => {
+    expect(await run(["x", "--format", "gif", "--ref", "photos/house.png", "--mask", "photos/mask.png"])).toBe(1);
+    expect(calls, "IMAGE_GIF_MASK").toHaveLength(0);
+    expect(out.join("\n")).toMatch(/GIF.*mask/i);
+  });
+
+  test("GIF with --transparent refuses before any request", async () => {
+    expect(await run(["x", "--format", "gif", "--transparent"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/GIF.*transparen/i);
+  });
+
+  test("GIF on a 2.5 model refuses and names the 2.6 models", async () => {
+    expect(await run(["x", "--format", "gif", "--model", SUNBURST_25])).toBe(1);
+    expect(calls, "IMAGE_GIF_MODEL").toHaveLength(0);
+    expect(out.join("\n")).toContain(SUNBURST);
+  });
+
+  test("GIF on Gemini refuses before any request", async () => {
+    process.env.GEMINI_API_KEY = "placeholder-never-sent";
+    expect(await run(["x", "--format", "gif", "--provider", "gemini"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/GIF/);
+  });
+
+  test("a GIF dry run reports its cost as unknown", async () => {
+    expect(await run(["x", "--format", "gif", "--aspect", "1:1", "--dry-run"])).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(report().model).toBe(SUNBURST);
+    expect(report().output).toEndWith(".gif");
+    expect(report().estimatedCostUsd, "IMAGE_GIF_DRY_RUN").toBeNull();
+  });
+
+  test("a refusal for missing GIF preview access names it and is not retryable", async () => {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(
+        JSON.stringify({ error: { message: "This organization does not have access to output_format gif for this model.", type: "invalid_request_error" } }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    expect(await run(["x", "--format", "gif", "--out", "x.gif"])).toBe(1);
+    const said = out.join("\n");
+    expect(said, "IMAGE_GIF_ACCESS_HINT").toContain("GIF preview access");
+    expect(said).not.toContain("worth retrying");
+    expect(said).not.toContain("region not supported");
   });
 });

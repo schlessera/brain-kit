@@ -89,10 +89,11 @@ export function createWorkerStartupView(_brain: string, _options: { omitGit?: bo
 export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupView {
   if (releasedViews.has(view)) throw new Error("native startup checkpoint owner is closed");
   view.storage.retain();
-  let released = false, completion: void | Promise<void>;
+  let released = false, completion: Promise<void> | undefined;
   const retained: WorkerStartupView = { ...view, cleanup() {
-    if (!released) { released = true; releasedViews.add(retained); completion = view.storage.release(); }
-    return completion;
+    if (!released) { released = true; releasedViews.add(retained); }
+    return completion ??= Promise.resolve(view.storage.release())
+      .catch((error: unknown) => { completion = undefined; throw error; });
   } };
   const native = nativeInputs.get(view); if (native) nativeInputs.set(retained, native);
   return retained;
@@ -146,12 +147,15 @@ export async function prepareNativeWorkerStartupView(brainPath: string,
   const storage: WorkerStartupStorage = { root: expected,
     retain() { if (closing) throw new Error("native startup checkpoint is closed"); refs++; },
     release() {
-      if (closing) return deletion;
-      if (--refs > 0) return;
-      closing = true;
-      nativeRoots.delete(expected);
-      deletion = manager.release(id).then(() => {});
-      return deletion;
+      if (!closing) {
+        if (--refs > 0) return;
+        closing = true;
+        nativeRoots.delete(expected);
+      }
+      // A refused deletion retries the same identity without dropping a
+      // second reference or admitting another consumer of this closed view.
+      return deletion ??= manager.release(id).then(() => {})
+        .catch((error: unknown) => { deletion = undefined; throw error; });
     },
   };
   const owner: WorkerStartupView = { brain, root: expected, storage, cleanup() {} };
