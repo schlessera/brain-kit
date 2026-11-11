@@ -1168,6 +1168,18 @@ headers preserve effective-provider resolution. Retry provider changes return
 error codes, response schemas and operation binding are supported HTTP promises.
 
 
+### Live-conversation personas (additive, 0.45.0, #3617)
+
+The [persona routes](../http-api.md#live-conversation-personas) read and write
+`_voice/personas/<id>.md` and the selection. Every route requires a human
+session of the brain (an owner, or an ambient-auth account); delegated agent,
+worker and system principals receive `403` with an empty body. Writes replace
+the file atomically inside the brain and never follow a link out of
+`_voice/personas`. Revisions are the sha-256 of the file bytes; `PUT` and
+`DELETE` must name the current one or receive `409 PERSONA_CHANGED`. Error
+bodies are fixed codes, never persona text. Route paths, request and response
+schemas, revision semantics and error codes are supported HTTP promises.
+
 ### Checkpoint cleanup diagnostics (additive, #3815)
 
 Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains

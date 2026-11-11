@@ -74,6 +74,8 @@ import { createTranscriptionWrites } from "./voice/transcription-writes.js";
 import { createSettingsWrites } from "./db/settings-writes.js";
 import { createSpeechProviderRegistry } from "./voice/speech-providers.js";
 import { createVoiceRoutes } from "./routes/voice.js";
+import { createVoicePersonaRoutes } from "./routes/voice-personas.js";
+import { createLivePersonaService } from "./voice/personas.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
@@ -613,6 +615,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
   const settingsWrites = createSettingsWrites(db, writer, dbLog);
+  // Persona Markdown lives in the brain; the selection in the settings store (#3617).
+  const livePersonas = createLivePersonaService({ brainPath: config.brainPath, db, settingsWrites,
+    providers: () => options.conversationProvider ? [options.conversationProvider] : [] });
   const activity = createActivityRuntime(db, {
     settingsWrites,
     log: observability.logger("activity"),
@@ -813,7 +818,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity: { store: activity.store, onWrite: () => activity.stream.pump() },
     }),
     scratchPrune: () => scratchPrune.tick(),
-    ...(options.conversationProvider ? { conversationProvider: options.conversationProvider } : {}),
+    ...(options.conversationProvider ? { conversationProvider: options.conversationProvider, livePersonas } : {}),
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs
@@ -1201,6 +1206,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProviders, db, settingsWrites }));
+  app.route("/api", createVoicePersonaRoutes(livePersonas));
   const transcriptions = createTranscriptionWrites(db, { brainPath: config.brainPath, authMode }, writer);
   app.route("/api", createTranscriptionRoutes({ store: transcriptions, keyterms, speechProviders, db }));
   app.route(
