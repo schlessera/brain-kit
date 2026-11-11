@@ -247,6 +247,7 @@ export { VoiceField, VoiceText, type VoiceFieldLabel, type VoiceFieldProps, type
 export { MicButton, type MicButtonProps, type MicPhase } from "./voice/MicButton.js";
 export { VoiceNotice, type VoiceNoticeAction, type VoiceNoticeProps } from "./voice/VoiceNotice.js";
 export { StartCard, type StartCardNotice, type StartCardPersona, type StartCardProps } from "./voice/StartCard.js";
+export { LiveServiceSettings, type LiveServiceOption, type LiveServiceSettingsProps, type LiveServiceStatus } from "./voice/LiveServiceSettings.js";
 export {
   ConversationEndDivider,
   CutOffTag,

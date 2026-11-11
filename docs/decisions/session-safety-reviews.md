@@ -72,6 +72,109 @@ and failure capacity before ingestion; stop/restrict before overflow loses a
 signal. A failed pending write must not disappear into apparently normal state,
 including across restart. No test count or arbitrary cleanup TTL proves safety.
 
+### A recording failure restricts what it puts at risk (#3812)
+
+Ruled by the maintainer on 2026-11-09, under
+[proportionate containment](proportionate-containment.md). "Restricted" means
+running under the tainted policy, not refusing.
+
+- **Before delivery** (a failed collection begin, or a refused record of a
+  tool's input, which the backend awaits before the tool runs): the one turn
+  is refused with `SAFETY_RECORDING_UNAVAILABLE`. Nothing latches. A tool's
+  result is never before delivery: its bytes exist when it is recorded, and a
+  runtime may keep them in its own session (the Claude runtime replays them
+  on resume), so a result that cannot be recorded is lost after delivery.
+  A refusal for spent room says what frees it: a full chat needs a new chat
+  (`safety_recording_chat_full`), and a full brain cannot be helped by a
+  retry (`safety_recording_brain_full`). The room for first turns not yet in
+  a chat is full only when ended collections alone fill it; room that a
+  running turn or a pending write holds frees itself, so that refusal is a
+  plain retry.
+- **Lost after delivery**: the turn's own collection takes the failure and its
+  first cause, so its chat keeps a permanent gap projected as
+  `recording_failed` and that producer stops. Other chats are unaffected. A
+  reservation still open when its collection ends becomes the same gap.
+  Between a tool running and its result's record, nothing may skip both: a
+  stopped turn still records the result (stopping refuses new tools, never a
+  record, and a collection's end waits, bounded, for a record already under
+  way), a report the host refuses before its record (a malformed or
+  replayed Pi report) and a result for a call whose input record failed both
+  leave the gap. The host does not rely on the runtime to report a result:
+  the Claude runtime dispatches neither result hook for a turn stopped while
+  a tool runs, and still keeps that call in its session. So every call
+  `begin()` admits is an obligation, recorded before the tool runs. Its
+  durably recorded result discharges it. A refusal discharges it only when
+  it proves the call never ran, which needs all three of:
+  1. it is the backend's own denial before the call could run: a Claude
+     permission callback deny (a denied permission card) or `PreToolUse`
+     hook deny, a Pi permission deny or gate block;
+  2. it is the id's only admission: the runtime asked once to admit a call
+     under that id, under one tool name (each admission is counted per tool
+     name before anything of it is decided, whichever hook of it starts
+     first, so a reused id under another tool counts even when its hooks
+     differ);
+  3. the backend never let a call under that id run.
+
+  Anything else proves nothing, and only the recorded result discharges:
+  a second admission of the id, under the same tool name or another (the
+  installed Claude runtime admits two calls under one id, and runs a bare
+  `allowedTools` entry or a rewrite hook's allow without asking), an allow followed by a refusal, a rejected
+  request (a stopped turn, a replayed Pi request), or an id whose
+  admissions the backend never reported. Such a call leaves the gap even
+  if it never ran. A rejected `begin()` discharges nothing by itself; the
+  denial the backend returns on it does. A `begin()` rejected before its
+  obligation is durable owes nothing. The counts and allows live in the
+  turn's collector, not on the obligation row: an admission can be denied
+  before any row exists, only that collector discharges, and a restart gaps
+  every open obligation. A refusal also refuses every later admission and
+  allow under its id. Each backend's allow (the Pi dispatcher's, the Pi
+  gate's pass, the Claude permission callback's) is checked by the
+  collector before the call can run, and the Pi dispatcher publishes a
+  call's grant only after that check, so no concurrent request can use a
+  grant for a call the check then refuses. A result's last record and its
+  discharge commit together. A collection that ends owing one, however it
+  ended, and an obligation still open at boot, leave the same permanent
+  gap.
+- **Evidence store unwritable** (the chat fact cannot commit): the brain
+  latches through the emergency reserve, or, when even that fails, in the
+  host process. New turns still begin, each with a permanent
+  `recording_failed` gap committed before delivery, and run restricted. A turn
+  is refused only when that restricted begin itself cannot commit
+  (`safety_recording_paused`). The host keeps retrying, backing off to once a
+  minute, and clears the latch itself with `recoverSafetyRecording` semantics
+  once every producer that predates it has ended, failed or not; only turns
+  begun restricted after that latch run beside it.
+- **Boot** resolves a set latch and pending reservations after restart
+  classification, gaps first. A legacy row that cannot migrate gaps its own
+  turn. The server never boots into refusing every turn.
+
+Every latch keeps its first cause (class, message, bounded stack, call site,
+turn, time) and a count, logs one structured line, and is visible to the owner
+on `/api/status`, also while only the host process holds it. Every recovery is recorded with its trigger, actor, time and
+cleared cause. The owner route (#3810) is a fallback with the strict
+quiescence precondition. Only a capacity check classifies a failure as
+`capacity`. No gap ever clears, and nothing here lets an unrecorded input
+become clean.
+
+### A chat's safety history belongs to its account (#3952)
+
+Ruled by the maintainer on 2026-11-10. The owner mints a principal at every
+sign-in, so a chat's safety history binds to the account, not to the login
+that started it: another device's owner login continues the chat, reads its
+history and reviews its occurrences, and its turns join the same history and
+taint. `sameAccount` (`packages/ui-server/src/middleware/account-partition.ts`)
+decides it. A principal id always matches itself. Two different ids match
+only when both resolve to principals whose `accountScope` is the same
+partition in every auth mode, which today means two owner logins. An agent,
+ambient or system principal therefore matches only itself, and a missing or
+unresolvable principal (a pruned row, say) matches no other id. The decision
+trigger (`087_safety_account_partition.sql`) applies the same rule.
+
+Rows keep the principal that wrote them; nothing is rewritten. What belongs to
+one login stays exact: a turn's own collection, its catalog creation, read
+snapshots and cursors, review handles and their receipts, per-principal
+limits, and the principal a verdict names.
+
 ## Human authority and policy publication
 
 Initially **only a live password-mode human owner** may commit a verdict or
@@ -123,6 +226,12 @@ Read the scoped aggregate, immutable append sequence and membership together;
 history adoption and local pending/loss changes advance admission even when the
 global cursor does not. Pending-input overlays and capacity grouping use the
 same retained aliases. The history/review cursor keeps its existing meaning.
+
+A host relay joins its own announced session binding before taking a fresh
+admission snapshot. The wait is bounded and abortable, and a drained catalog
+queue alone does not prove that the binding committed. Failed or indeterminate
+binding refuses. This ordering never exempts independent pending input or retries
+a provider request; the final synchronous safety and authority fences still apply.
 
 Only effective taint and the trust slice update live. Ordinary governance
 budgets, profiles and commands keep turn-bound semantics. Trust removal fences

@@ -3,6 +3,7 @@ import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
 import { BudgetExceeded, BudgetUnavailable } from "../../brain/turn-budgets.js";
 import { JournalCapacityError } from "../../brain/journal-objects.js";
 import { JournalStorageUnavailable } from "../../brain/journal-accounting.js";
+import { SafetyRecordingUnavailable } from "../../governance/safety-store.js";
 import { withTurnScope } from "../frames.js";
 import type { RunningTurn } from "../turns.js";
 import type { WsHost } from "../host.js";
@@ -29,6 +30,16 @@ export function emitTurnError(host: WsHost, turn: RunningTurn, err: unknown): vo
     host.reportTurnFailed(errorClass.toUpperCase(), turn, message);
     host.sendToClients(withTurnScope({ type: "error", code: errorClass.toUpperCase(), message,
       failure: { errorClass, message }, ...correlation }, turn));
+  } else if (err instanceof SafetyRecordingUnavailable) {
+    // Refused before delivery (#3812), and distinct from a refusal by the
+    // brain, so the client can say what happened and what to do (#3810).
+    // Spent room is not retryable: a full chat needs a new chat, a full
+    // brain needs its limit raised; recovery frees neither.
+    const errorClass = err.full === "chat" ? "safety_recording_chat_full" : err.full === "brain" ? "safety_recording_brain_full"
+      : err.paused ? "safety_recording_paused" : "safety_recording_unavailable";
+    host.reportTurnFailed("SAFETY_RECORDING_UNAVAILABLE", turn, err.message);
+    host.sendToClients(withTurnScope({ type: "error", code: "SAFETY_RECORDING_UNAVAILABLE", message: err.message,
+      failure: { errorClass, message: err.message }, ...correlation }, turn));
   } else if (err instanceof BackendBusyError) {
     host.reportTurnFailed("SESSION_BUSY", turn);
     host.sendToClients(

@@ -1569,6 +1569,36 @@ retention, cost and the error table) is specified in the
 the two suites above. Boat's environment variable for its own CLI is never
 read.
 
+<a id="live-service-registration-additive-3616"></a>
+
+### Live-service registration (additive, #3616)
+
+`CreateAppOptions` (`@schlessera/brain-ui-server`) adds
+`conversationProviders?: LiveConversationProvider[]`, fixed at construction in
+registration order, and `defaultConversationProviderId?: string`, the host's
+default while nothing is saved. `conversationProvider` still registers one and
+means a list of one. Construction fails when both are given, on duplicate ids,
+on an invalid provider, or when `defaultConversationProviderId` names no
+registered provider. The saved brain-wide default lives in the ui-server
+settings store under `voice.live.defaultProvider` as
+`{ value: string | null, revision: number }`; corrupt rows read as nothing
+saved, revision 0. It is persisted server state, not part of the disposable
+content index. How a Start resolves the service is in
+[the wire contract](wire.md#live-service-selection-additive-3616).
+
+`@schlessera/brain-ui-sdk/protocol` exports `LiveDefault`, `LiveProviderSource`,
+`ServerLiveSettings`, `VoiceLiveSettings` and `VoiceLiveSettingsUpdate`;
+`ServerHello` adds `conversationProfiles?` and `liveDefault?`,
+`ClientConversationStart` adds `providerId?` and `ServerConversationOpened` adds
+`providerSource?`. `VoiceSettingsResponse` (the shared `/api/settings/voice`
+body, #3617) extends `VoiceLiveSettings`, and `VoiceSettingsUpdateRequest` adds
+optional `defaultProvider` and `revision`. `@schlessera/brain-ui-sdk/schemas` exports
+`conversationProfilesSchema`, `liveDefaultSchema`, `serverLiveSettingsSchema`
+and `voiceLiveSettingsSchema`; a malformed roster or `liveDefault` is dropped
+from a hello without losing the frame. `@schlessera/brain-ui-kit` exports the
+presentational `LiveServiceSettings` group (`LiveServiceOption`,
+`LiveServiceSettingsProps`, `LiveServiceStatus`), which opens nothing itself.
+
 <a id="dictation-speech-integration-and-conformance"></a>
 
 ### Dictation speech integration and conformance
@@ -4824,6 +4854,35 @@ retires the reviewed input identities; late recognition cannot restore them.
 These actions and Mute cancel pending automatic review timers, while output recovery
 remains independent of microphone consent.
 
+### Conversation capture intent and meter readings (#3699)
+
+Additive. The conversation client's state carries `capture`, the intent behind
+`micOn`: `idle` before Start in an entry, `listening` while consent stands
+(recoverable transitions restore capture on their own), `muted` after a manual
+Mute until Unmute, and `stopped` when a genuine failure withdrew consent and only
+a new Start resumes capture. Manual Mute stays `muted` across teardown and
+reconnects. `levels()` returns display-only 0–1 readings, `{ input, output }`:
+the newest microphone block while capture is open, and the 10 ms window of the
+reply sounding now. Neither value gates capture, endpointing, output recovery or
+permission routing.
+
+<a id="start-card-persona-choice-3698"></a>
+
+### Start-card persona choice (#3698)
+
+Additive. The conversation client's state carries `personaChoice`, the
+`ConversationPersonaRef` this entry's Start sends instead of the saved persona's
+`personaRef`; `null` sends the saved one. `choosePersona(ref | null)` sets it
+before Start: a persona picked on the Start card, `{ id: "standard", revision:
+"builtin" }` for "Use Standard this time", or a ref with `voice: "default"` for
+"Use the default voice this time". It is ignored once Start was agreed, saves
+nothing, and is cleared on Enter and Leave. The host still refuses a revision
+that is no longer current. When the host refuses a first Start that opened
+nothing, the entry may choose its service (`chooseService`) or persona again
+before the next explicit Start; a `CONVERSATION_PERSONA_CHANGED` refusal also
+clears `personaChoice`. Neither call opens a microphone, reads history or
+contacts a provider.
+
 ### Retained dialogue data (#3177)
 
 The SDK protocol exports `DialogueEvidence`, `DialogueRecord`, `DialoguePage`,
@@ -4893,7 +4952,11 @@ recency is unknown. Partial coverage uses “may be missing” copy rather than 
 claim about the exact newest item. These bounds never delete the display archive.
 
 `LiveConversationSession.historyCoverage?` exposes the adapter's actual bounded
-historical selection as `{state, tailOmitted}`. Third-party providers may ignore
+historical selection as `{state, tailOmitted, includedMessages?}`. The optional
+`includedMessages` (additive, #3699) is the number of prior chat and spoken
+messages the startup context actually carried; completed results and gap markers
+are not counted, and it is 0 when no history block was sent. It is host-only
+display data: it is never part of any provider-facing text. Third-party providers may ignore
 the additive history input but cannot thereby claim existing-chat continuity.
 The frozen provider prefix/tools/instructions are never rewritten within an epoch.
 
@@ -5076,6 +5139,37 @@ host-side. Progress append acknowledgements cannot settle the existing result
 acknowledgement promise. Reviewed-only tasks keep their existing admission and
 result behavior. The [wire/disclosure amendment](wire.md#live-orientation-disclosure-and-progress-additive-3623)
 adds no frame, revision or client permission grant.
+
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+`LiveConversationProvider` (`@schlessera/brain-ui-sdk/server`) gains three
+optional fields, all present or all absent: `voices: readonly
+ConversationVoice[]` (one to 128 unique `{ id, label }`), `defaultVoice` (one
+of them) and `personaInstructionBytes` (1 to 6,000). `assertLiveConversationProvider`
+refuses a partial or inconsistent set. A provider without them supports only
+Standard, and the host refuses any other persona for it.
+
+`LiveConversationOpenOptions.persona?: ConversationPersona` (`{ voice?: string;
+instructions: string }`) is the persona the host froze at Start. Absent means
+Standard and must reproduce the provider's behaviour before personas exactly.
+`voice` is one of the provider's `voices`; absent means `defaultVoice`.
+`instructions` is normalized plain text (line endings to LF, trimmed) within
+`personaInstructionBytes`. A provider frames it after its own fixed rules and
+never lets it reach tool declarations, permissions or history; the first-party
+adapters refuse an unoffered voice or an over-cap text rather than substitute
+or truncate. This adds fields to the existing live-conversation seam; it is not
+a new extension point.
+
+`@schlessera/brain-ui-sdk/protocol` exports `ConversationVoice`,
+`ConversationPersonaRef`, `LivePersona`, `LivePersonaSummary`,
+`LivePersonaInvalidReason`, `LivePersonaListResponse`,
+`LivePersonaCreateRequest`, `LivePersonaUpdateRequest`,
+`LivePersonaProviderStatus`, `LivePersonaStatus`, `VoiceSettingsResponse`,
+`VoiceSettingsUpdateRequest`, `ServerLivePersona`, `STANDARD_PERSONA_ID`,
+`STANDARD_PERSONA_REVISION` and `LIVE_PERSONA_LIMITS`; the schemas entry point
+exports their zod schemas. In `@schlessera/brain-ui-react`, the conversation
+client's state gains `livePersona: LivePersonaStatus | null` and its Start
+echoes `livePersona.personaRef`; Settings › Voice gains the Persona group.
 
 ## Observed live content map (additive, 0.45.0, #3630)
 

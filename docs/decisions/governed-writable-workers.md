@@ -1466,7 +1466,7 @@ from worker transcripts, and no extension of the observed-shell guarantee.
 
 **Where the next request waited.** The bridge never awaits an observation: it
 starts one per result and carries on
-(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:272`).
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:273`).
 The wait is the observation's hold. `held` takes it synchronously, before it
 queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:279-300`),
@@ -2257,7 +2257,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:83-203`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:84-204`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -3716,7 +3716,8 @@ end-of-turn cleanup that the awaited close above could not confirm.
 - **The turn still fails.** The refusal is the turn's, as before; the
   reconciler only takes ownership of the retryable close and the reservation.
 - **Capped backoff without giving up (revised by #3815).** Both backends
-  retain a retry owner, including Pi initialization failures. After the
+  retain a retry owner, including Pi initialization and post-launch callback
+  failures. After the
   foreground retry count, the owner continues at the capped delay. Activity
   records the cause, charged allowances and later confirmation.
 - **Release once, only on confirmation.** The reservation is released exactly
@@ -3729,8 +3730,13 @@ end-of-turn cleanup that the awaited close above could not confirm.
 The owner is the reconciler
 (`export function createCleanupReconciler`, `packages/ui-sdk/src/server/cleanup-reconciler.ts:75-148`), and the turn
 hands its refusal over where it awaits the close
-(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi supervision now uses the same owner; launch failures before a handle is
-returned remain the launcher's responsibility.
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:282-293`).
+Pi supervision and post-launch callback failures use the same owner. A failed
+SDK launch whose cleanup is unconfirmed exposes its original retryable close
+to the backend, which transfers it and the reservation to this reconciler
+(#3489). Required native stage and checkpoint cleanup must also confirm before
+that failed launch's reservation is released. No separate launcher retry loop
+or accounting owner is introduced.
 
 ### Turn completion includes worker teardown — 2026-10-25
 
@@ -3853,7 +3859,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:59-81`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:60-82`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -3867,7 +3873,7 @@ listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
 `smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
 `smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
 `smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
-(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:19-22`).
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:20-23`).
 Microsoft Graph and Exchange Online carry more than mail, so their reads by
 an opaque script also wait on the card. The coordinator chose this list for
 #1665; the maintainer may override it.
@@ -3993,7 +3999,7 @@ charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist` (an interactive turn asks first
 since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
 narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:83-229`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:84-230`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -4041,12 +4047,12 @@ through the turn's tool-permission card (`toolName: "Network"`, `kind:
 (`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:198-203`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
-(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:38-43`).
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:39-44`).
 Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
-(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:167-178`).
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:168-179`).
 A decline refuses: the record stays an `egress_denial` with reason
 `taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
 `packages/ui-sdk/src/server/egress-proxy.ts:88-104`). Stopping the turn while the
@@ -4070,7 +4076,7 @@ the byte ceiling, an unapproved outward host, or a tainted session's host
 outside its allow-list, with the session's first taint source and what the
 user can do (`function describeRefusal`,
 `packages/ui-sdk/src/server/egress-proxy.ts:88-104`; the source wording,
-`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:194`). The status
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:195`). The status
 line carries the reason because `curl -v`, `git` and `egress-connect` print
 only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
@@ -4078,7 +4084,7 @@ reason through as the refusal body's `error.message` and an additive
 `outward_not_approved` (`const refuse`,
 `packages/ui-sdk/src/server/provider-relay.ts:386-391`). The OpenAI image
 provider no longer appends its account hint to a relay refusal
-(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:199-200`).
+(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:255-256`).
 A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
 section names these causes and what the user can do (`A blocked connection
 says why`, `packages/ui-sdk/src/server/system-prompt.ts:167-175`). Since #3246,
@@ -4175,7 +4181,7 @@ admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:338`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
 (`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:196`). Turn egress
 records neither a taint nor a contacted host for the operation
-(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:154-157`). So in a
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:204-209`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
 

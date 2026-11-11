@@ -20,30 +20,32 @@ brain image models        # what is available here, and what each is for
 
 **Routing is by capability, not by preference.** Some requests only one family
 can serve, and the command enforces that. When nothing in the request settles
-it, the default is `gpt-image-2.5-sunburst`. Pass `--model` or `--provider`
+it, the default is `gpt-image-2.6-sunburst`. Pass `--model` or `--provider`
 only when the user asked for something else.
 
 | The request involves | Goes to | Because |
 |---|---|---|
 | A mask — change *this* region | OpenAI | Google's image API has no mask concept at all |
-| A transparent background | OpenAI, on the selected model | Both GPT Image 2.5 models return real alpha, on png or webp — never jpeg |
+| A transparent background | OpenAI, on the selected model | Every GPT Image 2.6 and 2.5 model returns real alpha, on png or webp — never jpeg |
 | An exact odd pixel size | OpenAI | Gemini offers fixed ratios and 1K/2K/4K only |
-| Legible text inside the image | `gpt-image-2.5-sunburst` | The default; no text-rendering benchmark covers the 2.5 models yet |
+| Legible text inside the image | `gpt-image-2.6-sunburst` | The default; no text-rendering benchmark covers the 2.6 models yet |
 | Recurring characters staying consistent | Gemini | Only models that document it — but no benchmark picks a winner, so the default decides |
 | More than 6 reference images | Gemini | Up to 10 (Flash) or 14 (Lite); OpenAI's practical ceiling is 8 |
 | Output that must carry no watermark | OpenAI | Every Gemini image carries SynthID, with no documented opt-out |
 | PNG or WebP output | OpenAI | Every Gemini image model serves JPEG only — verified against the live API, the docs do not say so |
+| An animated GIF | `gpt-image-2.6-sunburst` or `-flare` | Only the 2.6 models return GIF |
+| A vector SVG | `gpt-image-2.6-sunburst` or `-flare` | Only the 2.6 models author SVG, and only as a new image |
 
 ### The cases worth knowing
 
 | Want | Gets | |
 |---|---|---|
-| Anything, transparency included | `gpt-image-2.5-sunburst` | the default whenever OpenAI is available |
-| Faster generation | `gpt-image-2.5-flare` | only when asked: `--model gpt-image-2.5-flare` |
+| Anything, transparency included | `gpt-image-2.6-sunburst` | the default whenever OpenAI is available |
+| Faster generation | `gpt-image-2.6-flare` | only when asked: `--model gpt-image-2.6-flare` |
+| The previous generation | `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare` | only when asked by name; no `--complexity` |
 | A quick throwaway illustration | `gemini-3.1-flash-lite-image` | pass `--draft`; about $0.03 |
 
-A transparent background stays on whichever of the two 2.5 models was
-selected. Everything else is fallback — reached when one of those cannot serve
+A transparent background stays on whichever OpenAI model was selected. Everything else is fallback — reached when one of those cannot serve
 the request, never chosen ahead of them.
 
 `gpt-image-2` and `gpt-image-1.5` are retired. Naming either one — in
@@ -95,21 +97,46 @@ image at ~1K:
 | `gemini-3.1-flash-lite-image` | ~$0.034 |
 | `gemini-3.1-flash-image` | ~$0.067 |
 | `gemini-3-pro-image` | ~$0.134 |
-| `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare` | depends on quality and size |
+| `gpt-image-2.6-*`, `gpt-image-2.5-*` | depends on quality and size |
 
-The two OpenAI models are billed per token. By default the API picks the
-quality (`auto`) per image, so `brain image models` shows no price for them. To
-price a request first, pass `--quality` and `--size` (or `--aspect`) with
-`--dry-run`. The estimate comes from OpenAI's published output-token calculator
-for both models. At 1024x1024 it runs from about $0.006 at `low` to about $0.21
-at `max`, plus the prompt and any reference images. Without a stated quality
-and size, the dry run reports the cost as unknown. After a call, the cost comes
+The OpenAI models are billed per token, so `brain image models` shows no price
+for them. To price a request first, pass `--size` (or `--aspect`) with
+`--dry-run`. The estimate is at the request's quality, `max` unless stated, and
+comes from OpenAI's published output-token calculator for all four models. At
+1024x1024 it runs from about $0.006 at `low` to about $0.21 at `max`, plus the
+prompt and any reference images. Without a size, or with `--quality auto`, the
+dry run reports the cost as unknown. After a call, the cost comes
 from the token counts the API reported, when it reports them. Never quote an
 old per-image price for them.
 
 `--quality` takes `low`, `medium`, `high`, `xhigh`, `max` or `auto`. The
-command sends it as given. `xhigh` and `max` cost more tokens, so use them
-only when the user asks for the best result.
+command sends it as given. **Without it, an OpenAI request is sent `max`**,
+the highest and most expensive tier, because the user wants the best result
+unless they say otherwise. Pass a lower quality only when the user asks for
+cheaper or faster output; for a throwaway picture, `--draft` is the better
+choice.
+
+`--complexity` takes `low`, `medium` or `high` and sets how much a GPT Image
+2.6 model plans before it renders. Higher complexity helps dense text and
+layouts but can add latency and unwanted changes. It costs nothing extra.
+Without it, the 2.6 models are sent `high`. Lower it only when the user asks,
+or when an edit at `high` keeps changing things it should leave alone. The 2.5
+models and Gemini do not take it, so naming it with them is refused.
+
+For a moving picture, pass `--format gif`. It works for a new image and for an
+edit with `--ref`. `--frames` (2-16) and `--frame-duration` (20-2000 ms) set the
+loop; leave them out unless the user asks for a length or speed, and the API
+uses 9 frames at 200 ms. A GIF cannot take a mask or a transparent background,
+and the dry run cannot price it, so say the cost is unknown. If OpenAI answers
+that the organization lacks GIF preview access, tell the user that; retrying
+will not help.
+
+For a scalable vector picture, such as an icon, a logo or a flat illustration,
+pass `--format svg`. It makes a new image only, so it cannot edit a reference,
+use a mask or have a transparent background. The command refuses an SVG with
+scripts, event handlers or outside references and writes nothing; if that
+happens, say so, and offer to ask again or to make a png. The cost of an SVG
+is always unknown, so say that before running it.
 
 `--draft` takes the cheapest model that fits. `--dry-run` prints the decision
 and the price without spending anything — use it when the user is likely to

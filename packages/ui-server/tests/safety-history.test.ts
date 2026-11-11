@@ -71,8 +71,12 @@ test("first-turn provisional binding retains exact occurrence identity without d
 test("cursor scope, expiry after wait, principal revocation and retirement fence late authenticated reads",async()=>{
   const f=await safetyHistoryFixture();try{
     await f.add("A");await f.add("B");const first=await page(await f.get("?limit=1"));
-    const foreign=createPrincipal(f.db,{authMethod:"password",label:"Penelope",ttlSeconds:3600}),cookie=await f.cookieFor(foreign);
-    expect((await f.get(`?cursor=${first.nextCursor}`,cookie)).status).toBe(404);
+    // Another owner login reads the chat (#3952), but a cursor stays its own login's.
+    const otherLogin=createPrincipal(f.db,{authMethod:"password",label:"Odysseus at Ithaca",ttlSeconds:3600});
+    expect((await f.get(`?cursor=${first.nextCursor}`,await f.cookieFor(otherLogin))).status,"CURSOR_SCOPE_IS_ONE_LOGIN").toBe(409);
+    // Another account's principal sees nothing of the chat.
+    const agent=createPrincipal(f.db,{authMethod:"delegated",createdBy:f.principal.id,label:"Mentor",ttlSeconds:3600});
+    expect((await f.get(`?cursor=${first.nextCursor}`,await f.cookieFor(agent))).status,"CURSOR_SCOPE_FOREIGN_ACCOUNT").toBe(404);
     const held=f.hold(),pending=f.get(`?cursor=${first.nextCursor}`);await held.arrived;f.advance(300001);held.release();
     expect((await pending).status,"CURSOR_DELIVERY_CLOCK").toBe(409);
     const revoked=f.hold(),late=f.get();await revoked.arrived;revokePrincipal(f.db,f.principal.id,Date.now());revoked.release();

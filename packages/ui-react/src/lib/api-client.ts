@@ -19,6 +19,13 @@ import type {
   VoiceSessionRequest,
   VoiceProvidersResponse,
   DictationSettings,
+  VoiceLiveSettings,
+  VoiceLiveSettingsUpdate,
+  LivePersona,
+  LivePersonaCreateRequest,
+  LivePersonaListResponse,
+  LivePersonaUpdateRequest,
+  VoiceSettingsResponse,
   PronunciationOverride,
   ProviderInfo,
   UnavailableProfileInfo,
@@ -516,6 +523,27 @@ export function createBrainApi(
     saveDictationSettings: (settings: DictationSettings) =>
       fetchJson<DictationSettings>("/voice/dictation/settings", { method: "PUT", headers: { "If-Match": `"${settings.revision}"` },
         body: JSON.stringify({ defaultProvider: settings.defaultProvider, smart: settings.smart }) }),
+
+    /** The saved default live-conversation service and its revision (#3616). Never opens a provider. */
+    liveSettings: () => fetchJson<VoiceLiveSettings>("/settings/voice", { cache: "no-store" }),
+    saveLiveSettings: (update: VoiceLiveSettingsUpdate) =>
+      fetchJson<VoiceLiveSettings>("/settings/voice", { method: "PUT", body: JSON.stringify({ defaultProvider: update.defaultProvider, revision: update.revision }) }),
+    /** Live-conversation personas (#3617): Standard first, then by name. Never instruction text. */
+    livePersonas: () => fetchJson<LivePersonaListResponse>("/voice/personas", { cache: "no-store" }),
+    /** One persona with its plain-text instructions. */
+    livePersona: (id: string) => fetchJson<LivePersona>(`/voice/personas/${encodeURIComponent(id)}`, { cache: "no-store" }),
+    createLivePersona: (request: LivePersonaCreateRequest) =>
+      fetchJson<LivePersona>("/voice/personas", { method: "POST", body: JSON.stringify(request) }),
+    /** 409 `PERSONA_CHANGED` when `baseRevision` is no longer the file's revision. */
+    updateLivePersona: (id: string, request: LivePersonaUpdateRequest) =>
+      fetchJson<LivePersona>(`/voice/personas/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(request) }),
+    deleteLivePersona: async (id: string, baseRevision: string) => {
+      await fetchResponse(`/voice/personas/${encodeURIComponent(id)}?baseRevision=${encodeURIComponent(baseRevision)}`, { method: "DELETE" });
+    },
+    voiceSettings: () => fetchJson<VoiceSettingsResponse>("/settings/voice", { cache: "no-store" }),
+    /** 409 `LIVE_PERSONA_CHANGED` when the selection's revision moved on. */
+    saveLivePersonaSelection: (value: string, revision: number) =>
+      fetchJson<VoiceSettingsResponse>("/settings/voice", { method: "PUT", body: JSON.stringify({ persona: { value, revision } }) }),
 
     /** @deprecated use voiceSession(); kept during client transition. */
     voiceToken: () =>

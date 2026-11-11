@@ -14,6 +14,7 @@ import {
   type BillingMode,
   type DictationSettings,
   type ThinkingLevel,
+  type VoiceLiveSettings,
 } from "@schlessera/brain-ui-sdk/protocol";
 
 const HIDDEN_MODELS_KEY = "models.hidden";
@@ -211,5 +212,60 @@ export function saveDictationSettings(db: Database, expected: string, value: { d
     const revision = Number(current.revision) + 1;
     setSetting(db, DICTATION_KEY, { ...value, revision });
     return { saved: true, current: { ...value, revision: String(revision) } };
+  }).immediate();
+}
+
+const LIVE_DEFAULT_KEY = "voice.live.defaultProvider";
+/**
+ * The saved brain-wide live-conversation default (#3616). The reader is
+ * total: corrupt or unknown data reads as nothing saved, revision 0. A saved
+ * id the host no longer registers stays saved until changed in Settings.
+ */
+export function getLiveDefaultProvider(db: Database): VoiceLiveSettings {
+  const fallback = { defaultProvider: null, revision: 0 };
+  const value = getSetting<unknown>(db, LIVE_DEFAULT_KEY, null);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const row = value as Record<string, unknown>;
+  if (!(row.value === null || typeof row.value === "string" && row.value.length > 0) ||
+      typeof row.revision !== "number" || !Number.isSafeInteger(row.revision) || row.revision < 0) return fallback;
+  return { defaultProvider: row.value, revision: row.revision };
+}
+
+/** The revision comparison and write run in the same writer transaction. */
+export function saveLiveDefaultProvider(db: Database, expected: number, defaultProvider: string | null) {
+  return db.transaction(() => {
+    const current = getLiveDefaultProvider(db);
+    if (expected !== current.revision || current.revision >= Number.MAX_SAFE_INTEGER) return { saved: false, current };
+    const revision = current.revision + 1;
+    setSetting(db, LIVE_DEFAULT_KEY, { value: defaultProvider, revision });
+    return { saved: true, current: { defaultProvider, revision } };
+  }).immediate();
+}
+
+const LIVE_PERSONA_KEY = "voice.live.persona";
+const PERSONA_SELECTION = /^[a-z0-9-]{1,48}$/;
+/**
+ * The selected live-conversation persona (#3617): `standard` or a persona id,
+ * with its own revision. Authored persona text lives in the brain's Markdown,
+ * never here. A corrupt row reads as Standard at revision 0.
+ */
+export function getLivePersonaSelection(db: Database): { value: string; revision: number } {
+  const fallback = { value: "standard", revision: 0 };
+  const row = getSetting<unknown>(db, LIVE_PERSONA_KEY, null);
+  if (!row || typeof row !== "object" || Array.isArray(row)) return fallback;
+  const { value, revision } = row as Record<string, unknown>;
+  if (typeof value !== "string" || !PERSONA_SELECTION.test(value) ||
+      typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) return fallback;
+  return { value, revision };
+}
+
+/** Compare-and-set in one writer transaction; a stale revision saves nothing. */
+export function saveLivePersonaSelection(db: Database, expected: number, value: string) {
+  return db.transaction(() => {
+    const current = getLivePersonaSelection(db);
+    if (expected !== current.revision || current.revision >= Number.MAX_SAFE_INTEGER) return { saved: false, current };
+    const next = { value, revision: current.revision + 1 };
+    setSetting(db, LIVE_PERSONA_KEY, next);
+    return { saved: true, current: next };
   }).immediate();
 }

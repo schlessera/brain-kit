@@ -131,7 +131,10 @@ function scriptedBackend(): AgentBackend {
       bridge.emit({ type: "session_info", sessionId, isNew: !resumed });
       const transcript = transcripts.get(sessionId) ?? [];
       transcripts.set(sessionId, transcript);
-      transcript.push({ role: "user", content: prompt, toolCalls: [] });
+      // The transcript keeps the composer originals' block a real backend
+      // records (#3153): replay strips it only once it reproduces byte for byte.
+      const attachments = /\n\n<brain-attachments>\n[\s\S]*?\n<\/brain-attachments>/.exec(contextPrompt)?.[0] ?? "";
+      transcript.push({ role: "user", content: prompt + attachments, toolCalls: [] });
       const kind = prompt.split(":")[0]!;
       const finish = (text: string, outcome: "success" | "error") => {
         transcript.push({ role: "assistant", content: text, toolCalls: [] });
@@ -681,7 +684,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await a.page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "sail.png", mimeType: "image/png", buffer: SAIL });
         await until(a.page, "p.draft().images === 1");
         await a.page.locator('[data-draft-save="saved"]').waitFor();
-        await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draftA));
+        await hostUntil((d) => d.some((x) => x.sessionId === A && (x.attachmentCount ?? 0) + (x.fileCount ?? 0) === 1 && x.preview === draftA));
 
         // Leaving A mid-stream: an empty composer, A tracked as running, and
         // neither a confirmation nor an abort.
@@ -737,6 +740,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, `p.activeSessionId() === ${JSON.stringify(A)}`);
         await until(a.page, `p.draft().text === ${JSON.stringify(draftA)} && p.draft().images === 1`);
         expect(await composer(a.page).inputValue(), "A's words are back").toBe(draftA);
+        await a.page.locator("[data-composer] img").first().waitFor();
         expect(await a.page.locator("[data-composer] img").count(), "and A's image").toBe(1);
         await a.page.waitForTimeout(300);
         expect(await probe(a.page, (p) => p.views().find((v) => v.sessionId === p.activeSessionId())?.cleared), "selecting A cleared nothing").toBe(false);
@@ -1179,6 +1183,8 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
       const holdsA = async (page: Page, where: string) => {
         await until(page, `p.draft().text === ${JSON.stringify(draftA)} && p.draft().images === 1`);
         expect(await composer(page).inputValue(), `A's words after ${where}`).toBe(draftA);
+        // A restored image original's thumbnail is its frame, made again from the original the host keeps (#3155).
+        await page.locator("[data-composer] img").first().waitFor();
         expect(await page.locator("[data-composer] img").count(), `A's image after ${where}`).toBe(1);
       };
       /** Goes to a destination that unmounts the composer, and back to Chat. */
@@ -1202,7 +1208,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await a.page.locator('[data-draft-save="saved"]').waitFor();
         // The draft indicator's summary (#3155): this exact text and its image.
         expect(await a.page.locator("[data-draft-save]").getAttribute("data-draft-summary")).toMatch(/^Draft saved \d\d:\d\d: this text and 1 file\.$/);
-        await hostUntil((d) => d.some((x) => x.sessionId === A && x.preview === draftA && x.attachmentCount === 1));
+        await hostUntil((d) => d.some((x) => x.sessionId === A && x.preview === draftA && (x.attachmentCount ?? 0) + (x.fileCount ?? 0) === 1));
 
         // New chat by the visible control: empty, and the letter is its own draft.
         await newChat(run, a.page);

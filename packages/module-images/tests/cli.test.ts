@@ -2,7 +2,7 @@
 // decides, what it actually sends, and what it reports. Nothing leaves the
 // process — the OpenAI key is a placeholder and every request is captured.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildTaxonomy } from "@schlessera/brain/module";
@@ -10,8 +10,8 @@ import { buildTaxonomy } from "@schlessera/brain/module";
 import { imageCommand } from "../src/cli";
 import { configSchema } from "../src/module";
 
-const SUNBURST = "gpt-image-2.5-sunburst";
-const FLARE = "gpt-image-2.5-flare";
+const SUNBURST = "gpt-image-2.6-sunburst";
+const FLARE = "gpt-image-2.6-flare";
 const PNG_B64 = Buffer.from("fake-png-bytes").toString("base64");
 
 let root: string;
@@ -137,7 +137,7 @@ describe("brain image — refused before the provider is called", () => {
   });
 
   test("an unknown format", async () => {
-    expect(await run(["x", "--format", "gif"])).toBe(1);
+    expect(await run(["x", "--format", "tiff"])).toBe(1);
     expect(calls).toHaveLength(0);
   });
 
@@ -155,7 +155,8 @@ describe("brain image — refused before the provider is called", () => {
   }
 
   test("OpenAI disabled entirely leaves transparency impossible, not rerouted", async () => {
-    expect(await run(["x", "--transparent"], { disabledModels: [SUNBURST, FLARE] })).toBe(1);
+    const openai = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"];
+    expect(await run(["x", "--transparent"], { disabledModels: openai })).toBe(1);
     expect(calls).toHaveLength(0);
   });
 });
@@ -183,7 +184,7 @@ describe("brain image — what it reports without spending", () => {
   });
 
   test("a dry run with auto quality or no size stays unpriced", async () => {
-    for (const argv of [["--quality", "auto", "--size", "1024x1024"], ["--quality", "high"], ["--size", "1024x1024"]]) {
+    for (const argv of [["--quality", "auto", "--size", "1024x1024"], ["--quality", "high"], []]) {
       out.length = 0;
       expect(await run(["x", "--dry-run", ...argv])).toBe(0);
       expect(report().estimatedCostUsd).toBeNull();
@@ -191,10 +192,10 @@ describe("brain image — what it reports without spending", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("`models` lists both 2.5 models with no borrowed price, and no retired model", async () => {
+  test("`models` lists the 2.6 and 2.5 models with no borrowed price, and no retired model", async () => {
     expect(await run(["models"])).toBe(0);
     const rows = report().models as { model: string; approxCostUsd1K: number | null }[];
-    expect(rows.map((r) => r.model)).toEqual([SUNBURST, FLARE]);
+    expect(rows.map((r) => r.model)).toEqual([SUNBURST, FLARE, "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]);
     for (const r of rows) expect(r.approxCostUsd1K).toBeNull();
   });
 });
@@ -233,5 +234,297 @@ describe("brain image — keys withheld from an agent worker (#1666)", () => {
     delete process.env.OPENAI_API_KEY;
     expect(await run(["a harbour at dawn", "--out", "h.png"])).toBe(1);
     expect(out.join("\n")).toStartWith("No image provider is configured.");
+  });
+});
+
+// GPT Image 2.6 (#3782): the default model, and the highest quality and
+// complexity unless the request states otherwise.
+describe("brain image — GPT Image 2.6 defaults (#3782)", () => {
+  const SUNBURST_26 = "gpt-image-2.6-sunburst";
+  const FLARE_26 = "gpt-image-2.6-flare";
+  const SUNBURST_25 = "gpt-image-2.5-sunburst";
+  const FLARE_25 = "gpt-image-2.5-flare";
+
+  test("an unpinned generation sends 2.6 Sunburst at max quality and high complexity", async () => {
+    expect(await run(["a heat pump", "--out", "a.png"])).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(sentJson(), "IMAGE_26_DEFAULTS_GENERATION").toMatchObject({
+      model: SUNBURST_26, quality: "max", complexity: "high",
+    });
+    expect(report()).toMatchObject({ model: SUNBURST_26 });
+  });
+
+  test("an unpinned edit carries the same defaults over multipart", async () => {
+    expect(await run(["repaint the door", "--ref", "photos/house.png", "--out", "e.png"])).toBe(0);
+    expect(calls[0].url).toEndWith("/images/edits");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("model")).toBe(SUNBURST_26);
+    expect(form.get("quality"), "IMAGE_26_DEFAULTS_EDIT").toBe("max");
+    expect(form.get("complexity")).toBe("high");
+  });
+
+  test("an explicit quality and complexity are sent as given, auto included", async () => {
+    expect(await run(["x", "--model", FLARE_26, "--quality", "low", "--complexity", "medium", "--out", "x.png"])).toBe(0);
+    expect(sentJson()).toMatchObject({ model: FLARE_26, quality: "low", complexity: "medium" });
+    calls.length = 0;
+    expect(await run(["x", "--quality", "auto", "--out", "y.png"])).toBe(0);
+    expect(sentJson().quality).toBe("auto");
+  });
+
+  for (const model of [SUNBURST_25, FLARE_25]) {
+    test(`${model} stays selectable, defaults to max and never receives complexity`, async () => {
+      expect(await run(["x", "--model", model, "--out", "x.png"])).toBe(0);
+      const body = sentJson();
+      expect(body).toMatchObject({ model, quality: "max" });
+      expect(body, "IMAGE_25_NO_COMPLEXITY").not.toHaveProperty("complexity");
+    });
+
+    test(`--complexity on ${model} refuses before any request`, async () => {
+      expect(await run(["x", "--model", model, "--complexity", "low"])).toBe(1);
+      expect(calls, "IMAGE_COMPLEXITY_GUARD").toHaveLength(0);
+      expect(out.join("\n")).toContain(SUNBURST_26);
+    });
+  }
+
+  test("--complexity on Gemini refuses before any request", async () => {
+    process.env.GEMINI_API_KEY = "placeholder-never-sent";
+    expect(await run(["x", "--provider", "gemini", "--complexity", "high"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/complexity/);
+  });
+
+  test("an unknown complexity refuses before routing", async () => {
+    expect(await run(["x", "--complexity", "max"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toContain("low, medium, high");
+  });
+
+  test("a dry run prices the defaulted max quality", async () => {
+    expect(await run(["x", "--dry-run", "--aspect", "1:1"])).toBe(0);
+    expect(calls).toHaveLength(0);
+    // 1:1 at 1K is 1024x1024: 96 tokens a side at max, 7024 tokens at $30/M.
+    expect(report()).toMatchObject({ model: SUNBURST_26 });
+    expect(report().estimatedCostUsd, "IMAGE_26_DRY_RUN_MAX").toBeCloseTo(0.21072, 10);
+  });
+
+  test("`models` lists the 2.6 pair first, then the 2.5 pair", async () => {
+    expect(await run(["models"])).toBe(0);
+    expect((report().models as { model: string }[]).map((r) => r.model)).toEqual([
+      SUNBURST_26, FLARE_26, SUNBURST_25, FLARE_25,
+    ]);
+  });
+
+  test("the retired-model message names the 2.6 replacements", async () => {
+    expect(await run(["x", "--model", "gpt-image-2"])).toBe(1);
+    expect(out.join("\n")).toContain(SUNBURST_26);
+    expect(out.join("\n")).toContain(FLARE_26);
+  });
+});
+
+describe("brain image — animated GIF on GPT Image 2.6 (#3783)", () => {
+  const SUNBURST_25 = "gpt-image-2.5-sunburst";
+
+  test("--format gif sends the GIF fields and the 2.6 defaults, and writes a .gif", async () => {
+    expect(await run(["a waving flag", "--format", "gif", "--frames", "12", "--frame-duration", "150", "--out", "flag.gif"])).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toEndWith("/images/generations");
+    expect(sentJson(), "IMAGE_GIF_GENERATION").toMatchObject({
+      model: SUNBURST, output_format: "gif", frame_count: 12, frame_duration_ms: 150, quality: "max", complexity: "high",
+    });
+    expect(report().output).toBe("flag.gif");
+    expect(report().renamed).toBeNull();
+  });
+
+  test("the default output path ends in .gif", async () => {
+    expect(await run(["a waving flag", "--format", "gif"])).toBe(0);
+    expect(report().output).toEndWith(".gif");
+  });
+
+  test("omitted frame flags leave the API's own defaults in charge", async () => {
+    expect(await run(["a waving flag", "--format", "gif", "--out", "flag.gif"])).toBe(0);
+    const body = sentJson();
+    expect(body.output_format).toBe("gif");
+    expect(body, "IMAGE_GIF_NO_FRAME_DEFAULTS").not.toHaveProperty("frame_count");
+    expect(body).not.toHaveProperty("frame_duration_ms");
+  });
+
+  test("a GIF edit with --ref carries the same fields over multipart", async () => {
+    expect(await run(["make the door swing", "--ref", "photos/house.png", "--format", "gif", "--frames", "12", "--frame-duration", "150", "--out", "door.gif"])).toBe(0);
+    expect(calls[0].url).toEndWith("/images/edits");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("model")).toBe(SUNBURST);
+    expect(form.get("output_format"), "IMAGE_GIF_EDIT").toBe("gif");
+    expect(form.get("frame_count")).toBe("12");
+    expect(form.get("frame_duration_ms")).toBe("150");
+    expect(form.get("quality")).toBe("max");
+    expect(form.get("complexity")).toBe("high");
+  });
+
+  const outOfRange: [string, string[], string][] = [
+    ["--frames 1", ["--frames", "1"], "2 to 16"],
+    ["--frames 17", ["--frames", "17"], "2 to 16"],
+    ["--frames 4.5", ["--frames", "4.5"], "2 to 16"],
+    ["--frame-duration 10", ["--frame-duration", "10"], "20 to 2000"],
+    ["--frame-duration 2001", ["--frame-duration", "2001"], "20 to 2000"],
+  ];
+  for (const [label, flags, range] of outOfRange) {
+    test(`${label} refuses with zero requests and names the range`, async () => {
+      expect(await run(["x", "--format", "gif", ...flags])).toBe(1);
+      expect(calls, "IMAGE_GIF_FRAME_RANGE").toHaveLength(0);
+      expect(out.join("\n")).toContain(range);
+    });
+  }
+
+  for (const flags of [["--frames", "9"], ["--frame-duration", "200"]]) {
+    test(`${flags[0]} without --format gif refuses with zero requests`, async () => {
+      expect(await run(["x", ...flags])).toBe(1);
+      expect(calls).toHaveLength(0);
+      expect(out.join("\n")).toContain("--format gif");
+    });
+  }
+
+  test("GIF with --mask refuses before any request", async () => {
+    expect(await run(["x", "--format", "gif", "--ref", "photos/house.png", "--mask", "photos/mask.png"])).toBe(1);
+    expect(calls, "IMAGE_GIF_MASK").toHaveLength(0);
+    expect(out.join("\n")).toMatch(/GIF.*mask/i);
+  });
+
+  test("GIF with --transparent refuses before any request", async () => {
+    expect(await run(["x", "--format", "gif", "--transparent"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/GIF.*transparen/i);
+  });
+
+  test("GIF on a 2.5 model refuses and names the 2.6 models", async () => {
+    expect(await run(["x", "--format", "gif", "--model", SUNBURST_25])).toBe(1);
+    expect(calls, "IMAGE_GIF_MODEL").toHaveLength(0);
+    expect(out.join("\n")).toContain(SUNBURST);
+  });
+
+  test("GIF on Gemini refuses before any request", async () => {
+    process.env.GEMINI_API_KEY = "placeholder-never-sent";
+    expect(await run(["x", "--format", "gif", "--provider", "gemini"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/GIF/);
+  });
+
+  test("a GIF dry run reports its cost as unknown", async () => {
+    expect(await run(["x", "--format", "gif", "--aspect", "1:1", "--dry-run"])).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(report().model).toBe(SUNBURST);
+    expect(report().output).toEndWith(".gif");
+    expect(report().estimatedCostUsd, "IMAGE_GIF_DRY_RUN").toBeNull();
+  });
+
+  test("a refusal for missing GIF preview access names it and is not retryable", async () => {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(
+        JSON.stringify({ error: { message: "This organization does not have access to output_format gif for this model.", type: "invalid_request_error" } }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    expect(await run(["x", "--format", "gif", "--out", "x.gif"])).toBe(1);
+    const said = out.join("\n");
+    expect(said, "IMAGE_GIF_ACCESS_HINT").toContain("GIF preview access");
+    expect(said).not.toContain("worth retrying");
+    expect(said).not.toContain("region not supported");
+  });
+});
+
+describe("brain image — static SVG on GPT Image 2.6 (#3784)", () => {
+  const SUNBURST_25 = "gpt-image-2.5-sunburst";
+  const CLEAN_SVG =
+    '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">' +
+    '<defs><linearGradient id="g"><stop offset="0" stop-color="#c33"/></linearGradient><path id="p" d="M0 0h10"/></defs>' +
+    '<rect width="10" height="10" fill="url(#g)"/><use href="#p"/><use xlink:href="#p"/><text x="1" y="5">Ithaca</text></svg>';
+  const serve = (svg: string, extra: Record<string, unknown> = {}) => {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from(svg).toString("base64") }], ...extra }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+  };
+
+  test("--format svg sends output_format svg on a generation and writes the XML to a .svg", async () => {
+    serve(CLEAN_SVG);
+    expect(await run(["a sailing ship", "--format", "svg", "--out", "ship.svg"])).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toEndWith("/images/generations");
+    const body = sentJson();
+    expect(body, "IMAGE_SVG_GENERATION").toMatchObject({ model: SUNBURST, output_format: "svg", quality: "max", complexity: "high" });
+    expect(body).not.toHaveProperty("n");
+    expect(body).not.toHaveProperty("svg");
+    expect(report().output).toBe("ship.svg");
+    expect(report().renamed).toBeNull();
+    expect(readFileSync(join(root, "ship.svg"), "utf8"), "IMAGE_SVG_WRITTEN").toBe(CLEAN_SVG);
+  });
+
+  test("the default output path ends in .svg", async () => {
+    serve(CLEAN_SVG);
+    expect(await run(["a sailing ship", "--format", "svg"])).toBe(0);
+    expect(report().output).toEndWith(".svg");
+  });
+
+  const refused: [string, string[]][] = [
+    ["--ref", ["--ref", "photos/house.png"]],
+    ["--mask", ["--ref", "photos/house.png", "--mask", "photos/mask.png"]],
+    ["--transparent", ["--transparent"]],
+    [`--model ${SUNBURST_25}`, ["--model", SUNBURST_25]],
+  ];
+  for (const [label, flags] of refused) {
+    test(`SVG with ${label} refuses before any request`, async () => {
+      expect(await run(["x", "--format", "svg", ...flags])).toBe(1);
+      expect(calls, "IMAGE_SVG_REFUSED").toHaveLength(0);
+      expect(out.join("\n")).toMatch(/SVG/);
+    });
+  }
+
+  test("SVG on Gemini refuses before any request", async () => {
+    process.env.GEMINI_API_KEY = "placeholder-never-sent";
+    expect(await run(["x", "--format", "svg", "--provider", "gemini"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/SVG/);
+  });
+
+  const active: [string, string][] = [
+    ["a script element", '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'],
+    ["an event handler", '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect/></svg>'],
+    ["an event handler on a child", '<svg xmlns="http://www.w3.org/2000/svg"><rect\nonclick =\'x()\'/></svg>'],
+    ["a foreignObject", '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div/></foreignObject></svg>'],
+    ["an external href", '<svg xmlns="http://www.w3.org/2000/svg"><a href="https://example.com/"><rect/></a></svg>'],
+    ["an external xlink:href", '<svg xmlns="http://www.w3.org/2000/svg"><image xlink:href="https://example.com/x.png"/></svg>'],
+    ["an embedded raster", '<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,AAAA"/></svg>'],
+    ["a javascript: link", '<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)"><rect/></a></svg>'],
+    ["an external url()", '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(https://example.com/p.svg#g)"/></svg>'],
+    ["a stylesheet import", '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://example.com/a.css";</style></svg>'],
+    ["an entity declaration", '<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg">&x;</svg>'],
+    ["something that is not SVG", "<html><body>hi</body></html>"],
+  ];
+  for (const [label, svg] of active) {
+    test(`an SVG with ${label} is refused and nothing is written`, async () => {
+      serve(svg);
+      expect(await run(["x", "--format", "svg", "--out", "bad.svg"])).toBe(1);
+      expect(calls).toHaveLength(1);
+      expect(existsSync(join(root, "bad.svg")), "IMAGE_SVG_ACTIVE_CONTENT").toBe(false);
+      expect(out.join("\n")).toMatch(/SVG/);
+    });
+  }
+
+  test("an SVG's cost is unknown when its authoring tokens cannot be priced", async () => {
+    serve(CLEAN_SVG, {
+      usage: { output_tokens: 100, input_tokens_details: { text_tokens: 10, image_tokens: 0 } },
+      svg_usage: { input_tokens: 500, output_tokens: 2000 },
+    });
+    expect(await run(["x", "--format", "svg", "--out", "x.svg"])).toBe(0);
+    expect(report().costUsd, "IMAGE_SVG_COST").toBeNull();
+  });
+
+  test("an SVG dry run reports its cost as unknown", async () => {
+    expect(await run(["x", "--format", "svg", "--aspect", "1:1", "--dry-run"])).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(report().output).toEndWith(".svg");
+    expect(report().estimatedCostUsd).toBeNull();
   });
 });

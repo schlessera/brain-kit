@@ -20,6 +20,20 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## The Start card's persona choice (additive, 0.45.0, #3698)
+
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`personaChoice: ConversationPersonaRef | null`, and the client adds
+`choosePersona(ref | null)`: the persona this entry's Start sends as
+`personaRef` instead of the saved one, including the one-time
+`{ id: "standard", revision: "builtin" }` and `voice: "default"` choices.
+It saves nothing and is cleared on Enter and Leave. A first Start the host
+refused, which opened nothing, may choose a service or persona again; a
+`CONVERSATION_PERSONA_CHANGED` refusal clears the choice. No wire or HTTP
+shape changes. See
+[the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
+This ships in a minor.
+
 ## Host-owned web tools for Pi (additive, 0.45.0, #3685)
 
 Pi's ordinary governed and strict interactive sessions gain four
@@ -52,6 +66,27 @@ client refuses a page that carries the new kinds. See
 and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
 This ships in a minor; no breaking ruling is required.
 
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+A persona is authored Markdown at `_voice/personas/<id>.md` in the brain: a
+name, one voice per live service and plain-text speaking-style instructions.
+Core excludes `_voice` from the content index by default
+([configuration](configuration.md#exclude)). New owner-only routes read and
+write personas with sha-256 revisions, and `GET/PUT /api/settings/voice`
+carries the selection (`voice.live.persona`, its own revision) in the server
+settings store, never in `brain.db`. `LiveConversationProvider` gains optional
+`voices`, `defaultVoice` and `personaInstructionBytes`, mirrored on
+`ConversationProfile` outside the disclosure a Start must echo;
+`LiveConversationOpenOptions.persona` carries the persona frozen at Start.
+`server_hello.livePersona` and the new `live_persona` frame describe the
+selected persona to human sessions; `conversation_start.personaRef` echoes it,
+with `voice: "default"` as the explicit one-time stale-voice override. A
+conversation that sends no persona keeps exact current behaviour. See
+[wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617),
+[HTTP](integration-contract/http.md#live-conversation-personas-additive-0450-3617)
+and [the package API](integration-contract/package-api.md#live-conversation-personas-additive-0450-3617).
+This ships in a minor; no breaking ruling is required.
+
 ## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
 
 `openSettings("voice")` opens a new Settings › Voice pane, which holds the
@@ -62,6 +97,31 @@ carries the server's code as `code`. The kit `Composer` adds
 `micTip?: boolean` and `micUnavailable?: string`. Existing calls behave as before, and no HTTP or protocol
 shape changes. See
 [the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
+This ships in a minor.
+
+## Choosing the live-conversation service (additive, 0.45.0, #3616)
+
+`CreateAppOptions` adds `conversationProviders?: LiveConversationProvider[]` and
+`defaultConversationProviderId?: string`; `conversationProvider` keeps meaning a
+list of one, and both together, duplicate ids or an unregistered default fail
+startup. `server_hello` adds `conversationProfiles` and `liveDefault`, and keeps
+`conversationProfile` only while a service is effective (R1). A new
+`live_settings` frame follows a save, `conversation_start` accepts an optional
+`providerId` that must equal the disclosed one, and `conversation_opened` adds
+`providerSource`. `GET`/`PUT /api/settings/voice`, shared with the persona
+selection (#3617), add the top-level `defaultProvider`/`revision` pair for the
+brain-wide default, each group with its own revision, and the route's writes
+gain a new owner-only guard. The SDK exports `LiveDefault`,
+`LiveProviderSource`, `ServerLiveSettings`, `VoiceLiveSettings`,
+`VoiceLiveSettingsUpdate` and their schemas; the kit adds `LiveServiceSettings`.
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`conversationProfiles`, `liveDefault` and `serviceChoice`, the client adds
+`chooseService(providerId | null)` for a one-time pick before Start, and the
+REST client adds `liveSettings()` and `saveLiveSettings()`.
+Single-provider hosts and existing clients keep their behaviour. See
+[wire](integration-contract/wire.md#live-service-selection-additive-3616),
+[HTTP](integration-contract/http.md#live-conversation-service-default-additive-3616)
+and [the package API](integration-contract/package-api.md#live-service-registration-additive-3616).
 This ships in a minor.
 
 ## Bounded multi-read (additive, 0.45.0, #3642)
@@ -160,6 +220,9 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+On such a host the React package uploads images as originals too and sends
+each frame with `ChatImageAttachment.fileId` naming its original (#3155); a
+legacy draft image and a host without the flag keep the inline-only path.
 
 ## Outgoing snapshot list (additive, 0.45.0, #3588)
 
@@ -660,7 +723,8 @@ carry an optional authorized, frozen chat snapshot, separately from native
 same-conversation resync. `LiveConversationSession.historyCoverage` and
 `conversation_opened.historyCoverage` optionally report the actual startup
 selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
-`tailOmitted`. This is data receipt/selection evidence, never a guarantee of
+`tailOmitted`, plus, additively (#3699), `includedMessages`: the number of
+prior chat and spoken messages actually sent. This is data receipt/selection evidence, never a guarantee of
 semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
 and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
 

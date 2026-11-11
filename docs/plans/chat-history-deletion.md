@@ -148,7 +148,7 @@ and [operational recovery](../inbox-recovery.md) remain binding.
 There is no general delete operation: `createSessionRoutes` only lists/reads
 (`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:9-157`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
-(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:765-808`). A storage root
+(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:826-882`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
 actual contract assessment and a CONTRACT commit; additive capability negotiation
 ships in a minor. The approved retention exception is recorded before runtime
@@ -290,11 +290,11 @@ restore, resend, draft autosave and answer-delivery callbacks. Activity/Inbox/
 journal APIs remain independent retained surfaces under the selected exclusion.
 Concrete entry points include `readSessionRecovery`
 (`readSessionRecovery`, `packages/ui-server/src/ws/recovery.ts:209-222`),
-`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-93`),
+`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-94`),
 and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:100-110`;
 `prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
 belongs to `createDraftClient` (`createDraftClient`,
-`packages/ui-react/src/lib/draft-client.ts:53-65`); browser reloadable work belongs
+`packages/ui-react/src/lib/draft-client.ts:54-66`); browser reloadable work belongs
 to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:227-245`).
 The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`, with one
 handler per frame under `ws/handlers/`; gating its resume handler alone would leave HTTP, background readers and provider startup open.
@@ -334,7 +334,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1373-1423`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1375-1425`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline

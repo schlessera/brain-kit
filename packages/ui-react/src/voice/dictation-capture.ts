@@ -5,7 +5,7 @@
 
 import type { AsrClient } from "@schlessera/brain-ui-sdk/client";
 import type { BrainUiRoot } from "../root.js";
-import type { DictationFailure } from "./dictation-failure.js";
+import { endedNotice, type DictationFailure } from "./dictation-failure.js";
 import type { VoiceState } from "./voice-state.js";
 
 type VoiceStore = BrainUiRoot["stores"]["voice"];
@@ -61,13 +61,15 @@ export function endDictation(
 ): boolean {
   const { finalText, partial, reviewText, draining } = voice.getState();
   if (draining && also.draining !== false) {
-    voice.setState({ connecting: false, mode: "idle", dictationGate: null });
+    voice.setState({ connecting: false, micPrompt: false, quiet: false, mode: "idle", dictationGate: null });
     return false;
   }
   const merged = [finalText, partial].filter(Boolean).join(" ").trim();
   voice.setState({
     ...also,
     connecting: false,
+    micPrompt: false,
+    quiet: false,
     mode: "idle",
     dictationGate: null,
     dictationTarget: null,
@@ -91,6 +93,6 @@ export function providerEnded(stores: BrainUiRoot["stores"], client: AsrClient):
   release(capture);
   const { finalText, partial } = stores.voice.getState();
   endDictation(stores.voice, true, capture.failure ? {
-    dictationNotice: { reason: capture.failure, phase: "ended", retained: Boolean([finalText, partial].join(" ").trim()) },
+    dictationNotice: endedNotice(capture.failure, [finalText, partial].filter(Boolean).join(" ")),
   } : {});
 }

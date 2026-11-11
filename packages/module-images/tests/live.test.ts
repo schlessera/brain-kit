@@ -7,7 +7,7 @@
  *     BRAIN_IMAGES_LIVE=1 bun test packages/module-images/tests/live.test.ts
  *
  * A full run costs a few dollars at most and takes a few minutes. The GPT
- * Image 2.5 models are billed per token and OpenAI publishes no per-image
+ * Image 2.5 and 2.6 models are billed per token and OpenAI publishes no per-image
  * figure for them, so there is no exact number to quote.
  * Every image model is exercised individually, because they do not share a
  * schema: this suite is what caught that all three Gemini models reject
@@ -293,7 +293,7 @@ describe("live: gemini image models", () => {
 });
 
 describe("live: openai image models", () => {
-  for (const model of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+  for (const model of ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
     live(
       `${model} generates a PNG at the requested size`,
       async () => {
@@ -326,7 +326,7 @@ describe("live: openai image models", () => {
     );
   }
 
-  for (const model of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+  for (const model of ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
     live(
       `${model} returns a PNG with real alpha for a transparent background`,
       async () => {
@@ -378,12 +378,12 @@ describe("live: openai image models", () => {
     "edits with a reference image over multipart",
     async () => {
       const base = await openaiProvider.generate(
-        "gpt-image-2.5-sunburst",
+        "gpt-image-2.6-sunburst",
         { prompt: PROMPT, quality: "low", size: "1024x1024", format: "png" },
         OPENAI_KEY
       );
       const edited = await openaiProvider.generate(
-        "gpt-image-2.5-flare",
+        "gpt-image-2.6-flare",
         {
           prompt: "put the banana on a deep blue background",
           quality: "low",
@@ -402,12 +402,12 @@ describe("live: openai image models", () => {
     "returns a changed PNG from a masked edit request",
     async () => {
       const base = await openaiProvider.generate(
-        "gpt-image-2.5-sunburst",
+        "gpt-image-2.6-sunburst",
         { prompt: PROMPT, quality: "low", size: "1024x1024", format: "png" },
         OPENAI_KEY
       );
       const edited = await openaiProvider.generate(
-        "gpt-image-2.5-flare",
+        "gpt-image-2.6-flare",
         {
           prompt: "put a bright red apple here",
           quality: "low",
@@ -447,6 +447,8 @@ describe("live: reference images on every model", () => {
   // this suite has already caught a PNG rejection, a response shape that does
   // not match the docs, and a size rejection on one model but not its sibling.
   const cases: { model: string; provider: "openai" | "gemini" }[] = [
+    { model: "gpt-image-2.6-sunburst", provider: "openai" },
+    { model: "gpt-image-2.6-flare", provider: "openai" },
     { model: "gpt-image-2.5-sunburst", provider: "openai" },
     { model: "gpt-image-2.5-flare", provider: "openai" },
     { model: "gemini-3-pro-image", provider: "gemini" },

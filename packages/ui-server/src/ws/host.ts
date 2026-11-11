@@ -27,12 +27,13 @@ import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
 import type { AgentBackend, LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
+import { createLiveProviderRegistry, type LiveProviderRegistry } from "../voice/live-providers.js";
 import { ConversationHost } from "./conversation.js";
 import { turnLogAttributes, type TurnLogContext } from "./limits.js";
 import type { Labeller } from "../labels/labeller.js";
 import { createPillLabels, type PillLabels } from "../labels/pill-labels.js";
 import type { ApplicationPlanner } from "../brain/application.js";
+import type { LivePersonaService } from "../voice/personas.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -205,6 +206,26 @@ export interface WsHostOptions {
    */
   conversationProvider?: LiveConversationProvider;
   /**
+   * Several live-conversation providers (#3616); exclusive with
+   * `conversationProvider`, which means a list of one.
+   * @experimental Part of the LiveConversationProvider seam until 1.0.
+   */
+  conversationProviders?: LiveConversationProvider[];
+  /** Must name a registered live-conversation provider (#3616). */
+  defaultConversationProviderId?: string;
+  /**
+   * The saved brain-wide live-service default (#3616), read at each hello and
+   * Start. Absent reads as nothing saved.
+   * @internal Supplied by createApp.
+   */
+  liveDefaultProvider?: () => string | null;
+  /**
+   * Live-conversation personas (#3617). Absent: every Start uses Standard and
+   * hello carries no `livePersona`.
+   * @internal Supplied by createApp.
+   */
+  livePersonas?: LivePersonaService;
+  /**
    * Host draft storage (#979). Present: `server_hello` advertises
    * `sessionDrafts` and an accepted `chat_message.draftRef` consumes its
    * revision. Absent: drafts are neither advertised nor touched.
@@ -328,6 +349,8 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   readonly conversations: ConversationHost | null;
+  /** Registered live services, fixed at construction (#3616). */
+  readonly liveProviders: LiveProviderRegistry;
   /** @internal Host wiring (#1053). */
   readonly classifier: TurnClassifier | null;
   /**
@@ -437,9 +460,10 @@ export class WsHost {
     this.drafts = options.drafts ?? null;
     this.attachmentLimits = options.drafts && options.attachmentLimits ? options.attachmentLimits : null;
     this.toolPermissions = options.toolPermissions ?? null;
-    if (options.conversationProvider) assertLiveConversationProvider(options.conversationProvider);
-    this.conversations = options.conversationProvider
-      ? new ConversationHost(this, options.conversationProvider)
+    const live = this.liveProviders = createLiveProviderRegistry(options);
+    const saved = options.liveDefaultProvider ?? (() => null);
+    this.conversations = live.providers.length > 0
+      ? new ConversationHost(this, live, saved, options.livePersonas)
       : null;
     this.dialogue = new DialogueJournal(this.catalog, (page, principalId) => {
       this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", principalId);

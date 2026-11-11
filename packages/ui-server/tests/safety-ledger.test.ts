@@ -66,7 +66,8 @@ test("real upgrade classifies old sessions both with and without first-taint row
  for(const {name} of triggers)f.db.exec(`DROP TRIGGER ${name}`);
  const tables=f.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'safety_%'").all() as {name:string}[];
  for(const {name} of tables)f.db.exec(`DROP TABLE ${name}`);
- f.db.query("DELETE FROM _migrations WHERE filename='081_session_safety.sql'").run();
+ // 085 extends the safety tables 081 recreates, so it replays with them.
+ f.db.query("DELETE FROM _migrations WHERE filename IN ('081_session_safety.sql','085_safety_recording_containment.sql')").run();
  f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('legacy-clean',0,0),('legacy-tainted',0,0); INSERT INTO dialogue_owners VALUES('legacy-provisional','odysseus',NULL,1,'complete',0)");
  f.db.query("INSERT INTO governance_events(session_id,turn_id,at,kind,schema_version,actor,payload) VALUES('legacy-tainted','old-turn',0,'taint',1,'interactive',?)")
  .run(JSON.stringify({source:"web_fetch",tool:"WebFetch",detail:null}));
@@ -82,25 +83,33 @@ test("real upgrade classifies old sessions both with and without first-taint row
  }finally{await replayWriter.close();restored.close();}
  }finally{rmSync(f.root,{recursive:true,force:true});}});
 
-test("an admitted reservation survives real writer restart and fences a new facade and new chat",async()=>{
+test("an admitted reservation survives real writer restart as a permanent gap on its chat; a new chat runs",async()=>{
  const f=fixture();try{await fresh(f);
  const row=governanceEventRow({kind:"taint",turnId:"voyage",sessionId:"ithaca",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
  const channel=f.writer.channel(procedures,undefined);await channel.call("safetyReserve",row,"pending-restart",128);
  expect(f.writes.safety(null,"ithaca").pendingCount).toBe(1);
  await f.writer.close();f.db.close();const db=createUiDb(f.path),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer);
- try{const state=writes.safety(null,"ithaca");expect(state.restriction,"SAFETY_PENDING_RESTART_NEVER_APPEARS_NORMAL").toBe("restricted");expect(state.reasons).toContain("recording_failed");
- await expectRejection(writes.safetyBegin({turnId:"new-chat",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1}),"recovery");
+ try{const state=writes.safety(null,"ithaca");expect(state.restriction,"SAFETY_PENDING_RESTART_NEVER_APPEARS_NORMAL").toBe("restricted");
+ // Boot resolves the reservation itself (#3812): the gap is durable, the latch is not.
+ expect(state.coverage.epochs.map(e=>e.reason),"SAFETY_PENDING_RESTART_KEEPS_A_PERMANENT_GAP").toContain("host_restart_unknown");
+ expect(db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:0});
+ expect(db.query("SELECT failed FROM safety_meta").get(),"SAFETY_PENDING_RESTART_RECOVERS_AT_BOOT").toEqual({failed:0});
+ await writes.safetyBegin({turnId:"new-chat",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1});await writes.safetyReady("new-chat","claude",1);
+ expect(writes.safety("new-chat",null).restriction,"SAFETY_PENDING_RESTART_LEAVES_NEW_CHATS_NORMAL").toBe("normal");
  }finally{await writer.close();db.close();}
  }finally{rmSync(f.root,{recursive:true,force:true});}});
 
-test("brain row capacity uses a preallocated durable failure cell and refuses another chat",async()=>{
+test("brain row capacity refuses before delivery, keeps the emergency cell, and refuses another chat",async()=>{
  const f=fixture();try{const {collector}=await fresh(f);
  f.db.query("UPDATE safety_meta SET used_rows=999999").run();
  const refused=await collector.begin("overflow","WebFetch",{url:"https://ithaca.invalid"}).then(()=>null,error=>error);
  expect(String(refused),"SAFETY_CAPACITY_REFUSAL").toContain("capacity");
- expect(f.db.query("SELECT length(padding) n FROM safety_emergency_reserve").get(),"SAFETY_EMERGENCY_CELL_PREALLOCATED").toEqual({n:0});
- const another=createGovernanceWrites(f.db,f.writer);expect(another.safety(null,"ithaca").restriction).toBe("restricted");
- await expectRejection(another.safetyBegin({turnId:"new-chat",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1}),"recovery");
+ // Nothing was delivered, so nothing latched: the emergency cell stays allocated for a real loss notice.
+ expect(f.db.query("SELECT length(padding) n FROM safety_emergency_reserve").get(),"SAFETY_EMERGENCY_CELL_PREALLOCATED").toEqual({n:65536});
+ expect(f.db.query("SELECT failed FROM safety_meta").get()).toEqual({failed:0});
+ const another=createGovernanceWrites(f.db,f.writer);
+ // A full brain still refuses every new chat: starting one never bypasses capacity.
+ await expectRejection(another.safetyBegin({turnId:"new-chat",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1}),"capacity");
  }finally{await f.close();}});
 
 test("backend change and resume retain epochs; inherited fork restrictions and coverage never reset",async()=>{
@@ -225,13 +234,13 @@ test("reserved terminal evidence commits at a full brain ledger while new ingest
  expect(f.writes.safety(null,"ithaca").restriction).toBe("restricted");
  }finally{await f.close();}});
 
-test("byte exhaustion and revision exhaustion persist failure without accepting an exposure",async()=>{
+test("byte exhaustion and revision exhaustion refuse an exposure before delivery without latching",async()=>{
  for(const exhausted of ["bytes","revision"]){const f=fixture();try{const {collector}=await fresh(f);
  if(exhausted==="bytes")f.db.exec("UPDATE safety_meta SET used_bytes=536870912-scope_bytes");
  else f.db.exec("UPDATE safety_meta SET revision='18446744073709551615'");
  await expectRejection(collector.begin("refused","WebFetch",{url:"https://ithaca.invalid"}),exhausted==="bytes"?"capacity":"revision exhausted");
  expect(triggers(f),"SAFETY_OVERFLOW_REFUSES_BEFORE_DELIVERY").toHaveLength(0);
- expect(f.writes.safety(null,"ithaca").restriction).toBe("restricted");
+ expect(f.db.query("SELECT failed FROM safety_meta").get(),"SAFETY_PRE_DELIVERY_OVERFLOW_NEVER_LATCHES").toEqual({failed:0});
  if(exhausted==="revision")expect(f.writes.safety(null,"ithaca").evidenceRevision).toBe("18446744073709551615");
  }finally{await f.close();}}
 });
@@ -286,7 +295,7 @@ test("Claude delivery hooks await real SQLite commits before tool contact and re
  expect(refused,"SAFETY_BACKEND_REFUSES_UNRECORDED_INPUT").toMatchObject({hookSpecificOutput:{permissionDecision:"deny"}});
  }finally{origin.stop(true);await f.close();}});
 
-test("independent SQLite connections share the durable pending ceiling and failure fence",async()=>{
+test("independent SQLite connections share the durable pending ceiling; the failure fences only its chat",async()=>{
  const f=fixture();const {Database}=await import("bun:sqlite");let peer:InstanceType<typeof Database>|undefined,peerWriter:ReturnType<typeof openSqliteWriter>|undefined;
  try{const {bindingId}=await fresh(f);
  f.db.query(`WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<255)
@@ -298,7 +307,12 @@ test("independent SQLite connections share the durable pending ceiling and failu
  expect(results.map(r=>r.status).sort(),"SAFETY_CROSS_CONNECTION_CAPACITY_SERIALIZES").toEqual(["fulfilled","rejected"]);
  expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:256});
  expect(createGovernanceWrites(peer,peerWriter).safety(null,"ithaca").restriction).toBe("restricted");
- await expectRejection(createGovernanceWrites(peer,peerWriter).safetyBegin({turnId:"other",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1}),"recovery");
+ // The refused reservation's own durable failure, not the 256 pending rows, fences the chat.
+ expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get(),"SAFETY_CROSS_CONNECTION_FAILURE_IS_DURABLE_CAPACITY").toEqual({failure:"capacity"});
+ expect(createGovernanceWrites(peer,peerWriter).recordingAvailable("voyage","ithaca"),"SAFETY_CROSS_CONNECTION_FAILURE_STOPS_ITS_PRODUCER").toBe(false);
+ const peerWrites=createGovernanceWrites(peer,peerWriter);
+ await peerWrites.safetyBegin({turnId:"other",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:1});
+ expect(peerWrites.recordingAvailable("other",null),"SAFETY_CROSS_CONNECTION_FAILURE_LEAVES_OTHER_CHATS").toBe(true);
  }finally{await peerWriter?.close();peer?.close();await f.close();}});
 
 test("128 retained epochs fence a 129th resume without dropping earlier facts",async()=>{
@@ -308,7 +322,7 @@ test("128 retained epochs fence a 129th resume without dropping earlier facts",a
  SELECT 'epoch_'||x,'turn_'||x,session_id,history_owner_id,generation,'claude',0,1,acknowledged,'0','0' FROM n,safety_collections WHERE id=?`).run(bindingId);
  await expectRejection(f.writes.safetyBegin({turnId:"too-many",bindingId:crypto.randomUUID(),sessionId:"ithaca",principalId:"odysseus",backendId:"pi",at:1}),"coverage capacity");
  expect(f.writes.safety(null,"ithaca").coverage.epochs).toHaveLength(128);
- expect(f.writes.safety(null,"ithaca").restriction).toBe("restricted");
+ expect(f.db.query("SELECT failed FROM safety_meta").get(),"SAFETY_EPOCH_CAPACITY_REFUSES_ONLY_THE_TURN").toEqual({failed:0});
  }finally{await f.close();}});
 
 test("a clean search input cannot suppress mixed JSON paths, an explicit mark or a truncated remainder",async()=>{
@@ -378,9 +392,8 @@ for(const boundary of ["rows","bytes"] as const)for(const admission of ["collect
  await f.writes.safetyBegin({turnId:"after-scope-recovery",bindingId:crypto.randomUUID(),sessionId:null,principalId:"odysseus",backendId:"claude",at:2});
  }finally{await peerWriter?.close();peer?.close();await f.close();}});
 
-test("a genuine failed event commit recovers existing and fresh facades only after quiescence",async()=>{
+test("a genuine failed event commit fences its chat permanently and leaves the brain usable",async()=>{
  const f=fixture();try{await fresh(f);
- const {recoverSafetyRecording}=await import("../src/governance/safety-store");
  // The deferred FK is checked by COMMIT, after safetyCommit has inserted
  // its evidence and consumed the reservation inside the real worker.
  f.db.exec("CREATE TABLE safety_commit_probe(occurrence_id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_safety_commit AFTER INSERT ON safety_records BEGIN INSERT INTO safety_commit_probe VALUES('missing-raft-occurrence'); END");
@@ -388,25 +401,20 @@ test("a genuine failed event commit recovers existing and fresh facades only aft
  expect(f.db.query("SELECT COUNT(*) n FROM safety_pending").get()).toEqual({n:1});
  expect(f.db.query("SELECT COUNT(*) n FROM safety_records").get(),"SAFETY_FAILED_COMMIT_ROLLS_BACK_EVIDENCE_AND_CONSUMPTION").toEqual({n:0});
  expect(f.db.query("SELECT COUNT(*) n FROM safety_commit_probe").get()).toEqual({n:0});
- expect(f.db.query("SELECT failed FROM safety_meta").get()).toEqual({failed:1});
- expect(()=>recoverSafetyRecording(f.db)).toThrow("Stop all safety producers");
+ expect(f.db.query("SELECT failed FROM safety_meta").get(),"SAFETY_FAILED_COMMIT_NEVER_LATCHES_THE_BRAIN").toEqual({failed:0});
+ expect(f.db.query("SELECT failure FROM safety_collections WHERE turn_id='voyage'").get(),"SAFETY_FAILED_COMMIT_FENCES_ITS_CHAT").toEqual({failure:"recording_failed"});
+ for(const writes of [f.writes,createGovernanceWrites(f.db,f.writer)])
+  expect(writes.recordingAvailable("voyage","ithaca"),"SAFETY_FAILED_COMMIT_STOPS_ITS_PRODUCER").toBe(false);
  f.db.exec("DROP TRIGGER fail_safety_commit");await f.writes.safetyEnd("voyage");
- const pendingFailure=f.writes.safetyFail("voyage");
- expect(()=>recoverSafetyRecording(f.db),"SAFETY_RECOVERY_REFUSES_LOCAL_WORK_BEFORE_DURABLE_ADMISSION").toThrow("Stop all safety producers");await pendingFailure;
- f.db.exec("CREATE TRIGGER refuse_recovery AFTER UPDATE ON safety_meta WHEN NEW.failed=0 AND OLD.failed=1 BEGIN INSERT INTO safety_commit_probe VALUES('missing-recovery-occurrence'); END");
- expect(()=>recoverSafetyRecording(f.db)).toThrow("FOREIGN KEY constraint failed");
- expect(f.writes.recordingAvailable("voyage","ithaca")).toBe(false);
- expect(createGovernanceWrites(f.db,f.writer).recordingAvailable("voyage","ithaca")).toBe(false);
- f.db.exec("DROP TRIGGER refuse_recovery");recoverSafetyRecording(f.db);
  const freshFacade=createGovernanceWrites(f.db,f.writer);
  for(const [index,writes] of [f.writes,freshFacade].entries()){
  const turnId=`recovered-${index}`;await writes.safetyBegin({turnId,bindingId:crypto.randomUUID(),sessionId:"ithaca",principalId:"odysseus",backendId:"claude",at:1});await writes.safetyReady(turnId,"claude",1);
- expect(writes.recordingAvailable(turnId,"ithaca"),"SAFETY_VALIDATED_RECOVERY_REARMS_EXISTING_SESSION").toBe(true);
- expect(writes.safety(turnId,"ithaca").coverage.state,"SAFETY_RECOVERY_NEVER_RECONSTRUCTS_LOST_INPUT").toBe("incomplete");
+ expect(writes.recordingAvailable(turnId,"ithaca"),"SAFETY_FAILED_COMMIT_CHAT_RUNS_RESTRICTED").toBe(true);
+ expect(writes.safety(turnId,"ithaca").coverage.state,"SAFETY_FAILED_COMMIT_NEVER_RECONSTRUCTS_LOST_INPUT").toBe("incomplete");
  expect(writes.safety(turnId,"ithaca").reasons).not.toContain("recording_failed");
  await writes.firstTaint({kind:"taint",turnId,sessionId:"ithaca",actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
  }
- expect(f.writes.safety(null,"ithaca").restriction,"SAFETY_RECOVERY_PRESERVES_OLD_GAP").toBe("restricted");
+ expect(f.writes.safety(null,"ithaca").restriction,"SAFETY_FAILED_COMMIT_GAP_IS_PERMANENT").toBe("restricted");
  }finally{await f.close();}});
 
 for(const boundary of ["count","bytes"] as const)for(const race of [false,true])test(`binding enforces the merged session pending ${boundary} ceiling${race?" across independent connections":""}`,async()=>{

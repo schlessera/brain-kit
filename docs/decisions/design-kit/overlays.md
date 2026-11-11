@@ -19,7 +19,7 @@ one `no-preference` guard; reduced-motion overrides share the existing
 
 | Variant | Shape | Modal | Scrim | Used for |
 |---|---|---|---|---|
-| `sheet` | Docked to the bottom at every width. Full width below 480. From 480, `min(560px, 100vw − 32px)` wide and centred horizontally. | yes (top layer) | `dim` | Short pick-lists and live tools that belong at the thumb: More, Attach (phone), Graph options, Dictation (phone and tablet). |
+| `sheet` | Docked to the bottom at every width. Full width below 480. From 480, `min(560px, 100vw − 32px)` wide and centred horizontally. | yes (top layer) | `dim` | Short pick-lists and live tools that belong at the thumb: More, Attach (phone), Graph options. (Dictation until #3694, which draws it in the voice field.) |
 | `dialog` | **Below 900 it has the sheet's shape.** From 900 it is a centred card, `radius-panel` (18px), at most `85dvh` tall, with the body scrolling. `placement="top"` puts the card 110px from the top and never docks it to the bottom (palette). | yes (top layer) | `dim` | A single decision or a single reading: handoff, the one-time credential (`alertdialog`), the command palette (`placement="top"`). |
 | `fullscreen` | Covers the viewport at every width, `--bk-color-canvas` opaque. The children draw the toolbar. | yes (top layer) | `opaque` | Tools that need the whole screen: the zoom viewer, the mask editor, the subagent drill-in. |
 | `panel` | Right-anchored. Full width below 768. From 768 (`md`), `size` sets the width: 320, 480 or 560. Full height, with a left `edge` hairline and the shadow. | `modal` prop. `true` (default) for act panels, which use the top layer and cover the bar and rail. `false` for destination panels: z-index `panel`, inert only over the content area, bar and rail stay live. | `veil` | The slide-over panels: Sessions, Settings and Files (destination, `modal={false}`); Search, Add, Sync and Whatsup (act, modal). |
@@ -134,11 +134,11 @@ Mechanics:
   body scrolling, and the resting baselines at 320, 800 and 1280px. There is
   no exit animation and no new resting visual.
 
-**Dictation.** A swipe while recording means **Stop, with the words kept for
-review**, never Cancel. The dictation sheet maps `"swipe"` the way it
-maps `"scrim"` (`onClose={reason => (reason === "scrim" || reason === "swipe") ? onStop() : onCancel()}`,
-`packages/ui-react/src/components/voice/dictation-sheet.tsx:173`). While
-draining, `closedBy` is `none` and rule 3 applies.
+**Dictation.** A swipe while recording meant **Stop, with the words kept for
+review**, never Cancel: the dictation sheet mapped `"swipe"` the way it
+mapped `"scrim"`, and while draining its `closedBy` was `none`.
+*2026-11-09 (#3694):* dictation no longer opens an overlay. The voice field
+replaces the composer, so no swipe or scrim reaches it.
 
 **Contract.** `"swipe"` widens the `OverlayCloseReason` union of a public kit
 export. #1433 implements the gesture, assesses the compatibility of that

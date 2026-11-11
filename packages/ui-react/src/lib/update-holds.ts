@@ -88,8 +88,9 @@ export function registerBuiltInUpdateHolds(root: BrainUiServices): void {
     busy: () => { const s = voice.getState(); return s.mode !== "idle" || s.connecting || s.draining; },
     subscribe: (fn) => voice.subscribe(fn),
   });
-  // Dictated text waiting in the review card: it is in no text field, so
-  // the DOM probe misses it, and it is in no saved draft.
+  // Dictated text a take handed over that no composer has moved into its
+  // draft yet (D6, #3694): it is in no text field, so the DOM probe misses
+  // it, and it is in no saved draft.
   registerUpdateHold(root, {
     busy: () => voice.getState().reviewText.trim().length > 0,
     subscribe: (fn) => voice.subscribe(fn),

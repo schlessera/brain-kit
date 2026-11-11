@@ -153,6 +153,57 @@ export function route(input: RoutingInput): RoutingDecision {
     pool = masked;
   }
 
+  // Complexity is a GPT Image 2.6 parameter. A stated one on any other model
+  // would be dropped or rejected by the API, so it narrows or refuses here.
+  if (req.complexity) {
+    const capable = byCapability(pool, (m) => m.complexityControl);
+    if (capable.length === 0) {
+      const named = available.filter((m) => m.complexityControl).map((m) => m.id);
+      return {
+        kind: "impossible",
+        reason:
+          `--complexity is a GPT Image 2.6 setting, and no model in this request takes it` +
+          `${input.pinnedModel ? ` (${input.pinnedModel} does not)` : ""}. Use ` +
+          `${named.length ? named.join(" or ") : "gpt-image-2.6-sunburst or gpt-image-2.6-flare (set OPENAI_API_KEY)"}, ` +
+          `or drop --complexity.`,
+      };
+    }
+    pool = capable;
+  }
+
+  // GPT Image 2.6 GIF output has no masks, and transparency is documented
+  // for png and webp only (#3783): refuse rather than let the API decide.
+  if (req.format === "gif" && req.mask) {
+    return {
+      kind: "impossible",
+      reason: "GIF output takes no mask. Drop --mask and describe the change in the prompt, or ask for png or webp.",
+    };
+  }
+  if (req.format === "gif" && req.transparent) {
+    return {
+      kind: "impossible",
+      reason: "A transparent background is documented for png and webp only, not GIF. Drop --transparent, or ask for png or webp.",
+    };
+  }
+
+  // SVG is authored from one new rendering: the API takes it on generations
+  // only, with n 1, and documents no transparency for it (#3784).
+  if (req.format === "svg" && ((req.references?.length ?? 0) > 0 || req.mask)) {
+    return {
+      kind: "impossible",
+      reason: "SVG is authored on new images only, not edits. Drop --ref and --mask, or ask for png or webp.",
+    };
+  }
+  if (req.format === "svg" && req.transparent) {
+    return {
+      kind: "impossible",
+      reason: "A transparent background is documented for png and webp only, not SVG. Drop --transparent, or ask for png or webp.",
+    };
+  }
+  if (req.format === "svg" && (req.n ?? 1) > 1) {
+    return { kind: "impossible", reason: "SVG is authored one image at a time." };
+  }
+
   if (req.transparent && req.format === "jpeg") {
     return {
       kind: "impossible",
@@ -166,7 +217,7 @@ export function route(input: RoutingInput): RoutingDecision {
       return {
         kind: "impossible",
         reason:
-          "A transparent background needs an OpenAI GPT Image 2.5 model (Sunburst or Flare) — " +
+          "A transparent background needs an OpenAI GPT Image 2.6 or 2.5 model (Sunburst or Flare) — " +
           "Gemini does not document transparency at all. Set OPENAI_API_KEY, or render on a " +
           "solid background and cut it out afterwards.",
       };
@@ -176,6 +227,18 @@ export function route(input: RoutingInput): RoutingDecision {
 
   if (req.format) {
     const supported = byCapability(pool, (m) => m.outputFormats.includes(req.format!));
+    if (supported.length === 0 && (req.format === "gif" || req.format === "svg")) {
+      const format = req.format;
+      const named = available.filter((m) => m.outputFormats.includes(format)).map((m) => m.id);
+      return {
+        kind: "impossible",
+        reason:
+          `${format === "gif" ? "Animated GIF" : "SVG"} is a GPT Image 2.6 output, and no model in this request returns it` +
+          `${input.pinnedModel ? ` (${input.pinnedModel} does not)` : ""}. Use ` +
+          `${named.length ? named.join(" or ") : "gpt-image-2.6-sunburst or gpt-image-2.6-flare (set OPENAI_API_KEY)"}, ` +
+          `or ask for png, jpeg or webp.`,
+      };
+    }
     if (supported.length === 0) {
       return {
         kind: "impossible",
@@ -219,7 +282,7 @@ export function route(input: RoutingInput): RoutingDecision {
           kind: "impossible",
           reason:
             `No available model takes an exact ${req.size}. Gemini only offers fixed aspect ` +
-            `ratios and 1K/2K/4K buckets; OpenAI's GPT Image 2.5 models take custom sizes ` +
+            `ratios and 1K/2K/4K buckets; OpenAI's GPT Image 2.6 and 2.5 models take custom sizes ` +
             `with both edges multiples of 16, neither over 3840px, a ratio no wider than 3:1, ` +
             `and 0.65-8.3MP in total.`,
         };

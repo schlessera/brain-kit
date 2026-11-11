@@ -74,6 +74,8 @@ import { createTranscriptionWrites } from "./voice/transcription-writes.js";
 import { createSettingsWrites } from "./db/settings-writes.js";
 import { createSpeechProviderRegistry } from "./voice/speech-providers.js";
 import { createVoiceRoutes } from "./routes/voice.js";
+import { createVoicePersonaRoutes } from "./routes/voice-personas.js";
+import { createLivePersonaService } from "./voice/personas.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
@@ -130,6 +132,7 @@ import {
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
+  getLiveDefaultProvider,
   getSetting,
   setSetting,
   getThinkingOverrides,
@@ -251,6 +254,19 @@ export interface CreateAppOptions {
    * @experimental Part of the LiveConversationProvider seam until 1.0.
    */
   conversationProvider?: LiveConversationProvider;
+  /**
+   * Several live-conversation providers, fixed at construction (#3616).
+   * Exclusive with `conversationProvider`, which means a list of one. Startup
+   * fails on both options, duplicate ids or an invalid provider. Registration
+   * is discovery only, never proof that a provider's key works.
+   * @experimental Part of the LiveConversationProvider seam until 1.0.
+   */
+  conversationProviders?: LiveConversationProvider[];
+  /**
+   * The host's default live service when nothing is saved in Settings › Voice
+   * (#3616). Must name a registered provider, or startup fails.
+   */
+  defaultConversationProviderId?: string;
   /**
    * The small, fast model that labels working-session and pending follow-up
    * pills with a few words (#1004): any value of core's `CompletionProvider`
@@ -613,6 +629,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
   const settingsWrites = createSettingsWrites(db, writer, dbLog);
+  // Persona Markdown lives in the brain; the selection in the settings store (#3617).
+  const livePersonas = createLivePersonaService({ brainPath: config.brainPath, db, settingsWrites,
+    providers: () => options.conversationProviders ?? (options.conversationProvider ? [options.conversationProvider] : []) });
   const activity = createActivityRuntime(db, {
     settingsWrites,
     log: observability.logger("activity"),
@@ -813,7 +832,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity: { store: activity.store, onWrite: () => activity.stream.pump() },
     }),
     scratchPrune: () => scratchPrune.tick(),
-    ...(options.conversationProvider ? { conversationProvider: options.conversationProvider } : {}),
+    ...(options.conversationProvider !== undefined ? { conversationProvider: options.conversationProvider } : {}),
+    ...(options.conversationProviders !== undefined ? { conversationProviders: options.conversationProviders } : {}),
+    ...(options.defaultConversationProviderId !== undefined ? { defaultConversationProviderId: options.defaultConversationProviderId } : {}),
+    liveDefaultProvider: () => getLiveDefaultProvider(db).defaultProvider,
+    ...(options.conversationProvider !== undefined || options.conversationProviders !== undefined ? { livePersonas } : {}),
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs
@@ -1091,6 +1114,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
       },
+      getSafetyRecording: () => activity.governanceWrites.recordingStatus(),
+      recoverSafetyRecording: actor => activity.governanceWrites.recoverRecording(actor),
     })
   );
   // Host readers of the index wait for application updates queued before them (#2835).
@@ -1199,6 +1224,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProviders, db, settingsWrites }));
+  app.route("/api", createVoicePersonaRoutes(livePersonas, { read: () => getLiveDefaultProvider(db),
+    save: (revision, id) => settingsWrites.saveLiveDefaultProvider(revision, id), known: (id) => host.liveProviders.get(id) !== undefined,
+    changed: () => host.conversations?.broadcastSettings() }));
   const transcriptions = createTranscriptionWrites(db, { brainPath: config.brainPath, authMode }, writer);
   app.route("/api", createTranscriptionRoutes({ store: transcriptions, keyterms, speechProviders, db }));
   app.route(

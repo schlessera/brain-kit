@@ -216,10 +216,13 @@ describe("when a batch lands", () => {
   const stateOf = (records: LedgerRecord[]) => ledgerState(records, new Date(at(12)));
   const files = (count: number) => Array.from({ length: count }, (_, i) => `packages/ithaca/tests/oar-${i}.test.ts`);
 
-  test("a batch is named after its package and opening run, and a run continues the oldest open one on its base", () => {
+  test("a batch is named after its group and opening run, and a run continues the oldest open one on its base", () => {
     expect([batchIdFor("ithaca", RUN), branchFor(batchIdFor("ithaca", RUN))]).toEqual([`ithaca-${RUN}`, `test-health/ithaca-${RUN}`]);
     const state = stateOf([opened("b-new", at(11)), opened("b-old", at(10)), opened("b-epic", at(9), { base: "origin/epic/9-ithaca" }), opened("b-landed", at(8)), event("landed", "b-landed", at(9))]);
     expect([openBatch(state, "origin/main")?.batchId, openBatch(state, "origin/epic/9-ithaca")?.batchId, openBatch(state, "origin/main", "pylos")]).toEqual(["b-old", "b-epic", undefined]);
+    // These records name only their package; once ithaca is small, they are batches of the small group.
+    expect([openBatch(state, "origin/main", "small")?.batchId, openBatch(state, "origin/main", "small", new Map([["ithaca", "small"]]))?.batchId]).toEqual([undefined, "b-old"]);
+    expect(stateOf([opened("small-th-2", at(10), { group: "small", package: undefined })]).batches.get("small-th-2")?.group).toBe("small");
   });
 
   test("only files whose content changed count toward a batch", () => {
@@ -228,7 +231,7 @@ describe("when a batch lands", () => {
     expect([changedFilesOf(batch, state), parkedChangedFiles(state)]).toEqual([files(2), 2]);
   });
 
-  test("a batch ripens by size, by age, or when its package has nothing left, and never while it is empty", () => {
+  test("a batch ripens by size, by age, or when its group has nothing left, and never while it is empty", () => {
     const now = new Date(at(12));
     const check = (records: LedgerRecord[], exhausted: boolean, when = now) => {
       const state = stateOf(records);
@@ -237,7 +240,7 @@ describe("when a batch lands", () => {
     expect(check([opened("ithaca-th-1", at(11)), cluster(0, files(1), [], true, at(11, 1))], false)).toMatchObject({ ripe: false, reasons: [], changedFiles: 1, full: false });
     expect(check([opened("ithaca-th-1", at(11)), cluster(0, files(2), [], true, at(11, 1))], false).reasons).toEqual(["2 changed files (threshold 2)"]);
     expect(check([opened("ithaca-th-1", at(9)), cluster(0, files(1), [], true, at(9, 1))], false).reasons).toEqual(["72 h old (threshold 72)"]);
-    expect(check([opened("ithaca-th-1", at(11)), cluster(0, files(1), [], true, at(11, 1))], true).reasons).toEqual(["nothing left to audit in its package"]);
+    expect(check([opened("ithaca-th-1", at(11)), cluster(0, files(1), [], true, at(11, 1))], true).reasons).toEqual(["nothing left to audit in its group"]);
     expect(check([opened("ithaca-th-1", at(1)), cluster(0, files(1), [], false, at(1, 1))], true)).toMatchObject({ ripe: false, changedFiles: 0 });
     expect(check([opened("ithaca-th-1", at(11)), cluster(0, files(3), [], true, at(11, 1))], false).full).toBe(true);
   });
