@@ -4078,7 +4078,7 @@ reason through as the refusal body's `error.message` and an additive
 `outward_not_approved` (`const refuse`,
 `packages/ui-sdk/src/server/provider-relay.ts:386-391`). The OpenAI image
 provider no longer appends its account hint to a relay refusal
-(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:199-200`).
+(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:252-253`).
 A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
 section names these causes and what the user can do (`A blocked connection
 says why`, `packages/ui-sdk/src/server/system-prompt.ts:167-175`). Since #3246,

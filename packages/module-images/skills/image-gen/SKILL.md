@@ -33,6 +33,7 @@ only when the user asked for something else.
 | More than 6 reference images | Gemini | Up to 10 (Flash) or 14 (Lite); OpenAI's practical ceiling is 8 |
 | Output that must carry no watermark | OpenAI | Every Gemini image carries SynthID, with no documented opt-out |
 | PNG or WebP output | OpenAI | Every Gemini image model serves JPEG only — verified against the live API, the docs do not say so |
+| An animated GIF | `gpt-image-2.6-sunburst` or `-flare` | Only the 2.6 models return GIF |
 
 ### The cases worth knowing
 
@@ -120,6 +121,14 @@ layouts but can add latency and unwanted changes. It costs nothing extra.
 Without it, the 2.6 models are sent `high`. Lower it only when the user asks,
 or when an edit at `high` keeps changing things it should leave alone. The 2.5
 models and Gemini do not take it, so naming it with them is refused.
+
+For a moving picture, pass `--format gif`. It works for a new image and for an
+edit with `--ref`. `--frames` (2-16) and `--frame-duration` (20-2000 ms) set the
+loop; leave them out unless the user asks for a length or speed, and the API
+uses 9 frames at 200 ms. A GIF cannot take a mask or a transparent background,
+and the dry run cannot price it, so say the cost is unknown. If OpenAI answers
+that the organization lacks GIF preview access, tell the user that; retrying
+will not help.
 
 `--draft` takes the cheapest model that fits. `--dry-run` prints the decision
 and the price without spending anything — use it when the user is likely to

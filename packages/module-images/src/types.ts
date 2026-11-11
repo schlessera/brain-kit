@@ -28,7 +28,17 @@ export interface ImageRequest {
    * `complexityControl` take it; routing refuses it anywhere else.
    */
   complexity?: ImageComplexity;
-  format?: "png" | "jpeg" | "webp";
+  format?: ImageFormat;
+  /**
+   * Animated GIF frame count (`format: "gif"` only). Unset, nothing is sent
+   * and the API applies its own default of 9.
+   */
+  frames?: number;
+  /**
+   * Milliseconds each GIF frame shows (`format: "gif"` only). Unset, nothing
+   * is sent and the API applies its own default of 200.
+   */
+  frameDurationMs?: number;
   /** Transparent background (png or webp only). Only some models support it; routing enforces that. */
   transparent?: boolean;
   /** Reference images for an edit or a composition. */
@@ -41,6 +51,21 @@ export interface ImageRequest {
 /** Every quality tier the CLI accepts. Anything else is refused before routing. */
 export const IMAGE_QUALITIES = ["low", "medium", "high", "xhigh", "max", "auto"] as const;
 export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+
+/**
+ * Output formats any model may return. `gif` is an animated GIF, which only
+ * the GPT Image 2.6 models produce (#3783).
+ */
+export const IMAGE_FORMATS = ["png", "jpeg", "webp", "gif"] as const;
+export type ImageFormat = (typeof IMAGE_FORMATS)[number];
+
+/**
+ * GPT Image 2.6 GIF limits from the API reference (checked 2026-11-09):
+ * `frame_count` 2-16 and `frame_duration_ms` 20-2000. The guide once said 64
+ * frames; the API enforces 16.
+ */
+export const GIF_FRAME_COUNT = { min: 2, max: 16 } as const;
+export const GIF_FRAME_DURATION_MS = { min: 20, max: 2000 } as const;
 
 /** GPT Image 2.6 `complexity` values. Anything else is refused before routing. */
 export const IMAGE_COMPLEXITIES = ["low", "medium", "high"] as const;
@@ -113,8 +138,8 @@ export interface ModelCapabilities {
    * not the docs: every Gemini image model rejects `image/png` on the
    * Interactions API and serves JPEG only, which the published docs do not say.
    */
-  outputFormats: ("png" | "jpeg" | "webp")[];
-  defaultFormat: "png" | "jpeg" | "webp";
+  outputFormats: ImageFormat[];
+  defaultFormat: ImageFormat;
   /**
    * Approximate USD for one image at ~1K, for cost reporting and tie-breaks.
    * `null` when no verified per-image price exists: the GPT Image 2.5 and 2.6
