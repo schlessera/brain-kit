@@ -51,12 +51,14 @@ const declarations=[
       // Re-audited for #3589: the added attachment_read handler is a no-op
       // that reads no runtime input, like chat_retired. Re-audited for #3155:
       // only its comment changed; the reads client takes the frame instead.
+      // Re-audited for #3617: the added live_persona handler is a no-op that
+      // reads no runtime input; the conversation client takes the frame.
       // Re-audited for #3616: the added live_settings handler is a no-op that
       // reads no runtime input; the root conversation client reads the frame.
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "434f740fa556f7faa42b88d82bcd6d3ceba99c9eb7d8abace519ba6ccb525a6d"
+        "source": "f4d7125dd5212dab15eea102c7e45f4ed5139f5dddc2a48f6a77fc3bd9838b70"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

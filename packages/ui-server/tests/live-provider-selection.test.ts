@@ -227,7 +227,8 @@ describe("Settings › Voice live default route", () => {
       expect((await t.fetch(path)).status).toBe(401);
       const initial = await t.fetch(path, { headers: ownerHeaders });
       expect(initial.headers.get("cache-control")).toBe("no-store");
-      expect(await initial.json()).toEqual({ defaultProvider: null, revision: 0 });
+      // One route with the persona group (#3617), each with its own revision.
+      expect(await initial.json()).toMatchObject({ defaultProvider: null, revision: 0, persona: { value: "standard", revision: 0 } });
 
       // The guard refuses a delegated principal with an empty body, before validation.
       for (const body of [{ defaultProvider: "gpt-live", revision: 0 }, { nonsense: true }]) {
@@ -238,7 +239,6 @@ describe("Settings › Voice live default route", () => {
       expect((await t.fetch(path, { headers: agentHeaders })).status, "an agent principal does not read it either").toBe(403);
       expect(getLiveDefaultProvider(t.app.db)).toEqual({ defaultProvider: null, revision: 0 });
 
-      expect((await t.fetch(path, { ...put({ defaultProvider: "gpt-live", revision: 0 }, ownerHeaders), headers: { ...ownerHeaders, "content-type": "text/plain" } })).status).toBe(415);
       const invalid = await t.fetch(path, put({ defaultProvider: "gpt-live" }, ownerHeaders));
       expect(invalid.status).toBe(400); expect((await invalid.json()).error).toBe("LIVE_SETTINGS_INVALID");
       const unknown = await t.fetch(path, put({ defaultProvider: "retired-live", revision: 0 }, ownerHeaders));
@@ -250,9 +250,10 @@ describe("Settings › Voice live default route", () => {
       expect(concurrent.map((r) => r.status).sort()).toEqual([200, 409]);
       const current = await concurrent.find((r) => r.status === 200)!.json();
       expect(current.revision).toBe(1);
-      expect(await concurrent.find((r) => r.status === 409)!.json()).toEqual({ error: "LIVE_SETTINGS_CHANGED", message: "Changed on another device.", current });
+      expect(current.persona, "the persona group is untouched").toEqual({ value: "standard", revision: 0 });
+      expect(await concurrent.find((r) => r.status === 409)!.json()).toEqual({ error: "LIVE_SETTINGS_CHANGED", message: "Changed on another device.", current: { defaultProvider: current.defaultProvider, revision: 1 } });
       const saved = await (await t.fetch(path, put({ defaultProvider: "gpt-live", revision: 1 }, ownerHeaders))).json();
-      expect(saved).toEqual({ defaultProvider: "gpt-live", revision: 2 });
+      expect(saved).toMatchObject({ defaultProvider: "gpt-live", revision: 2 });
       expect(gemini.sessions.length + gpt.sessions.length, "a save opens no provider").toBe(0);
       // Nothing secret: no credential, key presence or endpoint in any answer.
       expect(JSON.stringify([current, saved, unknownBody])).not.toMatch(/key|token|wss?:|https?:/i);

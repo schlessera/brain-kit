@@ -2,7 +2,7 @@ import { createConversationRecovery } from "./conversation-recovery.js";
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
-import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationProfile, LiveDefault, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationProfile, LiveDefault, LivePersonaStatus, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
@@ -81,6 +81,12 @@ export interface ConversationClientState {
   liveDefault: LiveDefault | null;
   /** The one-time pick for this entry's Start (#3616 L1/L2). Never saved. */
   serviceChoice: string | null;
+  /**
+   * The selected live persona as the host resolves it (#3617): from
+   * `server_hello` and every `live_persona` frame. Its `personaRef` is what
+   * Start echoes; null on a host without personas, where Start uses Standard.
+   */
+  livePersona: LivePersonaStatus | null;
   durableAvailable: boolean;
   sessionId: string | null;
   agentProviderId: string | null;
@@ -128,7 +134,7 @@ function outputInSession(output: ConversationClientOutput, sessionId: string) {
 
 /** Concrete root-owned orchestration; ordinary chat frames keep their existing path. */
 export function createConversationClient(root: BrainUiServices, send: (message: ClientMessage) => boolean, answer: (sessionId: string | null, text: string) => boolean) {
-  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, capture: "idle", interaction: "Listening", disclosureOpen: false, profile: null, conversationProfile: null, conversationProfiles: [], liveDefault: null, serviceChoice: null, durableAvailable: false, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
+  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, capture: "idle", interaction: "Listening", disclosureOpen: false, profile: null, conversationProfile: null, conversationProfiles: [], liveDefault: null, serviceChoice: null, livePersona: null, durableAvailable: false, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
   let durableAvailable = false;
   let dialoguePrincipalKey:string|undefined;
   const dialogueReads = new Map<string, { key: string; ownerId?: string; older: boolean }>();
@@ -169,6 +175,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   // Display only: the newest microphone block's meter reading.
   let inputLevel = 0;
   let agreedDisclosure: string | undefined;
+  /**
+   * The persona consent covered (#3617). A new conversation re-asks when it
+   * changed; a running or resumed one keeps the persona frozen at its Start.
+   */
+  let agreedPersona: string | undefined;
+  const personaKey = () => { const ref = state.getState().livePersona?.personaRef; return ref ? `${ref.id}\u0000${ref.revision}` : ""; };
   let agreedEntry: number | undefined;
   // The legacy hello profile, for a host without a service roster (#3616).
   let advertisedProfile: ConversationProfile | null = null;
@@ -520,12 +532,18 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const advertised = state.getState().conversationProfile;
     if (!advertised || agreedEntry !== entryLifetime || agreedDisclosure === undefined) return;
     if (requireCurrentDisclosure()) return;
+    if (!state.getState().profile && agreedPersona !== personaKey()) {
+      setConsent(false); agreedEntry = undefined; entryLifetime++; pause(false, true);
+      state.setState({ disclosureOpen: true, notice: "The persona changed. Review it and select Start. Microphone off." });
+      return;
+    }
     clearClosedNotice();
     requested = true; ready = false; resync = 0; generation++; state.setState({ token: generation });
     sequence = 0; utterance = null; ended = false; clearTimers(); resetRecovery();
     const s = state.getState();
     openingId = crypto.randomUUID(); openingEntry = entryLifetime;
-    send({ type: "conversation_start", disclosed: advertised, ...(s.conversationProfiles.length ? { providerId: advertised.providerId } : {}), contextualTasks: true, requestId: openingId, ...((!s.sessionId || historyOwnerFor(s.sessionId)) && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId && historyOwnerFor(s.sessionId) ? {historyOwnerId:historyOwnerFor(s.sessionId)} : s.sessionId ? { sessionId: s.sessionId } : {}) });
+    const persona = s.livePersona?.personaRef;
+    send({ type: "conversation_start", disclosed: advertised, ...(s.conversationProfiles.length ? { providerId: advertised.providerId } : {}), contextualTasks: true, requestId: openingId, ...(persona ? { personaRef: { id: persona.id, revision: persona.revision } } : {}), ...((!s.sessionId || historyOwnerFor(s.sessionId)) && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId && historyOwnerFor(s.sessionId) ? {historyOwnerId:historyOwnerFor(s.sessionId)} : s.sessionId ? { sessionId: s.sessionId } : {}) });
   }
   async function capture() {
     const profile = scope();
@@ -779,7 +797,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       advertisedProfile = message.conversationProfile ?? null;
       const roster = message.conversationProfiles && message.liveDefault ? message.conversationProfiles : [];
       const live = message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true;
-      state.setState({ conversationProfiles: roster, liveDefault: roster.length ? message.liveDefault! : null });
+      state.setState({ conversationProfiles: roster, liveDefault: roster.length ? message.liveDefault! : null, livePersona: message.livePersona ?? null });
       const profile = liveProfile();
       // With a roster, a host whose Start needs a pick is still available: the pick comes first.
       state.setState({ conversationProfile: profile, available: live && (!!profile || roster.length > 0) });
@@ -840,6 +858,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       openingId = undefined; pause(true, true, false);
       state.setState({ notice: message.message, ...(message.code === "CONVERSATION_UNKNOWN" ? { profile: null } : {}) });
       return null;
+    }
+    if (message.type === "live_persona") {
+      // Takes effect at the next new conversation's Start, never mid-conversation.
+      state.setState({ livePersona: message.livePersona });
+      return message;
     }
     if (!message.type.startsWith("conversation_")) return message;
     const s = state.getState();
@@ -1088,7 +1111,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (!state.getState().active || !profile || (typeof document !== "undefined" && document.hidden) || root.stores.connection.getState().wsStatus !== "connected") return;
       // The service is fixed for this entry from here, whatever is saved later.
       if (state.getState().conversationProfiles.length) startedService = profile.providerId;
-      agreedDisclosure = disclosureKey(profile); agreedEntry = entryLifetime; setConsent(true);
+      agreedDisclosure = disclosureKey(profile); agreedPersona = personaKey(); agreedEntry = entryLifetime; setConsent(true);
       state.setState({ disclosureOpen: false }); startEpoch(); void capture();
     },
     details() { state.setState({ disclosureOpen: true }); },

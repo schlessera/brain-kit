@@ -69,7 +69,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         return;
       }
       if (
-        !host.clients.add(ws, principal.id, { onRemove: () => { connection.authorization.release(); host.safetyHistory?.unsubscribe((ws.raw??ws) as object); } })
+        !host.clients.add(ws, principal.id, { onRemove: () => { connection.authorization.release(); host.safetyHistory?.unsubscribe((ws.raw??ws) as object); host.conversations?.viewerClosed(ws); } })
       ) {
         connection.authorization.release();
         host.reportRefusedConnection();
@@ -82,6 +82,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       host.log.emit({ severityText: "INFO", body: "client connected" });
       const { coordinator, catalog } = host;
 
+      const livePersona = host.conversations?.livePersona(principal);
       // Handshake first (rev 2, additive): protocol revision + coarse
       // capabilities, so the client can gate behavior instead of sniffing.
       host.sendMessage(ws, {
@@ -131,9 +132,12 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         // The effective service's profile only when one is effective, beside
         // every registered profile and how a Start resolves one (#3616).
         ...(host.conversations ? host.conversations.helloFields() : {}),
+        // Additive (#3617): the selected persona, for human sessions only.
+        ...(livePersona ? { livePersona } : {}),
         ...(host.drafts ? { sessionDraftLimits: { ...host.drafts.limits } } : {}),
         ...(host.attachmentLimits ? { attachmentLimits: { ...host.attachmentLimits } } : {}),
       });
+      host.conversations?.viewerOpened(ws, connection, principal, livePersona);
 
       // Snapshot-on-connect only for the single-running-session case (backward
       // compatible). With zero or several running sessions the client rehydrates

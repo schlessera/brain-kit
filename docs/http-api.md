@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery and live-service default routes mounted by `createApp`: 182 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery and live-persona routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 187 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -185,11 +185,16 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
+| GET | `/api/voice/personas` | S | List live-conversation personas, Standard first, without instruction text | Human owner/ambient only; others get an empty 403. |
+| POST | `/api/voice/personas` | S | Create a persona file under `_voice/personas` | Human owner/ambient only; 409 `PERSONA_EXISTS`/`PERSONA_LIMIT`. |
+| GET | `/api/voice/personas/:id` | S | Read one persona with its plain-text instructions | Human owner/ambient only. |
+| PUT | `/api/voice/personas/:id` | S | Replace a persona at its current revision | Human owner/ambient only; stale writes return 409 `PERSONA_CHANGED` with `current`. |
+| DELETE | `/api/voice/personas/:id` | S | Delete a persona at its current revision | Human owner/ambient only; a selected persona's selection becomes Standard first. |
+| GET | `/api/settings/voice` | S | Read the live-service default and the live persona selection, each with its revision | Human owner/ambient only; independent of the model and dictation defaults. |
+| PUT | `/api/settings/voice` | S | Save the live-service default and/or the live persona selection at their revisions | Owner human session or ambient human only, 403 empty body otherwise; stale writes return 409 `LIVE_SETTINGS_CHANGED` or `LIVE_PERSONA_CHANGED`. |
 | GET | `/api/voice/providers` | S | Read registered dictation providers and effective selection; never mint | Authenticated discovery, no-store. |
 | GET | `/api/voice/dictation/settings` | S | Read brain-wide dictation choice, SMART mode and revision | Independent of live conversation settings. |
 | PUT | `/api/voice/dictation/settings` | S | Save dictation choice with If-Match revision | Human owner/ambient only; stale writes never overwrite. |
-| GET | `/api/settings/voice` | S | Read the saved brain-wide default live-conversation service and revision | Human sessions only; independent of the model and dictation defaults. |
-| PUT | `/api/settings/voice` | S | Save the default live-conversation service against its revision | Owner human session or ambient human only; 403 empty body otherwise; stale writes never overwrite. |
 | GET | `/api/voice/capabilities` | S | Read active-provider capabilities without minting a credential | Saved-audio discovery and independent clients; additive #1021 contract. |
 | GET | `/api/voice/recordings/:recordingId/transcription` | S | Read an account-owned durable transcription receipt | Saved-audio status recovery; never dispatches a provider. |
 | PUT | `/api/voice/recordings/:recordingId/transcription` | S | Explicitly upload or retry saved audio | Account ownership, verified hash, bounded body and durable claim protect idempotency. |
@@ -215,7 +220,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 182 declared endpoints are mounted regardless of backend, renderer or
+All 187 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1433,33 +1438,93 @@ Bodyless legacy requests retain their previous response/error shape.
 
 ## Live-conversation service default
 
-`GET /api/settings/voice` returns `VoiceLiveSettings`
-`{ defaultProvider: string | null, revision: number }`, the saved brain-wide
-default live-conversation service (#3616). Nothing saved reads as
-`{ defaultProvider: null, revision: 0 }`; a corrupt or unknown `voice.live.defaultProvider`
-row in the ui-server settings store reads the same. A saved id the host no
-longer registers stays saved until changed here. Any authenticated human
-session (an owner or the ambient principal) may read; other principals get 403
-with an empty body.
+`/api/settings/voice` (below, under personas) also carries the saved brain-wide
+default live-conversation service (#3616) as top-level
+`{ defaultProvider: string | null, revision: number }` (`VoiceLiveSettings`),
+beside `persona` with its own revision. Nothing saved reads as
+`{ defaultProvider: null, revision: 0 }`; a corrupt or unknown
+`voice.live.defaultProvider` row in the ui-server settings store reads the same.
+A saved id the host no longer registers stays saved until changed here.
 
-`PUT /api/settings/voice` takes `application/json` `{ defaultProvider: string | null,
-revision: number }`, where `revision` is the one last read and `null` clears the
-default. The route has its own owner-only guard, checked before the body is
-read: only the brain owner's human session (password or passkey) or the ambient
-human principal passes. Delegated agent principals and any other principal get
-403 with an empty body. A non-JSON media type is 415; a malformed body is 400
-`{ error: "LIVE_SETTINGS_INVALID" }`; an id that is not registered is 400
-`{ error: "LIVE_PROVIDER_UNKNOWN" }`; a stale revision is 409
-`{ error: "LIVE_SETTINGS_CHANGED", message, current }`. A successful write returns
-200 with the new `{ defaultProvider, revision }` and sends `live_settings` on every
-open WebSocket connection ([wire](integration-contract/wire.md#live-service-selection-additive-3616)).
+`PUT` saves it from `{ defaultProvider: string | null, revision: number }`,
+where `revision` is the one last read and `null` clears the default; send it
+alone, or beside `persona` (the live default is then saved first). The route
+has its own owner-only write guard, checked before the body is read: only the
+brain owner's human session (password or passkey) or the ambient human
+principal passes, and any other principal gets 403 with an empty body. A
+malformed pair is 400 `{ error: "LIVE_SETTINGS_INVALID" }`; an id that is not
+registered is 400 `{ error: "LIVE_PROVIDER_UNKNOWN" }`; a stale revision is 409
+`{ error: "LIVE_SETTINGS_CHANGED", message, current }`. A successful write
+returns 200 with the whole settings body and sends `live_settings` on every open
+WebSocket connection ([wire](integration-contract/wire.md#live-service-selection-additive-3616)).
 
-Both routes are `no-store`. Neither reads or reports a credential, key presence
-or endpoint, opens a provider, captures audio or reads chat history. A save takes
-effect at the next explicit Start and never retargets a running conversation.
-The ordinary model default (`/api/models/default`) and the dictation choice
+Neither read nor write reports a credential, key presence or endpoint, opens a
+provider, captures audio or reads chat history. A save takes effect at the next
+explicit Start and never retargets a running conversation. The ordinary model
+default (`/api/models/default`) and the dictation choice
 (`/api/voice/dictation/settings`) are separate settings with their own routes
 and revisions.
+
+## Live-conversation personas
+
+Personas are Markdown files at `_voice/personas/<id>.md` in the brain, where
+`id` matches `[a-z0-9-]{1,48}` and never changes:
+
+```md
+---
+schema: 1
+name: "Ithaca steward"
+voices:
+  gemini-live: "Kore"
+  gpt-live: "marin"
+---
+Calm, brief, plain words. Speak like a ship's steward reporting to Odysseus.
+```
+
+`name` is 1–40 characters after trimming, without control characters. `voices`
+maps a live service id to that service's voice id; a missing key means the
+service default, and keys for services this host does not register are kept.
+The body is the instructions: plain text, line endings normalized to LF and
+trimmed, at most 6,000 UTF-8 bytes. A file over that, with unreadable front
+matter or with `schema` other than 1 is listed with `invalid` and cannot be
+selected; so are usable files beyond the 20th by name. Standard is built in,
+read-only and has no file. Core excludes `_voice` from the content index, so
+persona text never reaches search or agent context.
+
+Every route is `no-store` and needs a human session of the brain (owner or
+ambient); others receive `403` with an empty body.
+
+- `GET /api/voice/personas` returns `{ personas: LivePersonaSummary[] }`:
+  Standard first, then by name. Summaries carry `id`, `name`, `voices`,
+  `instructionBytes`, `revision` (sha-256 hex of the file), and `builtIn` or
+  `invalid` when they apply, never the instructions.
+- `GET /api/voice/personas/:id` returns `LivePersona` (the summary plus
+  `instructions`) or 404 `PERSONA_NOT_FOUND`.
+- `POST /api/voice/personas` takes `{ id?, name, voices, instructions }`. Without
+  `id` one is derived from `name`. It returns 201 with the persona, 400
+  `PERSONA_INVALID` with a `reason`, 409 `PERSONA_EXISTS` or 409 `PERSONA_LIMIT`.
+  A new persona is not selected.
+- `PUT /api/voice/personas/:id` takes `{ baseRevision, name, voices,
+  instructions }` and replaces the file atomically. A revision mismatch returns
+  409 `{ error: "PERSONA_CHANGED", current }`; Standard returns 409
+  `PERSONA_READ_ONLY`.
+- `DELETE /api/voice/personas/:id?baseRevision=<revision>` returns 204. When the
+  persona is selected, the selection is saved as Standard first and the file is
+  deleted only after that write succeeds.
+- `GET /api/settings/voice` returns `{ defaultProvider, revision, persona: { value, revision },
+  livePersona: LivePersonaStatus }` (the first pair is the
+  [live-service default](#live-conversation-service-default)). `PUT` takes `{ persona: { value, revision } }`;
+  a missing or invalid persona returns 400, a stale revision 409
+  `{ error: "LIVE_PERSONA_CHANGED", persona, livePersona }`. The selection is the
+  `voice.live.persona` server setting with its own revision; a corrupt row reads
+  as Standard at revision 0.
+
+Writes go through the brain's files with an atomic replace, inside a
+directory chain opened without following links; storage that is unavailable or
+redirected returns 503 `PERSONA_STORAGE`. An edit made directly to a file is
+equally valid and applies from the next Start. Nothing here opens a provider,
+the microphone or a running conversation, which keeps the persona frozen at its
+Start ([wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617)).
 
 ## Saved-audio transcription
 

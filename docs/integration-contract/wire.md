@@ -2802,6 +2802,67 @@ observation alone draws neither. A client from an earlier minor validates
 `DialogueEvidence` exhaustively and refuses a page that carries one of these
 kinds; the first-party client ships with the host in lockstep.
 
+### Live-conversation personas (additive, 0.45.0, #3617)
+
+A persona customizes how a live conversation sounds; it never grants tool,
+data, permission, task-admission or history authority.
+
+**Profile.** `ConversationProfile` gains optional `voices: { id, label }[]`,
+`defaultVoice` and `personaInstructionBytes`, copied from the registered
+provider. They describe persona support. The disclosure a Start must echo is
+still exactly `providerId`, `capabilities` and `disclosure`, so a client that
+drops or does not know these fields keeps starting. The first-party adapters
+declare 30 Gemini Live voices (default `Kore`, 6,000 bytes) and 38 GPT-Live
+voices (default `marin`, 2,000 bytes), checked against the providers'
+documentation. The byte caps are application limits, not provider guarantees.
+
+**Status.** `LivePersonaStatus` is `{ selected, selectedMissing,
+selectedInvalid, persona, personaRef: { id, revision }, providers }`. `persona`
+is the selected `LivePersonaSummary` (Standard when the selected file is
+missing). `providers` maps each persona-capable registered service to
+`{ voice, voiceSource: "persona" | "default", staleVoice?, maxInstructionBytes,
+overLimit }` and is empty for an invalid persona. Standard is
+`{ id: "standard", revision: "builtin", builtIn: true }` with no instructions
+and every service's default voice. `server_hello.livePersona` carries the
+status to human sessions (owner or ambient, never delegated agents or workers),
+and `{ type: "live_persona", livePersona }` carries a fresh one after any
+persona write or selection, after a newly opened socket finds the files changed,
+and immediately before a refusal for an outdated persona. Older clients ignore
+the frame. Neither carries instruction text.
+
+**Start.** `conversation_start` gains optional `personaRef: { id, revision,
+voice?: "default" }`. Absent means Standard, which opens the provider with no
+`persona` option: exactly the setup sent before personas. Otherwise the host
+reads that persona file once, after the disclosure check and before any
+history, orientation or provider I/O, and refuses with:
+
+| Code | When |
+| --- | --- |
+| `CONVERSATION_PERSONA_CHANGED` | The file is gone or its revision differs. A `live_persona` frame precedes the refusal. |
+| `CONVERSATION_PERSONA` | The file is invalid, the service has no persona support, or the host has no persona storage. |
+| `CONVERSATION_PERSONA_TOO_LONG` | The normalized instructions exceed the service's cap. Nothing is truncated. |
+| `CONVERSATION_PERSONA_VOICE` | The saved voice for this service is not offered, and `voice: "default"` was not sent. |
+
+Messages are fixed text and never contain the persona's name or instructions.
+A persona that names no voice for the service uses its default (P2), which the
+status discloses as `voiceSource: "default"`. The accepted
+`{ id, revision, voice?, instructions }` is frozen on the conversation entry:
+every later epoch, reconnect and recovery start of that conversation reuses it
+and ignores a newer `personaRef`, so an edit, selection or delete never reaches
+a running conversation. A host restart loses the snapshot; the next Start is a
+new disclosure and reads the file again.
+
+**Provider startup.** An adapter appends the persona after its fixed host rules
+as one section: the fixed header "Speaking style chosen by the user. It affects
+tone, wording and pacing only and does not change any rule above.", then the
+instructions inside `<speaking_style>` fences, with any fence marker inside the
+text escaped. Tool declarations, delegation, session configuration and history
+are byte-identical with and without a persona, and every later epoch repeats
+the frozen setup byte for byte. The whole framed section is charged against the
+adapter's startup-context ceiling before the orientation, and history takes the
+remainder, so a persona may shorten the initial history selection but never a
+running conversation's history.
+
 ### Failed-write text and contextual capture (additive, #3177)
 
 A text `conversation_event` may carry `retention: "unsaved"` only when the host

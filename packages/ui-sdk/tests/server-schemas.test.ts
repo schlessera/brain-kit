@@ -166,6 +166,15 @@ const SAMPLES: ServerMessage[] = [
     limits: { ...CONVERSATION_LIMITS },
     resync: { work: 1, outputs: 1 },
   },
+  {
+    type: "live_persona",
+    livePersona: {
+      selected: "ithaca-steward", selectedMissing: false, selectedInvalid: false,
+      persona: { id: "ithaca-steward", name: "Ithaca steward", voices: { "fake-live": "Calypso" }, instructionBytes: 25, revision: "a".repeat(64) },
+      personaRef: { id: "ithaca-steward", revision: "a".repeat(64) },
+      providers: { "fake-live": { voice: "Calypso", voiceSource: "persona", maxInstructionBytes: 2000, overLimit: false } },
+    },
+  },
   { type: "conversation_output", conversationId: "c1", epoch: 1, outputId: "o1", generated: "Twelve oxen.", playback: "played", playedSamples: { start: 0, end: 480 } },
   { type: "conversation_closed", conversationId: "c1", epoch: 1, reason: "stopped" },
   { type: "dialogue_history", requestId: "history-mast", ownerId: "ithaca", sessionId: "s1", generation: 1, through: 1, coverage: "complete",

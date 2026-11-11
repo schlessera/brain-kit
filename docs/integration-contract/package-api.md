@@ -5121,6 +5121,37 @@ acknowledgement promise. Reviewed-only tasks keep their existing admission and
 result behavior. The [wire/disclosure amendment](wire.md#live-orientation-disclosure-and-progress-additive-3623)
 adds no frame, revision or client permission grant.
 
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+`LiveConversationProvider` (`@schlessera/brain-ui-sdk/server`) gains three
+optional fields, all present or all absent: `voices: readonly
+ConversationVoice[]` (one to 128 unique `{ id, label }`), `defaultVoice` (one
+of them) and `personaInstructionBytes` (1 to 6,000). `assertLiveConversationProvider`
+refuses a partial or inconsistent set. A provider without them supports only
+Standard, and the host refuses any other persona for it.
+
+`LiveConversationOpenOptions.persona?: ConversationPersona` (`{ voice?: string;
+instructions: string }`) is the persona the host froze at Start. Absent means
+Standard and must reproduce the provider's behaviour before personas exactly.
+`voice` is one of the provider's `voices`; absent means `defaultVoice`.
+`instructions` is normalized plain text (line endings to LF, trimmed) within
+`personaInstructionBytes`. A provider frames it after its own fixed rules and
+never lets it reach tool declarations, permissions or history; the first-party
+adapters refuse an unoffered voice or an over-cap text rather than substitute
+or truncate. This adds fields to the existing live-conversation seam; it is not
+a new extension point.
+
+`@schlessera/brain-ui-sdk/protocol` exports `ConversationVoice`,
+`ConversationPersonaRef`, `LivePersona`, `LivePersonaSummary`,
+`LivePersonaInvalidReason`, `LivePersonaListResponse`,
+`LivePersonaCreateRequest`, `LivePersonaUpdateRequest`,
+`LivePersonaProviderStatus`, `LivePersonaStatus`, `VoiceSettingsResponse`,
+`VoiceSettingsUpdateRequest`, `ServerLivePersona`, `STANDARD_PERSONA_ID`,
+`STANDARD_PERSONA_REVISION` and `LIVE_PERSONA_LIMITS`; the schemas entry point
+exports their zod schemas. In `@schlessera/brain-ui-react`, the conversation
+client's state gains `livePersona: LivePersonaStatus | null` and its Start
+echoes `livePersona.personaRef`; Settings › Voice gains the Persona group.
+
 ## Observed live content map (additive, 0.45.0, #3630)
 
 `ConversationOrientation.knowledge[].topic` gains `content_map`. It carries

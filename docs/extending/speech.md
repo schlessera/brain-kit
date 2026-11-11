@@ -362,7 +362,8 @@ and [qualification plan](../investigations/live-conversation-investigation.md#bo
 `createGptLiveConversationProvider(serverOwnedApiKey)` from
 `@schlessera/brain-ui-server` supplies the separately registered
 `CreateAppOptions.conversationProvider`. The server retains the credential;
-the adapter fixes `gpt-live-1`, Live v1 primary WebSocket, PCM16/24 kHz, marin,
+the adapter fixes `gpt-live-1`, Live v1 primary WebSocket, PCM16/24 kHz, marin
+(or a persona's voice from its 38 declared voices, #3617),
 client delegation and `store:false`. The host's independently selected backend
 continues streaming chat progress, tool activity and interactive cards while
 voice input/output and asynchronous delegated work remain active.

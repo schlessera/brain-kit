@@ -52,6 +52,27 @@ client refuses a page that carries the new kinds. See
 and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
 This ships in a minor; no breaking ruling is required.
 
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+A persona is authored Markdown at `_voice/personas/<id>.md` in the brain: a
+name, one voice per live service and plain-text speaking-style instructions.
+Core excludes `_voice` from the content index by default
+([configuration](configuration.md#exclude)). New owner-only routes read and
+write personas with sha-256 revisions, and `GET/PUT /api/settings/voice`
+carries the selection (`voice.live.persona`, its own revision) in the server
+settings store, never in `brain.db`. `LiveConversationProvider` gains optional
+`voices`, `defaultVoice` and `personaInstructionBytes`, mirrored on
+`ConversationProfile` outside the disclosure a Start must echo;
+`LiveConversationOpenOptions.persona` carries the persona frozen at Start.
+`server_hello.livePersona` and the new `live_persona` frame describe the
+selected persona to human sessions; `conversation_start.personaRef` echoes it,
+with `voice: "default"` as the explicit one-time stale-voice override. A
+conversation that sends no persona keeps exact current behaviour. See
+[wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617),
+[HTTP](integration-contract/http.md#live-conversation-personas-additive-0450-3617)
+and [the package API](integration-contract/package-api.md#live-conversation-personas-additive-0450-3617).
+This ships in a minor; no breaking ruling is required.
+
 ## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
 
 `openSettings("voice")` opens a new Settings › Voice pane, which holds the

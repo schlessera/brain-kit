@@ -149,6 +149,31 @@ never saved, and `conversationProfile` is the service Start would disclose and
 open: the pick, else the effective service, else `null` when a pick is required.
 The disclosure sheet offers that pick when several services are usable or the
 saved default is unavailable; the Start card (#3698) replaces it.
+
+### Live-conversation personas
+
+The Persona group in Settings › Voice lists the built-in **Standard** persona
+and the personas you add, each a Markdown file at `_voice/personas/<id>.md` in
+your brain. A persona has a name, one voice per live service (or that
+service's default) and **How it speaks**, plain-text instructions about tone,
+brevity and manner. Picking a radio saves the brain-wide selection at once.
+**+ New persona** and each row's **⋯** menu (Edit, Rename, Duplicate, Delete;
+desktop also shows **Edit**) open the editor in the pane. The editor counts the
+instructions in exact UTF-8 bytes per service: GPT-Live accepts 2,000 and Gemini
+Live 6,000, so a persona can be fine for one service and too long for the other.
+Nothing is ever truncated; Start refuses instead. A save that another device
+overtook keeps your text and offers **Show the newer version**; leaving with
+unsaved edits asks first. Deleting the selected persona moves the selection to
+Standard. Files that cannot be used are listed with the reason and cannot be
+selected.
+
+Edits, selection and delete apply from the next Start. A running conversation,
+including its reconnects, keeps the persona it started with. The connection
+client's state carries `livePersona`, the selected persona as the host resolves
+it per service (voice, default or stale voice, over-limit), and Start echoes
+its `personaRef`. A persona shapes speech only; it cannot change what brain may
+do, see or approve. The pane never opens the microphone or a provider.
+
 ### Recording on the device
 
 Set `localCapture: true` and a stable `storagePrefix` on a persistent root to
@@ -786,7 +811,8 @@ offers **Refresh and retry**. Sync and reset use immediate layout updates.
 
 Settings exposes the same nine panes on phone, tablet and desktop: Appearance
 & input, Models, Voice, Accounts, Skills, Modules, Storage, Security, and Devices & agents.
-Voice holds the dictation service (see [Choosing the dictation service](#choosing-the-dictation-service));
+Voice holds the dictation service (see [Choosing the dictation service](#choosing-the-dictation-service))
+and the live-conversation persona (see [Live-conversation personas](#live-conversation-personas));
 its groups each own their route and state, so the live-conversation service can
 join the same pane without sharing a revision.
 Theme and the single-key shortcut switch apply only on this device and live in
