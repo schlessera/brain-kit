@@ -956,6 +956,7 @@ export type ServerMessage =
   | ServerSessionQueue
   | ServerDialogueHistory
   | ServerConversationOpened
+  | ServerLivePersona
   | ServerConversationClosed
   | ServerConversationEvent
   | ServerConversationWork
@@ -978,6 +979,8 @@ export interface ServerHello {
   safetyCapabilities?: SafetyCapabilities;
   /** Known destination/profile before explicit Start; no provider has opened. */
   conversationProfile?: ConversationProfile;
+  /** Additive (#3617): the selected live persona. Present with `conversationProfile`. */
+  livePersona?: LivePersonaStatus;
   type: "server_hello";
   protocolRev: number;
   /**
@@ -2127,6 +2130,147 @@ export interface ConversationProfile {
   providerId: string;
   capabilities: ConversationCapabilities;
   disclosure: ConversationDisclosure;
+  /**
+   * Additive (#3617): the voices a persona may choose for this service,
+   * verified against the provider's documentation. Absent: the service has no
+   * voice control. Like `defaultVoice` and `personaInstructionBytes`, it
+   * describes persona support and is not part of the disclosure a Start echo
+   * must match.
+   */
+  voices?: ConversationVoice[];
+  /** The voice this service uses when a persona names none (P2). */
+  defaultVoice?: string;
+  /** Exact UTF-8 byte cap on persona instructions for this service. Absent: personas are unsupported. */
+  personaInstructionBytes?: number;
+}
+
+/** One voice a live-conversation service offers (#3617). */
+export interface ConversationVoice {
+  id: string;
+  label: string;
+}
+
+/**
+ * The persona a Start was disclosed with (#3617). `id` and `revision` come
+ * from `LivePersonaStatus.personaRef`; the host refuses the Start when they
+ * no longer match. `voice: "default"` is the explicit one-time choice to use
+ * the service's default voice instead of a saved voice it no longer offers.
+ */
+export interface ConversationPersonaRef {
+  id: string;
+  revision: string;
+  voice?: "default";
+}
+
+/** The built-in persona: no file, no instructions, the services' default voices. */
+export const STANDARD_PERSONA_ID = "standard";
+/** `revision` of the built-in Standard persona. File personas use a sha-256 hex digest. */
+export const STANDARD_PERSONA_REVISION = "builtin";
+
+/** Bounds on authored personas (`_voice/personas/<id>.md`, #3617). */
+export const LIVE_PERSONA_LIMITS = {
+  /** Personas listed as usable; files beyond this, ordered by name, cannot be selected. */
+  maxPersonas: 20,
+  /** `[a-z0-9-]`, from the file name, never changed. */
+  maxIdChars: 48,
+  /** Characters of `name`, after trimming. */
+  maxNameChars: 40,
+  /** UTF-8 bytes of normalized instructions any persona may store. Per-service caps are lower or equal. */
+  maxInstructionBytes: 6_000,
+  /** Provider keys in `voices`. */
+  maxVoices: 16,
+  /** Bytes of one persona file the host reads. */
+  maxFileBytes: 16_384,
+} as const;
+
+/** Why a persona file cannot be used. Fixed codes; Settings words them. */
+export type LivePersonaInvalidReason =
+  | "front_matter" | "schema" | "name" | "voices" | "too_long" | "encoding" | "over_count";
+
+/** One persona as the list shows it. Instructions are returned only by the single-persona read. */
+export interface LivePersonaSummary {
+  id: string;
+  name: string;
+  /** Provider id → that provider's voice id. A missing key means the provider's default. */
+  voices: Record<string, string>;
+  /** UTF-8 bytes of the normalized instructions. */
+  instructionBytes: number;
+  revision: string;
+  /** Present only on Standard. */
+  builtIn?: true;
+  /** Present when the persona cannot be used or selected. */
+  invalid?: LivePersonaInvalidReason;
+}
+
+/** One persona with its plain-text instructions. Never render them as markup. */
+export interface LivePersona extends LivePersonaSummary {
+  instructions: string;
+}
+
+/** `GET /api/voice/personas`: Standard first, then personas by name. */
+export interface LivePersonaListResponse {
+  personas: LivePersonaSummary[];
+}
+
+/** `POST /api/voice/personas`. Without `id`, one is derived from `name`. */
+export interface LivePersonaCreateRequest {
+  id?: string;
+  name: string;
+  voices: Record<string, string>;
+  instructions: string;
+}
+
+/** `PUT /api/voice/personas/:id`. `baseRevision` must match the file's current revision. */
+export interface LivePersonaUpdateRequest {
+  baseRevision: string;
+  name: string;
+  voices: Record<string, string>;
+  instructions: string;
+}
+
+/** What the selected persona means for one registered live service. */
+export interface LivePersonaProviderStatus {
+  /** The voice a Start would use. */
+  voice: string;
+  /** `default`: the persona names no voice for this service (P2, disclose before Start). */
+  voiceSource: "persona" | "default";
+  /** A saved voice this service no longer offers. Start needs `personaRef.voice: "default"` or an edit. */
+  staleVoice?: string;
+  maxInstructionBytes: number;
+  /** Instructions exceed this service's cap; Start is blocked, never truncated. */
+  overLimit: boolean;
+}
+
+/**
+ * The selected persona as a Start would resolve it (#3617). Sent in
+ * `server_hello.livePersona`, the `live_persona` frame and
+ * `GET /api/settings/voice`.
+ */
+export interface LivePersonaStatus {
+  /** The saved selection: `standard` or a persona id. */
+  selected: string;
+  /** The selected file no longer exists; Start uses Standard and says so. */
+  selectedMissing: boolean;
+  /** The selected file cannot be used; Start is blocked until it is edited or Standard is chosen. */
+  selectedInvalid: boolean;
+  /** Standard when the selection is missing, otherwise the selected persona. */
+  persona: LivePersonaSummary;
+  /** What `conversation_start.personaRef` echoes for this persona. */
+  personaRef: { id: string; revision: string };
+  /** Per registered service. Empty when the persona is invalid. */
+  providers: Record<string, LivePersonaProviderStatus>;
+}
+
+/** `GET /api/settings/voice` and the body of a successful `PUT`. */
+export interface VoiceSettingsResponse {
+  /** `voice.live.persona`: the selection and its own revision. */
+  persona: { value: string; revision: number };
+  livePersona: LivePersonaStatus;
+}
+
+/** `PUT /api/settings/voice`. Each group carries its own revision. */
+export interface VoiceSettingsUpdateRequest {
+  persona?: { value: string; revision: number };
 }
 
 /** Mono 16-bit little-endian PCM at one sample rate. */
@@ -2304,10 +2448,25 @@ export interface ConversationOutputRecord {
   playedSamples?: { start: number; end: number };
 }
 
+/**
+ * Server → Client (additive, #3617). The selected persona changed, or a Start
+ * named an outdated one. Older clients ignore it.
+ */
+export interface ServerLivePersona {
+  type: "live_persona";
+  livePersona: LivePersonaStatus;
+}
+
 /** Client → Server. Open a conversation, or a new epoch of an existing one. */
 export interface ClientConversationStart {
   /** Exact profile explicitly disclosed at Start; absent legacy starts refuse. */
   disclosed?: ConversationProfile;
+  /**
+   * Additive (#3617): the persona disclosed with this Start. Absent: Standard,
+   * exactly the behaviour before personas. A resumed conversation keeps the
+   * persona frozen at its first Start while this host holds it.
+   */
+  personaRef?: ConversationPersonaRef;
   /** Resume retained host-only history without pretending it is a backend session. */
   historyOwnerId?: string;
   /** New clients opt into the provider capability; older clients stay reviewed. */
