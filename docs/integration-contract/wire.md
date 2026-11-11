@@ -173,6 +173,17 @@ value and never sends `apifyUsd`. A client that validated the earlier
 literals must accept both new values. `listPriceCostUsd` and `tokens` stay
 the agent's own completed inference.
 
+A turn refused because its safety record could not be written ends with the
+additive error code `SAFETY_RECORDING_UNAVAILABLE` (#3810, #3812) and the
+additive failure classes `safety_recording_unavailable` (a one-turn failure
+before delivery; retry) and `safety_recording_paused` (the brain-wide recorder
+is failed and even the turn's restricted start could not commit; the host
+recovers it by itself). Two more classes name spent room that no retry or
+recovery frees: `safety_recording_chat_full` (this chat has no room left;
+start a new chat) and `safety_recording_brain_full` (the server has no room
+left; a new chat does not help). Nothing reached the model in any of these
+cases. A client says so instead of reporting a refusal by the brain.
+
 `budget_exceeded` and `budget_unavailable` are additive host failure classes.
 The former names a turn/session/day `budgetScope`; a day stop carries
 `resetsAt`. Neither automatically retries. A conversation block offers the
