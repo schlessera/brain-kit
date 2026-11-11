@@ -157,8 +157,10 @@ export "." (./src/index.ts)
   type ConversationInterval
   type ConversationLimits
   type ConversationOutputRecord
+  type ConversationPersonaRef
   type ConversationPlayback
   type ConversationProfile
+  type ConversationVoice
   type ConversationWireEvent
   type ConversationWorkReceipt
   type ConversationWorkState
@@ -253,7 +255,16 @@ export "." (./src/index.ts)
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
+  LIVE_PERSONA_LIMITS
   LOCAL_ANSWER_CLOSE
+  type LivePersona
+  type LivePersonaCreateRequest
+  type LivePersonaInvalidReason
+  type LivePersonaListResponse
+  type LivePersonaProviderStatus
+  type LivePersonaStatus
+  type LivePersonaSummary
+  type LivePersonaUpdateRequest
   type LocalAnswer
   type LocalExchange
   MAX_IMAGES_PER_MESSAGE
@@ -314,6 +325,8 @@ export "." (./src/index.ts)
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  STANDARD_PERSONA_ID
+  STANDARD_PERSONA_REVISION
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
@@ -350,6 +363,7 @@ export "." (./src/index.ts)
   type ServerHandoffDraft
   type ServerHandoffReceipt
   type ServerHello
+  type ServerLivePersona
   type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
@@ -473,6 +487,8 @@ export "." (./src/index.ts)
   type VoiceProvidersResponse
   type VoiceSessionRequest
   type VoiceSessionResponse
+  type VoiceSettingsResponse
+  type VoiceSettingsUpdateRequest
   type VoiceTokenResponse
   type WikilinkMapResponse
   type WorkerHostCheck
@@ -735,8 +751,10 @@ export "./client" (./src/client/index.ts)
   type ConversationInterval
   type ConversationLimits
   type ConversationOutputRecord
+  type ConversationPersonaRef
   type ConversationPlayback
   type ConversationProfile
+  type ConversationVoice
   type ConversationWireEvent
   type ConversationWorkReceipt
   type ConversationWorkState
@@ -854,8 +872,17 @@ export "./client" (./src/client/index.ts)
   LIVENESS_CAPABILITY
   LIVENESS_IDLE_MS
   LIVENESS_RESPONSE_MS
+  LIVE_PERSONA_LIMITS
   LOCAL_ANSWER_CLOSE
   LOCATION_PAYLOAD_SCHEMA
+  type LivePersona
+  type LivePersonaCreateRequest
+  type LivePersonaInvalidReason
+  type LivePersonaListResponse
+  type LivePersonaProviderStatus
+  type LivePersonaStatus
+  type LivePersonaSummary
+  type LivePersonaUpdateRequest
   type LivenessEvent
   type LocalAnswer
   type LocalExchange
@@ -969,6 +996,8 @@ export "./client" (./src/client/index.ts)
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
   STALE_SOCKET_CLOSE_CODE
+  STANDARD_PERSONA_ID
+  STANDARD_PERSONA_REVISION
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
@@ -1006,6 +1035,7 @@ export "./client" (./src/client/index.ts)
   type ServerHandoffDraft
   type ServerHandoffReceipt
   type ServerHello
+  type ServerLivePersona
   type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
@@ -1148,6 +1178,8 @@ export "./client" (./src/client/index.ts)
   type VoiceProvidersResponse
   type VoiceSessionRequest
   type VoiceSessionResponse
+  type VoiceSettingsResponse
+  type VoiceSettingsUpdateRequest
   type VoiceTokenResponse
   WEB_SEARCH_INPUT_SCHEMA
   WEB_TOOL_CONTRACTS
@@ -1632,8 +1664,10 @@ export "./protocol" (./src/protocol.ts)
   type ConversationInterval
   type ConversationLimits
   type ConversationOutputRecord
+  type ConversationPersonaRef
   type ConversationPlayback
   type ConversationProfile
+  type ConversationVoice
   type ConversationWireEvent
   type ConversationWorkReceipt
   type ConversationWorkState
@@ -1727,7 +1761,16 @@ export "./protocol" (./src/protocol.ts)
   type JournalVersion
   type Keyterm
   LIVENESS_CAPABILITY
+  LIVE_PERSONA_LIMITS
   LOCAL_ANSWER_CLOSE
+  type LivePersona
+  type LivePersonaCreateRequest
+  type LivePersonaInvalidReason
+  type LivePersonaListResponse
+  type LivePersonaProviderStatus
+  type LivePersonaStatus
+  type LivePersonaSummary
+  type LivePersonaUpdateRequest
   type LocalAnswer
   type LocalExchange
   MAX_IMAGES_PER_MESSAGE
@@ -1783,6 +1826,8 @@ export "./protocol" (./src/protocol.ts)
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  STANDARD_PERSONA_ID
+  STANDARD_PERSONA_REVISION
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
@@ -1819,6 +1864,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerHandoffDraft
   type ServerHandoffReceipt
   type ServerHello
+  type ServerLivePersona
   type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
@@ -1942,6 +1988,8 @@ export "./protocol" (./src/protocol.ts)
   type VoiceProvidersResponse
   type VoiceSessionRequest
   type VoiceSessionResponse
+  type VoiceSettingsResponse
+  type VoiceSettingsUpdateRequest
   type VoiceTokenResponse
   type WikilinkMapResponse
   type WorkerHostCheck
@@ -2027,8 +2075,10 @@ export "./schemas" (./src/schemas.ts)
   conversationEvidenceSchema
   conversationLimitsSchema
   conversationOutputRecordSchema
+  conversationPersonaRefSchema
   conversationProfileSchema
   conversationSampleRateSchema
+  conversationVoiceSchema
   conversationWireEventSchema
   conversationWorkReceiptSchema
   dialogueEvidenceSchema
@@ -2073,6 +2123,11 @@ export "./schemas" (./src/schemas.ts)
   inboxThreadSchema
   inboxViewSchema
   inboxWorkPayloadSchema
+  livePersonaListResponseSchema
+  livePersonaProviderStatusSchema
+  livePersonaSchema
+  livePersonaStatusSchema
+  livePersonaSummarySchema
   localExchangeSchema
   messageBlockSchema
   messageSourceSchema
@@ -2110,6 +2165,7 @@ export "./schemas" (./src/schemas.ts)
   serverHandoffDraftSchema
   serverHandoffReceiptSchema
   serverHelloSchema
+  serverLivePersonaSchema
   serverLocalExchangeResultSchema
   serverLocationRequestSchema
   serverMaskRequestSchema
@@ -2144,6 +2200,7 @@ export "./schemas" (./src/schemas.ts)
   turnScopeSummarySchema
   v1ResolutionEffectSchema
   validateResolutionEffect
+  voiceSettingsResponseSchema
 
 export "./server" (./src/server/index.ts)
   ACTIVITY_COMPUTE_CAPABILITY
@@ -2434,11 +2491,14 @@ export "./server" (./src/server/index.ts)
   type ConversationLimits
   type ConversationOrientation
   type ConversationOutputRecord
+  type ConversationPersona
+  type ConversationPersonaRef
   type ConversationPlayback
   type ConversationProfile
   type ConversationResync
   type ConversationScope
   type ConversationTaskRef
+  type ConversationVoice
   type ConversationWireEvent
   type ConversationWorkReceipt
   type ConversationWorkRef
@@ -2575,6 +2635,7 @@ export "./server" (./src/server/index.ts)
   type Keyterm
   type KillableProcess
   LIVENESS_CAPABILITY
+  LIVE_PERSONA_LIMITS
   LOCAL_ANSWER_CLOSE
   LOCATION_PAYLOAD_SCHEMA
   type LandOptions
@@ -2583,6 +2644,14 @@ export "./server" (./src/server/index.ts)
   type LiveConversationOpenOptions
   type LiveConversationProvider
   type LiveConversationSession
+  type LivePersona
+  type LivePersonaCreateRequest
+  type LivePersonaInvalidReason
+  type LivePersonaListResponse
+  type LivePersonaProviderStatus
+  type LivePersonaStatus
+  type LivePersonaSummary
+  type LivePersonaUpdateRequest
   type LocalAnswer
   type LocalExchange
   type LocationFix
@@ -2699,6 +2768,8 @@ export "./server" (./src/server/index.ts)
   SPAN_OP_EXECUTE_TOOL
   SPAN_OP_INVOKE_AGENT
   SPAN_TOOL_NAME_PREFIX
+  STANDARD_PERSONA_ID
+  STANDARD_PERSONA_REVISION
   SUBSCRIPTION_AUTH_INSTRUCTIONS
   SUBSCRIPTION_RELOGIN_PROCEDURE
   type SafetyCapabilities
@@ -2736,6 +2807,7 @@ export "./server" (./src/server/index.ts)
   type ServerHandoffDraft
   type ServerHandoffReceipt
   type ServerHello
+  type ServerLivePersona
   type ServerLocalExchangeResult
   type ServerLocationRequest
   type ServerMaskRequest
@@ -2901,6 +2973,8 @@ export "./server" (./src/server/index.ts)
   type VoiceProvidersResponse
   type VoiceSessionRequest
   type VoiceSessionResponse
+  type VoiceSettingsResponse
+  type VoiceSettingsUpdateRequest
   type VoiceTokenResponse
   WEB_SEARCH_INPUT_SCHEMA
   WEB_TOOL_CONTRACTS
@@ -6793,6 +6867,7 @@ signatures (every public export and the types it is made of)
   ClientConversationStart (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationStart {
         disclosed?: ConversationProfile;
+        personaRef?: ConversationPersonaRef;
         historyOwnerId?: string;
         contextualTasks?: boolean;
         type: "conversation_start";
@@ -7216,6 +7291,17 @@ signatures (every public export and the types it is made of)
             end: number;
         };
     }
+  ConversationPersona (packages/ui-sdk/src/server/conversation.ts)
+    export interface ConversationPersona {
+        voice?: string;
+        instructions: string;
+    }
+  ConversationPersonaRef (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationPersonaRef {
+        id: string;
+        revision: string;
+        voice?: "default";
+    }
   ConversationPlayback (packages/ui-sdk/src/protocol.ts)
     export type ConversationPlayback = "played" | "discarded" | "unknown";
   ConversationProfile (packages/ui-sdk/src/protocol.ts)
@@ -7223,6 +7309,9 @@ signatures (every public export and the types it is made of)
         providerId: string;
         capabilities: ConversationCapabilities;
         disclosure: ConversationDisclosure;
+        voices?: ConversationVoice[];
+        defaultVoice?: string;
+        personaInstructionBytes?: number;
     }
   ConversationResync (packages/ui-sdk/src/server/conversation.ts)
     export interface ConversationResync {
@@ -7246,6 +7335,11 @@ signatures (every public export and the types it is made of)
         requestId: string;
         nativeHandle: string;
     };
+  ConversationVoice (packages/ui-sdk/src/protocol.ts)
+    export interface ConversationVoice {
+        id: string;
+        label: string;
+    }
   ConversationWireEvent (packages/ui-sdk/src/protocol.ts)
     export type ConversationWireEvent = {
         kind: "unassigned_input_fragment";
@@ -7684,7 +7778,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -8462,6 +8556,15 @@ signatures (every public export and the types it is made of)
     const LIVENESS_IDLE_MS: 15000;
   LIVENESS_RESPONSE_MS (packages/ui-sdk/src/client/ws-client.ts)
     const LIVENESS_RESPONSE_MS: 5000;
+  LIVE_PERSONA_LIMITS (packages/ui-sdk/src/protocol.ts)
+    const LIVE_PERSONA_LIMITS: {
+        readonly maxFileBytes: 16384;
+        readonly maxIdChars: 48;
+        readonly maxInstructionBytes: 6000;
+        readonly maxNameChars: 40;
+        readonly maxPersonas: 20;
+        readonly maxVoices: 16;
+    };
   LOCAL_ANSWER_CLOSE (packages/ui-sdk/src/protocol.ts)
     const LOCAL_ANSWER_CLOSE: "</local-answer>";
   LOCATION_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
@@ -8550,12 +8653,16 @@ signatures (every public export and the types it is made of)
         resync: ConversationResync;
         history?: ConversationHistoryEnvelope;
         orientation?: ConversationOrientation;
+        persona?: ConversationPersona;
     }
   LiveConversationProvider (packages/ui-sdk/src/server/conversation.ts)
     export interface LiveConversationProvider {
         id: string;
         capabilities: ConversationCapabilities;
         disclosure: ConversationDisclosure;
+        voices?: readonly ConversationVoice[];
+        defaultVoice?: string;
+        personaInstructionBytes?: number;
         open(scope: ConversationScope, options: LiveConversationOpenOptions): Promise<LiveConversationSession>;
     }
   LiveConversationSession (packages/ui-sdk/src/server/conversation.ts)
@@ -8588,6 +8695,60 @@ signatures (every public export and the types it is made of)
         close(): Promise<{
             remote: "acknowledged" | "unknown";
         }>;
+    }
+  LivePersona (packages/ui-sdk/src/protocol.ts)
+    export interface LivePersona extends LivePersonaSummary {
+        instructions: string;
+    }
+  LivePersonaCreateRequest (packages/ui-sdk/src/protocol.ts)
+    export interface LivePersonaCreateRequest {
+        id?: string;
+        name: string;
+        voices: Record<string, string>;
+        instructions: string;
+    }
+  LivePersonaInvalidReason (packages/ui-sdk/src/protocol.ts)
+    export type LivePersonaInvalidReason = "front_matter" | "schema" | "name" | "voices" | "too_long" | "encoding" | "over_count";
+  LivePersonaListResponse (packages/ui-sdk/src/protocol.ts)
+    export interface LivePersonaListResponse {
+        personas: LivePersonaSummary[];
+    }
+  LivePersonaProviderStatus (packages/ui-sdk/src/protocol.ts)
+    export interface LivePersonaProviderStatus {
+        voice: string;
+        voiceSource: "persona" | "default";
+        staleVoice?: string;
+        maxInstructionBytes: number;
+        overLimit: boolean;
+    }
+  LivePersonaStatus (packages/ui-sdk/src/protocol.ts)
+    export interface LivePersonaStatus {
+        selected: string;
+        selectedMissing: boolean;
+        selectedInvalid: boolean;
+        persona: LivePersonaSummary;
+        personaRef: {
+            id: string;
+            revision: string;
+        };
+        providers: Record<string, LivePersonaProviderStatus>;
+    }
+  LivePersonaSummary (packages/ui-sdk/src/protocol.ts)
+    export interface LivePersonaSummary {
+        id: string;
+        name: string;
+        voices: Record<string, string>;
+        instructionBytes: number;
+        revision: string;
+        builtIn?: true;
+        invalid?: LivePersonaInvalidReason;
+    }
+  LivePersonaUpdateRequest (packages/ui-sdk/src/protocol.ts)
+    export interface LivePersonaUpdateRequest {
+        baseRevision: string;
+        name: string;
+        voices: Record<string, string>;
+        instructions: string;
     }
   LivenessEvent (packages/ui-sdk/src/client/ws-client.ts)
     export type LivenessEvent = {
@@ -10965,6 +11126,10 @@ signatures (every public export and the types it is made of)
     const SPAN_TOOL_NAME_PREFIX: "execute_tool ";
   STALE_SOCKET_CLOSE_CODE (packages/ui-sdk/src/client/ws-client.ts)
     const STALE_SOCKET_CLOSE_CODE: 4000;
+  STANDARD_PERSONA_ID (packages/ui-sdk/src/protocol.ts)
+    const STANDARD_PERSONA_ID: "standard";
+  STANDARD_PERSONA_REVISION (packages/ui-sdk/src/protocol.ts)
+    const STANDARD_PERSONA_REVISION: "builtin";
   SUBSCRIPTION_AUTH_INSTRUCTIONS (packages/ui-sdk/src/protocol.ts)
     const SUBSCRIPTION_AUTH_INSTRUCTIONS: Readonly<Record<SubscriptionAuthAction, string>>;
   SUBSCRIPTION_RELOGIN_PROCEDURE (packages/ui-sdk/src/protocol.ts)
@@ -11180,12 +11345,18 @@ signatures (every public export and the types it is made of)
     export interface ServerHello {
         safetyCapabilities?: SafetyCapabilities;
         conversationProfile?: ConversationProfile;
+        livePersona?: LivePersonaStatus;
         type: "server_hello";
         protocolRev: number;
         principalKey?: string;
         capabilities?: Record<string, boolean>;
         sessionDraftLimits?: SessionDraftLimits;
         attachmentLimits?: AttachmentLimits;
+    }
+  ServerLivePersona (packages/ui-sdk/src/protocol.ts)
+    export interface ServerLivePersona {
+        type: "live_persona";
+        livePersona: LivePersonaStatus;
     }
   ServerLocalExchangeResult (packages/ui-sdk/src/protocol.ts)
     export interface ServerLocalExchangeResult extends SessionScoped {
@@ -11209,7 +11380,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired | ServerAttachmentRead;
+    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerLivePersona | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired | ServerAttachmentRead;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -12695,6 +12866,21 @@ signatures (every public export and the types it is made of)
         expiresAt: number;
         capabilities: SpeechCapabilities;
     }
+  VoiceSettingsResponse (packages/ui-sdk/src/protocol.ts)
+    export interface VoiceSettingsResponse {
+        persona: {
+            value: string;
+            revision: number;
+        };
+        livePersona: LivePersonaStatus;
+    }
+  VoiceSettingsUpdateRequest (packages/ui-sdk/src/protocol.ts)
+    export interface VoiceSettingsUpdateRequest {
+        persona?: {
+            value: string;
+            revision: number;
+        };
+    }
   VoiceTokenResponse (packages/ui-sdk/src/protocol.ts)
     export interface VoiceTokenResponse {
         token: string;
@@ -13245,13 +13431,24 @@ signatures (every public export and the types it is made of)
                     unsupported: "unsupported";
                 }>;
             }, z.core.$loose>;
+            defaultVoice: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             disclosure: z.ZodObject<{
                 destinations: z.ZodArray<z.ZodString>;
                 voiceService: z.ZodString;
             }, z.core.$loose>;
+            personaInstructionBytes: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             providerId: z.ZodString;
+            voices: z.ZodCatch<z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strip>>>>;
         }, z.core.$strip>>>;
         historyOwnerId: z.ZodOptional<z.ZodString>;
+        personaRef: z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            id: z.ZodString;
+            revision: z.ZodString;
+            voice: z.ZodOptional<z.ZodLiteral<"default">>;
+        }, z.core.$strip>>>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
@@ -13756,13 +13953,24 @@ signatures (every public export and the types it is made of)
                     unsupported: "unsupported";
                 }>;
             }, z.core.$loose>;
+            defaultVoice: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             disclosure: z.ZodObject<{
                 destinations: z.ZodArray<z.ZodString>;
                 voiceService: z.ZodString;
             }, z.core.$loose>;
+            personaInstructionBytes: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             providerId: z.ZodString;
+            voices: z.ZodCatch<z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strip>>>>;
         }, z.core.$strip>>>;
         historyOwnerId: z.ZodOptional<z.ZodString>;
+        personaRef: z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            id: z.ZodString;
+            revision: z.ZodString;
+            voice: z.ZodOptional<z.ZodLiteral<"default">>;
+        }, z.core.$strip>>>;
         requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
@@ -13987,6 +14195,12 @@ signatures (every public export and the types it is made of)
             start: z.ZodNumber;
         }, z.core.$loose>>;
     }, z.core.$loose>;
+  conversationPersonaRefSchema (packages/ui-sdk/src/schemas.ts)
+    const conversationPersonaRefSchema: z.ZodObject<{
+        id: z.ZodString;
+        revision: z.ZodString;
+        voice: z.ZodOptional<z.ZodLiteral<"default">>;
+    }, z.core.$strip>;
   conversationProfileSchema (packages/ui-sdk/src/schemas.ts)
     const conversationProfileSchema: z.ZodObject<{
         capabilities: z.ZodObject<{
@@ -14031,14 +14245,25 @@ signatures (every public export and the types it is made of)
                 unsupported: "unsupported";
             }>;
         }, z.core.$loose>;
+        defaultVoice: z.ZodCatch<z.ZodOptional<z.ZodString>>;
         disclosure: z.ZodObject<{
             destinations: z.ZodArray<z.ZodString>;
             voiceService: z.ZodString;
         }, z.core.$loose>;
+        personaInstructionBytes: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
         providerId: z.ZodString;
+        voices: z.ZodCatch<z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            label: z.ZodString;
+        }, z.core.$strip>>>>;
     }, z.core.$strip>;
   conversationSampleRateSchema (packages/ui-sdk/src/schemas.ts)
     const conversationSampleRateSchema: z.ZodNumber;
+  conversationVoiceSchema (packages/ui-sdk/src/schemas.ts)
+    const conversationVoiceSchema: z.ZodObject<{
+        id: z.ZodString;
+        label: z.ZodString;
+    }, z.core.$strip>;
   conversationWireEventSchema (packages/ui-sdk/src/schemas.ts)
     const conversationWireEventSchema: z.ZodUnion<readonly [z.ZodObject<{
         api: z.ZodOptional<z.ZodString>;
@@ -17848,6 +18073,111 @@ signatures (every public export and the types it is made of)
     const isWebToolName: (name: string) => name is WebToolName;
   killWrapped (packages/ui-sdk/src/server/exec-wrapper.ts)
     export function killWrapped(proc: KillableProcess, config?: ExecWrapperConfig, signal?: NodeJS.Signals, onFailure?: (message: string) => void, bounded?: WrappedKillOptions): void;
+  livePersonaListResponseSchema (packages/ui-sdk/src/schemas.ts)
+    const livePersonaListResponseSchema: z.ZodObject<{
+        personas: z.ZodArray<z.ZodObject<{
+            builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+            id: z.ZodString;
+            instructionBytes: z.ZodNumber;
+            invalid: z.ZodOptional<z.ZodEnum<{
+                encoding: "encoding";
+                front_matter: "front_matter";
+                name: "name";
+                over_count: "over_count";
+                schema: "schema";
+                too_long: "too_long";
+                voices: "voices";
+            }>>;
+            name: z.ZodString;
+            revision: z.ZodString;
+            voices: z.ZodRecord<z.ZodString, z.ZodString>;
+        }, z.core.$loose>>;
+    }, z.core.$loose>;
+  livePersonaProviderStatusSchema (packages/ui-sdk/src/schemas.ts)
+    const livePersonaProviderStatusSchema: z.ZodObject<{
+        maxInstructionBytes: z.ZodNumber;
+        overLimit: z.ZodBoolean;
+        staleVoice: z.ZodOptional<z.ZodString>;
+        voice: z.ZodString;
+        voiceSource: z.ZodEnum<{
+            default: "default";
+            persona: "persona";
+        }>;
+    }, z.core.$loose>;
+  livePersonaSchema (packages/ui-sdk/src/schemas.ts)
+    const livePersonaSchema: z.ZodObject<{
+        builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+        id: z.ZodString;
+        instructionBytes: z.ZodNumber;
+        instructions: z.ZodString;
+        invalid: z.ZodOptional<z.ZodEnum<{
+            encoding: "encoding";
+            front_matter: "front_matter";
+            name: "name";
+            over_count: "over_count";
+            schema: "schema";
+            too_long: "too_long";
+            voices: "voices";
+        }>>;
+        name: z.ZodString;
+        revision: z.ZodString;
+        voices: z.ZodRecord<z.ZodString, z.ZodString>;
+    }, z.core.$loose>;
+  livePersonaStatusSchema (packages/ui-sdk/src/schemas.ts)
+    const livePersonaStatusSchema: z.ZodObject<{
+        persona: z.ZodObject<{
+            builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+            id: z.ZodString;
+            instructionBytes: z.ZodNumber;
+            invalid: z.ZodOptional<z.ZodEnum<{
+                encoding: "encoding";
+                front_matter: "front_matter";
+                name: "name";
+                over_count: "over_count";
+                schema: "schema";
+                too_long: "too_long";
+                voices: "voices";
+            }>>;
+            name: z.ZodString;
+            revision: z.ZodString;
+            voices: z.ZodRecord<z.ZodString, z.ZodString>;
+        }, z.core.$loose>;
+        personaRef: z.ZodObject<{
+            id: z.ZodString;
+            revision: z.ZodString;
+        }, z.core.$strip>;
+        providers: z.ZodRecord<z.ZodString, z.ZodObject<{
+            maxInstructionBytes: z.ZodNumber;
+            overLimit: z.ZodBoolean;
+            staleVoice: z.ZodOptional<z.ZodString>;
+            voice: z.ZodString;
+            voiceSource: z.ZodEnum<{
+                default: "default";
+                persona: "persona";
+            }>;
+        }, z.core.$loose>>;
+        selected: z.ZodString;
+        selectedInvalid: z.ZodBoolean;
+        selectedMissing: z.ZodBoolean;
+    }, z.core.$loose>;
+  livePersonaSummarySchema (packages/ui-sdk/src/schemas.ts)
+    const livePersonaSummarySchema: z.ZodObject<{
+        builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+        id: z.ZodString;
+        instructionBytes: z.ZodNumber;
+        invalid: z.ZodOptional<z.ZodEnum<{
+            encoding: "encoding";
+            front_matter: "front_matter";
+            name: "name";
+            over_count: "over_count";
+            schema: "schema";
+            too_long: "too_long";
+            voices: "voices";
+        }>>;
+        name: z.ZodString;
+        revision: z.ZodString;
+        voices: z.ZodRecord<z.ZodString, z.ZodString>;
+    }, z.core.$loose>;
   localExchangeSchema (packages/ui-sdk/src/schemas.ts)
     const localExchangeSchema: z.ZodObject<{
         answer: z.ZodUnknown;
@@ -20146,12 +20476,54 @@ signatures (every public export and the types it is made of)
                     unsupported: "unsupported";
                 }>;
             }, z.core.$loose>;
+            defaultVoice: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             disclosure: z.ZodObject<{
                 destinations: z.ZodArray<z.ZodString>;
                 voiceService: z.ZodString;
             }, z.core.$loose>;
+            personaInstructionBytes: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             providerId: z.ZodString;
+            voices: z.ZodCatch<z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strip>>>>;
         }, z.core.$strip>>>>;
+        livePersona: z.ZodCatch<z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            persona: z.ZodObject<{
+                builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+                id: z.ZodString;
+                instructionBytes: z.ZodNumber;
+                invalid: z.ZodOptional<z.ZodEnum<{
+                    encoding: "encoding";
+                    front_matter: "front_matter";
+                    name: "name";
+                    over_count: "over_count";
+                    schema: "schema";
+                    too_long: "too_long";
+                    voices: "voices";
+                }>>;
+                name: z.ZodString;
+                revision: z.ZodString;
+                voices: z.ZodRecord<z.ZodString, z.ZodString>;
+            }, z.core.$loose>;
+            personaRef: z.ZodObject<{
+                id: z.ZodString;
+                revision: z.ZodString;
+            }, z.core.$strip>;
+            providers: z.ZodRecord<z.ZodString, z.ZodObject<{
+                maxInstructionBytes: z.ZodNumber;
+                overLimit: z.ZodBoolean;
+                staleVoice: z.ZodOptional<z.ZodString>;
+                voice: z.ZodString;
+                voiceSource: z.ZodEnum<{
+                    default: "default";
+                    persona: "persona";
+                }>;
+            }, z.core.$loose>>;
+            selected: z.ZodString;
+            selectedInvalid: z.ZodBoolean;
+            selectedMissing: z.ZodBoolean;
+        }, z.core.$loose>>>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
         safetyCapabilities: z.ZodCatch<z.ZodOptional<z.ZodObject<{
@@ -20187,6 +20559,46 @@ signatures (every public export and the types it is made of)
             maxTotalBytes: z.ZodNumber;
         }, z.core.$loose>>>;
         type: z.ZodLiteral<"server_hello">;
+    }, z.core.$loose>;
+  serverLivePersonaSchema (packages/ui-sdk/src/schemas.ts)
+    const serverLivePersonaSchema: z.ZodObject<{
+        livePersona: z.ZodObject<{
+            persona: z.ZodObject<{
+                builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+                id: z.ZodString;
+                instructionBytes: z.ZodNumber;
+                invalid: z.ZodOptional<z.ZodEnum<{
+                    encoding: "encoding";
+                    front_matter: "front_matter";
+                    name: "name";
+                    over_count: "over_count";
+                    schema: "schema";
+                    too_long: "too_long";
+                    voices: "voices";
+                }>>;
+                name: z.ZodString;
+                revision: z.ZodString;
+                voices: z.ZodRecord<z.ZodString, z.ZodString>;
+            }, z.core.$loose>;
+            personaRef: z.ZodObject<{
+                id: z.ZodString;
+                revision: z.ZodString;
+            }, z.core.$strip>;
+            providers: z.ZodRecord<z.ZodString, z.ZodObject<{
+                maxInstructionBytes: z.ZodNumber;
+                overLimit: z.ZodBoolean;
+                staleVoice: z.ZodOptional<z.ZodString>;
+                voice: z.ZodString;
+                voiceSource: z.ZodEnum<{
+                    default: "default";
+                    persona: "persona";
+                }>;
+            }, z.core.$loose>>;
+            selected: z.ZodString;
+            selectedInvalid: z.ZodBoolean;
+            selectedMissing: z.ZodBoolean;
+        }, z.core.$loose>;
+        type: z.ZodLiteral<"live_persona">;
     }, z.core.$loose>;
   serverLocalExchangeResultSchema (packages/ui-sdk/src/schemas.ts)
     const serverLocalExchangeResultSchema: z.ZodObject<{
@@ -20874,12 +21286,54 @@ signatures (every public export and the types it is made of)
                     unsupported: "unsupported";
                 }>;
             }, z.core.$loose>;
+            defaultVoice: z.ZodCatch<z.ZodOptional<z.ZodString>>;
             disclosure: z.ZodObject<{
                 destinations: z.ZodArray<z.ZodString>;
                 voiceService: z.ZodString;
             }, z.core.$loose>;
+            personaInstructionBytes: z.ZodCatch<z.ZodOptional<z.ZodNumber>>;
             providerId: z.ZodString;
+            voices: z.ZodCatch<z.ZodOptional<z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                label: z.ZodString;
+            }, z.core.$strip>>>>;
         }, z.core.$strip>>>>;
+        livePersona: z.ZodCatch<z.ZodOptional<z.ZodLazy<z.ZodObject<{
+            persona: z.ZodObject<{
+                builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+                id: z.ZodString;
+                instructionBytes: z.ZodNumber;
+                invalid: z.ZodOptional<z.ZodEnum<{
+                    encoding: "encoding";
+                    front_matter: "front_matter";
+                    name: "name";
+                    over_count: "over_count";
+                    schema: "schema";
+                    too_long: "too_long";
+                    voices: "voices";
+                }>>;
+                name: z.ZodString;
+                revision: z.ZodString;
+                voices: z.ZodRecord<z.ZodString, z.ZodString>;
+            }, z.core.$loose>;
+            personaRef: z.ZodObject<{
+                id: z.ZodString;
+                revision: z.ZodString;
+            }, z.core.$strip>;
+            providers: z.ZodRecord<z.ZodString, z.ZodObject<{
+                maxInstructionBytes: z.ZodNumber;
+                overLimit: z.ZodBoolean;
+                staleVoice: z.ZodOptional<z.ZodString>;
+                voice: z.ZodString;
+                voiceSource: z.ZodEnum<{
+                    default: "default";
+                    persona: "persona";
+                }>;
+            }, z.core.$loose>>;
+            selected: z.ZodString;
+            selectedInvalid: z.ZodBoolean;
+            selectedMissing: z.ZodBoolean;
+        }, z.core.$loose>>>>;
         principalKey: z.ZodOptional<z.ZodString>;
         protocolRev: z.ZodNumber;
         safetyCapabilities: z.ZodCatch<z.ZodOptional<z.ZodObject<{
@@ -23993,6 +24447,44 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_opened">;
     }, z.core.$loose>, z.ZodObject<{
+        livePersona: z.ZodObject<{
+            persona: z.ZodObject<{
+                builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+                id: z.ZodString;
+                instructionBytes: z.ZodNumber;
+                invalid: z.ZodOptional<z.ZodEnum<{
+                    encoding: "encoding";
+                    front_matter: "front_matter";
+                    name: "name";
+                    over_count: "over_count";
+                    schema: "schema";
+                    too_long: "too_long";
+                    voices: "voices";
+                }>>;
+                name: z.ZodString;
+                revision: z.ZodString;
+                voices: z.ZodRecord<z.ZodString, z.ZodString>;
+            }, z.core.$loose>;
+            personaRef: z.ZodObject<{
+                id: z.ZodString;
+                revision: z.ZodString;
+            }, z.core.$strip>;
+            providers: z.ZodRecord<z.ZodString, z.ZodObject<{
+                maxInstructionBytes: z.ZodNumber;
+                overLimit: z.ZodBoolean;
+                staleVoice: z.ZodOptional<z.ZodString>;
+                voice: z.ZodString;
+                voiceSource: z.ZodEnum<{
+                    default: "default";
+                    persona: "persona";
+                }>;
+            }, z.core.$loose>>;
+            selected: z.ZodString;
+            selectedInvalid: z.ZodBoolean;
+            selectedMissing: z.ZodBoolean;
+        }, z.core.$loose>;
+        type: z.ZodLiteral<"live_persona">;
+    }, z.core.$loose>, z.ZodObject<{
         conversationId: z.ZodString;
         epoch: z.ZodNumber;
         message: z.ZodOptional<z.ZodString>;
@@ -25950,6 +26442,49 @@ signatures (every public export and the types it is made of)
     export function validateVersionMinimum(value: unknown, owner: string, identity: string): string;
   visibleToolName (packages/ui-sdk/src/tool-contracts/contract.ts)
     export function visibleToolName(name: string, adapter: ToolAdapter): string;
+  voiceSettingsResponseSchema (packages/ui-sdk/src/schemas.ts)
+    const voiceSettingsResponseSchema: z.ZodObject<{
+        livePersona: z.ZodObject<{
+            persona: z.ZodObject<{
+                builtIn: z.ZodOptional<z.ZodLiteral<true>>;
+                id: z.ZodString;
+                instructionBytes: z.ZodNumber;
+                invalid: z.ZodOptional<z.ZodEnum<{
+                    encoding: "encoding";
+                    front_matter: "front_matter";
+                    name: "name";
+                    over_count: "over_count";
+                    schema: "schema";
+                    too_long: "too_long";
+                    voices: "voices";
+                }>>;
+                name: z.ZodString;
+                revision: z.ZodString;
+                voices: z.ZodRecord<z.ZodString, z.ZodString>;
+            }, z.core.$loose>;
+            personaRef: z.ZodObject<{
+                id: z.ZodString;
+                revision: z.ZodString;
+            }, z.core.$strip>;
+            providers: z.ZodRecord<z.ZodString, z.ZodObject<{
+                maxInstructionBytes: z.ZodNumber;
+                overLimit: z.ZodBoolean;
+                staleVoice: z.ZodOptional<z.ZodString>;
+                voice: z.ZodString;
+                voiceSource: z.ZodEnum<{
+                    default: "default";
+                    persona: "persona";
+                }>;
+            }, z.core.$loose>>;
+            selected: z.ZodString;
+            selectedInvalid: z.ZodBoolean;
+            selectedMissing: z.ZodBoolean;
+        }, z.core.$loose>;
+        persona: z.ZodObject<{
+            revision: z.ZodNumber;
+            value: z.ZodString;
+        }, z.core.$strip>;
+    }, z.core.$loose>;
   webToolProviders (packages/ui-sdk/src/tool-contracts/web.ts)
     export function webToolProviders(input: Record<string, unknown>): readonly string[];
   wrapCommand (packages/ui-sdk/src/server/exec-wrapper.ts)

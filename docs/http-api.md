@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion and individual safety-review routes mounted by `createApp`: 179 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery and live-persona routes mounted by `createApp`: 187 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -179,11 +179,19 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/status/safety-recording/recover` | S | Owner fallback: clear a latched safety recorder whose producers have stopped | Owner tooling when automatic recovery cannot run; additive #3810 ([contract](integration-contract/http.md#safety-recording-status-additive-3810)). Refuses with 409 `producers_open`, changing nothing, while any safety producer is open. |
 | POST | `/api/status/worker-host` | S | Re-run the agent worker host probe and return what it recorded | React "Check again" and independent monitoring; additive #1632 ([contract](integration-contract/http.md#worker-host-status-additive-1632)). Admits no turn. |
 | POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
+| GET | `/api/voice/personas` | S | List live-conversation personas, Standard first, without instruction text | Human owner/ambient only; others get an empty 403. |
+| POST | `/api/voice/personas` | S | Create a persona file under `_voice/personas` | Human owner/ambient only; 409 `PERSONA_EXISTS`/`PERSONA_LIMIT`. |
+| GET | `/api/voice/personas/:id` | S | Read one persona with its plain-text instructions | Human owner/ambient only. |
+| PUT | `/api/voice/personas/:id` | S | Replace a persona at its current revision | Human owner/ambient only; stale writes return 409 `PERSONA_CHANGED` with `current`. |
+| DELETE | `/api/voice/personas/:id` | S | Delete a persona at its current revision | Human owner/ambient only; a selected persona's selection becomes Standard first. |
+| GET | `/api/settings/voice` | S | Read the live persona selection and its resolved status | Human owner/ambient only; independent of dictation settings. |
+| PUT | `/api/settings/voice` | S | Save the live persona selection at its revision | Human owner/ambient only; stale writes return 409 `LIVE_PERSONA_CHANGED`. |
 | GET | `/api/voice/providers` | S | Read registered dictation providers and effective selection; never mint | Authenticated discovery, no-store. |
 | GET | `/api/voice/dictation/settings` | S | Read brain-wide dictation choice, SMART mode and revision | Independent of live conversation settings. |
 | PUT | `/api/voice/dictation/settings` | S | Save dictation choice with If-Match revision | Human owner/ambient only; stale writes never overwrite. |
@@ -212,7 +220,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 179 declared endpoints are mounted regardless of backend, renderer or
+All 187 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -393,6 +401,11 @@ re-records the mode it probed. It never admits or refuses a turn: each turn
 runs its own probe. **POST /api/status/worker-host** is protected, accepts no
 body, re-runs the boot's probes and returns the same `workerHost` object
 ([contract](integration-contract/http.md#worker-host-status-additive-1632)).
+For the owner only, `safetyRecording` reports the brain-wide safety recorder
+(#3810): `{ latched, since, reason, cause, retained, lastRecovery }`. A latch
+is normally cleared by the host itself (#3812); **POST
+/api/status/safety-recording/recover** is the owner's fallback
+([contract](integration-contract/http.md#safety-recording-status-additive-3810)).
 While the server runs as uid 0, `workerHost` also carries
 `rootServer: { warning }` (#1638): the boot log's warning that its workers can
 read root-owned files and connect to root-owned and abstract Unix sockets.
@@ -1422,6 +1435,66 @@ regardless of current defaults. It snapshots identity/capabilities for the respo
 saved switch (initially true). A failed exact mint returns generic 500
 `{ error: "Voice session failed" }` without provider diagnostics or credentials.
 Bodyless legacy requests retain their previous response/error shape.
+
+## Live-conversation personas
+
+Personas are Markdown files at `_voice/personas/<id>.md` in the brain, where
+`id` matches `[a-z0-9-]{1,48}` and never changes:
+
+```md
+---
+schema: 1
+name: "Ithaca steward"
+voices:
+  gemini-live: "Kore"
+  gpt-live: "marin"
+---
+Calm, brief, plain words. Speak like a ship's steward reporting to Odysseus.
+```
+
+`name` is 1–40 characters after trimming, without control characters. `voices`
+maps a live service id to that service's voice id; a missing key means the
+service default, and keys for services this host does not register are kept.
+The body is the instructions: plain text, line endings normalized to LF and
+trimmed, at most 6,000 UTF-8 bytes. A file over that, with unreadable front
+matter or with `schema` other than 1 is listed with `invalid` and cannot be
+selected; so are usable files beyond the 20th by name. Standard is built in,
+read-only and has no file. Core excludes `_voice` from the content index, so
+persona text never reaches search or agent context.
+
+Every route is `no-store` and needs a human session of the brain (owner or
+ambient); others receive `403` with an empty body.
+
+- `GET /api/voice/personas` returns `{ personas: LivePersonaSummary[] }`:
+  Standard first, then by name. Summaries carry `id`, `name`, `voices`,
+  `instructionBytes`, `revision` (sha-256 hex of the file), and `builtIn` or
+  `invalid` when they apply, never the instructions.
+- `GET /api/voice/personas/:id` returns `LivePersona` (the summary plus
+  `instructions`) or 404 `PERSONA_NOT_FOUND`.
+- `POST /api/voice/personas` takes `{ id?, name, voices, instructions }`. Without
+  `id` one is derived from `name`. It returns 201 with the persona, 400
+  `PERSONA_INVALID` with a `reason`, 409 `PERSONA_EXISTS` or 409 `PERSONA_LIMIT`.
+  A new persona is not selected.
+- `PUT /api/voice/personas/:id` takes `{ baseRevision, name, voices,
+  instructions }` and replaces the file atomically. A revision mismatch returns
+  409 `{ error: "PERSONA_CHANGED", current }`; Standard returns 409
+  `PERSONA_READ_ONLY`.
+- `DELETE /api/voice/personas/:id?baseRevision=<revision>` returns 204. When the
+  persona is selected, the selection is saved as Standard first and the file is
+  deleted only after that write succeeds.
+- `GET /api/settings/voice` returns `{ persona: { value, revision },
+  livePersona: LivePersonaStatus }`. `PUT` takes `{ persona: { value, revision } }`;
+  a missing or invalid persona returns 400, a stale revision 409
+  `{ error: "LIVE_PERSONA_CHANGED", persona, livePersona }`. The selection is the
+  `voice.live.persona` server setting with its own revision; a corrupt row reads
+  as Standard at revision 0.
+
+Writes go through the brain's files with an atomic replace, inside a
+directory chain opened without following links; storage that is unavailable or
+redirected returns 503 `PERSONA_STORAGE`. An edit made directly to a file is
+equally valid and applies from the next Start. Nothing here opens a provider,
+the microphone or a running conversation, which keeps the persona frozen at its
+Start ([wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617)).
 
 ## Saved-audio transcription
 

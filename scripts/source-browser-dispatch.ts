@@ -13,7 +13,10 @@ const helperConsumers:Record<string,string>={
   // driver before demux; this consumer still imports only runStateForFrame.
   // Re-audited when #1362 moved inbound routing out of connection.ts: only
   // runStateForFrame is imported; it never acquires or mutates chatFrameHandlers.
-  "packages/ui-react/src/ws-client/inbound.ts":"b9a95fc0d8bcb82723fd93aa17faa492702dc4bbc747abb4a11d02f41c99e7c5",
+  // Re-audited for #3812: inbound.ts gained refusalReason from lib/turn-failure.ts,
+  // which imports only protocol types and constants; still only runStateForFrame
+  // from the chat handlers.
+  "packages/ui-react/src/ws-client/inbound.ts":"513ef019608371d41da3d15c3f48fdc2a8bcbb49882975b6f8099e2cd0a2d64c",
   "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 // Re-audited for #3155: chat.ts only gained `attachmentFiles` in its history
@@ -48,10 +51,12 @@ const declarations=[
       // Re-audited for #3589: the added attachment_read handler is a no-op
       // that reads no runtime input, like chat_retired. Re-audited for #3155:
       // only its comment changed; the reads client takes the frame instead.
+      // Re-audited for #3617: the added live_persona handler is a no-op that
+      // reads no runtime input; the conversation client takes the frame.
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "c3a9fa4ce4132cf1d659ee6e59087c82cc980d468e377addae5bbdc0fcadd244"
+        "source": "88e8c435eaac137d61ae2c7c658184ac4738dfd73c3968072a3590ed3e2182d9"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

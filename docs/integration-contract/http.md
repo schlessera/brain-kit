@@ -296,6 +296,40 @@ recorded setup step there. The probe's own requirement is unchanged
 ([additive, #3664](../integration-contract.md#setup-timeouts-name-their-step-additive-0450-3664)).
 Clients must tolerate either mode being absent.
 
+<a id="safety-recording-status-additive-3810"></a>
+
+### Safety recording status and owner recovery (additive, #3810, #3812)
+
+For an owner principal, authenticated `GET /api/status` gains optional
+`safetyRecording`: `{ latched, since, reason, cause, retained, lastRecovery }`.
+`latched` is true while the brain-wide safety recorder is failed. `since` is
+the Unix-millisecond time of the first latch; `reason` is `recording_failed`
+or `capacity`, and `capacity` only when a capacity check refused the write.
+`cause` is the first latch's `{ reason, site, turnId, errorClass, message,
+stack, since, count, durable }`: identifiers and error text only, never
+message content; later latches only increase `count`. `retained` is true when
+only this process holds the loss because its durable notice could not commit;
+`cause` is then the cause this process holds, with `durable: false`.
+`lastRecovery` is the latest `{ trigger, actor, at, gapped, cause }`, where
+`trigger` is `boot`, `automatic` or `owner`. Other principals never receive
+the field.
+
+A brain-wide latch is the exception, not the rule. A failure before delivery
+refuses its one turn; lost evidence after delivery restricts its chat with a
+permanent gap; only an evidence store that cannot take a scoped fact latches
+the brain. While latched, new turns run under their tainted policy with a
+permanent pre-delivery gap, and the host clears the latch by itself once the
+gap facts are durable and every producer that predates it has ended, failed or
+not
+([proportionate containment](../decisions/proportionate-containment.md)).
+
+Owner-only `POST /api/status/safety-recording/recover` takes a JSON body
+(ignored), runs the same recovery and answers 200 with `{ recovery,
+safetyRecording }`. It refuses with 409 `{ code: "producers_open", message,
+retryable: true }`, changing nothing, while any safety producer or collection
+is open. Each recovery is recorded with its trigger, actor, time and the cause
+it cleared. Affected chats keep their gaps.
+
 <a id="root-server-warning-additive-1638"></a>
 
 ### Root server warning (additive, #1638)
@@ -1133,6 +1167,18 @@ headers preserve effective-provider resolution. Retry provider changes return
 409 `transcription_provider_mismatch` with the receipt. Settings revisions,
 error codes, response schemas and operation binding are supported HTTP promises.
 
+
+### Live-conversation personas (additive, 0.45.0, #3617)
+
+The [persona routes](../http-api.md#live-conversation-personas) read and write
+`_voice/personas/<id>.md` and the selection. Every route requires a human
+session of the brain (an owner, or an ambient-auth account); delegated agent,
+worker and system principals receive `403` with an empty body. Writes replace
+the file atomically inside the brain and never follow a link out of
+`_voice/personas`. Revisions are the sha-256 of the file bytes; `PUT` and
+`DELETE` must name the current one or receive `409 PERSONA_CHANGED`. Error
+bodies are fixed codes, never persona text. Route paths, request and response
+schemas, revision semantics and error codes are supported HTTP promises.
 
 ### Checkpoint cleanup diagnostics (additive, #3815)
 

@@ -139,10 +139,18 @@ row's real mounting check. They do not establish mounting by themselves.
 | `POST /api/schedules/proposals/:id/approve` | `mounted supported handler: POST /api/schedules/proposals/:id/approve` | K |
 | `POST /api/share` | `mounted supported handler: POST /api/share` | J, Q |
 | `GET /api/status` | `mounted supported handler: GET /api/status` | T |
+| `POST /api/status/safety-recording/recover` | `mounted supported handler: POST /api/status/safety-recording/recover` | T |
 | `POST /api/status/worker-host` | `mounted supported handler: POST /api/status/worker-host` | T |
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
 | `GET /api/voice/overrides` | `mounted supported handler: GET /api/voice/overrides` | N |
 | `GET /api/voice/providers` | `mounted supported handler: GET /api/voice/providers` | R |
+| `GET /api/voice/personas` | `mounted supported handler: GET /api/voice/personas` | VP |
+| `POST /api/voice/personas` | `mounted supported handler: POST /api/voice/personas` | VP |
+| `GET /api/voice/personas/:id` | `mounted supported handler: GET /api/voice/personas/:id` | VP |
+| `PUT /api/voice/personas/:id` | `mounted supported handler: PUT /api/voice/personas/:id` | VP |
+| `DELETE /api/voice/personas/:id` | `mounted supported handler: DELETE /api/voice/personas/:id` | VP |
+| `GET /api/settings/voice` | `mounted supported handler: GET /api/settings/voice` | VP |
+| `PUT /api/settings/voice` | `mounted supported handler: PUT /api/settings/voice` | VP |
 | `GET /api/voice/dictation/settings` | `mounted supported handler: GET /api/voice/dictation/settings` | R |
 | `PUT /api/voice/dictation/settings` | `mounted supported handler: PUT /api/voice/dictation/settings` | R |
 | `GET /api/voice/capabilities` | `mounted supported handler: GET /api/voice/capabilities` | R |
@@ -198,6 +206,7 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 - `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:66-83`)
 - `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:160-176`)
 - `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:178-187`)
+- `the status route shows the recorder to the owner only, and recovery requires the owner` ([source](../packages/ui-server/tests/safety-containment.test.ts)), (`the status route shows the recorder to the owner only, and recovery requires the owner`, `packages/ui-server/tests/safety-containment.test.ts:275-290`)
 - `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:214-231`)
 
 **A — Password access and revocation.**
@@ -511,6 +520,8 @@ no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
 
 **R** — [selectable-dictation.test.ts](../packages/ui-server/tests/selectable-dictation.test.ts) covers exact provider selection, settings revisions/authority and held mint/upload binding; [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+
+**VP — Live-conversation personas.** [live-personas.test.ts](../packages/ui-server/tests/live-personas.test.ts) covers the file codec, the empty 403 for agent, system and anonymous callers, revision conflicts, creation limits, the selection key and its delete ordering, Start resolution and a linked persona directory; [live-persona-host.test.ts](../packages/ui-server/tests/live-persona-host.test.ts) covers hello, the `live_persona` push and the frozen Start through the real socket handlers.
 
 **RV — User history restoration.** `turn-revert.test.ts` exercises raw restoration,
 Undo, partial conflicts, operation identity, authorization, original voice and

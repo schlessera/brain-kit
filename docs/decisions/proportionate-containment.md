@@ -12,10 +12,10 @@ Ruled by the maintainer on 2026-11-09 (#3812). Tracked under #3813.
 A hosted instance refused every turn in every chat. One turn's safety-recording
 write had failed, and the guard reacted by setting one durable flag for the
 whole brain (`latchSafety`,
-`packages/ui-server/src/governance/safety-store.ts:37-44`). From then on, turn
+`packages/ui-server/src/governance/safety-store.ts:115-125`). From then on, turn
 admission threw for every chat, including new chats that had never seen
 untrusted input (`beginSafetyCollection`,
-`packages/ui-server/src/governance/safety-store.ts:70-76`). The error that
+`packages/ui-server/src/governance/safety-store.ts:193-202`). The error that
 set the flag was recorded as "capacity" while the store was at a fraction of a
 percent of its limits, and its real cause was never stored. The only way back
 was to stop the server and run `recoverSafetyRecording` from a script, a
