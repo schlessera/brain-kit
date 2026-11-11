@@ -75,12 +75,12 @@ export function DictationCapture({ onFinish, onCancel }: { onFinish: () => void;
   return (
     <div ref={ref} className="mb-0" data-dictation-field={form}>
       {form === "D2" ? (
-        <VoiceNotice tone="you" icon="mic" title="Allow the microphone" body="Your browser is asking. You only need to do this once." actions={[{ label: "Cancel", onClick: onCancel }]} />
+        <VoiceNotice tone="you" icon="mic" live="polite" title="Allow the microphone" body="Your browser is asking. You only need to do this once." actions={[{ label: "Cancel", onClick: onCancel }]} />
       ) : form === "Dc" ? (
         <VoiceField
           shape="compact"
           tone="idle"
-          label={{ icon: "loading", word: "Connecting", meta, spin: true }}
+          label={{ icon: "loading", word: "Connecting", meta, spin: true, live: "polite" }}
           meter="none"
           trailing={<VoiceControlButton name="Cancel dictation" icon="dismiss" onClick={onCancel} />}
         >
@@ -90,7 +90,7 @@ export function DictationCapture({ onFinish, onCancel }: { onFinish: () => void;
         <VoiceField
           shape="compact"
           tone="you"
-          label={{ icon: "mic", word: form === "D5" ? "Finishing" : "Listening", meta }}
+          label={{ icon: "mic", word: form === "D5" ? "Finishing" : "Listening", meta, live: "polite" }}
           meter={form === "D5" ? "sweep" : form === "D4" ? "flat" : "level"}
           level={form === "D3" ? level : undefined}
           trailing={finish(form === "D5")}
@@ -171,9 +171,9 @@ export function DictationNotices({ onConfirm, onCancel, onOpenSettings, onRetry,
     return (
       <div ref={ref} className="mb-2" data-dictation-notice={shown.kind === "blocked" ? "D7" : "D8"}>
         {shown.kind === "blocked" ? (
-          <VoiceNotice tone="fail" icon="attention" live="polite" title={shown.title} body={shown.body} actions={[{ label: "OK", onClick: onDismiss }]} />
+          <VoiceNotice tone="fail" icon="attention" live="assertive" title={shown.title} body={shown.body} actions={[{ label: "OK", onClick: onDismiss }]} />
         ) : (
-          <VoiceNotice tone="idle" icon="retry" live="polite" title={shown.title} body={shown.body}
+          <VoiceNotice tone="idle" icon="retry" live="assertive" title={shown.title} body={shown.body}
             actions={[{ label: "Dismiss", onClick: onDismiss }, { label: "Try again", tone: "you", onClick: onRetry }]} />
         )}
       </div>
