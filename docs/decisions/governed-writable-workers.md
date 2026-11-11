@@ -3716,7 +3716,8 @@ end-of-turn cleanup that the awaited close above could not confirm.
 - **The turn still fails.** The refusal is the turn's, as before; the
   reconciler only takes ownership of the retryable close and the reservation.
 - **Capped backoff without giving up (revised by #3815).** Both backends
-  retain a retry owner, including Pi initialization failures. After the
+  retain a retry owner, including Pi initialization and post-launch callback
+  failures. After the
   foreground retry count, the owner continues at the capped delay. Activity
   records the cause, charged allowances and later confirmation.
 - **Release once, only on confirmation.** The reservation is released exactly
@@ -3729,8 +3730,13 @@ end-of-turn cleanup that the awaited close above could not confirm.
 The owner is the reconciler
 (`export function createCleanupReconciler`, `packages/ui-sdk/src/server/cleanup-reconciler.ts:75-148`), and the turn
 hands its refusal over where it awaits the close
-(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:273-284`). Pi supervision now uses the same owner; launch failures before a handle is
-returned remain the launcher's responsibility.
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:282-293`).
+Pi supervision and post-launch callback failures use the same owner. A failed
+SDK launch whose cleanup is unconfirmed exposes its original retryable close
+to the backend, which transfers it and the reservation to this reconciler
+(#3489). Required native stage and checkpoint cleanup must also confirm before
+that failed launch's reservation is released. No separate launcher retry loop
+or accounting owner is introduced.
 
 ### Turn completion includes worker teardown — 2026-10-25
 

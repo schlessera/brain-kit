@@ -185,3 +185,61 @@ for (const setgidDirectory of [false, true]) test(`no-helper production publishe
     finally { if (previousHelper === undefined) delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER; else process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = previousHelper; f.cleanup(); }
   }
 });
+
+test("a refused final checkpoint close retries its identity without reopening admission", async () => {
+  const f = fixture(), release = f.manager.release;
+  let calls = 0;
+  const gate = Promise.withResolvers<void>();
+  f.manager.release = async (...args) => {
+    calls++;
+    if (calls === 1) throw new Error("checkpoint deletion unconfirmed");
+    await gate.promise; return release(...args);
+  };
+  try {
+    const view = await prepareNativeWorkerStartupView(f.brain, f.manager);
+    await expect(view.cleanup()).rejects.toThrow("checkpoint deletion unconfirmed");
+    expect(() => retainWorkerStartupView(view), "REFUSED_DELETION_CANNOT_REOPEN_VIEW").toThrow("closed");
+    const first = view.cleanup(), second = view.cleanup();
+    expect(first, "CHECKPOINT_CLOSE_COALESCES").toBe(second);
+    gate.resolve(); await expect(first, "CHECKPOINT_DELETE_RETRIES_AFTER_REFUSAL").resolves.toBeUndefined();
+    expect(calls, "CHECKPOINT_DELETE_RETRIES").toBe(2);
+    await view.cleanup(); expect(calls).toBe(2); expect(f.releases).toHaveLength(1);
+  } finally { gate.resolve(); f.cleanup(); }
+});
+
+test("a refused native stage deletion retries before releasing its checkpoint or charge", async () => {
+  const f = fixture(), baseline = processStateLedger().outputStagingHeld;
+  let stagePath = "", deletes = 0;
+  const manager = { ...f.manager,
+    async prepareStage(id: string, checkpointId: string, allowanceBytes: number) {
+      stagePath = join(f.brain, "..", ".brain-native", "stages", id);
+      fs.mkdirSync(join(stagePath, "merged"), { recursive: true });
+      const root = fs.lstatSync(stagePath, { bigint: true });
+      const start = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
+      return { id, checkpointId, checkpointUuid: "00000000000000000000000000000002", sourceUuid: "0123456789abcdef0123456789abcdef",
+        path: stagePath, namespacePid: process.pid, namespaceStart: start, appUid: process.getuid!(), appGid: process.getgid!(),
+        allowanceBytes, rootDevice: String(root.dev), rootInode: String(root.ino) };
+    },
+    async inspectStage(): Promise<never> { throw new Error("publication must stay closed"); },
+    async releaseStage(id: string) {
+      if (++deletes === 1) throw new Error("stage deletion unconfirmed");
+      fs.rmSync(stagePath, { recursive: true, force: true }); return { id, state: "deleted" as const };
+    },
+  };
+  const view = await prepareNativeWorkerStartupView(f.brain, manager);
+  let output: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
+  try {
+    output = await prepareNativeWorkerOutput(f.brain, { startupView: view });
+    await view.cleanup(); // The output now holds the last checkpoint reference.
+    await expect(output.cleanup()).rejects.toThrow("stage deletion unconfirmed");
+    expect(processStateLedger().outputStagingHeld, "REFUSED_NATIVE_DELETION_RETAINS_CHARGE").toBeGreaterThan(baseline);
+    expect(f.releases, "REFUSED_STAGE_RETAINS_CHECKPOINT").toHaveLength(0);
+    expect(() => output!.output.storage.retain()).toThrow("closed");
+    await expect(output.publish()).rejects.toThrow("closed");
+    await expect(Promise.all([output.cleanup(), output.cleanup()]), "NATIVE_STAGE_REFUSED_DELETE_CAN_RETRY").resolves.toEqual([undefined, undefined]);
+    expect(deletes, "NATIVE_STAGE_CLEANUP_RETRIES_AFTER_REFUSAL").toBe(2);
+    expect(processStateLedger().outputStagingHeld).toBe(baseline);
+    expect(f.releases).toHaveLength(1);
+    await output.cleanup(); expect(deletes).toBe(2);
+  } finally { await output?.cleanup().catch(() => {}); await view.cleanup(); f.cleanup(); }
+});
