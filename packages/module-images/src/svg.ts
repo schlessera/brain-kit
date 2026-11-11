@@ -32,7 +32,7 @@ const ACTIVE: [RegExp, string][] = [
 
 /** Why `text` is not a static SVG, or `undefined` when it is one. */
 export function staticSvgProblem(text: string): string | undefined {
-  const start = text.replace(/^﻿/, "").trimStart().replace(/^<\?xml[^>]*\?>\s*/i, "");
+  const start = text.replace(/^\uFEFF/, "").trimStart().replace(/^<\?xml[^>]*\?>\s*/i, "");
   if (!/^<\s*svg[\s>]/i.test(start)) return "it is not an SVG document";
   for (const [pattern, what] of ACTIVE) {
     if (pattern.test(text)) return `it contains ${what}`;
