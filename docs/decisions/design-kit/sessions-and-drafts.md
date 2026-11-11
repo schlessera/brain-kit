@@ -490,6 +490,12 @@ kinds keep #910's rules and state footer, with no second indicator.
 >   or made by leaving the session in view announces nothing then. Work that
 >   starts in a session nobody is watching announces its first settled view.
 >   Changes that arrive together are each announced.
+>   *(2026-11-11, #3973; also #3414.)* Once a tracker has a baseline,
+>   unavailable and unknown recovery observations do not replace it. Reading
+>   the same completion, failure or pending interaction again says nothing.
+>   A first settled view of `can't check` still establishes a baseline, so
+>   what the next successful read learns can announce. Work that moves on
+>   during a gap and new unwatched work keep their announcements.
 > - Opening a tracker moves focus once the session's replayed history is
 >   complete (a chunk has come and none has followed it for 150ms) and, for
 >   `needs you`, its card is drawn: 5 seconds at most, then with what is
