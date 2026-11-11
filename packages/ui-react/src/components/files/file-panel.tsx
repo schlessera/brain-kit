@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button, Overlay, TextButton, Label, Receipt, ScreenHeader } from "@schlessera/brain-ui-kit";
 import type { ReceiptRow } from "@schlessera/brain-ui-kit";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -189,7 +189,8 @@ function MarksTreeArea({ tree, onListShown }: { tree: ReactNode; onListShown?: (
   const [list, setList] = useState(false);
   const [note, setNote] = useState(false);
   const entry = useRef<HTMLButtonElement>(null);
-  useEffect(() => { onListShown?.(list); }, [list, onListShown]);
+  // A layout effect: the hint must leave in the same paint the list arrives in.
+  useLayoutEffect(() => { onListShown?.(list); }, [list, onListShown]);
   const back = (withNote: boolean) => { setList(false); setNote(withNote); requestAnimationFrame(() => entry.current?.focus({ preventScroll: true })); };
   if (list) return <div className="min-h-0 flex-1 overflow-y-auto"><MarkedUntrustedList onAllFiles={() => back(false)} onFind={() => back(true)} /></div>;
   return (
