@@ -95,7 +95,8 @@ describe("ordinary pi isolated worker", () => {
     expect(r.web.receipts.filter((receipt: any) => receipt.kind === "executor").map((receipt: any) => receipt.exit), "PI_HOST_WEB_EXECUTOR_EXIT")
       .toMatchObject([{ reason: "closed", exited: true, cleaned: true }]);
     expect(r.web.executorEntriesAfterClose, "PI_HOST_WEB_STATE_REMOVED").toEqual([]);
-    expect(r.parentStateUnchanged).toBe(true);
+    // This scenario's parent agent dir holds only what the fixture itself wrote; the executor adds nothing there.
+    expect(r.web.parentAgentEntries, "PI_HOST_WEB_PARENT_AGENT_DIR_UNTOUCHED").toEqual(["auth.json", "models.json", "settings.json"]);
     expect(r.running).toEqual([]);
     policyUnchanged(r);
   });

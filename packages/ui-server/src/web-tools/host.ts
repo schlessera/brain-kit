@@ -18,7 +18,7 @@ import { webSearchBrief } from "@schlessera/brain-ui-sdk/internal";
 import { createWebBroker, type WebBroker, type WebBrokerLimits, type WebReceipt } from "./broker.js";
 import { createChildWebExecutor } from "./child-executor.js";
 
-/** What ui-server uses of `@schlessera/brain-backend-pi/internal`. */
+/** What ui-server uses of the pi backend's internal entry, mirrored structurally. */
 export interface PiWebExecutorModule {
   prepareWebExecutorState(options: { root: string; hostConfigPath: string; credentialEnv: Readonly<Record<string, string | undefined>>; path: string }):
     { dir: string; env: Record<string, string>; removed: string[]; cleanup(): void };

@@ -153,6 +153,7 @@ import {
   probeBackendRuntimes,
   createBackendRegistry,
   validateBackendVersionRequirements,
+  loadBackendInternal,
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion, requeueWhenBusy } from "./brain/client.js";
@@ -796,7 +797,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (piUsable && options.webTools !== false) {
     const webLog = observability.logger("web");
     try {
-      const module = (await import("@schlessera/brain-backend-pi/internal")) as unknown as import("./web-tools/host.js").PiWebExecutorModule;
+      const module = (await loadBackendInternal("pi")) as import("./web-tools/host.js").PiWebExecutorModule;
       const webEnv = resolveWebSearchEnv();
       webTools = createHostWebTools({ module, root: webExecutorRoot, hostConfigPath: () => resolveWebSearchConfigPath(webEnv), env: webEnv,
         runtime: process.execPath, path: subprocessEnv("brainCli").PATH ?? "/usr/bin:/bin",

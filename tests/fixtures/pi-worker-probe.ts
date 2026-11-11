@@ -354,7 +354,8 @@ try {
   if (webBroker) {
     await webBroker.close();
     web = { receipts: webReceipts, providerKeys: webProviderKeys, sentinel: webSentinel, hostConfigUnchanged: readFileSync(webHostConfig, "utf8") === webHostBytes,
-      executorEntriesAfterClose: existsSync(webExecutorRoot) ? readdirSync(webExecutorRoot) : null };
+      executorEntriesAfterClose: existsSync(webExecutorRoot) ? readdirSync(webExecutorRoot) : null,
+      parentAgentEntries: readdirSync(agentDir, { recursive: true }).map(String).sort() };
   }
   console.log(JSON.stringify({ web, frames, calls, firstTools, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
     parentStateUnchanged: JSON.stringify(parentState) === JSON.stringify(parentBytes()),
