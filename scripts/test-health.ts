@@ -19,7 +19,7 @@
  *   mutate --test file --expect text (--patch file | --from-worktree path...)
  *          [--name case] [--out file]        exit 0 only when the mutant is killed
  *   validate <worksheet> [--run id]          check a worksheet and its evidence
- *   record cluster --run id --cluster n --worksheet file [--commit sha]
+ *   record cluster --run id --cluster n --worksheet file [--commit sha] [--wip patch]
  *   record run --run id --outcome o [--agent label] [--note text]
  *   record batch --batch id --event e [--pr n] [--commit sha] [--merge-sha sha] [--reason text]
  *   batch status                             open batches, ripeness and the landing slot
@@ -38,11 +38,11 @@
  * of JSON holding what the next step needs, with the detail in the file the
  * command wrote. --full prints everything, --pretty indents it.
  */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { declaredFor, reportsCases, runtimeAccounting, staticAccounting, type CaseSummary, type FileAccounting } from "./test-health/accounting";
-import { branchFor, batchIdFor, landingSlots, openBatch, parkedChangedFiles, ripeness, trailerFor, verifyBatch } from "./test-health/batch";
+import { allowedInBatch, branchFor, batchIdFor, landingSlots, openBatch, parkedChangedFiles, ripeness, trailerFor, verifyBatch } from "./test-health/batch";
 import { LENS_IDS } from "./test-health/catalog";
 import { loadConfig, type Config } from "./test-health/config";
 import { doctor } from "./test-health/doctor";
@@ -50,13 +50,13 @@ import { blobsOf, cachedInventory, type Discover, type Inventory, type Row } fro
 import { fetchIssues, fetchOpenPrFiles, mapIssues, type Issue } from "./test-health/issues";
 import { parseJunit, parseProofCases, type CaseResult } from "./test-health/junit";
 import { DirLedgerStore, GitLedgerStore, landedOrPending, ledgerState, type AuditedFile, type BatchEvent,
-  type LedgerRecord, type LedgerState, type LedgerStore, type RunRecord } from "./test-health/ledger";
+  type LedgerRecord, type LedgerState, type LedgerStore, type RunRecord, type WipPatch } from "./test-health/ledger";
 import { measure } from "./test-health/measure";
 import { mutate, worktreePatch } from "./test-health/mutate";
 import { buildAffinity, buildImportIndex, type Affinity } from "./test-health/neighbours";
 import { buildMetrics, buildSnapshot, renderReport } from "./test-health/report";
 import { bunRunner, DEFAULT_BUN_COMMAND, visualRunner, type TestRunner } from "./test-health/runner";
-import { makeShards, planRun, rank, remainingIn, type Cluster, type IssueRef, type Mode, type Shard } from "./test-health/select";
+import { groupsOf, makeShards, planRun, rank, remainingIn, resolveGroup, type Cluster, type IssueRef, type Mode, type Shard } from "./test-health/select";
 import { countSignals, scanFiles, scanSource, signalWeight, type FileSignals } from "./test-health/signals";
 import { resolveWorksheet, validateWorksheet, type DraftWorksheet } from "./test-health/worksheet";
 
@@ -70,6 +70,8 @@ export interface Io {
   issues?: () => Issue[];
   openPrFiles?: () => Set<string>;
   runId?: () => string;
+  /** Configuration values pinned over the profile, below command-line flags: a test's fixture sets its own thresholds. */
+  config?: Record<string, unknown>;
 }
 
 const BOOLEAN = new Set(["rows", "dry-run", "json", "shuffle", "together", "stress", "publish", "offline", "summary", "bun-only", "help", "net-only", "full", "pretty"]);
@@ -109,7 +111,7 @@ const offline = (session: Session): boolean => session.flags.has("offline");
 
 function openSession(io: Io, flags: Map<string, string | true>): Session {
   const text = (name: string) => { const value = flags.get(name); return typeof value === "string" ? value : undefined; };
-  const overrides: Record<string, unknown> = {};
+  const overrides: Record<string, unknown> = { ...io.config };
   if (text("base")) overrides.base = text("base");
   if (text("budget-files")) overrides.budgetFiles = Number(text("budget-files"));
   if (flags.has("bun-only")) overrides.tiers = BUN_TIERS;
@@ -139,7 +141,10 @@ const newRunId = (now: Date): string => `th-${now.toISOString().replace(/[-:T]/g
 const runDir = (session: Session, runId: string): string => join(session.stateDir, "runs", runId);
 
 interface SavedPlan {
-  runId: string; startedAt: string; profile: string; base: string; mode: Mode; package: string | null;
+  runId: string; startedAt: string; profile: string; base: string; mode: Mode;
+  /** Absent in a plan saved before groups; read it as `package`. */
+  group?: string | null;
+  package: string | null;
   batch: { id: string; branch: string; base: string; isNew: boolean } | null;
   clusters: Cluster[]; rows: Record<string, Row>; issues: Record<string, IssueRef[]>;
 }
@@ -161,24 +166,29 @@ async function commandPlan(session: Session): Promise<unknown> {
   const now = io.now();
   const runId = (io.runId ?? (() => newRunId(now)))();
   const shardFile = flag(session, "shard");
-  const shard = shardFile ? JSON.parse(readFileSync(shardFile, "utf8")) as Shard : null;
+  // A shard written before groups names its package, which is also its group.
+  const shard = shardFile ? JSON.parse(readFileSync(shardFile, "utf8")) as Shard & { package?: string } : null;
   const batchFlag = flag(session, "batch") ?? shard?.id;
   const named = batchFlag ? world.state.batches.get(batchFlag) : undefined;
   if (named && named.status !== "open") throw new Error(`Batch ${batchFlag} is already ${named.status}`);
-  const wanted = flag(session, "package") ?? shard?.package;
-  const continuing = named ?? (batchFlag ? undefined : openBatch(world.state, config.profile.base, wanted));
-  const plan = planRun({ ...planInput(session, world, runId), mode: flag(session, "mode") as Mode | undefined, package: wanted,
-    preferPackage: continuing?.package, only: shard ? new Set(shard.files) : undefined, parkedChangedFiles: parkedChangedFiles(world.state) });
+  const groups = groupsOf(world.inventory.rows, config.profile);
+  const wantedPackage = flag(session, "package");
+  // A shard's group is resolved now: --bun-only, or a shard written before groups, may name a package that is small today.
+  const wantedGroup = shard ? resolveGroup(shard.group ?? shard.package ?? "", groups) : wantedPackage ? groups.get(wantedPackage) ?? wantedPackage : undefined;
+  const continuing = named ?? (batchFlag ? undefined : openBatch(world.state, config.profile.base, wantedGroup, groups));
+  const plan = planRun({ ...planInput(session, world, runId), mode: flag(session, "mode") as Mode | undefined, package: wantedPackage,
+    group: shard ? wantedGroup : undefined, preferGroup: continuing?.group, only: shard ? new Set(shard.files) : undefined,
+    parkedChangedFiles: parkedChangedFiles(world.state) });
 
   let batch: SavedPlan["batch"] = null;
-  if (plan.package && plan.clusters.length) {
-    const existing = continuing && continuing.package === plan.package ? continuing : undefined;
-    const id = existing?.batchId ?? batchFlag ?? batchIdFor(plan.package, runId);
+  if (plan.group && plan.clusters.length) {
+    const existing = continuing && resolveGroup(continuing.group, groups) === plan.group ? continuing : undefined;
+    const id = existing?.batchId ?? batchFlag ?? batchIdFor(plan.group, runId);
     batch = { id, branch: existing?.branch ?? branchFor(id), base: existing?.base ?? config.profile.base, isNew: !existing };
   }
   const files = [...new Set(plan.clusters.flatMap(cluster => [...cluster.members, ...cluster.context]))];
   const saved: SavedPlan = { runId, startedAt: now.toISOString(), profile: config.profile.name, base: config.profile.base, mode: plan.mode,
-    package: plan.package, batch, clusters: plan.clusters,
+    group: plan.group, package: plan.package, batch, clusters: plan.clusters,
     rows: Object.fromEntries(world.inventory.rows.filter(row => files.includes(row.file)).map(row => [row.file, row])),
     issues: Object.fromEntries(files.filter(file => world.issues.has(file)).map(file => [file, world.issues.get(file)!])) };
   if (!session.flags.has("dry-run")) {
@@ -191,15 +201,16 @@ async function commandPlan(session: Session): Promise<unknown> {
         expiresAt: new Date(now.getTime() + config.profile.claimHours * 3_600_000).toISOString() });
     }
     if (batch?.isNew) {
-      records.push({ v: 1, type: "batch", event: "opened", at: now.toISOString(), runId, batchId: batch.id, package: plan.package!,
-        branch: batch.branch, base: batch.base, profile: config.profile.name });
+      // `package` repeats a large package's group, so a reader from before groups still sees its batch.
+      records.push({ v: 1, type: "batch", event: "opened", at: now.toISOString(), runId, batchId: batch.id, group: plan.group!,
+        ...(plan.group === plan.package ? { package: plan.package! } : {}), branch: batch.branch, base: batch.base, profile: config.profile.name });
     }
     session.store.append(records);
   }
-  return { runId, runDir: runDir(session, runId), profile: config.profile.name, mode: plan.mode, package: plan.package, batch,
+  return { runId, runDir: runDir(session, runId), profile: config.profile.name, mode: plan.mode, group: plan.group, package: plan.package, batch,
     throttled: plan.throttled, stats: plan.stats,
     // Context files are listed in each cluster's brief, where they are needed.
-    clusters: plan.clusters.map(cluster => ({ index: cluster.index, seed: cluster.seed, members: cluster.members,
+    clusters: plan.clusters.map(cluster => ({ index: cluster.index, package: cluster.package, seed: cluster.seed, members: cluster.members,
       ...(session.flags.has("full") ? { context: cluster.context } : {}) })) };
 }
 
@@ -215,6 +226,19 @@ function commandBrief(session: Session): unknown {
   if (!cluster) throw new Error(`Run ${runId} has no cluster ${flag(session, "cluster")}`);
   const state = ledgerState(session.store.read(), session.io.now());
   const cases = cachedCases(session);
+  const clusterPackage = cluster.package ?? plan.package;
+  // A patch an earlier run prepared and could not prove: copied next to this run so the auditor can apply it.
+  const patches = new Map<string, string>();
+  for (const file of cluster.members) {
+    const stored = state.audits.get(file)?.wip;
+    if (!stored || patches.has(stored)) continue;
+    const text = session.store.readFile(stored);
+    if (text === null) continue;
+    const local = join(runDir(session, runId), "wip", basename(stored));
+    mkdirSync(join(local, ".."), { recursive: true });
+    writeFileSync(local, text);
+    patches.set(stored, local);
+  }
   const present = (file: string) => existsSync(join(session.io.root, file));
   const signals = scanFiles(session.io.root, [...cluster.members, ...cluster.context].filter(present).map(file => ({ file, blob: blobsOf(session.io.root, [file]).get(file)! })));
   const describe = (file: string) => {
@@ -224,19 +248,22 @@ function commandBrief(session: Session): unknown {
     return { file, tier: row?.tier ?? null, package: row?.package ?? null, runner: row?.runner ?? null, projects: row?.projects ?? [],
       costSeconds: row?.costSeconds ?? null, tests: row?.scenarios ?? null, assertions: row?.assertions ?? null,
       lastAudit: audit ? { at: audit.at, lenses: audit.lenses } : null, issues: plan.issues[file] ?? [],
+      deferred: audit?.deferred ?? [], wip: audit?.wip ? { ledger: audit.wip, local: patches.get(audit.wip) ?? null } : null,
       signals: found, signalCounts: countSignals(found), slowestCases: (cases[file] ?? []).slice(0, 8),
       relation: cluster.neighbours.find(neighbour => neighbour.file === file) ?? null };
   };
   const members = cluster.members.map(describe), context = cluster.context.map(describe);
   const skeleton = { schemaVersion: 1, runId, cluster: cluster.index, seed: cluster.seed, members: cluster.members, context: cluster.context,
     audits: cluster.members.map(file => ({ file, lenses: Object.fromEntries(LENS_IDS.map(lens => [lens, "TODO"])) })), findings: [] };
-  const brief = { runId, cluster: cluster.index, package: plan.package, mode: plan.mode, batch: plan.batch,
+  const brief = { runId, cluster: cluster.index, group: plan.group ?? plan.package, package: clusterPackage, mode: plan.mode, batch: plan.batch,
     trailer: trailerFor(runId, cluster.index), worksheetPath: join(runDir(session, runId), `cluster-${cluster.index}.json`), members, context, skeleton };
   if (session.flags.has("json")) return brief;
   const line = (entry: ReturnType<typeof describe>) => [
     `### ${entry.file}`,
     `- tier ${entry.tier}, runner ${entry.runner}, cost ${entry.costSeconds ?? "unmeasured"} s, ${entry.tests} tests, ${entry.assertions} assertion lines`,
     `- last audit: ${entry.lastAudit ? entry.lastAudit.at : "never"}`,
+    ...entry.deferred.map(finding => `- deferred by that audit (${finding.deferredFor}): ${finding.id} ${finding.lens}/${finding.smell}, action ${finding.action}: ${finding.note}`),
+    ...(entry.wip ? [`- prepared patch from that audit: \`${entry.wip.local ?? entry.wip.ledger}\`${entry.wip.local ? ` (ledger \`${entry.wip.ledger}\`)` : " on the ledger ref, not readable now"}; prove it before taking a new cluster`] : []),
     ...(entry.relation ? [`- related to the seed: ${entry.relation.relation}, shares ${entry.relation.shared.join(", ") || "nothing named"}`] : []),
     ...entry.issues.map(issue => `- open issue #${issue.number}: ${issue.title}${issue.needsRepro ? " (needs repro)" : ""}${issue.assigned ? " (assigned: leave the fix to its owner)" : ""}`),
     ...Object.entries(entry.signalCounts).map(([smell, count]) =>
@@ -246,7 +273,7 @@ function commandBrief(session: Session): unknown {
   return [
     `# Cluster ${cluster.index} of run ${runId}`,
     "",
-    `Package ${plan.package}, mode ${plan.mode}, batch ${plan.batch?.id ?? "none"} on branch ${plan.batch?.branch ?? "n/a"}.`,
+    `Package ${clusterPackage} (group ${plan.group ?? plan.package}), mode ${plan.mode}, batch ${plan.batch?.id ?? "none"} on branch ${plan.batch?.branch ?? "n/a"}.`,
     `Commit trailer: \`${brief.trailer}\`. Worksheet: \`${brief.worksheetPath}\`.`,
     "",
     "## Members (audit through every lens; these may change)",
@@ -378,12 +405,40 @@ function commandRecordCluster(session: Session): unknown {
     accounting.push({ file: audit.file, testsBefore: counted.before, testsAfter: counted.after, declaredRemoved: declared.removes.length, runtime });
   }
   if (lost.length) throw new Error(`The cluster cannot be recorded; tests would be lost without a declaration:\n- ${lost.join("\n- ")}`);
+  const prepared = flag(session, "wip") ? wipPatch(session, flag(session, "wip")!, `wip/${runId}-${index}.patch`) : null;
   const record: LedgerRecord = { v: 1, type: "cluster", at: io.now().toISOString(), runId, cluster: index, batchId: plan.batch?.id ?? null,
-    commit, package: plan.package ?? "", worksheet: sheet, audits, accounting };
-  session.store.append([record]);
+    commit, package: planned.package ?? plan.package ?? "", worksheet: sheet, audits, accounting, ...(prepared ? { wip: prepared.wip } : {}) };
+  session.store.append([record], prepared ? { [prepared.wip.path]: prepared.text } : {});
   const sum = (pick: (entry: FileAccounting) => number) => accounting.reduce((total, entry) => total + pick(entry), 0);
   return { recorded: `${runId}#${index}`, files: audits.length, changed: accounting.length, findings: sheet.findings.length, commit,
+    ...(prepared ? { wip: prepared.wip.path } : {}),
     tests: { before: sum(entry => entry.testsBefore), after: sum(entry => entry.testsAfter), declaredRemoved: sum(entry => entry.declaredRemoved) } };
+}
+
+/** Reads a prepared patch for the ledger. It is refused when it is too large or
+ * touches anything a batch could not land: the patch is only ever a test fix. */
+function wipPatch(session: Session, file: string, path: string): { wip: WipPatch; text: string } {
+  const text = readFileSync(file, "utf8");
+  const bytes = Buffer.byteLength(text);
+  const cap = session.config.profile.wipMaxBytes;
+  if (bytes > cap) throw new Error(`--wip ${file} is ${bytes} bytes; the ledger stores patches up to ${cap}`);
+  // Git reads the patch, so every path it would apply is checked: a hand-written header and a traditional diff alike.
+  const parsed = Bun.spawnSync(["git", "apply", "--numstat", "-z", "--", resolve(file)], { cwd: session.io.root, stdout: "pipe", stderr: "pipe" });
+  if (parsed.exitCode !== 0) throw new Error(`--wip ${file} is not a git patch: ${parsed.stderr.toString().trim()}`);
+  // One NUL-terminated `added\tdeleted\tpath` per file; a rename leaves the path empty and follows with source and target.
+  const fields = parsed.stdout.toString().split("\0");
+  const files = new Set<string>();
+  for (let at = 0; at < fields.length; at++) {
+    const stat = /^(?:\d+|-)\t(?:\d+|-)\t(.*)$/s.exec(fields[at]!);
+    if (!stat) continue;
+    const paths = stat[1] ? [stat[1]] : [fields[++at]!, fields[++at]!];
+    for (const changed of paths) {
+      if (!allowedInBatch(changed)) throw new Error(`--wip ${file} touches ${changed}, which is not test code; only a test fix is stored`);
+      files.add(changed);
+    }
+  }
+  if (!files.size) throw new Error(`--wip ${file} is not a git patch: it changes no file`);
+  return { wip: { path, sha256: createHash("sha256").update(text).digest("hex"), bytes, files: [...files].sort() }, text };
 }
 
 async function commandRecordRun(session: Session): Promise<unknown> {
@@ -395,6 +450,7 @@ async function commandRecordRun(session: Session): Promise<unknown> {
   const world = await loadWorld(session, true);
   const record: RunRecord = { v: 1, type: "run", at: session.io.now().toISOString(), runId, agent: flag(session, "agent") ?? "unknown",
     profile: plan?.profile ?? session.config.profile.name, mode: plan?.mode ?? "none", package: plan?.package ?? null,
+    ...(plan?.group ? { group: plan.group } : {}),
     startedAt: plan?.startedAt ?? session.io.now().toISOString(), outcome, ...(flag(session, "note") ? { note: flag(session, "note") } : {}),
     snapshot: buildSnapshot(world.inventory, world.signals, world.issues) };
   session.store.append([record]);
@@ -427,9 +483,9 @@ async function commandBatchStatus(session: Session): Promise<unknown> {
   const now = session.io.now();
   const slot = landingSlots(world.state, session.config.profile, now);
   const batches = [...world.state.batches.values()].filter(batch => batch.status === "open").map(batch => {
-    const remaining = remainingIn(planInput(session, world, "status"), batch.package);
-    return { batchId: batch.batchId, package: batch.package, branch: batch.branch, base: batch.base, pr: batch.pr, attempts: batch.attempts,
-      clusters: batch.clusters.length, remainingInPackage: remaining, ...ripeness(batch, world.state, session.config.profile, now, remaining === 0) };
+    const remaining = remainingIn(planInput(session, world, "status"), batch.group);
+    return { batchId: batch.batchId, group: batch.group, branch: batch.branch, base: batch.base, pr: batch.pr, attempts: batch.attempts,
+      clusters: batch.clusters.length, remainingInGroup: remaining, ...ripeness(batch, world.state, session.config.profile, now, remaining === 0) };
   });
   const ready = batches.filter(batch => batch.ripe && batch.pr === null).sort((a, b) => b.changedFiles - a.changedFiles);
   return { landingSlot: slot, batches, land: slot.open ? ready[0]?.batchId ?? null : null, parkedChangedFiles: parkedChangedFiles(world.state) };
@@ -441,13 +497,14 @@ async function commandShards(session: Session): Promise<unknown> {
   const eligible = rank(input).filter(candidate => session.config.profile.tiers.includes(candidate.row.tier)
     && !world.openPrFiles.has(candidate.row.file) && !world.state.claims.has(candidate.row.file));
   const tag = flag(session, "tag") ?? session.io.now().toISOString().slice(0, 10).replaceAll("-", "");
-  const shards = makeShards(eligible, Number(need(session, "count"))).map(shard => ({ ...shard, id: `${tag}-${shard.id}` }));
+  const shards = makeShards(eligible, Number(need(session, "count")), groupsOf(world.inventory.rows, session.config.profile))
+    .map(shard => ({ ...shard, id: `${tag}-${shard.id}` }));
   const out = flag(session, "out");
   if (out) {
     mkdirSync(out, { recursive: true });
     for (const shard of shards) writeFileSync(join(out, `${shard.id}.json`), JSON.stringify(shard, null, 2) + "\n");
   }
-  return { shards: shards.map(shard => ({ id: shard.id, package: shard.package, files: shard.files.length, effort: shard.effort,
+  return { shards: shards.map(shard => ({ id: shard.id, group: shard.group, files: shard.files.length, effort: shard.effort,
     ...(out ? { path: join(out, `${shard.id}.json`) } : {}) })) };
 }
 
@@ -482,7 +539,8 @@ async function commandReport(session: Session): Promise<unknown> {
   if (session.flags.has("publish")) session.store.append([], { "metrics.json": JSON.stringify(metrics, null, 2) + "\n", "report.md": markdown });
   const where = { written: out, published: session.flags.has("publish") };
   if (session.flags.has("full")) return { ...metrics, ...where };
-  return { coverage: metrics.coverage, runs: metrics.runs.total, findings: { total: metrics.findings.total, byStatus: metrics.findings.byStatus },
+  return { coverage: metrics.coverage, runs: metrics.runs.total,
+    findings: { total: metrics.findings.total, byStatus: metrics.findings.byStatus, byDeferredFor: metrics.findings.byDeferredFor },
     proof: metrics.proof, accounting: metrics.accounting, batches: metrics.batches, refind: metrics.refind, ...where };
 }
 

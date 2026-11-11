@@ -1,8 +1,9 @@
 # Landing a batch
 
-A batch is one branch of audited commits inside one package. Hosted proof for a
-test change is priced by the packages it touches, not by the number of files,
-so a batch lands as **one pull request**, when it is ripe, and never one pull
+A batch is one branch of audited commits inside one group: one package, or
+`small`, the packages with few test files together. Hosted proof for a test
+change is priced by the packages it touches, not by the number of files, so a
+batch lands as **one pull request**, when it is ripe, and never one pull
 request per cluster.
 
 Land only the batch that `bun scripts/test-health.ts batch status` names in
@@ -55,23 +56,26 @@ changeset only if `check:pr` asks for one.
 
 **The batch's own issue.** File one issue for the batch before opening its
 pull request, with the GitHub skill: title `<package>: test-health batch
-<batch id>`, a body that names each fixed finding (file, smell, one line on
-what was wrong), labels `type: test` and the package's `area:` label, and
-the release milestone. The pull request closes it. Merging into `main`
+<batch id>` (`tests: test-health batch <batch id>` for a `small` batch), a
+body that names each fixed finding (file, smell, one line on what was wrong),
+labels `type: test` and the `area:` label of every package the batch changed,
+and the release milestone. The pull request closes it. Merging into `main`
 needs at least one delivered issue (`--issues` in step 4), and most batches
 resolve no failure issue of their own.
 
 Then open the pull request as a draft, against the branch that `batch.base`
 names:
 
-- Title: `test(<package>): test-health batch <batch id>`.
+- Title: `test(<package>): test-health batch <batch id>`; for a `small` batch,
+  which may change several packages, `test: test-health batch <batch id>`.
 - Body: `Closes #N` for the batch's own issue; what the batch does in numbers
   (clusters, files changed, findings fixed by lens, tests removed with their
   obligation maps, mutations killed), the gate's `stats`, `Closes #N` or
   `Refs #N` for each failure issue it resolves or advances, and the
   `check:pr` receipt block. Use the repository template. Screen the text as
   the GitHub skill requires.
-- Labels: `type: test` and the package's `area:` label.
+- Labels: `type: test` and the `area:` label of every package the batch
+  changed.
 
 Record it: `TH record batch --batch <id> --event pr --pr <number>`.
 
