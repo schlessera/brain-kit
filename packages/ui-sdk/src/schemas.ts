@@ -24,7 +24,7 @@ export { attachmentFileSchema, sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
 
 import { z } from "zod";
-import { CONVERSATION_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
+import { CONVERSATION_LIMITS, LIVE_PERSONA_LIMITS, isThinkingLevel, PILL_LABEL_MAX_CHARS, SESSION_NOT_FOUND, SHARE_MAX_FILES } from "./protocol.js";
 import type { ThinkingLevel, StateRoomObservation } from "./protocol.js";
 
 const thinkingLevelSchema = z.custom<ThinkingLevel>(isThinkingLevel, "Invalid thinking level");
@@ -39,7 +39,16 @@ import type {
   ClientConversationEndpoint,
   ClientConversationPlayback,
   ClientConversationStart,
+  ConversationPersonaRef,
   ConversationProfile,
+  ConversationVoice,
+  LivePersona,
+  LivePersonaListResponse,
+  LivePersonaProviderStatus,
+  LivePersonaStatus,
+  LivePersonaSummary,
+  ServerLivePersona,
+  VoiceSettingsResponse,
   ClientConversationStop,
   ConversationAudioFormat,
   ConversationCapabilities,
@@ -850,6 +859,7 @@ export const clientDialogueReadSchema = z.looseObject({
 
 export const clientConversationStartSchema = z.looseObject({
   disclosed: z.lazy(() => conversationProfileSchema).optional(),
+  personaRef: z.lazy(() => conversationPersonaRefSchema).optional(),
   type: z.literal("conversation_start"),
   historyOwnerId: id.optional(),
   contextualTasks: z.boolean().optional(),
@@ -1192,6 +1202,8 @@ export const serverHelloSchema = z.looseObject({
   safetyCapabilities: safetyCapabilitiesSchema.optional().catch(undefined),
   type: z.literal("server_hello"),
   conversationProfile: z.lazy(() => conversationProfileSchema).optional().catch(undefined),
+  // A malformed persona status is dropped rather than costing the whole hello.
+  livePersona: z.lazy(() => livePersonaStatusSchema).optional().catch(undefined),
   protocolRev: z.number(),
   principalKey: z.string().max(MAX_ID_CHARS).optional(),
   capabilities: z.record(z.string(), z.boolean()).optional(),
@@ -1754,11 +1766,76 @@ export const conversationDisclosureSchema = z.looseObject({
   destinations: z.array(z.string().min(1).max(500)).min(1).max(16),
 }) satisfies z.ZodType<ConversationDisclosure>;
 
+export const conversationVoiceSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/),
+  label: z.string().min(1).max(64),
+}) satisfies z.ZodType<ConversationVoice>;
+
 export const conversationProfileSchema = z.object({
   providerId: id,
   capabilities: conversationCapabilitiesSchema,
   disclosure: conversationDisclosureSchema,
+  // Persona support (#3617). A malformed value means "no voice control", never a refused profile.
+  voices: z.array(conversationVoiceSchema).max(128).optional().catch(undefined),
+  defaultVoice: z.string().min(1).max(64).optional().catch(undefined),
+  personaInstructionBytes: z.number().int().min(1).max(LIVE_PERSONA_LIMITS.maxInstructionBytes).optional().catch(undefined),
 }) satisfies z.ZodType<ConversationProfile>;
+
+const personaId = z.string().regex(new RegExp(`^(?:[a-z0-9-]{1,${LIVE_PERSONA_LIMITS.maxIdChars}})$`));
+const personaRevision = z.string().min(1).max(128);
+const personaVoices = z.record(z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/), z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/))
+  .refine(v => Object.keys(v).length <= LIVE_PERSONA_LIMITS.maxVoices);
+
+export const conversationPersonaRefSchema = z.object({
+  id: personaId,
+  revision: personaRevision,
+  voice: z.literal("default").optional(),
+}) satisfies z.ZodType<ConversationPersonaRef>;
+
+export const livePersonaSummarySchema = z.looseObject({
+  id: personaId,
+  name: z.string().max(LIVE_PERSONA_LIMITS.maxNameChars * 2),
+  voices: personaVoices,
+  instructionBytes: z.number().int().min(0),
+  revision: personaRevision,
+  builtIn: z.literal(true).optional(),
+  invalid: z.enum(["front_matter", "schema", "name", "voices", "too_long", "encoding", "over_count"]).optional(),
+}) satisfies z.ZodType<LivePersonaSummary>;
+
+export const livePersonaSchema = livePersonaSummarySchema.extend({
+  instructions: z.string().max(LIVE_PERSONA_LIMITS.maxFileBytes),
+}) satisfies z.ZodType<LivePersona>;
+
+export const livePersonaListResponseSchema = z.looseObject({
+  personas: z.array(livePersonaSummarySchema).max(256),
+}) satisfies z.ZodType<LivePersonaListResponse>;
+
+export const livePersonaProviderStatusSchema = z.looseObject({
+  voice: z.string().min(1).max(64),
+  voiceSource: z.enum(["persona", "default"]),
+  staleVoice: z.string().max(64).optional(),
+  maxInstructionBytes: z.number().int().min(0),
+  overLimit: z.boolean(),
+}) satisfies z.ZodType<LivePersonaProviderStatus>;
+
+export const livePersonaStatusSchema = z.looseObject({
+  selected: personaId,
+  selectedMissing: z.boolean(),
+  selectedInvalid: z.boolean(),
+  persona: livePersonaSummarySchema,
+  personaRef: z.object({ id: personaId, revision: personaRevision }),
+  providers: z.record(id, livePersonaProviderStatusSchema),
+}) satisfies z.ZodType<LivePersonaStatus>;
+
+export const voiceSettingsResponseSchema = z.looseObject({
+  persona: z.object({ value: personaId, revision: z.number().int().min(0) }),
+  livePersona: livePersonaStatusSchema,
+}) satisfies z.ZodType<VoiceSettingsResponse>;
+
+export const serverLivePersonaSchema = z.looseObject({
+  type: z.literal("live_persona"),
+  livePersona: livePersonaStatusSchema,
+}) satisfies z.ZodType<ServerLivePersona>;
 
 export const conversationAudioFormatSchema = z.looseObject({
   encoding: z.literal("pcm16"),
@@ -2066,6 +2143,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverSafetyHistorySchema, serverSafetyUpdateSchema, serverSafetyUnavailableSchema,
   serverDialogueHistorySchema,
   serverConversationOpenedSchema,
+  serverLivePersonaSchema,
   serverConversationClosedSchema,
   serverConversationEventSchema,
   serverConversationWorkSchema,

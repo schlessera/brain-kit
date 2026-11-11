@@ -51,6 +51,9 @@ import type { WsHost } from "./host.js";
 import type { HostWork, HostWorkOutcome } from "./turns.js";
 import { MAX_RETAINED_RESULT_CHARS } from "./conversation-storage.js";
 import { handleChatMessage } from "./run-session.js";
+import type { Principal } from "../db/principals.js";
+import type { LivePersonaService, PersonaSnapshot } from "../voice/personas.js";
+import type { LivePersonaStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 /** Conversations kept for resumption, live or detached, per host. */
 const MAX_RETAINED_CONVERSATIONS = 16;
@@ -145,6 +148,12 @@ interface Conversation {
   startedAt?: number;
   /** The last epoch that actually opened, the only one an end can be retained against. */
   openedEpoch?: number;
+  /**
+   * The persona frozen at this entry's first Start on this host (#3617). Every
+   * later epoch reuses it; a host restart loses it, so the next Start is a new
+   * disclosure, never a silent re-read.
+   */
+  persona?: PersonaSnapshot;
 }
 
 const outputKey = (epoch: number, outputId: string): string => `${epoch}\u0000${outputId}`;
@@ -163,13 +172,26 @@ export class ConversationHost {
   private readonly conversations = new Map<string, Conversation>();
   private readonly byConnection = new Map<ConnectionState, Conversation>();
 
+  /** Human sessions that receive `live_persona` (#3617); agents and workers never do. */
+  private readonly viewers = new Map<WSContext, ConnectionState>();
+
   constructor(
     private readonly host: WsHost,
-    readonly provider: LiveConversationProvider
-  ) {}
+    readonly provider: LiveConversationProvider,
+    private readonly personas?: LivePersonaService
+  ) {
+    personas?.subscribe(status => this.sendPersona(status));
+  }
 
   /** Public disclosure only; never opens a provider or reads chat content. */
   profile(contextualTasks = true): ConversationProfile {
+    const { voices, defaultVoice, personaInstructionBytes } = this.provider;
+    return { ...this.disclosure(contextualTasks),
+      ...(voices && defaultVoice && personaInstructionBytes !== undefined
+        ? { voices: voices.map(voice => ({ ...voice })), defaultVoice, personaInstructionBytes } : {}) };
+  }
+  /** What a Start must echo exactly: persona support is described, not disclosed. */
+  private disclosure(contextualTasks: boolean): Pick<ConversationProfile, "providerId" | "capabilities" | "disclosure"> {
     return { providerId: this.provider.id,
       capabilities: { ...this.provider.capabilities, contextualTasks: contextualTasks && this.provider.capabilities.contextualTasks === "supported" && !!this.host.catalog.saveConversationTask && !!this.host.catalog.saveConversationEpoch ? "supported" : "unsupported" },
       disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] } };
@@ -177,7 +199,39 @@ export class ConversationHost {
   private disclosed(msg: ClientConversationStart): boolean {
     const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
       ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])) : value;
-    return JSON.stringify(canonical(msg.disclosed)) === JSON.stringify(canonical(this.profile(msg.contextualTasks === true)));
+    const echoed = msg.disclosed && { providerId: msg.disclosed.providerId, capabilities: msg.disclosed.capabilities, disclosure: msg.disclosed.disclosure };
+    return JSON.stringify(canonical(echoed)) === JSON.stringify(canonical(this.disclosure(msg.contextualTasks === true)));
+  }
+
+  // --- personas (#3617) ---
+
+  private static human(principal: Principal): boolean {
+    return principal.authMethod !== "delegated" && (principal.kind === "owner" || principal.kind === "ambient");
+  }
+
+  /** For `server_hello`: the last status, only for a human session. */
+  livePersona(principal: Principal): LivePersonaStatus | undefined {
+    return this.personas && ConversationHost.human(principal) ? this.personas.cached() : undefined;
+  }
+
+  /** Track a human session for `live_persona`, and correct its hello once the files are read. */
+  viewerOpened(ws: WSContext, connection: ConnectionState, principal: Principal, sent: LivePersonaStatus | undefined): void {
+    if (!this.personas || !ConversationHost.human(principal)) return;
+    this.viewers.set(ws, connection);
+    void this.personas.status().then(status => {
+      if (this.viewers.get(ws) === connection && JSON.stringify(status) !== JSON.stringify(sent)) {
+        this.host.sendMessage(ws, { type: "live_persona", livePersona: status });
+      }
+    }, () => {});
+  }
+
+  viewerClosed(ws: WSContext): void { this.viewers.delete(ws); }
+
+  private sendPersona(status: LivePersonaStatus): void {
+    for (const [ws, connection] of this.viewers) {
+      if (connection.closed || !connection.authorization.valid) { this.viewers.delete(ws); continue; }
+      this.host.sendMessage(ws, { type: "live_persona", livePersona: status });
+    }
   }
 
   // --- client commands ---
@@ -188,6 +242,20 @@ export class ConversationHost {
     if (!msg.disclosed) { this.refuse(ws,"CONVERSATION_CAPABILITY","Update this app before starting voice. Nothing was sent to the voice service.",msg.requestId); return; }
     if (!this.disclosed(msg)) { this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return; }
     const principalId = connection.authorization.principalId;
+    // A held entry keeps the persona frozen at its first Start (#3617). Any
+    // other Start reads the disclosed persona once, here, before anything opens.
+    const held = msg.conversationId !== undefined ? this.conversations.get(msg.conversationId) : undefined;
+    let persona = held?.principalId === principalId ? held.persona : undefined;
+    if (!persona) {
+      const resolved = this.personas
+        ? await this.personas.resolveStart(msg.personaRef, this.provider)
+        : msg.personaRef && msg.personaRef.id !== "standard"
+          ? { ok: false as const, code: "CONVERSATION_PERSONA" as const, message: "Personas aren't available on this host. Use Standard. Nothing was sent to the voice service." }
+          : { ok: true as const, snapshot: { id: "standard", revision: "builtin", instructions: "" } };
+      if (connection.closed || !connection.authorization.valid) return;
+      if (!resolved.ok) { this.refuse(ws, resolved.code, resolved.message, msg.requestId); return; }
+      persona = resolved.snapshot;
+    }
     let conversation: Conversation;
     if (msg.conversationId !== undefined) {
       let found = this.conversations.get(msg.conversationId);
@@ -262,6 +330,7 @@ export class ConversationHost {
       this.refuse(ws, "CONVERSATION_CAPABILITY", "This conversation contains contextual task receipts. Resume with an updated conversation client; no work was replayed.");
       return;
     }
+    conversation.persona ??= persona;
     conversation.connection = connection;
     conversation.ws = ws;
     this.byConnection.set(connection, conversation);
@@ -313,8 +382,11 @@ export class ConversationHost {
         this.endEpoch(conversation,"refused",undefined,epoch); this.detach(conversation);
         this.refuse(ws,"CONVERSATION_DISCLOSURE","The voice service changed. Review its disclosure and select Start. Nothing was sent to the voice service.",msg.requestId); return;
       }
+      const frozen = conversation.persona;
       session = await this.provider.open(scope, {
         orientation,
+        // Standard opens exactly as before personas: no option at all.
+        ...(frozen && frozen.id !== "standard" ? { persona: { ...(frozen.voice ? { voice: frozen.voice } : {}), instructions: frozen.instructions } } : {}),
         ...(history ? { history } : {}),
         signal: epoch.abort.signal,
         contextualTasks: epoch.contextualTasks,
@@ -351,7 +423,7 @@ export class ConversationHost {
       epoch: epoch.number,
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
       ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}),
-      ...this.profile(epoch.contextualTasks),
+      ...this.disclosure(epoch.contextualTasks),
       limits: { ...CONVERSATION_LIMITS },
       resync: { work: conversation.receipts.length, outputs: conversation.outputs.size },
     });
