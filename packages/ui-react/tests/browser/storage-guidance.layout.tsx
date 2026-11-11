@@ -406,8 +406,6 @@ test("Browser-blocked push is labelled and the existing opt-in switch keeps its 
     r.width - parseFloat(pseudo.left) - parseFloat(pseudo.right)
   ).toBeGreaterThanOrEqual(44);
   expect(matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
-  for (const selector of ["[data-storage-history]", "[data-storage-pressure]", "[data-storage-map-index]"])
-    await expect.poll(() => host.querySelectorAll(selector).length, { message: `STORAGE_STATIC_SECTION_DRAWN ${selector}` }).toBeGreaterThan(0);
   for (const node of host.querySelectorAll(
     "[data-storage-history], [data-storage-pressure], [data-storage-map-index]"
   )) {

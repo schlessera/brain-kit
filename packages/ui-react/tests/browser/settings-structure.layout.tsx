@@ -200,18 +200,18 @@ for (const width of [320, 1280]) test(`closing Settings returns to its opener at
   await opener.click();
   await expect.poll(() => page.getByRole("tab", { name: "Models", exact: true }).elements().length).toBe(1);
   await page.getByRole("button", { name: width < 900 ? "Close Settings" : "Close", exact: true }).click();
-  await expect.poll(() => document.activeElement, { message: "SETTINGS_RETURNS_OPENER_FOCUS" }).toBe(opener.element());
+  await expect.poll(() => document.activeElement === opener.element(), { message: "SETTINGS_RETURNS_OPENER_FOCUS" }).toBe(true);
   await opener.click();
   await expect.poll(() => page.getByRole("tab", { name: "Models", exact: true }).elements().length).toBe(1);
   await userEvent.keyboard("{Escape}");
-  await expect.poll(() => document.activeElement, { message: "SETTINGS_ESCAPE_RETURNS_OPENER_FOCUS" }).toBe(opener.element());
+  await expect.poll(() => document.activeElement === opener.element(), { message: "SETTINGS_ESCAPE_RETURNS_OPENER_FOCUS" }).toBe(true);
   await opener.click();
   await page.getByRole("tab", { name: "Models", exact: true }).click();
   const resized = width === 320 ? 1280 : 320;
   await commands.formViewport(resized, 800); await page.viewport(resized, 800);
   await expect.poll(() => page.getByRole("tablist").element().getAttribute("aria-orientation")).toBe(resized < 900 ? "horizontal" : "vertical");
   await page.getByRole("button", { name: resized < 900 ? "Close Settings" : "Close", exact: true }).click();
-  await expect.poll(() => document.activeElement, { message: "SETTINGS_RESIZE_RETURNS_ORIGINAL_OPENER" }).toBe(opener.element());
+  await expect.poll(() => document.activeElement === opener.element(), { message: "SETTINGS_RESIZE_RETURNS_ORIGINAL_OPENER" }).toBe(true);
   if (width === 1280) {
     await commands.formViewport(1280, 800); await page.viewport(1280, 800);
     await opener.click();
@@ -219,6 +219,6 @@ for (const width of [320, 1280]) test(`closing Settings returns to its opener at
     await actions.click();
     await expect.poll(() => ui.stores.ui.getState().settingsPanelOpen).toBe(false);
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-    expect(document.activeElement, "SETTINGS_CLOSE_PRESERVES_NEW_DESTINATION_FOCUS").toBe(actions.element());
+    expect(document.activeElement === actions.element(), "SETTINGS_CLOSE_PRESERVES_NEW_DESTINATION_FOCUS").toBe(true);
   }
 });

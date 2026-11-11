@@ -239,8 +239,8 @@ for (const kind of [
         "STORAGE_INELIGIBLE_SELECTION_DISABLED"
       ).toBe(true);
       expect(
-        fixture.requests.filter((row) => row.path.endsWith("/reviews"))
-      ).toEqual([]);
+        fixture.requests.some((row) => row.path.endsWith("/reviews"))
+      ).toBe(false);
     }
     await commands.buttonCapture(`storage-${kind}`);
   });
@@ -301,8 +301,8 @@ for (const width of [320, 1280])
     await button("Undo removal of attachments/Ithaca-harbor.pdf").click();
     await expect.poll(() => button("Restore 1 file").elements().length).toBe(1);
     expect(
-      fixture.requests.map((row) => row.path)
-    ).toContainEqual(expect.stringMatching(/\/undo-reviews$/));
+      fixture.requests.some((row) => row.path.endsWith("/undo-reviews"))
+    ).toBe(true);
     await button("Restore 1 file").click();
     await expect
       .poll(() => page.getByRole("dialog").element().textContent)
@@ -341,8 +341,8 @@ test("List-only drill restores the parent row and retains D52", async () => {
   }
   await button("attachments").click();
   await expect
-    .poll(() => document.activeElement)
-    .toBe(button("Open papers").elements()[0]);
+    .poll(() => document.activeElement === button("Open papers").elements()[0])
+    .toBe(true);
   expect(ui.stores.ui.getState().activeView).not.toBe("storage");
 });
 test("Account lock and root replacement discard selected versions", async () => {
@@ -392,7 +392,7 @@ test("Dense folder pages preserve the full measured subtotal and query before pa
     .poll(() => table.element().querySelectorAll("tbody tr").length)
     .toBe(1);
   expect(table.element().textContent).toContain("Ithaca-chart-204.pdf");
-  expect(fixture.requests.map((row) => row.path)).toContainEqual(expect.stringMatching(/\/tree$/));
+  expect(fixture.requests.some((row) => row.path.endsWith("/tree"))).toBe(true);
 });
 test("Refresh preserves focused rows and requires explicit adoption before clearing selection", async () => {
   const fixture = await scene();
