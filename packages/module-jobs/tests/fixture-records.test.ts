@@ -168,11 +168,11 @@ describe("trimmed JSON-LD fixtures", () => {
       };
       walk(JSON.parse(json));
 
-      expect(lists.length).toBeGreaterThan(0);
-      for (const list of lists) {
-        if (list.numberOfItems === undefined) continue;
-        expect(list.numberOfItems).toBe(list.itemListElement.length);
-      }
+      // A list that declares no count passes the comparison vacuously, so the
+      // fixture must carry at least one list that does.
+      const declared = lists.filter((list) => list.numberOfItems !== undefined);
+      expect(declared.length).toBeGreaterThan(0);
+      for (const list of declared) expect(list.numberOfItems).toBe(list.itemListElement.length);
     });
   }
 });

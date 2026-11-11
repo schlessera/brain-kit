@@ -253,8 +253,11 @@ describe("remotelyde against its captured listing", () => {
       ["Grafana Labs", "Spanien +4 weitere"],
       ["Do Good Ventures", "Weltweit"],
     ]);
+    expect(result.items.map((job) => job.title)).toEqual([
+      "Senior Backend Engineer - Databases - Analytics | Germany | Remote",
+      "Director of DTC Growth",
+    ]);
     for (const job of result.items) {
-      expect(job.title).toBeTruthy();
       expect(job.company).not.toBe("Unknown");
       expect(job.url).toStartWith("https://www.remotely.de/job/");
     }
@@ -418,21 +421,20 @@ describe("jobgether against the JSON endpoint its robots.txt allows", () => {
     );
 
     expect(result.errors).toEqual([]);
-    expect(result.items).toHaveLength(3);
+    expect(result.items.map((job) => [job.title, job.company])).toEqual([
+      ["Senior Backend Engineer - Databases - Analytics | Germany | Remote", "Grafana Labs"],
+      ["Remote Response Associate, Roadside Assistance (CSR)", "Agero, Inc."],
+      // The wire carries "Samsara " with a trailing space.
+      ["AI Architect - GTM Systems", "Samsara"],
+    ]);
     for (const job of result.items) {
-      expect(job.title).toBeTruthy();
-      expect(job.company).toBeTruthy();
-      expect(job.company).not.toBe("Unknown");
       expect(job.url).toStartWith("https://jobgether.com/offer/");
       // postedAt is already ISO on this endpoint.
       expect(job.published_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     }
-    expect(result.items[0].company).toBe("Grafana Labs");
     expect(result.items[0].salary_min).toBe(186240);
     expect(result.items[0].salary_currency).toBe("EUR");
     expect(result.items[0].job_type).toBe("full_time");
-    // The wire carries "Samsara " with a trailing space.
-    expect(result.items[2].company).toBe("Samsara");
   });
 
   test("an offer with no company is dropped, and the field is named (#35)", async () => {
@@ -814,7 +816,7 @@ describe("each board's own rows, followed to their detail page, are stored with 
 
   test("remotelyde, row cards (no teaser)", async () => {
     const { items: jobs } = await scrapeAgainst(new RemotelyDeAdapter(), fixture("remotelyde", "listing-row-cards.html"));
-    expect(jobs.every((row) => !row.description)).toBe(true);
+    expect(jobs.map((row) => row.description)).toEqual([undefined, undefined]);
     const { stats, stored } = await enrichAndStore(jobs, "remotelyde", detail("remotelyde-detail.html"), "www.remotely.de");
     expect(stats).toMatchObject({ enriched: jobs.length, failed: 0 });
     expectAllDescribed(stored);
