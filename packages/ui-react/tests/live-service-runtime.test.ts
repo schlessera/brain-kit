@@ -187,12 +187,14 @@ async function pick(page: Page, name: RegExp) {
   for (let waited = 0; log.filter((entry) => entry.method === "PUT").length <= before; waited += 10) { if (waited > 10_000) throw new Error("No live settings save reached the server"); await Bun.sleep(10); }
   await page.waitForFunction(() => !document.querySelector("[data-live-service-settings] [role=status]")?.textContent?.includes("Saving"));
 }
-/** Enter live conversation: the disclosure sheet, before any Start. */
+/** Enter live conversation: the Start card (#3698), before any Start, with "What's shared" open. */
 async function enter(page: Page) {
   await page.waitForFunction("window.__live.ready()");
   await page.evaluate(() => (window as unknown as { __live: { enter(): void } }).__live.enter());
   await page.waitForFunction(() => (window as unknown as { __live: { state(): LiveState } }).__live.state().disclosureOpen);
-  return page.locator('[data-overlay-site="conversation-disclosure"]');
+  const card = page.locator("[data-start-card]");
+  await card.getByRole("button", { name: /What’s shared/ }).click();
+  return card;
 }
 async function startAndWait(page: Page) {
   await page.getByRole("button", { name: "Start", exact: true }).click();
@@ -259,7 +261,7 @@ describe.skipIf(!executablePath)("Settings › Voice live service and the next S
     expect(await sheet.getByText("Fictional GPT-Live of Ithaca").count()).toBe(1);
     expect(counts(), "NO_PROVIDER_BEFORE_START").toEqual(before);
     expect(await gum(page), "NO_MICROPHONE_BEFORE_START").toBe(0);
-    await fits(page, width, "[data-live-service-pick] label");
+    await fits(page, width, "[data-start-card] .bk-voice-service");
     await shot(page, `live-sheet-${width}`);
     await startAndWait(page);
     expect(counts(), "SAVED_DEFAULT_OPENS").toEqual({ gemini: before.gemini, gpt: before.gpt + 1 });
@@ -278,7 +280,7 @@ describe.skipIf(!executablePath)("Settings › Voice live service and the next S
     // The next Start uses the new default; Change picks GPT-Live for this one only.
     sheet = await enter(page);
     expect(await sheet.getByText("Fictional Gemini Live of Ithaca").count()).toBe(1);
-    await sheet.getByRole("radio", { name: "GPT-Live" }).check();
+    await sheet.getByRole("button", { name: "Change service, now Gemini Live" }).click();
     expect(await sheet.getByText("Fictional GPT-Live of Ithaca").count(), "the disclosure follows the pick").toBe(1);
     expect(counts(), "a pick opens nothing").toEqual({ gemini: before.gemini, gpt: before.gpt + 1 });
     await startAndWait(page);
@@ -311,11 +313,11 @@ describe.skipIf(!executablePath)("Settings › Voice live service and the next S
 
     const before = counts();
     const sheet = await enter(page);
-    expect(await sheet.locator("[data-live-service-unavailable]").textContent()).toContain("GPT-Live");
-    expect(await page.getByRole("button", { name: "Start", exact: true }).isDisabled(), "S3D_START_NEEDS_PICK").toBe(true);
+    expect(await sheet.locator(".bk-voice-card-notice").textContent()).toContain("GPT-Live");
+    expect(await page.getByRole("button", { name: "Start", exact: true }).getAttribute("aria-disabled"), "S3D_START_NEEDS_PICK").toBe("true");
     expect(counts(), "S3D_NO_SUBSTITUTE").toEqual(before);
     await shot(page, `live-s3d-${width}`);
-    await sheet.getByRole("radio", { name: "Gemini Live" }).check();
+    await sheet.getByRole("button", { name: "Choose a service" }).click();
     await startAndWait(page);
     expect(counts(), "S3D_PICK_OPENS").toEqual({ gemini: before.gemini + 1, gpt: before.gpt });
     expect(await saved(), "the unavailable saved default is kept").toBe("gpt-live");

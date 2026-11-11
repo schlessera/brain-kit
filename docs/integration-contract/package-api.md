@@ -4866,6 +4866,23 @@ the newest microphone block while capture is open, and the 10 ms window of the
 reply sounding now. Neither value gates capture, endpointing, output recovery or
 permission routing.
 
+<a id="start-card-persona-choice-3698"></a>
+
+### Start-card persona choice (#3698)
+
+Additive. The conversation client's state carries `personaChoice`, the
+`ConversationPersonaRef` this entry's Start sends instead of the saved persona's
+`personaRef`; `null` sends the saved one. `choosePersona(ref | null)` sets it
+before Start: a persona picked on the Start card, `{ id: "standard", revision:
+"builtin" }` for "Use Standard this time", or a ref with `voice: "default"` for
+"Use the default voice this time". It is ignored once Start was agreed, saves
+nothing, and is cleared on Enter and Leave. The host still refuses a revision
+that is no longer current. When the host refuses a first Start that opened
+nothing, the entry may choose its service (`chooseService`) or persona again
+before the next explicit Start; a `CONVERSATION_PERSONA_CHANGED` refusal also
+clears `personaChoice`. Neither call opens a microphone, reads history or
+contacts a provider.
+
 ### Retained dialogue data (#3177)
 
 The SDK protocol exports `DialogueEvidence`, `DialogueRecord`, `DialoguePage`,
