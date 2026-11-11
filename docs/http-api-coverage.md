@@ -144,6 +144,13 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/voice/keyterms` | `mounted supported handler: GET /api/voice/keyterms` | N |
 | `GET /api/voice/overrides` | `mounted supported handler: GET /api/voice/overrides` | N |
 | `GET /api/voice/providers` | `mounted supported handler: GET /api/voice/providers` | R |
+| `GET /api/voice/personas` | `mounted supported handler: GET /api/voice/personas` | VP |
+| `POST /api/voice/personas` | `mounted supported handler: POST /api/voice/personas` | VP |
+| `GET /api/voice/personas/:id` | `mounted supported handler: GET /api/voice/personas/:id` | VP |
+| `PUT /api/voice/personas/:id` | `mounted supported handler: PUT /api/voice/personas/:id` | VP |
+| `DELETE /api/voice/personas/:id` | `mounted supported handler: DELETE /api/voice/personas/:id` | VP |
+| `GET /api/settings/voice` | `mounted supported handler: GET /api/settings/voice` | VP, LV |
+| `PUT /api/settings/voice` | `mounted supported handler: PUT /api/settings/voice` | VP, LV |
 | `GET /api/voice/dictation/settings` | `mounted supported handler: GET /api/voice/dictation/settings` | R |
 | `PUT /api/voice/dictation/settings` | `mounted supported handler: PUT /api/voice/dictation/settings` | R |
 | `GET /api/voice/capabilities` | `mounted supported handler: GET /api/voice/capabilities` | R |
@@ -513,6 +520,10 @@ no inbox thread. Detailed parser/intake/containment checks live in
 [track-intake.test.ts](../packages/ui-server/tests/track-intake.test.ts).
 
 **R** — [selectable-dictation.test.ts](../packages/ui-server/tests/selectable-dictation.test.ts) covers exact provider selection, settings revisions/authority and held mint/upload binding; [saved-transcription.test.ts](../packages/ui-server/tests/saved-transcription.test.ts): concurrent real-route claims/retries, server hashes, body caps, account access, terminal outcomes, tombstones and keyless provider transport.
+
+**LV — Live-conversation service default.** [live-provider-selection.test.ts](../packages/ui-server/tests/live-provider-selection.test.ts) covers the owner-only write guard (403 with an empty body for a delegated principal, before body validation), revisions under concurrent writes, unknown ids, persistence in the settings store, the `live_settings` broadcast and that a save opens no provider.
+
+**VP — Live-conversation personas.** [live-personas.test.ts](../packages/ui-server/tests/live-personas.test.ts) covers the file codec, the empty 403 for agent, system and anonymous callers, revision conflicts, creation limits, the selection key and its delete ordering, Start resolution and a linked persona directory; [live-persona-host.test.ts](../packages/ui-server/tests/live-persona-host.test.ts) covers hello, the `live_persona` push and the frozen Start through the real socket handlers.
 
 **RV — User history restoration.** `turn-revert.test.ts` exercises raw restoration,
 Undo, partial conflicts, operation identity, authorization, original voice and

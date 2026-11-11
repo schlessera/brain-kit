@@ -1594,7 +1594,18 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     if (cleanupFailure) {
       // Keep native ownership/recovery intent and admission held: cleanup
       // was not verified, so no publication or successful release is implied.
-      const failure = new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`);
+      let closing: Promise<void> | undefined;
+      const close = (): Promise<void> => closing ??= (async () => {
+        // This is the failed launch's original broker, with its authenticated
+        // launch identity. A signal or supervisor exit is not confirmation.
+        if (child) await runWorkerStepsAsync(closeIdentitySteps());
+        else identityBroker?.discard();
+        await child?.exited;
+        cgroup?.remove();
+        await areaOutput?.cleanup();
+        if (!input.preparedOutput) await startupView?.cleanup();
+      })().catch((failure: unknown) => { closing = undefined; throw failure; });
+      const failure = new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`, close);
       failMaintenanceSetup?.(failure);
       throw failure;
     }

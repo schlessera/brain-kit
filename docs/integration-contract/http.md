@@ -330,6 +330,21 @@ retryable: true }`, changing nothing, while any safety producer or collection
 is open. Each recovery is recorded with its trigger, actor, time and the cause
 it cleared. Affected chats keep their gaps.
 
+<a id="account-bound-safety-history-additive-3952"></a>
+
+### A chat's safety history belongs to its account (additive, #3952)
+
+A turn, a safety read (`GET /api/sessions/:id/safety`, WS `safety_read`) and
+an owner review of a chat now accept any principal of the chat's account, not
+only the principal that started it. A principal id always matches itself.
+Two different ids match only when both resolve to the same account partition,
+which today means two owner logins, so an agent, ambient or system principal
+matches only itself; a missing or unresolvable principal matches no other id.
+Another account's principal is refused exactly as before. Read
+snapshots, review handles, receipts and the verdict's `principalId` stay bound
+to the exact principal. Nothing previously accepted is refused, and stored
+rows are not rewritten ([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-belongs-to-its-account-3952)).
+
 <a id="root-server-warning-additive-1638"></a>
 
 ### Root server warning (additive, #1638)
@@ -472,6 +487,8 @@ Queued continuations retain that snapshot without recopying source evidence or
 importing later source activity. Actual catalog creator, principal,
 history owner, aliases and generation govern binding. Retired session/owner/turn
 identities refuse late callbacks even after private detail is removed.
+The principal binds as its account
+([additive, #3952](#account-bound-safety-history-additive-3952)).
 
 Effective admission is restricted for any unresolved occurrence, incomplete or
 unknown coverage, pending recording, failure or exhausted capacity. Only a
@@ -1172,6 +1189,34 @@ headers preserve effective-provider resolution. Retry provider changes return
 409 `transcription_provider_mismatch` with the receipt. Settings revisions,
 error codes, response schemas and operation binding are supported HTTP promises.
 
+
+### Live-conversation service default (additive, #3616)
+
+[`GET`/`PUT /api/settings/voice`](../http-api.md#live-conversation-service-default)
+read and save the brain-wide default live-conversation service as the top-level
+`VoiceLiveSettings` pair `{ defaultProvider: string | null, revision: number }`,
+beside the persona selection (#3617) with its own revision.
+Reading needs a human session (owner or ambient); writing has its own
+owner-only guard: the owner's password or passkey session, or the ambient human,
+and 403 with an empty body for anyone else, before the body is read. Unknown
+ids are 400 `LIVE_PROVIDER_UNKNOWN`, malformed bodies 400 `LIVE_SETTINGS_INVALID`,
+stale revisions 409 `LIVE_SETTINGS_CHANGED` with `current`. A save sends
+[`live_settings`](wire.md#live-service-selection-additive-3616) and applies from
+the next explicit Start. It is independent of `/api/models/default` and
+`/api/voice/dictation/settings`. The route shapes, error codes and the guard are
+supported HTTP promises.
+
+### Live-conversation personas (additive, 0.45.0, #3617)
+
+The [persona routes](../http-api.md#live-conversation-personas) read and write
+`_voice/personas/<id>.md` and the selection. Every route requires a human
+session of the brain (an owner, or an ambient-auth account); delegated agent,
+worker and system principals receive `403` with an empty body. Writes replace
+the file atomically inside the brain and never follow a link out of
+`_voice/personas`. Revisions are the sha-256 of the file bytes; `PUT` and
+`DELETE` must name the current one or receive `409 PERSONA_CHANGED`. Error
+bodies are fixed codes, never persona text. Route paths, request and response
+schemas, revision semantics and error codes are supported HTTP promises.
 
 ### Checkpoint cleanup diagnostics (additive, #3815)
 

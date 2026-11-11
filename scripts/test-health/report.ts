@@ -6,7 +6,7 @@
  * same numbers from the same ledger. The agent's only input is the worksheet's
  * enumerated fields.
  */
-import { LENS_IDS } from "./catalog";
+import { deferralOf, LENS_IDS } from "./catalog";
 import type { Inventory } from "./inventory";
 import { landedOrPending, type LedgerState, type Snapshot } from "./ledger";
 import { changedFilesOf } from "./batch";
@@ -19,10 +19,13 @@ export interface Metrics {
   schemaVersion: 1;
   generatedAt: string;
   sha: string;
-  coverage: { files: number; auditedCurrent: number; stale: number; never: number; share: number; medianAuditAgeDays: number | null };
+  /** `unfinished`: audited at the current content, with work deferred for budget or proof; not counted as audited. */
+  coverage: { files: number; auditedCurrent: number; stale: number; unfinished: number; never: number; share: number; medianAuditAgeDays: number | null };
   runs: { total: number; byOutcome: Record<string, number>; byAgent: Record<string, number>; byProfile: Record<string, number> };
   audits: { clusters: number; files: number; filesChanged: number };
-  findings: { total: number; perAuditedFile: number; byLens: Record<string, number>; bySmell: Record<string, number>; byAction: Record<string, number>; byStatus: Record<string, number> };
+  findings: { total: number; perAuditedFile: number; byLens: Record<string, number>; bySmell: Record<string, number>; byAction: Record<string, number>; byStatus: Record<string, number>;
+    /** Deferred findings by reason; a record written before `deferredFor` counts by `deferralOf`. */
+    byDeferredFor: Record<string, number> };
   proof: { mutationsKilled: number; testsThatCouldNotFail: number; deflaked: number; secondsSavedPerRun: number; testsRemoved: number };
   /** Tests and executed cases in the files the audits changed, before and after. Every removal in it was declared. */
   accounting: { testsBefore: number; testsAfter: number; declaredRemoved: number; casesBefore: number; casesAfter: number; assertionsBefore: number; assertionsAfter: number };
@@ -53,7 +56,7 @@ export function buildSnapshot(inventory: Inventory, signals: ReadonlyMap<string,
 
 export function buildMetrics(state: LedgerState, inventory: Inventory, now: Date, reauditDays: number): Metrics {
   const audits = landedOrPending(state);
-  const coverage = { files: inventory.rows.length, auditedCurrent: 0, stale: 0, never: 0, share: 0, medianAuditAgeDays: null as number | null };
+  const coverage = { files: inventory.rows.length, auditedCurrent: 0, stale: 0, unfinished: 0, never: 0, share: 0, medianAuditAgeDays: null as number | null };
   const ages: number[] = [];
   for (const row of inventory.rows) {
     const audit = audits.get(row.file);
@@ -68,7 +71,7 @@ export function buildMetrics(state: LedgerState, inventory: Inventory, now: Date
   const runs: Metrics["runs"] = { total: state.runs.length, byOutcome: {}, byAgent: {}, byProfile: {} };
   for (const run of state.runs) { bump(runs.byOutcome, run.outcome); bump(runs.byAgent, run.agent); bump(runs.byProfile, run.profile); }
 
-  const findings: Metrics["findings"] = { total: 0, perAuditedFile: 0, byLens: {}, bySmell: {}, byAction: {}, byStatus: {} };
+  const findings: Metrics["findings"] = { total: 0, perAuditedFile: 0, byLens: {}, bySmell: {}, byAction: {}, byStatus: {}, byDeferredFor: {} };
   const proof: Metrics["proof"] = { mutationsKilled: 0, testsThatCouldNotFail: 0, deflaked: 0, secondsSavedPerRun: 0, testsRemoved: 0 };
   const refind = { reaudits: 0, refound: 0, rate: null as number | null };
   const accounting: Metrics["accounting"] = { testsBefore: 0, testsAfter: 0, declaredRemoved: 0, casesBefore: 0, casesAfter: 0, assertionsBefore: 0, assertionsAfter: 0 };
@@ -94,6 +97,7 @@ export function buildMetrics(state: LedgerState, inventory: Inventory, now: Date
       findings.total++;
       bump(findings.byLens, finding.lens); bump(findings.bySmell, finding.smell);
       bump(findings.byAction, finding.action); bump(findings.byStatus, finding.status);
+      if (finding.status === "deferred") bump(findings.byDeferredFor, deferralOf(finding));
       if (finding.status !== "fixed") continue;
       if (finding.evidence?.mutation?.verdict === "killed") proof.mutationsKilled++;
       if (finding.lens === "cannot-fail") proof.testsThatCouldNotFail++;
@@ -138,6 +142,7 @@ export function renderReport(metrics: Metrics): string {
       ["Test files", metrics.coverage.files],
       ["Audited at their current content", `${metrics.coverage.auditedCurrent} (${(metrics.coverage.share * 100).toFixed(1)}%)`],
       ["Changed since their audit", metrics.coverage.stale],
+      ["Unfinished: work deferred for budget or proof", metrics.coverage.unfinished],
       ["Never audited", metrics.coverage.never],
       ["Median audit age in days", metrics.coverage.medianAuditAgeDays ?? "n/a"],
     ]),
@@ -153,6 +158,7 @@ export function renderReport(metrics: Metrics): string {
       ["By lens", breakdown(metrics.findings.byLens)],
       ["By action", breakdown(metrics.findings.byAction)],
       ["By status", breakdown(metrics.findings.byStatus)],
+      ["Deferred, by reason", breakdown(metrics.findings.byDeferredFor)],
     ]),
     "",
     "## Proof and efficacy",

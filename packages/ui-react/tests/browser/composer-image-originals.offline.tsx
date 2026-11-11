@@ -198,7 +198,8 @@ test("past the frame budget an image is sent as its original only, with the §8.
   const order = s.draft()!.files!.map((f) => f.file);
   const last = order.at(-1)!;
   const name = last.incomingName || last.name;
-  expect(s.status(name)).toMatch(/^Image · .+ · not shown inline$/);
+  // The fifth chip can still read "preparing preview…" once four thumbnails show (#3953): wait for its settled status.
+  await expect.poll(() => s.status(name), { timeout: 5_000 }).toMatch(/^Image · .+ · not shown inline$/);
   expect(s.chip(name)!.querySelector("[data-file-detail]")!.textContent).toBe("Your agent gets the file but not a preview.");
   expect(s.chip(name)!.getAttribute("aria-label")).toMatch(/, Image, .+, Image · .+ · not shown inline$/);
   await expect.poll(() => s.saved(), { timeout: 5_000 }).toBe(true);

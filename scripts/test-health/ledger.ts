@@ -14,7 +14,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { LensId, LensVerdict } from "./catalog";
+import { deferralOf, UNFINISHED_REASONS, type DeferredReason, type LensId, type LensVerdict } from "./catalog";
 import type { Worksheet } from "./worksheet";
 import type { FileAccounting } from "./accounting";
 
@@ -28,7 +28,10 @@ export interface ClusterRecord extends Base {
   package: string; worksheet: Worksheet; audits: AuditedFile[];
   /** Tests and executed cases before and after, for each file the cluster changed. */
   accounting?: FileAccounting[];
+  /** A fix prepared but not proven in time, stored on the ledger ref so a later run on any machine can resume it. */
+  wip?: WipPatch;
 }
+export interface WipPatch { path: string; sha256: string; bytes: number; files: string[] }
 /** Withdraws a cluster's audits, for example when its commit was dropped from a batch. */
 export interface VoidRecord extends Base { type: "void"; cluster: number; reason: string }
 export interface Snapshot {
@@ -37,13 +40,15 @@ export interface Snapshot {
   signals: Record<string, number>; openIssues: number; openIssuesNeedingRepro: number;
 }
 export interface RunRecord extends Base {
-  type: "run"; agent: string; profile: string; mode: string; package: string | null;
+  type: "run"; agent: string; profile: string; mode: string; package: string | null; group?: string;
   startedAt: string; outcome: "completed" | "throttled" | "blocked" | "nothing-to-do" | "failed";
   note?: string; snapshot?: Snapshot;
 }
 export type BatchEvent = "opened" | "pr" | "attempt" | "dropped" | "landed" | "abandoned";
 export interface BatchRecord extends Base {
   type: "batch"; event: BatchEvent; batchId: string;
+  /** The batch's group: a package's own name, or the shared `small` group. A record from before groups names only `package`. */
+  group?: string;
   package?: string; branch?: string; base?: string; profile?: string;
   pr?: number; commit?: string; mergeSha?: string; changedFiles?: number; reason?: string;
 }
@@ -74,8 +79,19 @@ const byTime = (a: LedgerRecord, b: LedgerRecord): number => a.at < b.at ? -1 : 
 
 export interface LedgerStore {
   read(): LedgerRecord[];
-  /** Appends records, and optionally replaces whole root files such as the report. */
+  /** Appends records, and optionally replaces whole files such as the report (`report.md`) or a stored patch (`wip/<name>`). */
   append(records: readonly LedgerRecord[], files?: Record<string, string>): void;
+  /** A file stored next to the records, or null. */
+  readFile(name: string): string | null;
+}
+
+/** Stored file names are a root file or one directory deep, and never inside `records`. */
+function checkFileName(name: string): string[] {
+  const parts = name.split("/");
+  if (parts.length > 2 || parts.some(part => !part || part === "." || part === "..") || parts[0] === "records") {
+    throw new Error(`Ledger file names are a root file or one directory deep, outside records: ${name}`);
+  }
+  return parts;
 }
 
 /** A plain directory with the ledger's layout: dry runs, tests and offline use. */
@@ -93,7 +109,16 @@ export class DirLedgerStore implements LedgerStore {
       const path = join(this.dir, monthFile(record.at));
       writeFileSync(path, (existsSync(path) ? readFileSync(path, "utf8") : "") + serialize([record]));
     }
-    for (const [name, content] of Object.entries(files)) writeFileSync(join(this.dir, name), content);
+    for (const [name, content] of Object.entries(files)) {
+      const parts = checkFileName(name);
+      if (parts.length === 2) mkdirSync(join(this.dir, parts[0]!), { recursive: true });
+      writeFileSync(join(this.dir, name), content);
+    }
+  }
+  readFile(name: string): string | null {
+    checkFileName(name);
+    const path = join(this.dir, name);
+    return existsSync(path) ? readFileSync(path, "utf8") : null;
   }
 }
 
@@ -164,10 +189,18 @@ export class GitLedgerStore implements LedgerStore {
         months.set(name, { mode: "100644", type: "blob", oid: blob(before + serialize(added)) });
       }
       if (months.size) root.set("records", { mode: "040000", type: "tree", oid: mktree(months) });
+      const subtrees = new Map<string, Map<string, TreeEntry>>();
       for (const [name, content] of Object.entries(files)) {
-        if (name.includes("/") || name === "records") throw new Error(`Ledger root file names are flat: ${name}`);
-        root.set(name, { mode: "100644", type: "blob", oid: blob(content) });
+        const parts = checkFileName(name);
+        if (parts.length === 1) { root.set(name, { mode: "100644", type: "blob", oid: blob(content) }); continue; }
+        const [dir, leaf] = parts as [string, string];
+        if (!subtrees.has(dir)) {
+          const existing = root.get(dir);
+          subtrees.set(dir, existing?.type === "tree" ? this.tree(existing.oid) : new Map());
+        }
+        subtrees.get(dir)!.set(leaf, { mode: "100644", type: "blob", oid: blob(content) });
       }
+      for (const [dir, entries] of subtrees) root.set(dir, { mode: "040000", type: "tree", oid: mktree(entries) });
       const message = records.length ? `test-health: ${[...new Set(records.map(record => record.type))].join(", ")}` : "test-health: report";
       const commit = this.git(["commit-tree", mktree(root), ...(oid ? ["-p", oid] : []), "-m", message]).trim();
       try {
@@ -180,11 +213,28 @@ export class GitLedgerStore implements LedgerStore {
     }
     throw new Error(`The test-health ledger moved ${this.attempts} times in a row; nothing was recorded`);
   }
+
+  readFile(name: string): string | null {
+    checkFileName(name);
+    const oid = this.remoteOid();
+    if (!oid) return null;
+    this.git(["fetch", "--no-tags", "--quiet", this.remote, oid]);
+    try { return this.git(["cat-file", "blob", `${oid}:${name}`]); } catch { return null; }
+  }
 }
 
-export interface FileAuditState { at: string; runId: string; cluster: number; blobBefore: string; blobAfter: string | null; lenses: Record<LensId, LensVerdict> }
+/** A deferred finding as a later run needs it, with its reason resolved. */
+export interface DeferredFinding { id: string; lens: string; smell: string; action: string; note: string; deferredFor: DeferredReason }
+export interface FileAuditState {
+  at: string; runId: string; cluster: number; blobBefore: string; blobAfter: string | null; lenses: Record<LensId, LensVerdict>;
+  /** This audit's deferred findings on the file itself; absent on states built by hand. */
+  deferred?: DeferredFinding[];
+  /** The ledger path of the patch this audit prepared for the file, when it stored one. */
+  wip?: string;
+}
 export interface BatchState {
-  batchId: string; package: string; branch: string; base: string; profile: string; openedAt: string;
+  /** A package's own name, or `small`. A batch opened before groups reads as its package's group. */
+  batchId: string; group: string; branch: string; base: string; profile: string; openedAt: string;
   status: "open" | "landed" | "abandoned"; pr: number | null; attempts: number;
   clusters: Array<{ runId: string; cluster: number; commit: string | null; files: string[] }>;
   dropped: string[]; closedAt: string | null;
@@ -216,8 +266,12 @@ export function ledgerState(records: readonly LedgerRecord[], now: Date): Ledger
       if (voided.has(`${record.runId}\n${record.cluster}`)) { state.voided.push(record); continue; }
       state.clusters.push(record);
       for (const audit of record.audits) {
+        const deferred = (record.worksheet?.findings ?? []).filter(finding => finding.status === "deferred" && finding.file === audit.file)
+          .map(finding => ({ id: finding.id, lens: finding.lens, smell: finding.smell, action: finding.action, note: finding.note, deferredFor: deferralOf(finding) }));
         state.audits.set(audit.file, { at: record.at, runId: record.runId, cluster: record.cluster,
-          blobBefore: audit.blobBefore, blobAfter: audit.blobAfter, lenses: audit.lenses });
+          blobBefore: audit.blobBefore, blobAfter: audit.blobAfter, lenses: audit.lenses, deferred,
+          // A prepared fix may change only a helper: it belongs to the files whose work it resumes as well as to those it touches.
+          ...(record.wip && (record.wip.files.includes(audit.file) || deferred.some(finding => UNFINISHED_REASONS.includes(finding.deferredFor))) ? { wip: record.wip.path } : {}) });
       }
       if (record.batchId) {
         state.batches.get(record.batchId)?.clusters.push({ runId: record.runId, cluster: record.cluster,
@@ -226,8 +280,9 @@ export function ledgerState(records: readonly LedgerRecord[], now: Date): Ledger
     } else if (record.type === "batch") {
       const batch = state.batches.get(record.batchId);
       if (record.event === "opened") {
-        if (batch || !record.package || !record.branch || !record.base) continue;
-        state.batches.set(record.batchId, { batchId: record.batchId, package: record.package, branch: record.branch,
+        const group = record.group ?? record.package;
+        if (batch || !group || !record.branch || !record.base) continue;
+        state.batches.set(record.batchId, { batchId: record.batchId, group, branch: record.branch,
           base: record.base, profile: record.profile ?? "cron", openedAt: record.at, status: "open", pr: null,
           attempts: 0, clusters: [], dropped: [], closedAt: null });
       } else if (batch) {

@@ -29,6 +29,8 @@ export async function httpContractApp(options: {
   speechProvider?: SpeechProvider;
   speechProviders?: SpeechProvider[];
   defaultSpeechProviderId?: string;
+  /** Live-conversation registration (#3616), passed through unchanged. */
+  live?: Pick<CreateAppOptions, "conversationProvider" | "conversationProviders" | "defaultConversationProviderId">;
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "brain-http-contract-"));
   const brainPath = join(root, "brain");
@@ -87,6 +89,7 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
       defaultSpeechProviderId: options.defaultSpeechProviderId,
       registry: options.registry ?? createStaticBackendRegistry([backend]),
       ...(options.speechProvider ? { speechProvider: options.speechProvider } : {}),
+      ...options.live,
       ...(options.staticRoot ? { staticRoot } : {}),
       ...(options.renderer ? { renderer: options.renderer } : {}),
     };

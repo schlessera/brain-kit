@@ -6,8 +6,8 @@
  * evidence its action requires. Nobody reviews these changes by reading them,
  * so this check is the review.
  */
-import { ACTIONS, LENS_IDS, LENS_VERDICTS, REDUCING_ACTIONS, STATUSES, requiredEvidence, smellById,
-  type ActionId, type LensId, type LensVerdict, type StatusId } from "./catalog";
+import { ACTIONS, DEFERRED_REASONS, LENS_IDS, LENS_VERDICTS, REDUCING_ACTIONS, STATUSES, requiredEvidence, smellById,
+  type ActionId, type DeferredReason, type LensId, type LensVerdict, type StatusId } from "./catalog";
 
 export interface MutationEvidence { verdict: string; test: string; patchSha256: string; expect: string }
 export interface RunsEvidence { runs: number; failures: number; medianMs: number | null }
@@ -39,6 +39,8 @@ export interface Finding<Ref = false> {
   status: StatusId;
   /** One sentence: what was wrong and what was done or why it was left. */
   note: string;
+  /** Required on a `deferred` finding, and only there. */
+  deferredFor?: DeferredReason;
   evidence?: Evidence<Ref>;
 }
 
@@ -150,6 +152,11 @@ export function validateWorksheet(sheet: Worksheet, options: ValidateOptions): s
     if (!ACTIONS.includes(finding.action)) problems.push(`${at}: unknown action ${String(finding.action)}`);
     if (!STATUSES.includes(finding.status)) problems.push(`${at}: unknown status ${String(finding.status)}`);
     if (!text(finding.note)) problems.push(`${at}: a note is required`);
+    if (finding.status === "deferred" && !DEFERRED_REASONS.includes(finding.deferredFor as DeferredReason)) {
+      problems.push(`${at}: a deferred finding says why in deferredFor (${DEFERRED_REASONS.join(", ")})`);
+    }
+    if (finding.status !== "deferred" && finding.deferredFor !== undefined) problems.push(`${at}: only a deferred finding carries deferredFor`);
+    if (finding.deferredFor === "context" && member) problems.push(`${at}: deferredFor context is for a finding on a context file`);
     if (finding.status !== "accepted") open.set(`${finding.file}\n${finding.lens}`, (open.get(`${finding.file}\n${finding.lens}`) ?? 0) + 1);
 
     const evidence: Evidence<false> = isObject(finding.evidence) ? finding.evidence : {};

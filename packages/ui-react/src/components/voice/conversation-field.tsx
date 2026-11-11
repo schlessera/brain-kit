@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { Button, Overlay, VoiceControlButton, VoiceField, VoiceNotice, VoiceText, type IconName } from "@schlessera/brain-ui-kit";
+import { VoiceControlButton, VoiceField, VoiceNotice, VoiceText, type IconName } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot } from "../../root-context.js";
 import { conversationService, MUTED_NOTICE, READINESS_NOTICES, REVIEW_BOUNDED_NOTICE, REVIEW_TRIMMED_NOTICE, UNCLEAR_NOTICE, type ConversationClientState } from "../../voice/conversation-client.js";
 import { PERMISSION_PENDING_LINE } from "../../voice/conversation-permissions.js";
+import { ConversationStartCard } from "./start-card.js";
 
 /** The live states the tall voice field draws (#3690); S5 is the Start sequence's Connecting. */
 type LiveFieldState = "S5" | "L1" | "L2" | "L3" | "L4" | "L5" | "L6" | "L7" | "L8" | "L9";
@@ -12,7 +13,7 @@ type LiveFieldState = "S5" | "L1" | "L2" | "L3" | "L4" | "L5" | "L6" | "L7" | "L
  * Maps the client's own state onto one live state. Every input is something
  * the client knows: its connection, capture intent, the playing reply, host
  * work and a pending approval card. `null` draws no field (before Start, or
- * while the disclosure sheet asks for one).
+ * while the Start card asks for one).
  */
 function liveFieldState(s: Pick<ConversationClientState, "active" | "disclosureOpen" | "capture" | "connection" | "micOn" | "interaction" | "outputRecovery">,
   o: { speaking: boolean; hostWork: boolean; approval: boolean }): LiveFieldState | null {
@@ -86,7 +87,6 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
   const client = root.connection.conversation;
   const s = useStore(client.state);
   const permission = useStore(client.permissions.state);
-  const chat = useStore(root.stores.connection, (state) => state.wsStatus);
   const streaming = useStore(root.stores.chat, (state) => !!(s.sessionId === null ? state.draft : state.buffers[s.sessionId])?.isStreaming);
   // A pending approval is the tool card's to answer, by tap only (L6).
   const approval = useStore(root.stores.chat, (state) => !!(s.sessionId === null ? state.draft : state.buffers[s.sessionId])?.messages.some(m => m.toolCalls.some(t => t.status === "pending_approval")));
@@ -120,8 +120,6 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
   if (!s.active) return null;
   const profile = s.profile;
   const disclosed = s.conversationProfile;
-  const coverage = s.connection === "Connected" ? profile?.historyCoverage : undefined;
-  const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
   const leave = () => { client.leave(); onLeave(); };
   const service = profile ? conversationService(profile.providerId) : disclosed ? conversationService(disclosed.providerId) : null;
   const muted = s.capture === "muted";
@@ -145,9 +143,9 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
     : null;
   const meta = draft ? DRAFT_META : outputMuted ? "Reply audio off" : readiness ? "mic off"
     : [service, state === "S5" ? null : clock(seconds)].filter(Boolean).join(" · ") || undefined;
-  return <div ref={frame} data-conversation-field="" data-live-state={state ?? undefined} data-voice-refusal-window={permission.line ? "" : undefined} className="mx-auto max-w-3xl bg-background text-foreground" style={{ overflowWrap: "anywhere" }}>
+  return <div ref={frame} data-conversation-field="" data-live-state={s.disclosureOpen ? undefined : state ?? undefined} data-voice-refusal-window={permission.line ? "" : undefined} className="mx-auto max-w-3xl bg-background text-foreground" style={{ overflowWrap: "anywhere" }}>
     <div className="sr-only" aria-live="polite" aria-atomic="true">{s.announcement}</div>
-    {state === "L9"
+    {s.disclosureOpen ? null : state === "L9"
       ? <div className="pb-2"><VoiceNotice tone="fail" icon="attention" title="Live conversation stopped" body={s.notice || undefined}
           actions={[{ label: "Close", onClick: leave }, { label: "Start again", tone: "brain", onClick: client.details }]} /></div>
       : state && <div className="pb-2">
@@ -170,23 +168,6 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
           {body}
         </VoiceField>
       </div>}
-    <Overlay open={s.disclosureOpen} variant="sheet" title="Live conversation" onClose={leave} data-overlay-site="conversation-disclosure">
-      <div className="space-y-3 p-4 text-sm">
-        <p>{disclosed?.disclosure.voiceService ?? "Connecting to the configured voice service…"}</p>
-        {disclosed?.disclosure.destinations.map((destination) => <p key={destination}>{destination}</p>)}
-        <p>Host relay: {typeof window === "undefined" ? root.apiBase() || "this application’s host" : new URL(root.apiBase() || "/", window.location.href).origin}</p>
-        <p>Independently selected agent backend: {backend}. API destination and retention: unknown unless documented by the host.</p>
-        {disclosed?.capabilities.contextualTasks === "supported"
-          ? <p>Brain can start permitted background tasks from the conversation and share results while you keep talking. Actions that need confirmation use the same screen cards as typed requests. Recognition may be uncertain; speech cannot approve an action.</p>
-          : disclosed?.capabilities.finalTranscript !== "supported" && <p>Automatic tasks aren't available with this service. Review recognized text and use Send now.</p>}
-        <p>{s.durableAvailable || client.historyOwnerFor(s.sessionId ?? "") ? "Recognized speech and generated voice replies are saved as text with this chat. This feature does not save audio. Reopening text does not replay audio or prove the voice service received this history." : "Live recognition is temporary and may be unavailable after reload."}</p>
-        <p>Starting voice sends bounded prior chat text and completed results to this voice service, including when you switch services. Raw audio is not retained by this feature.</p>
-        {coverage && <p>{coverage.state === "complete" ? "Available prior text was included in startup context." : coverage.state === "bounded" ? "Some prior text was omitted to fit startup context." : coverage.state === "partial" ? "Some prior discussion evidence or its original order is unavailable." : "Prior discussion evidence is unavailable."} {coverage.tailOmitted && (coverage.state === "partial" ? "The newest prior item may be missing." : "The newest prior item was not included.")} This does not prove the service understood or recalled it.</p>}
-        <p>Spoken refusal is unavailable with the current voice services. Use Deny on screen.</p>
-        {profile?.capabilities.exactPermissionSpeech !== "supported" && <p>Permission decisions remain on screen; spoken announcements are unavailable.</p>}
-        {s.notice && <p>{s.notice}</p>}
-        <div className="flex gap-2"><Button label="Start" style={button} disabled={!disclosed || chat !== "connected"} onClick={client.start} /><Button label="Cancel" style={button} tone="ghost" onClick={leave} /></div>
-      </div>
-    </Overlay>
+    {s.disclosureOpen && <div className="pb-2"><ConversationStartCard backend={backend} onLeave={onLeave} /></div>}
   </div>;
 }

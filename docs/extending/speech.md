@@ -362,7 +362,8 @@ and [qualification plan](../investigations/live-conversation-investigation.md#bo
 `createGptLiveConversationProvider(serverOwnedApiKey)` from
 `@schlessera/brain-ui-server` supplies the separately registered
 `CreateAppOptions.conversationProvider`. The server retains the credential;
-the adapter fixes `gpt-live-1`, Live v1 primary WebSocket, PCM16/24 kHz, marin,
+the adapter fixes `gpt-live-1`, Live v1 primary WebSocket, PCM16/24 kHz, marin
+(or a persona's voice from its 38 declared voices, #3617),
 client delegation and `store:false`. The host's independently selected backend
 continues streaming chat progress, tool activity and interactive cards while
 voice input/output and asynchronous delegated work remain active.
@@ -378,6 +379,43 @@ cut does not claim remote output cancellation, and `store:false` does not
 promise zero retention. The
 [conversation contract](../integration-contract/wire.md#live-conversation-additive-957)
 describes the guarded correlation, bounded result appends and close receipts.
+
+## Registering both live services
+
+A host may register both adapters and let the brain's owner choose between
+them in Settings › Voice (#3616). `conversationProviders` replaces the single
+`conversationProvider` (which still means a list of one; passing both fails
+startup), and `defaultConversationProviderId` names the host's default:
+
+```ts
+const app = await createApp({
+  // Supply the remaining host options as usual.
+  conversationProviders: [
+    createGeminiConversationProvider(geminiKey),
+    createGptLiveConversationProvider(openAiKey),
+  ],
+  defaultConversationProviderId: "gemini-live",
+});
+```
+
+Startup also fails on duplicate ids or a default that names no registered
+service. Registration is discovery, not proof the key works: "usable" means
+registered at boot, and a key that fails later ends that conversation with the
+ordinary provider error and never selects another service.
+
+A new Start uses, in order: a one-time pick made before Start (it is never
+saved); the saved brain-wide default from Settings › Voice, only if it is still
+registered; the host default, only when nothing is saved; the single registered
+service, only when nothing is saved. A saved default that is no longer
+registered stops there: each Start asks for an explicit pick until the default
+is changed in Settings, and the host default is not substituted. Several
+services with nothing saved and no host default also need a pick. A saved
+default applies from the next explicit Start; a running conversation, and any
+reconnect of it, keeps the service it started with. Saving opens no provider,
+captures no audio and reads no history. A client that only reads the legacy
+`conversationProfile` sees live conversation as unavailable whenever no service
+is effective. See [the wire contract](../integration-contract/wire.md#live-service-selection-additive-3616)
+and [the HTTP route](../http-api.md#live-conversation-service-default).
 
 ## Live conversation in Chat
 
