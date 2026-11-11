@@ -94,7 +94,7 @@ describe.each(["governed", "strict"] as const)("a %s turn worker", (profile) => 
       expect(found.results.map(result => result.path), "WORKER_SEARCH_KEYWORD_RESULTS").toEqual(["notes/ithaca.md"]);
       expect(found.warnings.join("\n"), "WORKER_SEARCH_NAMES_WITHHELD_PROVIDER")
         .toContain("[provider_unavailable provider=gemini capability=embeddings key=GEMINI_API_KEY degraded_to=keyword_search]");
-      expect(FIXTURE_VALUES.some(value => stdout.includes(value) || stderr.includes(value))).toBe(false);
+      expect(FIXTURE_VALUES.filter(value => stdout.includes(value) || stderr.includes(value))).toEqual([]);
     } finally { f.cleanup(); }
   });
 });

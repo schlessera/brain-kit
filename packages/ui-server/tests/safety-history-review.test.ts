@@ -22,6 +22,14 @@ async function scout(f: Fixture) {
     payload: { source: "web_fetch", tool: "WebFetch", detail: null, occurrence: c } });
   return c;
 }
+/**
+ * Run a safety write while every safety read waits behind the fixture's hold, so
+ * no poll sees the row with its local pending latch still set (#3723).
+ */
+async function settled<T>(f: Fixture, write: () => Promise<T>): Promise<T> {
+  const quiet = f.hold();
+  try { return await write(); } finally { quiet.release(); }
+}
 function reader() {
   const chat = createStore(() => ({ activeSessionId: "ithaca" })), safety = createSafetyStore(), sent: ClientMessage[] = [];
   const client = createSafetyClient({ stores: { chat, safety } } as unknown as BrainUiServices, message => { sent.push(message); return true; });
@@ -71,7 +79,7 @@ test("real WS subscriptions resync on alias adoption even before the safety bind
     ws.send({ type: "safety_subscribe", version: 1, requestId: "old-anchor", identity: initial.identity, afterRevision: initial.highWater, snapshotId: initial.snapshotId });
     expect(await ws.until(m => m.type === "safety_unavailable")).toMatchObject({ requestId: "old-anchor", reason: "gap" });
     ws.send({ type: "safety_subscribe", version: 1, requestId: "new-anchor", identity: fresh.identity, afterRevision: fresh.highWater, snapshotId: fresh.snapshotId });
-    await f.add("B"); f.history.poll();
+    await settled(f, () => f.add("B")); f.history.poll();
     const update = await ws.until(m => m.type === "safety_update" && m.update.projection.unresolvedCount === 3);
     expect(update.type === "safety_update" && update.update.projection.unresolvedCount).toBe(3);
     await f.writes.bind("scout-turn", "ithaca");
@@ -137,8 +145,8 @@ test("every production taint source including Apify survives authenticated snaps
     if (initial.type !== "safety_history") throw new Error("Missing source snapshot");
     ws.send({ type: "safety_subscribe", version: 1, requestId: "sources", identity: initial.page.identity, afterRevision: initial.page.highWater, snapshotId: initial.page.snapshotId });
     const observed = occurrence(f.bindingId, "compute_input", "later-apify", "finalized");
-    await f.writes.record({ kind: "taint", sessionId: "ithaca", turnId: "voyage", at: 0, actor: "interactive", model: null, profile: "governed",
-      payload: { source: "apify_result", tool: "brain_apify_results", detail: null, occurrence: observed } });
+    await settled(f, () => f.writes.record({ kind: "taint", sessionId: "ithaca", turnId: "voyage", at: 0, actor: "interactive", model: null, profile: "governed",
+      payload: { source: "apify_result", tool: "brain_apify_results", detail: null, occurrence: observed } }));
     f.history.poll();
     const delta = await ws.until(m => m.type === "safety_unavailable" || m.type === "safety_update" && m.update.records.some(r => r.id === observed.id));
     expect(delta.type, "SUPPORTED_APIFY_DELTA_MUST_REMAIN_READABLE").toBe("safety_update");

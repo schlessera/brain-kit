@@ -296,9 +296,9 @@ test("native volume producer failure blocks browser execution and still drains r
   const result = await invoke(["--project=diagrams-chromium"], 0, "warm", 17);
   expect(result.code, "NATIVE_FAILURE_MUST_BLOCK_BROWSER").not.toBe(0);
   expect(result.stderr).toContain("Native diagram producer failed (17)");
-  expect(result.calls.some(call => call.command === "vitest")).toBe(false);
+  expect(result.calls.map(call => call.command)).not.toContain("vitest");
   const calls = (await readFile(resolve(result.root, "native-calls.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
-  expect(calls.some(args => args[0] === "cp")).toBe(false);
+  expect(calls.map(args => args[0])).not.toContain("cp");
   expect(await readdir(resolve(result.root, "docker-state/volumes"))).toEqual([]);
   expect(await readdir(resolve(result.root, "docker-state/containers"))).toEqual([]);
 });
@@ -308,7 +308,7 @@ test("missing native origin PDF blocks receipt publication and browser execution
   expect(result.code, result.stderr).not.toBe(0);
   expect(result.stderr, "MISSING_ORIGIN_PDF_MUST_REFUSE_PUBLICATION").toContain("ENOENT");
   expect(result.stderr).toContain("origin.pdf");
-  expect(result.calls.some(call => call.command === "vitest"), "INCOMPLETE_ORIGIN_MUST_BLOCK_BROWSER").toBe(false);
+  expect(result.calls.map(call => call.command), "INCOMPLETE_ORIGIN_MUST_BLOCK_BROWSER").not.toContain("vitest");
   const prepared = resolve(result.root, "tmp/diagram-export-native-prepared");
   const [session] = await readdir(prepared);
   expect(session, "FAILED_ORIGIN_OWNS_PREPARATION_SESSION").toBeDefined();

@@ -9,13 +9,15 @@ const five = rankingJourneys.slice(0, 5);
 const ids = five.map((item) => item.id);
 const args = { question: "Which crossing first?", items: five, onSubmit: fn(), onDismiss: fn() };
 
-async function geometry(root: HTMLElement) {
+async function geometry(root: HTMLElement, rows: number) {
   await expect(overflowing(root)).toEqual([]);
   const card = root.querySelector<HTMLElement>(".bk-askrank")!;
   await expect(card.getBoundingClientRect().width).toBeGreaterThan(200);
   await Promise.all(card.getAnimations({ subtree: true }).filter((animation) => animation.effect?.getTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => undefined)));
   const scroll = window.scrollY;
-  for (const handle of root.querySelectorAll<HTMLElement>("[data-rank-handle]")) {
+  const handles = root.querySelectorAll<HTMLElement>("[data-rank-handle]");
+  await expect(handles, "one reorder handle per row").toHaveLength(rows);
+  for (const handle of handles) {
     handle.scrollIntoView({ block: "center" });
     const paint = handle.getBoundingClientRect();
     const reach = getComputedStyle(handle, "::before");
@@ -31,13 +33,13 @@ async function geometry(root: HTMLElement) {
   }
   window.scrollTo(0, scroll);
 }
-export const RankUntouched = meta.story({ args, play: async ({ canvasElement }) => geometry(canvasElement) });
-export const RankWide = meta.story({ args, parameters: wide, play: async ({ canvasElement }) => geometry(canvasElement) });
+export const RankUntouched = meta.story({ args, play: async ({ canvasElement }) => geometry(canvasElement, five.length) });
+export const RankWide = meta.story({ args, parameters: wide, play: async ({ canvasElement }) => geometry(canvasElement, five.length) });
 export const RankPickedUp = meta.story({ args, play: async ({ canvas, canvasElement }) => {
   await userEvent.click(canvas.getByRole("button", { name: "Circe’s island, position 3 of 5" }));
   await expect(canvas.getByRole("button", { name: "Cancel" })).toBeVisible();
   await expect(getComputedStyle(canvasElement.querySelector<HTMLElement>("[data-picked]")!).boxShadow).not.toBe("none");
-  await geometry(canvasElement);
+  await geometry(canvasElement, five.length);
 } });
 /** A static lifted frame; pointer travel itself is covered by the browser harness. */
 export const RankMidDrag = meta.story({ args, play: async ({ canvas }) => {
@@ -45,7 +47,7 @@ export const RankMidDrag = meta.story({ args, play: async ({ canvas }) => {
 } });
 export const RankAnswered = meta.story({ args: { ...args, state: "answered", order: [ids[2]!, ids[0]!, ids[4]!, ids[1]!, ids[3]!], unchanged: false } });
 export const RankKept = meta.story({ args: { ...args, state: "answered", order: ids, unchanged: true } });
-export const RankFifteenCutoff = meta.story({ args: { ...args, items: rankingJourneys, cutoff: 3 }, play: async ({ canvasElement }) => geometry(canvasElement) });
+export const RankFifteenCutoff = meta.story({ args: { ...args, items: rankingJourneys, cutoff: 3 }, play: async ({ canvasElement }) => geometry(canvasElement, rankingJourneys.length) });
 export const RankFifteenAnswered = meta.story({ args: { ...args, items: rankingJourneys, cutoff: 3, state: "answered", order: rankingJourneys.map((item) => item.id), unchanged: true } });
 export const RankDismissed = meta.story({ args: { ...args, state: "dismissed", onAskAgain: fn() } });
 export const RankKeyboard = meta.story({ args, play: async ({ canvas, args: current, canvasElement }) => {
@@ -57,7 +59,7 @@ export const RankKeyboard = meta.story({ args, play: async ({ canvas, args: curr
   await expect(canvasElement.querySelector("[aria-live]")?.textContent).toBe("Aeolus’s floating island moved to 3 of 5.");
   await userEvent.click(canvas.getByRole("button", { name: "Submit order" }));
   await expect(current.onSubmit).toHaveBeenCalledWith({ order: [ids[2], ids[0], ids[4], ids[1], ids[3]], unchanged: false });
-  await geometry(canvasElement);
+  await geometry(canvasElement, five.length);
 } });
 
 // Every interaction/record state also holds at the design’s wide width.

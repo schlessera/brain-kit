@@ -118,6 +118,8 @@ async function runAudit(brain: BrainContext, root = brain.root, failed: string[]
     return { issues, probes: (globalThis as { __hygieneProbe?: Probe[] }).__hygieneProbe ?? [] };
   } finally {
     db.close(); // the core audit may leave its own statements to finalize
+    // The probe list is this file's: no later file in the process inherits it.
+    delete (globalThis as { __hygieneProbe?: Probe[] }).__hygieneProbe;
   }
 }
 const stagePaths = (issues: AuditIssue[]) => issues.filter((i) => i.category === "jobs-stage").map((i) => i.path);

@@ -126,12 +126,12 @@ test("both maintenance envelopes carry the approved paired restriction while age
   const base={brainPath:f.brain,command:["/bin/true"],env:{PATH:"/usr/bin:/bin"},credentials:false};
   for (const input of [base,{...base,credentials:true,transport:{mirror,readPaths:[]}}]) {
     const argv=workerCommand(maintenanceLaunch(input));
-    expect(argv.includes("--disable-userns"),"MAINTENANCE_TRANSPORT_RESTRICTION").toBe(true);
-    expect(argv.includes("--assert-userns-disabled")).toBe(true);
+    expect(argv,"MAINTENANCE_TRANSPORT_RESTRICTION").toContain("--disable-userns");
+    expect(argv).toContain("--assert-userns-disabled");
   }
   const agent=workerCommand({brainPath:f.brain,command:["/bin/true"],env:{}});
-  expect(agent.includes("--disable-userns")).toBe(false);
-  expect(agent.includes("--assert-userns-disabled")).toBe(false);
+  expect(agent).not.toContain("--disable-userns");
+  expect(agent).not.toContain("--assert-userns-disabled");
 });
 
 
