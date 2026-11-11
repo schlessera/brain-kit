@@ -108,6 +108,20 @@ export type ActionId = (typeof ACTIONS)[number];
 export const STATUSES = ["fixed", "filed", "deferred", "accepted"] as const;
 export type StatusId = (typeof STATUSES)[number];
 
+/** Why a finding was deferred. `budget` and `proof` mean the work is unfinished:
+ * the file stays in the rotation until a later run finishes it. The others are
+ * left on purpose, to an issue's owner, to a reproduction that did not come,
+ * or to the run of the package that owns a context file. */
+export const DEFERRED_REASONS = ["budget", "proof", "assigned", "unreproduced", "context"] as const;
+export type DeferredReason = (typeof DEFERRED_REASONS)[number];
+export const UNFINISHED_REASONS: readonly DeferredReason[] = ["budget", "proof"];
+
+/** A deferred finding's reason. Records written before `deferredFor` existed
+ * say nothing, and most of those deferrals were for budget, so they count as
+ * `budget`, unless the smell itself says the failure did not reproduce. */
+export const deferralOf = (finding: { smell: string; deferredFor?: DeferredReason }): DeferredReason =>
+  finding.deferredFor ?? (finding.smell === "unreproduced" ? "unreproduced" : "budget");
+
 /** A lens verdict for one audited file. */
 export const LENS_VERDICTS = ["clean", "findings", "not-applicable"] as const;
 export type LensVerdict = (typeof LENS_VERDICTS)[number];

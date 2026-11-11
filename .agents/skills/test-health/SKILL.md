@@ -6,8 +6,10 @@ description: Audit a batch of brain-kit's automated tests in depth and fix the w
 # Keep the tests healthy
 
 One invocation is **one run**. A run audits a few clusters of related tests
-inside one package, commits each proven fix to that package's batch branch,
-lands the batch when it is ripe, and records what it did. Coverage of the whole
+inside one group, commits each proven fix to that group's batch branch, lands
+the batch when it is ripe, and records what it did. A group is a package of its
+own, or `small`: the packages with few test files, which share one batch. A
+cluster always stays inside one package. Coverage of the whole
 suite comes from running this again and again: the planner picks different
 files every time and reaches all of them eventually.
 
@@ -45,7 +47,7 @@ start: a run reads a great deal, and most of it can be avoided.
    - `capabilities.browserRunner: false`: add `--bun-only` to `plan`.
    - `capabilities.mayLand: false`: audit, but skip step 6.
 2. **Plan.** `TH plan`. It claims the files it gives you. Note `runId`,
-   `runDir`, `package`, `batch` and `clusters`.
+   `runDir`, `group`, `batch` and `clusters`, each with its `package`.
    - `throttled` is set: too much is waiting to land. Go to step 6, then record
      the run with `--outcome throttled`.
    - `clusters` is empty: go to step 6, then record `--outcome nothing-to-do`.
@@ -69,6 +71,21 @@ start: a run reads a great deal, and most of it can be avoided.
    budget you were given is spent (45 minutes if none was given). A cluster you
    did not finish is simply not recorded; its claim expires.
 
+   **Proof outlasts the budget.** A fix you have already written is proven even
+   when that runs past the budget, by up to `proofOverrunMinutes` in
+   `scripts/test-health/config.json`, before you take any new cluster. When a
+   brief lists findings deferred by an earlier audit, resume them first: apply
+   the prepared patch it names (`git apply <patch>`) and run its proof before
+   anything else in that cluster. If the proof still cannot finish, keep the
+   fix for the next run instead of losing it:
+
+   ```sh
+   git diff -- <files> > <runDir>/wip-<n>.patch && git checkout -- <files>
+   ```
+
+   defer the finding with `deferredFor: "proof"`, and pass
+   `--wip <runDir>/wip-<n>.patch` to `record cluster`.
+
    1. `TH brief --run <runId> --cluster <n>` (Markdown). Read every member
       file completely, and the source it exercises. Read context files only to
       judge overlap.
@@ -88,7 +105,8 @@ start: a run reads a great deal, and most of it can be avoided.
       `TH validate <runDir>/cluster-<n>.json --run <runId>` until it is `ok`.
       A problem it reports is a missing proof, not a formatting chore.
    7. If you changed anything, commit exactly this cluster's files, with the
-      trailer from the brief as the last line of the message:
+      trailer from the brief as the last line of the message and the cluster's
+      package from the brief in the subject:
 
       ```sh
       git add <changed test files>
@@ -96,7 +114,8 @@ start: a run reads a great deal, and most of it can be avoided.
       ```
 
    8. `TH record cluster --run <runId> --cluster <n> --worksheet <runDir>/cluster-<n>.json`,
-      adding `--commit HEAD` when you committed.
+      adding `--commit HEAD` when you committed and `--wip <patch>` when you
+      kept an unproven fix.
 
 5. **Push** the batch branch: `git push -u origin <batch.branch>`. Do not open
    a pull request here.
@@ -109,8 +128,8 @@ start: a run reads a great deal, and most of it can be avoided.
    read that smell's rule in the authoring guide. If the rule would not have
    prevented what you saw, sharpen it or add the example, in the batch. If the
    smell is mechanical, file an issue proposing a lint check.
-9. Report in a few lines: package, clusters audited, findings by status, what
-   landed, and anything a human must decide.
+9. Report in a few lines: group and packages, clusters audited, findings by
+   status, what landed, and anything a human must decide.
 
 | Order | Lens | Reference |
 | --- | --- | --- |
@@ -133,8 +152,15 @@ test and agree something is wrong.
 | The signal is fine in context (the weak matcher is the whole claim, the timer is a failure cap) | `none` | `accepted`, with the reason in the note |
 | You can fix it inside this cluster's member files, and can produce the proof the reference names | the fixing action | `fixed` |
 | The fix needs product code, a timeout or deadline, shard or selection rules, a workflow, or a test file outside this cluster | `file-issue` | `filed`, with the issue number |
-| The file is context (another package), or you ran out of budget, or the proof would not come out | the action you would take | `deferred` |
-| An open issue on the file is assigned to someone | comment your evidence on the issue | `deferred` |
+| You ran out of budget before writing the fix | the action you would take | `deferred`, `deferredFor: "budget"` |
+| The fix is written, but its proof would not come out within the overrun | the action you would take | `deferred`, `deferredFor: "proof"`, with the fix kept through `--wip` |
+| The file is context (another package) | the action you would take | `deferred`, `deferredFor: "context"` |
+| An open issue on the file is assigned to someone | comment your evidence on the issue | `deferred`, `deferredFor: "assigned"` |
+| An open failure issue did not reproduce | comment what you ran on the issue | `deferred`, `deferredFor: "unreproduced"` |
+
+`budget` and `proof` leave the work unfinished: the file stays in the
+rotation (in the worst-first queue it ranks ahead of a never-audited file with
+the same score), and the next run's brief lists these findings and the patch. Every other reason marks the file audited.
 
 When two actions fit, take the smaller one. Strengthening an assertion beats
 rewriting a test; rewriting beats removing it.
@@ -198,7 +224,7 @@ TH signals <file...>
 TH measure <file...> [--runs <n>] [--shuffle] [--together] [--stress] --out <file>
 TH mutate --test <file> [--name "<case>"] --expect "<failure text>" --from-worktree <path...> --out <file>
 TH validate <worksheet> --run <runId>
-TH record cluster --run <runId> --cluster <n> --worksheet <file> [--commit <sha>]
+TH record cluster --run <runId> --cluster <n> --worksheet <file> [--commit <sha>] [--wip <patch>]
 TH record run --run <runId> --outcome completed|throttled|blocked|nothing-to-do|failed --agent <label>
 TH record batch --batch <id> --event pr|attempt|dropped|landed|abandoned [--pr <n>] [--commit <sha>] [--merge-sha <sha>] [--reason "<text>"]
 TH batch status
@@ -206,8 +232,9 @@ TH batch verify --base <ref> [--head <ref>]
 TH report [--publish]
 ```
 
-Tunable values (cluster size, files per run, when a batch is ripe, how many
-may land per day) live in `scripts/test-health/config.json`, not here.
+Tunable values (cluster size, files per run, when a package counts as small,
+how long proof may outlast the budget, when a batch is ripe, how many may land
+per day) live in `scripts/test-health/config.json`, not here.
 
 When a command, limit or path in this skill turns out wrong, fix it in the
 batch that found it.

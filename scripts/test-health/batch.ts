@@ -1,8 +1,9 @@
 /**
  * Batches and the gate a batch passes before it lands.
  *
- * A batch is one branch of audited changes inside one package. Runs append a
- * commit per cluster; the batch lands as one pull request once it is ripe.
+ * A batch is one branch of audited changes inside one group: a large package,
+ * or the small packages together. Runs append a commit per cluster; the batch
+ * lands as one pull request once it is ripe.
  *
  * `verifyBatch` is the review. These changes land without a human reading
  * them, so everything a reviewer would refuse on sight is refused here,
@@ -13,19 +14,21 @@
 import { declaredFor, reportsCases, staticAccounting } from "./accounting";
 import type { Profile } from "./config";
 import type { BatchState, ClusterRecord, LedgerState } from "./ledger";
+import { resolveGroup } from "./select";
 import { countSignals, scanSource } from "./signals";
 
 export const TRAILER = "Test-Health";
 /** The commit trailer that ties a commit to its recorded audit. */
 export const trailerFor = (runId: string, cluster: number): string => `${TRAILER}: ${runId}#${cluster}`;
 
-export const batchIdFor = (packageName: string, runId: string): string => `${packageName}-${runId}`;
+export const batchIdFor = (group: string, runId: string): string => `${group}-${runId}`;
 export const branchFor = (batchId: string): string => `test-health/${batchId}`;
 
-/** The open batch a run should continue: same base, oldest first, so batches finish. */
-export function openBatch(state: LedgerState, base: string, packageName?: string): BatchState | undefined {
+/** The open batch a run should continue: same base, oldest first, so batches finish.
+ * With a group, only a batch of that group; a batch's recorded group resolves through `groups`. */
+export function openBatch(state: LedgerState, base: string, group?: string, groups: ReadonlyMap<string, string> = new Map()): BatchState | undefined {
   return [...state.batches.values()]
-    .filter(batch => batch.status === "open" && batch.base === base && (!packageName || batch.package === packageName))
+    .filter(batch => batch.status === "open" && batch.base === base && (!group || resolveGroup(batch.group, groups) === group))
     .sort((a, b) => a.openedAt < b.openedAt ? -1 : a.openedAt > b.openedAt ? 1 : 0)[0];
 }
 
@@ -45,7 +48,7 @@ export const parkedChangedFiles = (state: LedgerState): number =>
 
 export interface Ripeness { ripe: boolean; reasons: string[]; changedFiles: number; ageHours: number; full: boolean }
 
-/** `exhausted` means the package has nothing left to audit for this batch. */
+/** `exhausted` means the batch's group has nothing left to audit. */
 export function ripeness(batch: BatchState, state: LedgerState, profile: Profile, now: Date, exhausted: boolean): Ripeness {
   const changedFiles = changedFilesOf(batch, state).length;
   const ageHours = Math.round(((now.getTime() - Date.parse(batch.openedAt)) / 3_600_000) * 10) / 10;
@@ -54,7 +57,7 @@ export function ripeness(batch: BatchState, state: LedgerState, profile: Profile
   if (changedFiles > 0) {
     if (ripe.changedFiles !== null && changedFiles >= ripe.changedFiles) reasons.push(`${changedFiles} changed files (threshold ${ripe.changedFiles})`);
     if (ripe.ageHours !== null && ageHours >= ripe.ageHours) reasons.push(`${ageHours} h old (threshold ${ripe.ageHours})`);
-    if (ripe.whenExhausted && exhausted) reasons.push("nothing left to audit in its package");
+    if (ripe.whenExhausted && exhausted) reasons.push("nothing left to audit in its group");
   }
   return { ripe: reasons.length > 0, reasons, changedFiles, ageHours, full: ripe.maxChangedFiles !== null && changedFiles >= ripe.maxChangedFiles };
 }
@@ -79,6 +82,8 @@ const TEST_FILE = /(?:(?:\.test|\.spec|_test|_spec)\.(?:[cm]?[jt]s|[jt]sx)|\.(?:
 const TEST_SUPPORT = /^(?:packages\/[^/]+\/(?:tests|test|stories)\/|tests\/|experiments\/)/;
 /** The authoring guide and the skill's own references may move with a batch (the guidance ratchet). */
 const GUIDANCE = /^(?:docs\/process\/test-authoring\.md|\.agents\/skills\/test-health\/references\/[^/]+\.md)$/;
+/** Whether a path may change in a batch: test code, test support, and the guidance that moves with it. */
+export const allowedInBatch = (path: string): boolean => TEST_FILE.test(path) || TEST_SUPPORT.test(path) || GUIDANCE.test(path);
 /** Smells whose count may never rise in a batch: they hide a test instead of fixing it. */
 const GUARDED = ["skipped", "conditional-skip", "retry", "only", "long-timeout"] as const;
 
@@ -119,7 +124,7 @@ export async function verifyBatch(input: VerifyInput): Promise<VerifyResult> {
   const mergeBase = git(root, ["merge-base", base, head]).trim();
   const changed = git(root, ["diff", "--name-only", "--no-renames", "-z", mergeBase, head, "--"]).split("\0").filter(Boolean).sort();
   for (const path of changed) {
-    if (!TEST_FILE.test(path) && !TEST_SUPPORT.test(path) && !GUIDANCE.test(path)) violations.push(`${path}: outside test code; a product or tooling change is filed, not made here`);
+    if (!allowedInBatch(path)) violations.push(`${path}: outside test code; a product or tooling change is filed, not made here`);
   }
 
   const proofSystem = input.classify ? null : await import("../proof-system");

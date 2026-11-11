@@ -233,15 +233,21 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   let indexPreparation: NativeMaintenanceIndexPreparation | undefined, indexPoisoned = false;
   const gitScaffolds = new Map<MaintenanceGitScaffold["name"], MaintenanceGitScaffoldReceipt>();
   let gitPreparation: NativeMaintenanceGitPreparation | undefined, gitPoisoned = false, gitParentInode: string | undefined;
-  const cleanup = () => cleanupPromise ??= (async () => {
-    if (prepared) await executionDrain.get(prepared)?.exited;
-    identityTicket?.close(); identityTicket = undefined;
-    if (fd !== undefined) { closeSync(fd); fd = undefined; }
-    // The stage and checkpoint remain owned if the manager cannot confirm
-    // deletion. Releasing capacity on that failure would hide retained bytes.
-    if (stageRequested) await native.manager.releaseStage(id);
-    reservation?.release(); await view.cleanup();
-  })();
+  let cleanupFailed = false;
+  const cleanup = () => {
+    // Keep cleanupPromise set between attempts: publication and new retains
+    // stay refused once deletion begins, including while its receipt is lost.
+    if (cleanupFailed) { cleanupFailed = false; cleanupPromise = undefined; }
+    return cleanupPromise ??= (async () => {
+      if (prepared) await executionDrain.get(prepared)?.exited;
+      identityTicket?.close(); identityTicket = undefined;
+      if (fd !== undefined) { closeSync(fd); fd = undefined; }
+      // The stage and checkpoint remain owned if the manager cannot confirm
+      // deletion. Releasing capacity on that failure would hide retained bytes.
+      if (stageRequested) await native.manager.releaseStage(id);
+      reservation?.release(); await view.cleanup();
+    })().catch((error: unknown) => { cleanupFailed = true; throw error; });
+  };
   try {
     reservation = processStateLedger().reserve(undefined, undefined, limits);
     stageRequested = true;

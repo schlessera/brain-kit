@@ -1444,6 +1444,7 @@ export "./internal" (./src/internal.ts)
   relayedProviderKeys
   removeMetadataFile
   removeOwnedArtifact
+  reportStrandedWorkerCleanup
   requestPolicyPermission
   requireWorkerHost
   requireWorkerHostAsync
