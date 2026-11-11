@@ -56,7 +56,7 @@ SDK conversion without adding a public embedding-provider seam.
 
 The image CLI preserves `bytes`, `costIsEstimate`, `costUsd`, `model`, `note`,
 `output`, `outputs`, `provider`, `reason` and `renamed`
-(`const payload`, `packages/module-images/src/cli.ts:474-485`). Its help example
+(`const payload`, `packages/module-images/src/cli.ts:490-501`). Its help example
 is abbreviated; it is not the complete machine contract. Internal image raw
 usage does not imply that this envelope exposes it.
 
