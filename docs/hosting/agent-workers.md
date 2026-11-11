@@ -136,7 +136,13 @@ confirmed. An unconfirmed cleanup retains ownership and reservations for
 reconciliation rather than reporting successful reclamation. For
 end-of-turn cleanup, both backends keep retrying with capped backoff
 and release the reservation only once a close is confirmed. Pi initialization
-failures retain the same retry owner. The original turn's Activity events
+failures and post-launch callback refusals retain the same retry owner. A Claude
+launch whose supervisor cleanup is unconfirmed transfers its original retryable
+close to that owner too, even though no worker handle reached the backend.
+Required native output and checkpoint cleanup must confirm before the failed
+launch's reservation is released. Retries do not keep the process alive; shutdown
+cancels them and releases no uncertain allowance, including a close that confirms
+after shutdown begins. The original turn's Activity events
 record the cleanup cause, retained allowances and eventual confirmation,
 including confirmation after the turn has ended. After five failed retries a
 host diagnostic reports slow reconciliation; retries continue without a restart.

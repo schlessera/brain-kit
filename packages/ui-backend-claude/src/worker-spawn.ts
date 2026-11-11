@@ -188,7 +188,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, hostHome: env.HOME || homedir(), credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
-      } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }
+      } catch (error) {
+        record(error);
+        if (!workerCleanupUnconfirmed(error)) state.release();
+        else if (error.close) (stateOptions.cleanup ?? processCleanupReconciler()).retain({
+          bytes: state.bytes, turnTempBytes: state.turnTempBytes, close: error.close,
+          release: () => state.release(), report: stateOptions.reportCleanup,
+        }, error);
+        throw error;
+      }
       let startFailure: unknown;
       reports.push(worker.limitReport);
       const handle = worker.state!;
@@ -349,7 +357,12 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         try {
           signal.throwIfAborted();
           return await spawnNow({ ...options, signal }, signal, output);
-        } catch (error) { await output.cleanup(); throw error; }
+        } catch (error) {
+          // An unconfirmed launch owns this output until its retryable close
+          // confirms the worker's cleanup. Do not race that owner here.
+          if (!workerCleanupUnconfirmed(error)) await output.cleanup();
+          throw error;
+        }
       }, [immediateSignal, options.signal]);
       // Register preparation immediately: finish must own it even before a
       // native child exists, including a cancelled late preparation result.

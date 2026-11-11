@@ -9,9 +9,9 @@ import { runWorkerStepsSync, workerStep, workerStepRun, workerStepSleep, type Wo
 export const WORKER_IDENTITY_HELPER_ENV = "BRAIN_UI_WORKER_IDENTITY_HELPER";
 export class WorkerIdentityCleanupError extends Error {
   readonly cleanupUnconfirmed = true;
-  constructor(message: string) { super(message); this.name = "WorkerIdentityCleanupError"; }
+  constructor(message: string, readonly close?: () => Promise<void>) { super(message); this.name = "WorkerIdentityCleanupError"; }
 }
-export function workerCleanupUnconfirmed(error: unknown): boolean {
+export function workerCleanupUnconfirmed(error: unknown): error is { cleanupUnconfirmed: true; close?: () => Promise<void> } {
   return typeof error === "object" && error !== null && "cleanupUnconfirmed" in error && error.cleanupUnconfirmed === true;
 }
 export interface IdentityRoot { name: "state" | "temp"; path: string; bytes: number }
