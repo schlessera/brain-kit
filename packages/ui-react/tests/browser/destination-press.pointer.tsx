@@ -133,6 +133,8 @@ type Scene = { ui: BrainUiRoot; host: HTMLDivElement; width: number; signal: Abo
 let styles: HTMLStyleElement | undefined;
 let viewport: { width: number; height: number };
 let sized: string | undefined;
+// The outer window is shared with every later file in the project: give it back.
+let outer: { width: number; height: number } | undefined;
 
 beforeAll(async () => {
   viewport = { width: window.innerWidth, height: window.innerHeight };
@@ -143,6 +145,7 @@ beforeAll(async () => {
 afterAll(async () => {
   styles?.remove();
   await page.viewport(viewport.width, viewport.height);
+  if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
 afterEach(async () => {
   await commands.htmlPreviewFixture(null);
@@ -188,7 +191,8 @@ async function mount(ctx: TestContext, start: Start, width: number, height: numb
   if (sized !== `${width}x${height}`) {
     sized = undefined;
     await page.viewport(width, height);
-    await commands.formViewport(width, height);
+    const previous = await commands.formViewport(width, height);
+    outer ??= previous;
     sized = `${width}x${height}`;
   }
   ctx.signal.throwIfAborted();

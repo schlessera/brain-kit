@@ -293,7 +293,7 @@ describe("GeminiAsrClient wire behaviour", () => {
     for (let i = 0; i <= GEMINI_PRESETUP_FRAMES; i++) h.speak(GEMINI_FRAME_SAMPLES * 3);
     expect(h.errors.map((error) => (error as Error & { code?: string }).code)).toEqual(["network"]);
     expect(h.closes()).toBe(1);
-    expect(h.tracks.every((track) => track.readyState === "ended")).toBe(true);
+    expect(h.tracks.map((track) => track.readyState)).toEqual(["ended"]);
     expect(h.socket().readyState).toBe(3);
   });
 
@@ -897,8 +897,8 @@ describe("GeminiAsrClient wire behaviour", () => {
     const starting = h.client.start();
     h.client.stop();
     await starting;
-    expect(h.tracks.every((track) => track.readyState === "ended")).toBe(true);
-    expect(h.sockets.every((socket) => socket.readyState === 3)).toBe(true);
+    expect(h.tracks.map((track) => track.readyState), "GEMINI_STOP_RELEASES_GRANTED_STREAM").toEqual(["ended"]);
+    expect(h.sockets.map((socket) => socket.readyState)).toEqual([3]);
   });
 
   for (const [name, end, code] of [
