@@ -48,6 +48,11 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
     root.stores.file.setState({ currentPath: "voyage/raft.md", contentLoading: true, treeExpanded: true });
     renderer = createRoot(host);
     flushSync(() => renderer!.render(<BrainUiProvider root={root!}><FilePanel open onClose={() => {}} /></BrainUiProvider>));
+    // #3285: the panel's viewer and tree are lazy chunks. Their real imports
+    // have started; a cold Vite transform must finish before the unchanged
+    // polls get their 1000 ms budget.
+    await import("../../src/components/files/file-viewer.js");
+    await import("../../src/components/files/file-tree.js");
     await expect.poll(() => document.querySelector('[aria-label="Loading file"]')).not.toBeNull();
     await expect.poll(() => document.querySelector('[aria-label="Loading files"]')).not.toBeNull();
     const result = await axe.run(document.body, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } });
