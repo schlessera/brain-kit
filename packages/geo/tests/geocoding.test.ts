@@ -47,7 +47,7 @@ describe("configured Nominatim operations",()=>{
     expect(requested!.searchParams.get("lat")).toBe("0");
     expect(requested!.searchParams.get("lon")).toBe("0");
     expect(result.source!.transfer).toEqual({data:"coordinates",sent:true});
-    expect(result.warnings.some(w=>w.includes("nearest suitable"))).toBe(true);
+    expect(result.warnings).toContainEqual(expect.stringContaining("nearest suitable"));
   });
 
   test("genuine no-match replies cache; a malformed reply remains an error and is retried",async()=>{
@@ -66,7 +66,7 @@ describe("configured Nominatim operations",()=>{
     const result=await geo.geocode("Ithaca");
     expect(result.value).toHaveLength(1);
     expect(result).toMatchObject({status:"partial",counts:{input:2,retained:1,omitted:1}});
-    expect(result.warnings.some(w=>w.includes("1 malformed"))).toBe(true);
+    expect(result.warnings).toContainEqual(expect.stringContaining("1 malformed"));
     const cached=await geo.geocode("Ithaca");
     expect(cached).toMatchObject({status:"partial",counts:{input:2,retained:1,omitted:1},source:{fromCache:true}});
     expect(count).toBe(1);
