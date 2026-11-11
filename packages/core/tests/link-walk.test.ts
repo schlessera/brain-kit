@@ -28,12 +28,16 @@ afterAll(() => {
 });
 
 test("a document deleted between the traversal and the node lookup still has its node", () => {
+  // The deletion must really land mid-walk: without it the node is there anyway.
+  let deletedMidWalk = false;
   const { edges, nodes } = walkLinks(reader, { path: "me/identity.md", depth: 1, direction: "outgoing" }, () => {
     // Another connection, like a `brain index` in another process, drops a
     // target the traversal has already reported as resolved.
     writer.run("DELETE FROM documents WHERE path = 'context/current-focus.md'");
     expect(writer.prepare("SELECT COUNT(*) AS n FROM documents WHERE path = 'context/current-focus.md'").get()).toEqual({ n: 0 });
+    deletedMidWalk = true;
   });
+  expect(deletedMidWalk).toBe(true);
   expect(edges).toContainEqual({ source: "me/identity.md", target: "context/current-focus.md", resolved: true });
   expect(nodes.map((n) => n.path)).toEqual(["context/current-focus.md", "me/basics/short-bio.md", "me/identity.md"]);
 });
