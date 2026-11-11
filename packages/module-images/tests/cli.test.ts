@@ -2,7 +2,7 @@
 // decides, what it actually sends, and what it reports. Nothing leaves the
 // process — the OpenAI key is a placeholder and every request is captured.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildTaxonomy } from "@schlessera/brain/module";
@@ -429,5 +429,102 @@ describe("brain image — animated GIF on GPT Image 2.6 (#3783)", () => {
     expect(said, "IMAGE_GIF_ACCESS_HINT").toContain("GIF preview access");
     expect(said).not.toContain("worth retrying");
     expect(said).not.toContain("region not supported");
+  });
+});
+
+describe("brain image — static SVG on GPT Image 2.6 (#3784)", () => {
+  const SUNBURST_25 = "gpt-image-2.5-sunburst";
+  const CLEAN_SVG =
+    '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">' +
+    '<defs><linearGradient id="g"><stop offset="0" stop-color="#c33"/></linearGradient><path id="p" d="M0 0h10"/></defs>' +
+    '<rect width="10" height="10" fill="url(#g)"/><use href="#p"/><use xlink:href="#p"/><text x="1" y="5">Ithaca</text></svg>';
+  const serve = (svg: string, extra: Record<string, unknown> = {}) => {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from(svg).toString("base64") }], ...extra }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+  };
+
+  test("--format svg sends output_format svg on a generation and writes the XML to a .svg", async () => {
+    serve(CLEAN_SVG);
+    expect(await run(["a sailing ship", "--format", "svg", "--out", "ship.svg"])).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toEndWith("/images/generations");
+    const body = sentJson();
+    expect(body, "IMAGE_SVG_GENERATION").toMatchObject({ model: SUNBURST, output_format: "svg", quality: "max", complexity: "high" });
+    expect(body).not.toHaveProperty("n");
+    expect(body).not.toHaveProperty("svg");
+    expect(report().output).toBe("ship.svg");
+    expect(report().renamed).toBeNull();
+    expect(readFileSync(join(root, "ship.svg"), "utf8"), "IMAGE_SVG_WRITTEN").toBe(CLEAN_SVG);
+  });
+
+  test("the default output path ends in .svg", async () => {
+    serve(CLEAN_SVG);
+    expect(await run(["a sailing ship", "--format", "svg"])).toBe(0);
+    expect(report().output).toEndWith(".svg");
+  });
+
+  const refused: [string, string[]][] = [
+    ["--ref", ["--ref", "photos/house.png"]],
+    ["--mask", ["--ref", "photos/house.png", "--mask", "photos/mask.png"]],
+    ["--transparent", ["--transparent"]],
+    [`--model ${SUNBURST_25}`, ["--model", SUNBURST_25]],
+  ];
+  for (const [label, flags] of refused) {
+    test(`SVG with ${label} refuses before any request`, async () => {
+      expect(await run(["x", "--format", "svg", ...flags])).toBe(1);
+      expect(calls, "IMAGE_SVG_REFUSED").toHaveLength(0);
+      expect(out.join("\n")).toMatch(/SVG/);
+    });
+  }
+
+  test("SVG on Gemini refuses before any request", async () => {
+    process.env.GEMINI_API_KEY = "placeholder-never-sent";
+    expect(await run(["x", "--format", "svg", "--provider", "gemini"])).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(out.join("\n")).toMatch(/SVG/);
+  });
+
+  const active: [string, string][] = [
+    ["a script element", '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'],
+    ["an event handler", '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect/></svg>'],
+    ["an event handler on a child", '<svg xmlns="http://www.w3.org/2000/svg"><rect\nonclick =\'x()\'/></svg>'],
+    ["a foreignObject", '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div/></foreignObject></svg>'],
+    ["an external href", '<svg xmlns="http://www.w3.org/2000/svg"><a href="https://example.com/"><rect/></a></svg>'],
+    ["an external xlink:href", '<svg xmlns="http://www.w3.org/2000/svg"><image xlink:href="https://example.com/x.png"/></svg>'],
+    ["an embedded raster", '<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,AAAA"/></svg>'],
+    ["a javascript: link", '<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)"><rect/></a></svg>'],
+    ["an external url()", '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(https://example.com/p.svg#g)"/></svg>'],
+    ["a stylesheet import", '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://example.com/a.css";</style></svg>'],
+    ["an entity declaration", '<!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg">&x;</svg>'],
+    ["something that is not SVG", "<html><body>hi</body></html>"],
+  ];
+  for (const [label, svg] of active) {
+    test(`an SVG with ${label} is refused and nothing is written`, async () => {
+      serve(svg);
+      expect(await run(["x", "--format", "svg", "--out", "bad.svg"])).toBe(1);
+      expect(calls).toHaveLength(1);
+      expect(existsSync(join(root, "bad.svg")), "IMAGE_SVG_ACTIVE_CONTENT").toBe(false);
+      expect(out.join("\n")).toMatch(/SVG/);
+    });
+  }
+
+  test("an SVG's cost is unknown when its authoring tokens cannot be priced", async () => {
+    serve(CLEAN_SVG, {
+      usage: { output_tokens: 100, input_tokens_details: { text_tokens: 10, image_tokens: 0 } },
+      svg_usage: { input_tokens: 500, output_tokens: 2000 },
+    });
+    expect(await run(["x", "--format", "svg", "--out", "x.svg"])).toBe(0);
+    expect(report().costUsd, "IMAGE_SVG_COST").toBeNull();
+  });
+
+  test("an SVG dry run reports its cost as unknown", async () => {
+    expect(await run(["x", "--format", "svg", "--aspect", "1:1", "--dry-run"])).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(report().output).toEndWith(".svg");
+    expect(report().estimatedCostUsd).toBeNull();
   });
 });

@@ -19,7 +19,9 @@ import {
 import { resolveEnv } from "../config/env.js";
 import { providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 import { isRetiredModel, retiredModelMessage } from "../retired.js";
+import { staticSvgProblem } from "../svg.js";
 import {
+  formatMime,
   ImageProviderError,
   type ImageRequest,
   type ImageResult,
@@ -41,7 +43,8 @@ import {
  *
  * Only the 2.6 pair takes `complexity` (low|medium|high, default high, no
  * separate fee) and returns animated GIFs (`output_format: "gif"`, #3783),
- * which need GIF preview access on the OpenAI organization. The 2.5 pair is not deprecated upstream and stays
+ * which need GIF preview access on the OpenAI organization, and author static
+ * SVG on generations (`output_format: "svg"`, `n` 1, #3784). The 2.5 pair is not deprecated upstream and stays
  * selectable. gpt-image-2 and gpt-image-1.5 are retired (`../retired.ts`) and
  * must not be re-added as a fallback.
  */
@@ -69,8 +72,8 @@ const GPT_IMAGE = {
   approxCostUsd1K: null,
 } satisfies Omit<ModelCapabilities, "id" | "summary" | "complexityControl">;
 
-/** The 2.6 pair adds animated GIF to the shared formats (#3783). */
-const GPT_IMAGE_26_FORMATS: ModelCapabilities["outputFormats"] = [...GPT_IMAGE.outputFormats, "gif"];
+/** The 2.6 pair adds animated GIF (#3783) and authored SVG (#3784) to the shared formats. */
+const GPT_IMAGE_26_FORMATS: ModelCapabilities["outputFormats"] = [...GPT_IMAGE.outputFormats, "gif", "svg"];
 
 const MODELS: ModelCapabilities[] = [
   {
@@ -276,16 +279,37 @@ function decode(body: OpenAiImageResponse, model: string, req: ImageRequest): Im
     .filter((b): b is string => typeof b === "string" && b.length > 0)
     .map((b64) => ({
       data: Uint8Array.from(Buffer.from(b64, "base64")),
-      mime: `image/${req.format ?? "png"}`,
+      mime: formatMime(req.format ?? "png"),
     }));
   if (images.length === 0) {
     throw new ImageProviderError("OpenAI returned no image data", { retryable: false });
+  }
+  if (req.format === "svg") {
+    // The API's "static" is a claim; the bytes are checked before anyone
+    // writes them (#3784). The call has been paid for either way.
+    for (const image of images) {
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(image.data);
+      } catch {
+        throw new ImageProviderError("OpenAI returned an SVG that is not UTF-8; nothing was written.", { retryable: false });
+      }
+      const problem = staticSvgProblem(text);
+      if (problem) {
+        throw new ImageProviderError(
+          `OpenAI returned an SVG that is not static (${problem}); nothing was written. Ask again, or ask for png.`,
+          { retryable: false }
+        );
+      }
+    }
   }
   return {
     images,
     provider: "openai",
     model,
-    costUsd: openAiCostFromUsage(model, body.usage),
+    // SVG authoring tokens (`svg_usage`) are billed at the authoring model's
+    // rate, which is not published here, so an SVG's cost stays unknown.
+    costUsd: req.format === "svg" ? undefined : openAiCostFromUsage(model, body.usage),
     costIsEstimate: true,
     usage: body.usage,
   };
@@ -323,6 +347,14 @@ export const openaiProvider: Provider = {
     }
     if (gif && (req.mask || req.transparent)) {
       throw new ImageProviderError("GIF output takes no mask and no transparent background.", { retryable: false });
+    }
+    if (req.format === "svg" && !MODELS.find((m) => m.id === model)?.outputFormats.includes("svg")) {
+      throw new ImageProviderError(`${model} does not author SVG; the GPT Image 2.6 models do.`, { retryable: false });
+    }
+    if (req.format === "svg" && (isEdit || req.transparent || (req.n ?? 1) > 1)) {
+      throw new ImageProviderError("SVG is a single new image: no references, mask, transparent background or n above 1.", {
+        retryable: false,
+      });
     }
     if (!gif && (req.frames !== undefined || req.frameDurationMs !== undefined)) {
       throw new ImageProviderError("Frame count and frame duration apply to GIF output only.", { retryable: false });

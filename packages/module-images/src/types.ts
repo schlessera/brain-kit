@@ -53,11 +53,22 @@ export const IMAGE_QUALITIES = ["low", "medium", "high", "xhigh", "max", "auto"]
 export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
 
 /**
- * Output formats any model may return. `gif` is an animated GIF, which only
- * the GPT Image 2.6 models produce (#3783).
+ * Output formats any model may return. `gif` is an animated GIF and `svg` an
+ * authored static SVG; only the GPT Image 2.6 models produce either (#3783,
+ * #3784).
  */
-export const IMAGE_FORMATS = ["png", "jpeg", "webp", "gif"] as const;
+export const IMAGE_FORMATS = ["png", "jpeg", "webp", "gif", "svg"] as const;
 export type ImageFormat = (typeof IMAGE_FORMATS)[number];
+
+/** The mime type of a format: `image/<format>`, except SVG. */
+export function formatMime(format: ImageFormat): string {
+  return format === "svg" ? "image/svg+xml" : `image/${format}`;
+}
+
+/** The file extension for a mime type: the inverse of `formatMime`. */
+export function mimeExtension(mime: string): string {
+  return mime === "image/svg+xml" ? "svg" : mime.replace("image/", "").replace("jpg", "jpeg");
+}
 
 /**
  * GPT Image 2.6 GIF limits from the API reference (checked 2026-11-09):
