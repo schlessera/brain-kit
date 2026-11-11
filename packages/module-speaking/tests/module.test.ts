@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "fs";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { type LoadedModule } from "@schlessera/brain";
@@ -44,10 +44,8 @@ describe("speaking manifest", () => {
   });
 
   it("excludes slide-deck working segments", () => {
-    const segments = contribution.exclude?.segments ?? [];
-    expect(segments).toContain("alt-decks");
-    expect(segments).toContain("versions");
-    expect(segments).toContain("deck");
+    // Exactly these: an extra segment would hide real talk or conference documents.
+    expect(contribution.exclude?.segments).toEqual(["alt-decks", "versions", "deck"]);
   });
 });
 
@@ -72,7 +70,15 @@ describe("speaking configSchema", () => {
   });
 
   it("rejects unknown keys", () => {
-    expect(() => configSchema.parse({ nope: true })).toThrow();
+    expect(configSchema.safeParse({ nope: true }).error?.issues).toMatchObject([
+      { code: "unrecognized_keys", keys: ["nope"], path: [] },
+    ]);
+    const member = configSchema.safeParse({
+      travelParty: [{ name: "Odysseus", ship: "the black ship" }],
+    });
+    expect(member.error?.issues).toMatchObject([
+      { code: "unrecognized_keys", keys: ["ship"], path: ["travelParty", 0] },
+    ]);
   });
 });
 
@@ -80,9 +86,11 @@ describe("speaking taxonomy roundtrip", () => {
   const taxonomy = buildTaxonomy({ modules: [loaded()] });
 
   it("resolves each contributed type's dir back to the type", () => {
-    for (const type of ["talk", "conference"]) {
-      const dir = taxonomy.dirForType(type);
-      expect(dir).not.toBeNull();
+    for (const [type, dir] of [
+      ["talk", "talks"],
+      ["conference", "conferences"],
+    ] as const) {
+      expect(taxonomy.dirForType(type)).toBe(dir);
       expect(taxonomy.typeForPath(`${dir}/x.md`)).toBe(type);
     }
   });
@@ -108,9 +116,18 @@ describe("shipped skills", () => {
     config: {},
   };
 
+  // An empty brain root, so only the module's own skills are discovered.
+  let root = "";
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "brain-speaking-skills-"));
+  });
+  afterAll(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+  });
+
   function skills() {
     const { skills, warnings } = discoverSkills(
-      { root: mkdtempSync(join(tmpdir(), "brain-speaking-skills-")), modules: [forSkills] },
+      { root, modules: [forSkills] },
       { coreSkillsDir: resolve(import.meta.dir, "no-such-core-skills") }
     );
     expect(warnings).toEqual([]);
