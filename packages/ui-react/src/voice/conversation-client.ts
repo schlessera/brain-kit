@@ -2,7 +2,7 @@ import { createConversationRecovery } from "./conversation-recovery.js";
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
-import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationProfile, LiveDefault, LivePersonaStatus, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationPersonaRef, ConversationProfile, LiveDefault, LivePersonaStatus, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
@@ -82,6 +82,12 @@ export interface ConversationClientState {
   /** The one-time pick for this entry's Start (#3616 L1/L2). Never saved. */
   serviceChoice: string | null;
   /**
+   * The persona this entry's Start sends instead of the saved one (#3698): a
+   * pick on the Start card while its save is on the way, "Use Standard this
+   * time", or "Use the default voice this time". Cleared on Enter and Leave.
+   */
+  personaChoice: ConversationPersonaRef | null;
+  /**
    * The selected live persona as the host resolves it (#3617): from
    * `server_hello` and every `live_persona` frame. Its `personaRef` is what
    * Start echoes; null on a host without personas, where Start uses Standard.
@@ -134,7 +140,7 @@ function outputInSession(output: ConversationClientOutput, sessionId: string) {
 
 /** Concrete root-owned orchestration; ordinary chat frames keep their existing path. */
 export function createConversationClient(root: BrainUiServices, send: (message: ClientMessage) => boolean, answer: (sessionId: string | null, text: string) => boolean) {
-  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, capture: "idle", interaction: "Listening", disclosureOpen: false, profile: null, conversationProfile: null, conversationProfiles: [], liveDefault: null, serviceChoice: null, livePersona: null, durableAvailable: false, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
+  const state = createStore<ConversationClientState>(() => ({ available: false, active: false, token: 0, connection: "Connecting", micOn: false, capture: "idle", interaction: "Listening", disclosureOpen: false, profile: null, conversationProfile: null, conversationProfiles: [], liveDefault: null, serviceChoice: null, personaChoice: null, livePersona: null, durableAvailable: false, sessionId: null, agentProviderId: null, text: "", voiceDraft: null, notice: "", announcement: "", playing: false, outputRecovery: "audible", work: {}, outputs: [], unassigned: [], recognition: [], unassignedWork: 0, dialogue: {}, dialogueNotice: "", dialogueRestoredThrough: {} }));
   let durableAvailable = false;
   let dialoguePrincipalKey:string|undefined;
   const dialogueReads = new Map<string, { key: string; ownerId?: string; older: boolean }>();
@@ -180,7 +186,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
    * changed; a running or resumed one keeps the persona frozen at its Start.
    */
   let agreedPersona: string | undefined;
-  const personaKey = () => { const ref = state.getState().livePersona?.personaRef; return ref ? `${ref.id}\u0000${ref.revision}` : ""; };
+  /** What Start sends as `personaRef`: this entry's one-time choice, else the saved persona. */
+  const startPersona = (): ConversationPersonaRef | undefined => {
+    const s = state.getState();
+    return s.personaChoice ?? (s.livePersona ? { id: s.livePersona.personaRef.id, revision: s.livePersona.personaRef.revision } : undefined);
+  };
+  const personaKey = () => { const ref = startPersona(); return ref ? `${ref.id}\u0000${ref.revision}\u0000${ref.voice ?? ""}` : ""; };
   let agreedEntry: number | undefined;
   // The legacy hello profile, for a host without a service roster (#3616).
   let advertisedProfile: ConversationProfile | null = null;
@@ -509,7 +520,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     pause(false, false);
     fragments.clear(); lastInput = undefined; utterance = null;
     startedService = null;
-    state.setState(s => ({ active: false, serviceChoice: null, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.unsaved || f.finalization !== "interim") }));
+    state.setState(s => ({ active: false, serviceChoice: null, personaChoice: null, text: "", disclosureOpen: false, recognition: s.recognition.filter(f => f.unsaved || f.finalization !== "interim") }));
     applyLiveProfile();
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
     if (retainedOwner && leaving && !state.getState().sessionId) {
@@ -542,8 +553,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     sequence = 0; utterance = null; ended = false; clearTimers(); resetRecovery();
     const s = state.getState();
     openingId = crypto.randomUUID(); openingEntry = entryLifetime;
-    const persona = s.livePersona?.personaRef;
-    send({ type: "conversation_start", disclosed: advertised, ...(s.conversationProfiles.length ? { providerId: advertised.providerId } : {}), contextualTasks: true, requestId: openingId, ...(persona ? { personaRef: { id: persona.id, revision: persona.revision } } : {}), ...((!s.sessionId || historyOwnerFor(s.sessionId)) && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId && historyOwnerFor(s.sessionId) ? {historyOwnerId:historyOwnerFor(s.sessionId)} : s.sessionId ? { sessionId: s.sessionId } : {}) });
+    const persona = startPersona();
+    send({ type: "conversation_start", disclosed: advertised, ...(s.conversationProfiles.length ? { providerId: advertised.providerId } : {}), contextualTasks: true, requestId: openingId, ...(persona ? { personaRef: persona } : {}), ...((!s.sessionId || historyOwnerFor(s.sessionId)) && s.agentProviderId ? { agentProviderId: s.agentProviderId } : {}), ...(s.profile ? { conversationId: s.profile.conversationId } : {}), ...(s.sessionId && historyOwnerFor(s.sessionId) ? {historyOwnerId:historyOwnerFor(s.sessionId)} : s.sessionId ? { sessionId: s.sessionId } : {}) });
   }
   async function capture() {
     const profile = scope();
@@ -856,7 +867,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (message.type === "error" && message.code.startsWith("CONVERSATION_")) {
       if (message.requestId && message.requestId !== openingId) return null;
       openingId = undefined; pause(true, true, false);
-      state.setState({ notice: message.message, ...(message.code === "CONVERSATION_UNKNOWN" ? { profile: null } : {}) });
+      // A refused first Start opened nothing (#3698): the Start card may pick
+      // a service or persona again before the next explicit Start.
+      if (!state.getState().profile) { startedService = null; agreedEntry = undefined; }
+      state.setState({ notice: message.message, ...(message.code === "CONVERSATION_UNKNOWN" ? { profile: null } : {}),
+        // The host just sent the current persona; a choice made against the old revision is void.
+        ...(message.code === "CONVERSATION_PERSONA_CHANGED" ? { personaChoice: null } : {}) });
       return null;
     }
     if (message.type === "live_persona") {
@@ -1098,7 +1114,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       entryLifetime++;
       entryProfileId = providers.pinnedId ?? agentProviderId;
       startedService = null;
-      state.setState({ serviceChoice: null });
+      state.setState({ serviceChoice: null, personaChoice: null });
       state.setState({ active: true, sessionId, agentProviderId, recognition: state.getState().recognition.filter(f => !f.contextual || f.sessionId === sessionId), unassigned: state.getState().unassigned.filter(f => !f.taskContext || f.sessionId === sessionId), profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
       // A new entry needs Start even when the service matches the last visit.
       agreedDisclosure = undefined;
@@ -1128,6 +1144,17 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (providerId !== null && !s.conversationProfiles.some((p) => p.providerId === providerId)) return;
       state.setState({ serviceChoice: providerId });
       applyLiveProfile();
+    },
+    /**
+     * The persona this entry's Start sends (#3698), chosen on the Start card.
+     * It never saves anything itself; `null` returns to the saved persona.
+     * Ignored once Start was agreed. The host still refuses a ref whose
+     * revision is no longer current, so nothing stale can open.
+     */
+    choosePersona(ref: ConversationPersonaRef | null) {
+      const s = state.getState();
+      if (!s.active || startedService !== null || agreedEntry === entryLifetime) return;
+      state.setState({ personaChoice: ref && { id: ref.id, revision: ref.revision, ...(ref.voice === "default" ? { voice: "default" as const } : {}) } });
     },
     resume() { if (state.getState().disclosureOpen) return; setConsent(true); if (!ready) startEpoch(); void capture(); },
     mute() { setConsent(false, "muted"); if (ready && mic) endpoint(generation); clearTimers(); stopMic(); state.setState({ notice: MUTED_NOTICE }); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },

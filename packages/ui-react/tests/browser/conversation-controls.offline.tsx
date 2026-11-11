@@ -137,11 +137,13 @@ for (const theme of ["light", "dark"] as const) for (const [width, height, scale
   flushSync(() => s.client.state.setState({ disclosureOpen: true, micOn: false }));
   await s.capture("disclosure");
   expect(document.body.textContent).not.toContain("Refusal by voice needs headphones");
+  // The Start card (#3698) keeps the former sheet's disclosure behind "What's shared".
+  const dialog = document.querySelector<HTMLElement>("[data-start-card]")!;
+  await userEvent.click(dialog.querySelector<HTMLElement>(".bk-voice-shared")!);
   expect(document.body.textContent).toContain("Spoken refusal is unavailable");
-  const dialog = document.querySelector<HTMLElement>('[data-overlay-site="conversation-disclosure"]')!;
   for (const name of ["Start", "Cancel"]) {
-    const control = [...dialog.querySelectorAll<HTMLElement>('button,[role=button]')].find(node => node.textContent === name)!;
-    expect(control.getBoundingClientRect().right, `${name} fits inside disclosure`).toBeLessThanOrEqual(dialog.getBoundingClientRect().right);
+    const control = [...dialog.querySelectorAll<HTMLElement>('button,[role=button]')].find(node => (node.getAttribute("aria-label") ?? node.textContent) === name)!;
+    expect(control.getBoundingClientRect().right, `${name} fits inside the Start card`).toBeLessThanOrEqual(dialog.getBoundingClientRect().right);
   }
   await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
   expect(s.client.state.getState().active).toBe(false);
@@ -161,7 +163,7 @@ for (const theme of ["light", "dark"] as const) test(`entry and connecting discl
   expect(s.network.socket()!.frames("conversation_start"),"ENTRY_DISCLOSES_WITHOUT_OPENING_PROVIDER").toHaveLength(0);
   const start=page.getByRole("button",{name:"Start",exact:true});
   expect(start.element().getAttribute("aria-disabled"),"KNOWN_DISCLOSURE_ALLOWS_EXPLICIT_START").not.toBe("true");
-  expect(document.querySelector('[data-overlay-site="conversation-disclosure"]')!.contains(document.activeElement),"ENTRY_DISCLOSURE_OWNS_FOCUS").toBe(true);
+  expect(document.querySelector("[data-start-card]")!.contains(document.activeElement),"ENTRY_DISCLOSURE_OWNS_FOCUS").toBe(true);
   await userEvent.click(start);
   expect(s.network.socket()!.frames("conversation_start")).toHaveLength(1);
   expect(s.network.socket()!.frames("conversation_start")[0]!.disclosed).toEqual(DISCLOSED_PROFILE);

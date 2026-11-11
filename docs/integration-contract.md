@@ -20,6 +20,20 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## The Start card's persona choice (additive, 0.45.0, #3698)
+
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`personaChoice: ConversationPersonaRef | null`, and the client adds
+`choosePersona(ref | null)`: the persona this entry's Start sends as
+`personaRef` instead of the saved one, including the one-time
+`{ id: "standard", revision: "builtin" }` and `voice: "default"` choices.
+It saves nothing and is cleared on Enter and Leave. A first Start the host
+refused, which opened nothing, may choose a service or persona again; a
+`CONVERSATION_PERSONA_CHANGED` refusal clears the choice. No wire or HTTP
+shape changes. See
+[the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
+This ships in a minor.
+
 ## Host-owned web tools for Pi (additive, 0.45.0, #3685)
 
 Pi's ordinary governed and strict interactive sessions gain four

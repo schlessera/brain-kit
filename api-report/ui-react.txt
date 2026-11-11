@@ -361,6 +361,7 @@ signatures (every public export and the types it is made of)
         conversationProfiles: ConversationProfile[];
         liveDefault: LiveDefault | null;
         serviceChoice: string | null;
+        personaChoice: ConversationPersonaRef | null;
         livePersona: LivePersonaStatus | null;
         durableAvailable: boolean;
         sessionId: string | null;
@@ -1395,6 +1396,7 @@ signatures (every public export and the types it is made of)
         connect: () => () => void;
         conversation: {
             attachControls(): () => void;
+            choosePersona(ref: import("@schlessera/brain-ui-sdk").ConversationPersonaRef | null): void;
             chooseService(providerId: null | string): void;
             commit: (own: number) => boolean;
             details(): void;
