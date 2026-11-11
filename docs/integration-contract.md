@@ -94,8 +94,10 @@ startup. `server_hello` adds `conversationProfiles` and `liveDefault`, and keeps
 `conversationProfile` only while a service is effective (R1). A new
 `live_settings` frame follows a save, `conversation_start` accepts an optional
 `providerId` that must equal the disclosed one, and `conversation_opened` adds
-`providerSource`. `GET`/`PUT /api/settings/voice` read and save the brain-wide
-default behind a new owner-only write guard. The SDK exports `LiveDefault`,
+`providerSource`. `GET`/`PUT /api/settings/voice`, shared with the persona
+selection (#3617), add the top-level `defaultProvider`/`revision` pair for the
+brain-wide default, each group with its own revision, and the route's writes
+gain a new owner-only guard. The SDK exports `LiveDefault`,
 `LiveProviderSource`, `ServerLiveSettings`, `VoiceLiveSettings`,
 `VoiceLiveSettingsUpdate` and their schemas; the kit adds `LiveServiceSettings`.
 In `@schlessera/brain-ui-react`, the conversation client's state adds

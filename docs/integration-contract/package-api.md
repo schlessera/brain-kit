@@ -1590,7 +1590,9 @@ content index. How a Start resolves the service is in
 `ServerLiveSettings`, `VoiceLiveSettings` and `VoiceLiveSettingsUpdate`;
 `ServerHello` adds `conversationProfiles?` and `liveDefault?`,
 `ClientConversationStart` adds `providerId?` and `ServerConversationOpened` adds
-`providerSource?`. `@schlessera/brain-ui-sdk/schemas` exports
+`providerSource?`. `VoiceSettingsResponse` (the shared `/api/settings/voice`
+body, #3617) extends `VoiceLiveSettings`, and `VoiceSettingsUpdateRequest` adds
+optional `defaultProvider` and `revision`. `@schlessera/brain-ui-sdk/schemas` exports
 `conversationProfilesSchema`, `liveDefaultSchema`, `serverLiveSettingsSchema`
 and `voiceLiveSettingsSchema`; a malformed roster or `liveDefault` is dropped
 from a hello without losing the frame. `@schlessera/brain-ui-kit` exports the
