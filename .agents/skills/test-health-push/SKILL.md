@@ -52,8 +52,10 @@ Call it `EPIC` below: `origin/epic/<epic number>-test-health`.
 TH shards --profile push --base EPIC --count <workers x 2> --tag e<epic number> --out <shard dir>
 ```
 
-Each shard is a list of files inside one package, weighted by cost, so every
-package with work gets at least one and the count is a target. Shards are
+Each shard is a list of files inside one group, weighted by cost, so every
+group with work gets at least one and the count is a target. A group is a large
+package, or `small`: the packages with few test files share shards and batches
+rather than each opening a pull request of its own. Shards are
 disjoint by construction, and the ledger's claims keep two workers on one shard
 from colliding.
 
@@ -70,8 +72,8 @@ own worktree. A worker's whole brief is:
 
 Do not give a worker any audit guidance of your own. The `push` profile in
 `scripts/test-health/config.json` already changes what scale requires: no file
-budget per run, longer claims, and a batch that is ripe only when its shard is
-exhausted.
+budget per run, longer claims, and a batch that is ripe only when its group
+has nothing left to audit.
 
 When a worker finishes, start the next shard. A worker that stops early leaves
 its claims to expire; start its shard again and the new worker continues the
@@ -144,7 +146,8 @@ squashes.
   runs get; say so, and do not claim more.
 - Close the epic when its pull request has merged and main's own run is green.
   The recurring run continues from the ledger: everything audited here is
-  already marked, so it picks up only new, changed and dropped files.
+  already marked, so it picks up only new, changed, dropped and unfinished
+  files.
 
 ## When to stop early
 
