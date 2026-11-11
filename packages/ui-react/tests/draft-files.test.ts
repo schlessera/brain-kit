@@ -12,10 +12,24 @@ import { holdsUnsaved } from "../src/stores/draft-state.ts";
 // fixtures, an in-memory host, no network.
 
 const roots: BrainUiRoot[] = [];
+/** Each scene's draft client and the saves its host saw: a root's dispose() does not reach the client (#3835). */
+const scenes: { client: { dispose(): void }; saves: unknown[] }[] = [];
 // The draft client's save debounce and retry backoff run on a fake clock; the
 // in-memory host answers in promise turns, which stay real.
 beforeEach(() => { vi.useFakeTimers(); });
-afterEach(() => { for (const r of roots.splice(0)) r.dispose(); vi.useRealTimers(); });
+afterEach(async () => {
+  try {
+    // Clients first, while the fake clock still holds their timers, then roots.
+    const owned = scenes.splice(0);
+    for (const { client } of owned) client.dispose();
+    for (const r of roots.splice(0)) r.dispose();
+    // Past every backoff step (2+4+8+16+30+60 s): a disposed client never saves again.
+    const saved = owned.map((s) => s.saves.length);
+    vi.advanceTimersByTime(130_000);
+    await turn();
+    expect(owned.map((s) => s.saves.length), "DISPOSED_DRAFT_CLIENT_SAVES_NOTHING_LATER").toEqual(saved);
+  } finally { vi.useRealTimers(); }
+});
 const SESSION = "odysseus-ithaca";
 function original(fileId: string, name = "ithaca-permit.pdf"): AttachmentFile {
   return { fileId, name, path: `.brain-ui/attachments/${fileId}/${name}`, mediaType: "application/pdf", bytes: 2_400_000, sha256: "b".repeat(64), kind: "pdf", reader: "pdf" };
@@ -42,6 +56,7 @@ function scene() {
   const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({}) });
   roots.push(ui);
   const client = createDraftClient(ui, { send: () => true, api });
+  scenes.push({ client, saves });
   client.hello({ type: "server_hello", protocolRev: 5, capabilities: { sessionDrafts: true, chatRequestAck: true, composerFiles: true },
     attachmentLimits: { maxFiles: 10, maxFileBytes: 25_000_000, maxTotalBytes: 50_000_000, poolBytes: 1_073_741_824 } } as Extract<ServerMessage, { type: "server_hello" }>);
   const drafts = ui.stores.drafts;

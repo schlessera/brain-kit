@@ -123,6 +123,14 @@ if (!process.env[CHILD_MARKER]) {
       this.terminated = true;
     }
   }
+  /** Polls a condition on the event loop, failing with `what` if it never holds. */
+  async function until(holds: () => boolean, what: string) {
+    for (let polls = 0; !holds(); polls++) {
+      if (polls === 1_000) throw new Error(`never: ${what}`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
   // pdf.js accepts only a Worker as a port, and this one is standing in for one.
   Object.setPrototypeOf(MemoryPort.prototype, Worker.prototype);
 
@@ -153,9 +161,10 @@ if (!process.env[CHILD_MARKER]) {
     // a document) waits until the first document has finished closing.
     scope.hold = (data) => data.targetName === "main";
     const second = loader.open(`${base}/notes.pdf`, "memory://pdf-worker");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Wait for the states the case is about, not for a time a loaded host can outlast.
+    await until(() => scope.held.length > 0, "the worker's reply to the second open is held");
     loader.close(first);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await until(() => first.loadingTask.destroyed === true, "the first document has finished closing");
     expect(first.loadingTask.destroyed).toBe(true);
     expect(scope.held.length).toBeGreaterThan(0);
     scope.release();
