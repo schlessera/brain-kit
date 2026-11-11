@@ -206,7 +206,7 @@ for (const kind of ["inference", "provider"] as const) {
     } finally { await f.close(); }
   });
 
-  for (const mode of ["recording-loss", "authority-revoked", "changed-scope"] as const) {
+  for (const mode of ["recording-loss", "own-recording-loss", "authority-revoked", "changed-scope"] as const) {
     test(`${kind} preserves the final ${mode} fence after initial binding admission`, async () => {
       const f = await adverseFixture(kind, true);
       try {
@@ -214,7 +214,17 @@ for (const kind of ["inference", "provider"] as const) {
         const response = f.send(); await f.finalReached;
         expect(f.reads.length, "INITIAL_ADMISSION_SUCCEEDED_BEFORE_FINAL_WAIT").toBeGreaterThanOrEqual(3);
         expect(f.requests()).toBe(0);
-        if (mode === "recording-loss") await f.writes.safetyFail("other-voyage");
+        if (mode === "recording-loss") {
+          // A loss with no collection cannot be attributed to one chat, so
+          // it genuinely restricts the brain (#3812), including this turn.
+          await f.writes.safetyFail("untracked-voyage");
+          expect(f.writes.recordingStatus().latched, "SHARED_RECORDER_LOSS_IS_BRAIN_WIDE").toBe(true);
+          expect(f.writes.recordingAvailable("voyage", "ithaca")).toBe(false);
+        } else if (mode === "own-recording-loss") {
+          await f.writes.safetyFail("voyage");
+          expect(f.writes.recordingStatus().latched, "OWN_CHAT_LOSS_DOES_NOT_LATCH_THE_BRAIN").toBe(false);
+          expect(f.writes.recordingAvailable("voyage", "ithaca")).toBe(false);
+        }
         else if (mode === "authority-revoked") f.revoke();
         else {
           f.bridge.emit({ type: "session_info", sessionId: "troy", isNew: true });
@@ -238,6 +248,30 @@ for (const kind of ["inference", "provider"] as const) {
       } finally { await f.close(); }
     });
   }
+
+  test(`${kind} another chat's recording loss leaves admitted healthy dispatch usable`, async () => {
+    const f = await adverseFixture(kind, true);
+    try {
+      f.announce(); await f.catalog.settled!();
+      const other: typeof f.turn = { ...f.turn, turnId: "other-voyage", requestId: "other-request", sessionId: null,
+        abortController: new AbortController(), queue: [] };
+      const peer = await makeBridge(f.host, other, { backendId: "claude", promptText: "Nestor checks the harbour." });
+      peer.emit({ type: "session_info", sessionId: "sparta", isNew: true });
+      await f.catalog.settled!();
+      expect(other.sessionId, "INDEPENDENT_CHAT_HAS_ITS_OWN_DURABLE_BINDING").toBe("sparta");
+      expect(f.writes.safety("other-voyage", "sparta").restriction).toBe("normal");
+      const response = f.send(); await f.finalReached;
+      expect(f.requests()).toBe(0);
+      await f.writes.safetyFail("other-voyage");
+      expect(f.writes.recordingStatus().latched, "OTHER_CHAT_LOSS_DOES_NOT_LATCH_THE_BRAIN").toBe(false);
+      expect(f.writes.safety("other-voyage", "sparta").restriction).toBe("restricted");
+      expect(f.writes.recordingAvailable("other-voyage", "sparta")).toBe(false);
+      expect(f.writes.recordingAvailable("voyage", "ithaca"), "HEALTHY_CHAT_KEEPS_ITS_RECORDER").toBe(true);
+      f.releaseFinal();
+      expect((await response).status, "OTHER_CHAT_LOSS_DOES_NOT_REFUSE_HEALTHY_DISPATCH").toBe(200);
+      expect(f.requests(), "HEALTHY_CHAT_DISPATCHES_ONCE_WITHOUT_RETRY").toBe(1);
+    } finally { await f.close(); }
+  });
 }
 
 for (const kind of ["inference", "provider"] as const) test(`${kind} own-binding deadline leaves another healthy turn usable`, async () => {

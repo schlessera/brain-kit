@@ -185,6 +185,36 @@ export interface BackendBridge {
     unavailable?(): Promise<void>;
     begin(toolUseId: string, toolName: string, input: Readonly<Record<string, unknown>>): Promise<void>;
     result(toolUseId: string, toolName: string, output: string, finalized: boolean, segments?: readonly string[]): Promise<void>;
+    /** @internal A tool ran, but its result report was refused before `result`
+     * could record it: the turn's chat keeps a permanent gap. Resolves once
+     * that gap is durable. */
+    lost?(toolUseId: string, toolName: string, cause: unknown): Promise<void>;
+    /** @internal The runtime asks the backend to admit one call under this
+     * id, for this tool. Call it once per admission, before the backend
+     * decides anything about it, however many gates (hooks, callbacks) that
+     * one admission passes through. An id admitted more than once, or under
+     * more than one tool name, is never discharged by a refusal. A backend
+     * that calls `refused` must call this too. */
+    admitting?(toolUseId: string, toolName?: string): void;
+    /** @internal The backend refused a call with this id. Every call `begin`
+     * admits owes its `result` from then on; still owed when the turn ends,
+     * it leaves the turn's chat a permanent gap. A refusal discharges it only
+     * when it proves the call never ran: `denied` (the backend itself
+     * answered the admission with a deny before the call could run), for an
+     * id admitted exactly once and never `allowed`. Any other refusal (a
+     * rejected request, a second admission of the id, a refusal after an
+     * allow) leaves it to the recorded `result`. Every refusal refuses later
+     * `begin` and `allowed` calls for the id. Call it for every refusal the
+     * backend returns, before returning it. Never rejects. */
+    refused?(toolUseId: string, denied?: boolean): Promise<void>;
+    /** @internal The backend's last check before it lets this call run; from
+     * then on no refusal under the id discharges its call. Call it before
+     * returning every allow, and hand out nothing the call could use (a
+     * grant, a capability) until it resolves; a backend that calls `refused`
+     * must call this too. Rejects when the call's id was refused or its
+     * latest `begin` did not complete; the backend then refuses the call
+     * instead. */
+    allowed?(toolUseId: string): Promise<void>;
   };
   /** Validated, exact-base policy proposal; the server owns its explicit approval and write. */
   proposePolicyChange?(requestId: string, input: import("../tool-contracts/policy.js").PolicyChangeInput): Promise<import("../tool-contracts/policy.js").PolicyChangeReview>;

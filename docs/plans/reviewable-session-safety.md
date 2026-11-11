@@ -25,7 +25,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:232-237`). Legacy rows prove
+  `packages/ui-server/src/governance/safety-store.ts:415-420`). Legacy rows prove
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
@@ -514,7 +514,11 @@ The scope and recovery of that latch follow
 before any bytes are delivered refuses only its turn; lost evidence after
 delivery restricts only its chat; only an unwritable evidence store restricts
 the brain, and the host clears that itself once the gap facts are durable
-(maintainer ruling, 2026-11-09, #3812).
+(maintainer ruling, 2026-11-09, #3812). Under that latch a new turn still
+begins, its permanent gap committed before delivery; only a turn whose
+restricted begin cannot commit is refused. Restart resolves the latch and any
+pending reservations itself, so "begins restricted" never means "refuses"
+([the ruling as built](../decisions/session-safety-reviews.md#a-recording-failure-restricts-what-it-puts-at-risk-3812)).
 
 Permanent content-free retirement fences belong to the existing chat lifecycle,
 not a TTL cache. Never expire or evict them to fit the limits above. Enforce

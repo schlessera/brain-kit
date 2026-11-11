@@ -744,7 +744,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     },
 
     /** A host frame that names a chat request: it accepted or refused exactly that one. */
-    receipt(requestId: string, state: "accepted" | "refused", sessionId: string | undefined): boolean {
+    receipt(requestId: string, state: "accepted" | "refused", sessionId: string | undefined, reason?: string): boolean {
       const send = drafts.getState().sends[requestId];
       if (!send) return false;
       if (state === "accepted") {
@@ -757,7 +757,7 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
         // Accepted after all: its rows come back before the turn's frames do.
         if (send.state === "unconfirmed") restoreRows(send, sessionId ?? send.sessionId);
       } else {
-        drafts.getState().refused(requestId);
+        drafts.getState().refused(requestId, reason);
         // Its bubble says it was not sent: the transcript does not say it twice.
         if (send.snapshotId) withdraw(send);
       }
