@@ -1,6 +1,7 @@
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
-import { connect, type Socket } from "node:net";
+import { BlockList, connect, isIP, type Socket } from "node:net";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { workerIdentityHelper } from "./worker-identity.js";
@@ -12,6 +13,8 @@ export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
 /** What the worker bootstrap sets so a tool's network reaches the turn proxy; a tool spawn must keep them. */
 export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
   "http_proxy", "https_proxy", "all_proxy", "no_proxy", "GIT_SSH_COMMAND"]);
+/** The trusted in-namespace bootstrap that forwards loopback TCP to `WORKER_EGRESS_SOCKET`, then runs a command behind it. */
+export function egressBootstrapEntry(): string { return Bun.resolveSync("./egress-worker-entry", import.meta.dir); }
 export interface EgressRecord {
   /** Host identity, shared with admission and terminal observation; never a tool correlation. */
   connectionId?: string;
@@ -66,6 +69,58 @@ export interface EgressProxyOptions {
   /** Synchronous notification only after final admission, immediately before dispatch. */
   committed?(destination: { host: string; connectionId: string; inference: boolean; provider: boolean }): void;
   signal?: AbortSignal;
+  /**
+   * Destination address policy (#3687). When set, the proxy resolves every
+   * destination itself, refuses one with any loopback, private, link-local,
+   * shared, multicast or reserved address, or an unlisted port, and connects
+   * to the address it checked, so a rebinding resolver cannot swap it.
+   * Cloud metadata addresses are refused even inside `allowRanges`.
+   */
+  destinations?: EgressDestinationPolicy;
+}
+export interface EgressDestinationPolicy {
+  /** Host-owned CIDR ranges a private address may be reached in, such as an owner's own `ssrf.allowRanges`. */
+  allowRanges?: readonly string[];
+  /** Destination ports; default 80 and 443. */
+  ports?: readonly number[];
+  /** @internal Test seam: the resolver. Default the system's. */
+  lookup?(host: string): Promise<ReadonlyArray<{ address: string; family: number }>>;
+}
+/** Addresses no public web destination has (IANA special-purpose registries). */
+const NON_PUBLIC = new BlockList();
+for (const [network, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12],
+  ["192.0.0.0", 24], ["192.0.2.0", 24], ["192.88.99.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24],
+  ["224.0.0.0", 4], ["240.0.0.0", 4]] as const) NON_PUBLIC.addSubnet(network, prefix, "ipv4");
+for (const [network, prefix] of [["::", 128], ["::1", 128], ["64:ff9b::", 96], ["64:ff9b:1::", 48], ["100::", 64], ["2001::", 23], ["2001:db8::", 32],
+  ["2002::", 16], ["fc00::", 7], ["fe80::", 10], ["fec0::", 10], ["ff00::", 8]] as const) NON_PUBLIC.addSubnet(network, prefix, "ipv6");
+/** Instance metadata services; never reachable, whatever a range allows. */
+const METADATA = new BlockList();
+for (const address of ["169.254.169.254", "169.254.170.2", "169.254.170.23", "100.100.100.200", "192.0.0.192"]) METADATA.addAddress(address, "ipv4");
+METADATA.addAddress("fd00:ec2::254", "ipv6");
+/** An IPv4-mapped IPv6 address is judged as the IPv4 address it carries. */
+function unmapped(address: string): { address: string; family: "ipv4" | "ipv6" } {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
+  if (mapped) return { address: mapped[1]!, family: "ipv4" };
+  return { address, family: isIP(address) === 6 ? "ipv6" : "ipv4" };
+}
+function rangeList(ranges: readonly string[]): BlockList {
+  const list = new BlockList();
+  for (const range of ranges) {
+    const [network, bits] = range.trim().split("/");
+    const family = isIP(network ?? "");
+    const prefix = bits === undefined ? (family === 6 ? 128 : 32) : Number(bits);
+    if (!family || !Number.isInteger(prefix) || prefix < 0 || prefix > (family === 6 ? 128 : 32)) throw new Error("Invalid egress allow range");
+    list.addSubnet(network!, prefix, family === 6 ? "ipv6" : "ipv4");
+  }
+  return list;
+}
+/** Why one resolved address is refused, or null when it may be reached. */
+export function egressAddressRefusal(address: string, allow?: BlockList): "metadata_destination" | "private_destination" | null {
+  const { address: value, family } = unmapped(address);
+  if (!isIP(value)) return "private_destination";
+  if (METADATA.check(value, family)) return "metadata_destination";
+  if (NON_PUBLIC.check(value, family) && !allow?.check(value, family)) return "private_destination";
+  return null;
 }
 const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
 function matches(host: string, patterns: readonly string[]): boolean {
@@ -82,7 +137,7 @@ function matches(host: string, patterns: readonly string[]): boolean {
  * appears in either.
  */
 export interface EgressRefusal {
-  cause: "denied_host" | "not_allowlisted" | "byte_cap" | "taint_allowlist" | "outward_not_approved";
+  cause: "denied_host" | "not_allowlisted" | "byte_cap" | "taint_allowlist" | "outward_not_approved" | "private_destination" | "destination_port";
   message: string;
 }
 function describeRefusal(reason: string | undefined, host: string, denied: boolean, tainted: string | null | undefined): EgressRefusal | undefined {
@@ -99,6 +154,10 @@ function describeRefusal(reason: string | undefined, host: string, denied: boole
       message: "Blocked: this turn has used up its network byte limit (egress.max_bytes_per_turn). Do not retry in this turn; tell the user." };
     case "outward_not_approved": return { cause: "outward_not_approved",
       message: `Blocked: a connection to ${host} acts outside the brain in the user's name, and it was not approved. Do not retry it; say what you needed it for.` };
+    case "private_destination": case "metadata_destination": case "unresolved_destination": return { cause: "private_destination",
+      message: `Blocked: ${host} is not a public web address. Do not retry it; tell the user.` };
+    case "destination_port": return { cause: "destination_port",
+      message: `Blocked: ${host} was reached on a port the web route does not allow. Do not retry it; tell the user.` };
     default: return undefined;
   }
 }
@@ -107,6 +166,7 @@ const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
   denied_host: "Forbidden - host on the egress deny list", not_allowlisted: "Forbidden - host not on the egress allow list",
   byte_cap: "Forbidden - turn network byte limit reached", taint_allowlist: "Forbidden - untrusted session, host not allowed",
   outward_not_approved: "Forbidden - outward connection not approved",
+  private_destination: "Forbidden - not a public web address", destination_port: "Forbidden - destination port not allowed",
 };
 /** One refused connection's 403, with its reason when it has one. */
 function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined): { status: string; body: string } | undefined {
@@ -126,7 +186,10 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts, ...options.taint?.allow ?? []]) {
     if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
   }
-  for (const port of options.outwardPorts ?? []) {
+  const destinationPorts = options.destinations ? new Set(options.destinations.ports ?? [80, 443]) : undefined;
+  const allowRanges = options.destinations ? rangeList(options.destinations.allowRanges ?? []) : undefined;
+  const resolve = options.destinations?.lookup ?? (async (host: string) => dnsLookup(host, { all: true, verbatim: true }));
+  for (const port of [...options.outwardPorts ?? [], ...destinationPorts ?? []]) {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid outward port");
   }
   const separateIdentity = Boolean(workerIdentityHelper());
@@ -157,6 +220,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const controller = new AbortController(); controllers.add(controller);
     const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
     let bytes = 0, finished = false;
+    /** The checked address this connection is pinned to, under a destination policy. */
+    let pinned: { address: string; family: number } | undefined;
     let finalOutcome: EgressRecord["outcome"] | undefined, finalReason: string | undefined;
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
@@ -207,6 +272,19 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
+      if (destinationPorts) {
+        if (!destinationPorts.has(port)) { finish("denied", "destination_port"); return false; }
+        let addresses: ReadonlyArray<{ address: string; family: number }>;
+        try { addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await resolve(host); }
+        catch { finish("denied", "unresolved_destination"); return false; }
+        if (!addresses.length) { finish("denied", "unresolved_destination"); return false; }
+        // Every address must pass: a mixed answer is refused, not narrowed.
+        for (const entry of addresses) {
+          const refused = egressAddressRefusal(entry.address, allowRanges);
+          if (refused) { finish("denied", refused); return false; }
+        }
+        pinned = addresses[0];
+      }
       if (!await narrowing()) return false;
       if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
         if (!await approval(options.approveOutward)) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
@@ -232,7 +310,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finalReason === "taint_not_allowed") try { cause = options.taint?.cause?.(); } catch { /* The message names no cause. */ }
       return describeRefusal(finalReason, host, matches(host, options.deny), cause);
     };
-    return { finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason };
+    return { finish, charge, admit, commit, refusal, signal: controller.signal, outcome: () => finalOutcome, reason: () => finalReason, pinned: () => pinned };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -252,7 +330,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
           : "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         return;
       }
-      const upstream = track(connect({ host: target.hostname, port: Number(target.port || 80) }));
+      const address = op.pinned();
+      const upstream = track(connect({ host: address?.address ?? target.hostname, port: Number(target.port || 80) }));
       upstream.once("connect", () => {
         if (stopped || client.destroyed) { upstream.destroy(); return; }
         connected = true;
@@ -294,7 +373,11 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (!op.charge(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, outgoingHeaders))) {
         refuse(); return;
       }
-      const outgoing = httpRequest(target, { method: request.method, headers: outgoingHeaders }, incoming => {
+      const address = op.pinned();
+      // Under a destination policy the request goes to the checked address; Host keeps the name.
+      const upstreamTarget = new URL(target);
+      if (address) upstreamTarget.hostname = address.family === 6 ? `[${address.address}]` : address.address;
+      const outgoing = httpRequest(upstreamTarget, { method: request.method, headers: outgoingHeaders }, incoming => {
         if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming)))) {
           refuse(); incoming.destroy(); outgoing.destroy(); return;
         }
