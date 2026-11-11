@@ -65,6 +65,13 @@ const ids = (r: BrainUiRoot) => views(r).map((v) => v.sessionId);
 const state = (r: BrainUiRoot, sessionId: string) => views(r).find((v) => v.sessionId === sessionId)?.state;
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** Puts a stand-in global in place; the returned function restores its whole descriptor, or removes only what was absent. */
+function standIn(name: "window" | "document", value: unknown): () => void {
+  const original = Object.getOwnPropertyDescriptor(globalThis, name);
+  Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
+  return () => { if (original) Object.defineProperty(globalThis, name, original); else Reflect.deleteProperty(globalThis, name); };
+}
+
 /** Session A in view and running its turn. */
 function runningIn(r: BrainUiRoot, sessionId: string, turnId = "turn-1") {
   const chat = r.stores.chat.getState();
@@ -104,7 +111,7 @@ describe("creating a tracker", () => {
   test("leaving the page tracks the session in view, so a reload finds it", () => {
     // The unit runtime has no DOM: a bare event target stands in for the window.
     const page = new EventTarget();
-    (globalThis as { window?: unknown }).window = page;
+    const restore = standIn("window", page);
     try {
       const storage = memoryStorage();
       const r = root({ storage, storagePrefix: "ithaca" });
@@ -116,7 +123,7 @@ describe("creating a tracker", () => {
       expect(r.stores.chat.getState().activeSessionId).toBe(A);
       expect(ids(root({ storage, storagePrefix: "ithaca" }))).toEqual([A]);
     } finally {
-      delete (globalThis as { window?: unknown }).window;
+      restore();
     }
   });
 
@@ -418,7 +425,7 @@ describe("creating a tracker", () => {
 
   test("work starting in the session in view while the document is hidden is unwatched", () => {
     const doc = Object.assign(new EventTarget(), { visibilityState: "visible" });
-    (globalThis as { document?: unknown }).document = doc;
+    const restore = standIn("document", doc);
     try {
       const r = root();
       hello(r, false);
@@ -429,7 +436,7 @@ describe("creating a tracker", () => {
       frame(r, { type: "session_info", sessionId: A, isNew: false, turnId: "turn-1", requestId: "req-other-device" });
       expect(views(r).map((v) => [v.sessionId, v.state])).toEqual([[A, "running"]]);
     } finally {
-      delete (globalThis as { document?: unknown }).document;
+      restore();
     }
   });
 
@@ -499,7 +506,7 @@ describe("the seen observer's conditions", () => {
   test("only Chat, visible, uncovered and at the end of the linked turn sees it", () => {
     let modal = false;
     const doc = Object.assign(new EventTarget(), { visibilityState: "visible", querySelector: (selector: string) => (modal && selector === '[aria-modal="true"]' ? {} : null) });
-    (globalThis as { document?: unknown }).document = doc;
+    const restore = standIn("document", doc);
     try {
       const r = root();
       hello(r, false);
@@ -533,7 +540,7 @@ describe("the seen observer's conditions", () => {
       expect(observeTrackerSeen(r, bottom, false)).toBe(true);
       expect(views(r)[0]!.cleared).toBe(true);
     } finally {
-      delete (globalThis as { document?: unknown }).document;
+      restore();
     }
   });
 });
@@ -541,7 +548,7 @@ describe("the seen observer's conditions", () => {
 describe("reopening a running session (#3406)", () => {
   test("the live frames' turn on an answer still being written is not seen until the turn ends", () => {
     const doc = Object.assign(new EventTarget(), { visibilityState: "visible", querySelector: () => null });
-    (globalThis as { document?: unknown }).document = doc;
+    const restore = standIn("document", doc);
     try {
       const r = root();
       hello(r, false);
@@ -562,7 +569,7 @@ describe("reopening a running session (#3406)", () => {
       expect(observeTrackerSeen(r, bottom, false), "the ended turn at the bottom").toBe(true);
       expect(views(r)[0]!.cleared).toBe(true);
     } finally {
-      delete (globalThis as { document?: unknown }).document;
+      restore();
     }
   });
 });
@@ -777,7 +784,7 @@ describe("persistence", () => {
 
   test("a storage event from another tab reads the trackers it brought", async () => {
     const page = new EventTarget();
-    (globalThis as { window?: unknown }).window = page;
+    const restore = standIn("window", page);
     try {
       const storage = memoryStorage();
       const host: Host = { envelopes: new Map([[A, () => envelope(A, 2, { requestId: "req-2", turnId: "turn-2", state: "terminal", outcome: "success", startedAt: 1, endedAt: 2 })]]), urls: [] };
@@ -789,7 +796,7 @@ describe("persistence", () => {
       expect(host.urls).toEqual([`/api/sessions/${A}/recovery`]);
       expect(views(here)[0]).toMatchObject({ state: "done", settled: true });
     } finally {
-      delete (globalThis as { window?: unknown }).window;
+      restore();
     }
   });
 

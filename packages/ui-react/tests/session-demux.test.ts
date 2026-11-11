@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { afterAll, describe, test, expect, beforeEach } from "bun:test";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { useChatStore, activeChat } from "../src/stores/chat-store";
 import { runStateForFrame } from "../src/hooks/use-websocket";
@@ -32,6 +32,9 @@ describe("runStateForFrame", () => {
 
 describe("session demux (handleServerMessage)", () => {
   beforeEach(reset);
+  // The default root outlives this file: leave no selected session or
+  // buffers behind for the next file in the process (#3720).
+  afterAll(reset);
 
   test("a pending draft binds only to its own announcement, never another session's result", () => {
     const store = useChatStore.getState();
