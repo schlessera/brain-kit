@@ -22,6 +22,7 @@ import { availableModels, providerFor, PROVIDERS } from "./providers/index.js";
 import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import { estimateOpenAiOutputCost, openAiRequestQuality, openAiRequestSize } from "./providers/openai.js";
+import { markupProblem } from "./markup.js";
 import { isRetiredModel, retiredModelMessage } from "./retired.js";
 import { route, type RoutingDecision } from "./routing.js";
 import {
@@ -93,6 +94,9 @@ Shape (--aspect and --resolution work on every model):
 Editing:
   --ref <path>            Reference image; repeatable
   --mask <path>           Alpha mask; transparent pixels mark what may change (OpenAI only)
+  --markup <path>         Annotation layer: a transparent PNG the exact size of the first
+                          --ref, whose circles, arrows and notes guide the edit. Needs a
+                          --ref, excludes --mask; GPT Image 2.6 and 2.5 only (no fee)
 
 Routing:
   --provider openai|gemini    Pin a provider
@@ -103,8 +107,8 @@ Routing:
   --draft                     A quick throwaway illustration (gemini-3.1-flash-lite-image)
   --dry-run                   Decide and price it, write nothing
 
-Routing is by capability: a mask, a transparent background or an exact pixel
-size forces OpenAI; heavy reference counts and character consistency favour
+Routing is by capability: a mask, a markup layer, a transparent background or
+an exact pixel size forces OpenAI; heavy reference counts and character consistency favour
 Gemini. Otherwise the default is gpt-image-2.6-sunburst when OpenAI is
 available; gpt-image-2.6-flare and the 2.5 pair are chosen by --model or
 preferredModels.
@@ -279,10 +283,22 @@ export const imageCommand: CommandModule<ImagesConfig> = {
         transparent: parsed.flags.transparent === true,
         references: (parsed.repeated.ref ?? []).map((r) => loadImage(ctx.root, r)),
         mask: parsed.flags.mask ? loadImage(ctx.root, parsed.flags.mask as string) : undefined,
+        markup: parsed.flags.markup ? loadImage(ctx.root, parsed.flags.markup as string) : undefined,
       };
     } catch (e) {
       console.error((e as Error).message);
       return 1;
+    }
+    // A markup layer is checked from the file headers before routing, so a
+    // mismatched or flattened layer never reaches a paid call (#3785).
+    if (request.markup) {
+      const problem = request.mask
+        ? "--markup and --mask are exclusive: the markup layer guides the whole edit. Drop one of them."
+        : markupProblem(request.markup, request.references?.[0]);
+      if (problem) {
+        console.error(problem);
+        return 1;
+      }
     }
 
     const decision = route({

@@ -153,6 +153,30 @@ export function route(input: RoutingInput): RoutingDecision {
     pool = masked;
   }
 
+  // A markup layer annotates the first reference image and replaces a mask
+  // rather than joining one (#3785). Only OpenAI's 2.5 and 2.6 models take it.
+  if (req.markup) {
+    if (req.mask) {
+      return {
+        kind: "impossible",
+        reason: "--markup and --mask are exclusive: the markup layer guides the whole edit. Drop one of them.",
+      };
+    }
+    if ((req.references?.length ?? 0) === 0) {
+      return { kind: "impossible", reason: "--markup annotates the first --ref image; add one with --ref." };
+    }
+    const marked = byCapability(pool, (m) => m.markupGuidance);
+    if (marked.length === 0) {
+      return {
+        kind: "impossible",
+        reason:
+          "Markup-guided edits need an OpenAI GPT Image 2.6 or 2.5 model — Google's image API has no " +
+          "annotation layer. Set OPENAI_API_KEY, or drop --markup and describe the change in words.",
+      };
+    }
+    pool = marked;
+  }
+
   // Complexity is a GPT Image 2.6 parameter. A stated one on any other model
   // would be dropped or rejected by the API, so it narrows or refuses here.
   if (req.complexity) {
@@ -366,6 +390,9 @@ export function route(input: RoutingInput): RoutingDecision {
   const ordered = inPreferenceOrder(pool, preferred);
   if (req.mask) {
     return { kind: "resolved", model: ordered[0], reason: "only OpenAI image models accept an alpha mask" };
+  }
+  if (req.markup) {
+    return { kind: "resolved", model: ordered[0], reason: "only OpenAI GPT Image 2.6 and 2.5 models take a markup layer" };
   }
   if (req.transparent) {
     return {
