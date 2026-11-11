@@ -1289,8 +1289,11 @@ text, native call ids and generated speech are evidence, never authority.
 
 **Registration and discovery.** `CreateAppOptions.conversationProvider?:
 LiveConversationProvider` (`@schlessera/brain-ui-server`) registers one
-provider by value; it is validated at startup and an invalid one throws. Only
-then does `server_hello` carry `capabilities.liveConversation: true`. Without
+provider by value; it is validated at startup and an invalid one throws.
+`conversationProviders` registers several, and the
+[live-service selection](#live-service-selection-additive-3616) below says how a
+Start chooses among them. Only with at least one does `server_hello` carry
+`capabilities.liveConversation: true`. Without
 one, every `conversation_*` frame is answered with `error` code
 `CONVERSATION_UNAVAILABLE`. No existing frame, route or rev-3 rule changes,
 and these additions do not change `PROTOCOL_REV`.
@@ -1315,6 +1318,57 @@ server → { type: "conversation_output", conversationId, ...ConversationOutputR
 server → { type: "conversation_permission", conversationId, epoch, sessionId,
            turnId, toolUseId, toolName, announce }
 ```
+
+<a id="live-service-selection-additive-3616"></a>
+
+### Live-service selection (additive, #3616)
+
+A host registers one live service (`conversationProvider`, a list of one) or
+several (`conversationProviders`), plus an optional
+`defaultConversationProviderId`. The brain owner saves a brain-wide default
+through [`/api/settings/voice`](../http-api.md#live-conversation-service-default).
+"Usable" means registered at boot; nothing probes a credential. A Start without
+a pick uses the saved default only if it is usable (a saved but unusable
+default means no service, never a fall-through), then the host default only
+when nothing is saved, then the single registered service only when nothing is
+saved, else none.
+
+```
+server → server_hello { …, conversationProfile?, conversationProfiles: ConversationProfile[],
+           liveDefault: { saved: string | null, savedUsable, effective: string | null,
+                          source: "saved" | "host" | "only" | "none" } }
+server → { type: "live_settings", liveDefault, conversationProfiles }
+client → { type: "conversation_start", …, disclosed, providerId? }
+server → { type: "conversation_opened", …, providerId,
+           providerSource?: "change" | "saved" | "host" | "only" }
+```
+
+- `conversationProfiles` lists every registered service in registration
+  order, and `liveDefault` says how a Start resolves one. Both are present
+  exactly when `liveConversation` is.
+- `conversationProfile` is present **only when `liveDefault.effective` is
+  non-null**, and is that service's profile. A single-provider host therefore
+  sends exactly what it sent before. A client that reads only this field shows
+  live conversation as unavailable on a multi-service host with nothing
+  effective (maintainer ruling R1); there is no legacy fallback.
+- `live_settings` goes to every open connection after a save, with the same
+  two fields. It never retargets a running conversation. Clients that predate
+  it drop it as an unknown frame (`parseServerMessage` reports it; nothing
+  else changes).
+- `conversation_start.providerId` names the service the client disclosed: the
+  effective one or a one-time pick. The host opens a provider only when
+  `providerId === disclosed.providerId` and the id is registered; otherwise it
+  answers `CONVERSATION_DISCLOSURE` and opens nothing. Without `providerId` a
+  new Start uses the effective service and is refused the same way when there
+  is none. A resume of a known `conversationId` keeps the service the
+  conversation opened with, with or without `providerId`; naming another is
+  refused. The disclosure echo is rechecked after the history reads, so a
+  default changed on another device in between refuses a Start that named no
+  service.
+- `providerSource` says how the conversation's service was chosen: `change`
+  for a pick that differs from the effective service, otherwise the
+  resolution it came from. Older hosts omit it.
+- No frame carries a credential, key presence or endpoint.
 
 **Capabilities are evidence.** `capabilities` has seven keys —
 `nonblockingWork`, `manualEndpoint`, `finalTranscript`,

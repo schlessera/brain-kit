@@ -34,6 +34,7 @@ only when the user asked for something else.
 | Output that must carry no watermark | OpenAI | Every Gemini image carries SynthID, with no documented opt-out |
 | PNG or WebP output | OpenAI | Every Gemini image model serves JPEG only — verified against the live API, the docs do not say so |
 | An animated GIF | `gpt-image-2.6-sunburst` or `-flare` | Only the 2.6 models return GIF |
+| A vector SVG | `gpt-image-2.6-sunburst` or `-flare` | Only the 2.6 models author SVG, and only as a new image |
 
 ### The cases worth knowing
 
@@ -129,6 +130,13 @@ uses 9 frames at 200 ms. A GIF cannot take a mask or a transparent background,
 and the dry run cannot price it, so say the cost is unknown. If OpenAI answers
 that the organization lacks GIF preview access, tell the user that; retrying
 will not help.
+
+For a scalable vector picture, such as an icon, a logo or a flat illustration,
+pass `--format svg`. It makes a new image only, so it cannot edit a reference,
+use a mask or have a transparent background. The command refuses an SVG with
+scripts, event handlers or outside references and writes nothing; if that
+happens, say so, and offer to ask again or to make a png. The cost of an SVG
+is always unknown, so say that before running it.
 
 `--draft` takes the cheapest model that fits. `--dry-run` prints the decision
 and the price without spending anything — use it when the user is likely to

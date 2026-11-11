@@ -198,6 +198,9 @@ const SAMPLES: ServerMessage[] = [
         warnUsd: 100, blockUsd: 200, blockTokens: 512_000_000, warning: false, blocked: false }] } },
   { type: "scope_decision_receipt", sessionId: "s1", turnId: "turn-1", eventId: "cap-loom", submissionId: "athena", state: "accepted" },
   { type: "pong", probeId: "probe-1" },
+  { type: "live_settings", liveDefault: { saved: "gpt-live", savedUsable: true, effective: "gpt-live", source: "saved" },
+    conversationProfiles: [{ providerId: "gpt-live", capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" },
+      disclosure: { voiceService: "Fictional GPT-Live of Ithaca", destinations: ["Microphone audio goes to the fictional voice service."] } }] },
 ];
 
 // Inspect input frame discriminators, including object → transform pipes.
@@ -414,4 +417,33 @@ test("policy approval and live/replay receipts survive the validated additive bo
   }
   expect(parse({ ...frames[1], policyChange: { ...policyChange, state: "approve_by_voice" } }).ok).toBe(false);
   expect(parse({ ...frames[1], policyChange: { ...policyChange, baseHash: undefined } }).ok).toBe(false);
+});
+
+describe("live-service roster (#3616)", () => {
+  const profile = (providerId: string) => ({ providerId, capabilities: { nonblockingWork: "supported", manualEndpoint: "supported", finalTranscript: "unproven", remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven" },
+    disclosure: { voiceService: `Fictional ${providerId}`, destinations: ["Microphone audio goes to the fictional voice service."] } });
+  const hello = { type: "server_hello", protocolRev: 5, capabilities: { liveConversation: true } };
+  test("a hello carries the roster and the resolution", () => {
+    const frame = { ...hello, conversationProfiles: [profile("gemini-live"), profile("gpt-live")], liveDefault: { saved: null, savedUsable: false, effective: null, source: "none" } };
+    const result = parse(frame);
+    expect(result.ok && result.message).toEqual(frame as never);
+  });
+  test("a malformed roster or resolution is dropped without losing the hello", () => {
+    for (const bad of [
+      { conversationProfiles: [profile("gpt-live"), profile("gpt-live")] },
+      { conversationProfiles: [{ providerId: "gpt-live" }] },
+      { liveDefault: { saved: null, savedUsable: false, effective: null, source: "change" } },
+      { liveDefault: { saved: 7, savedUsable: false, effective: null, source: "none" } },
+    ]) {
+      const result = parse({ ...hello, ...bad });
+      expect(result.ok).toBe(true);
+      if (result.ok && result.message.type === "server_hello") {
+        expect(result.message.conversationProfiles).toBeUndefined();
+        expect(result.message.liveDefault).toBeUndefined();
+      }
+    }
+  });
+  test("live_settings with a malformed resolution is refused as a frame", () => {
+    expect(parse({ type: "live_settings", liveDefault: { saved: null, savedUsable: false, effective: null, source: "change" }, conversationProfiles: [] }).ok).toBe(false);
+  });
 });

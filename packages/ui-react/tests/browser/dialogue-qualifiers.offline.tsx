@@ -94,10 +94,11 @@ for(const unsaved of [true,false])for(const kind of ["recognition","speech"] as 
 });
 for(const providerId of ["gemini-live","gpt-live"])test(`${providerId} consent discloses durable text without audio or engine receipt`,async ctx=>{
  const s=await scene(ctx,320,"light");s.ui.stores.provider.setState({available:[{id:"athena",label:"Athena",backendId:"local"}],selectedId:"athena",loaded:true});flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",profile:profile(providerId),conversationProfile:profile(providerId),durableAvailable:true,disclosureOpen:true}));
- const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;expect(dialog.textContent).toContain("Recognized speech and generated voice replies are saved as text with this chat.");expect(dialog.textContent).toContain("This feature does not save audio.");expect(dialog.textContent).toContain("does not replay audio or prove the voice service received this history");
- const body=dialog.querySelector<HTMLElement>(".bk-overlay-body")!;body.scrollTop=0;
+ // The Start card (#3698) keeps the former sheet's disclosure behind "What's shared".
+ const dialog=document.querySelector<HTMLElement>("[data-start-card]")!;await userEvent.click(dialog.querySelector<HTMLElement>(".bk-voice-shared")!);expect(dialog.textContent).toContain("Recognized speech and generated voice replies are saved as text with this chat.");expect(dialog.textContent).toContain("This feature does not save audio.");expect(dialog.textContent).toContain("does not replay audio or prove the voice service received this history");
+ dialog.scrollTop=0;
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/durable-dialogue/consent-top-${providerId}.png`});
- [...dialog.querySelectorAll("p")].find(p=>p.textContent?.startsWith("Recognized speech and generated"))!.scrollIntoView({block:"center"});
+ [...dialog.querySelectorAll("li")].find(p=>p.textContent?.startsWith("Recognized speech and generated"))!.scrollIntoView({block:"center"});
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/durable-dialogue/consent-retention-${providerId}.png`});
 });
 
@@ -124,11 +125,11 @@ for(const theme of ["light","dark"] as const)for(const width of [320,1280])test(
  const s=await scene(ctx,width,theme);s.ui.stores.provider.setState({available:[{id:"athena",label:"Athena",backendId:"local"}],selectedId:"athena",loaded:true});
  flushSync(()=>s.ui.connection.conversation.state.setState({active:true,sessionId:SESSION,connection:"Connected",conversationProfile:profile("gpt-live"),durableAvailable:true,profile:{...profile("gpt-live"),historyCoverage:{state:"bounded",tailOmitted:true}},disclosureOpen:true}));
  expect(s.host.textContent).toContain("Newest prior context was not sent.");
- const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;
+ const dialog=document.querySelector<HTMLElement>("[data-start-card]")!;await userEvent.click(dialog.querySelector<HTMLElement>(".bk-voice-shared")!);
  expect(dialog.textContent).toContain("Starting voice sends bounded prior chat text and completed results to this voice service, including when you switch services.");
  expect(dialog.textContent).toContain("The newest prior item was not included.");
  expect(dialog.textContent).toContain("does not prove the service understood or recalled it");
- const paragraph=[...dialog.querySelectorAll("p")].find(p=>p.textContent?.startsWith("Starting voice sends"))!;
+ const paragraph=[...dialog.querySelectorAll("li")].find(p=>p.textContent?.startsWith("Starting voice sends"))!;
  paragraph.scrollIntoView({block:"center"});
  expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth+1);
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/live-history/coverage-${theme}-${width}.png`});
@@ -144,11 +145,15 @@ for(const providerId of ["gemini-live","gpt-live"])for(const theme of ["light","
  expect(trigger.closest("[data-voice-coverage]")?.closest("[data-arrival-key]"),"R2: it sits in the transcript").not.toBeNull();
  trigger.focus();expect(document.activeElement).toBe(trigger);
  if(width===320)await userEvent.click(trigger);else await userEvent.keyboard("{Enter}");
- const dialog=document.querySelector<HTMLDialogElement>("dialog[open]")!;
- expect(dialog).not.toBeNull();expect(dialog.textContent).toContain("The newest prior item may be missing.");
+ // Details opens the Start card (#3698); its "What's shared" carries the coverage line.
+ await expect.poll(()=>document.querySelector("[data-start-card]")).not.toBeNull();
+ const dialog=document.querySelector<HTMLElement>("[data-start-card]")!;
  expect(dialog.contains(document.activeElement),"DETAILS_RECEIVES_KEYBOARD_FOCUS").toBe(true);
- [...dialog.querySelectorAll("p")].find(p=>p.textContent?.includes("The newest prior item"))!.scrollIntoView({block:"center"});
+ await userEvent.click(dialog.querySelector<HTMLElement>(".bk-voice-shared")!);
+ expect(dialog.textContent).toContain("The newest prior item may be missing.");
+ [...dialog.querySelectorAll("li")].find(p=>p.textContent?.includes("The newest prior item"))!.scrollIntoView({block:"center"});
  await page.screenshot({element:dialog,path:`../../.vitest-attachments/live-history/details-${providerId}-${theme}-${width}.png`});
- await userEvent.keyboard("{Escape}");await expect.poll(()=>document.querySelector("dialog[open]")).toBeNull();
+ dialog.querySelector<HTMLElement>(".bk-voice-start")!.focus();
+ await userEvent.keyboard("{Escape}");await expect.poll(()=>document.querySelector("[data-start-card]")).toBeNull();
  expect(s.ui.connection.conversation.state.getState().micOn).toBe(false);
 });

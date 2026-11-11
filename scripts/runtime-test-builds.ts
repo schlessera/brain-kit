@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from "node:path";
 
 export const runtimeTestBuilds: Readonly<Record<string, readonly string[]>> = Object.fromEntries([
   "answer-delivery", "approval-recovery", "artifact-recovery", "attachment-read", "association-signout", "auth-expiry", "chat-focus",
-  "connection-continuity", "dictation-selection", "draft", "ended-question", "external-speech", "html-preview", "local-work", "parallel-sessions", "persona-settings", "scratch-links", "tracker", "turn-journal", "untrusted-marks",
+  "connection-continuity", "dictation-selection", "draft", "ended-question", "external-speech", "html-preview", "live-service", "local-work", "parallel-sessions", "persona-settings", "scratch-links", "start-card", "tracker", "turn-journal", "untrusted-marks",
 ].map(name => [`packages/ui-react/tests/${name}-runtime.test.ts`, ["ui-react", "ui-server", "core"]]));
 const special: Readonly<Record<string, readonly string[]>> = {
   "packages/ui-react/tests/haiku-model-runtime.test.ts": ["ui-react"],
