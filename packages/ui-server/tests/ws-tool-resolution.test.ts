@@ -110,7 +110,7 @@ describe("tool_resolution", () => {
     const turnId = await s.raise(client);
     client.send({ type: "cancel", sessionId: "sess-loom" });
     await until(() => s.host.coordinator.pendingApprovals.size === 0);
-    await settle();
+    await until(() => client.frames("tool_resolution").length > 0);
     expect(client.frames("tool_resolution")[0]).toEqual({
       type: "tool_resolution", toolUseId: "tool-loom", outcome: "expired", sessionId: "sess-loom", turnId, reason: "Cancelled by user",
     });

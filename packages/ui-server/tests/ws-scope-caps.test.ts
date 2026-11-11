@@ -17,6 +17,7 @@ import { createWsHandlers } from "../src/ws/connection.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { scopePiProgress } from "./helpers/scope-pi-progress.js";
+import { requireTurnFreeSpace } from "./helpers/turn-free-space.js";
 import type { ServerMessage, ScopeCapReceipt } from "@schlessera/brain-ui-sdk/protocol";
 
 async function wait(check: () => boolean, detail: () => unknown) { const end = Date.now() + 8000; while (!check()) { if (Date.now() > end) throw Error(JSON.stringify(detail())); await Bun.sleep(10); } }
@@ -97,6 +98,8 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
     });
   }
   try {
+    // The real scope monitor enforces a free-space floor; name it instead of reading it as the cap under test (#2551).
+    requireTurnFreeSpace(brain);
     app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: join(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
       registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
     const principal = createPrincipal(app.db, { authMethod: "password", label: "Athena scope", ttlSeconds: 60 });
