@@ -322,14 +322,30 @@ the calling session. Answer mode, summaries, curator review, video analysis
 and the browser-cookie and credential-command modes answer `unsupported`. Each
 result passes the input-safety collector before the model receives it.
 Autonomous turns get none of these tools. A host without a web executor
-refuses them before they run. The production executor is not built yet
-(#3686); until it is, the tools are listed but refused.
+refuses them before they run.
+
+The host web executor (#3686) runs the pinned upstream extension,
+`pi-web-access` 0.41.0, in a real Pi SDK session on the host, one child
+process per conversation. That process loads only that extension, with empty
+settings and no discovery. It runs in a fresh private directory (HOME, Pi
+agent directory, cache and temp) beside the UI database, which workers
+already have masked. It reads a sanitized copy of the host's
+`web-search.json` and gets the catalog providers' API keys from the host
+environment. The copy turns off the extension's workflow, curator, summary,
+media, GitHub-cloning, command and browser-cookie paths, and removes every
+`!command` credential. Settings, the Settings card and the system-prompt
+brief list the same unavailable features (`WEB_TOOL_UNAVAILABLE_FEATURES`).
+The directory is removed when the executor ends; an executor that dies is
+replaced on the next call, and its stored results go with it. Mandatory
+egress and per-call admission are #3687; subscription and current-model
+search is #3688.
 
 ## Extensions (MCP, subagents)
 
 Managed turns currently refuse every loaded external extension, including
 `pi-web-access`, `pi-mcp-adapter` and `pi-subagents`. Web search does not need
-`pi-web-access` (see Web tools above). A tool permission gate or a
+a worker-loaded `pi-web-access` (see Web tools above): the host runs its own
+pinned copy. A tool permission gate or a
 final `tool_result` observer cannot qualify these packages: Pi also exposes live
 messages/results after that observer, independent custom-message injection and
 provider-payload hooks. There is no trusted extension path, name or package

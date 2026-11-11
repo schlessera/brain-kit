@@ -36,12 +36,15 @@ import {
   WEB_SEARCH_FALLBACK_ON,
   WEB_SEARCH_PROVIDER_KEYS,
   WEB_SEARCH_PROVIDERS,
+  WEB_TOOL_UNAVAILABLE_FEATURES,
   hasWebSearchCredential,
+  webSearchKeySource,
   readWebSearchOverride,
   readWebSearchRouting,
   resolveWebSearchConfigPath,
   webSearchProvider,
 } from "@schlessera/brain-ui-sdk/internal";
+import type { WebToolUnavailableFeature } from "@schlessera/brain-ui-sdk/internal";
 import type { AgentConfig } from "../config/env.js";
 import { resolveWebSearchEnv } from "../config/env.js";
 import { loadBackendDescriptor, loadBackendModule } from "../agent/backend.js";
@@ -58,6 +61,11 @@ interface WebSearchProviderView {
   keyConfigured: boolean;
   /** Its key comes from the environment instead — not editable here. */
   keyFromEnv: boolean;
+  /**
+   * The stored key is a credential command (`!command`). The host web
+   * executor never runs one, so the provider has no usable key (#3686).
+   */
+  keyIsCommand: boolean;
   /** Works without any credential. */
   keyless: boolean;
   /** Qualitative cost, for the UI. */
@@ -84,6 +92,8 @@ interface WebSearchConfigView {
    */
   appliesTo: string[];
   providers: WebSearchProviderView[];
+  /** What the host web tools do not offer, whatever the config says (#3686). */
+  unavailable: readonly WebToolUnavailableFeature[];
 }
 
 interface WebSearchRoutesDeps {
@@ -176,10 +186,12 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
           typeof config[p.keyField] === "string" &&
           (config[p.keyField] as string).trim() !== "",
         keyFromEnv: Boolean(p.envVar && (env[p.envVar] ?? "").trim() !== ""),
+        keyIsCommand: p.keyField !== null && webSearchKeySource(config[p.keyField], env) === "command",
         keyless: p.keyless,
         costNote: p.costNote,
         blurb: p.blurb,
       })),
+      unavailable: WEB_TOOL_UNAVAILABLE_FEATURES,
     };
   }
 
@@ -188,7 +200,7 @@ export function createWebSearchRoutes(deps: WebSearchRoutesDeps): Hono {
       // Not-configured is a normal state, not an error: the client hides the
       // whole card (same convention as /pi-auth/providers).
       if (!piConfigured()) {
-        return c.json({ configured: false, order: [], overriddenBy: null, appliesTo: [], providers: [] });
+        return c.json({ configured: false, order: [], overriddenBy: null, appliesTo: [], providers: [], unavailable: [] });
       }
       return c.json(await view());
     })

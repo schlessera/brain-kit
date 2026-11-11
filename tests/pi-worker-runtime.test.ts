@@ -74,6 +74,32 @@ describe("ordinary pi isolated worker", () => {
     expect(r.running).toEqual([]);
     policyUnchanged(r);
   });
+  test("the four web tools run in the trusted host executor; the worker reads neither its key nor its state (#3686)", async () => {
+    const r = await probe("host-web");
+    expect(r.failure, "PI_HOST_WEB_TURN_SUCCEEDS").toBeUndefined();
+    expect(r.frames.at(-1)).toMatchObject({ type: "result", outcome: "success" });
+    const names = new Map(r.frames.filter((f: any) => f.type === "tool_use_start").map((f: any) => [f.toolUseId, f.toolName]));
+    const results = r.frames.filter((f: any) => f.type === "tool_result").map((f: any) => ({ tool: names.get(f.toolUseId), isError: f.isError, output: f.output }));
+    const web = results.filter((result: any) => result.tool !== "bash");
+    expect(web.map((result: any) => `${result.tool}:${JSON.parse(result.output).ok}`).sort(), "PI_HOST_WEB_FOUR_TOOLS_EXECUTE")
+      .toEqual(["fetch_content:true", "get_search_content:true", "source_check:true", "web_search:true"]);
+    expect(web.find((result: any) => result.tool === "web_search").output, "PI_HOST_WEB_PROVIDER_RESULT").toContain("The raft reaches Ithaca at dawn.");
+    const shell = results.find((result: any) => result.tool === "bash");
+    expect(shell?.output, "PI_HOST_WEB_WORKER_PROBE_RAN").toContain("WORKER_WEB_PROBE_DONE");
+    expect(shell.output, "PI_HOST_WEB_SENTINEL_UNREADABLE_FROM_WORKER").not.toContain(r.web.sentinel);
+    expect(shell.output, "PI_HOST_WEB_CONFIG_UNREADABLE_FROM_WORKER").not.toContain("exaBaseUrl");
+    expect(JSON.stringify(r.frames), "PI_HOST_WEB_SENTINEL_NEVER_IN_FRAMES").not.toContain(r.web.sentinel);
+    expect(r.web.providerKeys.length).toBeGreaterThanOrEqual(2);
+    expect(r.web.providerKeys.every((key: string) => key === r.web.sentinel), "PI_HOST_WEB_KEY_FROM_HOST").toBe(true);
+    expect(r.web.hostConfigUnchanged, "PI_HOST_WEB_PARENT_CONFIG_UNCHANGED").toBe(true);
+    expect(r.web.receipts.filter((receipt: any) => receipt.kind === "executor").map((receipt: any) => receipt.exit), "PI_HOST_WEB_EXECUTOR_EXIT")
+      .toMatchObject([{ reason: "closed", exited: true, cleaned: true }]);
+    expect(r.web.executorEntriesAfterClose, "PI_HOST_WEB_STATE_REMOVED").toEqual([]);
+    // This scenario's parent agent dir holds only what the fixture itself wrote; the executor adds nothing there.
+    expect(r.web.parentAgentEntries, "PI_HOST_WEB_PARENT_AGENT_DIR_UNTOUCHED").toEqual(["auth.json", "models.json", "settings.json"]);
+    expect(r.running).toEqual([]);
+    policyUnchanged(r);
+  });
   test("an installed extension stays inactive under the default configuration and the curated turn succeeds (#3658)", async () => {
     const r = await probe("inactive-extension");
     expect(r.failure, "PI_DEFAULT_IGNORES_INSTALLED_EXTENSION").toBeUndefined();
