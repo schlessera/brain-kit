@@ -58,7 +58,7 @@ describe("frame protection headers", () => {
     expectFrameHeaders(file);
   });
 
-  test("appends frame protection to the raw file CSP", async () => {
+  test("keeps the raw file's own CSP, which carries frame-ancestors", async () => {
     const response = await app.fetch("/api/files/content?path=note.md&raw=1");
 
     expect(response.status).toBe(200);

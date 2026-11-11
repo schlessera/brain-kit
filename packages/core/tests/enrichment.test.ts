@@ -233,7 +233,7 @@ describe("locating the chunk, the outline's overflow, and clipping (#427 review)
     expect(locateChunk(doc, "", "(intro)")).toBe(-1);
     expect(locateChunk("", "text", "Heading")).toBe(-1);
     const document = documentForChunk(doc, "", "(intro)", "");
-    expect(document.startsWith(`Excerpt around the chunk:\n${doc.slice(0, 100)}`)).toBe(true);
+    expect(document).toStartWith(`Excerpt around the chunk:\n${doc.slice(0, 100)}`);
     expect(document.length).toBeLessThanOrEqual(CONTEXT_DOCUMENT_BUDGET);
     expect(documentForChunk("", "", "(intro)")).toBe("");
   });

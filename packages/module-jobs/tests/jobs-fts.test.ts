@@ -10,7 +10,7 @@ function makeRawJob(overrides: Partial<RawJob> = {}): RawJob {
     source: "remoteok",
     source_id: "job-1",
     title: "Platform Systems Engineer",
-    company: "Acme",
+    company: "Ithaca Fleet",
     description: "<p>Build distributed orchestration platforms.</p>",
     url: "https://example.com/job-1",
     ...overrides,
@@ -55,7 +55,7 @@ describe("FTS sync on ingest", () => {
     expect(stats.new).toBe(0);
 
     const row = db.query("SELECT last_seen_at FROM jobs").get() as { last_seen_at: string };
-    expect(row.last_seen_at > "2020-01-02").toBe(true);
+    expect(Date.parse(row.last_seen_at)).toBeGreaterThan(Date.parse("2020-01-02"));
     db.close();
   });
 });

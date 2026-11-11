@@ -38,7 +38,7 @@ test("direct runScrape without sources executes the same curated boards as the C
   expect(cli.sources.map((entry: { source: string }) => entry.source)).toEqual(curated);
   for (const report of [direct, cli]) {
     expect(report.sources).toHaveLength(4);
-    expect(report.sources.every((entry: { status: string }) => entry.status === "empty")).toBe(true);
+    expect(report.sources.map((entry: { status: string }) => entry.status)).toEqual(curated.map(() => "empty"));
     expect(report.total_errors).toEqual([]);
   }
 });
@@ -75,7 +75,7 @@ test("fixture declarations contribute choices and on/off defaults without editin
   for (const direct of [false, true]) {
     const report = await scrape(root, source, direct);
     expect(report.sources.map((entry: { source: string }) => entry.source)).toEqual(["fixture-on", ...curated]);
-    expect(report.sources.every((entry: { status: string }) => entry.status === "empty")).toBe(true);
+    expect(report.sources.map((entry: { status: string }) => entry.status)).toEqual(["fixture-on", ...curated].map(() => "empty"));
     expect(report.total_errors).toEqual([]);
   }
 });

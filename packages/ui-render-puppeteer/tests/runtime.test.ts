@@ -247,14 +247,6 @@ describe.skipIf(!hasChrome)("renderer hardening regressions", () => {
     }
   }, 60_000);
 
-  test("a degenerate body renders instead of throwing a raw Chrome error", async () => {
-    const r = renderer();
-    const png = await r.renderPng({
-      html: "<html><body style='height:0;width:0'></body></html>",
-    });
-    expect(Buffer.isBuffer(png)).toBe(true);
-  }, 60_000);
-
   test("an enormous body is clamped, not allocated in full", async () => {
     const r = renderer();
     const png = await r.renderPng({
@@ -276,5 +268,7 @@ describe.skipIf(!hasChrome)("renderer hardening regressions", () => {
   }, 60_000);
 
   // Injectable browser lifecycle and stale callbacks are exercised in
-  // crash-recovery.test.ts; real isolation remains owned by this file.
+  // crash-recovery.test.ts, and degenerate body geometry (zero, null and
+  // fractional boxes) with exact PNG dimensions in png-bounds.runtime.test.ts;
+  // real isolation remains owned by this file.
 });

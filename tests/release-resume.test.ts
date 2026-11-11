@@ -87,7 +87,7 @@ describe("planRelease", () => {
     const plan = await planRelease(ENTRIES, isLive);
 
     expect(plan).toHaveLength(ENTRIES.length);
-    expect(plan.every((step) => step.action === "skip")).toBe(true);
+    expect(plan.map((step) => step.action)).toEqual(ENTRIES.map(() => "skip"));
   });
 
   // The list is ordered so a dependency always publishes before its dependents.
@@ -111,7 +111,7 @@ describe("planRelease", () => {
     const plan = await planRelease(ENTRIES, isLive);
 
     expect(plan).toHaveLength(ENTRIES.length);
-    expect(plan.every((step) => step.action === "publish")).toBe(true);
+    expect(plan.map((step) => step.action)).toEqual(ENTRIES.map(() => "publish"));
   });
 });
 

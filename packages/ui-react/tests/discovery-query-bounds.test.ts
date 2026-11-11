@@ -25,9 +25,9 @@ test("DISCOVERY_REAL_NODE_CAP: the supported UI reader preserves outgoing distan
   expect(scene.nodes.length).toBe(5000);
   expect(scene.truncated).toBe(true);
   expect(scene.nodes.find(n => n.id === 1)?.distance).toBe(0);
-  expect(scene.nodes.filter(n => n.id !== 1).every(n => n.distance === 1)).toBe(true);
+  expect(scene.nodes.filter(n => n.id !== 1 && n.distance !== 1), "every other node is one outgoing hop away").toEqual([]);
   expect(scene.nodes.some(n => n.id === 5003), "incoming-only note never becomes an outgoing BFS node").toBe(false);
-  expect(scene.edges.every(e => e.source === 1 && scene.nodes.some(n => n.id === e.target))).toBe(true);
+  expect(scene.edges.filter(e => e.source !== 1 || !scene.nodes.some(n => n.id === e.target)), "every edge leaves the root for a shown node").toEqual([]);
 });
 
 test("DISCOVERY_REAL_VIRTUAL_CAP: default-root rank capping retains the synthetic root and honest limited eligibility", () => {
@@ -40,7 +40,7 @@ test("DISCOVERY_REAL_VIRTUAL_CAP: default-root rank capping retains the syntheti
   expect(scene.nodes.length).toBe(5000);
   expect(scene.truncated).toBe(true);
   expect(scene.nodes.find(n => n.id === 0)).toMatchObject({ virtual: true, path: "AGENTS.md", distance: 0 });
-  expect(scene.nodes.filter(n => n.id !== 0).every(n => n.distance === 1)).toBe(true);
+  expect(scene.nodes.filter(n => n.id !== 0 && n.distance !== 1), "every note hangs one hop off the virtual root").toEqual([]);
   const note = scene.nodes.find(n => n.id === 1)!;
   const action = discoveryExpansionAction(note, scene, { data: scene, depth: 2 }, emptyDiscoveryExpansion(), false);
   expect(action.count).toBe(0);
@@ -61,7 +61,7 @@ test("DISCOVERY_REAL_EDGE_ONLY_CAP: all nodes may survive while the actual 20000
   expect(scene.nodes.length).toBe(202);
   expect(scene.edges.length).toBe(20000);
   expect(scene.truncated).toBe(true);
-  expect(scene.nodes.filter(n => n.id !== 1).every(n => n.distance === 1)).toBe(true);
+  expect(scene.nodes.filter(n => n.id !== 1 && n.distance !== 1), "every other node is one outgoing hop away").toEqual([]);
   const action = discoveryExpansionAction(scene.nodes.find(n => n.id === 2)!, scene, { data: scene, depth: 2 }, emptyDiscoveryExpansion(), false);
   expect(action.reason).toContain("scene limited");
   expect(action.reason).not.toContain("already shown");

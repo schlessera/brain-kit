@@ -99,11 +99,11 @@ test("a move interrupted after copying is copied again, never duplicated, before
 test("a journal table a later migration creates in the UI database moves on the next start", () => {
   const f = fixture("later");
   let db = createUiDb(f.path);
-  db.exec("CREATE TABLE turn_journal_fixture_voyages (id TEXT PRIMARY KEY, port TEXT); INSERT INTO turn_journal_fixture_voyages VALUES ('one','Ithaca')");
-  expect(moveJournalTables(db), "JOURNAL_MOVE_REPORTS_TABLES").toBe(1);
-  db.close();
-  db = createUiDb(f.path);
   try {
+    db.exec("CREATE TABLE turn_journal_fixture_voyages (id TEXT PRIMARY KEY, port TEXT); INSERT INTO turn_journal_fixture_voyages VALUES ('one','Ithaca')");
+    expect(moveJournalTables(db), "JOURNAL_MOVE_REPORTS_TABLES").toBe(1);
+    db.close();
+    db = createUiDb(f.path);
     expect(journalTables(db, "main")).toEqual([]);
     expect(db.query("SELECT port FROM journal.turn_journal_fixture_voyages").all()).toEqual([{ port: "Ithaca" }]);
     expect(existsSync(`${f.path}.journal.db`)).toBe(true);
@@ -162,30 +162,32 @@ test("a ledger on a connection that never ran createUiDb attaches the journal fi
 test("the turn journal replays a missing steering event when it starts", async () => {
   const f = fixture("startup");
   const brain = join(f.root, "brain"); mkdirSync(brain);
-  const db = createUiDb(f.path), ledger = createJournalAccounting(db, f.path);
-  ledger.write(() => {
-    db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,ended_at,state) VALUES ('voyage','interactive','governed',1,2,'complete')").run();
-    db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps) VALUES ('voyage',1,'notes/steering.md','brain',NULL,NULL,'steering','agent','[]')").run();
-  });
-  const native = createNativeJournalFixture(brain, f.root);
-  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: f.path, objectsRoot: join(f.root, "objects") });
+  const db = createUiDb(f.path), native = createNativeJournalFixture(brain, f.root);
+  let journal: ReturnType<typeof createTurnJournal> | undefined;
   try {
+    createJournalAccounting(db, f.path).write(() => {
+      db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,ended_at,state) VALUES ('voyage','interactive','governed',1,2,'complete')").run();
+      db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps) VALUES ('voyage',1,'notes/steering.md','brain',NULL,NULL,'steering','agent','[]')").run();
+    });
+    journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: f.path, objectsRoot: join(f.root, "objects") });
     await journal.ready;
     expect(db.query("SELECT dedupe_key FROM governance_events WHERE kind='steering_change'").all(), "JOURNAL_STARTUP_REPLAYS_STEERING").toEqual([{ dedupe_key: "voyage:1" }]);
-  } finally { await journal.close(); await native.close(); f.close(db); }
+  } finally { await journal?.close(); await native.close(); f.close(db); }
 });
 
 test("the operational backup carries the journal file, from the app or the recovery command, and a restore moves it back", async () => {
   const f = fixture("backup");
   const source = join(f.root, "source"), target = join(f.root, "target"); mkdirSync(source); mkdirSync(target);
-  const path = join(source, "ui.sqlite"), db = createUiDb(path), ledger = createJournalAccounting(db, path);
-  ledger.write(() => db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state,summary) VALUES ('voyage','interactive','governed',1,'complete','Ithaca')").run());
-  expect(ledger.ensureObjectRefIndex(), "BACKUP_SOURCE_HAS_ADMITTED_INDEX").toBe(true);
-  const at = Date.now();
-  const snapshot = await exportInboxSnapshot(db, source, at);
-  // The recovery command opens the UI file directly and read-only.
-  const command = new Database(path, { readonly: true });
+  const path = join(source, "ui.sqlite"), db = createUiDb(path);
+  let command: Database | undefined;
   try {
+    const ledger = createJournalAccounting(db, path);
+    ledger.write(() => db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state,summary) VALUES ('voyage','interactive','governed',1,'complete','Ithaca')").run());
+    expect(ledger.ensureObjectRefIndex(), "BACKUP_SOURCE_HAS_ADMITTED_INDEX").toBe(true);
+    const at = Date.now();
+    const snapshot = await exportInboxSnapshot(db, source, at);
+    // The recovery command opens the UI file directly and read-only.
+    command = new Database(path, { readonly: true });
     expect(await exportInboxSnapshot(command, source, at), "JOURNAL_BACKUP_SAME_FROM_RECOVERY_COMMAND").toEqual(snapshot);
     const image = Database.deserialize(Buffer.from(snapshot.database.data, "base64"));
     try {
@@ -205,7 +207,7 @@ test("the operational backup carries the journal file, from the app or the recov
       expect(bounded.ensureObjectRefIndex(), "RESTORED_INDEX_STILL_NEEDS_ADMISSION").toBe(false);
       expect(restoredLedger.ensureObjectRefIndex(), "RESTORED_INDEX_REBUILDS_WHEN_ADMITTED").toBe(true);
     } finally { restored.close(); }
-  } finally { command.close(); f.close(db); }
+  } finally { command?.close(); f.close(db); }
 });
 
 test("the derived journal index name cannot hide an incompatible backup schema", async () => {
@@ -225,7 +227,11 @@ test("the derived journal index name cannot hide an incompatible backup schema",
 
 test("migrations after the split keep the journal file and the UI database apart", () => {
   const migrations = join(import.meta.dir, "../migrations");
-  for (const file of readdirSync(migrations).filter(name => name.endsWith(".sql") && name.slice(0, 3) > JOURNAL_SPLIT_MIGRATION)) {
+  const later = readdirSync(migrations).filter(name => name.endsWith(".sql") && name.slice(0, 3) > JOURNAL_SPLIT_MIGRATION);
+  // Both kinds exist after the split, so neither branch below can pass by examining nothing.
+  expect(later.filter(file => file.endsWith(".journal.sql")).length, "LATER_JOURNAL_MIGRATIONS_EXAMINED").toBeGreaterThan(0);
+  expect(later.filter(file => !file.endsWith(".journal.sql")).length, "LATER_UI_MIGRATIONS_EXAMINED").toBeGreaterThan(0);
+  for (const file of later) {
     // Comments are not statements, a trigger's `UPDATE [OF columns] ON t`
     // event names only the table after ON, and a foreign key's
     // `ON DELETE|UPDATE <action>` names no object at all.

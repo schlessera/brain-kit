@@ -11,9 +11,9 @@
  * is what makes using Overpass at all defensible: one request per place, ever.
  */
 
-import { describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fsPromises from "node:fs/promises";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -51,12 +51,19 @@ const EMPTY: CoastlineResult = {
   attribution: "© OpenStreetMap contributors",
 };
 
+const cacheDirs: string[] = [];
+afterEach(async () => {
+  for (const dir of cacheDirs.splice(0)) await rm(dir, { recursive: true, force: true });
+});
+
 async function config(): Promise<CoastlineConfig> {
+  const cacheDir = await mkdtemp(join(tmpdir(), "geo-cache-"));
+  cacheDirs.push(cacheDir);
   return {
     enabled: true,
     url: "https://overpass.invalid/api/interpreter",
     userAgent: "brain-kit-test/1.0",
-    cacheDir: await mkdtemp(join(tmpdir(), "geo-cache-")),
+    cacheDir,
   };
 }
 

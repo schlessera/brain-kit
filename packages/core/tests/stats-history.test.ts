@@ -114,7 +114,7 @@ describe("recordSnapshot", () => {
     recordSnapshot(root, snap("2026-09-27"));
     recordSnapshot(root, snap("2026-09-28"));
     expect(lines(root).map((l) => JSON.parse(l).date)).toEqual(["2026-09-27", "2026-09-28", "2026-09-29"]);
-    expect(readFileSync(join(root, STATS_HISTORY_FILE), "utf8").endsWith("}\n")).toBe(true);
+    expect(readFileSync(join(root, STATS_HISTORY_FILE), "utf8").slice(-2)).toBe("}\n");
   });
 
   test("refuses to rewrite a file with a line that is not a snapshot, and leaves it as it was", () => {
@@ -159,7 +159,9 @@ describe("retention", () => {
     kept = thin(kept, today);
     for (let i = 0; i < 60; i++) {
       today = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-      const before = kept.filter((s) => Date.parse(s.date) < Date.parse(today) - (DAILY_DAYS + 7) * 86_400_000);
+      // Everything already past yesterday's daily window was kept for good, a week straddling it included.
+      const before = kept.filter((s) => Date.parse(s.date) < Date.parse(today) - (DAILY_DAYS + 1) * 86_400_000);
+      expect(before.length).toBeGreaterThan(0);
       kept = thin([...kept, { date: today }], today);
       for (const s of before) expect(kept.map((k) => k.date)).toContain(s.date);
     }

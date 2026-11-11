@@ -96,7 +96,12 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
   `self-comparison`.
 - **S4. Compare values, not booleans.** `expect(island).toBe("Ithaca")`, not
   `expect(island === "Ithaca").toBe(true)`: the failure should print both
-  sides. Prevents `opaque-failure`.
+  sides. The same goes for a predicate over a collection:
+  `expect(crew.every(c => c.rowed)).toBe(true)` hides which sailor failed and
+  passes on an empty crew. Map or filter to values instead,
+  `expect(crew.filter(c => !c.rowed)).toEqual([])` or
+  `expect(crew.map(c => c.name)).not.toContain("Eurylochus")`, and pin the
+  size when an empty collection would be wrong. Prevents `opaque-failure`.
 - **S5. The expected value does not come from the code under test.** Write it
   as a literal or derive it independently. A test that resolves the same tokens
   the component paints with proves wiring and nothing else. Prevents
@@ -105,7 +110,12 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
   the product path actually builds, with a harness that wires the thing the
   assertion observes, and build inputs whose covered part is non-empty.
   Prevents `wrong-object`, `earlier-layer-answers`, `nothing-to-observe` and
-  `empty-by-construction`.
+  `empty-by-construction`. An absence needs a presence beside it: a test made
+  only of `toBeNull()`, `toHaveLength(0)` or `not.toHaveBeenCalled()` also
+  passes when nothing rendered or nothing ran, so first assert what must still
+  be there (`expect(await canvas.findByText("omens")).toBeVisible()`), then
+  what must not be. The same goes for a selector nothing emits: asserting
+  `.bk-colour-only` absent holds whatever the components drew.
 - **S7. Double the lowest shared request path, and assert the outcome.** A
   double replaces the one method every request goes through; the assertions
   are about what the code did with the answer, not about the double being

@@ -23,7 +23,10 @@ const passed: string[] = [];
 async function probe(adapter: string, scenario: string): Promise<any> {
   const root = mkdtempSync(join(tmpdir(), "policy-boundary-"));
   try {
-    const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", process.execPath,
+    // A private /tmp keeps host-wide /tmp state, such as the per-UID maintenance
+    // budget ledger other test processes on this host hold, out of the probe (#3019).
+    const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+      "--tmpfs", "/tmp", "--bind", root, root, process.execPath,
       "--preload", join(ROOT, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "fixtures/policy-boundary-probe.ts"),
       "outer", adapter, scenario, root], { cwd: ROOT, env: { PATH: process.env.PATH!, LANG: "C.UTF-8" }, stdout: "pipe", stderr: "pipe" });
     const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

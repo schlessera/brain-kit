@@ -132,7 +132,7 @@ describe("server-selected autonomous turn", () => {
       // The real per-turn host probe is awaited (#2416); the dispatch starts once it answers.
       while (interactiveStarts < 1 && !frames.some((frame) => frame.includes("SESSION_LIMIT"))) await Bun.sleep(1);
       expect(interactiveStarts).toBe(1);
-      expect(frames.some((frame) => frame.includes("SESSION_LIMIT"))).toBe(false);
+      expect(frames.filter((frame) => frame.includes("SESSION_LIMIT"))).toEqual([]);
       expect(starts).toBe(2);
     } finally { release(); await Promise.allSettled([first, second]); host.close(); f.db.close(); }
   });

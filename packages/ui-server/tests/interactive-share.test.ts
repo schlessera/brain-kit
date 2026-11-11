@@ -21,6 +21,8 @@ const closes: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0).reverse()) await close(); });
 const SECRET = "odysseus-share-fixture-cookie-0123456789";
 const pdf = "%PDF-1.4\nOdysseus returns to Ithaca.\n%%EOF\n";
+// Hashed once: no test signs in with the password, so every fixture can share it.
+const PASSWORD_HASH = Bun.password.hashSync("odysseus-fixture");
 function deferred<T = void>() { let resolve!: (v: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; }
 async function fixture() {
   const scripts: ((req: StartTurnRequest) => Promise<void>)[] = [];
@@ -32,7 +34,7 @@ async function fixture() {
     req.bridge.emit({ type: "result", sessionId: sid, isError: false, durationMs: 1, numTurns: 1 });
   } });
   backend.brainApplicationPolicy = () => ({ available: ["write"], autoAllowed: ["write"], lock: createKeyedLock() });
-  const f = await createTestApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: Bun.password.hashSync("odysseus-fixture"), COOKIE_SECRET: SECRET },
+  const f = await createTestApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: PASSWORD_HASH, COOKIE_SECRET: SECRET },
     appOptions: { registry: createStaticBackendRegistry([backend], "pi") } });
   closes.push(() => f.teardown());
   f.app.wsHost.applicationPlanner!.index = async () => {};
@@ -89,7 +91,8 @@ test("real app/WS completion verifies filing and retained PDF, then a lost reply
   let request: any, receipt: any;
   const sid = await f.send(share, async req => {
     const result = await req.bridge.applyBrain!(application(share));
-    expect(result.ok).toBe(true); expect(result.shareReceiptId).toBeDefined();
+    expect(result.ok).toBe(true);
+    expect(result.shareReceiptId, "FILING_RECEIPT_IS_THE_PERSISTED_APPLICATION").toBe((f.app.db.query("SELECT id FROM inbox_share_applications").get() as { id: string }).id);
     request = { receiptIds: [result.shareReceiptId], files: [{ sourcePath: share.files[0]!.path, disposition: "retained", path: "assets/ithaca.pdf" }] };
     receipt = await req.bridge.completeShare!(request);
     expect(receipt).toEqual({ itemId: f.item(share).id, status: "done", replay: false });

@@ -39,8 +39,14 @@ test("real WS replay and contiguous updates survive duplicate/reordered delivery
     client.send({type:"safety_subscribe",version:1,requestId:"subscription",identity:frame.page.identity,afterRevision:frame.page.highWater,snapshotId:frame.page.snapshotId});
     const updates:import("@schlessera/brain-ui-sdk/protocol").SafetyUpdate[]=[];
     const through=async(count:number)=>{for(;;){const frame=await client.until(m=>m.type==="safety_update");if(frame.type!=="safety_update")throw new Error("Missing update");updates.push(frame.update);if(frame.update.projection.unresolvedCount===count&&frame.update.projection.pendingCount===0)return frame.update;}};
-    await f.add("B");f.history.poll();const one=await through(2);
-    await f.add("C");f.history.poll();const two=await through(3);
+    // A poll that reads a new row before its write's local pending latch clears
+    // reports pendingCount 1; the next poll at the same revision reports 0, and
+    // that changed projection closes the subscription with gap (#3723). Every
+    // read, the subscription's own and the sweep's included, waits behind the
+    // hold until the write and its latch have settled.
+    const settledAdd=async(name:string)=>{const quiet=f.hold();try{await f.add(name);}finally{quiet.release();}};
+    await settledAdd("B");f.history.poll();const one=await through(2);
+    await settledAdd("C");f.history.poll();const two=await through(3);
     const store=createSafetyStore();store.getState().reset(true);store.getState().begin("replay");expect(store.getState().page("replay",frame.page)).toBe(true);
     for(const update of updates)expect(store.getState().update(update)).toBe(true);
     expect(store.getState().update(one)).toBe(true);

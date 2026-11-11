@@ -37,8 +37,10 @@ test("CLI lint names unresolved package export", async () => {
   const result = await runCli(root,["module","lint","figures","--json"]);
   expect(JSON.parse(result.stdout).findings[0].message).toContain("@odyssey/figures/missing"); expect(result.code).toBe(1);
 });
-for (const [label,value] of [["unknown field",{client:"@odyssey/figures/ui",typo:true}],["invalid fence",{client:"@odyssey/figures/ui",fences:["Diagram"]}],["invalid extension",{client:"@odyssey/figures/ui",extensions:["svg"]}],["foreign export",{client:"@odyssey/other/ui"}],["path traversal",{client:"@odyssey/figures/../ui"}],["prefix spoof",{client:"@odyssey/figures-other/ui"}]] as const) {
-  test(`rejects ${label}`,async()=>{const {root}=fixture(value);await expect(loadModules(config,root)).rejects.toThrow();});
+// Each refusal names its own cause: a bare rejects.toThrow() would also pass on a fixture that fails to load at all.
+const ownSubpath = "must name an export subpath of its own package";
+for (const [label,value,reason] of [["unknown field",{client:"@odyssey/figures/ui",typo:true},'renderers.figure: Unrecognized key: "typo"'],["invalid fence",{client:"@odyssey/figures/ui",fences:["Diagram"]},"renderers.figure.fences.0: Invalid string"],["invalid extension",{client:"@odyssey/figures/ui",extensions:["svg"]},'renderers.figure.extensions.0: Invalid string: must start with "."'],["foreign export",{client:"@odyssey/other/ui"},`"@odyssey/other/ui" ${ownSubpath}`],["path traversal",{client:"@odyssey/figures/../ui"},`"@odyssey/figures/../ui" ${ownSubpath}`],["prefix spoof",{client:"@odyssey/figures-other/ui"},`"@odyssey/figures-other/ui" ${ownSubpath}`]] as const) {
+  test(`rejects ${label}`,async()=>{const {root}=fixture(value);await expect(loadModules(config,root)).rejects.toThrow(reason);});
 }
 for (const declaration of [{fences:["mermaid"]},{fences:["mmd"]},{extensions:[".mmd"]},{extensions:[".mermaid"]}]) {
   test(`reserves built-in claim ${JSON.stringify(declaration)}`,async()=>{const {root}=fixture({client:"@odyssey/figures/ui",...declaration});await expect(loadModules(config,root)).rejects.toThrow("reserved");});

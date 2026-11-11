@@ -99,7 +99,7 @@ describe("worker sandbox writable areas (#1626)", () => {
             && attempt(()=>fs.mkdirSync(process.env[k]+"/chromium/applications",{recursive:true}))]))}));`;
       expect(await run(f.brain, sandbox, program, f.home), "XDG_FALLBACK").toEqual({ home: "EROFS",
         xdg: { XDG_CONFIG_HOME: "ok", XDG_CACHE_HOME: "ok", XDG_DATA_HOME: "ok" } });
-      expect(Object.values(WORKER_XDG_DIRS).every(dir => dir.startsWith("/tmp/"))).toBe(true);
+      expect(Object.values(WORKER_XDG_DIRS).filter(dir => !dir.startsWith("/tmp/"))).toEqual([]);
     } finally { f.cleanup(); }
   });
 
@@ -448,7 +448,7 @@ describe("the sandbox note's wording (#1654)", () => {
   test("limits are stated as their owners resolved them, and only when given", () => {
     expect(workerSandboxNote(strict)).not.toContain("Limits in this turn");
     const note = workerSandboxNote(strict, { limits: [{ name: "Runtime state", value: "64 MiB", onHit: "Past it the conversation continues in a new one." }] });
-    expect(note.endsWith("Limits in this turn:\n- **Runtime state: 64 MiB.** Past it the conversation continues in a new one.")).toBe(true);
+    expect(note).toEndWith("Limits in this turn:\n- **Runtime state: 64 MiB.** Past it the conversation continues in a new one.");
   });
 });
 

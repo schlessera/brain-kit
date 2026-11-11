@@ -33,7 +33,10 @@ describe("sync exact paths", () => {
       expect(body.files).toContainEqual({ path: "new -> note.md", class: "TRACK", status: "R" });
       for (const path of names) expect(body.files).toContainEqual({ path, class: "TRACK", status: "?" });
       const grouped = JSON.parse((await runCli(root, ["sync", "group", "--json"])).stdout);
-      expect(grouped.groups.some((g: { path: string }) => g.path.includes("credentials"))).toBe(false);
+      const groupedPaths = grouped.groups.map((g: { path: string }) => g.path);
+      // The TRACK files are grouped; neither SENSITIVE file is.
+      expect(groupedPaths).toContain("new -> note.md");
+      expect(groupedPaths).not.toContainEqual(expect.stringContaining("credentials"));
     } finally { cleanup(root); }
   });
 

@@ -80,6 +80,7 @@ describe("clientEnvironmentSchema", () => {
       JSON.stringify({ type: "chat_message", text: "hi", client: valid })
     );
     expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.message.type).toBe("chat_message");
     if (parsed.ok && parsed.message.type === "chat_message") {
       expect(parsed.message.client).toEqual(valid);
     }
@@ -96,6 +97,7 @@ describe("clientEnvironmentSchema", () => {
   test("a message without the field still parses (older clients)", () => {
     const parsed = parseClientMessage(JSON.stringify({ type: "chat_message", text: "hi" }));
     expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.message.type).toBe("chat_message");
     if (parsed.ok && parsed.message.type === "chat_message") {
       expect(parsed.message.client).toBeUndefined();
     }

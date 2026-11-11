@@ -28,7 +28,8 @@ function brainWithLogbook(): string {
 
 test("the fixture module imports only supported entries", () => {
   const source = readFileSync(join(FIXTURE, "module.ts"), "utf8");
-  const specifiers = [...source.matchAll(/^(?:import|export)\s[^;]*?from\s+"([^"]+)"/gm)].map((match) => match[1]);
+  // `import x from "..."`, `export ... from "..."`, and a bare side-effect `import "..."`.
+  const specifiers = [...source.matchAll(/^(?:(?:import|export)\s[^;]*?from\s+|import\s+)"([^"]+)"/gm)].map((match) => match[1]);
   expect(specifiers).toContain("@schlessera/brain/module");
   expect(specifiers.filter((specifier) => !SUPPORTED.has(specifier))).toEqual([]);
   expect(source).not.toMatch(/import\(|require\(/);

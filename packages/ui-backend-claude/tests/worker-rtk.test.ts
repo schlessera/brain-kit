@@ -94,6 +94,7 @@ console.log(JSON.stringify(results));
       hostExecuted: boolean;
       granted?: string;
     }> = JSON.parse(stdout.trim());
+    expect(results.map(result => result.mode), "EVERY_RTK_MODE_REPORTED").toEqual(["host-only", "visible", "host-only-after-visible", "repo-first", "host-home", "unknown"]);
     for (const result of results) {
       expect(result.code, `${result.mode}: ${result.errors}`).toBe(0);
       expect(result.output).toContain("Odysseus sails");

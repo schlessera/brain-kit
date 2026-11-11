@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "fs";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { type LoadedModule } from "@schlessera/brain";
@@ -41,9 +41,16 @@ describe("images manifest", () => {
 });
 
 describe("shipped skills", () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
   function skills() {
+    const root = mkdtempSync(join(tmpdir(), "brain-images-skills-"));
+    roots.push(root);
     const { skills, warnings } = discoverSkills(
-      { root: mkdtempSync(join(tmpdir(), "brain-images-skills-")), modules: [loaded] },
+      { root, modules: [loaded] },
       { coreSkillsDir: resolve(import.meta.dir, "no-such-core-skills") }
     );
     expect(warnings).toEqual([]);

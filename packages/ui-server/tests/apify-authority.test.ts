@@ -155,7 +155,7 @@ describe("host-owned authentication", () => {
     expect(fake.seen.length).toBeGreaterThan(0);
     for (const seen of fake.seen) {
       expect(seen.authorization, "APIFY_BEARER_ONLY").toBe(`Bearer ${SENTINEL}`);
-      expect(seen.url.startsWith(`${fake.origin}/v2/`)).toBe(true);
+      expect(seen.url).toStartWith(`${fake.origin}/v2/`);
     }
     expect(disclosed(status, response), "APIFY_SENTINEL_UNDISCLOSED").not.toContain(SENTINEL);
   });

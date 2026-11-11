@@ -152,7 +152,7 @@ describe("actual brain geo command contracts", () => {
       "--bbox", "-0.001,-0.001,0.002,0.001", "--no-background", "--out", "missing.png", "--json"]);
     expect(response.code).toBe(0); const result = JSON.parse(response.stdout);
     expect(result.legs).toHaveLength(2); expect(result.pins).toHaveLength(3);
-    expect(result.legs.every((leg: { available: boolean }) => !leg.available)).toBe(true);
+    expect(result.legs.map((leg: { available: boolean }) => leg.available)).toEqual([false, false]);
     expect(result.pins[2].drawn).toBe(false); expect(result.text).toContain("Route 1 leg 2");
     expect(result.artifact.bytes).toBeGreaterThan(1000); expect(requests).toHaveLength(0);
   });

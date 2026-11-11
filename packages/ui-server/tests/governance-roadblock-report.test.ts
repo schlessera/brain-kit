@@ -125,8 +125,11 @@ test("all episodes contribute before ranking limits, including beyond a governan
   await withReport(async (t, get) => {
     const payload = { category: "budget", family: "budget", signature: "budget|turn tokens", failures: [{ toolCallId: null, signature: "budget", category: "budget" }],
       resolution: null, remedy: "capability", waste: { tokens: 10, costUsd: 0.1, ms: 1 }, eventIds: [] } satisfies GovernanceEventPayload<"roadblock">;
-    for (let i = 0; i < 501; i++) recordGovernanceEvent(t.app.db, { kind: "roadblock", payload,
-      sessionId: "sess-ithaca", turnId: `turn-budget-${i}`, actor: "autonomous", model: null, profile: "restricted", at: NOW });
+    // One transaction: 501 separately committed writes cost seconds and prove nothing more.
+    t.app.db.transaction(() => {
+      for (let i = 0; i < 501; i++) recordGovernanceEvent(t.app.db, { kind: "roadblock", payload,
+        sessionId: "sess-ithaca", turnId: `turn-budget-${i}`, actor: "autonomous", model: null, profile: "restricted", at: NOW });
+    })();
     t.app.db.exec("DELETE FROM activity_spans");
     const report = await (await get("hoursBack=168&limit=1")).json();
     expect(report).toMatchObject({ episodes: 509, totalGroups: 3, byCount: [{ signature: "budget|turn tokens", count: 501,

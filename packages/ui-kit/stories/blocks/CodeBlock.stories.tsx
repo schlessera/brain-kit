@@ -43,6 +43,9 @@ export const NoWrap = Default.extend({
     const pre = canvasElement.querySelector("pre")!;
     await userEvent.tab();
     await expect(pre).toHaveFocus();
+    // The line is kept whole, so there is something to scroll: a wrapped block
+    // has no overflow, and scrolling it "to the end" would pass at 0.
+    await expect(pre.scrollWidth - pre.clientWidth, "the line overflows rather than wrapping").toBeGreaterThan(20);
     pre.scrollLeft = pre.scrollWidth;
     await waitFor(() => expect(Math.abs(pre.scrollWidth - pre.clientWidth - pre.scrollLeft)).toBeLessThanOrEqual(1));
   },

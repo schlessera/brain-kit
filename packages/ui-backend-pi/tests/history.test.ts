@@ -112,7 +112,7 @@ describe("SessionManager-backed history", () => {
 
   test("listPiSessions returns the created session", async () => {
     const sessions = await listPiSessions(cwd, sessionDir);
-    expect(sessions.some((s) => s.id === sessionId)).toBe(true);
+    expect(sessions.map((s) => s.id)).toContain(sessionId);
   });
 
   test("getPiHistory normalizes the active branch", async () => {

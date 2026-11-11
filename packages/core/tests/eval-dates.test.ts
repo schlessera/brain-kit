@@ -38,7 +38,7 @@ async function evalRun(set: string, ...flags: string[]) {
   return { ...run, out };
 }
 
-// The raft project's deadline is 2026-08-15; no other fixture has one.
+// The raft status's deadline is 2026-07-29; no other fixture has one.
 const DUE_NEXT = {
   id: "due-next",
   q: "what is due next",
@@ -129,7 +129,7 @@ describe("stale vs current", () => {
     const { out } = await evalRun(writeSet("plain.jsonl", [{ ...BIO, expected: ["me/basics/short-bio.md"] }]));
     expect(out.per_query[0].current_first).toBeNull();
     expect(out.rows.map((r: { class: string | null }) => r.class)).toEqual([null, "stale-vs-current"]);
-    expect(out.rows.every((r: { current_first: number | null }) => r.current_first === null)).toBe(true);
+    expect(out.rows.map((r: { current_first: number | null }) => r.current_first)).toEqual([null, null]);
   });
 
   test("a stale path that does not exist is refused like an expected one", async () => {
