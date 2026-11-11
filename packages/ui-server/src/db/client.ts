@@ -1,4 +1,4 @@
-import { migrateSafetyHistory, recoverSafetyCollections } from "../governance/safety-store.js";
+import { migrateSafetyHistory, recoverSafetyCollections, recoverSafetyRecording } from "../governance/safety-store.js";
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
@@ -39,8 +39,18 @@ export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Dat
   // unqualified here; each start then moves whatever they created into it.
   attachJournalDatabase(db, dbPath);
   runMigrations(db, options.log);
-  migrateSafetyHistory(db);
+  const migrated = migrateSafetyHistory(db);
   recoverSafetyCollections(db);
+  // Boot never starts into a state where every turn is refused for something
+  // it can resolve itself (#3812): after restart classification no producer
+  // is open, so a set latch or pending rows are resolved here, gaps first.
+  // If this cannot commit, the server still boots restricted and the
+  // governance writes keep retrying.
+  if (migrated) {
+    try { recoverSafetyRecording(db, { trigger: "boot", actor: "host" }); }
+    catch (error) { options.log?.emit({ severityText: "WARN", body: "safety recording could not be recovered at boot; turns run restricted and recovery is retried",
+      attributes: { "error.message": error instanceof Error ? error.message : String(error) } }); }
+  }
   const moved = moveJournalTables(db);
   if (moved) options.log?.emit({ severityText: "INFO", body: "moved journal tables into the journal database", attributes: { tables: moved } });
   return db;

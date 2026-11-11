@@ -394,7 +394,7 @@ test("zero reviewed triggers cannot clear unknown coverage or waive ordinary den
 for (const last of ["rtk", "agent", "native-read", "index"] as const) {
   for (const change of ["healthy", "recording-loss", "revoke", "cancel"] as const) {
     test(`parallel Claude ${last}: final wait fences ${change} before process/file delivery`, async () => {
-      const f = await fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+      const f = await fixture(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), siblings = Promise.withResolvers<void>();
       const wait = async () => { entered.resolve(); await release.promise; };
       const versions = new NativeFileVersions(), begin = versions.beginRead.bind(versions);
       versions.beginRead = async (...args) => { await begin(...args); await wait(); };
@@ -414,10 +414,13 @@ for (const last of ["rtk", "agent", "native-read", "index"] as const) {
       const calls = wiring.hooks!.PreToolUse!.filter(group => !group.matcher || new RegExp(group.matcher).test(name))
         .flatMap(group => group.hooks).map(hook => hook({ hook_event_name: "PreToolUse", tool_name: name,
           tool_input: input, tool_use_id: "parallel-admission" } as never, "parallel-admission", { signal: f.controller.signal })
-          .then(output => { finished++; return output; }));
+          .then(output => { if (++finished === calls.length - 1) siblings.resolve(); return output; }));
+      if (calls.length === 1) siblings.resolve();
       try {
+        // Every other hook has returned (each records its call's admission,
+        // a write-worker round trip) while the last one waits.
         await entered.promise;
-        await new Promise(resolve => setImmediate(resolve));
+        await siblings.promise;
         expect(finished, "PARALLEL_PROBE_REACHES_LAST_HOOK_WAIT").toBe(calls.length - 1);
         if (change === "recording-loss") await f.writes.safetyFail("another-turn");
         if (change === "revoke") f.revoke();
