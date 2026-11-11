@@ -28,9 +28,11 @@ const harness = {
   context: () => ({ secret: SECRET, fetch: fake.fetch, options: {} }),
   commands: boatCommands,
   liveSandboxes: () => fake.liveSandboxes(),
-  // One provider call spans up to MAX_ATTEMPTS requests; the fault covers the whole call.
+  // An allocation retries up to MAX_ATTEMPTS requests, so its fault covers the whole call.
   loseNextResponse: () => fake.failNext("create", "lose-response", MAX_ATTEMPTS),
-  failNextTransport: (method: "allocate" | "poll") => fake.failNext(method === "allocate" ? "create" : "command-status", "network", MAX_ATTEMPTS),
+  // A poll is sent once and never retried: a deeper queue would outlive the call and fail a later test's poll.
+  failNextTransport: (method: "allocate" | "poll") =>
+    method === "allocate" ? fake.failNext("create", "network", MAX_ATTEMPTS) : fake.failNext("command-status", "network", 1),
   stateDir: () => realpathSync(mkdtempSync(join(scratch, `state-${states++}-`))),
 };
 
