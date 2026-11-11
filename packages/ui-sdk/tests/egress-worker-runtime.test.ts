@@ -67,7 +67,7 @@ test.each(["strict", "governed"] as const)("%s real worker uses proxy while dire
     expect(socketConnections).toBe(0);
     expect(result.capabilities).toBe("0000000000000000");
     expect(records.filter(record => record.outcome === "completed").length).toBeGreaterThanOrEqual(2);
-    expect(records.some(record => record.method === "CONNECT" && record.bytes > 0 && record.path === undefined)).toBe(true);
+    expect(records.filter(record => record.method === "CONNECT" && record.bytes > 0 && record.path === undefined).length, JSON.stringify(records)).toBeGreaterThan(0);
     console.log(`EGRESS_MEASUREMENT_${profile}=${JSON.stringify(result)}`);
   } finally { worker?.turnTemp?.close(); proxy.stop(); origin.stop(true); tlsOrigin.stop(true); hostSocket.close(); rmSync(fixture, { recursive: true, force: true }); }
 });

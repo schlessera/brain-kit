@@ -81,6 +81,7 @@ export const WithActions = meta.story({
 export const DecorativeActions = meta.story({
   args: { variant: "offline", primaryLabel: "Retry", primaryTone: "quiet" },
   play: async ({ canvas }) => {
+    await expect(canvas.queryByText("Retry"), "the decorative action is still drawn").toBeVisible();
     await expect(canvas.queryByRole("button")).toBeNull();
   },
 });

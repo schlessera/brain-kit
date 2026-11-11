@@ -29,12 +29,14 @@ test("concurrent real route requests dispatch exactly once and repeated done reu
     const capabilities = await t.fetch("/api/voice/capabilities");
     expect((await capabilities.json()).capabilities.savedAudio).toBe(true); expect(calls).toBe(0);
     const first = t.fetch(path(id), put());
-    await Bun.sleep(20);
+    // The first request holds the claim once its provider call is in flight.
+    await providerCalled(() => calls);
+    expect(calls, "the first request dispatched").toBe(1);
     const pending = Array.from({ length: 8 }, () => t.fetch(path(id), put()));
-    await providerCalled(() => calls); await Bun.sleep(50);
-    expect(calls, "only one provider call under concurrent PUTs").toBe(1);
+    // Every concurrent PUT has been answered: none of them can still dispatch.
     const repeats = await Promise.all(pending);
     expect(repeats.map(r => r.status)).toEqual(Array(8).fill(409));
+    expect(calls, "only one provider call under concurrent PUTs").toBe(1);
     expect((await (await t.fetch(path(id))).json()).status).toBe("transcribing");
     release(); const done = await (await first).json();
     expect(done.status).toBe("done"); expect(done.text).toBe("Odysseus reaches Ithaca.");
@@ -156,9 +158,11 @@ test("agent principals cannot read or trigger transcription; revocation during u
       expect(response.status, `agent ${method} refused`).toBe(403);
     }
     let close!: () => void;
-    const body = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(audio); close = () => c.close(); } });
+    // The route asks for more of the body only after it has read the first chunk.
+    const reading = Promise.withResolvers<void>();
+    const body = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(audio); close = () => c.close(); }, pull() { reading.resolve(); } });
     const pending = t.fetch(path(id), { ...put(audio, { cookie: ownerCookie }), body, duplex: "half" } as RequestInit);
-    await Bun.sleep(20); revokePrincipal(t.app.db, owner.id, Date.now()); close();
+    await reading.promise; revokePrincipal(t.app.db, owner.id, Date.now()); close();
     expect((await pending).status, "recheck after reading body").toBe(401);
     expect(calls).toBe(0); expect(t.app.db.query("SELECT * FROM recording_transcriptions").all()).toHaveLength(0);
   } finally { await t.close(); }
