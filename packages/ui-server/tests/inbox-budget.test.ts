@@ -81,8 +81,8 @@ describe("durable budget settlement", () => {
   test("the default autonomous pool stops a third claim before any attempt or reservation", () => {
     const f = fixture({ spendUsd: 50 });
     try {
-      expect(f.claim("odysseus")).not.toBeNull();
-      expect(f.claim("penelope")).not.toBeNull();
+      expect(f.claim("odysseus")).toMatchObject({ runId: "run-odysseus", items: [{ id: "odysseus", status: "claimed", attempts: 1 }] });
+      expect(f.claim("penelope")).toMatchObject({ runId: "run-penelope", items: [{ id: "penelope", status: "claimed", attempts: 1 }] });
       const rejected = f.claim("telemachus");
       expect(rejected).toBeNull();
       expect(f.store.getItem("telemachus")).toMatchObject({ status: "ready", attempts: 0 });

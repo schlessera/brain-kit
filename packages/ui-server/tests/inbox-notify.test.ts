@@ -471,7 +471,7 @@ test("ambiguous outcomes stay distinct from success, retry within the bound and 
   // The attempt budget is spent: no fourth attempt, no claimed delivery.
   w.modes.set(mast, "ok");
   expect(await w.tick(athens(1, 9))).toEqual([]);
-  expect(w.attempts().some((a) => a.outcome === "success")).toBe(false);
+  expect(w.attempts().map((a) => a.outcome)).toEqual(["ambiguous", "ambiguous", "ambiguous"]);
 });
 
 test("a gone destination is pruned and no device credential reaches history", async () => {

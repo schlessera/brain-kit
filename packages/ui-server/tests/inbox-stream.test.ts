@@ -126,7 +126,7 @@ describe("durable inbox stream", () => {
     const changes = deltas(s.frames).map((d) => d.change);
     expect(changes.map((c) => c.changeId)).toEqual(foreign.changesSince(snapshot.cursor).map((c) => c.changeId));
     expect(changes).toHaveLength(2);
-    expect(changes.every((c) => c.seq > (snapshot.highWaterSeq[c.threadId] ?? 0))).toBe(true);
+    expect(changes.filter((c) => c.seq <= (snapshot.highWaterSeq[c.threadId] ?? 0))).toEqual([]);
   });
   test("view and existing-thread filters are validated, overlap is deduplicated, and input cannot supply run authority", async () => {
     ingest("seed"); ingest("other");
@@ -158,10 +158,10 @@ describe("durable inbox stream", () => {
     const snapshots = s.frames.filter((f): f is InboxSnapshot => f.type === "inbox_snapshot");
     expect(snapshots.length).toBeGreaterThan(1);
     expect(snapshots[0].append).toBeUndefined();
-    expect(snapshots.slice(1).every((f) => f.append === true)).toBe(true);
+    expect(snapshots.slice(1).map((f) => f.append)).toEqual(snapshots.slice(1).map(() => true));
     expect(new Set(snapshots.map((f) => f.cursor))).toEqual(new Set([store.snapshot().cursor]));
     expect(snapshots.flatMap((f) => f.items)).toEqual(store.snapshot().items.filter((i) => i.queue === "actions"));
-    expect(s.wires.every((f) => Buffer.byteLength(f, "utf8") <= 512_000)).toBe(true);
+    expect(Math.max(...s.wires.map((f) => Buffer.byteLength(f, "utf8")))).toBeLessThanOrEqual(512_000);
     foreign.commit([{ kind: "item", item: action("later", "thread-seed", "界".repeat(1200)) }]);
     stream.pump();
     expect(deltas(s.frames).at(-1)?.change).toMatchObject({ kind: "upsert_item", item: { payload: { detail: "界".repeat(1200) } } });
@@ -269,7 +269,7 @@ describe("durable inbox stream", () => {
     const snapshots = s.frames.filter((f): f is InboxSnapshot => f.type === "inbox_snapshot");
     expect(snapshots.length).toBeGreaterThan(1);
     expect(Object.assign({}, ...snapshots.map((f) => f.highWaterSeq))).toEqual(snapshot.highWaterSeq);
-    expect(s.wires.every((f) => Buffer.byteLength(f, "utf8") <= 512_000)).toBe(true);
+    expect(Math.max(...s.wires.map((f) => Buffer.byteLength(f, "utf8")))).toBeLessThanOrEqual(512_000);
   });
   test("new thread names do not inherit fake high-water marks from Object.prototype", async () => {
     const s = socket(); await s.subscribe();

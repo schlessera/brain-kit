@@ -9,7 +9,10 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 async function command(args: string[]) {
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/bin/brain-ui-inbox.ts"), ...args], { stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  return { value: JSON.parse(out), err, code };
+  // Non-JSON stdout (a crash, a stack trace) stays raw text, so the failing diff shows it beside stderr and the exit code.
+  let value: unknown = out;
+  try { value = JSON.parse(out); } catch {}
+  return { value, err, code };
 }
 test("recovery command JSON reports a populated export, restored state and refusal without private exception details", async () => {
   const root = mkdtempSync(join(tmpdir(), "brain-inbox-bin-")); roots.push(root);

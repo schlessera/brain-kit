@@ -24,8 +24,10 @@ test("skill create, discovery, archive install and schedule file parsing refuse 
       expect(outcome[0]!.status).toBe("skipped"); expect(outcome[0]!.reason).toContain("use YAML data only");
       mkdirSync(join(root, ".agents/skills/odyssey"), { recursive: true });
       writeFileSync(join(root, ".agents/skills/odyssey/SKILL.md"), content);
-      manager.list();
+      const listed = manager.list();
       expect(sentinel.dispatched, "SKILL_DISCOVERY_NO_ENGINE_DISPATCH").toEqual([]);
+      expect(listed).toHaveLength(1);
+      expect(listed[0]!.name).toBe("odyssey"); expect(listed[0]!.warning).toContain("use YAML data only");
       expect(() => parseDefinitionFile(content)).toThrow("frontmatter");
       expect(sentinel.dispatched, "SCHEDULE_NO_ENGINE_DISPATCH").toEqual([]);
       rmSync(join(root, ".agents/skills/odyssey"), { recursive: true });

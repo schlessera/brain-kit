@@ -38,12 +38,13 @@ function authTokensDouble(answer: Answer = () => Response.json({ name: TOKEN }))
       return answer(record);
     },
   });
+  const refused: string[] = [];
   const realFetch = globalThis.fetch;
   const mock = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    if (String(input) !== GEMINI_AUTH_TOKENS_URL) throw new Error(`Unexpected request to ${String(input)}`);
+    if (String(input) !== GEMINI_AUTH_TOKENS_URL) { refused.push(String(input)); throw new Error(`Unexpected request to ${String(input)}`); }
     return realFetch(`http://127.0.0.1:${server.port}/v1beta/auth_tokens`, init);
   }, { preconnect: fetch.preconnect }));
-  return { seen, dispose: () => { mock.mockRestore(); server.stop(true); } };
+  return { seen, refused, dispose: () => { mock.mockRestore(); server.stop(true); } };
 }
 
 let active: Array<() => void> = [];
@@ -232,7 +233,8 @@ describe("Gemini dictation through the mounted app", () => {
 
   test("a refused mint is the fixed 500 and no other provider is tried", async () => {
     const d = double(() => new Response(`API key ${KEY} expired`, { status: 403 }));
-    const t = await httpContractApp({ env: { VOICE_PROVIDER: "", GEMINI_API_KEY: KEY } });
+    // Deepgram is configured too, so a fallback would have a provider to try.
+    const t = await httpContractApp({ env: { VOICE_PROVIDER: "gemini", GEMINI_API_KEY: KEY, DEEPGRAM_API_KEY: "fixture-deepgram" } });
     try {
       keyterms(t, ["Ithaca"]);
       const response = await t.fetch("/api/voice/session", { method: "POST" });
@@ -241,6 +243,7 @@ describe("Gemini dictation through the mounted app", () => {
       expect(JSON.parse(text)).toEqual({ error: GEMINI_SESSION_FAILED });
       expect(text).not.toContain(KEY);
       expect(d.seen).toHaveLength(1);
+      expect(d.refused, "no request to any other provider").toEqual([]);
     } finally { await t.close(); }
   });
 
