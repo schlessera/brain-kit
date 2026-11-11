@@ -417,7 +417,7 @@ describe("live-service roster (#3616)", () => {
   test("a hello carries the roster and the resolution", () => {
     const frame = { ...hello, conversationProfiles: [profile("gemini-live"), profile("gpt-live")], liveDefault: { saved: null, savedUsable: false, effective: null, source: "none" } };
     const result = parse(frame);
-    expect(result.ok && result.message).toEqual(frame);
+    expect(result.ok && result.message).toEqual(frame as never);
   });
   test("a malformed roster or resolution is dropped without losing the hello", () => {
     for (const bad of [
