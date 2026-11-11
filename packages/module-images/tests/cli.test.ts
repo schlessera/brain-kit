@@ -544,7 +544,7 @@ describe("brain image — markup-guided edits (#3785)", () => {
     expect(form.get("model")).toBe(SUNBURST);
     const markup = form.get("markup");
     expect(markup, "IMAGE_MARKUP_PART").toBeInstanceOf(Blob);
-    expect(new Uint8Array(await (markup as Blob).arrayBuffer())).toEqual(png(1024, 768));
+    expect([...new Uint8Array(await (markup as Blob).arrayBuffer())]).toEqual([...png(1024, 768)]);
     expect((markup as Blob).type).toBe("image/png");
     expect(form.get("mask")).toBeNull();
     expect(form.getAll("image[]")).toHaveLength(1);
