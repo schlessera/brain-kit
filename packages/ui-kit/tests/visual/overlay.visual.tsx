@@ -148,7 +148,7 @@ for (const variant of scenes) for (const width of [320,1280]) for (const mode of
     else { expect(r.width, "shape width").toBe(480); expect(Math.abs(r.left - (width - r.right))).toBeLessThanOrEqual(1); expect(Math.abs(r.top - (innerHeight-r.bottom))).toBeLessThanOrEqual(1); }
     expect(document.documentElement.scrollWidth, 'no sideways scroll').toBe(width);
     expect(q('.bk-overlay').getAnimations({subtree:true}), 'reduced motion').toEqual([]);
-    const title = q('[aria-labelledby]'); expect(document.getElementById(title.getAttribute('aria-labelledby')!)!.textContent!.length).toBeGreaterThan(0);
+    const title = q('[aria-labelledby]'); expect(document.getElementById(title.getAttribute('aria-labelledby')!)?.textContent, 'the surface is named by its own title').toBe('Odysseus reviews the mast and yard for the raft on Ogygia');
     if (kind === 'fullscreen') {
       const close = surface.querySelector<HTMLElement>('[role="button"]')!;
       expect(close.textContent, 'fullscreen has a visible close control').toContain('Close raft plan');
