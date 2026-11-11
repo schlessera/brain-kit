@@ -44,7 +44,7 @@ for (const mode of ["backward cursor", "exhausted admission"] as const) test(`ad
   } finally { await loss; await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-for (const mode of ["other collection", "other occurrence", "own occurrence", "own exposure", "external exposure", "shared loss", "adoption", "adopted pending"] as const) {
+for (const mode of ["other collection", "other occurrence", "own occurrence", "own exposure", "external exposure", "other chat loss", "own loss", "adoption", "adopted pending"] as const) {
   test(`pending approval follows its canonical safety scope: ${mode}`, async () => {
     const root = mkdtempSync(join(tmpdir(), "odysseus-approval-scope-")), path = join(root, "ui.db"), db = createUiDb(path);
     const writer = openSqliteWriter(db), writes = createGovernanceWrites(db, writer), store = createActivityStore(db);
@@ -88,7 +88,7 @@ for (const mode of ["other collection", "other occurrence", "own occurrence", "o
       bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
       await catalog.settled!();
       expect(writes.safety("voyage", "ithaca").session?.historyOwnerId, "REAL_CREATED_SESSION_KEEPS_ITS_SAFETY_OWNER").toBe("binding-voyage");
-      if (mode === "other occurrence" || mode === "shared loss") await other();
+      if (mode === "other occurrence" || mode === "other chat loss") await other();
       if (mode === "own exposure" || mode === "external exposure") await add("voyage");
       if (mode === "adoption" || mode === "adopted pending") {
         openDialogue(db, { conversationId: "target-voice", principalId: principal.id, epoch: 1, providerId: "voice", sessionId: "ithaca" });
@@ -107,8 +107,9 @@ for (const mode of ["other collection", "other occurrence", "own occurrence", "o
       if (mode === "other collection") await other();
       else if (mode === "other occurrence") await add("other");
       else if (mode === "own occurrence") await add("voyage");
-      else if (mode === "shared loss") {
-        await writes.safetyFail("other"); expect(controller.signal.aborted).toBe(false);
+      else if (mode === "other chat loss" || mode === "own loss") {
+        // A loss restricts its own chat only (#3812): another chat's keeps this approval.
+        await writes.safetyFail(mode === "own loss" ? "voyage" : "other"); expect(controller.signal.aborted).toBe(false);
       } else if (mode === "adoption") {
         bindDialogue(db, "scout-voice", principal.id, "ithaca");
         expect(writes.safety("voyage", "ithaca").evidenceRevision).toBe(aggregate.evidenceRevision);
@@ -140,7 +141,7 @@ for (const mode of ["other collection", "other occurrence", "own occurrence", "o
         } else await writes.record(event);
       }
       await writer.idle();
-      const unrelated = mode === "other collection" || mode === "other occurrence";
+      const unrelated = mode === "other collection" || mode === "other occurrence" || mode === "other chat loss";
       if (unrelated) {
         expect(writes.safety("voyage", "ithaca").evidenceRevision).not.toBe(aggregate.evidenceRevision);
         expect(bridge.admissionSafety!.read(), "UNRELATED_SCOPE_MUST_KEEP_ADMISSION_SNAPSHOT").toEqual(before);

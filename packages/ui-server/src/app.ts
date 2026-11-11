@@ -1109,6 +1109,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
       },
+      getSafetyRecording: () => activity.governanceWrites.recordingStatus(),
+      recoverSafetyRecording: actor => activity.governanceWrites.recoverRecording(actor),
     })
   );
   // Host readers of the index wait for application updates queued before them (#2835).

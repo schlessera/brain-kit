@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { safetyHistoryFixture } from "./helpers/safety-history-fixture";
+import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 import { createSafetyStore } from "../../ui-react/src/stores/safety-state";
 import type { SafetyPage, SafetyUpdate, SafetyUnavailable } from "@schlessera/brain-ui-sdk/protocol";
 
@@ -20,7 +21,9 @@ async function subscribe(f: Fixture, page: SafetyPage, send: (value: SafetyUpdat
   await flush(f, () => f.history.subscribe({}, f.principal, page.identity, page.highWater, page.snapshotId, () => true, send));
 }
 function injectLossCommitFailure(f: Fixture) {
-  f.db.exec("CREATE TABLE loss_commit_probe(id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_loss_notice AFTER UPDATE OF failed ON safety_meta WHEN NEW.failed=1 BEGIN INSERT INTO loss_commit_probe VALUES('missing-raft'); END");
+  // The retained loss is under test; the automatic reconciler must not clear it meanwhile.
+  holdSafetyRecovery(f.db);
+  f.db.exec("CREATE TABLE loss_commit_probe(id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_loss_notice AFTER UPDATE OF failed ON safety_meta WHEN NEW.failed=1 BEGIN INSERT INTO loss_commit_probe VALUES('missing-raft'); END; CREATE TRIGGER fail_loss_notice_chat AFTER UPDATE OF failure ON safety_collections WHEN NEW.failure IS NOT NULL AND EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='fail_loss_notice') BEGIN INSERT INTO loss_commit_probe VALUES('missing-raft'); END");
 }
 async function lose(f: Fixture) {
   const error = await f.writes.safetyFail("voyage").then(() => null, error => error);
