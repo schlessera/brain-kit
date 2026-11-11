@@ -14,6 +14,14 @@ export class WorkerIdentityCleanupError extends Error {
 export function workerCleanupUnconfirmed(error: unknown): error is { cleanupUnconfirmed: true; close?: () => Promise<void> } {
   return typeof error === "object" && error !== null && "cleanupUnconfirmed" in error && error.cleanupUnconfirmed === true;
 }
+/** Internal malformed/legacy handoff: retain accounting, but no retry can run. */
+export function reportStrandedWorkerCleanup(backend: "claude" | "pi", charge: { bytes: number; turnTempBytes: number }, error: unknown): void {
+  try {
+    process.stderr.write(JSON.stringify({ kind: "worker_cleanup_stranded", backend, reason: "missing_retryable_close",
+      bytes: charge.bytes, turnTempBytes: charge.turnTempBytes, errorClass: error instanceof Error ? error.name : "UnknownError",
+      message: String(error).slice(0, 2000) }) + "\n");
+  } catch { /* Diagnostics cannot replace the original launch refusal or release its charge. */ }
+}
 export interface IdentityRoot { name: "state" | "temp"; path: string; bytes: number }
 /** The supervisor's setup steps, in order, as its progress record names them (#3664). */
 const SETUP_STEPS = new Set(["started", "listening", "launch-sent", "launch-acked", "status-read", "mounts-acked"]);

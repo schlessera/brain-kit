@@ -1,6 +1,6 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { rewriteWorkerRtk, workerCleanupUnconfirmed } from "@schlessera/brain-ui-sdk/internal";
+import { rewriteWorkerRtk, workerCleanupUnconfirmed, reportStrandedWorkerCleanup } from "@schlessera/brain-ui-sdk/internal";
 import { EventEmitter } from "node:events";
 import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
@@ -195,6 +195,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           bytes: state.bytes, turnTempBytes: state.turnTempBytes, close: error.close,
           release: () => state.release(), report: stateOptions.reportCleanup,
         }, error);
+        else reportStrandedWorkerCleanup("claude", state, error);
         throw error;
       }
       let startFailure: unknown;

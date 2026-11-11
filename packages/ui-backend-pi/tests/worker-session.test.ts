@@ -549,3 +549,22 @@ test("shutdown cancels post-launch cleanup retries and keeps the uncertain Pi ch
     expect(closes).toBe(1); expect(ledger.live, "PI_SHUTDOWN_KEEPS_UNCERTAIN_CHARGE").toBe(1);
   } finally { cleanup.close(); owner.mockRestore(); ledgerSpy.mockRestore(); }
 });
+
+test("Pi reports a stranded launch charge once without scheduling an impossible close", async () => {
+  const ledger = worker.createStateLedger(), ledgerSpy = spyOn(worker, "processStateLedger").mockReturnValue(ledger);
+  let schedules = 0;
+  const cleanup = worker.createCleanupReconciler({ schedule: () => { schedules++; return () => {}; }, log() {} });
+  const owner = spyOn(worker, "processCleanupReconciler").mockReturnValue(cleanup);
+  const failure = Object.assign(new Error("Odysseus legacy cleanup unconfirmed"), { cleanupUnconfirmed: true });
+  launch.mockRejectedValue(failure);
+  const diagnostics: string[] = [];
+  const stderr = spyOn(process.stderr, "write").mockImplementation(chunk => { diagnostics.push(String(chunk)); return true; });
+  try {
+    await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: {} as never })).rejects.toBe(failure);
+    expect(ledger.live).toBe(1); expect(ledger.turnTempHeld).toBe(worker.resolveTurnTempLimits({}).allowanceBytes);
+    expect(schedules, "NO_FUTILE_PI_CLEANUP_RETRY").toBe(0); expect(cleanup.held).toBe(0);
+    expect(diagnostics, "PI_STRANDED_CHARGE_HAS_ONE_DIAGNOSTIC").toHaveLength(1);
+    expect(JSON.parse(diagnostics[0]!)).toMatchObject({ kind: "worker_cleanup_stranded", backend: "pi", reason: "missing_retryable_close",
+      bytes: 0, turnTempBytes: ledger.turnTempHeld, errorClass: "Error", message: String(failure) });
+  } finally { cleanup.close(); stderr.mockRestore(); owner.mockRestore(); ledgerSpy.mockRestore(); }
+});

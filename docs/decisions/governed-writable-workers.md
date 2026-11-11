@@ -3730,7 +3730,7 @@ end-of-turn cleanup that the awaited close above could not confirm.
 The owner is the reconciler
 (`export function createCleanupReconciler`, `packages/ui-sdk/src/server/cleanup-reconciler.ts:75-148`), and the turn
 hands its refusal over where it awaits the close
-(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:281-292`).
+(`const close = async`, `packages/ui-backend-claude/src/worker-spawn.ts:282-293`).
 Pi supervision and post-launch callback failures use the same owner. A failed
 SDK launch whose cleanup is unconfirmed exposes its original retryable close
 to the backend, which transfers it and the reservation to this reconciler

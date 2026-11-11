@@ -8,7 +8,7 @@
  */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { processCleanupReconciler, type CleanupReconciler, workerCleanupUnconfirmed, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
+import { processCleanupReconciler, type CleanupReconciler, workerCleanupUnconfirmed, reportStrandedWorkerCleanup, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
 import { stateRoomCopy, stateRoomWarning, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -259,10 +259,13 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
     })().catch((failure: unknown) => { closing = undefined; throw failure; });
     try { await close(); reservation.release(); }
     catch (failure) {
-      cleanupErrors.push(failure);
-      const activity = env.cleanupActivity ?? turnContext.bridge?.activity;
-      processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
-        close, release: () => reservation.release(), report: notice => activity?.({ kind: "worker_cleanup", ...notice }) }, failure);
+      if (!launchedChild && workerCleanupUnconfirmed(error) && !error.close) reportStrandedWorkerCleanup("pi", reservation, error);
+      else {
+        cleanupErrors.push(failure);
+        const activity = env.cleanupActivity ?? turnContext.bridge?.activity;
+        processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
+          close, release: () => reservation.release(), report: notice => activity?.({ kind: "worker_cleanup", ...notice }) }, failure);
+      }
     }
     await attempt(() => envelope?.relay.stop());
     await attempt(() => hostInference?.stop());
