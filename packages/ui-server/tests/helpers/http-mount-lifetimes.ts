@@ -31,6 +31,7 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "GET /api/hygiene/review/details/:itemId": { shared: true, effects: "Reads one stored Action and recorded host facts; no assessment, CLI or write." },
   "POST /api/hygiene/review/preview": { shared: false, effects: "Review command/preview may update DB and dispatch CLI work; fresh review state." },
   "GET /api/status": { shared: false, effects: "Reads runtime/subscription/telemetry or reruns native probes; fresh caches and recorded startup." },
+  "POST /api/status/safety-recording/recover": { shared: false, effects: "Runs owner safety-recording recovery against this app's database; fresh state." },
   "POST /api/status/worker-host": { shared: false, effects: "Reads runtime/subscription/telemetry or reruns native probes; fresh caches and recorded startup." },
   "POST /api/auth/login": { shared: false, effects: "Auth ceremony, rate-limit/challenge state, credential write or logout/revocation; fresh auth and host state." },
   "POST /api/auth/logout": { shared: false, effects: "Auth ceremony, rate-limit/challenge state, credential write or logout/revocation; fresh auth and host state." },

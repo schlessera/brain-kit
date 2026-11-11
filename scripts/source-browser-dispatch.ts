@@ -13,7 +13,10 @@ const helperConsumers:Record<string,string>={
   // driver before demux; this consumer still imports only runStateForFrame.
   // Re-audited when #1362 moved inbound routing out of connection.ts: only
   // runStateForFrame is imported; it never acquires or mutates chatFrameHandlers.
-  "packages/ui-react/src/ws-client/inbound.ts":"b9a95fc0d8bcb82723fd93aa17faa492702dc4bbc747abb4a11d02f41c99e7c5",
+  // Re-audited for #3812: inbound.ts gained refusalReason from lib/turn-failure.ts,
+  // which imports only protocol types and constants; still only runStateForFrame
+  // from the chat handlers.
+  "packages/ui-react/src/ws-client/inbound.ts":"513ef019608371d41da3d15c3f48fdc2a8bcbb49882975b6f8099e2cd0a2d64c",
   "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 // Re-audited for #3155: chat.ts only gained `attachmentFiles` in its history
