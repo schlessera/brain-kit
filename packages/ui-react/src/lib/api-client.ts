@@ -290,6 +290,8 @@ export interface WebSearchProvider {
   keyConfigured: boolean;
   /** Its key comes from the environment instead — not editable here. */
   keyFromEnv: boolean;
+  /** The stored key is a credential command, which the host never runs (#3686). */
+  keyIsCommand?: boolean;
   /** True when the provider works without any credential. */
   keyless: boolean;
   /** Qualitative cost note, e.g. "Free tier, rate-limited". */
@@ -316,6 +318,8 @@ export interface WebSearchConfig {
    */
   appliesTo: string[];
   providers: WebSearchProvider[];
+  /** What the host's web tools do not offer, whatever the config says (#3686). */
+  unavailable?: Array<{ id: string; label: string; kind: "deferred" | "excluded" }>;
 }
 
 /**

@@ -72,6 +72,7 @@ type ProviderView = {
   keyless: boolean;
   keyConfigured: boolean;
   keyFromEnv: boolean;
+  keyIsCommand: boolean;
   hasKeyField: boolean;
 };
 type ConfigView = {
@@ -80,6 +81,7 @@ type ConfigView = {
   overriddenBy: string | null;
   appliesTo: string[];
   providers: ProviderView[];
+  unavailable: Array<{ id: string; label: string; kind: string }>;
 };
 
 async function get(app: ReturnType<typeof appFor>): Promise<ConfigView> {
@@ -129,6 +131,21 @@ describe("GET /web-search", () => {
     expect(text).not.toContain("exa-secret-123");
     const body = JSON.parse(text) as ConfigView;
     expect(body.providers.find((p) => p.id === "exa")!.keyConfigured).toBe(true);
+  });
+
+  test("reports what the host web tools do not offer, and a key that is a credential command (#3686)", async () => {
+    const path = tempConfigPath();
+    writeFileSync(path, JSON.stringify({ perplexityApiKey: "!pass show perplexity" }), "utf-8");
+    const body = await get(piApp(path));
+    expect(body.unavailable.map((feature) => feature.id), "WEB_SETTINGS_UNAVAILABLE").toEqual(
+      ["workflows", "answer-mode", "media", "github-clone", "commands", "browser-cookies", "credential-commands"]);
+    const pplx = body.providers.find((p) => p.id === "perplexity")!;
+    expect(pplx.keyIsCommand, "WEB_SETTINGS_KEY_IS_COMMAND").toBe(true);
+    expect(body.providers.find((p) => p.id === "exa")!.keyIsCommand).toBe(false);
+    // A command is never a usable key, so it cannot enable the provider.
+    const res = await put(piApp(path), { enabled: { perplexity: true } });
+    expect(res.status, "WEB_SETTINGS_COMMAND_KEY_CANNOT_ENABLE").toBe(400);
+    expect((await get(piApp(tempConfigPath()))).unavailable).toHaveLength(7);
   });
 
   test("reports a key supplied by the environment separately from a stored one", async () => {

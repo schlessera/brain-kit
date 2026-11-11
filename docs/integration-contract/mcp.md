@@ -1404,6 +1404,16 @@ Each call taints the session (`web_search` or `web_fetch`) before it runs, and
 its result is recorded before the model receives it. A call appends an
 ordinary tool result; no earlier message, tool or system text changes.
 
+Since #3686 the host runs these tools on the pinned upstream extension in a
+trusted Pi session. One child process serves each principal's session, and
+its stored results live and end with it. The brief of a session that lists
+the tools names what they do not offer. Those features come from one list,
+`WEB_TOOL_UNAVAILABLE_FEATURES`: curator review and automatic summaries,
+answer mode, image, video and YouTube analysis, GitHub repository cloning,
+the extension's commands and shortcuts, and the excluded browser-cookie and
+credential-command modes. `GET /api/web-search` reports the same list as
+`unavailable`.
+
 ## Hosted policy proposal (additive, #1662)
 
 `propose_policy_change` (Claude: `mcp__brain-ui__propose_policy_change`)

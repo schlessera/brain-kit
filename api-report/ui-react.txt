@@ -965,6 +965,11 @@ signatures (every public export and the types it is made of)
         overriddenBy: string | null;
         appliesTo: string[];
         providers: WebSearchProvider[];
+        unavailable?: Array<{
+            id: string;
+            label: string;
+            kind: "deferred" | "excluded";
+        }>;
     }
   WebSearchProvider (packages/ui-react/src/lib/api-client.ts)
     export interface WebSearchProvider {
@@ -974,6 +979,7 @@ signatures (every public export and the types it is made of)
         hasKeyField: boolean;
         keyConfigured: boolean;
         keyFromEnv: boolean;
+        keyIsCommand?: boolean;
         keyless: boolean;
         costNote: string;
         blurb: string;

@@ -14,7 +14,8 @@ export type { ClassificationAnswers, ClassificationPlan, ClassificationRequest, 
 export { claudeMaskFilename, claudeReportedMaskPath, piMaskFilename, piReportedMaskPath } from "./server/bridge-tools/index.js";
 export { GIT_LOCK_KEY } from "./server/lock-keys.js";
 export { VERSION_PROBE_TIMEOUT_MS } from "./server/version-probe.js";
-export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, hasWebSearchCredential, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
+export type { WebToolUnavailableFeature } from "./server/web-search.js";
+export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, WEB_TOOL_UNAVAILABLE_FEATURES, hasWebSearchCredential, webSearchKeySource, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
 export { canonicalModelId } from "./protocol-helpers.js";
 export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrapper.js";
 

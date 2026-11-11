@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { buildSystemPromptAppend } from "../src/server/index.js";
 import {
   WEB_SEARCH_PROVIDERS,
+  WEB_TOOL_UNAVAILABLE_FEATURES,
   hasWebSearchCredential,
+  webSearchKeySource,
   readWebSearchOverride,
   readWebSearchRouting,
   resolveWebSearchConfigPath,
@@ -71,6 +73,37 @@ describe("credential detection", () => {
     // the file would wrongly call an env-configured provider unusable.
     expect(hasWebSearchCredential(perplexity, {}, { PERPLEXITY_API_KEY: "k" })).toBe(true);
     expect(hasWebSearchCredential(perplexity, {}, { PERPLEXITY_API_KEY: "" })).toBe(false);
+  });
+
+  test("a credential command is not a credential: the host executor never runs one (#3686)", () => {
+    expect(webSearchKeySource("!pass show perplexity", {})).toBe("command");
+    expect(webSearchKeySource("  !op read x", {})).toBe("command");
+    expect(hasWebSearchCredential(perplexity, { perplexityApiKey: "!pass show perplexity" }, {}), "WEB_CREDENTIAL_COMMAND_UNUSABLE").toBe(false);
+    // The catalog's own environment variable still counts.
+    expect(hasWebSearchCredential(perplexity, { perplexityApiKey: "!pass show perplexity" }, { PERPLEXITY_API_KEY: "k" })).toBe(true);
+  });
+
+  test("an environment reference counts only when that variable is set", () => {
+    expect(webSearchKeySource("$PERPLEXITY_API_KEY", { PERPLEXITY_API_KEY: "k" })).toBe("env");
+    expect(webSearchKeySource("${PERPLEXITY_API_KEY}", {})).toBe("missing");
+    expect(hasWebSearchCredential(perplexity, { perplexityApiKey: "$ODYSSEUS_UNSET" }, {})).toBe(false);
+    expect(webSearchKeySource("$!literal", {}), "an escaped literal").toBe("literal");
+  });
+});
+
+describe("the host web tools' unavailable features (#3686)", () => {
+  test("name every deferred workflow and excluded credential mode once", () => {
+    expect(WEB_TOOL_UNAVAILABLE_FEATURES.map((feature) => feature.id)).toEqual(
+      ["workflows", "answer-mode", "media", "github-clone", "commands", "browser-cookies", "credential-commands"]);
+    expect(WEB_TOOL_UNAVAILABLE_FEATURES.filter((feature) => feature.kind === "excluded").map((feature) => feature.id))
+      .toEqual(["browser-cookies", "credential-commands"]);
+  });
+
+  test("the brief lists each of them only when the session has the web tools", () => {
+    const withTools = buildSystemPromptAppend({ webTools: true });
+    for (const feature of WEB_TOOL_UNAVAILABLE_FEATURES) expect(withTools, `WEB_BRIEF_NAMES_${feature.id}`).toContain(feature.label);
+    expect(withTools).toContain("Web tools run on the host.");
+    expect(buildSystemPromptAppend({})).not.toContain("Web tools run on the host.");
   });
 });
 
