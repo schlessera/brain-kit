@@ -1,4 +1,5 @@
 import type { ClientMessage, ServerMessage, SafetyTarget } from "@schlessera/brain-ui-sdk/protocol";
+import { safetySessionKeySchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainUiServices } from "../root.js";
 /** One selected read subscription per socket. All reconnects start a fresh snapshot. */
 export function createSafetyClient(root:BrainUiServices,send:(message:ClientMessage)=>boolean){
@@ -10,7 +11,17 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     send({type:"safety_unsubscribe",version:1});
     send({type:"safety_read",version:1,requestId,target});
   }
-  function selected():void{const id=root.stores.chat.getState().activeSessionId;if(id)read({sessionId:id});else{target=null;requestId=null;store.getState().unavailable("unavailable");if(store.getState().supported)send({type:"safety_unsubscribe",version:1});}}
+  function selected(): void {
+    const id = root.stores.chat.getState().activeSessionId;
+    // Host-only voice histories and older persisted keys are chat selections.
+    // Validate against the shared wire schema before starting a safety read.
+    if (id && safetySessionKeySchema.shape.sessionId.safeParse(id).success) read({ sessionId: id });
+    else {
+      target = null; requestId = null; awaitingPage = false;
+      store.getState().unavailable("unavailable");
+      if (store.getState().supported) send({ type: "safety_unsubscribe", version: 1 });
+    }
+  }
   const detach=root.stores.chat.subscribe((state,previous)=>{if(state.activeSessionId!==previous.activeSessionId)selected();});
   return {
     frame(msg:ServerMessage):boolean{
