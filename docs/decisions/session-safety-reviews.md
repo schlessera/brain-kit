@@ -227,6 +227,12 @@ history adoption and local pending/loss changes advance admission even when the
 global cursor does not. Pending-input overlays and capacity grouping use the
 same retained aliases. The history/review cursor keeps its existing meaning.
 
+A host relay joins its own announced session binding before taking a fresh
+admission snapshot. The wait is bounded and abortable, and a drained catalog
+queue alone does not prove that the binding committed. Failed or indeterminate
+binding refuses. This ordering never exempts independent pending input or retries
+a provider request; the final synchronous safety and authority fences still apply.
+
 Only effective taint and the trust slice update live. Ordinary governance
 budgets, profiles and commands keep turn-bound semantics. Trust removal fences
 new active-turn dispatch before its enforcing receipt; ongoing input must split
