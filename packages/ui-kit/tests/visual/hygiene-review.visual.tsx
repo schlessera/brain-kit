@@ -37,7 +37,7 @@ for (const theme of ["dark", "light"])
         if (width === 1280) card.parentElement!.style.maxWidth = "none";
         if (content.getAttribute("role") !== "status" && content.hasAttribute("data-hygiene-card"))
           expect(card.textContent).toContain(name === "compact" ? "Open finding" : "why this one");
-        expect(card.scrollWidth <= card.clientWidth + 1, "card content fits the approved widths").toBe(true);
+        expect(card.scrollWidth, "card content fits the approved widths").toBeLessThanOrEqual(card.clientWidth + 1);
         // A preceding file can leave the pointer over the wide card's header.
         // These references capture the resting state, never inherited hover.
         await userEvent.unhover(card);
