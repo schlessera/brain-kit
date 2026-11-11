@@ -142,6 +142,7 @@ test("turn-temp promotion preserves native answer bytes and reloads promoted UI 
   const answer = "The voyage report is [ready](/tmp/brain-worker-scratch/report.pdf). Not [this](/tmp/brain-worker-scratch/pi-state/auth.json).";
   // Stands in for the worker's private /tmp, as the server holds it (#1703).
   const tmp = mkdtempSync(join(tmpdir(), "pi-turn-temp-"));
+  children.push(() => rmSync(tmp, { recursive: true, force: true }));
   mkdirSync(join(brain,".brain/scratch"),{recursive:true});
   writeFileSync(join(brain,".gitignore"),".brain/scratch/\n");
   const scratchReader = createFixtureWorkerStartupView(brain);
@@ -203,7 +204,6 @@ test("turn-temp promotion preserves native answer bytes and reloads promoted UI 
   // its admission is released.
   expect(closed).toBe(1);
   expect(worker.processStateLedger().turnTempHeld).toBe(0);
-  rmSync(tmp, { recursive: true, force: true });
 });
 test("Pi releases a turn's turn-temp reservation only once its awaited close confirms, and retries an unconfirmed close (#2854)", async () => {
   const base = launch.getMockImplementation()!;

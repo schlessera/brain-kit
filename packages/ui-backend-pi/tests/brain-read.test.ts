@@ -43,7 +43,7 @@ describe("brain_read wrapper", () => {
 
   test("section returns that section and not the one before it", async () => {
     const text = await read({ path: "me/identity.md", section: "How to Work With Odysseus" });
-    expect(text.startsWith("## How to Work With Odysseus\n")).toBe(true);
+    expect(text).toStartWith("## How to Work With Odysseus\n");
     expect(text).toContain("Name the cost and the next action.");
     expect(text).not.toContain("## Current Identity");
   });
@@ -105,7 +105,7 @@ describe("brain_read wrapper on a document over the output limit", () => {
   test("a path-only read is still clipped", async () => {
     expect(LONG.length).toBeGreaterThan(LIMIT);
     const text = await readBig({ path: "notes/long.md" });
-    expect(text.startsWith(LONG.slice(0, LIMIT))).toBe(true);
+    expect(text).toStartWith(LONG.slice(0, LIMIT));
     expect(text).toContain(`… [truncated ${LONG.length - LIMIT} bytes]`);
     expect(text).not.toContain("## Late");
   });

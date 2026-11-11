@@ -71,7 +71,7 @@ test("the curated default loads no extension and keeps skills and context files"
   expect([loaded.extensions.length, loaded.errors.length], "PI_CURATED_LOADS_NO_EXTENSION").toEqual([0, 0]);
   expect(existsSync(sentinel), "PI_CURATED_RAN_NO_EXTENSION").toBe(false);
   expect(loader.getSkills().skills.map(skill => skill.name), "PI_CURATED_KEEPS_SKILLS").toContain("chart-the-voyage");
-  expect(loader.getAgentsFiles().agentsFiles.some(file => file.content.includes("Penelope keeps the loom")), "PI_CURATED_KEEPS_CONTEXT").toBe(true);
+  expect(loader.getAgentsFiles().agentsFiles.map(file => file.content), "PI_CURATED_KEEPS_CONTEXT").toContainEqual(expect.stringContaining("Penelope keeps the loom"));
 });
 
 /** A stand-in backend that records whether a turn reached it. */
@@ -139,7 +139,7 @@ async function hosted(config: Record<string, unknown>) {
 
 test("hosted curated default discloses inactive extensions at startup and keeps Pi available", async () => {
   const { report, logs, backend } = await hosted({});
-  expect(report.sdk?.name, "PI_PROBE_STILL_REPORTS_SDK").toBeTruthy();
+  expect(report.sdk?.name, "PI_PROBE_STILL_REPORTS_SDK").toBe("@earendil-works/pi-coding-agent");
   expect(logs.some(line => line.includes("installed but inactive") && line.includes("loom.ts") && line.includes("aeolus.ts")), "PI_STARTUP_NAMES_INACTIVE").toBe(true);
   expect(await backend.listUnavailableProfiles!(), "PI_CURATED_REPORTS_NONE").toEqual([]);
   expect((await backend.listProfiles()).map(profile => profile.id), "PI_CURATED_LISTS_PROFILES").toEqual(["argo"]);
