@@ -72,7 +72,10 @@ test("Pi's real toolkit and runner checkpoint before abort, drain the actual wri
   await acquired;
   const foreground = start(request);
   // The queued foreground registers its yield and wait timers on the fake clock.
-  while (callbacks.size < 2) await Bun.sleep(1);
+  for (let spins = 0; callbacks.size < 2; spins++) {
+    if (spins === 5_000) throw new Error(`the queued foreground registered ${callbacks.size} of 2 timers`);
+    await Bun.sleep(1);
+  }
   expect([...callbacks.values()].map((timer) => timer.at).sort()).toEqual([20_000, 30_000]);
   try {
     time = 20_000;
