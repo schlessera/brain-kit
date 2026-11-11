@@ -33,6 +33,7 @@ import { turnLogAttributes, type TurnLogContext } from "./limits.js";
 import type { Labeller } from "../labels/labeller.js";
 import { createPillLabels, type PillLabels } from "../labels/pill-labels.js";
 import type { ApplicationPlanner } from "../brain/application.js";
+import type { LivePersonaService } from "../voice/personas.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
@@ -204,6 +205,12 @@ export interface WsHostOptions {
    * @experimental Part of the LiveConversationProvider seam until 1.0.
    */
   conversationProvider?: LiveConversationProvider;
+  /**
+   * Live-conversation personas (#3617). Absent: every Start uses Standard and
+   * hello carries no `livePersona`.
+   * @internal Supplied by createApp.
+   */
+  livePersonas?: LivePersonaService;
   /**
    * Host draft storage (#979). Present: `server_hello` advertises
    * `sessionDrafts` and an accepted `chat_message.draftRef` consumes its
@@ -439,7 +446,7 @@ export class WsHost {
     this.toolPermissions = options.toolPermissions ?? null;
     if (options.conversationProvider) assertLiveConversationProvider(options.conversationProvider);
     this.conversations = options.conversationProvider
-      ? new ConversationHost(this, options.conversationProvider)
+      ? new ConversationHost(this, options.conversationProvider, options.livePersonas)
       : null;
     this.dialogue = new DialogueJournal(this.catalog, (page, principalId) => {
       this.clients.broadcast({ type: "dialogue_history", ...page }, undefined, "sessionDialogue", principalId);

@@ -96,6 +96,7 @@ export type {
   ConversationResync,
   ConversationGuidance,
   ConversationOrientation,
+  ConversationPersona,
   ConversationTaskRef,
   ConversationHistoryEnvelope,
   HistoricalItem,
