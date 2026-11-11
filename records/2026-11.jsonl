@@ -1215,3 +1215,4 @@
 {"v":1,"type":"batch","event":"landed","at":"2026-11-11T08:47:26.314Z","runId":"batch-e3855-ui-react-01","batchId":"e3855-ui-react-01","mergeSha":"e77de76580a6026e0f32efa1ca42b7a91cfdfd39"}
 {"v":1,"type":"batch","event":"landed","at":"2026-11-11T08:47:30.722Z","runId":"batch-e3855-ui-server-02","batchId":"e3855-ui-server-02","mergeSha":"ef36102bf5f5416ec8b3e727f6aaac0192b27ca2"}
 {"v":1,"type":"void","at":"2026-11-11T09:37:57.271Z","runId":"th-20261110190028-150ab8","cluster":22,"reason":"shake-out: desktop-navigation.pointer.tsx 'acts run the palette's handlers, mid-turn' failed in both exhaustive epic runs (42989870737, 42989908207)"}
+{"v":1,"type":"void","at":"2026-11-11T09:38:00.882Z","runId":"th-20261110195347-f9b8db","cluster":2,"reason":"shake-out: storage-pane.layout.tsx 'List-only drill restores the parent row' failed in both exhaustive epic runs (42989870737, 42989908207)"}
