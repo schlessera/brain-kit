@@ -37,7 +37,7 @@ describe("provider catalog", () => {
     expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
     const firstPaid = WEB_SEARCH_PROVIDERS.findIndex((p) => !p.keyless);
     expect(firstPaid, "free providers precede at least one paid provider").toBeGreaterThan(0);
-    expect(WEB_SEARCH_PROVIDERS.slice(0, firstPaid).every((p) => p.keyless)).toBe(true);
+    expect(WEB_SEARCH_PROVIDERS.slice(0, firstPaid).filter((p) => !p.keyless)).toEqual([]);
   });
 
   test("every paid provider is reachable by key or environment", () => {

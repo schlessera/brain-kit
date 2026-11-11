@@ -75,6 +75,8 @@ test("capture truth and disclosure: a ready speech session cannot mark an unopen
   await s.enter();
   expect(s.client.state.getState().micOn).toBe(false);
   expect(s.socket.frames("conversation_audio")).toHaveLength(0);
+  // The Start card (#3698) keeps the former sheet's disclosure behind "What's shared".
+  await userEvent.click(document.querySelector<HTMLElement>("[data-start-card] .bk-voice-shared")!);
   expect(document.body.textContent).toContain("Host relay:");
   expect(document.body.textContent).toContain("Independently selected agent backend:");
   await userEvent.click(s.button("Start"));
@@ -1930,7 +1932,8 @@ test("live field: Listening, Speaking, Talked over, Muted and End follow real ca
   const mic = controlledMicrophone(ctx, true);
   const s = await scene(ctx); const f = field(s);
   await s.enter();
-  expect(s.host.querySelector(".bk-voice-field"), "the disclosure sheet is the only surface before Start").toBe(null);
+  expect(s.host.querySelector("[data-conversation-field]")!.getAttribute("data-live-state"), "no live field before Start").toBe(null);
+  expect([...s.host.querySelectorAll(".bk-voice-field")].every(node => node.closest("[data-start-card]")), "the Start card is the only surface before Start").toBe(true);
   await userEvent.click(s.button("Start"));
   await expect.poll(f.state).toBe("L1");
   expect(f.word()).toBe("Listening");
@@ -2082,8 +2085,8 @@ test("live field: Reconnecting while recovery runs, Stopped only when it fails, 
   expect(stopped.textContent, "the client's own reason, no more").toContain("Voice scope is unavailable.");
   expect(s.client.state.getState().micOn).toBe(false);
   await userEvent.click(s.button("Start again"));
-  await expect.poll(() => s.client.state.getState().disclosureOpen, { message: "Start again leads to the Start sheet" }).toBe(true);
-  expect(s.host.querySelector(".bk-voice-field")).toBe(null);
+  await expect.poll(() => s.client.state.getState().disclosureOpen, { message: "Start again leads to the Start card" }).toBe(true);
+  expect([...s.host.querySelectorAll(".bk-voice-field")].map(node => !!node.closest("[data-start-card]")), "only the Start card draws").toEqual([true]);
   expect(s.client.state.getState().micOn).toBe(false);
   await userEvent.click(s.button("Cancel"));
   expect(s.client.state.getState().active).toBe(false);

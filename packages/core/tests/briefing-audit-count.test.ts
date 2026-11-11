@@ -4,11 +4,18 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { AuditIssue } from "../src/lib/types";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { hygieneCliClock } from "./hygiene-clock";
 
 const roots: string[] = [];
 afterAll(() => { for (const root of roots) cleanup(root); });
 
-const today = new Date().toISOString().slice(0, 10);
+// Audit and briefing both read the clock: pin it in the children, so a run
+// that crosses midnight cannot change "0 day(s) ago" or a stale count.
+const today = "2026-07-12";
+const NOW = `${today}T12:00:00Z`;
+const clockScratch = makeTempBrain({ empty: true });
+roots.push(clockScratch);
+const runAt = hygieneCliClock(clockScratch);
 const note = (body: string) => `---
 type: note
 title: Odysseus's mast notes
@@ -35,13 +42,13 @@ async function indexed(files: Record<string, string>, fromCorpus = false): Promi
 }
 
 async function auditOutput(root: string): Promise<{ issues: AuditIssue[]; errors: number; warnings: number; infos: number; mustFix: number }> {
-  const result = await runCli(root, ["audit", "--json"]);
+  const result = await runAt(root, ["audit", "--json"], NOW);
   expect(result.code).toBe(0);
   return JSON.parse(result.stdout);
 }
 
 async function briefingOutput(root: string): Promise<string> {
-  const result = await runCli(root, ["briefing"]);
+  const result = await runAt(root, ["briefing"], NOW);
   expect(result.code).toBe(0);
   return result.stdout;
 }
@@ -63,8 +70,7 @@ describe("briefing audit count", () => {
       const audited = await auditOutput(root);
       expect(audited.mustFix).toBeGreaterThan(0);
       expect(audited.infos).toBeGreaterThan(0);
-      expect(audited.issues.some((issue) => issue.category === "todo")).toBe(true);
-      expect(audited.issues.some((issue) => issue.category === "verify")).toBe(true);
+      expect(audited.issues.map((issue) => issue.category)).toEqual(expect.arrayContaining(["todo", "verify"]));
       expect(audited.mustFix).toBe(audited.errors + audited.warnings);
       const briefing = await briefingOutput(root);
       expect(briefing).toContain(mustFixLine(audited.mustFix));

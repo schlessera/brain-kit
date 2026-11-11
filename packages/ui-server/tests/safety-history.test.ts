@@ -39,8 +39,14 @@ test("real WS replay and contiguous updates survive duplicate/reordered delivery
     client.send({type:"safety_subscribe",version:1,requestId:"subscription",identity:frame.page.identity,afterRevision:frame.page.highWater,snapshotId:frame.page.snapshotId});
     const updates:import("@schlessera/brain-ui-sdk/protocol").SafetyUpdate[]=[];
     const through=async(count:number)=>{for(;;){const frame=await client.until(m=>m.type==="safety_update");if(frame.type!=="safety_update")throw new Error("Missing update");updates.push(frame.update);if(frame.update.projection.unresolvedCount===count&&frame.update.projection.pendingCount===0)return frame.update;}};
-    await f.add("B");f.history.poll();const one=await through(2);
-    await f.add("C");f.history.poll();const two=await through(3);
+    // A poll that reads a new row before its write's local pending latch clears
+    // reports pendingCount 1; the next poll at the same revision reports 0, and
+    // that changed projection closes the subscription with gap (#3723). Every
+    // read, the subscription's own and the sweep's included, waits behind the
+    // hold until the write and its latch have settled.
+    const settledAdd=async(name:string)=>{const quiet=f.hold();try{await f.add(name);}finally{quiet.release();}};
+    await settledAdd("B");f.history.poll();const one=await through(2);
+    await settledAdd("C");f.history.poll();const two=await through(3);
     const store=createSafetyStore();store.getState().reset(true);store.getState().begin("replay");expect(store.getState().page("replay",frame.page)).toBe(true);
     for(const update of updates)expect(store.getState().update(update)).toBe(true);
     expect(store.getState().update(one)).toBe(true);
@@ -65,8 +71,12 @@ test("first-turn provisional binding retains exact occurrence identity without d
 test("cursor scope, expiry after wait, principal revocation and retirement fence late authenticated reads",async()=>{
   const f=await safetyHistoryFixture();try{
     await f.add("A");await f.add("B");const first=await page(await f.get("?limit=1"));
-    const foreign=createPrincipal(f.db,{authMethod:"password",label:"Penelope",ttlSeconds:3600}),cookie=await f.cookieFor(foreign);
-    expect((await f.get(`?cursor=${first.nextCursor}`,cookie)).status).toBe(404);
+    // Another owner login reads the chat (#3952), but a cursor stays its own login's.
+    const otherLogin=createPrincipal(f.db,{authMethod:"password",label:"Odysseus at Ithaca",ttlSeconds:3600});
+    expect((await f.get(`?cursor=${first.nextCursor}`,await f.cookieFor(otherLogin))).status,"CURSOR_SCOPE_IS_ONE_LOGIN").toBe(409);
+    // Another account's principal sees nothing of the chat.
+    const agent=createPrincipal(f.db,{authMethod:"delegated",createdBy:f.principal.id,label:"Mentor",ttlSeconds:3600});
+    expect((await f.get(`?cursor=${first.nextCursor}`,await f.cookieFor(agent))).status,"CURSOR_SCOPE_FOREIGN_ACCOUNT").toBe(404);
     const held=f.hold(),pending=f.get(`?cursor=${first.nextCursor}`);await held.arrived;f.advance(300001);held.release();
     expect((await pending).status,"CURSOR_DELIVERY_CLOCK").toBe(409);
     const revoked=f.hold(),late=f.get();await revoked.arrived;revokePrincipal(f.db,f.principal.id,Date.now());revoked.release();

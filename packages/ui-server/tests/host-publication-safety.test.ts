@@ -103,7 +103,7 @@ for(const backendId of ["claude","pi"] as const) for(const adverse of [false,tru
         allowedTools:[name],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
       const outputs=await Promise.all(wiring.hooks!.PreToolUse!.filter(group=>!group.matcher||new RegExp(group.matcher).test(name)).flatMap(group=>group.hooks)
         .map(hook=>hook({hook_event_name:"PreToolUse",tool_name:name,tool_input:input,tool_use_id:"composed-application"} as never,"composed-application",{signal:f.controller.signal})));
-      expect(outputs.some(o=>"hookSpecificOutput" in o&&o.hookSpecificOutput&&"permissionDecision" in o.hookSpecificOutput&&o.hookSpecificOutput.permissionDecision==="deny")).toBe(false);
+      expect(outputs.filter(o=>"hookSpecificOutput" in o&&o.hookSpecificOutput&&"permissionDecision" in o.hookSpecificOutput&&o.hookSpecificOutput.permissionDecision==="deny")).toEqual([]);
     } else {
       let gate:any;const extension=createPermissionGate({turn:{...createTurnContext(),bridge,signal:f.controller.signal},allowedTools:new Set([name]),confirmPatterns:[]});
       const factory=typeof extension==="function"?extension:extension.factory;await factory({on(_event:any,fn:any){gate=fn;}} as never);
@@ -144,7 +144,7 @@ for(const backendId of ["claude","pi"] as const) for(const adverse of [true]) te
         allowedTools:[name],confirmPatterns:[],brainPath:f.root,turnLock:{async acquireForTool(){return {ok:true};},releaseForTool(){}} as never,childEnv:{},log(){}});
       const outputs=await Promise.all(wiring.hooks!.PreToolUse!.filter(group=>!group.matcher||new RegExp(group.matcher).test(name)).flatMap(group=>group.hooks)
         .map(hook=>hook({hook_event_name:"PreToolUse",tool_name:name,tool_input:input,tool_use_id:"composed-application"} as never,"composed-application",{signal:f.controller.signal})));
-      expect(outputs.some(o=>"hookSpecificOutput" in o&&o.hookSpecificOutput&&"permissionDecision" in o.hookSpecificOutput&&o.hookSpecificOutput.permissionDecision==="deny")).toBe(false);
+      expect(outputs.filter(o=>"hookSpecificOutput" in o&&o.hookSpecificOutput&&"permissionDecision" in o.hookSpecificOutput&&o.hookSpecificOutput.permissionDecision==="deny")).toEqual([]);
     } else {
       let gate:any;const extension=createPermissionGate({turn:{...createTurnContext(),bridge,signal:f.controller.signal},allowedTools:new Set([name]),confirmPatterns:[]});
       const factory=typeof extension==="function"?extension:extension.factory;await factory({on(_event:any,fn:any){gate=fn;}} as never);
@@ -197,7 +197,7 @@ for(const adverse of [false,true]) test(`extra composed policy: final publicatio
     expect(bridge.admissionSafety!.read().recordingAvailable).toBe(!adverse);
     expect(bridge.admissionSafety!.read().authorityEpoch, "RECORDING_HEALTH_DOES_NOT_ROTATE_PRINCIPAL_EPOCH").toBe(authorityEpoch);
     release.resolve();const result=await work;
-    expect(readFileSync(path,"utf8")===proposed,"POLICY_FINAL_LOCK_MUST_FENCE_SHARED_RECORDER_LOSS").toBe(!adverse);
+    expect(readFileSync(path,"utf8"),"POLICY_FINAL_LOCK_MUST_FENCE_SHARED_RECORDER_LOSS").toBe(adverse ? original : proposed);
     expect(result.state).toBe(adverse ? "refused" : "updated");
   }finally{release.resolve();host.close();await work;authorization.release();await f.close();}
 });

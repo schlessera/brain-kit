@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { cleanup, makeTempBrain } from "../../core/tests/cli-harness.js";
 import { discoverSkills } from "../../core/src/lib/skills/discover.js";
 import { lintSkills } from "../../core/src/lib/skills/lint.js";
+import { GEMINI_FLASH_MODEL } from "@schlessera/brain/module";
 import manifest, { configSchema } from "../src/module.js";
 
 const roots: string[] = [];
@@ -11,7 +12,8 @@ afterEach(() => { for (const root of roots.splice(0)) cleanup(root); });
 test("manifest is opt-in, schema rejects alternate engines and unsafe timeout", () => {
   const config = configSchema.parse({});
   expect(config.engine).toBe("gemini"); expect(config.timeoutMs).toBe(300000);
-  expect(config.model.length).toBeGreaterThan(0);
+  expect(config.model).toBe(GEMINI_FLASH_MODEL);
+  expect(() => configSchema.parse({ model: "  " })).toThrow();
   expect(() => configSchema.parse({ engine: "local" })).toThrow();
   expect(() => configSchema.parse({ timeoutMs: 0 })).toThrow();
   expect(() => configSchema.parse({ unknown: true })).toThrow();

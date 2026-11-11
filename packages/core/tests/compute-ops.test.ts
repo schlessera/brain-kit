@@ -281,7 +281,7 @@ describe("the background driver", () => {
     // there is no event for "no timer".
     await Bun.sleep(40);
     expect(memory.calls.length).toBe(calls);
-    expect(memory.calls.some((c) => c.method === "kill" || c.method === "release")).toBe(false);
+    expect(memory.calls.filter((c) => c.method === "kill" || c.method === "release").map((c) => c.method)).toEqual([]);
     driver.track(run.job.id);
     expect(driver.tracked()).toEqual([]);
   });

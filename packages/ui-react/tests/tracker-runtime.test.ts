@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { chromium, type Browser, type BrowserContextOptions, type Page } from "playwright";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
+import { requireTurnFreeSpace } from "../../ui-server/tests/helpers/turn-free-space.js";
 import type { SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
@@ -45,6 +46,7 @@ beforeAll(async () => {
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-trackers-"));
   const brain = resolve(scratch, "brain");
   await createFixtureBrain(repo, brain);
+  requireTurnFreeSpace(brain);
   const assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/tracker-runtime-client.ts"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
@@ -316,4 +318,60 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
       }
     }, 90_000);
   }
+
+  test("a failed read after cold recovery does not reannounce an old completion", async () => {
+    const context = await browser!.newContext(runs[4]!.options);
+    await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    const page = await context.newPage();
+    const prompt = "Read the voyage after the storm";
+    try {
+      await page.goto(origin);
+      await until(page, "f?.connected()");
+      const composer = page.locator("textarea.bk-composer");
+      await composer.fill(prompt);
+      await composer.locator("..").locator('[aria-label="Send"]').waitFor();
+      await composer.press("Enter");
+      await until(page, "f.activeSessionId() !== null && f.lastTurnId() !== null");
+      const sessionId = (await fixture(page, f => f.activeSessionId()))!;
+      await page.getByRole("button", { name: "New conversation", exact: true }).click();
+      await until(page, "f.views().length === 1");
+      await release(prompt);
+      await until(page, "f.views()[0]?.state === 'done' && f.views()[0]?.endedAt !== null");
+
+      await page.reload();
+      await until(page, "f?.connected()");
+      await until(page, "f.views()[0]?.state === 'done' && f.views()[0]?.endedAt !== null");
+      expect(await fixture(page, f => f.announced()), "cold recovery is a baseline").toBe("");
+
+      // Files covers Chat at this width while the Sessions pane stays usable.
+      // The answer cannot be seen while two later reads fail and recover.
+      await fixture(page, f => f.setFilePanel(true));
+      let available = false, refused = 0;
+      await page.route(`${origin}/api/sessions/${sessionId}/recovery`, route => {
+        if (available) return route.continue();
+        refused++;
+        return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Recovery read unavailable" }) });
+      });
+      await fixture(page, f => f.resume(f.views()[0]!.sessionId));
+      await until(page, "f.views()[0]?.state === 'cant_check' && f.views()[0]?.settled === true");
+      expect(refused, "the later read actually failed").toBeGreaterThan(0);
+      expect(await fixture(page, f => f.views()[0]!.cleared), "covered Chat cannot clear its tracker").toBe(false);
+      expect(await fixture(page, f => f.announced())).toBe("");
+
+      available = true;
+      await page.getByRole("button", { name: "New conversation", exact: true }).click();
+      await until(page, "f.activeSessionId() === null");
+      await fixture(page, f => f.setFilePanel(true));
+      await fixture(page, f => f.resume(f.views()[0]!.sessionId));
+      await until(page, "f.views()[0]?.state === 'done' && f.views()[0]?.endedAt !== null");
+      await page.getByText("Day 60: the wax held, and the crew rowed on.").waitFor({ state: "attached" });
+      await page.waitForTimeout(300);
+      expect(await fixture(page, f => f.announced()), "RECOVERY_DOES_NOT_REANNOUNCE_OLD_COMPLETION").toBe("");
+      expect(turnsStarted.filter(id => id === sessionId), "recovery starts no work").toHaveLength(1);
+    } finally {
+      await context.close();
+      gates.get(prompt)?.();
+      gates.delete(prompt);
+    }
+  }, 90_000);
 });

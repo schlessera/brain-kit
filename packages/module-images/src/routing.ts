@@ -171,6 +171,39 @@ export function route(input: RoutingInput): RoutingDecision {
     pool = capable;
   }
 
+  // GPT Image 2.6 GIF output has no masks, and transparency is documented
+  // for png and webp only (#3783): refuse rather than let the API decide.
+  if (req.format === "gif" && req.mask) {
+    return {
+      kind: "impossible",
+      reason: "GIF output takes no mask. Drop --mask and describe the change in the prompt, or ask for png or webp.",
+    };
+  }
+  if (req.format === "gif" && req.transparent) {
+    return {
+      kind: "impossible",
+      reason: "A transparent background is documented for png and webp only, not GIF. Drop --transparent, or ask for png or webp.",
+    };
+  }
+
+  // SVG is authored from one new rendering: the API takes it on generations
+  // only, with n 1, and documents no transparency for it (#3784).
+  if (req.format === "svg" && ((req.references?.length ?? 0) > 0 || req.mask)) {
+    return {
+      kind: "impossible",
+      reason: "SVG is authored on new images only, not edits. Drop --ref and --mask, or ask for png or webp.",
+    };
+  }
+  if (req.format === "svg" && req.transparent) {
+    return {
+      kind: "impossible",
+      reason: "A transparent background is documented for png and webp only, not SVG. Drop --transparent, or ask for png or webp.",
+    };
+  }
+  if (req.format === "svg" && (req.n ?? 1) > 1) {
+    return { kind: "impossible", reason: "SVG is authored one image at a time." };
+  }
+
   if (req.transparent && req.format === "jpeg") {
     return {
       kind: "impossible",
@@ -194,6 +227,18 @@ export function route(input: RoutingInput): RoutingDecision {
 
   if (req.format) {
     const supported = byCapability(pool, (m) => m.outputFormats.includes(req.format!));
+    if (supported.length === 0 && (req.format === "gif" || req.format === "svg")) {
+      const format = req.format;
+      const named = available.filter((m) => m.outputFormats.includes(format)).map((m) => m.id);
+      return {
+        kind: "impossible",
+        reason:
+          `${format === "gif" ? "Animated GIF" : "SVG"} is a GPT Image 2.6 output, and no model in this request returns it` +
+          `${input.pinnedModel ? ` (${input.pinnedModel} does not)` : ""}. Use ` +
+          `${named.length ? named.join(" or ") : "gpt-image-2.6-sunburst or gpt-image-2.6-flare (set OPENAI_API_KEY)"}, ` +
+          `or ask for png, jpeg or webp.`,
+      };
+    }
     if (supported.length === 0) {
       return {
         kind: "impossible",

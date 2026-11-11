@@ -63,7 +63,7 @@ describe("cleanup failures", () => {
     const { fake, provider, now, sandbox } = await allocated();
     expect((await provider.release(sandbox, "discard", contextFor(fake, { now }))).kind).toBe("released");
     expect((await provider.release(sandbox, "discard", contextFor(fake, { now }))).kind).toBe("released");
-    const deletes = fake.requests.filter((r) => r.route === "delete");
-    expect(deletes.every((r) => r.headers["x-ascii-confirm-delete"] === sandbox.id)).toBe(true);
+    const confirmations = fake.requests.filter((r) => r.route === "delete").map((r) => r.headers["x-ascii-confirm-delete"]);
+    expect(confirmations).toEqual([sandbox.id, sandbox.id]);
   });
 });

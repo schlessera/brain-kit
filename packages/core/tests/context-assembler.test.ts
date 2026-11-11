@@ -6,7 +6,7 @@
  * the unit tests build a small in-memory index by hand.
  */
 
-import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -102,9 +102,9 @@ describe("over fixtures/corpus", () => {
     // The corpus identity has no text before its first "##" heading, and its
     // first section does not fit in 200 tokens: what leads is the summary.
     const out = await assembleContext(db, ctx, { query: "navigation", maxTokens: 200, includeCurrentFocus: false });
-    expect(out.startsWith(
+    expect(out).toStartWith(
       "## Identity\nKing of Ithaca, on Ogygia after ten years returning from Troy\n\n(truncated — brain read me/identity.md)"
-    )).toBe(true);
+    );
     expect(estimateTokens(out)).toBeLessThanOrEqual(200);
   });
 
@@ -245,14 +245,19 @@ describe("over a hand-built index", () => {
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), "brain-context-unit-"));
     temps.push(dir);
-    db = openDatabase(":memory:");
     const taxonomy = buildTaxonomy({});
     ctx = { root: dir, dbPath: ":memory:", config: null, configPath: null, modules: [], taxonomy };
   });
 
-  afterAll(() => db?.close());
-
+  // Each test indexes only the documents it adds: a shared index let one
+  // test's hits answer another's query, so the result depended on order.
   let nextId = 1;
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+    nextId = 1;
+  });
+  afterEach(() => db?.close());
+
   function addDoc(path: string, title: string, content: string, summary: string | null = null) {
     const id = nextId++;
     db.run("INSERT INTO documents(id,path,title,type,status,summary,created,updated,content,indexed_at) VALUES (?,?,?,'note','active',?,'2026-01-01','2026-01-01',?,'2026-01-01')", [id, path, title, summary, content]);
@@ -459,7 +464,7 @@ describe("over a hand-built index", () => {
       const report = emptyAssembleReport();
       const out = await assembleContext(db, ctx, { query: "", maxTokens: 18, report });
       expect(report.focus).toBe("context/current-focus.md");
-      expect(out.endsWith("## Current Focus\nF")).toBe(true);
+      expect(out).toEndWith("## Current Focus\nF");
       expect(estimateTokens(out)).toBeLessThanOrEqual(18);
     });
 
@@ -589,7 +594,7 @@ describe("over a hand-built index", () => {
       writeFileSync(join(dir, "context/current-focus.md"), "---\ntype: context\n---\nCurrent priority.\n");
       const out = await identity(doc(`Intro.\n\n${LONG}\n\n## History\n\n${LONG}`, "~~~"), 100);
       expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "paragraph"]);
-      expect(out.endsWith(MARKER)).toBe(true);
+      expect(out).toEndWith(MARKER);
     });
 
     for (const summary of ["[role]: sailor", "[^profile]: sailor\n    indented footnote body"]) {
@@ -605,7 +610,7 @@ describe("over a hand-built index", () => {
         writeFileSync(join(dir, "me/identity.md"), `---\ntype: identity\nsummary: ${JSON.stringify(summary)}\n---\nIntro.\n\n${LONG}\n\n## History\n\n${LONG}\n`);
         const out = await assembleContext(db, ctx, { query: "", maxTokens: 100, includeCurrentFocus: false });
         expect(blockTypes(out)).toEqual(["h2", "paragraph", "paragraph", "paragraph"]);
-        expect(out.endsWith(MARKER)).toBe(true);
+        expect(out).toEndWith(MARKER);
       });
     }
 

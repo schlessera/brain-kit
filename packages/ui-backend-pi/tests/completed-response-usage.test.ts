@@ -54,8 +54,9 @@ test("ordinary Pi turns emit general completed usage and never count terminal re
       inputTokens: 10, cacheReadTokens: 20, cacheCreationTokens: 3, source: "pi_main_message", coverage: "runtime_normalized",
     } }]);
     const receipts = events.filter(event => String(event.kind) === "usage");
-    expect(receipts.length, "BUDGET_PI_GENERAL_COMPLETED_RECEIPT").toBeGreaterThan(0);
-    expect(receipts.at(-1)).toMatchObject({ usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 20, cacheCreationTokens: 3 } });
+    // One completed answer: the turn_end redelivery, the next message_start and the aborted partial add none.
+    expect(receipts, "BUDGET_PI_GENERAL_COMPLETED_RECEIPT").toHaveLength(1);
+    expect(receipts[0]).toMatchObject({ atToolBoundary: true, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 20, cacheCreationTokens: 3 } });
     expect(events.filter(event => event.kind === "autonomous_usage")).toEqual([]);
   } finally { session.dispose(); }
 });

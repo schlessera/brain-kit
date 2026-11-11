@@ -59,15 +59,13 @@ test("eight arrivals missing two answers retry exactly those IDs alone and persi
     const results = await f.triage.run(ids);
     expect(f.requests.map(r => Object.keys(r.questions))).toEqual([ids.map(id => `${id}.route`), [`${ids[6]}.route`], [`${ids[7]}.route`]]);
     expect(results).toHaveLength(8);
-    expect(results.every(result => result.runIds.every(runId => {
-      const row = f.db.query("SELECT attrs FROM activity_spans WHERE span_id = ?").get(runId) as { attrs: string };
-      return JSON.parse(row.attrs)["triage.items"].includes(result.itemId);
-    }))).toBe(true);
     expect(results.map(result => result.runIds.length)).toEqual([1, 1, 1, 1, 1, 1, 2, 2]);
-    expect(results.every(result => result.reason === "accepted")).toBe(true);
+    const spanItems = (runId: string) => JSON.parse((f.db.query("SELECT attrs FROM activity_spans WHERE span_id = ?").get(runId) as { attrs: string }).attrs)["triage.items"];
+    for (const result of results) for (const runId of result.runIds) expect(spanItems(runId)).toContain(result.itemId);
+    expect(results.map(result => result.reason)).toEqual(Array(8).fill("accepted"));
     expect(ids.map(id => f.triage.read(id)?.route)).toEqual(Array(8).fill("rule"));
     expect(f.reservations()).toHaveLength(3);
-    expect(f.reservations().every(row => row.status === "settled" && row.charged_turns === 1 && row.observed_cost_usd !== null)).toBe(true);
+    expect(f.reservations().map(row => [row.status, row.charged_turns, row.observed_cost_usd === null])).toEqual(Array(3).fill(["settled", 1, false]));
     expect(f.db.query("SELECT billing_mode, pricing_estimate, input_tokens FROM activity_run_rollups LIMIT 1").get()).toEqual({ billing_mode: "api", pricing_estimate: 1, input_tokens: 100 });
     await f.triage.run(ids);
     expect(f.requests).toHaveLength(3);
@@ -94,7 +92,7 @@ test("a malformed answer map retains usage and retries each missing ID alone", a
     const items = [await f.seed("Odysseus saved a fact."), await f.seed("Penelope saved a fact.")];
     expect((await f.triage.run(items.map(item => item.itemId))).map(row => row.route)).toEqual(["rule", "rule"]);
     expect(f.requests.map(request => Object.keys(request.questions).length)).toEqual([2, 1, 1]);
-    expect(f.reservations().every(row => row.observed_cost_usd !== null)).toBe(true);
+    expect(f.reservations().map(row => row.observed_cost_usd === null)).toEqual([false, false, false]);
   } finally { await f.close(); }
 });
 
@@ -106,7 +104,7 @@ test("429 and 503 back off with a reservation per physical call, separate from m
     expect(f.delays).toEqual([250, 500]);
     expect(f.requests).toHaveLength(3);
     expect(f.reservations()).toHaveLength(3);
-    expect(f.reservations().slice(0, 2).every(row => row.observed_cost_usd === null && Number(row.charged_cost_usd) > 0)).toBe(true);
+    expect(f.reservations().slice(0, 2).map(row => [row.observed_cost_usd, Number(row.charged_cost_usd) > 0])).toEqual([[null, true], [null, true]]);
   } finally { await f.close(); }
 });
 
@@ -147,7 +145,9 @@ test("binary extraction and text attachments share the final item bound; binary 
     const binary = await f.seed("Odysseus saved an image.", [new File([new Uint8Array([0, 1, 2])], "odysseus.bin", { type: "application/octet-stream" })]);
     const results = await f.triage.run([text.itemId, binary.itemId]);
     expect(results.map(r => [r.route, r.reason])).toEqual([["needs_user", "incomplete"], ["needs_agent", "binary"]]);
-    expect(f.requests.flatMap(r => Object.values(r.state.items)).every(item => Buffer.byteLength(JSON.stringify(item)) < 4_000)).toBe(true);
+    const sentBytes = f.requests.flatMap(r => Object.values(r.state.items)).map(item => Buffer.byteLength(JSON.stringify(item)));
+    expect(sentBytes).toHaveLength(2);
+    expect(Math.max(...sentBytes)).toBeLessThan(4_000);
     f.triage.contradict(binary.itemId, "needs_user");
     expect(f.store.checkpoints(binary.threadId).at(-1)?.facts.decisions[0]).toContain('"actual":"needs_user"');
     expect(f.triage.summary()).toMatchObject({ items: 2, t2Fraction: 0.5, directToT2Fraction: 1, unpricedCalls: 0, inputTokens: 100, outputTokens: 10, contradictions: 1 });
@@ -215,10 +215,10 @@ test("model authority fields are ignored and both acceptance floors are enforced
     const results = await f.triage.run(items.map(item => item.itemId));
     expect(Object.keys(results[2]!).sort()).toEqual(["itemId", "tier", "route", "reason", "proposedRoute", "runIds"].sort());
     expect(results.map(result => result.route)).toEqual(["needs_user", "needs_user", "drop"]);
-    expect(results.slice(0, 2).every(result => result.reason === "low-probability")).toBe(true);
+    expect(results.slice(0, 2).map(result => result.reason)).toEqual(["low-probability", "low-probability"]);
     expect(f.store.snapshot().threads.map(thread => [thread.id, thread.trustClass, thread.stakes])).toEqual(before.map(thread => [thread.id, thread.trustClass, thread.stakes]));
-    expect(f.reservations().every(row => row.principal_id === f.principal.id && row.billing_mode === "api" && row.model === "jev-1.13.0")).toBe(true);
-    expect(f.store.snapshot().items.some(item => item.queue === "queue" && item.type === "execute")).toBe(false);
+    expect(f.reservations().map(row => [row.principal_id, row.billing_mode, row.model])).toEqual([[f.principal.id, "api", "jev-1.13.0"]]);
+    expect(f.store.snapshot().items.filter(item => item.queue === "queue" && item.type === "execute")).toEqual([]);
   } finally { await f.close(); }
 });
 

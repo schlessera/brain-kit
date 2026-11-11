@@ -643,7 +643,7 @@ describe("durable Actions", () => {
     const runs = { "run-pruned": { rollup: { runId: "run-pruned", origin: "autonomous", outcome: "error", startedAt: T0 - DAY, durationMs: 1000, costUsd: null, effectiveCostUsd: null, failureReason: "fetch failed", name: "triage", jobName: null }, detailPruned: true } };
     const d = await device("laptop", { width: 1280, runs });
     // FilterRow still has three lenses; the rail and bar gain no item.
-    expect(/needs you \d+/.test(d.host.textContent!)).toBe(true);
+    expect(d.host.textContent).toMatch(/needs you \d+/);
     expect(d.host.querySelector("[data-rail]")!.textContent).not.toContain("Queue");
     await click(button(d.host, /^Open the queue, 3 items$/));
     expect(d.host.querySelector("[data-queue-view]")).not.toBeNull();

@@ -1569,6 +1569,36 @@ retention, cost and the error table) is specified in the
 the two suites above. Boat's environment variable for its own CLI is never
 read.
 
+<a id="live-service-registration-additive-3616"></a>
+
+### Live-service registration (additive, #3616)
+
+`CreateAppOptions` (`@schlessera/brain-ui-server`) adds
+`conversationProviders?: LiveConversationProvider[]`, fixed at construction in
+registration order, and `defaultConversationProviderId?: string`, the host's
+default while nothing is saved. `conversationProvider` still registers one and
+means a list of one. Construction fails when both are given, on duplicate ids,
+on an invalid provider, or when `defaultConversationProviderId` names no
+registered provider. The saved brain-wide default lives in the ui-server
+settings store under `voice.live.defaultProvider` as
+`{ value: string | null, revision: number }`; corrupt rows read as nothing
+saved, revision 0. It is persisted server state, not part of the disposable
+content index. How a Start resolves the service is in
+[the wire contract](wire.md#live-service-selection-additive-3616).
+
+`@schlessera/brain-ui-sdk/protocol` exports `LiveDefault`, `LiveProviderSource`,
+`ServerLiveSettings`, `VoiceLiveSettings` and `VoiceLiveSettingsUpdate`;
+`ServerHello` adds `conversationProfiles?` and `liveDefault?`,
+`ClientConversationStart` adds `providerId?` and `ServerConversationOpened` adds
+`providerSource?`. `VoiceSettingsResponse` (the shared `/api/settings/voice`
+body, #3617) extends `VoiceLiveSettings`, and `VoiceSettingsUpdateRequest` adds
+optional `defaultProvider` and `revision`. `@schlessera/brain-ui-sdk/schemas` exports
+`conversationProfilesSchema`, `liveDefaultSchema`, `serverLiveSettingsSchema`
+and `voiceLiveSettingsSchema`; a malformed roster or `liveDefault` is dropped
+from a hello without losing the frame. `@schlessera/brain-ui-kit` exports the
+presentational `LiveServiceSettings` group (`LiveServiceOption`,
+`LiveServiceSettingsProps`, `LiveServiceStatus`), which opens nothing itself.
+
 <a id="dictation-speech-integration-and-conformance"></a>
 
 ### Dictation speech integration and conformance
@@ -4835,6 +4865,23 @@ reconnects. `levels()` returns display-only 0–1 readings, `{ input, output }`:
 the newest microphone block while capture is open, and the 10 ms window of the
 reply sounding now. Neither value gates capture, endpointing, output recovery or
 permission routing.
+
+<a id="start-card-persona-choice-3698"></a>
+
+### Start-card persona choice (#3698)
+
+Additive. The conversation client's state carries `personaChoice`, the
+`ConversationPersonaRef` this entry's Start sends instead of the saved persona's
+`personaRef`; `null` sends the saved one. `choosePersona(ref | null)` sets it
+before Start: a persona picked on the Start card, `{ id: "standard", revision:
+"builtin" }` for "Use Standard this time", or a ref with `voice: "default"` for
+"Use the default voice this time". It is ignored once Start was agreed, saves
+nothing, and is cleared on Enter and Leave. The host still refuses a revision
+that is no longer current. When the host refuses a first Start that opened
+nothing, the entry may choose its service (`chooseService`) or persona again
+before the next explicit Start; a `CONVERSATION_PERSONA_CHANGED` refusal also
+clears `personaChoice`. Neither call opens a microphone, reads history or
+contacts a provider.
 
 ### Retained dialogue data (#3177)
 

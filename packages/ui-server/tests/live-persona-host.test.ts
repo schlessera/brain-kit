@@ -70,7 +70,7 @@ test("hello describes persona support and the selected persona to human sessions
 test("Start without a persona opens exactly as before; an echo without the voice catalogue is still the same disclosure", async () => {
   const t = setup();
   const client = await t.connect();
-  const { voices: _voices, defaultVoice: _default, personaInstructionBytes: _cap, ...legacy } = t.host.conversations!.profile(false);
+  const { voices: _voices, defaultVoice: _default, personaInstructionBytes: _cap, ...legacy } = t.host.conversations!.profile(false)!;
   client.start({ disclosed: legacy });
   await until(() => t.live.sessions.length === 1);
   expect("persona" in t.live.sessions[0]!.options, "STANDARD_PASSES_NO_PERSONA").toBe(false);

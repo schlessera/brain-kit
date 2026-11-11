@@ -10,7 +10,7 @@ beforeAll(() => {
 function makeJob(overrides: Partial<ScoreJobInput> = {}): ScoreJobInput {
   return {
     title: "Software Engineer",
-    company: "Acme Corp",
+    company: "Ithaca Fleet",
     description_text: null,
     location: null,
     tags: null,

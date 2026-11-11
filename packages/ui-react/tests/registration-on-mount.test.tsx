@@ -208,9 +208,10 @@ if (!childMode) {
     expect(distinct[1]).toBe(harness.apifyToolPack);
     expect(distinct[2]).toBe(harness.claudeToolPack);
     expect(distinct[3]).toBe(harness.piToolPack);
-    // Every repeat passed one of those same three objects; a pack rebuilt per
-    // call would show up as a fourth distinct object above.
-    expect(packs.every((pack) => distinct.includes(pack))).toBe(true);
+    // A pack rebuilt per call would show up as a sixth distinct object above.
+    // The repeats must still reach the registry (no module latch), so every
+    // pack was handed over more than once.
+    expect(packs.length).toBeGreaterThan(distinct.length);
 
     const providers = registerAsrClient.mock.calls.map(
       ([providerId]: [string, AsrClientFactory]) => providerId

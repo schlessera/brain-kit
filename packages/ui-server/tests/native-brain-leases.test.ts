@@ -19,15 +19,15 @@ async function fixture() {
 
 test("native UUID ownership is durable before RPC and a second live generation cannot release its pins", async () => {
   const f = await fixture(), checkpoint = f.native.client.checkpoint;
-  let beforeRpc = false;
+  let beforeRpc: unknown;
   f.native.client.checkpoint = async (...args) => {
-    beforeRpc = (f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID) as { state: string }).state === "creating";
+    beforeRpc = f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID);
     return checkpoint(...args);
   };
   const second = await createNativeBrainLeaseManager(f.native.client, f.options);
   try {
     await f.owner.client.checkpoint(ID);
-    expect(beforeRpc, "NATIVE_LEASE_DURABLE_BEFORE_CREATION_RPC").toBe(true);
+    expect(beforeRpc, "NATIVE_LEASE_DURABLE_BEFORE_CREATION_RPC").toEqual({ state: "creating" });
     await expectRejection(second.client.release(ID), "another live");
     await expectRejection(second.client.checkpoint(ID), "another live");
     expect(await second.recoverDeadOwners()).toMatchObject({ released: [], retainedLive: 1 });
@@ -140,7 +140,8 @@ test("close drains cancelled pending creation before releasing its recorded UUID
     await started; abort.abort(Error("Cancelled admission"));
     let settled = false;
     const closing = f.owner.close().then(() => { settled = true; });
-    await Promise.resolve();
+    // A close that skipped the drain would already have committed its deletion intent.
+    await f.owner.writer.idle();
     expect(settled, "NATIVE_CLOSE_WAITS_FOR_UNKNOWN_CREATION").toBe(false);
     expect(events, "NATIVE_CLOSE_DRAINS_CREATION_BEFORE_RELEASE").toEqual(["creating"]);
     expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "creating" });
@@ -303,6 +304,40 @@ test("settling a failed release never overrides a newer release of the same iden
     expect((await second).state).toBe("reclaimed");
     expect(f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(SOURCE), "REFERENCE_POOL_SETTLE_NEVER_OVERRIDES_A_NEWER_RELEASE").toBeNull();
   } finally { await f.close(); }
+});
+
+test("a failed release's settlement yields to a newer release that starts while the pool answers (#2431)", async () => {
+  const f = await fixture();
+  const SOURCE = "33333333-3333-4333-8333-333333332433";
+  const records = new Map<string, Record<string, unknown>>();
+  f.native.client.poolCreate = async (id, purpose, from) => {
+    const value = { id, purpose, from, allowanceBytes: 4096, state: "writable", root: null, path: null, ownerBytes: null, reason: null, view: null, access: null };
+    records.set(id, value); return value as never;
+  };
+  let listing: () => void = () => {}, newer: () => void = () => {}, commit: () => void = () => {};
+  const listed = new Promise<void>(resolve => { listing = resolve; });
+  const newerStarted = new Promise<void>(resolve => { newer = resolve; });
+  const committed = new Promise<void>(resolve => { commit = resolve; });
+  // The pool still reports the root writable, but only answers once the newer release has reached it.
+  f.native.client.listPoolRecovery = async () => { listing(); await newerStarted; return { records: [...records.values()] as never, next: null }; };
+  let attempts = 0;
+  f.native.client.poolRelease = async id => {
+    if (++attempts === 1) throw new Error("the first reply was lost");
+    newer();
+    await committed;
+    records.delete(id);
+    return { id, purpose: "source", from: null, allowanceBytes: 4096, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null } as never;
+  };
+  try {
+    await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
+    const first = f.owner.client.poolRelease(SOURCE).then(() => null, error => error);
+    await listed;
+    const second = f.owner.client.poolRelease(SOURCE);
+    expect((await first)?.message).toBe("the first reply was lost");
+    commit();
+    expect((await second).state).toBe("reclaimed");
+    expect(f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(SOURCE), "REFERENCE_POOL_SETTLE_RECHECKS_AFTER_THE_POOL_ANSWERS").toBeNull();
+  } finally { commit(); newer(); await f.close(); }
 });
 
 test("pool leases recorded before checkpoints migrate without losing a row", async () => {

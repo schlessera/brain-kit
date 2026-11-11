@@ -126,6 +126,28 @@ changes keep it; a new take or a send clears it. It is announced once politely,
 never takes focus, and offers no automatic restart. Distinct local microphone
 notices remain visible afterward.
 
+### Choosing the live-conversation service
+
+The Live service group of Settings › Voice, below Dictation, holds the
+brain-wide default live-conversation service (#3616). It lists the services
+the host registered, from the connection's `server_hello`, and reads and
+writes `GET`/`PUT /api/settings/voice` against its revision; a pick saves at
+once. Rows are marked "saved default", "host default" (while nothing is saved)
+and "in use now"; a saved default the host no longer registers is a dashed
+"saved default · not available" row that cannot be chosen. With one service the
+group is a read-only row; with none it says live conversation isn't set up.
+Only the owner can change it: the route refuses anyone else, and the group then
+says so. A save applies from the next Start and never retargets a running
+conversation; opening or saving the group opens no provider, no microphone and
+reads no history. A save another device overtook says "Changed on another
+device. Showing the latest." and reloads; a failed save reverts and offers
+**Try again**.
+
+Before Start, the conversation client exposes the pick through
+`chooseService(providerId | null)`, which applies to that Start only and is
+never saved, and `conversationProfile` is the service Start would disclose and
+open: the pick, else the effective service, else `null` when a pick is required.
+The Start card draws that pick as its Service row (below).
 
 ### Live-conversation personas
 
@@ -150,6 +172,31 @@ client's state carries `livePersona`, the selected persona as the host resolves
 it per service (voice, default or stale voice, over-limit), and Start echoes
 its `personaRef`. A persona shapes speech only; it cannot change what brain may
 do, see or approve. The pane never opens the microphone or a provider.
+
+### The Start card
+
+Entering live conversation opens the kit `StartCard` in place of the composer
+(#3698), with focus on its Start. Its first line names the service Start would
+open; **What's shared** lists the full disclosure: the service's own words and
+destinations, the host relay, the agent backend, task and retention notes and
+history coverage. The Service row shows **Change** only when two or more
+services are usable; each press moves to the next one for this conversation
+only and never saves the default. When the saved service is unavailable, the
+row asks to **Choose** a service and Start stays unavailable until one is
+picked; the host default is never substituted. The persona list preselects the
+saved persona, and picking one also saves it as the default.
+
+One notice above Start says what changes it: a persona with no voice on this
+service names the default voice it will use; a saved voice the service no
+longer offers blocks Start until **Use the default voice this time**; persona
+instructions over the service's byte cap block Start (**Edit persona** opens
+Settings › Voice, or change the service); a persona file that can't be used
+offers **Use Standard this time**. Those one-time choices go into the Start's
+`personaRef` and are not saved. Change, a persona pick and every notice
+action open no microphone, read no history and contact no provider; Start is
+the only way out that does, and it sends exactly the service, persona and
+voice the card shows. × or Escape leaves. A refused Start is drawn as the
+stopped notice, whose **Start again** reopens the card.
 
 ### Recording on the device
 

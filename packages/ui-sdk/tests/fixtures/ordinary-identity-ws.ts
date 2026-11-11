@@ -41,8 +41,20 @@ const backend = createClaudeBackend({ brainPath: brain, profiles: [{ id: "odysse
     ANTHROPIC_API_KEY: "odysseus-fictional-api-key", HOME: home, CLAUDE_CONFIG_DIR: config, PATH: "/usr/local/bin:/usr/bin:/bin",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" }) }], log() {} });
 const backendProfiles: Array<string | undefined> = [];
+const admissionReads: Array<ReturnType<NonNullable<Parameters<typeof backend.startTurn>[0]["bridge"]["admissionSafety"]>["read"]>> = [];
 const observedBackend = { ...backend, startTurn(request: Parameters<typeof backend.startTurn>[0]) {
   backendProfiles.push(request.workerSandbox?.profile);
+  // Observe the real host gate synchronously, returning each original read
+  // unchanged. Native refusals otherwise collapse to a generic HTTP 403.
+  const safety = request.bridge.admissionSafety;
+  if (safety) {
+    const read = safety.read.bind(safety);
+    safety.read = () => {
+      const value = read();
+      if (admissionReads.length < 64) admissionReads.push({ ...value });
+      return value;
+    };
+  }
   return backend.startTurn(request);
 } };
 const observability = createRecordingObservability(), secret = "odysseus-fixture-cookie-secret-0123456789";
@@ -160,6 +172,11 @@ try {
   expect(backendProfiles, "ACTUAL_MANAGED_WS_BACKEND_SANDBOX").toEqual([profile]);
   console.log(JSON.stringify({ profile, warm, admittedProfiles, backendProfiles, requests, terminal: frames.filter(frame => frame.type === "result" || frame.type === "error"),
     limitations: observability.logs.records().filter(log => log.severity === "WARN" || String(log.body).includes("governed profile is unavailable")).map(log => log.body) }));
+  const terminalTurnId = frames.find(frame => frame.type === "result" || frame.type === "error")?.turnId;
+  console.log(JSON.stringify({ actualManagedAdmission: { profile, warm, reads: admissionReads,
+    egress: app.db.query(`SELECT json_extract(payload,'$.method') method, json_extract(payload,'$.host') host,
+      json_extract(payload,'$.outcome') outcome, json_extract(payload,'$.reason') reason
+      FROM governance_events WHERE turn_id=? AND kind='egress_connection' ORDER BY id DESC LIMIT 16`).all(String(terminalTurnId ?? "")) } }));
   expect(requests, "ACTUAL_MANAGED_WS_NATIVE_REQUEST").toEqual([{ model: "claude-haiku-4-5", history: 1, apiCredential: true }]);
   expect(frames.some(frame => frame.type === "result" && frame.outcome === "success"), "ACTUAL_MANAGED_WS_NATIVE_RESULT").toBe(true);
   expect(frames.some(frame => frame.type === "error"), "ACTUAL_MANAGED_WS_ADMISSION_NO_ERROR").toBe(false);

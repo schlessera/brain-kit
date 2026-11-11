@@ -59,7 +59,7 @@ describe("readCopy", () => {
 describe("attachmentRowProps", () => {
   test("without records the row claims neither read nor not read yet", () => {
     expect(meta(PERMIT)).toBe("PDF · 2.4 MB · sent");
-    expect(meta(SIRENS)).toBe("Binary · 3.1 MB · sent".replace("Binary", attachmentRowProps(SIRENS).meta![0]!.split(" · ")[0]!));
+    expect(meta(SIRENS)).toBe("File · 3.1 MB · sent");
   });
   test("with records, an unread readable file is not read yet and an unreadable one has no reader", () => {
     expect(meta(PERMIT, [])).toBe("PDF · 2.4 MB · not read yet");

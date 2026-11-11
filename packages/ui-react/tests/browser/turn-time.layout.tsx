@@ -77,9 +77,13 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
     expect(names.map(name => name.textContent), "the user and the brain turn's names").toEqual(["You", "Brain"]);
     await textContrast(ctx, names, `speaker name (${theme}, ${width})`);
   });
+}
 
-  test(`turn time is visible and exposed (${theme}, ${width})`, async ctx => {
-    const host = await scene(ctx, width, theme, transcript);
+// One theme per width: visibility, exposure and reading order take no
+// theme-specific class; the contrast cases above own the themes.
+for (const width of [320, 1280]) {
+  test(`turn time is visible and exposed (${width})`, async ctx => {
+    const host = await scene(ctx, width, "dark", transcript);
     for (const [index, span] of times(host).entries()) {
       const message = TURNS[index]!;
       const expected = new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -100,22 +104,20 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 1280])
 
 // A long speaker, an effort note and a long time at the narrowest width: the
 // hairline gives way first, then the header wraps; the time is never squeezed.
-for (const theme of ["dark", "light"] as const) {
-  test(`a long turn header at 320 keeps the whole time visible (${theme})`, async ctx => {
-    const when = "12 July 2026, 09:00:00 AM";
-    const host = await scene(ctx, 320, theme, <TurnHeader tone="user" who="Odysseus, son of Laertes" effort="effort high → medium (backend)" when={when} />);
-    const span = host.querySelector<HTMLElement>("[data-turn-time]")!;
-    const header = span.parentElement!;
-    const hairline = header.querySelector<HTMLElement>(".h-px")!;
-    expect(document.documentElement.scrollWidth, "no horizontal page overflow").toBeLessThanOrEqual(innerWidth);
-    expect(header.scrollWidth, "no header overflow").toBeLessThanOrEqual(header.clientWidth);
-    expect(span.textContent).toBe(when);
-    const box = span.getBoundingClientRect();
-    expect(box.right, "inside the viewport").toBeLessThanOrEqual(innerWidth);
-    expect(span.scrollWidth, "not truncated").toBeLessThanOrEqual(span.clientWidth);
-    expect(span.getClientRects().length, "not squeezed onto several lines").toBe(1);
-    expect(box.height, "one line").toBeLessThanOrEqual(parseFloat(getComputedStyle(span).lineHeight) + 1);
-    expect(box.top, "the header wrapped the time onto its own line").toBeGreaterThan(header.querySelector("span")!.getBoundingClientRect().bottom - 1);
-    expect(hairline.getBoundingClientRect().width, "the hairline gave way").toBeLessThan(box.width);
-  });
-}
+test("a long turn header at 320 keeps the whole time visible", async ctx => {
+  const when = "12 July 2026, 09:00:00 AM";
+  const host = await scene(ctx, 320, "light", <TurnHeader tone="user" who="Odysseus, son of Laertes" effort="effort high → medium (backend)" when={when} />);
+  const span = host.querySelector<HTMLElement>("[data-turn-time]")!;
+  const header = span.parentElement!;
+  const hairline = header.querySelector<HTMLElement>(".h-px")!;
+  expect(document.documentElement.scrollWidth, "no horizontal page overflow").toBeLessThanOrEqual(innerWidth);
+  expect(header.scrollWidth, "no header overflow").toBeLessThanOrEqual(header.clientWidth);
+  expect(span.textContent).toBe(when);
+  const box = span.getBoundingClientRect();
+  expect(box.right, "inside the viewport").toBeLessThanOrEqual(innerWidth);
+  expect(span.scrollWidth, "not truncated").toBeLessThanOrEqual(span.clientWidth);
+  expect(span.getClientRects().length, "not squeezed onto several lines").toBe(1);
+  expect(box.height, "one line").toBeLessThanOrEqual(parseFloat(getComputedStyle(span).lineHeight) + 1);
+  expect(box.top, "the header wrapped the time onto its own line").toBeGreaterThan(header.querySelector("span")!.getBoundingClientRect().bottom - 1);
+  expect(hairline.getBoundingClientRect().width, "the hairline gave way").toBeLessThan(box.width);
+});

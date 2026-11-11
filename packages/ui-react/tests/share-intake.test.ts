@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   SHARE_MAX_INLINE_TEXT,
   type ShareIntakeResult,
@@ -21,6 +21,11 @@ const CLAIM_KEY = "brain-share-claims";
 // Bun's test runtime has no localStorage. The intake reads it lazily through a
 // guarded helper, so a Map-backed stand-in is enough to exercise the real code.
 const backing = new Map<string, string>();
+const realLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+afterAll(() => {
+  if (realLocalStorage) Object.defineProperty(globalThis, "localStorage", realLocalStorage);
+  else Reflect.deleteProperty(globalThis, "localStorage");
+});
 (globalThis as unknown as { localStorage: Storage }).localStorage = {
   getItem: (key: string) => backing.get(key) ?? null,
   setItem: (key: string, value: string) => void backing.set(key, String(value)),

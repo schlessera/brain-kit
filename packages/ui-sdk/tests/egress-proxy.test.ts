@@ -16,6 +16,13 @@ function get(socketPath: string, target: string, method = "GET", body?: string, 
     req.on("error", reject); req.end(body);
   });
 }
+/**
+ * The proxy records an HTTP exchange when its server response closes, which
+ * can land after the client has read the whole body: wait for the record.
+ */
+async function recorded(records: EgressRecord[], count: number) {
+  for (let polls = 0; records.length < count && polls < 5_000; polls++) await Bun.sleep(1);
+}
 function tunnel(socketPath: string, target: string, body: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = connect(socketPath); let text = "";
@@ -38,7 +45,7 @@ test("real Unix HTTP proxy forwards cleartext and records only path and payload 
   const proxy = await startEgressProxy(defaults(records));
   try {
     expect(await get(proxy.socketPath, `${origin.url}voyage?private=excluded`)).toEqual({ status: 200, body: "Ithaca" });
-    await Bun.sleep(1);
+    await recorded(records, 1);
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ method: "GET", host: "127.0.0.1", port: origin.port, path: "/voyage", accounting: "http_wire_bound", outcome: "completed" });
     expect(records[0]!.bytes).toBeGreaterThan(6);
@@ -108,7 +115,7 @@ test("POST outside outward hosts reaches the origin without approval and records
   try {
     expect(await get(proxy.socketPath, `${origin.url}voyage?private=odysseus-query`, "POST", "Odysseus payload",
       { authorization: "Bearer odysseus-fictional-secret" }), "EGRESS_OUTSIDE_OUTWARD_POST_FORWARDED").toEqual({ status: 200, body: "Ithaca" });
-    await Bun.sleep(1);
+    await recorded(records, 1);
     expect(calls).toBe(1); expect(approvals).toBe(0);
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ method: "POST", host: "127.0.0.1", port: origin.port, path: "/voyage", outcome: "completed", accounting: "http_wire_bound" });

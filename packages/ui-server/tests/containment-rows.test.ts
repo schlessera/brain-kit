@@ -179,7 +179,9 @@ describe("ui-server containment predicates: their matrix rows", () => {
  * was accepted beside the brain.
  */
 describe("ui-server deny sites refuse `/` (#3422)", () => {
-  test.skipIf(!Bun.which("git", { PATH: "/usr/bin:/bin" }))("a local sync remote at `/` (sync-mirror syncTransportCommand)", () => {
+  test("a local sync remote at `/` (sync-mirror syncTransportCommand)", () => {
+    // git is a hosted-proof prerequisite; its absence fails loudly instead of skipping.
+    if (!Bun.which("git", { PATH: "/usr/bin:/bin" })) throw new Error("Prerequisite missing: git in /usr/bin or /bin");
     for (const remote of ["/", "file:///"]) {
       expect(() => syncTransportCommand({ brain: root, mirror: join(base, "mirror"), remote, env: {}, args: [] }))
         .toThrow("the sync transport must not mount the brain or its ancestors");

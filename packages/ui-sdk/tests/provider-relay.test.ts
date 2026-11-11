@@ -214,7 +214,7 @@ describe("review hardening", () => {
     try {
       const result = await relayed({}, { path: "/v1/messages" });
       expect(result.status).toBe(200);
-      expect(result.body.includes(KEYS.ANTHROPIC_API_KEY!), "RELAY_SCRUBS_ECHOED_KEY").toBe(false);
+      expect(result.body, "RELAY_SCRUBS_ECHOED_KEY").not.toContain(KEYS.ANTHROPIC_API_KEY!);
       expect(JSON.parse(result.body).echo).toBe("[redacted]");
       expect(result.receipts, "SCRUBBED_RESPONSE_STILL_METERED").toMatchObject([{ usage: { inputTokens: 1, outputTokens: 1 } }]);
     } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
@@ -273,7 +273,7 @@ describe("review hardening", () => {
       const stopped = relay.stop();
       await stopped;
       expect(receipts.length, "RELAY_STOP_SETTLES_INFLIGHT").toBe(MAX_PROVIDER_CONCURRENT_REQUESTS);
-      expect(receipts.every(receipt => receipt.outcome === "cancelled" && receipt.usage === null)).toBe(true);
+      expect(receipts.map(receipt => [receipt.outcome, receipt.usage])).toEqual(Array(MAX_PROVIDER_CONCURRENT_REQUESTS).fill(["cancelled", null]));
       release();
       await Promise.all(inflight);
     } finally { release(); await relay.stop(); reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); seen.length = 0; }
@@ -326,7 +326,7 @@ describe("second review", () => {
     try {
       const result = await relayed({ credential: name => name === "ANTHROPIC_API_KEY" ? padded : undefined }, { path: "/v1/messages" });
       expect(result.upstream[0]!.headers["x-api-key"]).toBe(KEYS.ANTHROPIC_API_KEY);
-      expect(result.body.includes(KEYS.ANTHROPIC_API_KEY!), "TRIMMED_KEY_REDACTED").toBe(false);
+      expect(result.body, "TRIMMED_KEY_REDACTED").not.toContain(KEYS.ANTHROPIC_API_KEY!);
     } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
   });
 });

@@ -638,3 +638,32 @@ it neither authenticates typed dialogue nor blocks the rest of the chat. Native
 assistant text remains historical assistant data. Missing or evicted contextual
 receipts cannot classify a user. Actual source read errors and contradictory
 positive source/retained receipt identities refuse startup before provider open.
+
+## Choosing the service in Settings — 2026-11-08 (#3616)
+
+A host may register both adapters, so the brain's owner chooses the default
+live service in Settings › Voice instead of at host registration. The
+maintainer's rulings on #3616 bind it:
+
+- **L1.** The Start screen offers a one-time **Change** when two or more
+  services are usable. It applies to that conversation only and is never saved.
+- **L2.** A saved default the host no longer registers requires an explicit
+  pick at Start. The host default is never substituted, even with a notice;
+  the saved value stays until it is changed in Settings.
+- **L3.** The shared pane is named **Voice**; the live service is a group
+  beside Dictation, with its own route and revision.
+- **R1.** A client that reads only `conversationProfile` sees live conversation
+  as unavailable on a multi-service host with nothing effective. There is no
+  deterministic legacy fallback, which would contradict L2.
+
+The default is brain-wide and server-side, and it takes effect at the next
+explicit Start. A save never retargets a running conversation, and a reconnect
+keeps the service the conversation opened with: the destination a user agreed
+to is the one their audio and history reach. "Usable" means registered at boot,
+with no credential probing, so discovery never costs a provider call and a key
+that fails later is an ordinary provider error that selects nothing else.
+Writing has its own owner-only guard rather than inheriting the Models route's:
+the owner's human session or the ambient human, never a delegated principal.
+The [wire](../integration-contract/wire.md#live-service-selection-additive-3616)
+and [HTTP](../http-api.md#live-conversation-service-default) contracts give
+the exact shapes.

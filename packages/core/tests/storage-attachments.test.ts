@@ -35,7 +35,8 @@ test("aliases, executable attachments and protected paths remain ineligible", as
     rmSync(join(f.root, "attachments", "alias.pdf")); chmodSync(f.file, 0o700);
     await expect(inspectStorageAttachment(f.root, f.path)).rejects.toThrow("protected");
     chmodSync(f.file, 0o600); symlinkSync(f.file, join(f.root, "attachments", "link.pdf"));
-    await expect(inspectStorageAttachment(f.root, "attachments/link.pdf")).rejects.toThrow();
+    // O_NOFOLLOW refuses the link itself (ELOOP); any other error would not prove the link was not followed.
+    await expect(inspectStorageAttachment(f.root, "attachments/link.pdf")).rejects.toThrow(/ELOOP|protected/);
     for (const path of [".brain/cache.pdf", "workspaces/harbor/chart.pdf", "context/policies/chart.pdf", "../chart.pdf", "attachments/script.ts"])
       await expect(inspectStorageAttachment(f.root, path)).rejects.toThrow("protected");
     expect(readFileSync(f.file)).toEqual(f.bytes);

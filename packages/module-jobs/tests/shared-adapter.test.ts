@@ -68,7 +68,7 @@ describe("real job boards through the shared runner", () => {
       });
       expect(outcomes[0].status).toBe("ok");
       expect(outcomes[0].items.length).toBeGreaterThan(0);
-      expect(outcomes[0].items.every((item) => item.source === source && item.title.length > 0)).toBe(true);
+      expect(outcomes[0].items.filter((item) => item.source !== source || item.title.length === 0)).toEqual([]);
       expect(outcomes[0].id).toBe(source);
       expect(adapter.needsBrowser ? chrome.requests.length : http.requests.length).toBeGreaterThan(0);
       expect(chrome.closed()).toBe(0); // Caller-owned transports stay open.

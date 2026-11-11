@@ -142,6 +142,7 @@ test("turn-temp promotion preserves native answer bytes and reloads promoted UI 
   const answer = "The voyage report is [ready](/tmp/brain-worker-scratch/report.pdf). Not [this](/tmp/brain-worker-scratch/pi-state/auth.json).";
   // Stands in for the worker's private /tmp, as the server holds it (#1703).
   const tmp = mkdtempSync(join(tmpdir(), "pi-turn-temp-"));
+  children.push(() => rmSync(tmp, { recursive: true, force: true }));
   mkdirSync(join(brain,".brain/scratch"),{recursive:true});
   writeFileSync(join(brain,".gitignore"),".brain/scratch/\n");
   const scratchReader = createFixtureWorkerStartupView(brain);
@@ -203,7 +204,6 @@ test("turn-temp promotion preserves native answer bytes and reloads promoted UI 
   // its admission is released.
   expect(closed).toBe(1);
   expect(worker.processStateLedger().turnTempHeld).toBe(0);
-  rmSync(tmp, { recursive: true, force: true });
 });
 test("Pi releases a turn's turn-temp reservation only once its awaited close confirms, and retries an unconfirmed close (#2854)", async () => {
   const base = launch.getMockImplementation()!;
@@ -483,4 +483,88 @@ test("initialization failure keeps a cleanup owner beyond the foreground retry l
     expect(pending).toHaveLength(0);
     expect(notices).toMatchObject([{ kind: "worker_cleanup", state: "retrying", message: "Error: worker_identity_cleanup_unconfirmed" }, { kind: "worker_cleanup", state: "resolved" }]);
   } finally { cleanup.close(); owner.mockRestore(); }
+});
+
+for (const refused of ["turn-temp", "native-output"] as const) test(`post-launch refusal retries ${refused} before releasing its charge`, async () => {
+  const baseline = worker.processStateLedger().turnTempHeld;
+  const base = launch.getMockImplementation()!;
+  const pending: Array<{ run(): void; cancelled: boolean }> = [];
+  const cleanup = worker.createCleanupReconciler({ schedule: run => {
+    const task = { run, cancelled: false }; pending.push(task); return () => { task.cancelled = true; };
+  }, log() {} });
+  const owner = spyOn(worker, "processCleanupReconciler").mockReturnValue(cleanup);
+  let closes = 0, outputs = 0, failedChild = true;
+  const failure = new Error("Odysseus start callback refused");
+  const notices: unknown[] = [];
+  const view = { brain, root: brain, storage: { root: brain, retain() {}, release() {} }, cleanup() {} };
+  const native = spyOn(worker, "prepareNativeWorkerOutput").mockResolvedValue({ view,
+    output: { source: brain, storage: { root: brain, mount: brain, namespacePid: 1, allowanceBytes: MiB, retain() {}, release() {} } },
+    async cleanup() { if (++outputs <= 7 && refused === "native-output") throw new Error("native deletion unconfirmed"); },
+    async publish() {}, async publishLocked() {} });
+  launch.mockImplementation(async (...args: unknown[]) => {
+    const child = await base(...args) as worker.LaunchedWorker;
+    return !failedChild ? child : { ...child, turnTemp: { root, space: () => ({ total: MiB, free: MiB }), close() {},
+      async closeAsync() { if (++closes <= 7 && refused === "turn-temp") throw new Error("turn temp unconfirmed"); } } };
+  });
+  try {
+    await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: {} as never,
+      workerStartupView: view, cleanupActivity: notice => notices.push(notice),
+      workerSandbox: { brain, restricted: false, profile: "strict", scratchAliasesRemoved: [],
+        areas: [{ name: "workspaces", rel: "workspaces", mount: { path: join(brain, "workspaces"), writable: true } }] } as never,
+      workerStarted() { throw failure; } })).rejects.toBe(failure);
+    expect(worker.processStateLedger().turnTempHeld, "PI_POST_LAUNCH_REFUSAL_RETAINS_CHARGE").toBeGreaterThan(baseline);
+    expect(cleanup.held, "PI_POST_LAUNCH_REFUSAL_HAS_RETRY_OWNER").toBe(1);
+    failedChild = false;
+    expect(terminal(await turn(null)), "OTHER_PI_WORKER_REMAINS_USABLE").toMatchObject({ outcome: "success" });
+    for (let i = 0; i < 6; i++) {
+      pending.shift()!.run(); await Bun.sleep(0);
+      expect(worker.processStateLedger().turnTempHeld).toBeGreaterThan(baseline);
+    }
+    pending.shift()!.run(); await Bun.sleep(0);
+    expect(worker.processStateLedger().turnTempHeld, "PI_CONFIRMED_RETRY_RELEASES_CHARGE").toBe(baseline);
+    expect(cleanup.held).toBe(0);
+    expect(pending).toHaveLength(0);
+    expect(notices).toMatchObject([{ kind: "worker_cleanup", state: "retrying" }, { kind: "worker_cleanup", state: "resolved" }]);
+  } finally { cleanup.close(); owner.mockRestore(); native.mockRestore(); }
+});
+
+test("shutdown cancels post-launch cleanup retries and keeps the uncertain Pi charge", async () => {
+  const ledger = worker.createStateLedger(), ledgerSpy = spyOn(worker, "processStateLedger").mockReturnValue(ledger);
+  const tasks: Array<{ run(): void; cancelled: boolean }> = [];
+  const cleanup = worker.createCleanupReconciler({ schedule: run => {
+    const task = { run, cancelled: false }; tasks.push(task); return () => { task.cancelled = true; };
+  }, log() {} });
+  const owner = spyOn(worker, "processCleanupReconciler").mockReturnValue(cleanup);
+  const base = launch.getMockImplementation()!;
+  let closes = 0;
+  launch.mockImplementation(async (...args: unknown[]) => ({ ...await base(...args),
+    turnTemp: { async closeAsync() { closes++; throw new Error("Pi close unconfirmed"); } } }));
+  try {
+    await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: {} as never,
+      workerStarted() { throw new Error("Odysseus callback refused"); } })).rejects.toThrow("Odysseus callback refused");
+    expect(tasks).toHaveLength(1);
+    expect(cleanup.close().held).toBe(1);
+    expect(tasks[0]!.cancelled, "PI_SHUTDOWN_CANCELS_PENDING_RETRY").toBe(true);
+    tasks[0]!.run(); await Bun.sleep(0);
+    expect(closes).toBe(1); expect(ledger.live, "PI_SHUTDOWN_KEEPS_UNCERTAIN_CHARGE").toBe(1);
+  } finally { cleanup.close(); owner.mockRestore(); ledgerSpy.mockRestore(); }
+});
+
+test("Pi reports a stranded launch charge once without scheduling an impossible close", async () => {
+  const ledger = worker.createStateLedger(), ledgerSpy = spyOn(worker, "processStateLedger").mockReturnValue(ledger);
+  let schedules = 0;
+  const cleanup = worker.createCleanupReconciler({ schedule: () => { schedules++; return () => {}; }, log() {} });
+  const owner = spyOn(worker, "processCleanupReconciler").mockReturnValue(cleanup);
+  const failure = Object.assign(new Error("Odysseus legacy cleanup unconfirmed"), { cleanupUnconfirmed: true });
+  launch.mockRejectedValue(failure);
+  const diagnostics: string[] = [];
+  const stderr = spyOn(process.stderr, "write").mockImplementation(chunk => { diagnostics.push(String(chunk)); return true; });
+  try {
+    await expect(openPiWorkerSession({ brainPath: brain }, sessionDir, { caps: {} as never })).rejects.toBe(failure);
+    expect(ledger.live).toBe(1); expect(ledger.turnTempHeld).toBe(worker.resolveTurnTempLimits({}).allowanceBytes);
+    expect(schedules, "NO_FUTILE_PI_CLEANUP_RETRY").toBe(0); expect(cleanup.held).toBe(0);
+    expect(diagnostics, "PI_STRANDED_CHARGE_HAS_ONE_DIAGNOSTIC").toHaveLength(1);
+    expect(JSON.parse(diagnostics[0]!)).toMatchObject({ kind: "worker_cleanup_stranded", backend: "pi", reason: "missing_retryable_close",
+      bytes: 0, turnTempBytes: ledger.turnTempHeld, errorClass: "Error", message: String(failure) });
+  } finally { cleanup.close(); stderr.mockRestore(); owner.mockRestore(); ledgerSpy.mockRestore(); }
 });

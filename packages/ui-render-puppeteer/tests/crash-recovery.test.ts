@@ -19,6 +19,7 @@ import { createRenderer, type LaunchArgs } from "../src/renderer.js";
 class FakeBrowser {
   private readonly handlers = new Map<string, Array<() => void>>();
   closed = false;
+  crashed = false;
   pagesOpened = 0;
 
   once(event: string, fn: () => void) {
@@ -33,11 +34,15 @@ class FakeBrowser {
   }
 
   crash() {
+    this.crashed = true;
     for (const fn of this.handlers.get("disconnected") ?? []) fn();
     this.handlers.delete("disconnected");
   }
 
   async newPage() {
+    // A dead Chrome refuses every command, as puppeteer's closed connection
+    // does; a renderer that kept the handle would fail every later render.
+    if (this.crashed) throw new Error("Protocol error: Connection closed.");
     this.pagesOpened++;
     return {
       close: async () => {},
@@ -125,6 +130,9 @@ describe("a crashed browser", () => {
     for (let i = 0; i < 3; i++) {
       expect((await r.renderPng({ html: `<p>${i}</p>` })).length).toBeGreaterThan(0);
     }
+    // One replacement serves all three, rather than a relaunch per render.
+    expect(l.count).toBe(2);
+    expect(l.browsers[1].pagesOpened).toBe(3);
     await r.shutdown();
   });
 

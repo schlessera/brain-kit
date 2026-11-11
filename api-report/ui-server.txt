@@ -524,6 +524,8 @@ signatures (every public export and the types it is made of)
         speechProviders?: SpeechProvider[];
         defaultSpeechProviderId?: string;
         conversationProvider?: LiveConversationProvider;
+        conversationProviders?: LiveConversationProvider[];
+        defaultConversationProviderId?: string;
         labeller?: LabellerOptions;
         turnTimeoutMs?: number;
         registry?: BackendRegistry;
@@ -1444,6 +1446,13 @@ signatures (every public export and the types it is made of)
         timeoutMs?: number;
         billing?: BillingMode;
     }
+  LiveProviderRegistry (packages/ui-server/src/voice/live-providers.ts)
+    export interface LiveProviderRegistry {
+        readonly providers: readonly LiveConversationProvider[];
+        readonly hostDefault: string | null;
+        get(id: string): LiveConversationProvider | undefined;
+        resolve(saved: string | null): LiveDefault;
+    }
   LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
     export interface LocalExchangeRecord extends LocalExchange {
         seq: number;
@@ -2348,6 +2357,7 @@ signatures (every public export and the types it is made of)
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
         readonly isPrincipalAuthorized: (principalId: string) => boolean;
+        readonly liveProviders: LiveProviderRegistry;
         readonly dialogue: DialogueJournal;
         constructor(options: WsHostOptions);
         close(): Promise<void>;
@@ -2373,6 +2383,8 @@ signatures (every public export and the types it is made of)
         isPrincipalValid?: (principal: Principal) => boolean;
         isPrincipalAuthorized?: (principalId: string) => boolean;
         conversationProvider?: LiveConversationProvider;
+        conversationProviders?: LiveConversationProvider[];
+        defaultConversationProviderId?: string;
     }
   apifyActorGrant (packages/common/src/governance-policy.ts)
     const apifyActorGrant: z.ZodObject<{

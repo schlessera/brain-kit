@@ -845,26 +845,6 @@ export const MultiQuestionDismissed = meta.story({
   },
 });
 
-const singleOtherSubmit = fn();
-export const SingleQuestionUnchanged = meta.story({
-  parameters: at320,
-  render: () => <AskUserCard {...ask} options={options} otherOpen onOtherSubmit={singleOtherSubmit} onPrimary={fn()} onSecondary={fn()} />,
-  play: async ({ canvas, userEvent }) => {
-    await expect(canvas.getAllByRole("radiogroup")).toHaveLength(1);
-    const submit = canvas.getByRole("button", { name: "Submit" });
-    await expect(submit).toHaveAttribute("aria-disabled", "true");
-    await expect(canvas.getByRole("button", { name: "Dismiss" })).toBeVisible();
-    const field = canvas.getByRole("textbox", { name: "Your own answer" });
-    await userEvent.type(field, "keep the omens");
-    await expect(submit).not.toHaveAttribute("aria-disabled");
-    await userEvent.click(submit);
-    await expect(singleOtherSubmit).toHaveBeenCalledTimes(1);
-    await expect(singleOtherSubmit).toHaveBeenCalledWith("keep the omens");
-    await userEvent.type(field, "{Enter}");
-    await expect(singleOtherSubmit).toHaveBeenCalledTimes(2);
-  },
-});
-
 export const MultiQuestionWide = MultiQuestion.extend({ parameters: wide });
 export const MultiQuestionIncompleteWide = MultiQuestionIncomplete.extend({ parameters: wide });
 export const MultiQuestionKeepsAnswersWide = MultiQuestionKeepsAnswers.extend({ parameters: wide });
@@ -872,4 +852,3 @@ export const MultiQuestionHandOnWide = MultiQuestionHandOn.extend({ parameters: 
 export const MultiQuestionLongestWide = MultiQuestionLongest.extend({ parameters: wide });
 export const MultiQuestionAnsweredWide = MultiQuestionAnswered.extend({ parameters: wide });
 export const MultiQuestionDismissedWide = MultiQuestionDismissed.extend({ parameters: wide });
-export const SingleQuestionUnchangedWide = SingleQuestionUnchanged.extend({ parameters: wide });

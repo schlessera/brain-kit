@@ -263,6 +263,68 @@ describe("openai provider — 2.6 quality and complexity defaults (#3782)", () =
   });
 });
 
+describe("openai provider — animated GIF (#3783)", () => {
+  test("only the 2.6 pair lists gif among its formats", () => {
+    const gif = openaiProvider.models.filter((m) => m.outputFormats.includes("gif")).map((m) => m.id);
+    expect(gif).toEqual([SUNBURST, FLARE]);
+  });
+
+  test("a GIF response is decoded as image/gif", async () => {
+    stub({ data: [{ b64_json: PNG_B64 }] });
+    const result = await openaiProvider.generate(SUNBURST, { prompt: "x", format: "gif", frames: 4 }, "k");
+    expect(result.images[0].mime).toBe("image/gif");
+  });
+
+  const refusals: [string, Parameters<typeof openaiProvider.generate>[1], string, RegExp][] = [
+    ["GIF on a 2.5 model", { prompt: "x", format: "gif" }, "gpt-image-2.5-flare", /GIF/],
+    ["GIF with a mask", { prompt: "x", format: "gif", references: [ref()], mask: ref() }, SUNBURST, /mask/],
+    ["GIF with transparency", { prompt: "x", format: "gif", transparent: true }, SUNBURST, /transparent/],
+    ["frames without GIF", { prompt: "x", format: "png", frames: 4 }, SUNBURST, /GIF output only/],
+  ];
+  for (const [label, req, model, message] of refusals) {
+    test(`a direct call with ${label} refuses before fetch`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      await expect(openaiProvider.generate(model, req, "k")).rejects.toThrow(message);
+      expect(calls).toHaveLength(0);
+    });
+  }
+});
+
+describe("openai provider — static SVG (#3784)", () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>';
+
+  test("only the 2.6 pair lists svg among its formats", () => {
+    expect(openaiProvider.models.filter((m) => m.outputFormats.includes("svg")).map((m) => m.id)).toEqual([SUNBURST, FLARE]);
+  });
+
+  test("an SVG response is decoded as image/svg+xml with its cost unknown", async () => {
+    stub({ data: [{ b64_json: Buffer.from(svg).toString("base64") }], usage: { output_tokens: 1, input_tokens_details: { text_tokens: 1, image_tokens: 0 } } });
+    const result = await openaiProvider.generate(SUNBURST, { prompt: "x", format: "svg" }, "k");
+    expect(result.images[0].mime).toBe("image/svg+xml");
+    expect(new TextDecoder().decode(result.images[0].data)).toBe(svg);
+    expect(result.costUsd).toBeUndefined();
+  });
+
+  const refusals: [string, Parameters<typeof openaiProvider.generate>[1], string][] = [
+    ["SVG on a 2.5 model", { prompt: "x", format: "svg" }, "gpt-image-2.5-sunburst"],
+    ["SVG as an edit", { prompt: "x", format: "svg", references: [ref()] }, SUNBURST],
+    ["SVG with transparency", { prompt: "x", format: "svg", transparent: true }, SUNBURST],
+    ["SVG with n above 1", { prompt: "x", format: "svg", n: 2 }, SUNBURST],
+  ];
+  for (const [label, req, model] of refusals) {
+    test(`a direct call with ${label} refuses before fetch`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      await expect(openaiProvider.generate(model, req, "k")).rejects.toThrow(/SVG/);
+      expect(calls).toHaveLength(0);
+    });
+  }
+
+  test("a direct call that gets active SVG back throws instead of returning it", async () => {
+    stub({ data: [{ b64_json: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>').toString("base64") }] });
+    await expect(openaiProvider.generate(SUNBURST, { prompt: "x", format: "svg" }, "k")).rejects.toThrow(/script/);
+  });
+});
+
 describe("GPT Image 2.5 and 2.6 output-token estimate", () => {
   // The guide's one calculator covers both generations (checked 2026-11-09).
   const SUNBURST = "gpt-image-2.6-sunburst";

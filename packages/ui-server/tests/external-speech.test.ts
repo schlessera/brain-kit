@@ -68,7 +68,6 @@ test("supported keyterms reach the supplied provider and false capabilities skip
     try {
       mkdirSync(t.app.config.voice.cacheDir, { recursive: true });
       const terms = ["Ithaca", "Odysseus"];
-      expect(terms.length).toBeGreaterThan(0);
       writeFileSync(join(t.app.config.voice.cacheDir, "keyterms.json"), JSON.stringify({ version: 2, generatedAt: Date.now(), keyterms: terms, count: terms.length, overrides: [] }));
       const response = await t.fetch("/api/voice/session", { method: "POST" });
       expect(response.status).toBe(200);
@@ -88,6 +87,11 @@ test("a provider failure stays a session error even when a built-in key is confi
 });
 
 test("selection without an external value preserves opt-in browser speech and fails closed otherwise", async () => {
+  const refusals: Record<string, string> = {
+    "": "No speech provider configured.",
+    deepgram: "VOICE_PROVIDER=deepgram but DEEPGRAM_API_KEY is not set.",
+    unknown: 'Unknown VOICE_PROVIDER="unknown"',
+  };
   for (const selection of ["", "deepgram", "unknown", "webspeech"]) {
     const t = await httpContractApp({ env: { VOICE_PROVIDER: selection, DEEPGRAM_API_KEY: "" } });
     try {
@@ -99,7 +103,7 @@ test("selection without an external value preserves opt-in browser speech and fa
       } else {
         expect(response.status).toBe(500);
         expect(Object.keys(body)).toEqual(["error"]);
-        expect(body.error).toMatch(/No speech provider configured|DEEPGRAM_API_KEY is not set|Unknown VOICE_PROVIDER/);
+        expect(body.error).toStartWith(refusals[selection]!);
       }
     } finally { await t.close(); }
   }

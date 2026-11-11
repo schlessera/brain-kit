@@ -388,10 +388,13 @@ describe("brain tags --apply, round 1 of review", () => {
     try {
       const warnings = await indexAndAccept(db, root, ctx.taxonomy, written);
       expect(warnings).toEqual(["notes/b.md changed after its tags were rewritten; its mtime was not accepted"]);
-      const accepted = (path: string) =>
-        (db.prepare("SELECT accepted_mtime FROM documents WHERE path = ?").get(path) as { accepted_mtime: string | null }).accepted_mtime;
-      expect(accepted("notes/a.md")).not.toBeNull();
-      expect(accepted("notes/b.md")).toBeNull();
+      const row = (path: string) =>
+        db.prepare("SELECT accepted_mtime, file_mtime FROM documents WHERE path = ?").get(path) as { accepted_mtime: string | null; file_mtime: string | null };
+      // Accepted means the baseline is the mtime the index just read for the rewritten bytes.
+      const a = row("notes/a.md");
+      expect(a.file_mtime).not.toBeNull();
+      expect(a.accepted_mtime).toBe(a.file_mtime);
+      expect(row("notes/b.md").accepted_mtime).toBeNull();
     } finally {
       db.close();
     }

@@ -89,10 +89,10 @@ describe("the FTS sync check", () => {
     // Without this, every `expectFtsInSync` below could pass over exactly the
     // drift it is there to catch.
     withDb((db) => {
-      ingestJobs(db, [job({ company: "Acme Robotics" })]);
+      ingestJobs(db, [job({ company: "Ithaca Shipwrights" })]);
       expect(ftsInSync(db)).toBe(true);
 
-      db.run("UPDATE jobs SET company = 'Globex'");
+      db.run("UPDATE jobs SET company = 'Phaeacian Fleet'");
       expect(ftsInSync(db)).toBe(false);
     });
   });
@@ -122,11 +122,11 @@ describe("company", () => {
   test("a corrected company replaces the stored one, with its derived columns", () => {
     withDb((db) => {
       ingestJobs(db, [job()]);
-      ingestJobs(db, [job({ company: "Acme Robotics GmbH" })]);
+      ingestJobs(db, [job({ company: "Ithaca Shipwrights GmbH" })]);
 
       const stored = row(db, "dice", "/job-detail/1");
-      expect(stored.company).toBe("Acme Robotics GmbH");
-      expect(stored.company_normalized).toBe(normalizeCompany("Acme Robotics GmbH"));
+      expect(stored.company).toBe("Ithaca Shipwrights GmbH");
+      expect(stored.company_normalized).toBe(normalizeCompany("Ithaca Shipwrights GmbH"));
       expect(stored.fingerprint).toBe(
         computeFingerprint(stored.company, stored.title, { source: stored.source, sourceId: stored.source_id })
       );
@@ -139,9 +139,9 @@ describe("company", () => {
       const id = row(db, "dice", "/job-detail/1").id;
       expect(ftsMatches(db, "company:unknown")).toEqual([id]);
 
-      ingestJobs(db, [job({ company: "Acme Robotics" })]);
+      ingestJobs(db, [job({ company: "Ithaca Shipwrights" })]);
 
-      expect(ftsMatches(db, "company:robotics")).toEqual([id]);
+      expect(ftsMatches(db, "company:shipwrights")).toEqual([id]);
       expect(ftsMatches(db, "company:unknown")).toEqual([]);
       expectFtsInSync(db);
     });
@@ -151,18 +151,18 @@ describe("company", () => {
     // `Unknown` is the adapters' "no company on this card". Treated like a
     // null: a row that already has a real company keeps it.
     withDb((db) => {
-      ingestJobs(db, [job({ company: "Acme Robotics" })]);
+      ingestJobs(db, [job({ company: "Ithaca Shipwrights" })]);
       const before = row(db, "dice", "/job-detail/1");
 
       ingestJobs(db, [job({ company: "Unknown", title: "Staff Platform Engineer" })]);
 
       const after = row(db, "dice", "/job-detail/1");
-      expect(after.company).toBe("Acme Robotics");
+      expect(after.company).toBe("Ithaca Shipwrights");
       expect(after.company_normalized).toBe(before.company_normalized);
       expect(after.fingerprint).toBe(
-        computeFingerprint("Acme Robotics", "Staff Platform Engineer", { source: "dice", sourceId: "/job-detail/1" })
+        computeFingerprint("Ithaca Shipwrights", "Staff Platform Engineer", { source: "dice", sourceId: "/job-detail/1" })
       );
-      expect(ftsMatches(db, "company:robotics")).toEqual([after.id]);
+      expect(ftsMatches(db, "company:shipwrights")).toEqual([after.id]);
       expectFtsInSync(db);
     });
   });
@@ -171,8 +171,8 @@ describe("company", () => {
 describe("derived columns follow the title too", () => {
   test("a changed title recomputes title_normalized and the fingerprint", () => {
     withDb((db) => {
-      ingestJobs(db, [job({ company: "Acme Robotics" })]);
-      ingestJobs(db, [job({ company: "Acme Robotics", title: "Principal Platform Engineer" })]);
+      ingestJobs(db, [job({ company: "Ithaca Shipwrights" })]);
+      ingestJobs(db, [job({ company: "Ithaca Shipwrights", title: "Principal Platform Engineer" })]);
 
       const stored = row(db, "dice", "/job-detail/1");
       expect(stored.title_normalized).toBe(normalizeTitle("Principal Platform Engineer"));
@@ -184,7 +184,7 @@ describe("derived columns follow the title too", () => {
 });
 
 describe("a row whose fingerprint changes moves dedup group", () => {
-  const acme = (source: RawJob["source"], sourceId: string, company = "Acme Robotics"): RawJob =>
+  const listing = (source: RawJob["source"], sourceId: string, company = "Ithaca Shipwrights"): RawJob =>
     job({ source, source_id: sourceId, company, title: "Platform Engineer", url: undefined, source_url: undefined });
 
   function age(db: Database, source: string, sourceId: string, firstSeen: string): void {
@@ -193,13 +193,13 @@ describe("a row whose fingerprint changes moves dedup group", () => {
 
   test("a duplicate whose company changes is released, and is not re-marked", () => {
     withDb((db) => {
-      ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b")]);
+      ingestJobs(db, [listing("remoteok", "a"), listing("weworkremotely", "b")]);
       age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
       runDedup(db);
       const canonical = row(db, "remoteok", "a");
       expect(row(db, "weworkremotely", "b")).toMatchObject({ is_duplicate: 1, duplicate_of: canonical.id });
 
-      ingestJobs(db, [acme("weworkremotely", "b", "Globex")]);
+      ingestJobs(db, [listing("weworkremotely", "b", "Phaeacian Fleet")]);
 
       expect(row(db, "weworkremotely", "b")).toMatchObject({ is_duplicate: 0, duplicate_of: null });
       expect(runDedup(db).duplicates_found).toBe(0);
@@ -209,14 +209,14 @@ describe("a row whose fingerprint changes moves dedup group", () => {
 
   test("a canonical whose company changes releases the duplicates that pointed at it", () => {
     withDb((db) => {
-      ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b"), acme("workingnomads", "c")]);
+      ingestJobs(db, [listing("remoteok", "a"), listing("weworkremotely", "b"), listing("workingnomads", "c")]);
       age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
       age(db, "weworkremotely", "b", "2026-01-02T00:00:00.000Z");
       runDedup(db);
       const canonical = row(db, "remoteok", "a");
       expect(row(db, "workingnomads", "c").duplicate_of).toBe(canonical.id);
 
-      ingestJobs(db, [acme("remoteok", "a", "Globex")]);
+      ingestJobs(db, [listing("remoteok", "a", "Phaeacian Fleet")]);
 
       // b and c still share the old fingerprint; they are released and
       // regrouped among themselves, the older one canonical.
@@ -231,12 +231,12 @@ describe("a row whose fingerprint changes moves dedup group", () => {
 
   test("a row whose corrected company joins an existing group is deduped into it", () => {
     withDb((db) => {
-      ingestJobs(db, [acme("remoteok", "a"), acme("dice", "d", "Unknown")]);
+      ingestJobs(db, [listing("remoteok", "a"), listing("dice", "d", "Unknown")]);
       age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
       // `Unknown` fingerprints on identity, so these are not duplicates yet.
       expect(runDedup(db).duplicates_found).toBe(0);
 
-      ingestJobs(db, [acme("dice", "d")]);
+      ingestJobs(db, [listing("dice", "d")]);
       expect(runDedup(db).duplicates_found).toBe(1);
       expect(row(db, "dice", "d")).toMatchObject({ is_duplicate: 1, duplicate_of: row(db, "remoteok", "a").id });
     });
@@ -247,14 +247,14 @@ describe("a row whose fingerprint changes moves dedup group", () => {
     // Every existing duplicate must end up pointing at it — not at the old
     // canonical, which is now a duplicate itself.
     withDb((db) => {
-      ingestJobs(db, [acme("dice", "d", "Unknown"), acme("remoteok", "a"), acme("weworkremotely", "b")]);
+      ingestJobs(db, [listing("dice", "d", "Unknown"), listing("remoteok", "a"), listing("weworkremotely", "b")]);
       age(db, "dice", "d", "2025-12-01T00:00:00.000Z");
       age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
       age(db, "weworkremotely", "b", "2026-01-02T00:00:00.000Z");
       runDedup(db);
       expect(row(db, "weworkremotely", "b").duplicate_of).toBe(row(db, "remoteok", "a").id);
 
-      ingestJobs(db, [acme("dice", "d")]);
+      ingestJobs(db, [listing("dice", "d")]);
       runDedup(db);
 
       const d = row(db, "dice", "d");
@@ -278,14 +278,14 @@ describe("a row whose fingerprint changes moves dedup group", () => {
     // that later joins their fingerprint must not bring them back into the
     // review queue.
     withDb((db) => {
-      ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b"), acme("dice", "d", "Unknown")]);
+      ingestJobs(db, [listing("remoteok", "a"), listing("weworkremotely", "b"), listing("dice", "d", "Unknown")]);
       age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
       age(db, "weworkremotely", "b", "2026-01-02T00:00:00.000Z");
       runDedup(db);
       deleteJob(db, row(db, "remoteok", "a").id);
       expect(row(db, "weworkremotely", "b")).toMatchObject({ is_duplicate: 1, duplicate_of: null });
 
-      ingestJobs(db, [acme("dice", "d")]);
+      ingestJobs(db, [listing("dice", "d")]);
       runDedup(db);
 
       expect(row(db, "weworkremotely", "b")).toMatchObject({ is_duplicate: 1, duplicate_of: null });
@@ -295,11 +295,11 @@ describe("a row whose fingerprint changes moves dedup group", () => {
 
   test("an unchanged re-scrape leaves dedup marks alone", () => {
     withDb((db) => {
-      ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b")]);
+      ingestJobs(db, [listing("remoteok", "a"), listing("weworkremotely", "b")]);
       age(db, "remoteok", "a", "2026-01-01T00:00:00.000Z");
       runDedup(db);
 
-      ingestJobs(db, [acme("remoteok", "a"), acme("weworkremotely", "b")]);
+      ingestJobs(db, [listing("remoteok", "a"), listing("weworkremotely", "b")]);
 
       expect(row(db, "weworkremotely", "b")).toMatchObject({
         is_duplicate: 1,

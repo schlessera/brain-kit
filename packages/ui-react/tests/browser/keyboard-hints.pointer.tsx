@@ -90,6 +90,9 @@ for (const width of live ? [1280] : [320, 600, 1280]) {
     }
     expect(composerHint.getBoundingClientRect().height > 0 && composerHint.innerText.includes("⏎"), "composer keys").toBe(fine);
     await expect.poll(() => ui!.stores.ui.getState().filePanelOpen).toBe(true);
+    // The open panel has started the real lazy tree load (#3285). A cold Vite
+    // transform must finish before the treeitem poll gets its 1000ms budget.
+    await import("../../src/components/files/file-tree.js");
     const tree = page.getByRole("treeitem", { name: /return.md/ });
     await expect.element(tree).toBeVisible();
     if (width >= 900) {

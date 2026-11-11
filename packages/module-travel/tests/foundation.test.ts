@@ -103,17 +103,18 @@ export default defineConfig({
   });
 
   test("TypeScript property separators and comments survive owned-field removal", () => {
-    for (const block of [
-      `travelParty: ${JSON.stringify(party)}, retained: "yes"`,
-      `retained: "yes", /* retain this */ travelParty: ${JSON.stringify(party)}`,
-      `travelParty: ${JSON.stringify(party)},`,
-    ]) {
-      const source = `export default {modules:{"${SPEAKING}":{${block}},"${TRAVEL}":{retained:"target",}}};`;
-      const plan = planTravelConfigMigration(source, "ts");
-      expect(plan.changed).toBe(true);
-      expect(plan.source).toContain('retained:"target"');
-      if (block.includes('retained: "yes"')) expect(plan.source).toContain('retained: "yes"');
-      if (block.includes('/* retain this */')) expect(plan.source).toContain('/* retain this */');
+    const moved = JSON.stringify(party);
+    const config = (speakingBody: string, travelBody: string) =>
+      `export default {modules:{"${SPEAKING}":{${speakingBody}},"${TRAVEL}":{${travelBody}}}};`;
+    const target = `retained:"target", "travelParty": ${moved} `;
+    for (const [block, retained] of [
+      [`travelParty: ${moved}, retained: "yes"`, ` retained: "yes"`],
+      [`retained: "yes", /* retain this */ travelParty: ${moved}`, `retained: "yes" /* retain this */ `],
+      [`travelParty: ${moved},`, ""],
+    ] as const) {
+      const plan = planTravelConfigMigration(config(block, `retained:"target",`), "ts");
+      // The party lands in the existing travel object after its own trailing comma; every other byte stays.
+      expect(plan).toEqual({ source: config(retained, target), changed: true });
       expect(planTravelConfigMigration(plan.source, "ts")).toEqual({ source: plan.source, changed: false });
     }
   });

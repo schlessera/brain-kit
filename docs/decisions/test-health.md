@@ -3,8 +3,8 @@
 The automated tests are kept in shape by a recurring, scripted audit rather
 than by occasional clean-up epics. One skill
 ([test-health](../../.agents/skills/test-health/SKILL.md)) audits a few related
-test files in depth per run, proves each fix, lands the fixes in per-package
-batches and records what it did. A second skill
+test files in depth per run, proves each fix, lands the fixes in batches of
+one package, or of the small packages together, and records what it did. A second skill
 ([test-health-push](../../.agents/skills/test-health-push/SKILL.md)) runs the
 same audit over the whole suite at once. This record covers the rulings the
 maintainer made on 2026-11-10 while the two were designed, the alternatives
@@ -37,12 +37,27 @@ follows is in [ci-utility.md](ci-utility.md) and
   `scripts/test-health.ts`, so a cheaper model and a stronger one produce
   comparable records. The agent's own contribution is recorded only in
   enumerated fields.
-- **A batch stays inside one package and lands as one pull request.** Hosted
+- **A batch stays inside one group and lands as one pull request.** Hosted
   proof for a test edit is priced by the workspaces it touches, not by the
   number of files (`const packageCode`, `scripts/ci-plan.ts:355-356`): any path
   under a package's `tests/` selects that package and its reverse dependants.
   One changed test in a package costs the same confirmation as thirty, so
-  small pull requests are the most expensive way to land this work.
+  small pull requests are the most expensive way to land this work. A large
+  package is a group of its own. **Small packages share one group, `small`**
+  (ruled on #3854): a package with at most `smallPackageFiles` test files can
+  only ever land a few changed files, and the first such batch, all ten files
+  of `common` audited for a five-line change, still took a lane slot and a
+  15-job main run. One pull request across several small packages pays the
+  union of their closures once, where one per package pays each closure and a
+  lane slot apiece. A cluster still stays inside one package.
+- **Deferred work is unfinished work.** A finding deferred because the run ran
+  out of budget, or because a written fix could not be proven in time, leaves
+  its file in the rotation instead of marking it audited for the re-audit
+  window (#3852). The slowest and flakiest files, whose proof takes longest,
+  are the ones the audit exists for, and they are the ones a time budget
+  defers. A run may outlast its budget to prove a fix it already wrote, and a
+  fix that still cannot be proven is kept on the ledger as a patch for the next
+  run.
 - **The ledger lives on its own ref.** What was audited, claimed, batched and
   landed is an append-only record on `refs/heads/brain-test-health`. It is the
   rotation's memory and the only source of the metrics. A progress log does not

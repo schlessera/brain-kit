@@ -136,7 +136,18 @@ describe("consistency between audits and findings", () => {
 
   test("a context file is read-only: its finding cannot be fixed here", () => {
     expect(validate(sheet([finding({ file: HARBOUR })]))).toEqual(["finding F1: a context file is read-only; defer the finding to its own package"]);
-    expect(validate(sheet([finding({ file: HARBOUR, status: "deferred" })]))).toEqual([]);
+    expect(validate(sheet([finding({ file: HARBOUR, status: "deferred", deferredFor: "context" })]))).toEqual([]);
+  });
+
+  test("a deferred finding says why, with a known reason, and only a deferred finding carries one", () => {
+    const deferred = (extra: Partial<Finding>) => validate(sheet([finding({ status: "deferred", ...extra })], { hygiene: "findings" }));
+    const why = "finding F1: a deferred finding says why in deferredFor (budget, proof, assigned, unreproduced, context)";
+    expect(deferred({})).toEqual([why]);
+    expect(deferred({ deferredFor: "tired" as never })).toEqual([why]);
+    expect(deferred({ deferredFor: "budget" })).toEqual([]);
+    expect(deferred({ deferredFor: "context" })).toEqual(["finding F1: deferredFor context is for a finding on a context file"]);
+    expect(validate(sheet([finding({ action: "none", status: "accepted", note: "fine", deferredFor: "budget" })])))
+      .toEqual(["finding F1: only a deferred finding carries deferredFor"]);
   });
 
   test("a filed finding names its issue", () => {
@@ -180,7 +191,7 @@ describe("resolving a draft", () => {
 
 describe("configuration profiles", () => {
   const text = JSON.stringify({ ledgerRemote: "origin", ledgerRef: "refs/heads/brain-test-health",
-    defaults: { base: "origin/main", clusterSize: 5, budgetFiles: 25, sweepEvery: 2, claimHours: 3, reauditDays: 180,
+    defaults: { base: "origin/main", clusterSize: 5, budgetFiles: 25, sweepEvery: 2, claimHours: 3, reauditDays: 180, smallPackageFiles: 25, wipMaxBytes: 262144, proofOverrunMinutes: 60,
       ripe: { changedFiles: 25, ageHours: 72, maxChangedFiles: 60, whenExhausted: true } },
     profiles: { cron: {}, push: { budgetFiles: null, ripe: { changedFiles: null } } } });
 

@@ -123,7 +123,7 @@ describe("cron runJob", () => {
     expect(exitCode).toBe(23);
     expect(stdout.read()).toBe("job stdout\n");
     expect(stderr.read()).toContain("[cron-run] tracking unavailable (job runs anyway):");
-    expect(stderr.read().endsWith("job stderr\n")).toBe(true);
+    expect(stderr.read()).toEndWith("job stderr\n");
   });
 
   test("tees both streams verbatim and exports the span sink to the argv child", async () => {
@@ -215,7 +215,7 @@ describe("cron runJob", () => {
     expect(recorded?.error).toBe(`exit code 9; stderr tail: ${stderrTail}`);
     expect(recorded?.error).not.toContain("stderr-head:");
     expect(recorded?.output).toHaveLength(WIRE_OUTPUT_TAIL_CHARS);
-    expect(recorded?.output?.endsWith(":stderr-tail")).toBe(true);
+    expect(recorded?.output).toEndWith(":stderr-tail");
     expect(recorded?.output).not.toContain("stderr-head:");
   });
 
@@ -372,7 +372,7 @@ describe("a failed brain maintain cron run", () => {
       const db = createUiDb(dbPath);
       const row = db.query("SELECT error_message FROM cron_runs WHERE job_name = 'maintain'").get() as { error_message: string } | null;
       db.close();
-      expect(row?.error_message.startsWith("exit code 2; stderr tail: ")).toBe(true);
+      expect(row?.error_message).toStartWith("exit code 2; stderr tail: ");
       expect(row?.error_message, "CRON_RECORD_DROPPED_NOISE_HEAD").not.toContain("provider unavailable (0)");
       expect(row?.error_message, "CRON_RECORD_NAMES_FAILED_STEP").toContain("brain maintain: FAILED step(s): git (fatal: bad boolean config value");
     } finally {
@@ -585,7 +585,9 @@ describe("cron runs jobs through the exec wrapper", () => {
   test("no trusted job name can be a namespaced module job", () => {
     // Module jobs are always `<module>-<entry>`, so a trusted name with a `-`
     // is the one way the namespacing alone would stop protecting it.
-    for (const name of TRUSTED_JOB_NAMES) expect(name).not.toContain("-");
+    // The digest is trusted (see above), so the set is never empty here.
+    expect([...TRUSTED_JOB_NAMES]).toContain("digest");
+    expect([...TRUSTED_JOB_NAMES].filter(name => name.includes("-"))).toEqual([]);
   });
 });
 

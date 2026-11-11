@@ -129,7 +129,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         },
         // Beside `capabilities`, whose values every shipped client parses
         // as booleans (#979).
-        ...(host.conversations ? { conversationProfile: host.conversations.profile() } : {}),
+        // The effective service's profile only when one is effective, beside
+        // every registered profile and how a Start resolves one (#3616).
+        ...(host.conversations ? host.conversations.helloFields() : {}),
         // Additive (#3617): the selected persona, for human sessions only.
         ...(livePersona ? { livePersona } : {}),
         ...(host.drafts ? { sessionDraftLimits: { ...host.drafts.limits } } : {}),

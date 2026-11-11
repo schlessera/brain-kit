@@ -46,6 +46,8 @@ beforeAll(async () => {
       GOOGLE_GEMINI_BASE_URL: upstream.url.origin } });
   const [code, stderr] = await Promise.all([index.exited, new Response(index.stderr).text()]);
   if (code !== 0) throw new Error(`brain index --embeddings failed: ${stderr}`);
+  // The index's own embedding request is setup, not a test's provider contact.
+  seen.length = 0;
 });
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); seen.length = 0; });
 afterAll(() => { upstream.stop(true); rmSync(root, { recursive: true, force: true }); });

@@ -19,7 +19,9 @@ import {
 import { resolveEnv } from "../config/env.js";
 import { providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 import { isRetiredModel, retiredModelMessage } from "../retired.js";
+import { staticSvgProblem } from "../svg.js";
 import {
+  formatMime,
   ImageProviderError,
   type ImageRequest,
   type ImageResult,
@@ -40,7 +42,9 @@ import {
  *   https://developers.openai.com/api/docs/guides/image-generation
  *
  * Only the 2.6 pair takes `complexity` (low|medium|high, default high, no
- * separate fee). The 2.5 pair is not deprecated upstream and stays
+ * separate fee) and returns animated GIFs (`output_format: "gif"`, #3783),
+ * which need GIF preview access on the OpenAI organization, and author static
+ * SVG on generations (`output_format: "svg"`, `n` 1, #3784). The 2.5 pair is not deprecated upstream and stays
  * selectable. gpt-image-2 and gpt-image-1.5 are retired (`../retired.ts`) and
  * must not be re-added as a fallback.
  */
@@ -61,12 +65,15 @@ const GPT_IMAGE = {
   // not transfer by name.
   strongTextRendering: false,
   watermarked: false,
-  outputFormats: ["png", "jpeg", "webp"],
+  outputFormats: ["png", "jpeg", "webp"] as ModelCapabilities["outputFormats"],
   defaultFormat: "png",
   // Billed per token, so there is no single per-image figure to show. A dry
   // run with a quality and a size is priced by `estimateOpenAiOutputCost`.
   approxCostUsd1K: null,
 } satisfies Omit<ModelCapabilities, "id" | "summary" | "complexityControl">;
+
+/** The 2.6 pair adds animated GIF (#3783) and authored SVG (#3784) to the shared formats. */
+const GPT_IMAGE_26_FORMATS: ModelCapabilities["outputFormats"] = [...GPT_IMAGE.outputFormats, "gif", "svg"];
 
 const MODELS: ModelCapabilities[] = [
   {
@@ -75,6 +82,7 @@ const MODELS: ModelCapabilities[] = [
       "OpenAI's most capable image model — the default; complexity control, transparency on png/webp, masks, custom sizes, xhigh/max quality, no watermark",
     ...GPT_IMAGE,
     complexityControl: true,
+    outputFormats: GPT_IMAGE_26_FORMATS,
   },
   {
     id: "gpt-image-2.6-flare",
@@ -82,6 +90,7 @@ const MODELS: ModelCapabilities[] = [
       "OpenAI's fastest 2.6 model — chosen by --model; same complexity control, transparency, masks, sizes and quality tiers as Sunburst",
     ...GPT_IMAGE,
     complexityControl: true,
+    outputFormats: GPT_IMAGE_26_FORMATS,
   },
   {
     id: "gpt-image-2.5-sunburst",
@@ -203,7 +212,7 @@ export function openAiRequestSize(req: ImageRequest, model: string): string | un
   );
 }
 
-async function readError(res: Response): Promise<never> {
+async function readError(res: Response, req: ImageRequest): Promise<never> {
   let code: string | undefined;
   let message = `${res.status} ${res.statusText}`;
   let moderation: string | undefined;
@@ -231,14 +240,21 @@ async function readError(res: Response): Promise<never> {
   const retryable = res.status >= 500 || (res.status === 429 && !(code && billing.has(code)));
 
   const hints: string[] = [];
+  // GIF output is a preview feature: an organization without access gets a
+  // 4xx about it, and neither retrying nor the generic hints below help.
+  const gifAccess =
+    req.format === "gif" && (res.status === 400 || res.status === 403) && /\bgif\b|preview/i.test(message);
+  if (gifAccess) {
+    hints.push("GIF output needs GIF preview access for this model on the OpenAI organization; ask without --format gif meanwhile");
+  }
   if (code === "moderation_blocked") {
     hints.push(`refused by moderation${moderation ? ` — ${moderation}` : ""}`);
   }
   // The host's provider relay refused before contacting OpenAI (#3431): its
   // message says why, and the account hint would point the agent elsewhere.
   const relayRefusal = code === "brain_provider_refused" || code === "budget_exceeded";
-  if (res.status === 403 && !relayRefusal) hints.push("region not supported, or the org is not verified");
-  if (res.status === 400 && /model/i.test(message)) {
+  if (res.status === 403 && !relayRefusal && !gifAccess) hints.push("region not supported, or the org is not verified");
+  if (res.status === 400 && /model/i.test(message) && !gifAccess) {
     hints.push("GPT-image models require API Organization Verification");
   }
   if (code && billing.has(code)) hints.push("billing limit — retrying will not help");
@@ -263,16 +279,37 @@ function decode(body: OpenAiImageResponse, model: string, req: ImageRequest): Im
     .filter((b): b is string => typeof b === "string" && b.length > 0)
     .map((b64) => ({
       data: Uint8Array.from(Buffer.from(b64, "base64")),
-      mime: `image/${req.format ?? "png"}`,
+      mime: formatMime(req.format ?? "png"),
     }));
   if (images.length === 0) {
     throw new ImageProviderError("OpenAI returned no image data", { retryable: false });
+  }
+  if (req.format === "svg") {
+    // The API's "static" is a claim; the bytes are checked before anyone
+    // writes them (#3784). The call has been paid for either way.
+    for (const image of images) {
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(image.data);
+      } catch {
+        throw new ImageProviderError("OpenAI returned an SVG that is not UTF-8; nothing was written.", { retryable: false });
+      }
+      const problem = staticSvgProblem(text);
+      if (problem) {
+        throw new ImageProviderError(
+          `OpenAI returned an SVG that is not static (${problem}); nothing was written. Ask again, or ask for png.`,
+          { retryable: false }
+        );
+      }
+    }
   }
   return {
     images,
     provider: "openai",
     model,
-    costUsd: openAiCostFromUsage(model, body.usage),
+    // SVG authoring tokens (`svg_usage`) are billed at the authoring model's
+    // rate, which is not published here, so an SVG's cost stays unknown.
+    costUsd: req.format === "svg" ? undefined : openAiCostFromUsage(model, body.usage),
     costIsEstimate: true,
     usage: body.usage,
   };
@@ -304,6 +341,24 @@ export const openaiProvider: Provider = {
         retryable: false,
       });
     }
+    const gif = req.format === "gif";
+    if (gif && !MODELS.find((m) => m.id === model)?.outputFormats.includes("gif")) {
+      throw new ImageProviderError(`${model} does not return GIF; the GPT Image 2.6 models do.`, { retryable: false });
+    }
+    if (gif && (req.mask || req.transparent)) {
+      throw new ImageProviderError("GIF output takes no mask and no transparent background.", { retryable: false });
+    }
+    if (req.format === "svg" && !MODELS.find((m) => m.id === model)?.outputFormats.includes("svg")) {
+      throw new ImageProviderError(`${model} does not author SVG; the GPT Image 2.6 models do.`, { retryable: false });
+    }
+    if (req.format === "svg" && (isEdit || req.transparent || (req.n ?? 1) > 1)) {
+      throw new ImageProviderError("SVG is a single new image: no references, mask, transparent background or n above 1.", {
+        retryable: false,
+      });
+    }
+    if (!gif && (req.frames !== undefined || req.frameDurationMs !== undefined)) {
+      throw new ImageProviderError("Frame count and frame duration apply to GIF output only.", { retryable: false });
+    }
     const headers = { Authorization: `Bearer ${apiKey}` };
     // Without the key, the host's metered relay adds it (#1673).
     const send = providerRelayFetch("openai", "OPENAI_API_KEY") ?? fetch;
@@ -317,6 +372,9 @@ export const openaiProvider: Provider = {
       // be explicit so a caller-set default cannot flatten the transparency.
       if (req.format) payload.output_format = req.format;
       else if (req.transparent) payload.output_format = "png";
+      // Unset frame settings stay unsent: the API's defaults (9, 200 ms) apply.
+      if (req.frames !== undefined) payload.frame_count = req.frames;
+      if (req.frameDurationMs !== undefined) payload.frame_duration_ms = req.frameDurationMs;
       if (req.n && req.n > 1) payload.n = req.n;
       // `transparent` is only legal on models that support it; routing guarantees that.
       if (req.transparent) payload.background = "transparent";
@@ -326,7 +384,7 @@ export const openaiProvider: Provider = {
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) await readError(res);
+      if (!res.ok) await readError(res, req);
       return decode((await res.json()) as OpenAiImageResponse, model, req);
     }
 
@@ -342,6 +400,8 @@ export const openaiProvider: Provider = {
     if (req.format) form.append("output_format", req.format);
     else if (req.transparent) form.append("output_format", "png");
     if (req.transparent) form.append("background", "transparent");
+    if (req.frames !== undefined) form.append("frame_count", String(req.frames));
+    if (req.frameDurationMs !== undefined) form.append("frame_duration_ms", String(req.frameDurationMs));
     for (const [i, ref] of (req.references ?? []).entries()) {
       form.append("image[]", new Blob([ref.data as BlobPart], { type: ref.mime }), ref.label ?? `image-${i}.png`);
     }
@@ -350,7 +410,7 @@ export const openaiProvider: Provider = {
     }
 
     const res = await send(`${resolveEnv().openaiBaseUrl}/images/edits`, { method: "POST", headers, body: form });
-    if (!res.ok) await readError(res);
+    if (!res.ok) await readError(res, req);
     return decode((await res.json()) as OpenAiImageResponse, model, req);
   },
 };

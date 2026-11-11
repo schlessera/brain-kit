@@ -47,7 +47,11 @@ function mount(width: number, theme: string, props: MeterProps) {
   return { label: label!, track: track!, value: value! };
 }
 
+// Storybook owns light and dark parity (docs/process/theme-parity.md); label
+// geometry never reads a colour, so each width runs in one theme, alternating.
+const widthTheme = (width: number) => ([320, 720].includes(width) ? "dark" : "light");
 for (const theme of ["dark", "light"]) for (const width of [320, 390, 720, 1280]) {
+  if (widthTheme(width) !== theme) continue;
   for (const tone of tones) {
     test(`bar ${tone} ${theme} ${width}: label shares the track's leading edge and width`, () => {
       const { label, track, value } = mount(width, theme, { variant: "bar", tone, gradient: true });

@@ -156,6 +156,25 @@ quiescence precondition. Only a capacity check classifies a failure as
 `capacity`. No gap ever clears, and nothing here lets an unrecorded input
 become clean.
 
+### A chat's safety history belongs to its account (#3952)
+
+Ruled by the maintainer on 2026-11-10. The owner mints a principal at every
+sign-in, so a chat's safety history binds to the account, not to the login
+that started it: another device's owner login continues the chat, reads its
+history and reviews its occurrences, and its turns join the same history and
+taint. `sameAccount` (`packages/ui-server/src/middleware/account-partition.ts`)
+decides it. A principal id always matches itself. Two different ids match
+only when both resolve to principals whose `accountScope` is the same
+partition in every auth mode, which today means two owner logins. An agent,
+ambient or system principal therefore matches only itself, and a missing or
+unresolvable principal (a pruned row, say) matches no other id. The decision
+trigger (`087_safety_account_partition.sql`) applies the same rule.
+
+Rows keep the principal that wrote them; nothing is rewritten. What belongs to
+one login stays exact: a turn's own collection, its catalog creation, read
+snapshots and cursors, review handles and their receipts, per-principal
+limits, and the principal a verdict names.
+
 ## Human authority and policy publication
 
 Initially **only a live password-mode human owner** may commit a verdict or
@@ -207,6 +226,12 @@ Read the scoped aggregate, immutable append sequence and membership together;
 history adoption and local pending/loss changes advance admission even when the
 global cursor does not. Pending-input overlays and capacity grouping use the
 same retained aliases. The history/review cursor keeps its existing meaning.
+
+A host relay joins its own announced session binding before taking a fresh
+admission snapshot. The wait is bounded and abortable, and a drained catalog
+queue alone does not prove that the binding committed. Failed or indeterminate
+binding refuses. This ordering never exempts independent pending input or retries
+a provider request; the final synchronous safety and authority fences still apply.
 
 Only effective taint and the trust slice update live. Ordinary governance
 budgets, profiles and commands keep turn-bound semantics. Trust removal fences

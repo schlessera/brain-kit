@@ -1,11 +1,18 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "../../core/tests/cli-harness";
+import { BRAIN_BIN, cleanup, keylessEnv as harnessEnv, makeTempBrain, runCli as harnessCli } from "../../core/tests/cli-harness";
+import { withoutSigning } from "../../core/tests/git-fixture";
 import manifest, { configSchema } from "../src/module";
 import { ALL_SOURCES, RETIRED_SOURCES } from "../src/types";
 import { openDatabase } from "../src/db";
 import { ingestJobs } from "../src/scrape";
+
+// Settings saves commit through the CLI. Every Git child, fixture and product
+// alike, gets signing disabled at command scope, so no ambient signing
+// configuration reaches these temporary repositories (#3485).
+const keylessEnv = (root: string) => withoutSigning(harnessEnv(root));
+const runCli = (root: string, args: string[]) => harnessCli(root, args, keylessEnv(root));
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) cleanup(root); });
@@ -191,8 +198,8 @@ test("an intentionally empty scrape leaves an existing nonempty jobs database al
   const path = join(root, "jobs.db");
   const db = openDatabase(path);
   ingestJobs(db, [
-    { source: "remoteok", source_id: "fixture-1", title: "Senior Engineer", company: "Acme" },
-    { source: "workingnomads", source_id: "fixture-2", title: "Senior Engineer", company: "Acme" },
+    { source: "remoteok", source_id: "fixture-1", title: "Senior Engineer", company: "Ithaca Fleet" },
+    { source: "workingnomads", source_id: "fixture-2", title: "Senior Engineer", company: "Ithaca Fleet" },
   ]);
   const before = db.query("SELECT * FROM jobs ORDER BY id").all();
   expect(before).toHaveLength(2);
