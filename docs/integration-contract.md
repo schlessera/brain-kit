@@ -85,6 +85,31 @@ shape changes. See
 [the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
 This ships in a minor.
 
+## Choosing the live-conversation service (additive, 0.45.0, #3616)
+
+`CreateAppOptions` adds `conversationProviders?: LiveConversationProvider[]` and
+`defaultConversationProviderId?: string`; `conversationProvider` keeps meaning a
+list of one, and both together, duplicate ids or an unregistered default fail
+startup. `server_hello` adds `conversationProfiles` and `liveDefault`, and keeps
+`conversationProfile` only while a service is effective (R1). A new
+`live_settings` frame follows a save, `conversation_start` accepts an optional
+`providerId` that must equal the disclosed one, and `conversation_opened` adds
+`providerSource`. `GET`/`PUT /api/settings/voice`, shared with the persona
+selection (#3617), add the top-level `defaultProvider`/`revision` pair for the
+brain-wide default, each group with its own revision, and the route's writes
+gain a new owner-only guard. The SDK exports `LiveDefault`,
+`LiveProviderSource`, `ServerLiveSettings`, `VoiceLiveSettings`,
+`VoiceLiveSettingsUpdate` and their schemas; the kit adds `LiveServiceSettings`.
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`conversationProfiles`, `liveDefault` and `serviceChoice`, the client adds
+`chooseService(providerId | null)` for a one-time pick before Start, and the
+REST client adds `liveSettings()` and `saveLiveSettings()`.
+Single-provider hosts and existing clients keep their behaviour. See
+[wire](integration-contract/wire.md#live-service-selection-additive-3616),
+[HTTP](integration-contract/http.md#live-conversation-service-default-additive-3616)
+and [the package API](integration-contract/package-api.md#live-service-registration-additive-3616).
+This ships in a minor.
+
 ## Bounded multi-read (additive, 0.45.0, #3642)
 
 A new read tool, `brain_read_many`, on the MCP server and the pi backend, and a

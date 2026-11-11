@@ -160,6 +160,10 @@ export "." (./src/index.ts)
   ListRow
   type ListRowProps
   type ListRowVariant
+  type LiveServiceOption
+  LiveServiceSettings
+  type LiveServiceSettingsProps
+  type LiveServiceStatus
   type MapCluster
   type MapLand
   type MapPath
@@ -1590,6 +1594,40 @@ signatures (every public export and the types it is made of)
     }
   ListRowVariant (packages/ui-kit/src/types.ts)
     export type ListRowVariant = "group" | "card" | "launcher" | "plain";
+  LiveServiceOption (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export interface LiveServiceOption {
+        id: string;
+        name: string;
+        detail?: string;
+    }
+  LiveServiceSettings (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export function LiveServiceSettings(p: LiveServiceSettingsProps): import("react").JSX.Element;
+  LiveServiceSettingsProps (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export interface LiveServiceSettingsProps {
+        services: LiveServiceOption[];
+        checked: string | null;
+        saved?: string | null;
+        hostDefault?: string | null;
+        inUse?: string | null;
+        savedUnavailable?: LiveServiceOption | null;
+        status?: LiveServiceStatus | null;
+        readOnly?: boolean;
+        disabled?: boolean;
+        loading?: boolean;
+        loadError?: boolean;
+        onChoose?: (id: string) => void;
+        onRetry?: () => void;
+        onReload?: () => void;
+    }
+  LiveServiceStatus (packages/ui-kit/src/voice/LiveServiceSettings.tsx)
+    export type LiveServiceStatus = {
+        kind: "saving";
+    } | {
+        kind: "stale";
+    } | {
+        kind: "failed";
+        text: string;
+    };
   MAILTO_ADDRESSES_MAX (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   MailVerdict (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   MapCluster (packages/ui-kit/src/blocks/MapView.tsx)

@@ -1,5 +1,6 @@
 import { ScreenHeader } from "@schlessera/brain-ui-kit";
 import { DictationSettings } from "./dictation-settings.js";
+import { LiveServiceGroup } from "./live-service-settings.js";
 import { PersonaSettings } from "./persona-settings.js";
 
 /**
@@ -14,6 +15,7 @@ export function VoiceTab({ active }: { active: boolean }) {
     <ScreenHeader variant="nav" title="Voice" subtitle="dictation and live conversation · where your spoken words go" back={false} divider={false} />
     <div className="flex min-w-0 flex-col gap-6 px-4 pb-6">
       <DictationSettings active={active} />
+      <LiveServiceGroup active={active} />
       <PersonaSettings active={active} />
     </div>
   </div>;
