@@ -105,7 +105,12 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
   the product path actually builds, with a harness that wires the thing the
   assertion observes, and build inputs whose covered part is non-empty.
   Prevents `wrong-object`, `earlier-layer-answers`, `nothing-to-observe` and
-  `empty-by-construction`.
+  `empty-by-construction`. An absence needs a presence beside it: a test made
+  only of `toBeNull()`, `toHaveLength(0)` or `not.toHaveBeenCalled()` also
+  passes when nothing rendered or nothing ran, so first assert what must still
+  be there (`expect(await canvas.findByText("omens")).toBeVisible()`), then
+  what must not be. The same goes for a selector nothing emits: asserting
+  `.bk-colour-only` absent holds whatever the components drew.
 - **S7. Double the lowest shared request path, and assert the outcome.** A
   double replaces the one method every request goes through; the assertions
   are about what the code did with the answer, not about the double being
