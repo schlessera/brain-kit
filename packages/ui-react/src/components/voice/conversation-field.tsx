@@ -4,6 +4,7 @@ import { Button, Overlay, VoiceControlButton, VoiceField, VoiceNotice, VoiceText
 import { useBrainUiRoot } from "../../root-context.js";
 import { conversationService, MUTED_NOTICE, READINESS_NOTICES, REVIEW_BOUNDED_NOTICE, REVIEW_TRIMMED_NOTICE, UNCLEAR_NOTICE, type ConversationClientState } from "../../voice/conversation-client.js";
 import { PERMISSION_PENDING_LINE } from "../../voice/conversation-permissions.js";
+import { liveServiceView } from "../../voice/live-service.js";
 
 /** The live states the tall voice field draws (#3690); S5 is the Start sequence's Connecting. */
 type LiveFieldState = "S5" | "L1" | "L2" | "L3" | "L4" | "L5" | "L6" | "L7" | "L8" | "L9";
@@ -124,6 +125,11 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
   const button = { minHeight: 44, minWidth: 44, flex: "1 1 0", width: "auto", padding: "0 6px", fontSize: 12 };
   const leave = () => { client.leave(); onLeave(); };
   const service = profile ? conversationService(profile.providerId) : disclosed ? conversationService(disclosed.providerId) : null;
+  // #3616: the one-time pick before Start. A minimal stand-in until the Start
+  // card (#3698) draws it as the Service row and S3d.
+  const live = liveServiceView(s);
+  // It stays once picked, so the pick can be seen and changed before Start.
+  const pickable = !profile && live.services.length > 0 && (live.canChange || live.pickRequired || live.savedUnavailable !== null || s.serviceChoice !== null);
   const muted = s.capture === "muted";
   const draft = !!s.text;
   const outputMuted = s.outputRecovery === "muted";
@@ -172,7 +178,19 @@ export function ConversationField({ backend, onLeave }: { backend: string; onLea
       </div>}
     <Overlay open={s.disclosureOpen} variant="sheet" title="Live conversation" onClose={leave} data-overlay-site="conversation-disclosure">
       <div className="space-y-3 p-4 text-sm">
-        <p>{disclosed?.disclosure.voiceService ?? "Connecting to the configured voice service…"}</p>
+        {pickable && <fieldset data-live-service-pick="" className="space-y-2">
+          <legend className="text-[13px] font-semibold">Live service for this conversation</legend>
+          {live.savedUnavailable
+            ? <p data-live-service-unavailable="">Your saved default, {conversationService(live.savedUnavailable)}, isn{"'"}t available on this host. Choose a service for this conversation.</p>
+            : live.pickRequired && <p>Choose a live service for this conversation.</p>}
+          {live.services.map((option) => <label key={option.providerId} className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg border border-border-subtle px-3">
+            <input type="radio" name="live-service-pick" value={option.providerId} checked={live.selected?.providerId === option.providerId}
+              onChange={() => client.chooseService(option.providerId)} className="h-5 w-5 shrink-0" />
+            <span>{conversationService(option.providerId)}</span>
+          </label>)}
+          <p className="text-xs text-muted-foreground">Applies to this conversation only. Settings › Voice keeps the default.</p>
+        </fieldset>}
+        <p>{disclosed?.disclosure.voiceService ?? (pickable ? "No live service chosen yet." : "Connecting to the configured voice service…")}</p>
         {disclosed?.disclosure.destinations.map((destination) => <p key={destination}>{destination}</p>)}
         <p>Host relay: {typeof window === "undefined" ? root.apiBase() || "this application’s host" : new URL(root.apiBase() || "/", window.location.href).origin}</p>
         <p>Independently selected agent backend: {backend}. API destination and retention: unknown unless documented by the host.</p>
