@@ -72,6 +72,23 @@ afterEach(() => {
 const provider = () => geminiCompletions({ apiKeyEnv: KEY, model: "fictional-gemini-model" });
 const local = (): Extract<ContentPart, { kind: "video" }> => ({ kind: "video", path: join(directory, "odysseus.mp4"), mimeType: "video/mp4" });
 
+/**
+ * Run `fn` with the Files API poll interval (the 1000 ms wait between status
+ * polls in video.ts) moved to the next timer turn; every other timer stays
+ * real. Returns the poll waits it shortened, so a test can say there was one.
+ */
+async function withShortPolls<T>(fn: () => Promise<T>): Promise<{ value: T; polls: number }> {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!;
+  const real = descriptor.value as (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => unknown;
+  let polls = 0;
+  Object.defineProperty(globalThis, "setTimeout", { ...descriptor, value: (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay !== 1000) return real(callback, delay, ...args);
+    polls++;
+    return real(callback, 0, ...args);
+  } });
+  try { return { value: await fn(), polls }; } finally { Object.defineProperty(globalThis, "setTimeout", descriptor); }
+}
+
 describe("Gemini video request mapping through the real SDK", () => {
   test("remote URI and clip offsets are exact, prompt remains separate", async () => {
     const answer = await provider().complete({ prompt: "What is visible?", parts: [{ kind: "video", uri: "https://www.youtube.com/watch?v=Odysseus001", mimeType: "video/mp4", clip: { start: 0, end: 120.5 } }] });
@@ -89,7 +106,8 @@ describe("Gemini video request mapping through the real SDK", () => {
   });
   test("a local path is uploaded, polled ACTIVE, generated and deleted", async () => {
     processing = true;
-    await provider().complete({ prompt: "Watch", parts: [local()] });
+    const { polls } = await withShortPolls(() => provider().complete({ prompt: "Watch", parts: [local()] }));
+    expect(polls).toBe(1);
     expect(events).toEqual(["upload-start", "upload-bytes", "poll", "generate", "delete"]);
     expect(generated.contents[0].parts[0]).toEqual({ fileData: { fileUri: active().uri, mimeType: "video/mp4" } });
   });

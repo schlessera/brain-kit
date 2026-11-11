@@ -168,7 +168,7 @@ test("focused and full local CLI refuse setup before downstream proof while plan
     expect(error).not.toContain("UNEXPECTED_FIXTURE_DISCOVERY_COMMAND");
     if (mode.includes("--plan")) {
       expect(code, error).toBe(0); expect(out).toContain("hostedProofRequired");
-      expect(calls.some(command => command[0] === "bwrap")).toBe(false);
+      expect(calls.filter(command => command[0] === "bwrap")).toEqual([]);
     } else {
       expect(code, "LOCAL_CLI_MUST_REFUSE_FAILED_SANDBOX_SETUP").not.toBe(0);
       expect(error, "LOCAL_CLI_REFUSES_BEFORE_DOWNSTREAM_PROOF").toContain("sandbox setup probe failed");
@@ -330,7 +330,7 @@ test("full local stages overlap only strict types with the unit tier", () => {
   const plan = planChecks(["package.json"], workspaces(join(import.meta.dir, "..")));
   const stages = localStages(localChecks(plan, true).slice(3)).map(stage => stage.map(command => command.name));
   expect(stages[0], "TYPECHECK_BESIDE_UNIT_WORKERS").toEqual(["strict typecheck", "complete unit and integration suite"]);
-  expect(stages.slice(1).every(stage => stage.length === 1), "DOCKER_CHROME_NATIVE_STAGES_SERIALIZED").toBe(true);
+  expect(stages.slice(1).filter(stage => stage.length !== 1), "DOCKER_CHROME_NATIVE_STAGES_SERIALIZED").toEqual([]);
   expect(stages.slice(1).flat()).toEqual(localChecks(plan, true).slice(5).map(command => command.name));
   // Focused preflight keeps its one serial affected-tests stage.
   expect(localStages(localChecks(plan).slice(3)).map(stage => stage.length)).toEqual([1]);
@@ -362,7 +362,7 @@ test("ordinary preflight leaves repeatable environment-heavy proof to CI", () =>
   expect(commands.length).toBeGreaterThan(0);
   const args = commands.map(command => command.argv.join(" ")).join("\n");
   expect(args).not.toContain("run typecheck");
-  expect(commands.some(command => command.name === "complete unit and integration suite")).toBe(false);
+  expect(commands.map(command => command.name)).not.toContain("complete unit and integration suite");
   const tests = commands.filter(command => command.argv[1] === "run" && command.argv[2] === "test");
   expect(tests).toHaveLength(1);
   expect(tests[0]!.argv.slice(3)).toEqual(plan.tests.map(path => `./${path}`));
@@ -377,9 +377,9 @@ test("ordinary preflight leaves repeatable environment-heavy proof to CI", () =>
 test("default local feedback excludes import-graph tests even with a merge-base SHA", () => {
   const plan = planChecks(["packages/common/src/index.ts"], workspaces(join(import.meta.dir, "..")));
   const commands = localChecks(plan, false, "a".repeat(40));
-  expect(commands.some(command => command.name.startsWith("import-graph affected tests"))).toBe(false);
-  expect(commands.some(command => command.argv.some(arg => arg.startsWith("--changed=")))).toBe(false);
-  expect(commands.some(command => command.name === "affected fast invariants")).toBe(true);
+  expect(commands.map(command => command.name).filter(name => name.startsWith("import-graph affected tests"))).toEqual([]);
+  expect(commands.flatMap(command => command.argv).filter(arg => arg.startsWith("--changed="))).toEqual([]);
+  expect(commands.map(command => command.name)).toContain("affected fast invariants");
 });
 
 test("opt-in local feedback uses the exact merge-base SHA and full proof does not duplicate it", () => {
@@ -391,7 +391,7 @@ test("opt-in local feedback uses the exact merge-base SHA and full proof does no
   const overridden = localChecks(plan, false, sha, true, 8).find(command => command.name.startsWith("import-graph affected tests"))!;
   expect(overridden.argv.slice(1)).toEqual(["scripts/unit-workers.ts", `--changed=${sha}`, "--workers=8"]);
   expect(localChecks(plan, true, sha, true)).toEqual(localChecks(plan, true, sha));
-  expect(localChecks(plan, true, sha, true).some(command => command.name.startsWith("import-graph affected tests"))).toBe(false);
+  expect(localChecks(plan, true, sha, true).map(command => command.name).filter(name => name.startsWith("import-graph affected tests"))).toEqual([]);
 });
 
 

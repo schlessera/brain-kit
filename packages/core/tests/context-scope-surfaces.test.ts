@@ -73,7 +73,7 @@ describe("brain context", () => {
     expect(out.code).toBe(0);
     const paths = [...out.stdout.matchAll(/^### .*?\(([^)]+\.md)\)/gm)].map((m) => m[1]!);
     expect(paths.length).toBeGreaterThan(0);
-    for (const path of paths) expect(path.startsWith("projects/active/sail-repairs/"), path).toBe(true);
+    expect(paths.filter((path) => !path.startsWith("projects/active/sail-repairs/"))).toEqual([]);
     expect(out.stdout).not.toContain("## Identity");
     expect(out.stdout).toContain("health/knee-injury.md (not ranked)");
     expect(out.stdout).toContain("notes/missing.md (unavailable)");
@@ -120,7 +120,7 @@ describe("brain_context", () => {
     const structured = result.structuredContent as Record<string, unknown>;
     expect(Object.keys(structured).sort()).toEqual(["context", "warnings"]);
     expect(content[0]!.text).toBe(structured.context as string);
-    expect(content.some((block) => block.text.startsWith("### Coverage"))).toBe(false);
+    expect(content.filter((block) => block.text.startsWith("### Coverage"))).toEqual([]);
   });
 
   test("exclude keeps both files unopened and returns the coverage as its last block and in structuredContent", async () => {
@@ -131,7 +131,7 @@ describe("brain_context", () => {
     for (const marker of [FOCUS_MARKER, REGISTRY_MARKER, `(${FOCUS})`, `(${REGISTRY})`]) expect(structured.context).not.toContain(marker);
     // The first block is still the context text itself.
     expect(content[0]!.text).toBe(structured.context);
-    expect(content.at(-1)!.text.startsWith("### Coverage")).toBe(true);
+    expect(content.at(-1)!.text).toStartWith("### Coverage");
     expect(structured.coverage.exhaustive).toBe(false);
     expect(structured.coverage.excerpts.map((e) => e.path)).not.toContain(FOCUS);
     expect(structured.coverage.excerpts[0]).toEqual({ path: "me/identity.md", lane: "identity", form: "whole" });
@@ -142,7 +142,7 @@ describe("brain_context", () => {
     const { coverage } = result.structuredContent as { coverage: { include: string[]; excerpts: Array<{ path: string }> } };
     expect(coverage.include).toEqual(["projects/active/sail-repairs/"]);
     expect(coverage.excerpts.length).toBeGreaterThan(0);
-    for (const excerpt of coverage.excerpts) expect(excerpt.path.startsWith("projects/active/sail-repairs/"), excerpt.path).toBe(true);
+    expect(coverage.excerpts.map((e) => e.path).filter((path) => !path.startsWith("projects/active/sail-repairs/"))).toEqual([]);
   });
 
   test("an invalid or oversized scope is a tool error", async () => {

@@ -15,7 +15,7 @@ beforeAll(async () => {
 });
 afterAll(() => style.remove());
 afterEach(async () => { if (renderer) flushSync(() => renderer!.unmount()); ui?.dispose(); host?.remove(); renderer = undefined; ui = undefined; host = undefined;
-  document.documentElement.dataset.theme = previousTheme;
+  if (previousTheme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = previousTheme;
   await page.viewport(viewport.width, viewport.height);
   if (outer) await commands.formViewport(outer.width - 100, outer.height - 120);
 });
@@ -49,8 +49,12 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
     await userEvent.keyboard("{Enter}");
     expect(opened).toEqual(["people/penelope.md"]);
   });
-  test(`${theme} ${width}: both registered backend outputs render readable cards`, async () => {
-    outer = await commands.formViewport(width, 800); await page.viewport(width, 800); document.documentElement.dataset.theme = theme;
+}
+// One theme per width: the backend cards are counted and measured, never
+// captured or read for colour, and Storybook owns light/dark parity.
+for (const width of [320, 1280]) {
+  test(`${width}: both registered backend outputs render readable cards`, async () => {
+    outer = await commands.formViewport(width, 800); await page.viewport(width, 800);
     ui = createBrainUiRoot({ storage: null }); registerBuiltinRenderers(ui.renderers);
     host = document.createElement("div"); host.style.width = `${Math.min(width, 720)}px`; document.body.append(host); renderer = createRoot(host);
     const claude = { id: "claude", name: "mcp__brain__brain_search", input: {}, output: JSON.stringify({ results: [hit], warnings: [] }) };
@@ -58,7 +62,7 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
     const ClaudeOutput = ui.renderers.resolve(claude, "claude")!.Output!;
     const PiOutput = ui.renderers.resolve(pi, "pi")!.Output!;
     flushSync(() => renderer!.render(<BrainUiProvider root={ui}><ClaudeOutput tool={claude} /><PiOutput tool={pi} /></BrainUiProvider>));
-    expect(host.querySelectorAll("[data-search-result-card]").length).toBe(2);
+    expect(host.querySelectorAll("[data-search-result-card]").length, "SEARCH_BOTH_BACKENDS_DRAW_CARDS").toBe(2);
     expect(host.querySelectorAll("mark").length).toBe(4);
     expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
   });

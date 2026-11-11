@@ -104,7 +104,7 @@ describe("the fixture's premise, unscoped", () => {
   test("with the registry out of the pool, it still reaches the briefing as a related neighbour", async () => {
     // The registry's own text never ranks: only the neighbour lane can bring it in.
     const { report } = await assemble({ query: "spliced practice spars below the cave", includeCurrentFocus: false, includeIdentity: false });
-    expect(report.related.includes(REGISTRY) || report.results.includes(REGISTRY)).toBe(true);
+    expect([...report.related, ...report.results]).toContain(REGISTRY);
   });
 });
 
@@ -273,7 +273,7 @@ describe("coverage", () => {
   test("budget exhaustion is explicit", async () => {
     const { coverage } = await assemble({ maxTokens: 120, scope: { include: ["projects/", FOCUS] } });
     expect(coverage.budgetExhausted).toBe(true);
-    expect(coverage.omitted.some((o) => o.reason === "budget")).toBe(true);
+    expect(coverage.omitted).toContainEqual(expect.objectContaining({ reason: "budget" }));
     expect(coverageNote(coverage)).toContain("Budget exhausted");
   });
 

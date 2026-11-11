@@ -110,7 +110,7 @@ describe("ordering and cursor", () => {
       const { rows, pages } = enumerate({ pathPrefix: "notes/fleet", limit });
       expect(rows.map((r) => r.path)).toEqual(expected);
       expect(new Set(rows.map((r) => r.path)).size).toBe(FLEET);
-      expect(pages.every((p) => p.total === FLEET)).toBe(true);
+      expect(pages.map((p) => p.total)).toEqual(pages.map(() => FLEET));
       expect(pages.length).toBe(Math.ceil(FLEET / limit));
       expect(pages.at(-1)!.next_cursor).toBeNull();
     }
@@ -147,7 +147,7 @@ describe("path prefix", () => {
   test("matches whole segments: neighbouring folders and files do not leak in", () => {
     const raft = paths({ pathPrefix: "projects/active/raft" });
     expect(raft.length).toBeGreaterThan(0);
-    expect(raft.every((p) => p.startsWith("projects/active/raft/"))).toBe(true);
+    expect(raft.filter((p) => !p.startsWith("projects/active/raft/"))).toEqual([]);
     expect(raft).not.toContain("projects/active/raft.md");
     expect(raft).not.toContain("projects/active/raft-old/notes.md");
     expect(paths({ pathPrefix: "projects/active/raft/" })).toEqual(raft);
@@ -215,8 +215,8 @@ describe("output bound", () => {
     const [row] = p.documents;
     expect(row!.path).toBe("notes/loom/penelope.md");
     expect(row!.clipped).toEqual(["summary"]);
-    expect(row!.summary!.endsWith("…")).toBe(true);
-    expect(row!.summary!.startsWith("Woven by day, unwoven by night.")).toBe(true);
+    expect(row!.summary!).toEndWith("…");
+    expect(row!.summary!).toStartWith("Woven by day, unwoven by night.");
     expect(JSON.parse(JSON.stringify(p))).toEqual(p);
     // Among other rows, the oversized one leads its own page and the rest follow whole.
     const { rows, pages } = enumerate({ pathPrefix: "notes", overview: true, limit: 100 });
@@ -294,8 +294,8 @@ describe("truthful warnings", () => {
     rmSync(join(root, removed));
     try {
       const p = page({ pathPrefix: "notes/fleet", overview: true, limit: 100 });
-      expect(p.warnings.some((w) => w.startsWith("source changed after indexing for 1 listed document(s) (notes/fleet/ship-004.md)"))).toBe(true);
-      expect(p.warnings.some((w) => w.startsWith("source missing or unreadable for 1 listed document(s) (notes/fleet/ship-009.md)"))).toBe(true);
+      expect(p.warnings).toContainEqual(expect.stringMatching(/^source changed after indexing for 1 listed document\(s\) \(notes\/fleet\/ship-004\.md\)/));
+      expect(p.warnings).toContainEqual(expect.stringMatching(/^source missing or unreadable for 1 listed document\(s\) \(notes\/fleet\/ship-009\.md\)/));
       // Only rows on the page are checked, and only for the overview.
       const other = page({ pathPrefix: "projects/active", overview: true, limit: 100 });
       expect(other.warnings).toEqual([]);

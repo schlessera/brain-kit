@@ -109,7 +109,7 @@ test("a brain generated from template/ passes, and counts the imported contract 
   for (const skill of skills) expect(parts.get(`skill ${skill.name}`)).toBe(estimateTokens(skill.description));
 
   const total = [...parts.values()].reduce((a, b) => a + b, 0);
-  expect(check.detail.startsWith(`~${total} tokens always loaded`)).toBe(true);
+  expect(check.detail).toStartWith(`~${total} tokens always loaded`);
   expect(parts.size).toBe(2 + skills.length);
 });
 

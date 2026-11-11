@@ -61,6 +61,7 @@ test("narrow layout refuses missing, duplicate, extra, out-of-bounds, non-grid, 
   (s: ReturnType<typeof narrow>) => s.layouts.narrow.nodes[0]!.id = "extra",
   (s: ReturnType<typeof narrow>) => s.layouts.narrow.nodes[0]!.at[0] = 312,
   (s: ReturnType<typeof narrow>) => s.layouts.narrow.nodes[0]!.at[0] = 41,
+  (s: ReturnType<typeof narrow>) => s.layouts.narrow.nodes[0]!.at[0] = 42,
   (s: ReturnType<typeof narrow>) => s.layouts.narrow.nodes[1]!.at = [40, 40],
   (s: ReturnType<typeof narrow>) => s.layouts.narrow.nodes[0]!.size[0] = 16,
  ];

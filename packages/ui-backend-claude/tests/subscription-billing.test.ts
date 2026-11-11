@@ -232,8 +232,11 @@ describe("a profile without its own credential bills the subscription", () => {
     const fixture = arrange({});
     const { frames, activity } = await runTurn(fixture);
     // Refused before init, the run still records what it would have billed (#211).
-    expect(runtimeReport(activity)?.billing).not.toBe("subscription");
-    expect(runtimeReport(activity)?.policyViolation).toBeDefined();
+    expect(runtimeReport(activity)).toMatchObject({
+      billing: "unknown",
+      policy: "subscription",
+      policyViolation: "a profile without its own credential ran on a credential that is not a recognised subscription",
+    });
 
     expect(seen).toEqual([]);
     expectAuthFailure(frames);

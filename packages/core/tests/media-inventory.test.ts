@@ -88,7 +88,7 @@ describe("admission", () => {
       ["photos/ithaca-shore.jpg", "info", ["media"]],
       ["voyage/storm-at-sea.mp4", "warning", ["large", "media"]],
     ]);
-    expect(findings.every((f) => f.category === "media" && f.urgency === null)).toBe(true);
+    expect(findings.map((f) => [f.category, f.urgency])).toEqual([["media", null], ["media", null]]);
     expect(Object.keys(findings[0]!.fingerprintFields)).toEqual(["sha256", "bytes", "classes", "policy", "refs", "pins", "severity", "urgency"]);
   });
 
@@ -101,7 +101,7 @@ describe("admission", () => {
     const inv = inventoryOf(root);
     expect(inv.items.map((i) => i.path)).toEqual([HARBOUR]);
     expect(inv.links.symlinks).toBe(1);
-    expect([...canonicalFindings(mediaCandidates(inv)).values()].some(countedMedia)).toBe(false);
+    expect([...canonicalFindings(mediaCandidates(inv)).values()].filter(countedMedia).map((f) => f.path)).toEqual([]);
   });
 });
 

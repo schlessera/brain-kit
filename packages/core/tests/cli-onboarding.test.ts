@@ -19,6 +19,7 @@ import { join } from "path";
 
 import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
 import { installGitHooks } from "../src/cli/hooks-util";
+import { withoutSigning } from "./git-fixture";
 
 const temps: string[] = [];
 function tempBrain(opts: { empty?: boolean } = {}): string {
@@ -481,8 +482,10 @@ function gitBrainWithHooks(): { root: string; shimDir: string } {
 }
 
 function commit(root: string, shimDir: string, message: string) {
+  // Signing is off per command (#3485): an environment-scoped
+  // GIT_CONFIG_COUNT outranks the repository-local setting above.
   const proc = Bun.spawnSync(["git", "-C", root, "commit", "-q", "-m", message], {
-    env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` },
+    env: withoutSigning({ ...(process.env as Record<string, string>), PATH: `${shimDir}:${process.env.PATH}` }),
   });
   return {
     code: proc.exitCode,

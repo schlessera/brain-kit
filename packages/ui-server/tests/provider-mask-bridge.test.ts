@@ -402,7 +402,8 @@ for (const kind of ["claude", "pi"] as const) for (const masked of [true, false]
       // the masked turn's refusal is what kept the text out.
       const reached = seen.filter(call => !call.isError && call.message.includes("RETAINED_2698")).map(call => call.tool);
       expect(reached, `UNMASKED_TURN_READS_RETAINED_RECORDS ${JSON.stringify(seen)}`).toEqual(["query_activity recent", "query_activity run", "inbox_list", "inbox_get"]);
-      expect(direct.every(result => !(result instanceof Error) && JSON.stringify(result).includes("RETAINED_2698")), `UNMASKED_DIRECT_CALLS_READ ${direct}`).toBe(true);
+      expect(direct.map(result => result instanceof Error ? `refused: ${result.message}` : JSON.stringify(result).includes("RETAINED_2698")), "UNMASKED_DIRECT_CALLS_READ")
+        .toEqual([true, true, true]);
     }
   }, 60_000);
 }

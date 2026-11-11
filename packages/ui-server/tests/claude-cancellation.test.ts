@@ -129,7 +129,8 @@ for (const mode of ["success-before-cancel", "error-before-cancel", "no-result",
       expect(host.activity!.store.snapshotRun(result.turnId!)!.spans.find(span => span.kind === "turn")?.outcome, "ACTIVITY_MATCHES_WIRE").toBe(expected);
       const journal = host.journal!.details(SESSION, result.turnId!);
       expect(journal?.summary.state, "FINAL_JOURNAL_RETAINED").toBe("complete");
-      expect(frames.some(frame => frame.type === "turn_journal" && frame.turnId === result.turnId && frame.journal.state === "complete"), "FINAL_JOURNAL_RECEIPT_SCOPED_TO_CANCELLED_TURN").toBe(true);
+      expect(frames, "FINAL_JOURNAL_RECEIPT_SCOPED_TO_CANCELLED_TURN").toContainEqual(expect.objectContaining({
+        type: "turn_journal", turnId: result.turnId, journal: expect.objectContaining({ state: "complete" }) }));
       expect(order.indexOf("worker-exited-and-state-persisted")).toBeLessThan(order.indexOf(`result:${expected}`));
     } finally { await app?.close(); restoreRouteInputs(); rmSync(root, { recursive: true, force: true }); }
   }, 30_000);

@@ -272,7 +272,8 @@ describe("tool payload capture (AE7)", () => {
 
     const events = eventsOf(store, "turn-bigint", "tool-1");
     expect(events.map((e) => e.eventType)).toEqual(["tool_input"]);
-    expect(typeof events[0]!.payload).toBe("string");
+    // JSON.stringify throws on a BigInt member; the fallback is String(value).
+    expect(events[0]!.payload).toBe("[object Object]");
   });
 });
 

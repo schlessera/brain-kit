@@ -53,11 +53,11 @@ describe("turn_temp purge (#1703)", () => {
     const result = handleTurnTemp({ action: "purge", all: true }, f.access, event => events.push(event)) as any;
     expect(result.truncated, "a partial purge must report truncation").toBe(true);
     expect(events[0]!.truncated).toBe(true);
-    expect(readdirSync(f.root).some(name => name.startsWith("draft-"))).toBe(true);
+    expect(readdirSync(f.root).filter(name => name.startsWith("draft-")).length).toBeGreaterThan(0);
     const retry = handleTurnTemp({ action: "purge", all: true }, f.access, event => events.push(event)) as any;
     expect(retry.truncated).toBe(false);
     expect(events[1]!.truncated).toBe(false);
-    expect(readdirSync(f.root).some(name => name.startsWith("draft-"))).toBe(false);
+    expect(readdirSync(f.root).filter(name => name.startsWith("draft-"))).toEqual([]);
   });
 
   test("a named path outside turn temp is refused, and nothing outside is touched", () => {
@@ -128,7 +128,7 @@ describe("turn_temp purge (#1703)", () => {
       { path: "/tmp/brain-worker-scratch/frames/001.png", bytes: 3000, type: "file" },
       { path: "/tmp/brain-worker-scratch/frames/002.png", bytes: 2000, type: "file" },
     ]);
-    expect(usage.largest.some(entry => entry.path.includes("brain-worker-state"))).toBe(false);
+    expect(usage.largest.filter(entry => entry.path.includes("brain-worker-state"))).toEqual([]);
     expect(usage.truncated).toBe(false);
   });
 
@@ -141,7 +141,7 @@ describe("turn_temp purge (#1703)", () => {
     expect(() => handleTurnTemp({ action: "purge", all: true, paths: ["x"] }, f.access)).toThrow("either paths or all");
     expect(() => handleTurnTemp({ action: "purge", all: true, force: true }, f.access)).toThrow("named paths only");
     expect(() => handleTurnTemp({ action: "usage" }, undefined)).toThrow("no turn temp");
-    expect(() => handleTurnTemp({ action: "purge", paths: Array(101).fill("x") }, f.access)).toThrow();
+    expect(() => handleTurnTemp({ action: "purge", paths: Array(101).fill("x") }, f.access)).toThrow("expected array to have <=100 items");
     expect(() => handleTurnTemp({ action: "usage" }, { ...f.access, root: () => undefined })).toThrow("No worker is running");
     const result = handleTurnTemp({ action: "purge", paths: ["draft.md", "../escape"] }, f.access, event => events.push(event)) as Record<string, unknown>;
     expect(result).toMatchObject({ removedCount: 1, skippedCount: 1, limitBytes: 64 * MIB });

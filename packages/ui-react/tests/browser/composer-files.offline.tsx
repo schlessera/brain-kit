@@ -222,7 +222,7 @@ test("PDF, unknown binary and track go to the neutral route as their own bytes, 
     expect([...up.bytes], `${file.name} arrives byte for byte`).toEqual([...new Uint8Array(await file.arrayBuffer())]);
     expect(up.draftId).toBe(s.draft()?.draftId ?? s.root.stores.drafts.getState().idFor(SESSION));
   }
-  expect(s.files.calls.some((c) => c.endsWith("/track-upload")), "no file goes through the track-only route").toBe(false);
+  expect(s.files.calls.filter((c) => c.endsWith("/track-upload")), "no file goes through the track-only route").toEqual([]);
   await expect.poll(() => s.status("ithaca-permit.pdf")).toMatch(/^PDF · \d+ B · not read yet$/);
   expect(s.chip("ithaca-permit.pdf")!.textContent).toContain("Your agent opens it when it needs the contents.");
   await expect.poll(() => s.status("sirens.m4a")).toBe("12 B · no reader here");
@@ -271,7 +271,7 @@ test("a lost upload answer reads as unconfirmed, and reconnecting uploads it aga
   await expect.poll(() => s.status("ithaca-permit.pdf")).toBe("checking upload…");
   const again = s.chip("ithaca-permit.pdf")!.querySelector<HTMLElement>('[aria-label="Upload again ithaca-permit.pdf"]');
   expect(again, "the action is an upload, never 'Check'").not.toBeNull();
-  expect(again!.classList.contains("bk-hit"), "44px reach on a coarse pointer without a painted box").toBe(true);
+  expect([...again!.classList], "44px reach on a coarse pointer without a painted box").toContain("bk-hit");
   expect(s.chip("ithaca-permit.pdf")!.textContent).not.toMatch(/not stored|nothing was stored|\bCheck\b/);
   s.root.stores.connection.setState({ wsStatus: "disconnected" });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -310,5 +310,5 @@ test("pasted and dropped files take the same route as picked ones", async () => 
   const dropped = new DataTransfer(); dropped.items.add(sirens());
   s.host.querySelector("[data-composer]")!.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dropped }));
   await expect.poll(() => s.files.uploads.map((u) => u.name).sort(), { timeout: 5_000 }).toEqual(["ithaca-permit.pdf", "sirens.m4a"]);
-  expect(s.files.calls.some((c) => c.endsWith("/track-upload"))).toBe(false);
+  expect(s.files.calls.filter((c) => c.endsWith("/track-upload")), "pasted and dropped files skip the track-only route").toEqual([]);
 });

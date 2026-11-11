@@ -145,7 +145,11 @@ export const NothingEscapesTheFrame = ChatAnswer.extend({
  * stopped being the thing the design is arguing for.
  */
 export const NoProseParagraphAnywhere = ChatAnswer.extend({
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
+    // The body is the seven blocks the catalog names and nothing else: the
+    // question, the trace, the tiles, the quotation, the steps, the map and
+    // the chips. A summary paragraph is an eighth block, whatever it renders as.
+    await expect(canvasElement.querySelector(".bk-screen-body")!.children).toHaveLength(7);
     // The quotation cites a document and a line.
     await expect(await canvas.findByText(forecastQuote.source)).toBeTruthy();
     await expect(await canvas.findByText(forecastQuote.locator)).toBeTruthy();

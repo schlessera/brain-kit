@@ -302,8 +302,8 @@ describe("mounted internal poke", () => {
     servers.push(server);
     try {
       expect(await externalSocket(server.port!, "fixture", ["192.0.2.1", "127.0.0.1", "127.0.0.2"])).toContain("Odysseus fixture response");
-      expect(requests).toBe(1); expect(sockets).toHaveLength(3);
-      expect(sockets.every(socket => socket.destroyed)).toBe(true);
+      expect(requests).toBe(1);
+      expect(sockets.map(socket => socket.destroyed)).toEqual([true, true, true]);
     } finally { attempt.mockRestore(); }
   });
 
@@ -319,8 +319,7 @@ describe("mounted internal poke", () => {
       try {
         await expect(externalSocket(1, "fixture", ["192.0.2.1", "192.0.2.2"]))
           .rejects.toThrow("InboxPokeSocketSetupError: no source connected");
-        expect(sockets).toHaveLength(2);
-        expect(sockets.every(socket => socket.destroyed)).toBe(true);
+        expect(sockets.map(socket => socket.destroyed)).toEqual([true, true]);
       } finally { attempt.mockRestore(); }
     }
   });
@@ -333,8 +332,7 @@ describe("mounted internal poke", () => {
     try {
       await expect(externalSocket(1, "fixture", ["192.0.2.1", "192.0.2.2"]))
         .rejects.toThrow("InboxPokeSocketTimeout: connect exceeded 2000ms");
-      expect(sockets).toHaveLength(2);
-      expect(sockets.every(socket => socket.destroyed)).toBe(true);
+      expect(sockets.map(socket => socket.destroyed)).toEqual([true, true]);
     } finally { attempt.mockRestore(); }
   });
 

@@ -246,7 +246,7 @@ for (const kind of ["claude", "pi"] as const) {
     const edit = await a.call("edit_file", { path, expectedBaseHash: hashOnly.expectedBaseHash, old_string: "Day 3:", new_string: "Day three:" });
     expect(edit.ok).toBe(true);
     const stale = await a.call("edit_file", { path, expectedBaseHash: hashOnly.expectedBaseHash, old_string: "Day 4:", new_string: "Day four:" });
-    expect(stale.ok).toBe(false);
+    expect(stale).toMatchObject({ ok: false, code: "stale_base" });
     expect(readFileSync(join(root, path), "utf8")).toBe(whole.replace("Day 3:", "Day three:"));
   });
 }

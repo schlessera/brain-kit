@@ -102,7 +102,7 @@ describe("the Files lifecycle a relayed brain video watch needs", () => {
         "POST /v1beta/models/gemini-3-flash-preview:generateContent",
         `DELETE /v1beta/${file.name}`,
       ]);
-      expect(seen.every(request => request.headers["x-goog-api-key"] === HOST_KEY), "HOST_KEY_ON_EVERY_LIFECYCLE_REQUEST").toBe(true);
+      expect(seen.map(request => request.headers["x-goog-api-key"]), "HOST_KEY_ON_EVERY_LIFECYCLE_REQUEST").toEqual(Array(seen.length).fill(HOST_KEY));
       expect(seen[1]!.bytes, "UPLOAD_BYTES_FORWARDED").toBe(5);
       expect(seen[1]!.headers["x-goog-upload-command"]).toBe("upload, finalize");
       expect(receipts.map(receipt => [receipt.operation, receipt.outcome]), "LIFECYCLE_ATTEMPTS_RECORDED").toEqual([

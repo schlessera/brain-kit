@@ -38,6 +38,7 @@ describe("the failure payload on the wire", () => {
   test("an unreadable failure is dropped, never the terminal frame", () => {
     const out = parse({ ...RESULT, failure: { status: "four hundred" } });
     expect(out.ok).toBe(true);
+    expect(out.ok && out.message.type).toBe("result");
     if (out.ok && out.message.type === "result") {
       expect(out.message.failure).toBeUndefined();
       expect(out.message.outcome).toBe("error");

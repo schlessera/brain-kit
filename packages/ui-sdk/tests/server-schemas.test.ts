@@ -300,6 +300,7 @@ describe("the additive contract", () => {
         followUps: [{ id: "fu-1", text: "Ask Aeolus about the winds", queuedAt: 1, label }],
       });
       expect(result.ok).toBe(true);
+      expect(result.ok && result.message.type).toBe("session_queue");
       if (result.ok && result.message.type === "session_queue") {
         expect(result.message.followUps).toHaveLength(1);
         expect(result.message.followUps[0]!.label).toBeUndefined();

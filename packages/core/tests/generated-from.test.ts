@@ -74,7 +74,7 @@ describe("over a temp brain", () => {
         message: "Invalid generated_from: a list. It must be a non-empty string: a repo-relative path or a tool name",
       }]);
       // The document after it was still checked.
-      expect(issues.some((i) => i.file === "notes/untagged.md")).toBe(true);
+      expect(issues.map((i) => i.file)).toContain("notes/untagged.md");
     } finally {
       rmSync(join(root, "notes/cyclic.md"));
       rmSync(join(root, "notes/untagged.md"));

@@ -82,7 +82,7 @@ describe("model catalog routes", () => {
       "claude-opus-5-5",
       "claude-haiku-4-5",
     ]);
-    expect(body.models.every((m: { hidden: boolean }) => !m.hidden)).toBe(true);
+    expect(body.models.map((m: { hidden: boolean }) => m.hidden)).toEqual([false, false]);
     // No model source on a fake backend — discovery reports itself unavailable
     // rather than pretending it refreshed.
     expect(body.refreshedAt).toBeNull();
@@ -120,7 +120,7 @@ describe("model catalog routes", () => {
       body: JSON.stringify({ hidden: ["claude-haiku-4-5"] }),
     });
 
-    expect(await registry.getBackendForProfile("claude-haiku-4-5")).toBeDefined();
+    expect((await registry.getBackendForProfile("claude-haiku-4-5"))?.id).toBe("claude");
     expect(
       (await registry.listAllProviders({ includeHidden: true })).map((p: { id: string }) => p.id)
     ).toContain("claude-haiku-4-5");
@@ -362,6 +362,17 @@ describe("custom OpenRouter model routes", () => {
     });
     expect(response.status).toBe(200);
     expect(readDefaultModelId(db)).toBeNull();
+
+    // Only a default whose profile is gone resets: one still on the roster
+    // survives the same write.
+    setDefaultModelId(db, "claude-haiku-4-5");
+    const kept = await modelRoutes.request("/models/custom", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ models: [] }),
+    });
+    expect(kept.status).toBe(200);
+    expect(readDefaultModelId(db)).toBe("claude-haiku-4-5");
   });
 });
 

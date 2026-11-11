@@ -97,6 +97,8 @@ export const Tablist = meta.story({
 export const Static = meta.story({
   args: { items: queueFilters.map((label) => ({ label })) },
   play: async ({ canvas, canvasElement }) => {
+    // Every pill is there as a label; only the tab semantics are gone.
+    for (const label of queueFilters) await expect(await canvas.findByText(label)).toBeVisible();
     await expect(canvas.queryByRole("tablist")).toBeNull();
     await expect(canvas.queryByRole("tab")).toBeNull();
     await expect(canvasElement.querySelector(".bk-control")).toBeNull();

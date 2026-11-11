@@ -345,7 +345,8 @@ test("jobs nested drafts preserve tiers through reorder, reject extra currency d
     expect(host.textContent).not.toContain("Use at most 2 decimals");
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).compensationBenchmark).toBe(12000001);
     flushSync(() => button(doc, "Score location").click());
-    expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).location).toBeDefined();
+    // Turning the optional record on seeds each required leaf from its kind: a number starts at 1, tags start empty.
+    expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).location, "Score location seeds a complete location record").toEqual({ weight: 1, preferred: [], excluded: [] });
     flushSync(() => button(doc, "Score location").click());
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).location).toBeUndefined();
     flushSync(() => button(doc, "One keyword list").click());

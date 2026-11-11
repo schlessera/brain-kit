@@ -61,8 +61,8 @@ describe("document kinds", () => {
           m[1].split(/\s+/).some((c) => (OPENER_CLASSES as readonly string[]).includes(c))
         );
         expect(openers).toHaveLength(1);
-        const first = firstBodyElement(html);
-        expect(first.classes.some((c) => (OPENER_CLASSES as readonly string[]).includes(c))).toBe(true);
+        // The first element is the opener itself: a failure prints both class lists.
+        expect(firstBodyElement(html).classes).toEqual(openers[0][1].split(/\s+/).filter(Boolean));
       });
 
       test("sets the accent and switches its kind declares", () => {

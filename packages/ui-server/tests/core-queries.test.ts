@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createRequire } from "module";
-import { dirname, join } from "path";
+import { join } from "path";
 import { createRecordingObservability } from "../src/observability";
 import {
   CORE_QUERIES_RANGE,
@@ -10,7 +10,6 @@ import {
 } from "../src/core-queries";
 
 const real = createRequire(import.meta.url);
-const realManifestPath = real.resolve("@schlessera/brain/package.json");
 const realEntry = real("@schlessera/brain/queries") as Record<string, unknown>;
 
 interface Staged {
@@ -67,8 +66,6 @@ describe("core query capability resolution", () => {
     // The functions are core's own, not wrappers or copies.
     expect(graph.queries.readGraphMeta).toBe(realEntry.readGraphMeta as never);
     expect(voice.queries.readVoiceVocabulary).toBe(realEntry.readVoiceVocabulary as never);
-    // ...from the installation whose manifest names the package.
-    expect(dirname(realManifestPath)).toBe(dirname(real.resolve("@schlessera/brain/package.json")));
   });
 
   test("a usable staged installation exposes exactly its validated functions", () => {

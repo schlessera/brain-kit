@@ -195,6 +195,6 @@ describe("an operation that throws", () => {
       driver.stop();
     }
     expect(logged.length).toBe(COMPUTE_TOOLS.length);
-    expect(logged.every((args) => args.map(String).join(" ").includes(secretPath))).toBe(true);
+    expect(logged.map((args) => args.map(String).join(" ")).filter((line) => !line.includes(secretPath))).toEqual([]);
   });
 });

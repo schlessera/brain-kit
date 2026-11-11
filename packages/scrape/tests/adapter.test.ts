@@ -16,12 +16,12 @@ const LISTING = `
 <html><body>
   <article class="card">
     <a href="/job/1">Senior Platform Engineer</a>
-    <span class="company">Acme GmbH</span>
+    <span class="company">Ithaca Shipwrights GmbH</span>
     <span class="loc">Remote</span>
   </article>
   <article class="card">
     <a href="/job/2">Backend Engineer</a>
-    <span class="company">Beta AG</span>
+    <span class="company">Phaeacian Fleet AG</span>
   </article>
   <article class="card">
     <span class="company">No Link Here</span>
@@ -51,12 +51,12 @@ describe("extractCards", () => {
     expect(records[0]).toEqual({
       title: "Senior Platform Engineer",
       url: "https://jobs.example.com/job/1",
-      company: "Acme GmbH",
+      company: "Ithaca Shipwrights GmbH",
       location: "Remote",
     });
     // The second card has no .loc — an absent optional field is simply absent.
     expect(records[1].location).toBeUndefined();
-    expect(records[1].company).toBe("Beta AG");
+    expect(records[1].company).toBe("Phaeacian Fleet AG");
   });
 
   test("drops a card missing a required field rather than half-filling it", () => {
@@ -64,7 +64,7 @@ describe("extractCards", () => {
     // downstream is worse than a missing one, because it looks like data.
     const records = extractCards(parseHtml(LISTING), SELECTORS, "https://jobs.example.com/list");
     expect(records).toHaveLength(2);
-    expect(records.some((r) => r.company === "No Link Here")).toBe(false);
+    expect(records.map((r) => r.company)).toEqual(["Ithaca Shipwrights GmbH", "Phaeacian Fleet AG"]);
   });
 
   test("fallbacks cover a site that uses two layouts", () => {

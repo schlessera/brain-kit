@@ -27,7 +27,7 @@ test("unacknowledged facts survive retries; acknowledged unchanged facts add no 
   expect(unchanged.text, "UNCHANGED_FACTS_NO_TAIL").toBe("Continue");
   const changed = store().prepare("Continue", { device: "camera present", sandbox: "journal active" });
   expect(changed.text).toContain("camera present");
-  expect(changed.text.startsWith("Continue\n\n[Host context"), "FACTS_ONLY_NEW_TAIL").toBe(true);
+  expect(changed.text, "FACTS_ONLY_NEW_TAIL").toStartWith("Continue\n\n[Host context");
   expect(changed.text, "ONLY_CHANGED_FACTS_IN_NEW_TAIL").not.toContain("journal active");
   expect(first.text).toContain("camera unknown");
 });

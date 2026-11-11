@@ -72,9 +72,9 @@ test("a stale image or previous mask refuses overwrite", async () => {
   const req = request(); writeFileSync(join(root, imagePath), "changed image"); await refused(req, "stale_base");
 });
 test("mask hardlink and symlink aliases cannot change policy", async () => {
-  for (const alias of [linkSync, symlinkSync]) {
+  for (const [alias, refusal] of [[linkSync, "one link"], [symlinkSync, "is a symlink"]] as const) {
     alias(join(root, "context/policies/crew.md"), join(root, maskPath));
-    expect(() => readMaskBase(root, imagePath)).toThrow();
+    expect(() => readMaskBase(root, imagePath)).toThrow(refusal);
     expect(readFileSync(join(root, "context/policies/crew.md"), "utf8")).toBe("Athena owns these policy bytes.\n");
     rmSync(join(root, maskPath));
   }

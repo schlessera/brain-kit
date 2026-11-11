@@ -23,7 +23,7 @@ test("real trusted metadata reader and exact app stores share one object union a
       { path: dbPath + "-wal", label: "WAL", category: "database", owner: "app", recursive: false },
     ] }, "scan-odysseus", new AbortController().signal);
     expect(result.summary.errors, "STORAGE_PUBLIC_READER_AVAILABLE").toEqual([]);
-    expect(result.entries.some(entry => entry.name === "Troy.PDF")).toBe(true);
+    expect(result.entries.map(entry => entry.name)).toContain("Troy.PDF");
     const troy = result.entries.find(entry => entry.name === "Troy.PDF")!, alias = result.entries.find(entry => entry.name === "chart.pdf")!;
     expect(troy.objectId, "STORAGE_CROSS_OWNER_OBJECT_IDENTITY").toBe(alias.objectId);
     expect(result.summary.totals.all.logical! < result.summary.totals.brain.logical! + result.summary.totals.app.logical!, "STORAGE_CROSS_OWNER_UNION").toBe(true);
@@ -90,7 +90,7 @@ test("separate real tmpfs capacities remain separate and unknown stores never lo
     writeFileSync(join(other, "Ithaca.pdf"), "chart");
     const result = await collectStorage({ brainPath: f.brain, salt: "odysseus", stores: [{ path: other, label: "Memory store", category: "temporary", owner: "app", recursive: true }], unavailable: [{ label: "Backup", category: "backup", owner: "operator", reason: "unavailable" }] }, "separate", new AbortController().signal);
     expect(result.summary.capacities, "STORAGE_SEPARATE_CAPACITIES").toHaveLength(2);
-    expect(result.summary.capacities.every(value => value.identity === "resolved")).toBe(true);
+    expect(result.summary.capacities.map(value => value.identity)).toEqual(["resolved", "resolved"]);
     expect(result.summary.totals.operator.logical, "STORAGE_UNKNOWN_OWNER_NOT_ZERO").toBeNull();
   } finally { rmSync(other, { recursive: true, force: true }); f.close(); }
 });

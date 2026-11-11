@@ -58,7 +58,7 @@ describe("extractJsonLd", () => {
       expect((documents[0] as Record<string, unknown>).title).toBe("Radar Software Engineer");
 
       // And the same input against the pattern this replaces.
-      expect(bareTagMatches(html) > 0).toBe(bareTagSees);
+      expect(bareTagMatches(html)).toBe(bareTagSees ? 1 : 0);
     });
   }
 
@@ -72,7 +72,7 @@ describe("extractJsonLd", () => {
       <script>window.__DATA__ = {"@type":"JobPosting"};</script>
       <script type="application/json">{"@type":"JobPosting"}</script>
       <script type="application/ld+json">${POSTING}</script>`;
-    expect(extractJsonLd(html).documents).toHaveLength(1);
+    expect(extractJsonLd(html).documents).toEqual([JSON.parse(POSTING)]);
   });
 
   test("an empty placeholder tag is not an error", () => {

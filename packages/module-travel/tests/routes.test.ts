@@ -20,9 +20,13 @@ describe("route parsing and metrics", () => {
   });
 
   test("rejects malformed XML, unsupported versions and doctypes instead of accepting partial geometry", () => {
-    for (const bad of [source.replace("</trkseg>", ""), source.replace('version="1.1" creator', 'version="2.0" creator'),
+    const refusal = (bad: string) => { try { parseGpx(bad); return "accepted"; } catch (error) { return (error as Error).message; } };
+    expect([source.replace("</trkseg>", ""), source.replace('version="1.1" creator', 'version="2.0" creator'),
       '<!DOCTYPE gpx [<!ENTITY departure "0">]>' + source.replace('lat="0"', 'lat="&departure;"'), source + "<gpx/>",
-      source.replace('encoding="UTF-8"', 'encoding="UTF-16"')]) expect(() => parseGpx(bad)).toThrow();
+      source.replace('encoding="UTF-8"', 'encoding="UTF-16"')].map(refusal)).toEqual([
+      expect.stringContaining("unexpected close tag"), "Expected GPX 1.0 or 1.1 with a matching namespace.",
+      "GPX doctypes/entities are unsupported.", expect.stringContaining("only one root"),
+      "GPX input must use UTF-8 or ASCII encoding."]);
   });
 
   test("invalid coordinates fail while invalid or missing optional data stays unknown", () => {
@@ -60,7 +64,7 @@ describe("route parsing and metrics", () => {
   test("non-monotonic recording timestamps never become a fabricated duration", () => {
     const broken = parseGpx(source.replace("00:02:00Z", "00:00:30Z"));
     expect(broken.segments[0]).toHaveLength(4);
-    expect(broken.segments[0]!.every((p) => p.time !== null)).toBe(true);
+    expect(broken.segments[0]!.filter((p) => p.time === null)).toEqual([]);
     expect(broken.segments[0]![2]!.time).toBe("2026-07-15T00:00:30.000Z");
     expect(routeMetrics(broken.segments).recorded_duration_s).toBeNull();
   });

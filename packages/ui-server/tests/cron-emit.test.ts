@@ -108,7 +108,7 @@ describe("emitCrontab", () => {
     const output = render(jsonFixture("empty.json"));
     expect(output).not.toContain("module list unavailable");
     expect(output).not.toContain("scripts/jobs/scrape-all.ts");
-    expect(output.endsWith("when exposed)\n\n")).toBe(true);
+    expect(output).toEndWith("when exposed)\n\n");
   });
 
   test("keeps the standalone scraper fallback when no enabled module exposes jobs", () => {
@@ -209,7 +209,7 @@ describe("the weekly hygiene job", () => {
   });
 
   test("is never a trusted job, so it cannot run unwrapped (#81)", () => {
-    expect(TRUSTED_JOB_NAMES.has("hygiene")).toBe(false);
+    expect([...TRUSTED_JOB_NAMES]).not.toContain("hygiene");
   });
 
   test("BRAIN_UI_CRON_HYGIENE turns it off with a false token, and it is on otherwise", () => {
@@ -229,7 +229,7 @@ describe("the separate propagation prepass", () => {
     const output = render(jsonFixture("empty.json"), { propagation: true });
     expect(output).toContain("45 5 * * * root cd / && bun /opt/brain-ui/server/scripts/cron-run.ts hygiene-propagation -- brain hygiene propagation --json");
     expect(output).toContain(" hygiene -- brain hygiene reconcile");
-    expect(TRUSTED_JOB_NAMES.has("hygiene-propagation")).toBe(false);
+    expect([...TRUSTED_JOB_NAMES]).not.toContain("hygiene-propagation");
   });
 });
 
@@ -247,7 +247,7 @@ describe("emitEnvironment", () => {
       [...CRON_ENV_ORDER, "NODE_ENV"].sort()
     );
     expect(SUBPROCESS_ENV.NODE_ENV).toContain("cron");
-    expect(CRON_ENV_EXCLUSIONS.has("NODE_ENV")).toBe(true);
+    expect([...CRON_ENV_EXCLUSIONS]).toContain("NODE_ENV");
     expect(CRON_ENV_NAMES).not.toContain("NODE_ENV");
   });
 

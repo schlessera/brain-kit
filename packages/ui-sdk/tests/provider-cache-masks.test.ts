@@ -21,7 +21,7 @@ function brain() {
 }
 
 test("the masked cache directory holds core's committed caches, and the masked files are core's legacy names", () => {
-  expect(SIDECAR_CACHES.every(path => path.startsWith(`${PROVIDER_CACHE_DIR}/`)), "CORE_WRITES_INTO_THE_MASKED_DIRECTORY").toBe(true);
+  expect(SIDECAR_CACHES.filter(path => !path.startsWith(`${PROVIDER_CACHE_DIR}/`)), "CORE_WRITES_INTO_THE_MASKED_DIRECTORY").toEqual([]);
   expect([...PROVIDER_CACHE_FILES], "LEGACY_LIST_MATCHES_CORE").toEqual(LEGACY_SIDECAR_CACHES.map(pair => pair.legacy));
 });
 

@@ -170,11 +170,9 @@ describe("app wiring — auth guard ordering", () => {
       const listed = (await list.json()) as {
         principals: Array<{ id: string; kind: string; is_own: boolean }>;
       };
-      expect(
-        listed.principals.some(
-          ({ kind, is_own }) => kind === "owner" && is_own
-        )
-      ).toBe(true);
+      expect(listed.principals).toContainEqual(
+        expect.objectContaining({ kind: "owner", is_own: true })
+      );
 
       const mint = await instance.fetch(
         new Request("http://localhost/api/auth/principals", {
@@ -208,8 +206,10 @@ describe("app wiring — auth guard ordering", () => {
   test("the activity routes are behind the auth guard", async () => {
     // The activity record leaks strictly more than /api/status (session
     // activity, errors, spend) — same boundary, same reason.
+    // One app answers every path: the guard keeps no per-request state.
+    const instance = await app();
     for (const path of ["/api/activity/runs", "/api/activity/runs/x", "/api/activity/rollups", "/api/activity/stats", "/api/activity/inbox"]) {
-      const res = await get(path);
+      const res = await instance.fetch(new Request(`http://localhost${path}`));
       expect(res.status).toBe(401);
     }
   });
@@ -252,15 +252,17 @@ describe("app wiring — auth guard ordering", () => {
   test("the push routes are behind the auth guard", async () => {
     // Subscribing is a write into the notification fan-out; the public key
     // is per-deployment. Only the authenticated user gets either.
+    const instance = await app();
     for (const path of ["/api/push/public-key", "/api/push/subscriptions"]) {
-      const res = await get(path);
+      const res = await instance.fetch(new Request(`http://localhost${path}`));
       expect(res.status).toBe(401);
     }
   });
 
   test("the model catalog routes are behind the auth guard", async () => {
-    const send = async (path: string, init?: RequestInit) =>
-      (await app()).fetch(new Request(`http://localhost${path}`, init));
+    const instance = await app();
+    const send = (path: string, init?: RequestInit) =>
+      instance.fetch(new Request(`http://localhost${path}`, init));
 
     expect((await send("/api/models")).status).toBe(401);
     expect(
@@ -304,6 +306,7 @@ describe("app wiring — auth guard ordering", () => {
   test("the graph routes are behind the auth guard", async () => {
     // Every one of these enumerates note paths and titles, so an unauthenticated
     // caller must not reach them — not even /graph/meta, which counts the corpus.
+    const instance = await app();
     for (const path of [
       "/api/graph/meta",
       "/api/graph/clusters",
@@ -311,7 +314,7 @@ describe("app wiring — auth guard ordering", () => {
       "/api/graph/discovery",
       "/api/graph/maintenance",
     ]) {
-      expect((await get(path)).status).toBe(401);
+      expect((await instance.fetch(new Request(`http://localhost${path}`))).status).toBe(401);
     }
   });
 });

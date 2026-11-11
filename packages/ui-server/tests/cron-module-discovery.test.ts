@@ -93,7 +93,7 @@ describe("discoverModules", () => {
     expect(outcome).toEqual({ modules: null, attempts: 3, cause });
     expect(lines.at(-1), "CRON_DISCOVERY_FAILURE_NAMES_CAUSE").toBe(
       `module discovery unavailable; emitting core jobs only (module cron skipped after 3 attempts). ${cause}`);
-    expect(lines.every(line => !line.includes("\n"))).toBe(true);
+    expect(lines.filter(line => line.includes("\n"))).toEqual([]);
     expect(crontab(outcome.modules)).toContain(`${SKIPPED_COMMENT}\n`);
   });
 
@@ -126,7 +126,7 @@ describe("readModuleList causes", () => {
     const attempt = await readModuleList({}, scriptedBoundary([{ stdout: "", stderr: `${"x".repeat(2_000)}END`, exitCode: 1 }]));
     expect(attempt.modules).toBeNull();
     const cause = (attempt as { cause: string }).cause;
-    expect(cause.endsWith("xxEND")).toBe(true);
+    expect(cause).toEndWith("xxEND");
     expect(cause.length).toBeLessThan(600);
   });
 });

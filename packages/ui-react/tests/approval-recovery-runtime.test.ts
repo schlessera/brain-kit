@@ -102,6 +102,8 @@ async function transcript(page: Page) {
 
 describe.skipIf(!executablePath)("mounted approval recovery", () => {
   test("a reload whose replay ends on the user's message restores the pending card, marked restored and answerable", async () => {
+    // The backend's decisions outlive each test: count only this test's own.
+    const decided = decisions.size;
     const context = await browser!.newContext();
     await context.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     const page = await context.newPage();
@@ -127,11 +129,11 @@ describe.skipIf(!executablePath)("mounted approval recovery", () => {
       expect(restored.text).toContain("Row past the Sirens");
       expect(restored.text).not.toContain("Completed");
       // Nothing was answered by the reload itself.
-      expect(decisions.size).toBe(0);
+      expect(decisions.size).toBe(decided);
 
       await page.locator("[data-approval-card]").getByRole("button", { name: "Allow", exact: true }).click();
       await page.getByText("Completed Row past the Sirens", { exact: true }).first().waitFor();
-      expect([...decisions.values()]).toEqual(["allow"]);
+      expect([...decisions.values()].slice(decided)).toEqual(["allow"]);
       expect((await transcript(page)).cards).toBe(0);
     } finally { await context.close(); }
   });

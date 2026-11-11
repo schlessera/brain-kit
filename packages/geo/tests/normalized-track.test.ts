@@ -43,8 +43,9 @@ describe("normalized track adapters", () => {
 
   test("empty-section resource limits and malformed structures reject", () => {
     expect(()=>normalizeTrack(Array.from({length:200_001},()=>[]))).toThrow("sections");
-    for (const input of [null, [null], [[null]], [[[]]]]) {
-      expect(()=>normalizeTrack(input as never)).toThrow();
+    for (const [input, message] of [[null, "Expected normalized track sections"], [[null], "Each normalized track section must be an array"],
+      [[[null]], "Each normalized track point must be an object"], [[[[]]], "Each normalized track point must be an object"]] as const) {
+      expect(()=>normalizeTrack(input as never)).toThrow(message);
     }
     expect(normalizeTrack([])).toMatchObject({status:"no_line",counts:{input:0,retained:0,omitted:0,segments:0}});
   });

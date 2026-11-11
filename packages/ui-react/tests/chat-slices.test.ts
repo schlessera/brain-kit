@@ -280,7 +280,7 @@ describe("approvals slice", () => {
     expect(tools()[1]!.readOnly).toBeUndefined();
     s.revokeRestoredApprovals();
     expect(tools().map((t) => t.readOnly)).toEqual(["revoked", "revoked"]);
-    expect(tools()[1]!.id.startsWith("revoked-")).toBe(true);
+    expect(tools()[1]!.id).toMatch(/^revoked-/);
   });
 });
 
@@ -368,7 +368,9 @@ describe("session slice", () => {
     storage.setItem("odysseus:brain-history-selection", JSON.stringify({ key: "troy", ownerId: "penelope" }));
     const { store } = sessionStore(storage);
     expect(store.getState()).toMatchObject({ activeSessionId: "troy", historyOwners: { troy: "penelope" } });
-    expect(store.getState().buffers.troy?.historyConfirmed).toBeUndefined();
+    // The buffer exists and is empty; only then does its unconfirmed state mean anything.
+    expect(store.getState().buffers.troy).toMatchObject({ messages: [], isStreaming: false });
+    expect(store.getState().buffers.troy!.historyConfirmed).toBeUndefined();
   });
 
   test("selecting a session persists it and gives it a buffer", () => {

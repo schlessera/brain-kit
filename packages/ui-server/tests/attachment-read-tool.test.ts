@@ -174,8 +174,9 @@ test("a cancelled turn's read returns and records nothing", async () => {
   const controller = new AbortController();
   const pending = h.turn("voyage-1", { signal: controller.signal })({ id: logbook!.fileId });
   controller.abort();
-  expect(pending).rejects.toBeInstanceOf(AttachmentReadCancelled);
-  await pending.catch(() => {});
+  // Settled, then asserted: a bare `.rejects` was not awaited, so its failure could land after the test settled.
+  const outcome = await pending.then(() => "resolved", (error: unknown) => error);
+  expect(outcome, "CANCELLED_READ_REJECTS").toBeInstanceOf(AttachmentReadCancelled);
   expect(h.store.attachmentReads("voyage-1")).toEqual([]);
 });
 

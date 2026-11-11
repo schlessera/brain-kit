@@ -51,5 +51,5 @@ test("search, stats and doctor read a schema-9 index that has not been migrated"
   const check = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   const cols = check.prepare("PRAGMA table_info(documents)").all() as { name: string }[];
   check.close();
-  expect(cols.some((c) => c.name === "chunker_version")).toBe(false);
+  expect(cols.map((c) => c.name)).not.toContain("chunker_version");
 }, 120_000);

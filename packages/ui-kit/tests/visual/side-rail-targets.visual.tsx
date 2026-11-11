@@ -100,8 +100,19 @@ function expectWholeAtEnd(item: HTMLElement, scroller: HTMLElement, what: string
   }
 }
 
+/**
+ * Storybook owns light and dark parity (docs/process/theme-parity.md). Target
+ * geometry, roving and activation never read a colour, so a theme-blind case
+ * runs in one theme: alternating by width, collapsed dark and expanded light.
+ * 900px keeps both, because it writes each theme's attachment, as do the cases
+ * that capture one per theme.
+ */
+const widthTheme = (width: number) => (width === 900 ? undefined : [320, 480, 1440].includes(width) ? "dark" : "light");
+const railTheme = (expanded: boolean) => (expanded ? "light" : "dark");
+
 for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
   for (const width of [320, 390, 480, 900, 1280, 1440]) {
+    if ((widthTheme(width) ?? theme) !== theme) continue;
     test(`rail destinations: ${theme}, ${width}, ${expanded ? "expanded" : "collapsed"}`, async () => {
       const mode = pointerScene();
       const { tabs } = await mount(width, 600, expanded, theme);
@@ -119,7 +130,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     geometry(tabs, expanded, mode !== "fine", true);
     if (mode === "mixed") await page.screenshot({ element: host!, path: `../../.vitest-attachments/side-rail/short-${theme}-${expanded ? "expanded" : "collapsed"}.png` });
   });
-  test(`rail manual activation: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
+  if (railTheme(expanded) === theme) test(`rail manual activation: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
     const mode = pointerScene();
     const { tabs, callbacks } = await mount(900, 600, expanded, theme);
     tabs[1]!.focus();
@@ -145,7 +156,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     await userEvent.tab();
     expect(host!.querySelector('[role="tablist"]')!.contains(document.activeElement)).toBe(false);
   });
-  test(`short rail scrolling: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
+  if (railTheme(expanded) === theme) test(`short rail scrolling: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
     const mode = pointerScene();
     const { tabs, callbacks } = await mount(900, 280, expanded, theme);
     // The scrollport is the rail's middle, which holds the tablist (and acts).
@@ -248,6 +259,7 @@ const COLLAPSED_NAMES = ["Search the brain", "Add a note", "All commands"];
 for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
   const names = expanded ? EXPANDED_NAMES : COLLAPSED_NAMES;
   for (const width of [320, 390, 480, 900, 1280, 1440]) {
+    if ((widthTheme(width) ?? theme) !== theme) continue;
     test(`rail acts: ${theme}, ${width}, ${expanded ? "expanded" : "collapsed"}`, async () => {
       const mode = pointerScene();
       const { tabs, actButtons, all } = await mountActs(width, 600, expanded, theme);
@@ -267,7 +279,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     });
   }
 
-  test(`rail acts, 360px tall: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
+  if (railTheme(expanded) === theme) test(`rail acts, 360px tall: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
     const mode = pointerScene();
     const { actButtons, all, palette, actCallbacks } = await mountActs(900, 360, expanded, theme);
     const rail = host!.querySelector<HTMLElement>(".bk-side-rail")!;
@@ -299,7 +311,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     await expect.poll(() => palette.mock.calls.length, { message: "All commands opens once" }).toBe(1);
   });
 
-  test(`rail acts keyboard and pointer: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
+  if (railTheme(expanded) === theme) test(`rail acts keyboard and pointer: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
     const mode = pointerScene();
     const { tabs, callbacks, actButtons, actCallbacks, all, palette } = await mountActs(900, 600, expanded, theme);
     (document.activeElement as HTMLElement | null)?.blur();
@@ -371,7 +383,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     if (mode === "mixed") await page.screenshot({ element: host!, path: `../../.vitest-attachments/side-rail/acts-offline-${theme}.png` });
   });
 
-  test(`All commands as the only control, 280px tall: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
+  if (railTheme(expanded) === theme) test(`All commands as the only control, 280px tall: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
     const mode = pointerScene();
     await page.viewport(900, 280);
     await commands.formViewport(900, 280);
@@ -393,7 +405,7 @@ for (const theme of ["dark", "light"]) for (const expanded of [false, true]) {
     await expect.poll(() => palette.mock.calls.length, { message: "All commands opens once" }).toBe(1);
   });
 
-  test(`rail acts long labels: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
+  if (railTheme(expanded) === theme) test(`rail acts long labels: ${theme}, ${expanded ? "expanded" : "collapsed"}`, async () => {
     const mode = pointerScene();
     const { actButtons, all } = await mountActs(390, 600, expanded, theme, "a turn is running", true);
     for (const el of [...actButtons, all]) {

@@ -109,7 +109,7 @@ test("a turn whose proven recipient a provider rule allows sees the folder, its 
     ["no origin", {}]] as const) {
     const denied = await f.begin(`denied ${label}`, route);
     try {
-      expect(denied.sandbox.inferenceRecipient?.name === "anthropic", `DENIED_ROUTE_NOT_ANTHROPIC ${label}`).toBe(false);
+      expect(denied.sandbox.inferenceRecipient?.name, `DENIED_ROUTE_NOT_ANTHROPIC ${label}`).not.toBe("anthropic");
       expect(denied.sandbox.providerMasks?.folders, `DENIED_ROUTE_MASKS_THE_FOLDER ${label}`).toEqual(["me"]);
       expect(reads(f.brain, denied.sandbox, "me", "identity.md", SENTINEL), `DENIED_ROUTE_CANNOT_READ ${label}`).toBe(HIDDEN);
       expect(search(f.brain, denied.sandbox, SENTINEL).filter(path => path.startsWith("me/")), `DENIED_ROUTE_PRIVATE_INDEX ${label}`).toEqual([]);

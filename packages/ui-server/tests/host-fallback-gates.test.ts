@@ -233,7 +233,8 @@ for (const method of ["run", "launch"] as const) {
       const after = await f.gate.acquire("exclusive", "after cancelled host"); f.holds.push(after);
       expect(f.gate.holders()).toHaveLength(1); after.release();
       const failed = f.boundary()[method]({ ...f.command("shared"), signal: undefined, argv: [join(f.root, "missing-program")] });
-      await expect(failed).rejects.toBeDefined();
+      const failure = await failed.then(() => undefined, error => error);
+      expect(failure, "FAILED_HOST_LAUNCH_SURFACES_ITS_SPAWN_ERROR").toMatchObject({ code: "ENOENT" });
       expect(f.gate.holders()).toEqual([]);
     } finally { await f.close(); }
   });

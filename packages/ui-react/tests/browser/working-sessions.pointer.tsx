@@ -248,12 +248,13 @@ function rowGeometry(s: Scene, keyboard = false) {
 
 const NARROW = [320, 390, 480, 900, 1279] as const;
 const WIDE = [1280, 1440] as const;
-const THEMES = ["dark", "light"] as const;
+// One theme per scenario: nothing measured or pressed here takes a
+// theme-specific class, and Storybook owns light/dark parity.
 
-for (const theme of THEMES) for (const width of NARROW) {
-  test(`${width} (${theme}): three trackers beside two follow-ups, in the left half, apart from the scroll disc`, async (ctx) => {
+for (const width of NARROW) {
+  test(`${width}: three trackers beside two follow-ups, in the left half, apart from the scroll disc`, async (ctx) => {
     const mode = pointer();
-    const s = await mount(ctx, width, 640, theme);
+    const s = await mount(ctx, width, 640, "dark");
     work.raft(s); work.timber(s); work.penelope(s);
     pending(s, 2);
     await expect.poll(() => stripItems(s).length, { message: "the strip is drawn" }).toBe(2);
@@ -293,9 +294,9 @@ for (const theme of THEMES) for (const width of NARROW) {
     await expect.poll(() => document.activeElement, { message: "focus returns to the summary" }).toBe(stripItems(s)[1]);
   });
 
-  test(`${width} (${theme}): one long-titled tracker in an empty chat keeps its column`, async (ctx) => {
+  test(`${width}: one long-titled tracker in an empty chat keeps its column`, async (ctx) => {
     pointer();
-    const s = await mount(ctx, width, 640, theme, { empty: true });
+    const s = await mount(ctx, width, 640, "dark", { empty: true });
     work.circe(s);
     await expect.poll(() => named(stripItems(s))[0] ?? "", { message: "the session list names it" }).toMatch(/^Compare Circe/);
     expect(stripItems(s)).toHaveLength(1);
@@ -310,10 +311,10 @@ for (const theme of THEMES) for (const width of NARROW) {
   });
 }
 
-for (const theme of THEMES) for (const width of WIDE) {
-  test(`${width} (${theme}): the Sessions pane carries Working, the row carries follow-ups only`, async (ctx) => {
+for (const width of WIDE) {
+  test(`${width}: the Sessions pane carries Working, the row carries follow-ups only`, async (ctx) => {
     pointer();
-    const s = await mount(ctx, width, 720, theme);
+    const s = await mount(ctx, width, 720, "dark");
     work.raft(s); work.timber(s); work.penelope(s);
     pending(s, 2);
     const p = await expect.poll(() => pane(s), { message: "the pane is drawn" }).not.toBeNull();
@@ -352,9 +353,9 @@ for (const theme of THEMES) for (const width of WIDE) {
     expect(items.filter((el) => el.tabIndex === 0), "one tab stop").toHaveLength(1);
   });
 
-  test(`${width} (${theme}): in an empty chat New conversation is aria-disabled with its reason`, async (ctx) => {
+  test(`${width}: in an empty chat New conversation is aria-disabled with its reason`, async (ctx) => {
     pointer();
-    const s = await mount(ctx, width, 720, theme, { empty: true });
+    const s = await mount(ctx, width, 720, "dark", { empty: true });
     await expect.poll(() => pane(s), { message: "the pane is drawn" }).not.toBeNull();
     const start = pane(s)!.querySelector<HTMLElement>("[data-new-conversation] [data-bk-button]")!;
     expect(start.getAttribute("aria-disabled")).toBe("true");
@@ -366,8 +367,8 @@ for (const theme of THEMES) for (const width of WIDE) {
 // side; past three composer lines the row hides (R4). No platform reports a
 // soft keyboard to a test, so its evidence is supplied: a visual viewport
 // 260px shorter than the layout one, which is what `useSoftKeyboard` reads.
-for (const theme of THEMES) for (const width of [320, 390, 900] as const) {
-  test(`${width} (${theme}): keyboard up, the halves are one summary each, and R4 hides the row`, async (ctx) => {
+for (const width of [320, 390, 900] as const) {
+  test(`${width}: keyboard up, the halves are one summary each, and R4 hides the row`, async (ctx) => {
     const mode = pointer();
     if (mode === "fine") ctx.skip();
     const original = Object.getOwnPropertyDescriptor(window, "visualViewport");
@@ -377,7 +378,7 @@ for (const theme of THEMES) for (const width of [320, 390, 900] as const) {
       if (original) Object.defineProperty(window, "visualViewport", original);
       else delete (window as { visualViewport?: unknown }).visualViewport;
     });
-    const s = await mount(ctx, width, 568, theme);
+    const s = await mount(ctx, width, 568, "dark");
     work.raft(s); work.timber(s); work.penelope(s);
     pending(s, 2);
     await expect.poll(() => stripItems(s).length, { message: "the strip is drawn" }).toBe(2);
@@ -754,9 +755,9 @@ for (const width of [390, 1440] as const) {
 
 
 // #1697: safe incomplete-save disclosure and the existing retained-request Retry.
-for (const width of [320, 1440] as const) for (const theme of ["dark", "light"] as const) {
-  test(`${width} ${theme}: refused worker-state save discloses partial persistence and retries the retained turn`, async (ctx) => {
-    const s = await mount(ctx, width, 640, theme, { empty: true });
+for (const width of [320, 1440] as const) {
+  test(`${width}: refused worker-state save discloses partial persistence and retries the retained turn`, async (ctx) => {
+    const s = await mount(ctx, width, 640, "light", { empty: true });
     flushSync(() => s.ui.stores.chat.getState().setActiveSession(ITHACA.id));
     s.socket.deliver({ type: "session_info", sessionId: ITHACA.id, isNew: false, backendId: "claude" });
     s.socket.deliver({ type: "session_history", sessionId: ITHACA.id, messages: [

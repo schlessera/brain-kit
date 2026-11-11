@@ -9,6 +9,9 @@ test("server rendering keeps unknown evidence honest without browser APIs or exp
   expect(html).not.toContain('aria-live');
   expect(html.match(/<button/g)).toHaveLength(1);
   expect(html).toContain('aria-hidden="true"');
+  // One glyph per qualifier: the reply, its unknown playback and the restore.
+  const glyphs = [...html.matchAll(/class="lucide (lucide-[a-z-]+)"/g)].map((m) => m[1]);
+  expect(glyphs, "one glyph per qualifier").toEqual(["lucide-sparkles", "lucide-circle-dashed", "lucide-history"]);
 });
 
 test("server-rendered legend remains a discoverable native action without copying all evidence into transcript", () => {

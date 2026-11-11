@@ -452,7 +452,7 @@ describe("renderer phase budgets", () => {
       await dispose();
     }
     expect(browser.closes).toBe(1);
-    expect(clock.timers.some(t => t.ms === 2_000 && t.state === "fired")).toBe(true);
+    expect(clock.timers.filter(t => t.ms === 2_000).map(t => t.state)).toContain("fired");
     expect(Object.getOwnPropertyDescriptor(globalThis, "setTimeout")).toEqual(clock.descriptors.setTimeout);
     expect(Object.getOwnPropertyDescriptor(globalThis, "clearTimeout")).toEqual(clock.descriptors.clearTimeout);
   });

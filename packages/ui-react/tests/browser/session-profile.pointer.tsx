@@ -67,7 +67,9 @@ async function mount(width: number, theme: "dark" | "light", disabledReason?: st
 const profile = (name: string) => host!.querySelector<HTMLInputElement>(`input[data-profile][value="${name}"]`);
 const limits = () => [...host!.querySelectorAll<HTMLElement>('[role="button"]')].find(el => el.textContent?.includes("Limits for this chat"))!;
 
-for (const [width, theme] of [[320, "dark"], [320, "light"], [1280, "dark"], [1280, "light"], [640, "dark"]] as const) {
+// One theme per width: nothing measured here takes a theme-specific class,
+// and Storybook owns light/dark parity.
+for (const [width, theme] of [[320, "dark"], [1280, "light"], [640, "dark"]] as const) {
   test(`profile save keeps confirmed choice and focus, ${width} ${theme}`, async () => {
     const control = await mount(width, theme);
     expect(profile("governed"), "SESSION_PROFILE_AVAILABLE_WITH_FIXED_MODEL").not.toBeNull();

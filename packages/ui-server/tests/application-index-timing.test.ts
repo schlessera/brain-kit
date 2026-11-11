@@ -46,6 +46,7 @@ test("twenty writes return without waiting for the index; one targeted update co
   }
   expect(median(elapsed), `APPLY_MEDIAN_MS ${JSON.stringify(elapsed.map(ms => Math.round(ms)))}`).toBeLessThan(300);
   expect(runs).toEqual([]);
+  expect(receipts).toHaveLength(paths.length);
   for (const result of receipts) {
     expect(result).toMatchObject({ ok: true, indexed: false, indexStatus: "pending" });
     expect(result).not.toHaveProperty("outcome.indexError");

@@ -115,7 +115,7 @@ test("journal open purges the index bytes earlier releases retained, keeping the
     await seedLegacyHistory(f);
     f.raw(db => db.query("INSERT INTO turn_journal_object_quarantine VALUES (?,0,'Error','Odysseus interrupted publication','fixture')").run(INDEX_HASHES[0]!));
     const before = f.raw(dump);
-    expect(INDEX_HASHES.every(hash => f.files().has(hash)), "LEGACY_INDEX_OBJECTS_RETAINED_BEFORE_PURGE").toBe(true);
+    expect(INDEX_HASHES.filter(hash => !f.files().has(hash)), "LEGACY_INDEX_OBJECTS_RETAINED_BEFORE_PURGE").toEqual([]);
     const accountedBefore = f.raw(objectBytes);
     await f.open();
     const presented = f.journal.details("ithaca", "voyage")!;
@@ -207,8 +207,10 @@ test("an object another record of the same turn names keeps its pin and bytes, w
       expect(f.db.query("SELECT 1 AS pinned FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turn, sha(bytes[turn])), `SAME_TURN_SHARED_PIN_KEPT ${turn}`).toEqual({ pinned: 1 });
     }
     expect(f.journal.hasRetainedVersion("removal", version(bytes.removal) as never), "REMOVAL_ORIGINAL_STILL_RESTORABLE").toBe(true);
-    expect(f.files().has(sha(reverted.shared)) && !!f.db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id='revert_bow' AND hash=?").get(sha(reverted.shared)), "REVERT_RECORD_SHARED_OBJECT_KEPT").toBe(true);
-    expect(f.files().has(sha(reverted.index)) || !!f.db.query("SELECT 1 FROM turn_journal_object_refs WHERE hash=?").get(sha(reverted.index)), "REVERT_ONLY_INDEX_OBJECT_PURGED").toBe(false);
+    expect(f.files().has(sha(reverted.shared)), "REVERT_RECORD_SHARED_OBJECT_KEPT").toBe(true);
+    expect(f.db.query("SELECT turn_id FROM turn_journal_object_refs WHERE hash=?").all(sha(reverted.shared)), "REVERT_RECORD_SHARED_PIN_KEPT").toEqual([{ turn_id: "revert_bow" }]);
+    expect(f.files().has(sha(reverted.index)), "REVERT_ONLY_INDEX_OBJECT_PURGED").toBe(false);
+    expect(f.db.query("SELECT turn_id FROM turn_journal_object_refs WHERE hash=?").all(sha(reverted.index)), "REVERT_ONLY_INDEX_PIN_PURGED").toEqual([]);
     expect(f.db.query("SELECT before_json,after_json FROM turn_journal_revert_paths WHERE operation_id='bow' AND path='.brain-index/brain.db'").get(), "REVERT_RECORD_BOTH_SIDES_REWRITTEN").toEqual({
       before_json: JSON.stringify({ kind: "file", mode: 0o644, bytes: reverted.shared.length, ignored: false, metadataOnly: true }),
       after_json: JSON.stringify({ kind: "file", mode: 0o644, bytes: reverted.index.length, ignored: false, metadataOnly: true }) });
@@ -297,7 +299,7 @@ test("a crash between the purge's commits, or while collecting, resumes at the n
       // No row names an index object any more, so none dangles while its file still exists.
       const named = JSON.stringify([...between.changes, ...between.revertPaths, ...between.pins]);
       expect(INDEX_HASHES.filter(hash => named.includes(hash)), `NO_REFERENCE_SURVIVES_FIRST_STEP ${unlinked}`).toEqual([]);
-      expect(INDEX_HASHES.every(hash => f.files().has(hash)), `OBJECTS_AWAIT_COLLECTION ${unlinked}`).toBe(true);
+      expect(INDEX_HASHES.filter(hash => !f.files().has(hash)), `OBJECTS_AWAIT_COLLECTION ${unlinked}`).toEqual([]);
       // A collection that removed one file before its commit was lost leaves only that object's row.
       if (unlinked) unlinkSync(join(f.objects, INDEX_HASHES[0]!));
       await f.open();

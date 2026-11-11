@@ -25,14 +25,19 @@ function skill(root: string, name: string): SkillManifest {
 }
 
 describe("piEmitter symlink round-trip", () => {
-  const root = mkRepo();
-  const one = skill(root, "one");
-  const two = skill(root, "two");
-  const piDir = join(root, ".pi", "skills");
+  /** A fresh repo with skills one and two, emitted `times` times already. */
+  function repo(times: number) {
+    const root = mkRepo();
+    const one = skill(root, "one");
+    const two = skill(root, "two");
+    for (let run = 0; run < times; run++) piEmitter.emit([one, two], root);
+    return { root, one, two, piDir: join(root, ".pi", "skills") };
+  }
 
   test("first emit creates relative symlinks into the canonical home", () => {
     // pi reads <cwd>/.pi/skills, never .agents/skills — but the skill itself
     // must stay single-sourced, so these are links rather than copies.
+    const { root, one, two, piDir } = repo(0);
     const res = piEmitter.emit([one, two], root);
     expect(res.written.sort()).toEqual([".pi/skills/one", ".pi/skills/two"]);
     expect(res.removed).toEqual([]);
@@ -44,12 +49,14 @@ describe("piEmitter symlink round-trip", () => {
   });
 
   test("second emit is idempotent (no writes, no removals)", () => {
+    const { root, one, two } = repo(1);
     const res = piEmitter.emit([one, two], root);
     expect(res.written).toEqual([]);
     expect(res.removed).toEqual([]);
   });
 
   test("dropping a skill prunes its stale symlink", () => {
+    const { root, one, piDir } = repo(1);
     const res = piEmitter.emit([one], root);
     expect(res.removed).toEqual([".pi/skills/two"]);
     expect(existsSync(join(piDir, "two"))).toBe(false);
