@@ -72,7 +72,8 @@ for (const width of [320, 1280]) {
       "MAINTENANCE_CATEGORY_COLLAPSED_ON_FRESH_VISIT").toBe(0);
     expect(host!.querySelector('button[data-node-id="2"]')!.getClientRects().length).toBe(0);
     expect(host!.querySelector('button[data-node-id="3"]')!.getClientRects().length).toBe(0);
-    expect(host!.querySelector('button:not([data-node-id])')?.textContent).not.toBe("Show maintenance tasks");
+    expect([...host!.querySelectorAll("button")].map(button => button.textContent),
+      "no single toggle hides every category").not.toContain("Show maintenance tasks");
     for (const name of categories) {
       await expect.element(category(name)).toHaveAttribute("aria-expanded", "false");
       expect(content(name).hidden).toBe(true);
