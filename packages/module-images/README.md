@@ -33,6 +33,7 @@ serve at all:
 | PNG or WebP | OpenAI | Every Gemini image model serves JPEG only |
 | Exact custom pixels | OpenAI | Gemini has fixed ratios; the 2.6 and 2.5 models take any size on a 16px grid up to 3840px, 3:1 and 8.3MP |
 | `--complexity` | OpenAI GPT Image 2.6 | Only the 2.6 models take it; it is refused anywhere else |
+| Animated GIF (`--format gif`) | OpenAI GPT Image 2.6 | Only the 2.6 models return GIF; it is refused anywhere else |
 | Character consistency | Gemini | Narrows to models that claim it; no benchmark picks a winner |
 | >6 reference images | Gemini | 10 (Flash) / 14 (Lite) vs OpenAI's practical 8 |
 | Watermark-free | OpenAI | Gemini always applies SynthID |
@@ -56,6 +57,15 @@ expensive tier. `--complexity low | medium | high` sets how much a GPT Image
 it with them is refused. A transparent JPEG, an unknown quality, complexity or
 format, a `--size` that is not `WIDTHxHEIGHT`, and a custom size outside
 OpenAI's rules are refused before any request.
+
+`--format gif` asks a GPT Image 2.6 model for an animated GIF, for a new image
+or an edit with `--ref`. `--frames` (2-16) and `--frame-duration` (20-2000 ms)
+set its frame count and timing; without them the API uses its own defaults of 9
+frames at 200 ms. The frame flags need `--format gif`. A GIF takes no `--mask`
+and no `--transparent`, and the 2.5 models and Gemini cannot return one; each of
+these is refused before any request. OpenAI serves GIF only to organizations
+with GIF preview access, and the refusal says so. A dry run reports a GIF's cost
+as unknown, because OpenAI publishes no per-frame token count.
 
 ### Retired models
 
