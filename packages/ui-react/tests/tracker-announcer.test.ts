@@ -40,6 +40,42 @@ describe("the announcer", () => {
     expect(a.observe([view({ state: "done", settled: true })]), "a restored tracker's first answer").toEqual([]);
   });
 
+  test("a first settled unavailable read keeps the existing baseline rule", () => {
+    const a = createTrackerAnnouncer();
+    expect(a.observe([view({ state: "cant_check", cantCheck: "host_unreachable", turnId: null })])).toEqual([]);
+    expect(a.observe([view({ state: "unknown", turnId: null })])).toEqual([]);
+    expect(a.observe([view({ state: "done", outcome: "success" })]), "FIRST_UNAVAILABLE_BASELINE_CAN_LEARN_COMPLETION")
+      .toEqual([{ sessionId: A, state: "done", outcome: "success" }]);
+    expect(a.observe([view({ state: "done", outcome: "success", turnId: "turn-2" })]), "a different turn still announces").toHaveLength(1);
+  });
+
+  test("recovery keeps the last known work state: real completion announces, repeated completion does not", () => {
+    const a = createTrackerAnnouncer();
+    a.observe([view({ state: "running" })]);
+    a.observe([view({ state: "cant_check", cantCheck: "host_unreachable" })]);
+    expect(a.observe([view({ state: "done", outcome: "success" })]), "a turn known to be running finished").toHaveLength(1);
+    a.observe([view({ state: "unknown" })]);
+    a.observe([view({ state: "cant_check", cantCheck: "host_unreachable" })]);
+    expect(a.observe([view({ state: "done", outcome: "success" })]), "RECOVERY_DOES_NOT_REPEAT_COMPLETION").toEqual([]);
+  });
+
+  test("failed reads cannot consume the first announcement for new unwatched work", () => {
+    const a = createTrackerAnnouncer();
+    a.background(B);
+    a.observe([view({ sessionId: B, state: "cant_check", cantCheck: "host_unreachable" })]);
+    a.observe([view({ sessionId: B, state: "unknown" })]);
+    expect(a.observe([view({ sessionId: B, state: "needs_you" })]), "NEW_UNWATCHED_WORK_STILL_ANNOUNCES")
+      .toEqual([{ sessionId: B, state: "needs_you", outcome: null }]);
+  });
+
+  test("discarding an unconfirmed tracker also discards its unwatched-work marker", () => {
+    const a = createTrackerAnnouncer();
+    a.background(B);
+    a.observe([view({ sessionId: B, state: "cant_check", settled: false })]);
+    a.observe([]);
+    expect(a.observe([view({ sessionId: B, state: "done", outcome: "success" })]), "DISCARDED_TRACKER_STARTS_AS_A_BASELINE").toEqual([]);
+  });
+
   test("work that started unwatched announces its first settled view", () => {
     const a = createTrackerAnnouncer();
     a.background(B);
