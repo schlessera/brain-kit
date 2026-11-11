@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import type { SafetyIdentity, SafetyTarget, SafetyPage, SafetyRecord, SafetyUpdate, SafetyUnavailable as Unavailable } from "@schlessera/brain-ui-sdk/protocol";
 import { safetyPageSchema, safetyUpdateSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { Principal } from "../db/principals.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { assertLive } from "../ws/chat-lifecycle.js";
 import { safetyProjection } from "./safety-store.js";
 import { safetyQueue } from "./safety-queue.js";
@@ -45,18 +46,19 @@ export class SafetyHistory {
     if("sessionId" in target){
       const s=this.db.query("SELECT session_id,history_owner_id,generation,principal_id FROM safety_sessions WHERE session_id=?").get(target.sessionId) as
         {session_id:string;history_owner_id:string;generation:string;principal_id:string|null}|null;
-      if(!s||s.principal_id!==principal.id)throw new SafetyReadUnavailable();
+      // Another login of the chat's account reads it; nobody else does (#3952).
+      if(!s||!sameAccount(this.db,s.principal_id,principal.id))throw new SafetyReadUnavailable();
       const owner=this.db.query("SELECT principal_id,generation FROM dialogue_owners WHERE id=?").get(s.history_owner_id) as {principal_id:string;generation:number}|null;
-      if(owner&&(owner.principal_id!==principal.id||String(owner.generation)!==s.generation))throw new SafetyReadUnavailable("generation_changed");
+      if(owner&&(!sameAccount(this.db,owner.principal_id,principal.id)||String(owner.generation)!==s.generation))throw new SafetyReadUnavailable("generation_changed");
       try{assertLive(this.db,[["session",s.session_id],["dialogue_owner",s.history_owner_id]]);}catch{throw new SafetyReadUnavailable();}
       return {sessionId:s.session_id,historyOwnerId:s.history_owner_id,historyGeneration:s.generation};
     }
     const c=this.db.query("SELECT session_id,principal_id,history_owner_id,generation FROM safety_collections WHERE id=? AND turn_id=?").get(target.bindingId,target.turnId) as
       {session_id:string|null;principal_id:string|null;history_owner_id:string;generation:string}|null;
-    if(!c||c.principal_id!==principal.id||this.db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(target.turnId))throw new SafetyReadUnavailable();
+    if(!c||!sameAccount(this.db,c.principal_id,principal.id)||this.db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(target.turnId))throw new SafetyReadUnavailable();
     if(c.session_id)return this.authorize(principal,{sessionId:c.session_id});
     const owner=this.db.query("SELECT generation,principal_id FROM dialogue_owners WHERE id=?").get(c.history_owner_id) as {generation:number;principal_id:string}|null;
-    if(owner&&(String(owner.generation)!==c.generation||owner.principal_id!==principal.id))throw new SafetyReadUnavailable("generation_changed");
+    if(owner&&(String(owner.generation)!==c.generation||!sameAccount(this.db,owner.principal_id,principal.id)))throw new SafetyReadUnavailable("generation_changed");
     try{assertLive(this.db,[["dialogue_owner",c.history_owner_id]]);}catch{throw new SafetyReadUnavailable();}
     return {turnId:target.turnId,bindingId:target.bindingId};
   }
