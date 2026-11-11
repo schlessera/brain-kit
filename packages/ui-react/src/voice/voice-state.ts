@@ -8,10 +8,10 @@ type DiscoveredProvider = VoiceProvidersResponse["providers"][number];
 /**
  * What stands between a tap and a session request (#3709): the one-time
  * acknowledgement of where audio goes (D4), or a reason there is nowhere to
- * send it. Either is shown in the dictation sheet before anything is minted
- * and before the microphone opens.
+ * send it. Either is shown in the voice field's notice (D0, Dx, #3694) before
+ * anything is minted and before the microphone opens.
  */
-export type DictationGate =
+type DictationGate =
   | { kind: "consent"; provider: DiscoveredProvider }
   | { kind: "blocked"; reason: "none" | "choose" | "unavailable"; saved: string | null };
 
@@ -47,11 +47,15 @@ export interface DictationSaveState {
 export interface VoiceState {
   mode: VoiceMode;
   connecting: boolean;      // session fetch / mic open in progress (mic not yet live)
+  /** The browser is asking for the microphone while it opens (D2, #3694). */
+  micPrompt: boolean;
+  /** Capturing, with no speech heard for a moment (D4, #3694). */
+  quiet: boolean;
   draining: boolean;        // post-Done flush in progress
   partial: string;
   finalText: string;        // accumulated final transcript for current capture
   audioLevel: number;       // 0..1 RMS level for waveform
-  reviewText: string;       // text waiting in the review card (post-stop)
+  reviewText: string;       // what a take heard, until the composer moves it into the draft (D6)
   providerId: string | null; // active speech provider (from the session response)
   /** The provider this take disclosed and was sent to; frozen for the take. */
   dictationTarget: DiscoveredProvider | null;
@@ -100,6 +104,8 @@ export function createVoiceStore(env?: Pick<StoreEnvironment, "storage" | "stora
   return createStore<VoiceState>((set) => ({
     mode: "idle",
     connecting: false,
+    micPrompt: false,
+    quiet: false,
     draining: false,
     partial: "",
     finalText: "",
@@ -144,7 +150,7 @@ export function createVoiceStore(env?: Pick<StoreEnvironment, "storage" | "stora
     setProviderId: (providerId) => set({ providerId }),
     setError: (error) => set({ error }),
     resetCapture: () =>
-      set({ partial: "", finalText: "", audioLevel: 0, error: null, dictationNotice: null }),
+      set({ partial: "", finalText: "", audioLevel: 0, quiet: false, micPrompt: false, error: null, dictationNotice: null }),
     setLocal: (local) => set({ local }),
     setLocalNotice: (localNotice) => set({ localNotice }),
   }));

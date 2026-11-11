@@ -28,18 +28,23 @@ import {
 } from "../types.js";
 
 /**
- * The GPT Image 2.5 pair (#586). Sunburst is the default; Flare is chosen by
- * name. Both take `background: "transparent"` on png or webp, masks, custom
- * sizes and the `xhigh`/`max` quality tiers, per OpenAI's model pages and
- * image-generation guide (checked 2026-09-29):
+ * The GPT Image 2.6 and 2.5 pairs. 2.6 Sunburst is the default (#3782); the
+ * other three are chosen by name. All four take `background: "transparent"`
+ * on png or webp, masks, custom sizes and the `xhigh`/`max` quality tiers, per
+ * OpenAI's model pages and image-generation guide (2.5 checked 2026-09-29,
+ * 2.6 checked 2026-11-09):
+ *   https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst
+ *   https://developers.openai.com/api/docs/models/gpt-image-2.6-flare
  *   https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
  *   https://developers.openai.com/api/docs/models/gpt-image-2.5-flare
  *   https://developers.openai.com/api/docs/guides/image-generation
  *
- * gpt-image-2 and gpt-image-1.5 are retired (`../retired.ts`) and must not be
- * re-added as a fallback.
+ * Only the 2.6 pair takes `complexity` (low|medium|high, default high, no
+ * separate fee). The 2.5 pair is not deprecated upstream and stays
+ * selectable. gpt-image-2 and gpt-image-1.5 are retired (`../retired.ts`) and
+ * must not be re-added as a fallback.
  */
-const GPT_IMAGE_25 = {
+const GPT_IMAGE = {
   provider: "openai",
   transparentBackground: true,
   maskInpainting: true,
@@ -47,44 +52,80 @@ const GPT_IMAGE_25 = {
   presetSizes: PRESETS,
   maxEdgePx: OPENAI_LIMITS.maxEdge,
   maxTotalPixels: OPENAI_LIMITS.maxTotalPixels,
-  // OpenAI documents no reference-image ceiling for 2.5; this is the ceiling
-  // the edits endpoint has held for GPT-image models, not a 2.5 measurement.
+  // OpenAI documents no reference-image ceiling for 2.5 or 2.6; this is the
+  // ceiling the edits endpoint has held for GPT-image models, not a measurement.
   maxReferenceImages: 16,
   characterConsistency: 0,
-  // No independent measurement of either 2.5 model exists yet. The arena
+  // No independent measurement of any 2.5 or 2.6 model exists yet. The arena
   // text-rendering lead in evidence.ts was measured on gpt-image-2 and does
   // not transfer by name.
   strongTextRendering: false,
   watermarked: false,
   outputFormats: ["png", "jpeg", "webp"],
   defaultFormat: "png",
-  // Billed per token, and the default quality is `auto`, which the API
-  // resolves per image: there is no single per-image figure to show. A dry run
-  // with a stated quality and size is priced by `estimateOpenAiOutputCost`.
+  // Billed per token, so there is no single per-image figure to show. A dry
+  // run with a quality and a size is priced by `estimateOpenAiOutputCost`.
   approxCostUsd1K: null,
-} satisfies Omit<ModelCapabilities, "id" | "summary">;
+} satisfies Omit<ModelCapabilities, "id" | "summary" | "complexityControl">;
 
 const MODELS: ModelCapabilities[] = [
   {
-    id: "gpt-image-2.5-sunburst",
+    id: "gpt-image-2.6-sunburst",
     summary:
-      "OpenAI's most capable image model — the default; transparency on png/webp, masks, custom sizes, xhigh/max quality, no watermark",
-    ...GPT_IMAGE_25,
+      "OpenAI's most capable image model — the default; complexity control, transparency on png/webp, masks, custom sizes, xhigh/max quality, no watermark",
+    ...GPT_IMAGE,
+    complexityControl: true,
+  },
+  {
+    id: "gpt-image-2.6-flare",
+    summary:
+      "OpenAI's fastest 2.6 model — chosen by --model; same complexity control, transparency, masks, sizes and quality tiers as Sunburst",
+    ...GPT_IMAGE,
+    complexityControl: true,
+  },
+  {
+    id: "gpt-image-2.5-sunburst",
+    summary: "The previous Sunburst — chosen by --model; no complexity control, otherwise as 2.6",
+    ...GPT_IMAGE,
+    complexityControl: false,
   },
   {
     id: "gpt-image-2.5-flare",
-    summary:
-      "OpenAI's fastest high-quality model — chosen by --model; same transparency, masks, sizes and quality tiers as Sunburst",
-    ...GPT_IMAGE_25,
+    summary: "The previous Flare — chosen by --model; no complexity control, otherwise as 2.6",
+    ...GPT_IMAGE,
+    complexityControl: false,
   },
 ];
 
+/** What an OpenAI request sends when the caller states no quality (#3782). */
+export const DEFAULT_OPENAI_QUALITY = "max" as const;
+/** What a complexity-capable model gets when the caller states none (#3782). */
+export const DEFAULT_OPENAI_COMPLEXITY = "high" as const;
+
+/** The quality an OpenAI request actually sends: the stated one, or the default. */
+export function openAiRequestQuality(req: ImageRequest): string {
+  return req.quality ?? DEFAULT_OPENAI_QUALITY;
+}
+
 /**
- * USD per 1M tokens, from each model's page (checked 2026-09-29). The two
- * rows are equal today; that makes neither a per-image price, because the
- * models do not spend the same number of tokens on the same image.
+ * The complexity an OpenAI request sends: the stated one or the default on a
+ * model that takes it, nothing on one that does not. Routing has already
+ * refused a stated complexity for such a model.
+ */
+export function openAiRequestComplexity(req: ImageRequest, model: string): string | undefined {
+  if (!MODELS.find((m) => m.id === model)?.complexityControl) return undefined;
+  return req.complexity ?? DEFAULT_OPENAI_COMPLEXITY;
+}
+
+/**
+ * USD per 1M tokens, from each model's page (2.5 checked 2026-09-29, 2.6
+ * checked 2026-11-09). The rows are equal today; that makes none of them a
+ * per-image price, because the models do not spend the same number of tokens
+ * on the same image.
  */
 const TOKEN_RATES: Record<string, { textIn: number; imageIn: number; imageOut: number }> = {
+  "gpt-image-2.6-sunburst": { textIn: 5, imageIn: 8, imageOut: 30 },
+  "gpt-image-2.6-flare": { textIn: 5, imageIn: 8, imageOut: 30 },
   "gpt-image-2.5-sunburst": { textIn: 5, imageIn: 8, imageOut: 30 },
   "gpt-image-2.5-flare": { textIn: 5, imageIn: 8, imageOut: 30 },
 };
@@ -113,11 +154,10 @@ export function openAiCostFromUsage(model: string, usage: unknown): number | und
 }
 
 /**
- * Output tokens per image for both GPT Image 2.5 models, from the calculator
- * in OpenAI's image-generation guide ("GPT Image 2.5 and GPT Image 2 output
- * tokens", checked 2026-09-29). That calculator is a separate one from the
- * GPT Image 2 calculator the model pages say does not cover 2.5, and it has
- * one table for Sunburst and Flare. The long edge gets the tier's base count,
+ * Output tokens per image for the GPT Image 2.5 and 2.6 models, from the
+ * calculator in OpenAI's image-generation guide (checked 2026-09-29 for 2.5;
+ * on 2026-11-09 the guide states the same calculator covers 2.6 and 2.5
+ * Sunburst/Flare). It has one table for all four models. The long edge gets the tier's base count,
  * the short edge that base over the aspect ratio (rounded half to even), and
  * the grid scales with the pixel count. It reproduces the guide's own
  * example: low at 1024x1024 is 196 tokens, $0.00588.
@@ -256,6 +296,14 @@ export const openaiProvider: Provider = {
     }
     const isEdit = (req.references?.length ?? 0) > 0 || !!req.mask;
     const size = openAiRequestSize(req, model);
+    // Highest quality and complexity unless the caller said otherwise (#3782).
+    const quality = openAiRequestQuality(req);
+    const complexity = openAiRequestComplexity(req, model);
+    if (req.complexity && !complexity) {
+      throw new ImageProviderError(`${model} does not take complexity; the GPT Image 2.6 models do.`, {
+        retryable: false,
+      });
+    }
     const headers = { Authorization: `Bearer ${apiKey}` };
     // Without the key, the host's metered relay adds it (#1673).
     const send = providerRelayFetch("openai", "OPENAI_API_KEY") ?? fetch;
@@ -263,7 +311,8 @@ export const openaiProvider: Provider = {
     if (!isEdit) {
       const payload: Record<string, unknown> = { model, prompt: req.prompt };
       if (size && size !== "auto") payload.size = size;
-      if (req.quality) payload.quality = req.quality;
+      payload.quality = quality;
+      if (complexity) payload.complexity = complexity;
       // Alpha needs a format that can carry it; the API's default is png, but
       // be explicit so a caller-set default cannot flatten the transparency.
       if (req.format) payload.output_format = req.format;
@@ -288,7 +337,8 @@ export const openaiProvider: Provider = {
     form.append("model", model);
     form.append("prompt", req.prompt);
     if (size && size !== "auto") form.append("size", size);
-    if (req.quality) form.append("quality", req.quality);
+    form.append("quality", quality);
+    if (complexity) form.append("complexity", complexity);
     if (req.format) form.append("output_format", req.format);
     else if (req.transparent) form.append("output_format", "png");
     if (req.transparent) form.append("background", "transparent");

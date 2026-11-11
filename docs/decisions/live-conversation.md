@@ -50,6 +50,72 @@ startup ceilings; whole selected guidance keeps priority. Limits and source
 mapping remain in [the guidance reference](../live-conversation-guidance.md).
 This is source/serialization proof, not model obedience or listening proof.
 
+## Eleven Realtime as a third engine: not adopted — 2026-11-04 (#3100)
+
+Eleven Realtime v1 Max was evaluated, from documentation only, as a third
+engine behind the existing provider seam (`LiveConversationProvider`,
+`packages/ui-sdk/src/server/conversation.ts:234-239`). The maintainer closed
+#3100 on 2026-11-04 without running the prepared live probe. **No production
+adapter is approved.** The outcome is unresolved, not unsuitable: no live
+session showed a failure.
+
+**API choice, if it is ever revisited.** Use the ElevenAgents native WebSocket
+(`/v1/convai/conversation`), opened by the server through a signed URL, with an
+agent in Realtime voice mode and exactly one client tool. The browser keeps
+talking only to the host, and client tools keep execution in the host: a
+`client_tool_call` carries a `tool_call_id`, and the host answers with
+`client_tool_result` for that ID. Webhook tools, MCP servers and system tools
+would let the provider act on its own and are excluded. The standalone
+OpenAI-compatible Realtime endpoint was rejected for four reasons:
+
+- its guide documents only a browser holding a client secret;
+- it speaks OpenAI's Realtime protocol, not the Live v1 protocol the GPT-Live
+  adapter uses;
+- its session schema accepts provider-called MCP tools;
+- it documents no tool execution semantics.
+
+**The unresolved question.** The contextual-task path needs a tool call that
+does not block the dialogue and whose exact result, returned minutes later, is
+spoken in a later reply. The documentation offers two behaviours, and each
+misses half of that:
+
+- `expects_response: true` returns an exact result but blocks the conversation.
+- `execution_mode: async` keeps talking but is described as fire-and-forget,
+  with no statement that a late result is used.
+
+Four things are undocumented:
+
+1. Whether the two can be combined.
+2. Whether a late `client_tool_result` is accepted and spoken.
+3. What a pending call does on timeout, interruption or close.
+4. How a duplicate or stale result for the same ID is treated.
+
+Three stand-ins would look like success and do not meet the requirement:
+
+- `contextual_update`: it has no native ID, and its supersession rewrites
+  provider-held history, which conflicts with
+  [append-only provider history](provider-history.md).
+- A synthetic `user_message`.
+- Filler speech.
+
+**Reconsider only** if new documentation or evidence shows continued dialogue
+while work is pending, plus exact delayed result return and its spoken
+incorporation. Any adoption would also need rulings on three points:
+
+- Brain owning and verifying the vendor-stored agent definition.
+- Disclosing the default two-year transcript and audio retention.
+- Opening an epoch with prior chat while keeping history append-only.
+
+The full evaluation is kept at a pinned commit, including:
+
+- the seam mapping against the documented protocol;
+- model, residency and pricing facts as checked on 2026-11-02;
+- the prepared probe, with its caps and steps.
+
+It is in
+[the retired plan](https://github.com/schlessera/brain-kit/blob/b77987afb85740fa36b7ab79b123f54edea1a7bf/docs/plans/eleven-realtime-evaluation.md).
+Nothing in it qualifies a live behaviour.
+
 ## Selected architecture — 2026-10-04
 
 2026-10-04. The maintainer's [October 3 ruling on #317](https://github.com/schlessera/brain-kit/issues/317#issuecomment-5973820627)
@@ -82,7 +148,7 @@ tool admission and execution, permissions, cancellation, terminal state and
 resynchronization. Engine task requests are advisory until mapped to committed
 user input. No native search, code-execution or alternate permission loop is
 enabled. Both adapters can delegate through the existing `AgentBackend`
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:784-827`);
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:826-882`);
 the host serializes work in a session and uses capability-checked follow-ups.
 
 The [voice-permission decision](voice-permission.md) binds this interface.
