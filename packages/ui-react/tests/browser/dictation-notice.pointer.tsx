@@ -159,7 +159,7 @@ function readable(element: HTMLElement) {
 }
 
 for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (const provider of ["deepgram", "webspeech"] as const) for (const retained of [true, false]) {
-  test(`${width} ${theme} ${provider} ${retained ? "kept" : "empty"}: D8 quotes the kept words, which are in the draft; one polite announcement; no focus theft`, async ctx => {
+  test(`${width} ${theme} ${provider} ${retained ? "kept" : "empty"}: D8 quotes the kept words, which are in the draft; one assertive announcement; no focus theft`, async ctx => {
     expect(matchMedia("(any-pointer: fine)").matches).toBe(inject("railPointer") !== "coarse");
     expect(matchMedia("(any-pointer: coarse)").matches).toBe(inject("railPointer") !== "fine");
     await viewport(ctx, width, theme);
@@ -169,7 +169,8 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (con
     const announced: string[] = [];
     const seen = new Map<Element, string>();
     const observer = new MutationObserver(() => {
-      const regions = [...s.host.querySelectorAll('[role="status"], [aria-live="polite"]')].filter(el => el.textContent?.includes("Dictation stopped"));
+      // A failure is assertive (#3701), and said by one region only.
+      const regions = [...s.host.querySelectorAll('[role="status"], [role="alert"], [aria-live]')].filter(el => el.textContent?.includes("Dictation stopped"));
       for (const region of regions) if (seen.get(region) !== region.textContent) {
         announced.push(region.textContent!); seen.set(region, region.textContent!);
       }
@@ -183,7 +184,8 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1280]) for (con
     expect(notice(s)!.querySelector(".bk-voice-notice-body")!.textContent).toBe(body);
     expect([...notice(s)!.querySelectorAll("button")].map(b => b.textContent), "D8's actions").toEqual(["Dismiss", "Try again"]);
     expect(draft(s), "the words heard are in the draft, never lost").toBe(retained ? words : "");
-    expect(announced, "one polite announcement, without a mirrored region").toEqual([`Dictation stopped${body}`]);
+    expect(announced, "one announcement, without a mirrored region").toEqual([`Dictation stopped${body}`]);
+    expect(notice(s)!.querySelector('[role="alert"]')?.textContent, "D8 is assertive").toBe(`Dictation stopped${body}`);
     const box = notice(s)!.getBoundingClientRect();
     expect(box.left).toBeGreaterThanOrEqual(0); expect(box.right).toBeLessThanOrEqual(width);
     expect(s.host.scrollWidth).toBeLessThanOrEqual(width);

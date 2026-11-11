@@ -180,6 +180,8 @@ export function ConversationStartCard({ backend, onLeave }: { backend: string; o
   return <div ref={frame} data-start-card="" data-start-service={disclosed?.providerId ?? ""} data-start-persona={selected?.id ?? ""}
     style={{ maxHeight: "calc(100dvh - 16px)", overflowY: "auto", overscrollBehavior: "contain" }}
     onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leave(); } }}>
+    {/* The kit draws the notice; a change to it is said here, without moving focus (#3701). */}
+    <div className="sr-only" aria-live="polite" aria-atomic="true" data-start-announcement="">{notice?.text}</div>
     <StartCard
       service={service}
       showService={pickable}

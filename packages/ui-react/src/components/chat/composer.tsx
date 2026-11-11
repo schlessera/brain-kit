@@ -864,6 +864,11 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
   const focusMic = () => setTimeout(() => frameRef.current?.querySelector<HTMLElement>(
     '[aria-label="Record on this device"], [aria-label^="Dictate"], [aria-label="Stop and save"]'
   )?.focus({ preventScroll: true }), 0);
+  // A live conversation that ends hands focus back to the mic that started it (#3701).
+  const focusMicOrField = () => setTimeout(() => {
+    const mic = frameRef.current?.querySelector<HTMLElement>('[aria-label="Record on this device"], [aria-label^="Dictate"]');
+    if (mic) mic.focus({ preventScroll: true }); else focusField();
+  }, 0);
   // A take that ends while focus is in the voice field (Finish, V3's
   // silence stop, a provider end) hands focus back to the composer: the
   // field with the caret after the dictated words (D6), or the mic (D1).
@@ -1034,7 +1039,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
   return (
     <>
-      {conversation.active ? <div className="px-2 md:px-6"><ConversationField backend={[displayProviderLabel, displayProvider?.backendId, displayProvider?.vendor].filter(Boolean).join(" · ")} onLeave={() => queueMicrotask(focusField)} /></div> : <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
+      {conversation.active ? <div className="px-2 md:px-6"><ConversationField backend={[displayProviderLabel, displayProvider?.backendId, displayProvider?.vendor].filter(Boolean).join(" · ")} onLeave={focusMicOrField} /></div> : <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
         {/* Says where a taken suggestion went, since focus moves with it. */}
         <div className="sr-only" aria-live="polite" data-composer-notice="">
           {insertNotice}
