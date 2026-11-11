@@ -263,6 +263,33 @@ describe("openai provider — 2.6 quality and complexity defaults (#3782)", () =
   });
 });
 
+describe("openai provider — animated GIF (#3783)", () => {
+  test("only the 2.6 pair lists gif among its formats", () => {
+    const gif = openaiProvider.models.filter((m) => m.outputFormats.includes("gif")).map((m) => m.id);
+    expect(gif).toEqual([SUNBURST, FLARE]);
+  });
+
+  test("a GIF response is decoded as image/gif", async () => {
+    stub({ data: [{ b64_json: PNG_B64 }] });
+    const result = await openaiProvider.generate(SUNBURST, { prompt: "x", format: "gif", frames: 4 }, "k");
+    expect(result.images[0].mime).toBe("image/gif");
+  });
+
+  const refusals: [string, Parameters<typeof openaiProvider.generate>[1], string, RegExp][] = [
+    ["GIF on a 2.5 model", { prompt: "x", format: "gif" }, "gpt-image-2.5-flare", /GIF/],
+    ["GIF with a mask", { prompt: "x", format: "gif", references: [ref()], mask: ref() }, SUNBURST, /mask/],
+    ["GIF with transparency", { prompt: "x", format: "gif", transparent: true }, SUNBURST, /transparent/],
+    ["frames without GIF", { prompt: "x", format: "png", frames: 4 }, SUNBURST, /GIF output only/],
+  ];
+  for (const [label, req, model, message] of refusals) {
+    test(`a direct call with ${label} refuses before fetch`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      await expect(openaiProvider.generate(model, req, "k")).rejects.toThrow(message);
+      expect(calls).toHaveLength(0);
+    });
+  }
+});
+
 describe("GPT Image 2.5 and 2.6 output-token estimate", () => {
   // The guide's one calculator covers both generations (checked 2026-11-09).
   const SUNBURST = "gpt-image-2.6-sunburst";

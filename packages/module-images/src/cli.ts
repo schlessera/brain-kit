@@ -25,7 +25,10 @@ import { estimateOpenAiOutputCost, openAiRequestQuality, openAiRequestSize } fro
 import { isRetiredModel, retiredModelMessage } from "./retired.js";
 import { route, type RoutingDecision } from "./routing.js";
 import {
+  GIF_FRAME_COUNT,
+  GIF_FRAME_DURATION_MS,
   IMAGE_COMPLEXITIES,
+  IMAGE_FORMATS,
   IMAGE_QUALITIES,
   ImageProviderError,
   type ImageComplexity,
@@ -34,7 +37,15 @@ import {
   type ImageRequest,
 } from "./types.js";
 
-const FORMATS = ["png", "jpeg", "webp"] as const;
+const FORMATS = IMAGE_FORMATS;
+
+/** A whole number within an inclusive range, or why not. */
+function wholeInRange(flag: string, raw: string, range: { min: number; max: number }): number | string {
+  const n = Number(raw);
+  return /^\d+$/.test(raw) && n >= range.min && n <= range.max
+    ? n
+    : `${flag} must be a whole number from ${range.min} to ${range.max} (got "${raw}")`;
+}
 
 /** A per-image price, or the honest absence of one. */
 const price = (usd: number | null) => (usd === null ? "cost unknown" : `~$${usd.toFixed(3)}`);
@@ -49,8 +60,16 @@ Output:
   --scratch               Write to the brain's scratch area instead (.brain/scratch/): for a
                           draft that should not become part of the brain. Never committed;
                           pruned after 7 days or past 1 GB.
-  --format png|jpeg|webp  Default: whatever the chosen model returns
-                          (every Gemini image model serves JPEG only)
+  --format png|jpeg|webp|gif
+                          Default: whatever the chosen model returns
+                          (every Gemini image model serves JPEG only). gif is an
+                          animated GIF from GPT Image 2.6 only; it needs GIF preview
+                          access on the OpenAI organization, takes no --mask or
+                          --transparent, and a dry run cannot price it
+
+Animation (--format gif only):
+  --frames <n>            2-16 frames. Default: the API's, 9
+  --frame-duration <ms>   20-2000 ms per frame. Default: the API's, 200
 
 Shape (--aspect and --resolution work on every model):
   --aspect <W:H>          1:1 2:3 3:2 3:4 4:3 4:5 5:4 9:16 16:9 21:9 on Gemini;
@@ -221,6 +240,24 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       console.error(`--format must be one of ${FORMATS.join(", ")} (got "${format}")`);
       return 1;
     }
+    // Frame settings are GIF settings: checked here, before routing or any
+    // request, so a typo never reaches a paid call (#3783).
+    const frameFlags = { frames: GIF_FRAME_COUNT, "frame-duration": GIF_FRAME_DURATION_MS } as const;
+    const frameValues: Partial<Record<keyof typeof frameFlags, number>> = {};
+    for (const [flag, range] of Object.entries(frameFlags) as [keyof typeof frameFlags, { min: number; max: number }][]) {
+      const raw = parsed.flags[flag];
+      if (raw === undefined) continue;
+      if (format !== "gif") {
+        console.error(`--${flag} applies to animated GIFs only; add --format gif`);
+        return 1;
+      }
+      const value = wholeInRange(`--${flag}`, String(raw), range);
+      if (typeof value === "string") {
+        console.error(value);
+        return 1;
+      }
+      frameValues[flag] = value;
+    }
 
     let request: ImageRequest;
     try {
@@ -232,6 +269,8 @@ export const imageCommand: CommandModule<ImagesConfig> = {
         quality: quality as ImageQuality | undefined,
         complexity: complexity as ImageComplexity | undefined,
         format: format as ImageRequest["format"],
+        frames: frameValues.frames,
+        frameDurationMs: frameValues["frame-duration"],
         transparent: parsed.flags.transparent === true,
         references: (parsed.repeated.ref ?? []).map((r) => loadImage(ctx.root, r)),
         mask: parsed.flags.mask ? loadImage(ctx.root, parsed.flags.mask as string) : undefined,
@@ -324,8 +363,11 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       // The GPT Image models have no card price, but a quality (stated, or the
       // max default) and a size have a published output-token count; `auto`
       // or an unstated size stays unknown.
+      // GIF has no published per-frame token count, so it is never priced.
       const estimatedCostUsd =
-        model.provider === "openai"
+        request.format === "gif"
+          ? null
+          : model.provider === "openai"
           ? (estimateOpenAiOutputCost(model.id, openAiRequestQuality(request), openAiRequestSize(request, model.id)) ?? null)
           : model.approxCostUsd1K;
       const payload = {
@@ -339,7 +381,9 @@ export const imageCommand: CommandModule<ImagesConfig> = {
       if (ctx.json) console.log(JSON.stringify(payload, null, 2));
       else {
         const cost =
-          estimatedCostUsd === null && model.provider === "openai"
+          request.format === "gif"
+            ? "cost unknown — OpenAI publishes no per-frame token count for GIF"
+            : estimatedCostUsd === null && model.provider === "openai"
             ? "cost unknown — pass --size or --aspect (and a quality other than auto) to price it"
             : price(estimatedCostUsd);
         console.log(`Would use ${describe(decision)}`);
