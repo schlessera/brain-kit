@@ -34,6 +34,7 @@ serve at all:
 | Exact custom pixels | OpenAI | Gemini has fixed ratios; the 2.6 and 2.5 models take any size on a 16px grid up to 3840px, 3:1 and 8.3MP |
 | `--complexity` | OpenAI GPT Image 2.6 | Only the 2.6 models take it; it is refused anywhere else |
 | Animated GIF (`--format gif`) | OpenAI GPT Image 2.6 | Only the 2.6 models return GIF; it is refused anywhere else |
+| Static SVG (`--format svg`) | OpenAI GPT Image 2.6 | Only the 2.6 models author SVG, on new images only |
 | Character consistency | Gemini | Narrows to models that claim it; no benchmark picks a winner |
 | >6 reference images | Gemini | 10 (Flash) / 14 (Lite) vs OpenAI's practical 8 |
 | Watermark-free | OpenAI | Gemini always applies SynthID |
@@ -66,6 +67,18 @@ and no `--transparent`, and the 2.5 models and Gemini cannot return one; each of
 these is refused before any request. OpenAI serves GIF only to organizations
 with GIF preview access, and the refusal says so. A dry run reports a GIF's cost
 as unknown, because OpenAI publishes no per-frame token count.
+
+`--format svg` asks a GPT Image 2.6 model to author a static SVG, written as
+UTF-8 XML to a `.svg` file. It works on new images only: `--ref`, `--mask`,
+`--transparent`, the 2.5 models and Gemini are refused before any request.
+OpenAI says the output is static, but the module checks rather than trusts it.
+An SVG that is not UTF-8 or not an SVG document, or that contains a DOCTYPE,
+`<script>`, `<foreignObject>`, an embedding element, an event-handler attribute,
+an `@import`, or any `href`, `src` or `url()` that is not a `#fragment`, is
+refused and nothing is written. The call has still been paid for. SVG authoring
+tokens are billed at a rate this module does not know, so the cost is reported
+as unknown, before and after the call. The `svg` authoring-model option is
+never sent.
 
 ### Retired models
 
