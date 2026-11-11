@@ -42,7 +42,7 @@ test("receipt eviction preserves native and request tombstones", async () => {
     const recovered = await catalog.loadConversation!("ithaca", "odysseus");
     expect(recovered?.requestIds).toHaveLength(66);
     expect(recovered?.receipts).toHaveLength(64);
-    expect(recovered?.receipts.some(r => r.requestId === "request-0")).toBe(false);
+    expect(recovered?.receipts.map(r => r.requestId)).not.toContain("request-0");
     await expect(catalog.saveConversationTask!("odysseus", { ...task(100), nativeHandle: "native-0" })).rejects.toThrow("already consumed");
   } finally { db.close(); }
 });
@@ -95,10 +95,10 @@ test("durable result bounds evict oldest admissions without deleting identity to
     // A late delivery update cannot restore evicted old facts or reorder them.
     await catalog.saveConversationTask!("odysseus", { ...task(0), state: "completed", delivery: "returned", turnId: "turn-0" }, "Evicted facts.");
     recovered = await catalog.loadConversation!("ithaca", "odysseus");
-    expect(recovered?.results.some(r => r.requestId === "request-0")).toBe(false);
+    expect(recovered?.results.map(r => r.requestId)).not.toContain("request-0");
     expect(recovered?.requestIds).toHaveLength(6);
     await catalog.saveConversationTask!("odysseus", { ...task(8), state: "error", delivery: "discarded", turnId: "turn-8", reason: "Could not read." }, "Partial output must not imply success.");
-    expect((await catalog.loadConversation!("ithaca", "odysseus"))?.results.some(r => r.requestId === "request-8")).toBe(false);
+    expect((await catalog.loadConversation!("ithaca", "odysseus"))?.results.map(r => r.requestId)).not.toContain("request-8");
   } finally { db.close(); }
 });
 

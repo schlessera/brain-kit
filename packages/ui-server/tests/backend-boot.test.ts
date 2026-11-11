@@ -66,8 +66,8 @@ describe("assertBackendResolvable", () => {
       backendId: "pi", phase: "resolution", errorClass: "Error",
       message: expect.stringContaining('BRAIN_UI_PI_PROFILES is set but "@schlessera/brain-backend-pi" is not installed'),
     })]);
-    // With everything resolvable, the opt-in passes.
-    expect(() => assertBackendResolvable(withPiProfiles)).not.toThrow();
+    // With everything resolvable, the opt-in passes and marks nothing unavailable.
+    expect(assertBackendResolvable(withPiProfiles)).toEqual([]);
   });
 
   test("a malformed BRAIN_UI_PI_PROFILES refuses at boot, not on first request", () => {

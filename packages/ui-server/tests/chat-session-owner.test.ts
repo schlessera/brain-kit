@@ -108,7 +108,7 @@ test("a typed chat created now is deletable by its owner; one created before the
   await w.type("And past the Sirens?", "voyage");
   expect(bindings(w.db), "ONLY_CREATED_SESSIONS_BIND").toEqual([{ sessionId: "voyage", principalId: w.owner.id }]);
   // The binding is content-free and adds no dialogue owner: paging and retention are untouched.
-  expect(JSON.stringify(w.db.query("SELECT * FROM chat_session_owners").all()).includes("voyage home"), "BINDING_IS_CONTENT_FREE").toBe(false);
+  expect(JSON.stringify(w.db.query("SELECT * FROM chat_session_owners").all()), "BINDING_IS_CONTENT_FREE").not.toContain("voyage home");
   expect(w.db.query("SELECT COUNT(*) AS n FROM dialogue_owners").get(), "NO_DIALOGUE_OWNER_CREATED").toEqual({ n: 0 });
   expect(await w.catalog.dialogueRead!(w.owner.id, { sessionId: "voyage" }), "DIALOGUE_PAGING_UNCHANGED").toEqual(await w.catalog.dialogueRead!(w.owner.id, { sessionId: "aeaea" }));
 
