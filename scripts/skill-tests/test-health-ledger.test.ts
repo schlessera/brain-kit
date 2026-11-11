@@ -108,6 +108,13 @@ describe("a directory ledger", () => {
     expect(store.read().map(record => record.runId)).toEqual(["th-june", "th-2", "th-3"]);
     expect(readFileSync(join(dir, "report.md"), "utf8")).toBe("# Test health\n");
   });
+
+  test("stores a prepared patch one directory deep and reads it back; deeper names and records/ are refused", () => {
+    const store = new DirLedgerStore(temp("ledger"));
+    store.append([run("th-2", at(12))], { "wip/th-2-0.patch": "diff --git a/x b/x\n" });
+    expect([store.readFile("wip/th-2-0.patch"), store.readFile("wip/th-9-0.patch")]).toEqual(["diff --git a/x b/x\n", null]);
+    for (const name of ["wip/a/b.patch", "records/x.jsonl", "../x", "wip/.."]) expect(() => store.append([], { [name]: "x" })).toThrow("one directory deep");
+  });
 });
 
 describe("the ledger on a shared ref", () => {
@@ -144,6 +151,16 @@ describe("the ledger on a shared ref", () => {
     expect(b.read().map(record => record.runId)).toEqual(["th-1", "th-2", "th-3"]);
     expect(git(origin, "rev-list", "--count", REF)).toBe("3");
     expect(git(origin, "show", `${REF}:report.md`)).toBe("# Test health");
+  });
+
+  test("a prepared patch lands in wip/ next to the records, a second one keeps the first, and a clone reads them", () => {
+    const { origin, first, second } = fixture();
+    new GitLedgerStore(first, "origin", REF).append([run("th-1", at(12, 1))], { "wip/th-1-0.patch": "first\n" });
+    new GitLedgerStore(second, "origin", REF).append([run("th-2", at(12, 2))], { "wip/th-2-0.patch": "second\n" });
+    expect(git(origin, "ls-tree", "-r", "--name-only", REF).split("\n")).toEqual(["records/2026-07.jsonl", "wip/th-1-0.patch", "wip/th-2-0.patch"]);
+    const reader = new GitLedgerStore(first, "origin", REF);
+    expect([reader.readFile("wip/th-2-0.patch"), reader.readFile("wip/th-3-0.patch")]).toEqual(["second\n", null]);
+    expect(() => reader.append([], { "records/x.jsonl": "x" })).toThrow("one directory deep");
   });
 
   test("a writer that loses the race to a concurrent push retries on the new commit instead of overwriting it", () => {
