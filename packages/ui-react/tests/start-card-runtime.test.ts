@@ -389,10 +389,15 @@ describe.skipIf(!executablePath)("the Start card against mounted routes and two 
 
   for (const [width, height] of SIZES) test(`${width}px: a persona edited before Start is refused as a VoiceNotice; Start again reopens the card`, async () => {
     await restart(["gemini-live"]);
-    await brainWith(["ithaca-steward"], "ithaca-steward", null);
+    await brainWith(["ithaca-steward"], "standard", null);
     const page = await open(width, height);
     const before = counts();
-    await enter(page, 2);
+    const picked = await enter(page, 2);
+    // Picked on the card, so this Start is pinned to the revision the card showed,
+    // whenever the host's fresh persona status reaches the page.
+    await picked.getByRole("radio", { name: /Ithaca steward/ }).click();
+    await page.waitForFunction(() => (window as unknown as { __start: { state(): StartState } }).__start.state().persona === "ithaca-steward");
+    expect((await state(page)).personaChoice, "the card's pick is what Start sends").toEqual({ id: "ithaca-steward", revision: await revisionOf("ithaca-steward") });
     // Another device edits the persona after the card read it.
     const p = PERSONAS["ithaca-steward"];
     await writeFile(resolve(brain, "_voice/personas/ithaca-steward.md"), `---\nschema: 1\nname: "${p.name}"\nvoices:\n  gemini-live: "Kore"\n---\nSlower now.\n`);
