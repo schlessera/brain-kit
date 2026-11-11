@@ -61,6 +61,7 @@ test("a host cancellation outranks a full state found after the result", async (
   const results = await run(`head -c ${8 * MiB} /dev/zero > "$CLAUDE_CONFIG_DIR/full" 2>/dev/null; sleep 0.3; exit 0`, true);
   expect(results).toHaveLength(1);
   expect(results[0]).not.toHaveProperty("failure.errorClass", "worker_state_exceeded");
+  expect(results[0]).toMatchObject({ outcome: "cancelled", isError: false, usage: { inputTokens: 17, outputTokens: 9 } });
 }, 30_000);
 
 test("a write failure the worker reported stays on record however much it prints afterwards", async () => {
