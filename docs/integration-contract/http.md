@@ -330,6 +330,21 @@ retryable: true }`, changing nothing, while any safety producer or collection
 is open. Each recovery is recorded with its trigger, actor, time and the cause
 it cleared. Affected chats keep their gaps.
 
+<a id="account-bound-safety-history-additive-3952"></a>
+
+### A chat's safety history belongs to its account (additive, #3952)
+
+A turn, a safety read (`GET /api/sessions/:id/safety`, WS `safety_read`) and
+an owner review of a chat now accept any principal of the chat's account, not
+only the principal that started it. A principal id always matches itself.
+Two different ids match only when both resolve to the same account partition,
+which today means two owner logins, so an agent, ambient or system principal
+matches only itself; a missing or unresolvable principal matches no other id.
+Another account's principal is refused exactly as before. Read
+snapshots, review handles, receipts and the verdict's `principalId` stay bound
+to the exact principal. Nothing previously accepted is refused, and stored
+rows are not rewritten ([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-belongs-to-its-account-3952)).
+
 <a id="root-server-warning-additive-1638"></a>
 
 ### Root server warning (additive, #1638)
@@ -472,6 +487,8 @@ Queued continuations retain that snapshot without recopying source evidence or
 importing later source activity. Actual catalog creator, principal,
 history owner, aliases and generation govern binding. Retired session/owner/turn
 identities refuse late callbacks even after private detail is removed.
+The principal binds as its account
+([additive, #3952](#account-bound-safety-history-additive-3952)).
 
 Effective admission is restricted for any unresolved occurrence, incomplete or
 unknown coverage, pending recording, failure or exhausted capacity. Only a
