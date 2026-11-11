@@ -37,7 +37,8 @@ const discover: Discover = root => {
   });
 };
 
-function fixture() {
+/** ithaca has three test files and pylos one; at the fixture's threshold of two, ithaca is a group of its own and pylos is `small`. */
+function fixture(config: Record<string, unknown> = { smallPackageFiles: 2 }) {
   const dir = mkdtempSync(join(tmpdir(), "odysseus-test-health-cli-"));
   scratch.push(dir);
   const root = join(dir, "repo"), ledger = join(dir, "ledger"), state = join(dir, "state");
@@ -63,7 +64,7 @@ function fixture() {
 
   let clock = Date.parse("2026-07-12T08:00:00Z"), runs = 0;
   const io = (out: string[]): Io => ({ root, now: () => new Date(clock), out: text => out.push(text), discover, bunCommand: ["bun", "test"],
-    runId: () => `th-run-${++runs}` });
+    runId: () => `th-run-${++runs}`, config });
   /** Runs one command against the fixture's own ledger and state, offline. */
   const cli = async (...args: string[]) => {
     const out: string[] = [];
@@ -74,7 +75,7 @@ function fixture() {
     return { code, text, json };
   };
   const advance = (hours: number) => { clock += hours * 3_600_000; };
-  return { root, state, git, write, cli, advance };
+  return { root, state, ledger, git, write, cli, advance };
 }
 
 const cleanLenses = (overrides: Record<string, string> = {}) => Object.fromEntries(LENS_IDS.map(lens => [lens, overrides[lens] ?? "clean"]));
@@ -104,9 +105,9 @@ describe("one run, end to end", () => {
   test("plan picks the package with the worst signals, opens its batch and claims its files", async () => {
     const f = fixture();
     const plan = (await f.cli("plan")).json;
-    expect(plan).toMatchObject({ runId: "th-run-1", mode: "hot", package: "ithaca", throttled: null,
+    expect(plan).toMatchObject({ runId: "th-run-1", mode: "hot", group: "ithaca", package: "ithaca", throttled: null,
       batch: { id: "ithaca-th-run-1", branch: "test-health/ithaca-th-run-1", base: "main", isNew: true } });
-    expect(plan.clusters).toEqual([{ index: 0, seed: OARS, members: [OARS] }, { index: 1, seed: REEF, members: [REEF, SAILS] }]);
+    expect(plan.clusters).toEqual([{ index: 0, package: "ithaca", seed: OARS, members: [OARS] }, { index: 1, package: "ithaca", seed: REEF, members: [REEF, SAILS] }]);
     expect(existsSync(join(plan.runDir, "plan.json"))).toBe(true);
   });
 
@@ -114,7 +115,7 @@ describe("one run, end to end", () => {
     const f = fixture();
     await f.cli("plan");
     const second = (await f.cli("plan")).json;
-    expect([second.package, second.clusters.map((cluster: any) => cluster.members), second.stats.claimed]).toEqual(["pylos", [[SANDS]], 3]);
+    expect([second.group, second.package, second.clusters.map((cluster: any) => cluster.members), second.stats.claimed]).toEqual(["small", "pylos", [[SANDS]], 3]);
     f.advance(4);
     const third = (await f.cli("plan", "--package", "ithaca")).json;
     expect(third.clusters.flatMap((cluster: any) => cluster.members).sort()).toEqual([OARS, REEF, SAILS]);
@@ -200,7 +201,7 @@ describe("one run, end to end", () => {
     await f.cli("record", "cluster", "--run", plan.runId, "--cluster", "0", "--worksheet", worksheet, "--commit", commit);
     const before = (await f.cli("batch", "status")).json;
     expect(before).toMatchObject({ land: null, parkedChangedFiles: 1 });
-    expect(before.batches[0]).toMatchObject({ batchId: plan.batch.id, ripe: false, changedFiles: 1, remainingInPackage: 2 });
+    expect(before.batches[0]).toMatchObject({ batchId: plan.batch.id, group: "ithaca", ripe: false, changedFiles: 1, remainingInGroup: 2 });
 
     const clean = join(plan.runDir, "cluster-1.json");
     writeFileSync(clean, JSON.stringify({ schemaVersion: 1, runId: plan.runId, cluster: 1, seed: REEF, members: [REEF, SAILS], context: [],
@@ -209,7 +210,7 @@ describe("one run, end to end", () => {
     await f.cli("record", "run", "--run", plan.runId, "--outcome", "completed", "--agent", "argus");
 
     const after = (await f.cli("batch", "status")).json;
-    expect(after.batches[0]).toMatchObject({ ripe: true, reasons: ["nothing left to audit in its package"], remainingInPackage: 0 });
+    expect(after.batches[0]).toMatchObject({ ripe: true, reasons: ["nothing left to audit in its group"], remainingInGroup: 0 });
     expect(after.land).toBe(plan.batch.id);
     const gate = await f.cli("batch", "verify", "--head", "HEAD");
     expect([gate.code, gate.json.ok, gate.json.stats.commits]).toEqual([0, true, 1]);
@@ -242,6 +243,153 @@ describe("one run, end to end", () => {
     expect(dropped.voidedClusters).toEqual(["th-run-1#0"]);
     expect((await f.cli("report")).json).toMatchObject({ coverage: { auditedCurrent: 0 }, batches: { droppedCommits: 1 } });
     await expect(f.cli("record", "batch", "--batch", plan.batch.id, "--event", "dropped", "--commit", "0000000")).rejects.toThrow("No recorded cluster");
+  });
+});
+
+describe("small packages share a batch", () => {
+  const opened = (batchId: string, extra: Record<string, unknown>) => JSON.stringify({ v: 1, type: "batch", event: "opened", at: "2026-07-11T08:00:00.000Z",
+    runId: "th-legacy", batchId, branch: `test-health/${batchId}`, base: "main", profile: "cron", ...extra }) + "\n";
+
+  test("a second plan continues the open small batch whichever small package it draws from, and the batch is unfinished until the group is", async () => {
+    // At the default threshold both packages are small.
+    const f = fixture({});
+    const first = (await f.cli("plan", "--budget-files", "1")).json;
+    expect([first.group, first.package, first.batch]).toEqual(["small", "ithaca", { id: "small-th-run-1", branch: "test-health/small-th-run-1", base: "main", isNew: true }]);
+    const second = (await f.cli("plan", "--package", "pylos")).json;
+    expect([second.package, second.clusters.map((cluster: any) => cluster.members), second.batch]).toEqual(["pylos", [[SANDS]], { ...first.batch, isNew: false }]);
+    const third = (await f.cli("plan")).json;
+    expect([third.package, third.batch.id, third.batch.isNew]).toEqual(["ithaca", "small-th-run-1", false]);
+
+    const record = async (plan: any, index: number) => {
+      const cluster = plan.clusters[index];
+      const path = join(plan.runDir, `cluster-${index}.json`);
+      writeFileSync(path, JSON.stringify({ schemaVersion: 1, runId: plan.runId, cluster: index, seed: cluster.seed, members: cluster.members, context: [],
+        audits: cluster.members.map((file: string) => ({ file, lenses: cleanLenses() })), findings: [] }));
+      await f.cli("record", "cluster", "--run", plan.runId, "--cluster", String(index), "--worksheet", path);
+    };
+    await record(first, 0);
+    await record(third, 0);
+    // pylos still has a file to audit, so the shared batch is not exhausted.
+    expect((await f.cli("batch", "status")).json.batches[0]).toMatchObject({ batchId: "small-th-run-1", group: "small", remainingInGroup: 1 });
+    await record(second, 0);
+    expect((await f.cli("batch", "status")).json.batches[0]).toMatchObject({ batchId: "small-th-run-1", remainingInGroup: 0 });
+  });
+
+  test("a small batch ripens only once every small package is exhausted, and is then offered for landing", async () => {
+    const f = fixture({});
+    const { plan, worksheet, commit } = await auditOars(f);
+    expect(plan.clusters.map((cluster: any) => cluster.package)).toEqual(["ithaca", "ithaca", "pylos"]);
+    await f.cli("record", "cluster", "--run", plan.runId, "--cluster", "0", "--worksheet", worksheet, "--commit", commit);
+    const clean = async (index: number) => {
+      const cluster = plan.clusters[index];
+      const path = join(plan.runDir, `cluster-${index}.json`);
+      writeFileSync(path, JSON.stringify({ schemaVersion: 1, runId: plan.runId, cluster: index, seed: cluster.seed, members: cluster.members, context: [],
+        audits: cluster.members.map((file: string) => ({ file, lenses: cleanLenses() })), findings: [] }));
+      await f.cli("record", "cluster", "--run", plan.runId, "--cluster", String(index), "--worksheet", path);
+    };
+    await clean(1);
+    await f.cli("record", "run", "--run", plan.runId, "--outcome", "completed");
+    // ithaca is done; pylos's file is still to audit, so the shared batch waits.
+    expect((await f.cli("batch", "status")).json).toMatchObject({ land: null, batches: [{ batchId: plan.batch.id, ripe: false, changedFiles: 1, remainingInGroup: 1 }] });
+    f.advance(4);
+    const next = (await f.cli("plan")).json;
+    expect([next.package, next.batch.id]).toEqual(["pylos", plan.batch.id]);
+    const last = join(next.runDir, "cluster-0.json");
+    writeFileSync(last, JSON.stringify({ schemaVersion: 1, runId: next.runId, cluster: 0, seed: SANDS, members: [SANDS], context: [],
+      audits: [{ file: SANDS, lenses: cleanLenses() }], findings: [] }));
+    await f.cli("record", "cluster", "--run", next.runId, "--cluster", "0", "--worksheet", last);
+    expect((await f.cli("batch", "status")).json).toMatchObject({ land: plan.batch.id,
+      batches: [{ ripe: true, reasons: ["nothing left to audit in its group"], remainingInGroup: 0 }] });
+  });
+
+  test("a shard written before groups, or one whose package is small today, still plans its files", async () => {
+    const f = fixture();
+    mkdirSync(f.state, { recursive: true });
+    const shard = join(f.state, "legacy-shard.json");
+    writeFileSync(shard, JSON.stringify({ id: "e9-pylos-01", package: "pylos", files: [SANDS], effort: 1 }));
+    const plan = (await f.cli("plan", "--shard", shard, "--profile", "push")).json;
+    expect([plan.group, plan.clusters.map((cluster: any) => cluster.members), plan.batch.id]).toEqual(["small", [[SANDS]], "e9-pylos-01"]);
+  });
+
+  test("a batch opened before groups, for one package, is the batch its package's plans continue", async () => {
+    const f = fixture();
+    mkdirSync(join(f.ledger, "records"), { recursive: true });
+    writeFileSync(join(f.ledger, "records", "2026-07.jsonl"), opened("ithaca-th-legacy", { package: "ithaca" }) + opened("pylos-th-legacy", { package: "pylos" }));
+    const large = (await f.cli("plan", "--package", "ithaca")).json;
+    expect([large.group, large.batch.id, large.batch.isNew]).toEqual(["ithaca", "ithaca-th-legacy", false]);
+    // pylos is small now: the batch it opened alone becomes its group's batch.
+    const small = (await f.cli("plan", "--package", "pylos")).json;
+    expect([small.group, small.batch.id, small.batch.isNew]).toEqual(["small", "pylos-th-legacy", false]);
+    expect((await f.cli("batch", "status")).json.batches.map((batch: any) => [batch.batchId, batch.group])).toEqual([["ithaca-th-legacy", "ithaca"], ["pylos-th-legacy", "pylos"]]);
+  });
+});
+
+describe("unfinished work", () => {
+  /** Audits OARS, prepares its fix as a patch without proving it, restores the file and records the cluster with the patch. */
+  async function deferWithPatch(f: ReturnType<typeof fixture>) {
+    const plan = (await f.cli("plan")).json;
+    f.write(OARS, OARS_TEST.replace("toBeDefined()", "toBe(12)"));
+    const patch = join(plan.runDir, "wip-0.patch");
+    writeFileSync(patch, f.git("diff", "--", OARS) + "\n");
+    f.git("checkout", "--", OARS);
+    const worksheet = join(plan.runDir, "cluster-0.json");
+    writeFileSync(worksheet, JSON.stringify({ schemaVersion: 1, runId: plan.runId, cluster: 0, seed: OARS, members: [OARS], context: [],
+      audits: [{ file: OARS, lenses: cleanLenses({ "cannot-fail": "findings" }) }],
+      findings: [{ id: "F1", file: OARS, lens: "cannot-fail", smell: "weak-matcher", action: "strengthen", status: "deferred", deferredFor: "proof",
+        note: "toBeDefined cannot tell 12 oars from none; the fix is written but its mutation was not run" }] }));
+    return { plan, patch, worksheet };
+  }
+
+  test("record cluster --wip stores the patch next to the records, and a later plan's brief resumes from it", async () => {
+    const f = fixture();
+    const { plan, patch, worksheet } = await deferWithPatch(f);
+    const recorded = (await f.cli("record", "cluster", "--run", plan.runId, "--cluster", "0", "--worksheet", worksheet, "--wip", patch)).json;
+    expect(recorded).toMatchObject({ recorded: "th-run-1#0", wip: "wip/th-run-1-0.patch" });
+    expect(readFileSync(join(f.ledger, "wip", "th-run-1-0.patch"), "utf8")).toBe(readFileSync(patch, "utf8"));
+    await f.cli("record", "run", "--run", plan.runId, "--outcome", "completed");
+
+    f.advance(4);
+    const later = (await f.cli("plan", "--package", "ithaca")).json;
+    expect(later.stats).toMatchObject({ unfinished: 1 });
+    const index = later.clusters.findIndex((cluster: any) => cluster.members.includes(OARS));
+    const brief = (await f.cli("brief", "--run", later.runId, "--cluster", String(index))).text;
+    expect(brief).toContain("- deferred by that audit (proof): F1 cannot-fail/weak-matcher, action strengthen: toBeDefined cannot tell 12 oars from none");
+    const local = join(later.runDir, "wip", "th-run-1-0.patch");
+    expect(brief).toContain(`- prepared patch from that audit: \`${local}\` (ledger \`wip/th-run-1-0.patch\`)`);
+    expect(readFileSync(local, "utf8")).toBe(readFileSync(patch, "utf8"));
+  });
+
+  test("a patch that touches anything but test code, or is larger than the cap, is refused and nothing is recorded", async () => {
+    const f = fixture();
+    const { plan, worksheet } = await deferWithPatch(f);
+    const product = join(plan.runDir, "product.patch");
+    writeFileSync(product, "diff --git a/packages/ithaca/src/oars.ts b/packages/ithaca/src/oars.ts\n--- a/packages/ithaca/src/oars.ts\n+++ b/packages/ithaca/src/oars.ts\n@@ -1 +1 @@\n-a\n+b\n");
+    const record = (path: string) => f.cli("record", "cluster", "--run", plan.runId, "--cluster", "0", "--worksheet", worksheet, "--wip", path);
+    await expect(record(product)).rejects.toThrow("touches packages/ithaca/src/oars.ts, which is not test code");
+    const huge = join(plan.runDir, "huge.patch");
+    writeFileSync(huge, `diff --git a/${OARS} b/${OARS}\n${"+".repeat(300_000)}\n`);
+    await expect(record(huge)).rejects.toThrow("the ledger stores patches up to 262144");
+    // A valid test diff followed by a traditional diff of product code: git would apply both.
+    const mixed = join(plan.runDir, "mixed.patch");
+    writeFileSync(mixed, `diff --git a/${OARS} b/${OARS}\n--- a/${OARS}\n+++ b/${OARS}\n@@ -1 +1 @@\n-a\n+b\n`
+      + "--- a/packages/ithaca/src/oars.ts\n+++ b/packages/ithaca/src/oars.ts\n@@ -1 +1 @@\n-a\n+b\n");
+    await expect(record(mixed)).rejects.toThrow("touches packages/ithaca/src/oars.ts, which is not test code");
+    const prose = join(plan.runDir, "prose.patch");
+    writeFileSync(prose, "the oars need counting\n");
+    await expect(record(prose)).rejects.toThrow("is not a git patch");
+    expect(existsSync(join(f.ledger, "wip"))).toBe(false);
+    expect((await f.cli("report")).json.findings.total).toBe(0);
+  });
+
+  test("the report counts unfinished files and deferred findings by reason", async () => {
+    const f = fixture();
+    const { plan, worksheet } = await deferWithPatch(f);
+    await f.cli("record", "cluster", "--run", plan.runId, "--cluster", "0", "--worksheet", worksheet);
+    const report = (await f.cli("report")).json;
+    expect([report.coverage.unfinished, report.coverage.auditedCurrent, report.findings.byDeferredFor]).toEqual([1, 0, { proof: 1 }]);
+    const markdown = readFileSync(join(report.written, "report.md"), "utf8");
+    expect(markdown).toContain("| Unfinished: work deferred for budget or proof | 1 |");
+    expect(markdown).toContain("| Deferred, by reason | proof 1 |");
   });
 });
 
@@ -278,13 +426,13 @@ describe("scaling out", () => {
     const f = fixture();
     const out = join(f.state, "shards");
     const shards = (await f.cli("shards", "--count", "2", "--tag", "e9", "--out", out)).json.shards;
-    // The count is a target: a package with more than its share of the work is split, and each package keeps its own shard.
-    expect(shards.map((shard: any) => [shard.id, shard.package, shard.files])).toEqual([["e9-ithaca-01", "ithaca", 2], ["e9-ithaca-02", "ithaca", 1], ["e9-pylos-01", "pylos", 1]]);
-    const plan = (await f.cli("plan", "--shard", join(out, "e9-pylos-01.json"), "--profile", "push")).json;
-    expect(plan).toMatchObject({ profile: "push", package: "pylos", batch: { id: "e9-pylos-01", branch: "test-health/e9-pylos-01", isNew: true } });
+    // The count is a target: a group with more than its share of the work is split, and each group keeps its own shard.
+    expect(shards.map((shard: any) => [shard.id, shard.group, shard.files])).toEqual([["e9-ithaca-01", "ithaca", 2], ["e9-ithaca-02", "ithaca", 1], ["e9-small-01", "small", 1]]);
+    const plan = (await f.cli("plan", "--shard", join(out, "e9-small-01.json"), "--profile", "push")).json;
+    expect(plan).toMatchObject({ profile: "push", group: "small", package: "pylos", batch: { id: "e9-small-01", branch: "test-health/e9-small-01", isNew: true } });
     expect(plan.clusters.map((cluster: any) => cluster.members)).toEqual([[SANDS]]);
     // A second worker on the same shard continues its batch and finds the files claimed.
-    const again = (await f.cli("plan", "--shard", join(out, "e9-pylos-01.json"), "--profile", "push")).json;
+    const again = (await f.cli("plan", "--shard", join(out, "e9-small-01.json"), "--profile", "push")).json;
     expect([again.clusters, again.stats.claimed]).toEqual([[], 1]);
   });
 

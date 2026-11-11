@@ -1,7 +1,7 @@
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
 export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOrientation, ORIENTATION_MAX_BYTES } from "./server/interaction-guidance.js";
 export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";
-export { workerCleanupUnconfirmed, workerIdentityHelper } from "./server/worker-identity.js";
+export { workerCleanupUnconfirmed, workerIdentityHelper, reportStrandedWorkerCleanup } from "./server/worker-identity.js";
 export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
 export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerHost, requireWorkerHostAsync, WorkerResourceLimitError, probeWorkerHost, probeWorkerHostAsync, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
 export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";

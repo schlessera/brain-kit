@@ -13,6 +13,12 @@ export interface Profile {
   sweepEvery: number;
   claimHours: number;
   reauditDays: number;
+  /** A package with at most this many test files in the profile's tiers shares the `small` group; `null` gives every package its own. */
+  smallPackageFiles: number | null;
+  /** Largest prepared patch `record cluster --wip` stores on the ledger. */
+  wipMaxBytes: number;
+  /** How far past its time budget a run may go to prove a fix it already wrote. */
+  proofOverrunMinutes: number;
   tiers: string[];
   ripe: { changedFiles: number | null; ageHours: number | null; maxChangedFiles: number | null; whenExhausted: boolean };
   landing: { maxOpenCandidates: number | null; maxPerDay: number | null };
@@ -43,10 +49,13 @@ export function parseConfig(text: string, profileName: string, overrides: Record
   if (!isObject(profile)) throw new Error(`Unknown test-health profile: ${profileName} (known: ${Object.keys(raw.profiles).join(", ")})`);
   if (typeof raw.ledgerRemote !== "string" || typeof raw.ledgerRef !== "string") throw new Error("test-health config needs `ledgerRemote` and `ledgerRef`");
   const resolved = merge(merge(raw.defaults, profile), overrides) as Omit<Profile, "name">;
-  for (const key of ["clusterSize", "sweepEvery", "claimHours", "reauditDays"] as const) {
+  for (const key of ["clusterSize", "sweepEvery", "claimHours", "reauditDays", "wipMaxBytes", "proofOverrunMinutes"] as const) {
     if (!Number.isFinite(resolved[key]) || resolved[key] <= 0) throw new Error(`test-health config: ${key} must be a positive number`);
   }
   if (typeof resolved.base !== "string" || !resolved.base) throw new Error("test-health config: base must name a ref");
+  if (resolved.smallPackageFiles !== null && !(Number.isInteger(resolved.smallPackageFiles) && resolved.smallPackageFiles >= 0)) {
+    throw new Error("test-health config: smallPackageFiles must be a whole number or null");
+  }
   return { ledgerRemote: raw.ledgerRemote, ledgerRef: raw.ledgerRef, profile: { ...resolved, name: profileName } };
 }
 
