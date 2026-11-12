@@ -210,3 +210,22 @@ test("closing the broker ends every executor session and refuses further calls",
   expect(executorReceipts().every(receipt => receipt.exit.exited && groupGone(receipt.exit.pid!)), "WEB_CLOSE_EXITS").toBe(true);
   expect(await call(scope(), "web_search", { query: "Odysseus" })).toMatchObject({ ok: false, error: { code: "unavailable" } });
 });
+
+test("a dispatched call is in flight for its executor's connections until it settles, and its authority's refusal is the answer (#3687)", async () => {
+  const at = scope();
+  const owner = { principalId: at.principalId, sessionId: at.sessionId };
+  const seen: string[] = [];
+  const authority = { admit: async () => null, attempt: () => {} };
+  const running = broker.call(at, { tool: "web_search", input: { query: "slow Odysseus mast" }, toolCallId: at.toolCallId }, new AbortController().signal, () => true, authority);
+  await until(() => broker.inFlight(owner).length === 1, "the call was never in flight");
+  const [flight] = broker.inFlight(owner);
+  expect(flight!.scope, "WEB_IN_FLIGHT_CARRIES_THE_TURN").toEqual(at);
+  expect(flight!.authority).toBe(authority);
+  expect(broker.inFlight({ principalId: "p-suitor", sessionId: at.sessionId }), "WEB_IN_FLIGHT_IS_PER_OWNER").toEqual([]);
+  flight!.refuse({ code: "policy_denied", message: "Not for this recipient." });
+  flight!.refuse({ code: "budget_exceeded", message: "later" });
+  seen.push(JSON.stringify(await running));
+  expect(JSON.parse(seen[0]!), "WEB_AUTHORITY_REFUSAL_IS_THE_ANSWER").toEqual({ ok: false, tool: "web_search", error: { code: "policy_denied", message: "Not for this recipient." } });
+  expect(broker.inFlight(owner), "WEB_SETTLED_CALL_LEAVES_FLIGHT").toEqual([]);
+  expect(receipts.find(receipt => receipt.kind === "call")).toMatchObject({ outcome: "policy_denied" });
+});

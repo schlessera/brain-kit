@@ -22,7 +22,7 @@ export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrappe
 export { assertScratchMask, assertScratchMaskAsync } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_SOCKET } from "./server/inference-relay.js";
 export type { InferenceRelay, InferenceRelayEvent } from "./server/inference-relay.js";
-export { startEgressProxy, egressBootstrapEntry, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
+export { startEgressProxy, egressBootstrapEntry, EgressAdmissionRefused, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, providerUsage, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET, MAX_PROVIDER_REQUEST_BYTES, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal, type ProviderUsage, type ProviderOperation } from "./server/provider-relay.js";
 export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
 export type { EgressDestinationPolicy, EgressRecord, EgressRefusal } from "./server/egress-proxy.js";

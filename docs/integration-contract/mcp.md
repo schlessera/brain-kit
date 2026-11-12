@@ -1391,7 +1391,20 @@ message, feature? } }` as a tool error. `text` is external content. The codes
 (`WEB_TOOL_ERROR_CODES`) are `invalid_input`, `unsupported`,
 `provider_not_admitted`, `unavailable`, `unknown_handle`, `replayed_call`,
 `busy`, `request_too_large`, `response_too_large`, `cancelled`, `deadline`,
-`executor_died` and `failed`.
+`executor_died`, `failed`, and, since #3687, `policy_denied` and
+`budget_exceeded`.
+
+Since #3687 every external recipient a call reaches is admitted for the
+calling turn: a provider the call names before anything is dispatched, and
+each request the executor sends to a provider's API host while the call runs,
+whether a search, an extraction fallback or a nested model call. A
+conversation that has shown a provider folder to its model sends no recipient
+the provider policy keeps that folder from (`policy_denied`; an exposure the
+host cannot judge is refused too), and a blocked budget scope refuses the
+request (`budget_exceeded`). Each admitted provider request counts toward the
+turn, conversation and day as unknown spend in the budget receipt's
+`unknownRuns`, never as zero. Pages the call fetches are checked by the egress
+route, not the provider policy.
 
 A `responseId` is an opaque handle the host issues. It is scoped to the
 calling principal and session and to the executor session that stored the

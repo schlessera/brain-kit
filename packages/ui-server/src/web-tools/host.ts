@@ -12,10 +12,18 @@
  * An explicit `provider` is admitted only when it is in the host's configured
  * chain (or override) and has a credential the executor can use: the same
  * set the Settings card and the brief report.
+ *
+ * Every connection the executor opens is attributed to the call in flight
+ * (#3687). With none in flight it is refused: nothing the executor sends then
+ * belongs to a turn. A connection to a provider's API host, a search, an
+ * extraction fallback or a nested model call alike, is put to that call's
+ * authority, which checks data routing and budget and counts it at unknown
+ * cost; a refusal settles the call with the authority's code.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { startEgressProxy, webSearchBrief, type EgressDestinationPolicy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
-import { createWebBroker, type WebBroker, type WebBrokerLimits, type WebReceipt } from "./broker.js";
+import { EgressAdmissionRefused, startEgressProxy, webSearchBrief, type EgressDestinationPolicy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
+import { createWebBroker, type WebBroker, type WebBrokerLimits, type WebCallRefusal, type WebReceipt } from "./broker.js";
+import { configuredWebHosts, webHostRecipient } from "./recipients.js";
 import { createChildWebExecutor } from "./child-executor.js";
 
 /** What ui-server uses of the pi backend's internal entry, mirrored structurally. */
@@ -73,19 +81,47 @@ function admittedWebProviders(config: Record<string, unknown>, env: Readonly<Rec
   return webSearchBrief(config, { toolName: "web_search", env: { ...env } }).providers.map(provider => provider.id);
 }
 
+/**
+ * Admit one executor connection for the call it belongs to. Calls of one
+ * session normally share its turn; a connection that could belong to two
+ * turns is attributed to neither and refused.
+ */
+/** @internal Exported for its unit test. */
+export async function admitConnection(broker: WebBroker, owner: { principalId: string; sessionId: string }, host: string, configured: ReadonlyMap<string, string>): Promise<void> {
+  const calls = broker.inFlight(owner);
+  if (!calls.length) throw new EgressAdmissionRefused("No web call is running for this conversation.");
+  const recipient = webHostRecipient(host, configured);
+  // A page the call fetches: its address and bytes are the route's to check.
+  if (recipient === undefined) return;
+  if (new Set(calls.map(call => call.scope.turnId)).size !== 1) throw new EgressAdmissionRefused("This connection could belong to more than one turn.");
+  const [call] = calls as [typeof calls[number]];
+  if (!call.authority) return;
+  let refusal: WebCallRefusal | null;
+  try { refusal = await call.authority.admit(recipient); }
+  catch { refusal = { code: "unavailable", message: "The host could not check this web call's admission; nothing more was sent." }; }
+  if (refusal) {
+    for (const each of calls) each.refuse(refusal);
+    throw new EgressAdmissionRefused(refusal.message);
+  }
+  call.authority.attempt({ recipient, host, callId: call.callId });
+}
+
 export function createHostWebTools(options: HostWebToolsOptions): WebBroker {
   // A crash leaves session directories behind; nothing can still own them now.
   rmSync(options.root, { recursive: true, force: true });
   mkdirSync(options.root, { recursive: true, mode: 0o700 });
   const credentialEnv = Object.fromEntries(Object.entries(options.env).filter(([name]) => !["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "HOME"].includes(name)));
-  return createWebBroker({
+  const broker: WebBroker = createWebBroker({
     executor: createChildWebExecutor({
-      launch: async () => {
+      launch: async owner => {
         const configPath = options.hostConfigPath();
+        const config = readHostConfig(configPath);
+        const providerHosts = configuredWebHosts(config);
         // The executor's whole network: a host proxy that resolves and checks every destination.
         const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: options.maxEgressBytes ?? DEFAULT_MAX_EGRESS_BYTES,
-          destinations: { allowRanges: hostAllowRanges(readHostConfig(configPath)), ...(options.lookup ? { lookup: options.lookup } : {}),
+          destinations: { allowRanges: hostAllowRanges(config), ...(options.lookup ? { lookup: options.lookup } : {}),
             ...(options.egressPorts ? { ports: options.egressPorts } : {}) },
+          admitted: destination => admitConnection(broker, owner, destination.host, providerHosts),
           observe: record => { try { options.onEgress?.(record); } catch { /* A recorder cannot hold a connection open. */ } } });
         try {
           const state = options.module.prepareWebExecutorState({ root: options.root, hostConfigPath: configPath, credentialEnv, path: options.path });
@@ -102,4 +138,5 @@ export function createHostWebTools(options: HostWebToolsOptions): WebBroker {
     ...(options.limits ? { limits: options.limits } : {}),
     ...(options.onReceipt ? { onReceipt: options.onReceipt } : {}),
   });
+  return broker;
 }

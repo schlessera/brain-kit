@@ -1264,6 +1264,7 @@ export "./internal" (./src/internal.ts)
   type CleanupReconcilerOptions
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
+  EgressAdmissionRefused
   type EgressDestinationPolicy
   type EgressRecord
   type EgressRefusal
@@ -12989,7 +12990,7 @@ signatures (every public export and the types it is made of)
   WEB_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/web.ts)
     const WEB_TOOL_CONTRACTS: readonly ToolContract<WebToolName>[];
   WEB_TOOL_ERROR_CODES (packages/ui-sdk/src/tool-contracts/web.ts)
-    const WEB_TOOL_ERROR_CODES: readonly ["invalid_input", "unsupported", "provider_not_admitted", "unavailable", "unknown_handle", "replayed_call", "busy", "request_too_large", "response_too_large", "cancelled", "deadline", "executor_died", "failed"];
+    const WEB_TOOL_ERROR_CODES: readonly ["invalid_input", "unsupported", "provider_not_admitted", "unavailable", "unknown_handle", "replayed_call", "busy", "request_too_large", "response_too_large", "cancelled", "deadline", "executor_died", "failed", "policy_denied", "budget_exceeded"];
   WEB_TOOL_LIMITS (packages/ui-sdk/src/tool-contracts/web.ts)
     const WEB_TOOL_LIMITS: Readonly<{
         domainChars: 253;

@@ -4762,6 +4762,57 @@ choice from the host's configuration and its pinned code. The executor's
 copy of the configuration sets `ssrf.trustEnvProxy`, so the extension leaves
 name resolution to the route.
 
+#### Per-call admission of the executor's recipients — built in #3687
+
+Item 4 of the bridge design reuses the admission a turn already has. Each
+forwarded call carries its turn's authority (`createWebAccess`,
+`packages/ui-server/src/ws/bridge-capabilities/web.ts`), built from the
+turn's frozen policy, the conversation's recorded exposures and the turn
+budgets, never from anything the worker or the executor says:
+
+- **Recipients.** A web provider is a recipient in the provider policy's
+  sense, as Apify is. Curated provider ids and the pinned extension's API
+  hosts name one (`webHostRecipient`, `packages/ui-server/src/web-tools/recipients.ts`).
+  Vendors that also serve inference keep their inference names, so Gemini is
+  `google` and OpenAI is `openai`. A host-configured `exaBaseUrl` or
+  `firecrawlBaseUrl` names its provider too.
+- **Where it applies.** A provider the call names is admitted before anything
+  is dispatched. Every connection the executor opens is attributed to the call
+  in flight, and one to a provider host is admitted again for that turn
+  (`admitConnection`, `packages/ui-server/src/web-tools/host.ts`). That covers
+  the automatic chain, extraction fallbacks such as Jina's reader, and nested
+  model calls such as Gemini's URL context, which no call field names. A
+  connection with no call in flight, or one that could belong to two turns,
+  is refused. The executor opens one connection per request, so a reused TLS
+  tunnel cannot carry a request the host did not admit.
+- **Data routing (G2).** The rules are Apify consent's: nothing leaves for a
+  recipient from a conversation that has shown it a provider folder the policy
+  keeps from it, and an exposure the host cannot judge refuses
+  (`webRoutingRefusal`, `packages/ui-server/src/web-tools/routing.ts`). This
+  extends ruling 3 of #2695, under which G2 governed only the inference
+  recipient: a web provider receives text the model wrote, which can quote
+  any folder the model was shown.
+- **Budget.** A blocked scope refuses the request. Each admitted provider
+  request is recorded as a dispatched relayed attempt with no usage
+  (`observeWebProvider`, `packages/ui-server/src/brain/turn-budgets.ts`), so
+  the receipt counts it in `unknownRuns` for the turn, conversation and day,
+  and never as zero. No web provider reports a price, so none is ever settled.
+- **Taint and attribution.** These were already in place since #3685: each
+  call taints the session before it runs and its result is recorded before
+  the model receives it, through the turn's input-safety collector, and the
+  owner sees both in the chat's safety history. Call receipts carry the
+  principal, session, turn and tool-call id.
+- **Outward actions.** The executor performs none. Its configuration turns off
+  every workflow, command and model mode that would act. A provider request
+  sends a query or a URL, and a page fetch reads.
+
+What stays unmetered, stated rather than hidden: pages the call fetches are
+egress-policy territory (G5), checked by the route for address, port and
+bytes but not for routing; a provider configured by hand outside the curated
+catalog is reached as a page, so its routing is not checked and its spend is
+not counted; and the receipt's `coverage` text keeps saying that other
+provider and tool spend is not metered.
+
 #### Approved host OAuth refresh placement (2026-10-16)
 
 The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to

@@ -350,6 +350,12 @@ are refused, and the session's bytes are bounded (64 MiB). The proxy does not
 intercept TLS, so a guard inside the executor keeps provider keys from
 following a redirect to another origin. Refused connections are logged with
 their host, port and reason. A host without bubblewrap has no web executor.
+
+Each request to a provider's API is admitted for the turn whose call is in
+flight, against that conversation's provider policy and the turn's budgets,
+and counts as unknown spend. A connection with no call in flight is refused.
+The executor opens one connection per request, so a reused tunnel cannot
+carry a request the host did not admit.
 Per-call admission is #3687's second part; subscription and current-model
 search is #3688.
 

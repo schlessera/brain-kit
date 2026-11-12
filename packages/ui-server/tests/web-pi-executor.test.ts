@@ -102,7 +102,9 @@ function executorPids(): number[] {
   });
 }
 
-async function piTurn(prompt: string, options: { abortWhen?: () => boolean; onTick?: () => void } = {}) {
+/** What the turn's authority reads (#3687): its frozen provider policy, the conversation's exposures and the budgets. */
+interface TurnAuthority { providers?: unknown[]; exposures?: unknown[]; budgets?: unknown }
+async function piTurn(prompt: string, options: { abortWhen?: () => boolean; onTick?: () => void; authority?: TurnAuthority } = {}) {
   const previous = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = join(root, "agent");
   const controller = new AbortController(), frames: ServerMessage[] = [];
@@ -121,9 +123,13 @@ async function piTurn(prompt: string, options: { abortWhen?: () => boolean; onTi
   try {
     const backend = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions") });
     const turnId = `odysseus-web-${Math.random().toString(36).slice(2)}`;
-    const web = createWebAccess({ host: { webTools: broker }, turn: { sessionId: "s-ithaca" }, turnId, principalId: "p-penelope", signal: controller.signal,
+    const authority = options.authority ?? {};
+    const host = { webTools: broker, ...(authority.exposures ? { governedTurns: { exposures: async () => authority.exposures } } : {}),
+      ...(authority.budgets ? { budgets: authority.budgets } : {}) };
+    const web = createWebAccess({ host, turn: { sessionId: "s-ithaca" }, turnId, principalId: "p-penelope", signal: controller.signal,
       backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "governed" }, current: () => !controller.signal.aborted,
-      recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" }, { policy: { hash: "rev-odyssey" } } as never);
+      recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" },
+      { policy: { hash: "rev-odyssey", policy: { providers: authority.providers ?? [] } } } as never);
     await backend.startTurn({ prompt, signal: controller.signal, turnId,
       workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
       bridge: {
@@ -256,4 +262,67 @@ test("redirects to metadata or private addresses are refused at the route, and a
   expect(providerRequests.some(request => request.query.startsWith("redirect") && request.key === SENTINEL), "the provider itself received the key").toBe(true);
   // An ordinary search on the same session still works.
   expect((await call("after", "web_search", { query: "Odysseus mast" })).ok).toBe(true);
+});
+
+/** The turn budgets as the web authority uses them: admission, then each provider request at unknown cost. */
+function recordingBudgets(blocked?: Record<string, unknown>) {
+  const attempts: Array<{ turnId: string; host: string; attemptId: string }> = [];
+  return { attempts, budgets: {
+    providerAdmission: async () => blocked,
+    observeWebProvider: async (turnId: string, attempt: { attemptId: string; host: string }) => { attempts.push({ turnId, ...attempt }); return undefined; },
+  } };
+}
+/** A provider rule that keeps `notes/` from every web recipient, and a conversation whose earlier turn showed `notes/` to its model. */
+const NOTES_FOR_NO_ONE = { providers: [{ paths: ["notes/**"], allow: ["anthropic"] }],
+  exposures: [{ recipient: "anthropic", visible: ["notes"], hidden: [] }] };
+
+test("each provider request is admitted for its turn and counted at unknown cost; a page is not a provider request (#3687)", async () => {
+  startBroker();
+  const { attempts, budgets } = recordingBudgets();
+  const envelopes = await piTurn(`host\n${pagesOrigin()}/ithaca/log`, { authority: { budgets } });
+  expect(envelopes.map(envelope => `${envelope.tool}:${envelope.ok}`)).toEqual(["web_search:true", "get_search_content:true", "fetch_content:true", "source_check:true"]);
+  // Every request the provider received was admitted and recorded first, and nothing else was.
+  expect(providerRequests.length).toBeGreaterThanOrEqual(2);
+  expect(attempts.map(attempt => attempt.host), "WEB_PROVIDER_REQUESTS_COUNTED").toEqual(providerRequests.map(() => "exa.odysseus.test"));
+  expect(new Set(attempts.map(attempt => attempt.turnId)).size, "WEB_PROVIDER_REQUESTS_ATTRIBUTED_TO_THE_TURN").toBe(1);
+  expect(attempts[0]!.turnId).toStartWith("odysseus-web-");
+  expect(new Set(attempts.map(attempt => attempt.attemptId)).size).toBe(attempts.length);
+  // The page was reached, and is not counted as provider spend.
+  expect(egress.some(record => record.host === "harbour.odysseus.test" && record.outcome === "completed")).toBe(true);
+});
+
+test("a conversation that showed a folder to its model sends no web provider what the policy keeps from it (#3687)", async () => {
+  startBroker();
+  const { attempts, budgets } = recordingBudgets();
+  const envelopes = await piTurn(`host\n${pagesOrigin()}/ithaca/log`, { authority: { ...NOTES_FOR_NO_ONE, budgets } });
+  const search = envelopes.find(envelope => envelope.tool === "web_search");
+  // The automatic chain reaches Exa from inside the executor: refused at the connection, before a byte.
+  expect(search?.error?.code, "WEB_ROUTING_REFUSED_AT_CONNECTION").toBe("policy_denied");
+  expect(search?.error?.message).toContain("exa");
+  expect(providerRequests, "WEB_ROUTING_NOTHING_SENT").toEqual([]);
+  expect(attempts).toEqual([]);
+  expect(egress.some(record => record.host === "exa.odysseus.test" && record.outcome === "denied" && record.reason === "call_not_admitted")).toBe(true);
+  // A page is the route's to check, not the provider policy's.
+  expect(envelopes.find(envelope => envelope.tool === "fetch_content")?.ok, "WEB_ROUTING_PAGES_UNAFFECTED").toBe(true);
+});
+
+test("an explicitly named provider is refused before anything is dispatched (#3687)", async () => {
+  startBroker();
+  const envelopes = await piTurn(`host-explicit\n${pagesOrigin()}/ithaca/log`, { authority: NOTES_FOR_NO_ONE });
+  expect(envelopes[0]?.error?.code, "WEB_ROUTING_REFUSED_BEFORE_DISPATCH").toBe("policy_denied");
+  expect(receipts.find(receipt => receipt.kind === "call" && receipt.tool === "web_search"), "no call id: nothing was dispatched")
+    .toMatchObject({ outcome: "policy_denied", callId: null });
+  expect(providerRequests).toEqual([]);
+});
+
+test("a blocked budget scope refuses the next provider request with the budget's own words (#3687)", async () => {
+  startBroker();
+  const blocked = { scope: "turn", costUsd: 2, blockUsd: 1, tokens: 900, blockTokens: 1_000, blocked: true };
+  const { attempts, budgets } = recordingBudgets(blocked);
+  const envelopes = await piTurn(`host\n${pagesOrigin()}/ithaca/log`, { authority: { budgets } });
+  const search = envelopes.find(envelope => envelope.tool === "web_search");
+  expect(search?.error?.code, "WEB_BUDGET_REFUSED").toBe("budget_exceeded");
+  expect(search?.error?.message).toContain("Turn inference budget reached");
+  expect(providerRequests).toEqual([]);
+  expect(attempts).toEqual([]);
 });
