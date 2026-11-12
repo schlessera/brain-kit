@@ -36,7 +36,7 @@ interface ChildWebExecutorLaunch {
 
 interface ChildWebExecutorOptions {
   /** The same launch for every session, or one prepared per principal's session (its own private state). */
-  launch: ChildWebExecutorLaunch | ((owner: { principalId: string; sessionId: string }) => ChildWebExecutorLaunch);
+  launch: ChildWebExecutorLaunch | ((owner: { principalId: string; sessionId: string }) => ChildWebExecutorLaunch | Promise<ChildWebExecutorLaunch>);
   /** How long a started child may take to announce `ready`. */
   startMs?: number;
   /** How long a cancelled call or a closing child is given before the group is killed. */
@@ -60,7 +60,8 @@ export function createChildWebExecutor(options: ChildWebExecutorOptions): WebExe
   return {
     async open(owner, signal) {
       signal.throwIfAborted();
-      const launch = typeof options.launch === "function" ? options.launch(owner) : options.launch;
+      const launch = typeof options.launch === "function" ? await options.launch(owner) : options.launch;
+      if (signal.aborted) { launch.cleanup?.(); signal.throwIfAborted(); }
       let child: ChildProcess;
       try {
         child = spawn(launch.command[0], launch.command.slice(1), {

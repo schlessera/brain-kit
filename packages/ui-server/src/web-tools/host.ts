@@ -14,7 +14,7 @@
  * set the Settings card and the brief report.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { webSearchBrief } from "@schlessera/brain-ui-sdk/internal";
+import { startEgressProxy, webSearchBrief, type EgressDestinationPolicy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
 import { createWebBroker, type WebBroker, type WebBrokerLimits, type WebReceipt } from "./broker.js";
 import { createChildWebExecutor } from "./child-executor.js";
 
@@ -22,7 +22,7 @@ import { createChildWebExecutor } from "./child-executor.js";
 export interface PiWebExecutorModule {
   prepareWebExecutorState(options: { root: string; hostConfigPath: string; credentialEnv: Readonly<Record<string, string | undefined>>; path: string }):
     { dir: string; env: Record<string, string>; removed: string[]; cleanup(): void };
-  webExecutorCommand(runtime: string, stateDir: string): [string, ...string[]];
+  webExecutorCommand(runtime: string, stateDir: string, egress: { proxyDir: string }): [string, ...string[]];
 }
 
 interface HostWebToolsOptions {
@@ -38,6 +38,26 @@ interface HostWebToolsOptions {
   onReceipt?: (receipt: WebReceipt) => void;
   /** Sanitizer removals for one started session, never values. */
   onPrepared?: (removed: readonly string[]) => void;
+  /** Every connection the executor's egress route admitted or refused (#3687); never content or credentials. */
+  onEgress?: (record: EgressRecord) => void;
+  /** Bytes one executor session may move through its egress route, both directions. */
+  maxEgressBytes?: number;
+  /** @internal Test seam: the egress route's resolver. */
+  lookup?: EgressDestinationPolicy["lookup"];
+  /** @internal Test seam: destination ports, default 80 and 443. */
+  egressPorts?: readonly number[];
+  /** @internal Test seam: an extra CA certificate file the executor trusts, for fixture TLS origins. */
+  caCertificates?: string;
+}
+
+/** The default byte ceiling of one executor session's egress route. */
+const DEFAULT_MAX_EGRESS_BYTES = 64 * 1024 * 1024;
+
+/** The host config's own CIDR exceptions (`ssrf.allowRanges`), the owner's choice of private ranges to reach. */
+function hostAllowRanges(config: Record<string, unknown>): string[] {
+  const ssrf = config.ssrf;
+  const ranges = ssrf && typeof ssrf === "object" ? (ssrf as Record<string, unknown>).allowRanges : undefined;
+  return Array.isArray(ranges) ? ranges.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "").map(entry => entry.trim()) : [];
 }
 
 function readHostConfig(path: string): Record<string, unknown> {
@@ -60,10 +80,22 @@ export function createHostWebTools(options: HostWebToolsOptions): WebBroker {
   const credentialEnv = Object.fromEntries(Object.entries(options.env).filter(([name]) => !["PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "HOME"].includes(name)));
   return createWebBroker({
     executor: createChildWebExecutor({
-      launch: () => {
-        const state = options.module.prepareWebExecutorState({ root: options.root, hostConfigPath: options.hostConfigPath(), credentialEnv, path: options.path });
-        options.onPrepared?.(state.removed);
-        return { command: options.module.webExecutorCommand(options.runtime, state.dir), env: state.env, cwd: `${state.dir}/work`, cleanup: state.cleanup };
+      launch: async () => {
+        const configPath = options.hostConfigPath();
+        // The executor's whole network: a host proxy that resolves and checks every destination.
+        const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: options.maxEgressBytes ?? DEFAULT_MAX_EGRESS_BYTES,
+          destinations: { allowRanges: hostAllowRanges(readHostConfig(configPath)), ...(options.lookup ? { lookup: options.lookup } : {}),
+            ...(options.egressPorts ? { ports: options.egressPorts } : {}) },
+          observe: record => { try { options.onEgress?.(record); } catch { /* A recorder cannot hold a connection open. */ } } });
+        try {
+          const state = options.module.prepareWebExecutorState({ root: options.root, hostConfigPath: configPath, credentialEnv, path: options.path });
+          const cleanup = () => { egress.stop(); state.cleanup(); };
+          try {
+            options.onPrepared?.(state.removed);
+            const env = options.caCertificates ? { ...state.env, NODE_EXTRA_CA_CERTS: options.caCertificates } : state.env;
+            return { command: options.module.webExecutorCommand(options.runtime, state.dir, { proxyDir: egress.dir }), env, cwd: `${state.dir}/work`, cleanup };
+          } catch (error) { cleanup(); throw error; }
+        } catch (error) { egress.stop(); throw error; }
       },
     }),
     admittedProviders: () => admittedWebProviders(readHostConfig(options.hostConfigPath()), options.env),

@@ -815,6 +815,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       const webEnv = resolveWebSearchEnv();
       webTools = createHostWebTools({ module, root: webExecutorRoot, hostConfigPath: () => resolveWebSearchConfigPath(webEnv), env: webEnv,
         runtime: process.execPath, path: subprocessEnv("brainCli").PATH ?? "/usr/bin:/bin",
+        // Refused connections are worth an owner's look; the rest is routine. Host, port and reason only.
+        onEgress: record => { if (record.outcome === "denied") webLog.emit({ severityText: "WARN", body: `web executor connection refused: ${record.reason ?? "denied"}`,
+          attributes: { "web.egress.host": record.host, "web.egress.port": record.port, "web.egress.reason": record.reason ?? "denied" } }); },
         onPrepared: removed => { if (removed.length) webLog.emit({ severityText: "INFO", body: `web executor configuration: turned off or removed ${removed.join(", ")}` }); },
         onReceipt: receipt => { if (receipt.kind === "executor") webLog.emit({ severityText: receipt.exit.exited && receipt.exit.cleaned !== false ? "INFO" : "WARN",
           body: `web executor session ended: ${receipt.exit.reason}`, attributes: { "web.calls": receipt.calls, "web.exit_code": receipt.exit.code ?? -1,

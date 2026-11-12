@@ -25,6 +25,7 @@
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { egressBootstrapEntry, WORKER_EGRESS_DIR } from "@schlessera/brain-ui-sdk/internal";
 
 /** The pinned extension's published entry (`pi.extensions: ["./dist"]` in its manifest). */
 export function pinnedWebExtensionEntry(): string {
@@ -57,6 +58,9 @@ const FORCED: Readonly<Record<string, unknown>> = Object.freeze({
   video: { enabled: false },
   youtube: { enabled: false },
   githubClone: { enabled: false },
+  // The executor's only route is the host egress proxy, which resolves and
+  // checks every destination itself (#3687); a local lookup would find no DNS.
+  ssrf: { trustEnvProxy: true },
 });
 
 export interface SanitizedWebConfig {
@@ -143,7 +147,33 @@ export function prepareWebExecutorState(options: PrepareWebExecutorStateOptions)
   }
 }
 
-/** The program the host's child executor runs for one session. */
-export function webExecutorCommand(runtime: string, stateDir: string): [string, ...string[]] {
-  return [runtime, Bun.resolveSync("./web-executor-entry", import.meta.dir), stateDir];
+/** Where one executor session's network goes: the directory holding its host egress proxy's socket. */
+export interface WebExecutorEgress {
+  /** The proxy's private directory; its `proxy.sock` is the only network the executor has (#3687). */
+  proxyDir: string;
+}
+
+/**
+ * The program the host's child executor runs for one session (#3687).
+ *
+ * The executor runs in its own user, network, IPC, UTS and PID namespaces
+ * with a read-only view of the host and only its private directory writable.
+ * Its network namespace has nothing but loopback, so a direct socket, a
+ * spawned `curl` or a proxy-bypass setting reaches nothing: the trusted
+ * bootstrap forwards loopback to the session's host egress proxy socket,
+ * which checks every destination. Without bubblewrap there is no executor.
+ */
+export function webExecutorCommand(runtime: string, stateDir: string, egress: WebExecutorEgress): [string, ...string[]] {
+  return webExecutorBoundary(runtime, stateDir, egress, [Bun.resolveSync("./web-executor-entry", import.meta.dir), stateDir]);
+}
+
+/** The executor's boundary around `program` (run by `runtime` behind the egress bootstrap); tests run probes in it. */
+export function webExecutorBoundary(runtime: string, stateDir: string, egress: WebExecutorEgress, program: readonly string[]): [string, ...string[]] {
+  const bwrap = Bun.which("bwrap");
+  if (!bwrap) throw new Error("The web executor needs bubblewrap for its network boundary, and it is not installed.");
+  return [bwrap, "--unshare-user", "--unshare-net", "--unshare-ipc", "--unshare-uts", "--unshare-pid",
+    "--die-with-parent", "--new-session", "--cap-drop", "ALL",
+    "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/run",
+    "--bind", stateDir, stateDir, "--ro-bind", egress.proxyDir, WORKER_EGRESS_DIR, "--chdir", join(stateDir, "work"), "--",
+    runtime, egressBootstrapEntry(), runtime, ...program];
 }

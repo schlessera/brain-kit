@@ -1264,6 +1264,7 @@ export "./internal" (./src/internal.ts)
   type CleanupReconcilerOptions
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
+  type EgressDestinationPolicy
   type EgressRecord
   type EgressRefusal
   FIRST_PARTY_PROVIDER_RECIPIENTS
@@ -1394,6 +1395,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   denyWorkerCommand
   describeClient
+  egressBootstrapEntry
   envMaskedPaths
   execWrapperSpawnOptions
   handleTurnTemp
