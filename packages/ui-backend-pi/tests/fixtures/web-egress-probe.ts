@@ -15,10 +15,12 @@ outcome.socket = await new Promise<string>(resolve => {
 });
 const curl = Bun.spawnSync(["curl", "--silent", "--max-time", "3", "--noproxy", "*", `http://${address}:${port}/`], { stdout: "pipe", stderr: "pipe" });
 outcome.curl = curl.exitCode === 0 && curl.stdout.toString().includes("Odysseus") ? "connected" : `refused:${curl.exitCode}`;
-process.env.NO_PROXY = "*"; process.env.no_proxy = "*";
-outcome.bypass = await fetch(`http://${address}:${port}/`, { signal: AbortSignal.timeout(3000) })
-  .then(async response => (await response.text()).includes("Odysseus") ? "connected" : `refused:${response.status}`, (error: Error) => `refused:${error.name}`);
-delete process.env.NO_PROXY; delete process.env.no_proxy;
+// The bypass runs in its own process: a runtime may read proxy settings once,
+// so changing this process's environment could leak into the route check below.
+const bypassProgram = `await fetch(${JSON.stringify(`http://${address}:${port}/`)}, { signal: AbortSignal.timeout(3000) })
+  .then(async response => console.log((await response.text()).includes("Odysseus") ? "connected" : "refused:" + response.status), error => console.log("refused:" + error.name));`;
+const bypass = Bun.spawnSync([process.execPath, "-e", bypassProgram], { env: { ...process.env, NO_PROXY: "*", no_proxy: "*" }, stdout: "pipe", stderr: "pipe" });
+outcome.bypass = bypass.stdout.toString().trim() || `refused:exit-${bypass.exitCode}`;
 outcome.routed = await fetch(routed!, { signal: AbortSignal.timeout(5000) })
   .then(async response => `${response.status}:${(await response.text()).trim()}`, (error: Error) => `failed:${error.message}`);
 console.log(JSON.stringify(outcome));
