@@ -10,7 +10,7 @@ const repo=resolve(import.meta.dir,".."),roots:string[]=[],owner="packages/ui-re
 // Git archive filters, or a newly computed candidate fingerprint for this control.
 const frozen="0d780605fe1ea9a281cce947b1f0074f3f3e7acc";
 const qualifiedSource="e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b";
-const qualifiedInstallation="47e78ac9977d948dd35bfcb1d916aa3e2f6ddab976bb047eebc2a531cdf8403d";
+const qualifiedInstallation="ea866695f2a83f9da2fcf18e75e95e936668ecb28e1449845a2584aa1025b728";
 const ownedPaths=[...diagramSourceSetup,...diagramSourceDomains.map(name=>`packages/${name}`),owner,caller,"scripts/ci-proof.ts"];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 function fixture(current=false,install?:(modules:string)=>void){
@@ -54,7 +54,7 @@ test("fixed native qualification binds the independently frozen complete source 
   expect(control.diagnostic(),"FROZEN_NATIVE_INSTALLATION_MUST_MATCH_QUALIFIED_BYTES: reinstall this owned checkout under umask 022 from a fresh private cache (CONTRIBUTING.md); never refresh qualification pins").toMatchObject({
    status:"qualified",stage:"complete",sourceInputs:859,
    actual:{source:qualifiedSource,installation:qualifiedInstallation},
-   installation:{packages:842,files:59489,bytes:1331664273}
+   installation:{packages:930,files:66881,bytes:1374331961}
   });
   expect(binding?.files.length,"COMPLETE_NATIVE_QUALIFICATION_WITHOUT_DOCKER_OR_IMAGE_LOOKUP").toBe(859);
   expect(binding?.files.toSorted()).toEqual(nativeDiagramSourceInventory(control.root).inputs.map(entry=>entry.path).toSorted());

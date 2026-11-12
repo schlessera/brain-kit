@@ -21,7 +21,7 @@ const FIXTURE = join(import.meta.dir, "fixtures/web-executor.ts");
 function start(limits: Partial<WebBrokerLimits> = {}, admitted: readonly string[] = ["exa", "duckduckgo"], graceMs = 300) {
   receipts = [];
   broker = createWebBroker({
-    executor: createChildWebExecutor({ command: [process.execPath, FIXTURE], env: { PATH: process.env.PATH!, WEB_FIXTURE_DIR: dir }, graceMs }),
+    executor: createChildWebExecutor({ launch: { command: [process.execPath, FIXTURE], env: { PATH: process.env.PATH!, WEB_FIXTURE_DIR: dir } }, graceMs }),
     admittedProviders: () => admitted, limits, onReceipt: receipt => receipts.push(receipt),
   });
 }

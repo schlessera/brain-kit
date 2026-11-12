@@ -52,6 +52,20 @@ SDK gains the tool contracts, `WebToolEnvelope`, `parseWebToolInput`,
 and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
 This ships in a minor.
 
+## Host web executor for Pi (additive, 0.45.0, #3686)
+
+The four web tools now run on a host executor: the pinned upstream
+`pi-web-access` 0.41.0 in a trusted Pi session, one child process per
+principal's session, with provider configuration and keys on the host only.
+Their names, inputs and envelopes are unchanged. `GET /api/web-search` gains
+two fields. `unavailable` lists the features the host web tools do not
+offer, each `{ id, label, kind }` with `kind` either `deferred` or
+`excluded`. Each provider gains `keyIsCommand`, true when its stored key is a
+`!command` credential, which the host never runs. Such a key no longer counts
+as a credential, so it cannot enable a provider. `buildSystemPromptAppend`
+accepts `webTools: true`, which adds the brief's line on what the web tools
+do not offer. This ships in a minor.
+
 ## Retained barge-in and conversation end (additive, 0.45.0, #3729)
 
 `DialogueEvidence` gains `voice_interruption`, written when the host forwards

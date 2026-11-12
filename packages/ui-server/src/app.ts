@@ -40,7 +40,8 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
@@ -51,7 +52,7 @@ import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, probeWorkerHostRecordedAsync, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
-import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, resolveWebSearchConfigPath, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
@@ -153,6 +154,7 @@ import {
   probeBackendRuntimes,
   createBackendRegistry,
   validateBackendVersionRequirements,
+  loadBackendInternal,
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion, requeueWhenBusy } from "./brain/client.js";
@@ -206,6 +208,8 @@ export interface CreateAppOptions {
   computeOverrides?: Partial<Pick<import("./brain/compute-host.js").ComputeHostOptions, "readConfig" | "core" | "serviceOptions" | "driver" | "credential" | "clock" | "workerEnvExtra">>;
   /** Tighten ordinary hosted turns to the read-only brain profile. Default: governed. */
   workerProfile?: "governed" | "strict";
+  /** @internal `false` starts no host web executor even where pi is configured (#3686). */
+  webTools?: false;
   /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
   versionRequirements?: HostVersionRequirements;
   /**
@@ -381,6 +385,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const privateStatePaths = config.inbox?.pokeTokenFile
     ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
   privateStatePaths.push({ setting: "Storage transfer cache", path: storageCacheRoot }, { setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
+  // The host web executor's per-session private directories (#3686): host
+  // operational state beside the journal, refused inside the brain and masked
+  // from workers like the rest.
+  const webExecutorRoot = `${journalRoot}.web-executor`;
+  privateStatePaths.push({ setting: "web executor state", path: webExecutorRoot });
   // Hosted external compute state (#3108, ruling R5): host operational state
   // beside the database, refused inside the brain and masked from workers.
   // An ephemeral database has no durable place for it, so compute is off.
@@ -793,7 +802,30 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
   const ownerSafetyReviews = new OwnerSafetyReviews(db, activity.governanceWrites, authMode,
     deriveAccountPartitionKey(accountSeed,realpathSync(config.brainPath),"owner"));
+  // The host-owned web tools (#3686): the broker over the trusted Pi
+  // executor, wherever the pi backend is configured and available. Without
+  // it the four tools stay listed and are refused before they run.
+  let webTools: import("./web-tools/broker.js").WebBroker | undefined;
+  const piUsable = (Boolean(config.agent.piProfilesJson) || (config.agent.backend || "claude") === "pi")
+    && !unavailableBackends.some(failure => failure.backendId === "pi");
+  if (piUsable && options.webTools !== false) {
+    const webLog = observability.logger("web");
+    try {
+      const module = (await loadBackendInternal("pi")) as import("./web-tools/host.js").PiWebExecutorModule;
+      const webEnv = resolveWebSearchEnv();
+      webTools = createHostWebTools({ module, root: webExecutorRoot, hostConfigPath: () => resolveWebSearchConfigPath(webEnv), env: webEnv,
+        runtime: process.execPath, path: subprocessEnv("brainCli").PATH ?? "/usr/bin:/bin",
+        onPrepared: removed => { if (removed.length) webLog.emit({ severityText: "INFO", body: `web executor configuration: turned off or removed ${removed.join(", ")}` }); },
+        onReceipt: receipt => { if (receipt.kind === "executor") webLog.emit({ severityText: receipt.exit.exited && receipt.exit.cleaned !== false ? "INFO" : "WARN",
+          body: `web executor session ended: ${receipt.exit.reason}`, attributes: { "web.calls": receipt.calls, "web.exit_code": receipt.exit.code ?? -1,
+            "web.exited": receipt.exit.exited, "web.cleaned": receipt.exit.cleaned ?? true } }); } });
+      bootCleanup.push(() => webTools?.close());
+    } catch (error) {
+      webLog.emit({ severityText: "WARN", body: `Pi web tools are unavailable on this host: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }
   const host = new WsHost({
+    ...(webTools ? { webTools } : {}),
     safetyHistory,
     ownerSafetyReviews,
     turnReverts: reverts,

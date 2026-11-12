@@ -14,6 +14,10 @@ import { createPiBackend } from "../../packages/ui-backend-pi/src/backend.js";
 import { prepareWorkerSandbox, workerHostBoundary } from "../../packages/ui-sdk/src/server/worker-launcher.js";
 import { contentHash, createBrainApplication, readBrainApplicationBase } from "../../packages/ui-server/src/brain/application.js";
 import { createKeyedLock, type ServerMessage, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
+import { createHostWebTools } from "../../packages/ui-server/src/web-tools/host.js";
+import type { WebReceipt } from "../../packages/ui-server/src/web-tools/broker.js";
+import { createWebAccess } from "../../packages/ui-server/src/ws/bridge-capabilities/web.js";
+import * as piInternal from "../../packages/ui-backend-pi/src/internal.js";
 
 const [scenario, root] = process.argv.slice(2) as [string, string];
 const cachedPackageState = scenario.startsWith("cached-package-");
@@ -224,12 +228,44 @@ else if (scenario === "cancel-application") toolCalls = [{ name: "write_file", i
   path: "notes/worker-positive.md", content: "---\ntype: note\n---\nOdysseus committed the raft note.\n", expectedBaseHash: null } }];
 else if (scenario === "cancel") toolCalls = [{ name: "bash", input: {command: "sleep 60 & wait; echo late"} }];
 else if (cachedPackageState) toolCalls = [{ name: "probe_cached_extension", input: {} }];
-else toolCalls = [inspect];
+else if (scenario !== "host-web") toolCalls = [inspect];
+// #3686: the host-owned web tools on the trusted executor. The provider key
+// and the executor's private state exist only on the host; the actual worker
+// tries to read both after the executor has started.
+const hostWeb = scenario === "host-web";
+const webSentinel = "odysseus-host-web-sentinel";
+const webRoot = join(root, "host-web"), webHostConfig = join(webRoot, "web-search.json"), webExecutorRoot = join(webRoot, "executor");
+const webReceipts: WebReceipt[] = [], webProviderKeys: Array<string | null> = [];
+let webHostBytes: string | undefined;
+let webProvider: ReturnType<typeof Bun.serve> | undefined, webPages: ReturnType<typeof Bun.serve> | undefined;
+let webBroker: ReturnType<typeof createHostWebTools> | undefined;
+if (hostWeb) {
+  mkdirSync(webRoot, { recursive: true });
+  webProvider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    await request.json(); webProviderKeys.push(request.headers.get("x-api-key"));
+    return Response.json({ results: [{ title: "Ithaca harbour log", url: "https://ithaca.example/log", text: "The raft reaches Ithaca at dawn.", highlights: ["The raft reaches Ithaca at dawn."] }] });
+  } });
+  const article = Array.from({ length: 12 }, (_, index) => `<p>Watch ${index + 1}: Penelope keeps the loom while Telemachus watches the harbour of Ithaca for the raft at dawn.</p>`).join("");
+  webPages = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html><html><head><title>Harbour log</title></head><body><article><h1>Harbour log</h1>${article}</article></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } }) });
+  writeFileSync(webHostConfig, JSON.stringify({ exaApiKey: webSentinel, exaBaseUrl: webProvider.url.origin, searchRouting: { providers: ["exa"], fallbackOn: ["transient"] }, ssrf: { allowRanges: ["127.0.0.0/8"] } }));
+  webHostBytes = readFileSync(webHostConfig, "utf8");
+  webBroker = createHostWebTools({ module: piInternal, root: webExecutorRoot, hostConfigPath: () => webHostConfig, env: {}, runtime: process.execPath,
+    path: process.env.PATH!, onReceipt: receipt => webReceipts.push(receipt) });
+  toolCalls = [{ name: "web_search", input: { query: "Odysseus mast" } }, { name: "fetch_content", input: { url: `${webPages.url.origin}/ithaca/log` } },
+    { name: "source_check", input: { claim: "The raft reaches Ithaca at dawn" } }];
+}
+/** The host-web follow-up: page the stored search by its host handle, and probe the host's files from inside the worker. */
+const hostWebFollowUp = (messages: unknown) => {
+  const handle = /wr_[A-Za-z0-9_-]{20,}/.exec(JSON.stringify(messages))?.[0] ?? "wr_missing";
+  return [{ name: "get_search_content", input: { responseId: handle, queryIndex: 0 } },
+    { name: "bash", input: { command: `cat '${webHostConfig}'; ls -laR '${webExecutorRoot}'; cat '${webExecutorRoot}'/*/agent/web-search.json; env; echo WORKER_WEB_PROBE_DONE` } }];
+};
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   calls++;
-  const body = await request.json() as { tools?: Array<{ name: string }> };
+  const body = await request.json() as { tools?: Array<{ name: string }>; messages?: unknown };
   if (calls === 1) firstTools = body.tools?.map(t => t.name) ?? [];
-  const chosen = calls === 1 ? toolCalls : calls === 2 ? followUp : [];
+  const chosen = calls === 1 ? toolCalls : calls === 2 ? (hostWeb ? hostWebFollowUp(body.messages) : followUp) : [];
   for (const tool of chosen) if (!body.tools?.some(t => t.name === tool.name)) throw new Error(`Fixture did not reach installed ${tool.name}`);
   const events: unknown[] = [{ type: "message_start", message: { id: "msg_fixture", type: "message", role: "assistant",
     model: "claude-sonnet-4-6", content: [], stop_reason: null, stop_sequence: null,
@@ -293,8 +329,11 @@ const maskBridge = await makeBridge(host, maskTurn, { promptText: "Odysseus work
     if (scenario === "mask-cancel-commit" && result.ok) controller.abort();
   },
 } as TurnRecorder, applicationPolicy: backend.brainApplicationPolicy!({})! });
+const webAccess = webBroker ? createWebAccess({ host: { webTools: webBroker }, turn: { sessionId: "s-ithaca" }, turnId: "worker-turn", principalId: "odysseus",
+  signal: controller.signal, backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "governed" }, current: () => !controller.signal.aborted,
+  recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" }, { policy: { hash: "rev-odyssey" } } as never).webAccess : undefined;
 const activeBridge = scenario.startsWith("mask-") ? { ...bridge, requestMask: maskBridge.requestMask,
-  ...(scenario !== "mask-no-route" ? { applyImageMask: maskBridge.applyImageMask } : {}) } : bridge;
+  ...(scenario !== "mask-no-route" ? { applyImageMask: maskBridge.applyImageMask } : {}) } : webAccess ? { ...bridge, webAccess } : bridge;
 if (scenario === "failed-host") workerHostBoundary.probe = () => ({ ok: false, requirement: "fixture missing namespaces" });
 if (scenario === "pre-aborted") controller.abort();
 const deadline = setTimeout(() => controller.abort(), 15_000);
@@ -311,7 +350,14 @@ try {
     await startFixtureTurn(backend, brainPath, { sessionId: sessions[0].id, prompt: "Continue sailing", signal: new AbortController().signal, bridge,
       ...(stateSandbox ? { workerSandbox: stateSandbox } : {}) });
   }
-  console.log(JSON.stringify({ frames, calls, firstTools, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
+  let web: unknown;
+  if (webBroker) {
+    await webBroker.close();
+    web = { receipts: webReceipts, providerKeys: webProviderKeys, sentinel: webSentinel, hostConfigUnchanged: readFileSync(webHostConfig, "utf8") === webHostBytes,
+      executorEntriesAfterClose: existsSync(webExecutorRoot) ? readdirSync(webExecutorRoot) : null,
+      parentAgentEntries: readdirSync(agentDir, { recursive: true }).map(String).sort() };
+  }
+  console.log(JSON.stringify({ web, frames, calls, firstTools, approvals, bridgeEffects, applicationReceipts, failure, sessions, histories,
     parentStateUnchanged: JSON.stringify(parentState) === JSON.stringify(parentBytes()),
     parentHomeWriteExists: defaultHomeState ? existsSync("/root/worker-home-write") : undefined,
     resumedHistory: sessions[0] ? await backend.getHistory(sessions[0].id) : [],
@@ -320,4 +366,4 @@ try {
     voyageLog: existsSync(join(brainPath, "notes/voyage-log.md")) ? readFileSync(join(brainPath, "notes/voyage-log.md"), "utf8") : null,
     mask: existsSync(join(brainPath, "notes/raft.mask.png")) ? [...readFileSync(join(brainPath, "notes/raft.mask.png"))] : null,
     running: [...hostPids].filter(pid => existsSync(`/proc/${pid}`)), hostPids: [...hostPids] }));
-} finally { clearTimeout(deadline); Bun.spawn = originalSpawn; server.stop(true); authorization.release(); await host.close(); await nativeHost.close(); db.close(); }
+} finally { clearTimeout(deadline); Bun.spawn = originalSpawn; server.stop(true); await webBroker?.close(); webProvider?.stop(true); webPages?.stop(true); authorization.release(); await host.close(); await nativeHost.close(); db.close(); }

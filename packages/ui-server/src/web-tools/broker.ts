@@ -46,7 +46,8 @@ export interface WebExecutorRequest {
 }
 
 export type WebExecutorResult =
-  | { ok: true; text: string; /** The executor's own id for stored content, if it stored any. */ handle?: string }
+  | { ok: true; text: string; /** The executor's own id for stored content, if it stored any. */ handle?: string;
+      /** Further ids the same result stored, such as a search's fetched pages; each gets its own host handle. */ handles?: string[] }
   | { ok: false; code: "failed" | "unsupported" | "unknown_handle"; message: string; feature?: string };
 
 /** How an executor session ended, observed rather than assumed. */
@@ -57,6 +58,8 @@ export interface WebExecutorExit {
   signal: string | null;
   /** The process and its group were observed gone. */
   exited: boolean;
+  /** The session's private state was removed; absent when it had none. */
+  cleaned?: boolean;
 }
 
 /** One principal's session's executor: its stored results live and die with it. */
@@ -313,6 +316,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
       let responseId: string | undefined;
       if (tool === "get_search_content") responseId = String(parsed.input.responseId);
       else if (result.handle) responseId = issueHandle(entry, result.handle);
+      for (const extra of result.handles ?? []) if (typeof extra === "string" && extra && extra !== result.handle) issueHandle(entry, extra);
       // No executor id reaches the model: every id this session's executor
       // issued is replaced by the host's handle for it, wherever it appears.
       let text = result.text;
