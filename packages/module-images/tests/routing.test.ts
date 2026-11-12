@@ -376,3 +376,29 @@ test("a key the host withholds but relays keeps its provider's models available 
   expect(relayed.map(model => model.id), "RELAYED_IMAGE_PROVIDER_AVAILABLE").toEqual(OPENAI_ONLY.map(model => model.id));
   expect(availableModels(cfg, { BRAIN_WITHHELD_KEYS: "OPENAI_API_KEY" } as NodeJS.ProcessEnv)).toEqual([]);
 });
+
+describe("markup layer (#3785)", () => {
+  test("markup with both providers routes to OpenAI and says why", () => {
+    const d = picked(route({ request: { prompt: "x", markup: img(), references: [img()] }, available: ALL }));
+    expect(d.model.provider).toBe("openai");
+    expect(d.model.id).toBe(SUNBURST);
+    expect(d.reason).toMatch(/markup/);
+  });
+
+  test("markup with only Gemini is impossible", () => {
+    const d = route({ request: { prompt: "x", markup: img(), references: [img()] }, available: GEMINI_ONLY });
+    expect(d.kind).toBe("impossible");
+    expect((d as { reason: string }).reason).toContain("OPENAI_API_KEY");
+  });
+
+  test("markup without a reference, or with a mask, is impossible", () => {
+    expect(route({ request: { prompt: "x", markup: img() }, available: ALL }).kind).toBe("impossible");
+    expect(
+      route({ request: { prompt: "x", markup: img(), mask: img(), references: [img()] }, available: ALL }).kind
+    ).toBe("impossible");
+  });
+
+  test("every OpenAI model takes markup and no Gemini model does", () => {
+    for (const m of ALL) expect(m.markupGuidance).toBe(m.provider === "openai");
+  });
+});

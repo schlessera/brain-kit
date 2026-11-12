@@ -45,6 +45,11 @@ export interface ImageRequest {
   references?: ImageInput[];
   /** Alpha mask — transparent pixels mark the editable region. OpenAI only. */
   mask?: ImageInput;
+  /**
+   * Markup annotation layer (#3785): a transparent PNG the size of the first
+   * reference, whose strokes and notes guide the edit. Exclusive with `mask`.
+   */
+  markup?: ImageInput;
   n?: number;
 }
 
@@ -121,6 +126,8 @@ export interface ModelCapabilities {
   transparentBackground: boolean;
   /** Pixel-scoped inpainting with an alpha mask. */
   maskInpainting: boolean;
+  /** Takes a `markup` annotation layer on edits: GPT Image 2.5 and 2.6 (#3785). */
+  markupGuidance: boolean;
   /** Takes OpenAI's `complexity` (planning effort) parameter: GPT Image 2.6. */
   complexityControl: boolean;
   /**

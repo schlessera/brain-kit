@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { geminiProvider } from "../src/providers/gemini";
 import { estimateOpenAiOutputCost, openAiCostFromUsage, openaiProvider } from "../src/providers/openai";
 import { ImageProviderError, type ImageInput } from "../src/types";
+import { png } from "./image-bytes";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -416,5 +417,50 @@ describe("gemini provider", () => {
     await expect(
       geminiProvider.generate("gemini-3.1-flash-image", { prompt: "x" }, "k")
     ).rejects.toMatchObject({ opts: { retryable: true } });
+  });
+});
+
+describe("providers — markup layer guards for a direct caller (#3785)", () => {
+  const layer = (data = png(64, 64)): ImageInput => ({ data, mime: "image/png", label: "notes.png" });
+  const base = (): ImageInput => ({ data: png(64, 64), mime: "image/png", label: "ithaca.png" });
+
+  test("OpenAI sends the markup part beside the first image", async () => {
+    const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+    await openaiProvider.generate(SUNBURST, { prompt: "x", references: [base()], markup: layer() }, "k");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("markup"), "IMAGE_MARKUP_PROVIDER_PART").toBeInstanceOf(Blob);
+    expect(form.get("mask")).toBeNull();
+  });
+
+  const refused: [string, Parameters<typeof openaiProvider.generate>[1], RegExp][] = [
+    ["a mask", { prompt: "x", references: [base()], markup: layer(), mask: layer() }, /exclusive/],
+    ["mismatched dimensions", { prompt: "x", references: [base()], markup: layer(png(64, 32)) }, /must match/],
+    [
+      "a layer over 50 MB",
+      (() => {
+        const big = new Uint8Array(50 * 1024 * 1024 + 1);
+        big.set(png(64, 64));
+        return { prompt: "x", references: [base()], markup: layer(big) };
+      })(),
+      /50 MB/,
+    ],
+  ];
+  for (const [label, req, said] of refused) {
+    test(`OpenAI refuses markup with ${label} without a request`, async () => {
+      const calls = stub({ data: [{ b64_json: PNG_B64 }] });
+      const err = await openaiProvider.generate(SUNBURST, req, "k").catch((e) => e);
+      expect(err).toBeInstanceOf(ImageProviderError);
+      expect((err as Error).message).toMatch(said);
+      expect(calls, "IMAGE_MARKUP_PROVIDER_REFUSED").toHaveLength(0);
+    });
+  }
+
+  test("Gemini refuses a markup layer instead of ignoring it", async () => {
+    const calls = stub({});
+    const err = await geminiProvider
+      .generate("gemini-3-pro-image", { prompt: "x", references: [base()], markup: layer() }, "k")
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ImageProviderError);
+    expect(calls, "IMAGE_MARKUP_GEMINI_PROVIDER").toHaveLength(0);
   });
 });

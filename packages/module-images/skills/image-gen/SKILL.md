@@ -26,6 +26,7 @@ only when the user asked for something else.
 | The request involves | Goes to | Because |
 |---|---|---|
 | A mask — change *this* region | OpenAI | Google's image API has no mask concept at all |
+| A markup layer — circles and notes on the image | OpenAI GPT Image 2.6 or 2.5 | Only these models take an annotation layer |
 | A transparent background | OpenAI, on the selected model | Every GPT Image 2.6 and 2.5 model returns real alpha, on png or webp — never jpeg |
 | An exact odd pixel size | OpenAI | Gemini offers fixed ratios and 1K/2K/4K only |
 | Legible text inside the image | `gpt-image-2.6-sunburst` | The default; no text-rendering benchmark covers the 2.6 models yet |
@@ -168,6 +169,22 @@ brain image "replace the sky with heavy storm clouds" \
   soften the boundary.
 - No mask? Describe the change instead. That is the only option on Gemini, and
   it is often the better one for restyling a whole image.
+
+When pointing is easier than describing, use a markup layer instead of a mask:
+
+```sh
+brain image "move the boat to where the arrow points; recolour the circled sail red" \
+  --ref photos/ithaca-harbour.png --markup photos/ithaca-harbour-notes.png \
+  --out photos/ithaca-harbour-edit.png
+```
+
+- The layer is a separate **transparent PNG, exactly the size of the first
+  `--ref`**, with the strokes and notes drawn on it. Never flatten it onto the
+  photo; a layer with no alpha channel is refused.
+- `--markup` needs a `--ref` and cannot go with `--mask`. Pick one: a mask
+  fences off a region, markup explains the change.
+- A size mismatch is refused before anything is paid for. Say which sizes
+  differ and offer to resize the layer.
 
 ## When it fails
 
