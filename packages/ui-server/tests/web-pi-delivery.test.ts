@@ -48,7 +48,7 @@ test("installed Pi records a forwarded web result before the next provider reque
     return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   } });
   const broker = createWebBroker({
-    executor: createChildWebExecutor({ command: [process.execPath, FIXTURE], env: { PATH: process.env.PATH!, WEB_FIXTURE_DIR: executorDir } }),
+    executor: createChildWebExecutor({ launch: { command: [process.execPath, FIXTURE], env: { PATH: process.env.PATH!, WEB_FIXTURE_DIR: executorDir } } }),
     admittedProviders: () => [],
   });
   const sessions: AgentSession[] = [];

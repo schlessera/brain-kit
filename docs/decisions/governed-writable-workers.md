@@ -4682,6 +4682,85 @@ reserves the executor choice until that comparison is reviewed. Neither this
 amendment nor a successful plain-search prototype selects an executor or grants
 additional host model, UI, browser, shell or credential-command authority.
 
+### Executor, workflow and credential rulings — 2026-10-15, built in #3686
+
+Three later rulings on #1863 settle what the paragraph above left open, and
+#3686 builds them:
+
+- **Executor A** ([ruling](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6194810790)):
+  the full upstream extension runs in an actual trusted Pi session on the
+  host. The host web executor (`packages/ui-backend-pi/src/web-executor-entry.ts`)
+  is one child process per principal's session, started by the broker
+  (`packages/ui-server/src/web-tools/host.ts`). It loads exactly one
+  extension, the pinned `pi-web-access` 0.41.0 (`PINNED_WEB_EXTENSION`,
+  `packages/ui-backend-pi/src/web-executor.ts`), from the backend's own
+  dependency, and refuses to start if anything else loaded. Discovery,
+  skills, prompts, themes and context files are off and its settings are
+  empty and in memory. Its cwd, HOME, Pi agent directory, cache and temp
+  are a fresh private directory beside the UI database, which every worker
+  already has masked. No repository extension, hook, setting or brain file
+  enters this credentialed process.
+- **Workflow A** ([ruling](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6197482861)):
+  only `web_search`, `fetch_content`, `get_search_content` and
+  `source_check`. No model turn runs: each call goes straight to the
+  session's tool pipeline (`runToolCall`) with the session's real extension
+  context, so commands, shortcuts and nested callbacks are unreachable. The
+  executor's sanitized copy of `web-search.json` also turns off the
+  workflow, curator, summary, image, video and YouTube paths and every
+  command, so none of them is available through configuration either.
+  GitHub repository cloning is off as well until
+  [#3687](https://github.com/schlessera/brain-kit/issues/3687) qualifies
+  the executor's subprocess egress.
+- **Credential exclusion A** ([ruling](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6197680635)):
+  no browser-cookie, browser-profile or keyring discovery and no
+  `!command` credential. The sanitized copy forces `allowBrowserCookies:
+  false`, drops the cookie profile and removes every credential-command
+  value; the executor's private HOME holds no browser or `gh` login. Literal
+  keys and the catalog's environment variables remain under the existing
+  trusted host policy. Opt-in adapters are
+  [#1989](https://github.com/schlessera/brain-kit/issues/1989).
+
+These features are reported unavailable from one list,
+`WEB_TOOL_UNAVAILABLE_FEATURES` (`packages/ui-sdk/src/server/web-search.ts`).
+The Settings route, its card and the system-prompt brief all read that list,
+and a call that asks for one answers `unsupported`. Mandatory egress and
+per-call admission are [#3687](https://github.com/schlessera/brain-kit/issues/3687).
+Subscription and current-model search is [#3688](https://github.com/schlessera/brain-kit/issues/3688).
+Until those land, the egress and spend-coverage limits above still hold for
+the executor.
+
+
+#### The executor's mandatory egress route — built in #3687
+
+Item 3 of the bridge design (`docs/plans/host-owned-web-search.md`) is built
+as an operating-system boundary, not as proxy settings. The pinned extension
+honours `NO_PROXY`, sends loopback directly and can spawn `curl`, so proxy
+variables alone would not contain it. The executor therefore runs under
+bubblewrap in its own user, network, IPC, UTS and PID namespaces, and its only
+route out is a session-owned host egress proxy, reached through the same
+trusted loopback bootstrap the turn workers use (`webExecutorBoundary`,
+`packages/ui-backend-pi/src/web-executor.ts`).
+
+Under the proxy's new destination policy (`EgressDestinationPolicy`,
+`packages/ui-sdk/src/server/egress-proxy.ts`), the proxy resolves each
+destination itself and refuses an answer containing any non-public address.
+It connects to the address it checked, so a rebinding resolver gets no second
+chance. Each redirect hop is a new connection and is checked the same way.
+Two choices made here, open to review:
+
+- The host's own `ssrf.allowRanges` in `web-search.json` may admit private
+  ranges, because it is the owner's configuration. Metadata addresses stay
+  refused regardless.
+- Ports are 80 and 443, and one executor session may move 64 MiB.
+
+Without TLS interception the proxy cannot see request headers. A guard inside
+the executor (`guardCredentialRedirects`,
+`packages/ui-backend-pi/src/web-credential-guard.ts`) refuses to carry a
+provider key across a cross-origin redirect, whether `fetch` or the caller
+follows it. The first destination of a request remains the extension's
+choice from the host's configuration and its pinned code. The executor's
+copy of the configuration sets `ssrf.trustEnvProxy`, so the extension leaves
+name resolution to the route.
 
 #### Approved host OAuth refresh placement (2026-10-16)
 

@@ -26,10 +26,17 @@ export "." (./src/index.ts)
 
 export "./internal" (./src/internal.ts)
   DEFAULT_PI_ALLOWED_TOOLS
+  PINNED_WEB_EXTENSION
+  type PrepareWebExecutorStateOptions
+  type SanitizedWebConfig
   TOOL_RISK
+  type WebExecutorState
   createBrainAccess
   createBrainTools
   createTurnContext
+  prepareWebExecutorState
+  sanitizeWebExecutorConfig
+  webExecutorCommand
 
 export "./package.json" (./package.json) [asset]
 

@@ -15,18 +15,28 @@
  * - Closing sends SIGTERM to the group, then SIGKILL after the grace period,
  *   and reports the exit it observed.
  *
- * Which program runs is the caller's choice: the trusted executor (#3686) and
- * test fixtures. No credential handling lives here.
+ * Which program runs is the caller's choice: the trusted Pi executor (#3686)
+ * and test fixtures. A launch may be prepared per session; its cleanup runs
+ * after the group is observed gone and is reported in the exit receipt. No
+ * credential handling lives here.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import type { WebExecutor, WebExecutorExit, WebExecutorRequest, WebExecutorResult, WebExecutorSession } from "./broker.js";
 
-interface ChildWebExecutorOptions {
+/** What one session's child is started with. */
+interface ChildWebExecutorLaunch {
   /** argv of the executor program. */
   command: readonly [string, ...string[]];
   /** The child's whole environment. */
   env: Readonly<Record<string, string>>;
   cwd?: string;
+  /** Runs once after the child and its group are gone, before `ended` settles; its result is the receipt's `cleaned`. */
+  cleanup?: () => void;
+}
+
+interface ChildWebExecutorOptions {
+  /** The same launch for every session, or one prepared per principal's session (its own private state). */
+  launch: ChildWebExecutorLaunch | ((owner: { principalId: string; sessionId: string }) => ChildWebExecutorLaunch | Promise<ChildWebExecutorLaunch>);
   /** How long a started child may take to announce `ready`. */
   startMs?: number;
   /** How long a cancelled call or a closing child is given before the group is killed. */
@@ -48,11 +58,16 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
 export function createChildWebExecutor(options: ChildWebExecutorOptions): WebExecutor {
   const startMs = options.startMs ?? 10_000, graceMs = options.graceMs ?? 2_000, maxFrameBytes = options.maxFrameBytes ?? 1_048_576;
   return {
-    async open(_owner, signal) {
+    async open(owner, signal) {
       signal.throwIfAborted();
-      const child: ChildProcess = spawn(options.command[0], options.command.slice(1), {
-        cwd: options.cwd, env: { ...options.env }, stdio: ["pipe", "pipe", "ignore"], detached: true,
-      });
+      const launch = typeof options.launch === "function" ? await options.launch(owner) : options.launch;
+      if (signal.aborted) { launch.cleanup?.(); signal.throwIfAborted(); }
+      let child: ChildProcess;
+      try {
+        child = spawn(launch.command[0], launch.command.slice(1), {
+          cwd: launch.cwd, env: { ...launch.env }, stdio: ["pipe", "pipe", "ignore"], detached: true,
+        });
+      } catch (error) { launch.cleanup?.(); throw error; }
       const pid = child.pid;
       const pending = new Map<string, Pending>();
       let reason: WebExecutorExit["reason"] = "died", ending = false;
@@ -66,7 +81,10 @@ export function createChildWebExecutor(options: ChildWebExecutorOptions): WebExe
             if (!gone && Date.now() < deadline) { setTimeout(settle, 20); return; }
             for (const waiting of pending.values()) { if (waiting.grace) clearTimeout(waiting.grace); waiting.reject(new Error("executor ended")); }
             pending.clear();
-            resolve({ reason, pid: pid ?? null, code, signal: exitSignal, exited: gone });
+            // Private state is removed only once nothing that could still write it is alive.
+            let cleaned: boolean | undefined;
+            if (launch.cleanup) { try { if (gone) { launch.cleanup(); cleaned = true; } else cleaned = false; } catch { cleaned = false; } }
+            resolve({ reason, pid: pid ?? null, code, signal: exitSignal, exited: gone, ...(cleaned === undefined ? {} : { cleaned }) });
           };
           settle();
         });
@@ -101,8 +119,10 @@ export function createChildWebExecutor(options: ChildWebExecutorOptions): WebExe
           if (waiting.grace) clearTimeout(waiting.grace);
           // A result for a call that was already settled is discarded.
           if (waiting.cancelled) continue;
-          if (frame.ok === true && typeof frame.text === "string" && (frame.handle === undefined || typeof frame.handle === "string")) {
-            waiting.resolve({ ok: true, text: frame.text, ...(frame.handle ? { handle: frame.handle } : {}) });
+          const extra = frame.handles;
+          if (frame.ok === true && typeof frame.text === "string" && (frame.handle === undefined || typeof frame.handle === "string")
+            && (extra === undefined || (Array.isArray(extra) && extra.length <= 8 && extra.every((id: unknown) => typeof id === "string" && id)))) {
+            waiting.resolve({ ok: true, text: frame.text, ...(frame.handle ? { handle: frame.handle } : {}), ...(extra?.length ? { handles: extra } : {}) });
           } else if (frame.ok === false && ["failed", "unsupported", "unknown_handle"].includes(frame.code) && typeof frame.message === "string") {
             waiting.resolve({ ok: false, code: frame.code, message: frame.message.slice(0, 500), ...(typeof frame.feature === "string" ? { feature: frame.feature } : {}) });
           } else return stop("died");

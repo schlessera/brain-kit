@@ -1264,6 +1264,7 @@ export "./internal" (./src/internal.ts)
   type CleanupReconcilerOptions
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
+  type EgressDestinationPolicy
   type EgressRecord
   type EgressRefusal
   FIRST_PARTY_PROVIDER_RECIPIENTS
@@ -1334,6 +1335,7 @@ export "./internal" (./src/internal.ts)
   WEB_SEARCH_FALLBACK_ON
   WEB_SEARCH_PROVIDERS
   WEB_SEARCH_PROVIDER_KEYS
+  WEB_TOOL_UNAVAILABLE_FEATURES
   WORKER_AREA_ROOT
   WORKER_DATA_ROOT
   WORKER_EGRESS_DIR
@@ -1349,6 +1351,7 @@ export "./internal" (./src/internal.ts)
   WORKER_STATE_BYTES_ENV
   WORKER_WORKTREE_ROOT
   WORKER_XDG_DIRS
+  type WebToolUnavailableFeature
   type WorkerCommandPolicy
   type WorkerDataTree
   WorkerHostError
@@ -1392,6 +1395,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   denyWorkerCommand
   describeClient
+  egressBootstrapEntry
   envMaskedPaths
   execWrapperSpawnOptions
   handleTurnTemp
@@ -1482,6 +1486,7 @@ export "./internal" (./src/internal.ts)
   turnTempSpace
   verifiedWorkerIdentity
   webSearchBrief
+  webSearchKeySource
   webSearchProvider
   workerCleanupUnconfirmed
   workerCommandPolicyNote
@@ -13238,6 +13243,7 @@ signatures (every public export and the types it is made of)
         turnBudgetMs?: number;
         execution?: ExecutionBrief;
         webSearch?: WebSearchBrief;
+        webTools?: boolean;
     }): string;
   checkEditedApproval (packages/ui-sdk/src/server/permission-gate.ts)
     export function checkEditedApproval(options: EditedApprovalCheckInput): string | null;

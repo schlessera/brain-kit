@@ -225,6 +225,14 @@ export async function loadBackendModule(
   }
 }
 
+/** A first-party backend's `/internal` subpath, through the same non-literal import. */
+export async function loadBackendInternal(
+  key: "claude" | "pi",
+  importer: (specifier: string) => Promise<unknown> = (specifier) => import(specifier)
+): Promise<unknown> {
+  return await importer(`${firstParty(key)!.specifier}/internal`);
+}
+
 /** Load and structurally validate the one descriptor exported by a backend package. */
 export async function loadBackendDescriptor(
   key: "claude" | "pi",
