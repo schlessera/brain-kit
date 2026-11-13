@@ -64,7 +64,7 @@ test("installed Pi records a forwarded web result before the next provider reque
     // The ws web slice as makeBridge composes it for a governed Pi turn.
     const web = createWebAccess({ host: { webTools: broker }, turn: { sessionId: "ithaca" }, turnId: "voyage", principalId: "odysseus", signal: controller.signal,
       backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "governed" }, current: () => !controller.signal.aborted,
-      recordingAvailable: () => true } as never, { collectedSessionId: "ithaca" }, { policy: { hash: "rev-odyssey" } } as never);
+      recordingAvailable: () => true } as never, { collectedSessionId: "ithaca" }, { policy: { hash: "rev-odyssey", policy: { providers: [] } } } as never);
     expect(web.webAccess, "WEB_SLICE_PRESENT_FOR_GOVERNED_PI").toBeFunction();
     const turn = createTurnContext();
     turn.bridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }), webAccess: web.webAccess } as never;

@@ -11,7 +11,7 @@ function slice(overrides: Record<string, unknown> = {}, collected: string | null
   const broker = { call: async (scope: WebCallScope, call: { tool: string }) => { scopes.push(scope); return { ok: true, tool: call.tool, text: "" }; } } as unknown as WebBroker;
   const ctx = { host: { webTools: broker }, turn: { sessionId: null }, turnId: "t-voyage", principalId: "p-penelope", signal: new AbortController().signal,
     backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "strict" }, work: undefined, current: () => true, recordingAvailable: () => true, ...overrides };
-  return { scopes, web: createWebAccess(ctx as never, { collectedSessionId: collected }, { policy: { hash: "rev-7" } } as never) };
+  return { scopes, web: createWebAccess(ctx as never, { collectedSessionId: collected }, { policy: { hash: "rev-7", policy: { providers: [] } } } as never) };
 }
 
 test("the slice exists only for Pi's turns, typed or voice, on a host with a broker", () => {

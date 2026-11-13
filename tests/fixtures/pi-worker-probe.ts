@@ -336,7 +336,7 @@ const maskBridge = await makeBridge(host, maskTurn, { promptText: "Odysseus work
 } as TurnRecorder, applicationPolicy: backend.brainApplicationPolicy!({})! });
 const webAccess = webBroker ? createWebAccess({ host: { webTools: webBroker }, turn: { sessionId: "s-ithaca" }, turnId: "worker-turn", principalId: "odysseus",
   signal: controller.signal, backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "governed" }, current: () => !controller.signal.aborted,
-  recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" }, { policy: { hash: "rev-odyssey" } } as never).webAccess : undefined;
+  recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" }, { policy: { hash: "rev-odyssey", policy: { providers: [] } } } as never).webAccess : undefined;
 const activeBridge = scenario.startsWith("mask-") ? { ...bridge, requestMask: maskBridge.requestMask,
   ...(scenario !== "mask-no-route" ? { applyImageMask: maskBridge.applyImageMask } : {}) } : webAccess ? { ...bridge, webAccess } : bridge;
 if (scenario === "failed-host") workerHostBoundary.probe = () => ({ ok: false, requirement: "fixture missing namespaces" });
