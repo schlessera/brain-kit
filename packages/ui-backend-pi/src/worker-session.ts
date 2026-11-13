@@ -112,6 +112,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   void ready.promise.catch(() => {});
   const admission = await admitPiWorker({ backend, env, declared, restricted, entries, resumeId, sessionId, profileId, promptContext, exec });
   const { agentDir, agentFiles, envelope, hostInference, reservation, admissionObservation } = admission;
+  if (admission.webModel) turnContext.webModel = admission.webModel;
   const { workerSandbox, workerLock, workerSignal, toolExecution } = admission.hostEnv;
   const { child, sandbox, sandboxNote, turnTemp } = await launchPiWorker({ backend, env, admission, restricted, resumeId, execHelpers, confirmPatterns,
     startupStarted, turnContext });

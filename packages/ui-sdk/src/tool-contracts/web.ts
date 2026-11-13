@@ -237,4 +237,46 @@ export interface WebToolCall {
   tool: WebToolName;
   input: Record<string, unknown>;
   toolCallId: string;
+  /**
+   * The turn's admitted model, when its backend relays inference on the host
+   * (#3688): subscription and current-model search use this model and no
+   * other. Set by the backend on the host, never by the worker.
+   */
+  model?: WebModelAccess;
+}
+
+/** Where a web executor session's relayed model requests go: its own egress route (#3688). */
+export interface WebModelEgress {
+  /** The executor's egress directory; the relay's socket is linked into it. */
+  dir: string;
+  /**
+   * The executor route's admission, byte ceiling and audit for one relayed
+   * request: the host egress proxy's own operation, opaque to a backend,
+   * which hands it to its inference relay unchanged.
+   */
+  inference(method: string, target: URL, signal: AbortSignal): unknown;
+}
+
+/** What the executor is told about the relayed model: never a credential. */
+export interface WebModelGrant {
+  provider: string;
+  model: string;
+  /** The host credential's kind; the executor holds only a placeholder of it. */
+  credential: "api_key" | "oauth";
+  /** The host-configured endpoint's path, which the relay expects before each route. */
+  basePath: string;
+  /** The relay socket, as the executor sees it. */
+  socket: string;
+}
+
+/**
+ * One turn's admitted model for the web executor (#3688). `open` starts a
+ * host relay for exactly this model into an executor's egress route: the
+ * host resolves and refreshes the credential on every request, and the
+ * executor sees a placeholder.
+ */
+export interface WebModelAccess {
+  provider: string;
+  model: string;
+  open(egress: WebModelEgress, signal?: AbortSignal): Promise<{ grant: WebModelGrant; stop(): void }>;
 }

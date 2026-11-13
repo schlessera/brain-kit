@@ -19,7 +19,10 @@
  * No model turn runs. A call goes straight to `runToolCall` against the
  * session's tools, with the session's real extension context, so no
  * inference is needed and no command, shortcut or nested workflow is
- * reachable. The line protocol is `child-executor.ts`'s in ui-server: `call`
+ * reachable. A call from a turn whose inference the host relays carries that
+ * turn's admitted model (#3688): for that call alone, the session's model
+ * runtime knows only that model, with a placeholder credential, and its
+ * requests go to the host's relay (`web-model-scope.ts`). The line protocol is `child-executor.ts`'s in ui-server: `call`
  * and `cancel` in; `ready`, `result` and `cancelled` out.
  */
 import { readFileSync } from "node:fs";
@@ -34,6 +37,7 @@ import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/internal";
 import { resolveWebSearchEnv } from "./config/env.js";
 import { guardCredentialRedirects, webCredentialValues } from "./web-credential-guard.js";
 import { pinnedWebExtensionEntry } from "./web-executor.js";
+import { createWebModelScope, parseWebModelGrant, type WebModelScope, type WebModelGrant } from "./web-model-scope.js";
 
 const [stateDir] = process.argv.slice(2);
 if (!stateDir) throw new Error("usage: web-executor-entry <private state dir>");
@@ -54,7 +58,13 @@ const credentialNames = WEB_SEARCH_PROVIDERS.flatMap(provider => provider.envVar
 // provider request as its egress route admits the connection, and a reused
 // TLS tunnel would carry a second request it never saw.
 const native = globalThis.fetch.bind(globalThis);
-const fresh = (input: string | URL | Request, init?: RequestInit) => native(input, { ...init, keepalive: false });
+// Set once the session exists; until then no model request can be routed.
+let models: WebModelScope | undefined;
+const fresh = (input: string | URL | Request, init?: RequestInit) => {
+  // The admitted model's endpoint goes to the host relay, and only there (#3688).
+  const relayed = models?.route(input, init);
+  return relayed ? native(relayed.url, relayed.init) : native(input, { ...init, keepalive: false });
+};
 globalThis.fetch = Object.assign(guardCredentialRedirects(fresh, webCredentialValues(resolveWebSearchEnv(), credentialNames, hostConfig)),
   { preconnect: globalThis.fetch.preconnect }) as typeof fetch;
 
@@ -71,13 +81,16 @@ if (loaded.errors.length || loaded.extensions.length !== 1 || loaded.extensions[
   process.stderr.write(`web executor: unexpected extension set ${JSON.stringify(loaded.extensions.map(entry => entry.path))} ${JSON.stringify(loaded.errors)}\n`);
   process.exit(70);
 }
-// Explicit paths inside the private directory; this slice runs no model, so nothing is refreshed.
+// Explicit paths inside the private directory, which hold no credential: a relayed
+// model's credential stays on the host, which refreshes it (#3688).
 const modelRuntime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"),
   allowModelNetwork: false, refreshOnCreate: false });
 const { session } = await createAgentSession({
   cwd, agentDir, settingsManager, resourceLoader: loader, modelRuntime, noTools: "builtin",
   sessionManager: SessionManager.inMemory(cwd),
 });
+// The extension's registry reads this runtime: narrowed to each call's grant, and to nothing between calls.
+models = createWebModelScope(modelRuntime as never, model => { session.agent.state.model = model as never; });
 const tools = session.agent.state.tools.filter(tool => (WEB_TOOL_NAME_LIST as readonly string[]).includes(tool.name));
 if (tools.length !== WEB_TOOL_NAME_LIST.length) {
   process.stderr.write(`web executor: the pinned extension registered ${JSON.stringify(session.getActiveToolNames())}\n`);
@@ -104,8 +117,11 @@ const assistantMessage = {
   stopReason: "toolUse", timestamp: 0,
 } as const;
 
-async function call(id: string, tool: WebToolName, input: Record<string, unknown>): Promise<void> {
+async function call(id: string, tool: WebToolName, input: Record<string, unknown>, grant: WebModelGrant | undefined): Promise<void> {
   const controller = new AbortController();
+  let leave: () => void;
+  try { leave = models!.enter(grant); }
+  catch (error) { return send({ type: "result", id, ok: false, code: "failed", message: (error instanceof Error ? error.message : String(error)).slice(0, 500) }); }
   running.set(id, controller);
   try {
     const outcome = await runToolCall({ type: "toolCall", id, name: tool, arguments: input as never }, {
@@ -121,17 +137,19 @@ async function call(id: string, tool: WebToolName, input: Record<string, unknown
   } catch (error) {
     if (controller.signal.aborted) return send({ type: "cancelled", id });
     send({ type: "result", id, ok: false, code: "failed", message: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
-  } finally { running.delete(id); }
+  } finally { running.delete(id); leave(); }
 }
 
 const lines = createInterface({ input: process.stdin });
 lines.on("line", line => {
-  let frame: { type?: string; id?: string; tool?: string; input?: unknown };
+  let frame: { type?: string; id?: string; tool?: string; input?: unknown; model?: unknown };
   try { frame = JSON.parse(line); } catch { process.exit(65); }
   if (frame.type === "cancel" && typeof frame.id === "string") { running.get(frame.id)?.abort(); return; }
   if (frame.type !== "call" || typeof frame.id !== "string" || !(WEB_TOOL_NAME_LIST as readonly string[]).includes(frame.tool ?? "")
     || !frame.input || typeof frame.input !== "object" || Array.isArray(frame.input)) process.exit(65);
-  void call(frame.id, frame.tool as WebToolName, frame.input as Record<string, unknown>);
+  let grant: WebModelGrant | undefined;
+  try { grant = parseWebModelGrant(frame.model); } catch { process.exit(65); }
+  void call(frame.id, frame.tool as WebToolName, frame.input as Record<string, unknown>, grant);
 });
 // The host closing stdin is the end of this session.
 lines.on("close", () => { session.dispose(); process.exit(0); });

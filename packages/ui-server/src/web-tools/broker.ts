@@ -29,7 +29,7 @@
  */
 import { randomBytes } from "node:crypto";
 import {
-  parseWebToolInput, webToolProviders, type WebToolCall, type WebToolEnvelope, type WebToolErrorCode, type WebToolName,
+  parseWebToolInput, webToolProviders, type WebModelAccess, type WebModelGrant, type WebToolCall, type WebToolEnvelope, type WebToolErrorCode, type WebToolName,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { webProviderRecipient } from "./recipients.js";
 
@@ -75,6 +75,10 @@ export interface WebExecutorRequest {
   tool: WebToolName;
   input: Record<string, unknown>;
   scope: WebCallScope;
+  /** The calling turn's admitted model (#3688), from its backend on the host; the executor host relays it. */
+  model?: WebModelAccess;
+  /** What the executor itself is told of that model once its relay runs: never a credential. */
+  modelGrant?: WebModelGrant;
 }
 
 export type WebExecutorResult =
@@ -356,7 +360,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
         if (controller.signal.aborted) reject(controller.signal.reason);
         controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true });
       });
-      const result = await Promise.race([session.call({ callId, tool, input, scope }, controller.signal), stopped]);
+      const result = await Promise.race([session.call({ callId, tool, input, scope, ...(call.model ? { model: call.model } : {}) }, controller.signal), stopped]);
       // No late or cross-turn result: re-check liveness before any data returns.
       if (outcome) throw outcome;
       const refusal = dispatched?.();

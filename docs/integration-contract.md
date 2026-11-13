@@ -52,6 +52,20 @@ SDK gains the tool contracts, `WebToolEnvelope`, `parseWebToolInput`,
 and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
 This ships in a minor.
 
+## Subscription and current-model web search for Pi (additive, 0.45.0, #3688)
+
+A Pi turn whose inference runs on the host relay lends its admitted model to
+the web tools: `web_search` can use that turn's ChatGPT/Codex login, or the
+current model, for OpenAI search. The host resolves and refreshes the
+credential; the executor holds a placeholder, and a request for any other
+model is refused. Tool names, inputs and envelopes are unchanged. In the SDK,
+`WebToolCall` gains the optional `model: WebModelAccess`, with the new types
+`WebModelAccess`, `WebModelEgress` and `WebModelGrant`, and `handleWebTool`
+an optional fifth argument that sets it. See
+[the MCP component](integration-contract/mcp.md#host-owned-web-tools-additive-0450-3685)
+and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
+This ships in a minor.
+
 ## Host web executor for Pi (additive, 0.45.0, #3686)
 
 The four web tools now run on a host executor: the pinned upstream

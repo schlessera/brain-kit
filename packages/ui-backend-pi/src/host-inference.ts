@@ -358,6 +358,33 @@ export async function preparePiHostInference(options: {
   }
 }
 
+/**
+ * A relayed turn's admitted model, lent to the host web executor (#3688) for
+ * subscription and current-model search. Each `open` starts this relay for
+ * exactly that model into the executor's egress route, with every check a
+ * turn's relay makes: the same credential store, refresh on the host, the
+ * same authorized origins and the same admitted recipient. The executor is
+ * told the credential's kind and where the relay is, never the credential.
+ */
+export function piWebModelAccess(options: { provider: string; modelId: string; agentDir: string; brainPath: string; recipientOrigin?: string;
+  environment: Readonly<Record<string, string | undefined>> }): import("@schlessera/brain-ui-sdk/tool-contracts").WebModelAccess {
+  return {
+    provider: options.provider,
+    model: options.modelId,
+    async open(egress, signal) {
+      // The executor host passes its egress proxy's own operation, which the relay expects.
+      const route = egress as Parameters<typeof preparePiHostInference>[0]["egress"];
+      const prepared = await preparePiHostInference({ ...options, egress: route, ...(signal ? { signal } : {}) });
+      const { worker } = prepared;
+      return {
+        grant: { provider: worker.provider, model: options.modelId, credential: worker.credential.type === "oauth" ? "oauth" : "api_key",
+          basePath: worker.basePath, socket: worker.socket },
+        stop: () => prepared.stop(),
+      };
+    },
+  };
+}
+
 /** Every step runs even when an earlier one fails; the first failure is rethrown. */
 function cleanup(link: string, relay: InferenceRelay | undefined, scratch: string): void {
   const failures: unknown[] = [];
