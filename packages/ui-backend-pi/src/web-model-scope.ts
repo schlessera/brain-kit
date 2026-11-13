@@ -115,8 +115,10 @@ export function createWebModelScope(runtime: Runtime, setCurrent: (model: Scoped
       if (!current) return undefined;
       const url = new URL(input instanceof Request ? input.url : String(input));
       const official = new URL(current.model.baseUrl);
-      const base = official.pathname.replace(/\/+$/, "");
-      if (url.origin !== official.origin || !(url.pathname === base || url.pathname.startsWith(`${base}/`))) return undefined;
+      // Compared by URL path segments: the endpoint's own, then the route below it.
+      const segments = (path: string) => path.split("/").filter(Boolean);
+      const base = segments(official.pathname), path = segments(url.pathname);
+      if (url.origin !== official.origin || base.some((part, index) => path[index] !== part)) return undefined;
       // The extension sends a URL and a body string; anything else is not what it sends a model.
       if (input instanceof Request) throw new Error("A model request must not arrive as a Request object.");
       const method = (init?.method ?? "GET").toUpperCase();
@@ -126,7 +128,8 @@ export function createWebModelScope(runtime: Runtime, setCurrent: (model: Scoped
       if (named !== current.model.id) {
         throw new Error(`The web search asked for model ${String(named)}, but this turn was admitted for ${current.grant.provider}/${current.model.id} only, so nothing was sent.`);
       }
-      return { url: `http://relay${current.grant.basePath}${url.pathname.slice(base.length)}${url.search}`,
+      const route = path.slice(base.length).map(part => `/${part}`).join("");
+      return { url: `http://relay${current.grant.basePath}${route}${url.search}`,
         init: { ...init, unix: current.grant.socket, keepalive: false, redirect: "manual" } as RequestInit };
     },
   };
