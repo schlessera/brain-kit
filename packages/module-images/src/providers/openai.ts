@@ -18,6 +18,7 @@ import {
 } from "../shape.js";
 import { resolveEnv } from "../config/env.js";
 import { providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
+import { markupProblem } from "../markup.js";
 import { isRetiredModel, retiredModelMessage } from "../retired.js";
 import { staticSvgProblem } from "../svg.js";
 import {
@@ -52,6 +53,8 @@ const GPT_IMAGE = {
   provider: "openai",
   transparentBackground: true,
   maskInpainting: true,
+  // Markup-guided edits are documented for the 2.5 and 2.6 pairs alike (#3785).
+  markupGuidance: true,
   arbitraryDimensions: true,
   presetSizes: PRESETS,
   maxEdgePx: OPENAI_LIMITS.maxEdge,
@@ -356,6 +359,17 @@ export const openaiProvider: Provider = {
         retryable: false,
       });
     }
+    if (req.markup) {
+      // Routing and the CLI have checked this already; a direct caller has not.
+      if (req.mask) {
+        throw new ImageProviderError("markup and mask are exclusive.", { retryable: false });
+      }
+      if (!MODELS.find((m) => m.id === model)?.markupGuidance) {
+        throw new ImageProviderError(`${model} does not take a markup layer.`, { retryable: false });
+      }
+      const problem = markupProblem(req.markup, req.references?.[0]);
+      if (problem) throw new ImageProviderError(problem, { retryable: false });
+    }
     if (!gif && (req.frames !== undefined || req.frameDurationMs !== undefined)) {
       throw new ImageProviderError("Frame count and frame duration apply to GIF output only.", { retryable: false });
     }
@@ -390,7 +404,7 @@ export const openaiProvider: Provider = {
 
     // Edits are multipart. Reference images repeat as `image[]`; the mask is a
     // PNG whose fully transparent pixels mark what may change, and it applies
-    // to the FIRST image only.
+    // to the FIRST image only, as does a markup layer.
     const form = new FormData();
     form.append("model", model);
     form.append("prompt", req.prompt);
@@ -407,6 +421,10 @@ export const openaiProvider: Provider = {
     }
     if (req.mask) {
       form.append("mask", new Blob([req.mask.data as BlobPart], { type: "image/png" }), "mask.png");
+    }
+    // The markup layer annotates the first image; it is never sent with a mask (#3785).
+    if (req.markup) {
+      form.append("markup", new Blob([req.markup.data as BlobPart], { type: "image/png" }), "markup.png");
     }
 
     const res = await send(`${resolveEnv().openaiBaseUrl}/images/edits`, { method: "POST", headers, body: form });
