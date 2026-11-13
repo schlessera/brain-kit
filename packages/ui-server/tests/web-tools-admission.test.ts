@@ -18,6 +18,7 @@ test("each curated provider and its API hosts name one recipient; anything else 
   expect(webHostRecipient("api.exa.ai")).toBe("exa");
   expect(webHostRecipient("R.JINA.AI."), "WEB_READER_FALLBACK_IS_JINA").toBe("jina");
   expect(webHostRecipient("generativelanguage.googleapis.com"), "WEB_NESTED_MODEL_IS_GOOGLE").toBe("google");
+  expect(webHostRecipient("chatgpt.com"), "WEB_SUBSCRIPTION_SEARCH_IS_OPENAI").toBe("openai");
   expect(webHostRecipient("harbour.ithaca.example")).toBeUndefined();
   expect(webHostRecipient("exa.ai"), "a vendor's other host is a page").toBeUndefined();
   const configured = configuredWebHosts({ exaBaseUrl: "https://exa.odysseus.test:8443", firecrawlBaseUrl: "https://crawl.odysseus.test", jinaApiKey: "x" });
@@ -69,4 +70,14 @@ test("an executor connection belongs to the call in flight, or is refused", asyn
   broken.authority!.admit = async () => { throw new Error("ledger closed"); };
   await expect(admitConnection(brokerWith([broken]), owner, "api.exa.ai", new Map())).rejects.toBeInstanceOf(EgressAdmissionRefused);
   expect(log, "WEB_ADMISSION_FAILURE_REFUSES").toEqual(["refused:unavailable"]);
+});
+
+test("a relayed request admitted again before dispatch is checked each time and counted once (#3688)", async () => {
+  const log: string[] = [];
+  const counted = new Set<string>();
+  const calls = brokerWith([inFlight("turn-1", null, log)]);
+  await admitConnection(calls, owner, "chatgpt.com", new Map(), { id: "c1", counted });
+  await admitConnection(calls, owner, "chatgpt.com", new Map(), { id: "c1", counted });
+  await admitConnection(calls, owner, "chatgpt.com", new Map(), { id: "c2", counted });
+  expect(log, "WEB_RELAYED_REQUEST_COUNTED_ONCE").toEqual(["admit:openai", "attempt:chatgpt.com:call-turn-1", "admit:openai", "admit:openai", "attempt:chatgpt.com:call-turn-1"]);
 });

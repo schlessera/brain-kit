@@ -4813,6 +4813,52 @@ catalog is reached as a page, so its routing is not checked and its spend is
 not counted; and the receipt's `coverage` text keeps saying that other
 provider and tool spend is not metered.
 
+#### Subscription and current-model search on host-owned Pi auth — built in #3688
+
+The #1863 ruling of 2026-10-15 requires OpenAI search on a Pi ChatGPT/Codex
+login and on the current model; an API-key-only or standalone-MCP substitute
+does not meet it. Both upstream paths read the extension context's model
+registry and current model, so the executor's session supplies them, and the
+credential stays where the turn's own inference keeps it: on the host relay
+(#1665).
+
+- **Which model.** Only a turn whose inference runs on the host relay lends a
+  model, and it lends the one it was admitted for: its declared or saved
+  profile's provider and model, its credential store and its admitted
+  recipient origin (`piWebModelAccess`,
+  `packages/ui-backend-pi/src/host-inference.ts`). The backend sets it on the
+  host side of the bridge (`createPiBridgeTools`,
+  `packages/ui-backend-pi/src/bridge-tools.ts`); the tool input schema refuses
+  a `model` key, so the worker cannot name one.
+- **The credential.** For each call the executor host starts that model's
+  relay into the executor session's own egress directory and stops it when the
+  turn's calls are done (`modelLender`, `packages/ui-server/src/web-tools/host.ts`).
+  It is the turn relay's own code path, so refresh and writeback, the command
+  refusal, the authorized origins and the admitted-recipient check are
+  unchanged. The executor is told the credential's kind and the relay's
+  socket (`WebModelGrant`), never the credential. One session lends one turn's
+  model at a time.
+- **Inside the executor.** While a call holds the grant, the session's model
+  runtime knows exactly that model from Pi's built-in catalog, with a
+  placeholder credential of its kind, and the session's current model is that
+  model; between calls it knows none. It runs no model itself and cannot log
+  in, out or register providers (`createWebModelScope`,
+  `packages/ui-backend-pi/src/web-model-scope.ts`). A request to the model's
+  official endpoint goes to the relay, and one that names any other model,
+  such as an `openaiSearchModel` override, is refused before it is sent. A
+  model outside Pi's built-in catalog is refused.
+- **Admission.** The relay's requests pass the executor route's per-call
+  admission, so `chatgpt.com` and `api.openai.com` are the `openai` recipient
+  for data routing and budget, counted once per request although the relay
+  admits again just before dispatch.
+
+What is not claimed: no live ChatGPT/Codex login or OpenAI current-model
+search was exercised. The offline proof is a fictional stored login and a
+loopback provider. Claiming support for real subscriptions needs a separately
+authorized live-login qualification of both paths. Kimi's login stays outside
+the curated catalog, and Pi's other subscription logins are not relayed for
+web search.
+
 #### Approved host OAuth refresh placement (2026-10-16)
 
 The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to

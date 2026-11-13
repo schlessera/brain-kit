@@ -356,8 +356,15 @@ flight, against that conversation's provider policy and the turn's budgets,
 and counts as unknown spend. A connection with no call in flight is refused.
 The executor opens one connection per request, so a reused tunnel cannot
 carry a request the host did not admit.
-Per-call admission is #3687's second part; subscription and current-model
-search is #3688.
+
+A turn whose inference runs on the host relay lends its admitted model to its
+web calls (#3688), so OpenAI search can use that turn's ChatGPT/Codex login or
+its current model (`searchRouting.useCurrentModel`). The host starts that
+model's relay into the executor's egress route, resolving and refreshing the
+credential on every request; the executor holds a placeholder, knows only
+that model from Pi's built-in catalog while the call runs, and refuses a
+request for any other model. No live login has been qualified for this path:
+the proof is offline, with a fictional stored login.
 
 ## Extensions (MCP, subagents)
 

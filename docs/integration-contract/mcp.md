@@ -1406,6 +1406,18 @@ turn, conversation and day as unknown spend in the budget receipt's
 `unknownRuns`, never as zero. Pages the call fetches are checked by the egress
 route, not the provider policy.
 
+Since #3688 a Pi turn whose inference the host relays lends that admitted
+model to its web calls. OpenAI search then works on the turn's ChatGPT/Codex
+login (`openaiSearchProviders`) or on the current model
+(`searchRouting.useCurrentModel`), and uses that model and no other: a
+request that names another, such as an `openaiSearchModel` override, is
+refused before anything is sent. The host resolves and refreshes the
+credential on every request; the executor holds only a placeholder. A missing
+login, or one the host cannot refresh, fails the call with nothing sent.
+These requests go to `openai` as their recipient and are admitted and counted
+like any other provider request. A turn without the relay has no Pi login to
+search with, as before.
+
 A `responseId` is an opaque handle the host issues. It is scoped to the
 calling principal and session and to the executor session that stored the
 content, and it ends when that executor ends. An executor's own result id

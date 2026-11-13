@@ -154,7 +154,7 @@ export function createChildWebExecutor(options: ChildWebExecutorOptions): WebExe
             pending.set(request.callId, waiting);
             if (callSignal.aborted) return cancel();
             callSignal.addEventListener("abort", cancel, { once: true });
-            send({ type: "call", id: request.callId, tool: request.tool, input: request.input, scope: request.scope });
+            send({ type: "call", id: request.callId, tool: request.tool, input: request.input, scope: request.scope, ...(request.modelGrant ? { model: request.modelGrant } : {}) });
           });
         },
         async close(why) {

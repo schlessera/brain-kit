@@ -335,6 +335,16 @@ schemas `WEB_SEARCH_INPUT_SCHEMA`, `FETCH_CONTENT_INPUT_SCHEMA`,
 helper `handleWebTool(name, input, bridge, toolCallId)`, and `BackendBridge`
 the optional `webAccess(call)`. No existing export changes.
 
+Since #3688 `WebToolCall` has an optional `model: WebModelAccess`, the turn's
+admitted model as its backend lends it on the host, and `handleWebTool` takes
+it as an optional fifth argument, `model`. `WebModelAccess` is
+`{ provider, model, open(egress, signal?) }`; `open` starts a host relay for
+exactly that model into a web executor's egress route (`WebModelEgress`:
+`{ dir, inference }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
+(`{ provider, model, credential: "api_key" | "oauth", basePath, socket }`) is
+everything the executor is told, and never holds a credential. A backend that
+does not set `model` behaves as before.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated

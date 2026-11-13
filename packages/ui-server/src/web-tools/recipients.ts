@@ -37,6 +37,9 @@ const HOST_RECIPIENTS: Readonly<Record<string, string>> = Object.freeze({
   "api.perplexity.ai": "perplexity",
   "api.tavily.com": "tavily",
   "api.openai.com": "openai",
+  // Subscription search on a ChatGPT/Codex login (#3688), relayed by the host;
+  // the API shares its host with the site, so every connection there is OpenAI's.
+  "chatgpt.com": "openai",
   // Gemini search, URL context and PDF extraction: nested model calls.
   "generativelanguage.googleapis.com": "google",
   // Kagi's API shares its host with its site: every connection there counts as Kagi's.
