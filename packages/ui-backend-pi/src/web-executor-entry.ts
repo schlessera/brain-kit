@@ -22,6 +22,7 @@
  * reachable. The line protocol is `child-executor.ts`'s in ui-server: `call`
  * and `cancel` in; `ready`, `result` and `cancelled` out.
  */
+import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { runToolCall } from "@earendil-works/pi-agent-core";
@@ -29,6 +30,9 @@ import {
   createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { WEB_TOOL_NAME_LIST, type WebToolName } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { WEB_SEARCH_PROVIDERS } from "@schlessera/brain-ui-sdk/internal";
+import { resolveWebSearchEnv } from "./config/env.js";
+import { guardCredentialRedirects, webCredentialValues } from "./web-credential-guard.js";
 import { pinnedWebExtensionEntry } from "./web-executor.js";
 
 const [stateDir] = process.argv.slice(2);
@@ -40,6 +44,14 @@ const PINNED_WEB_EXTENSION = pinnedWebExtensionEntry();
 // The private directory's path is host detail: no result or message names it.
 const redact = (text: string) => text.split(stateDir).join("<web executor>");
 const send = (frame: unknown): void => { process.stdout.write(redact(JSON.stringify(frame)) + "\n"); };
+
+// A provider key never follows a redirect to another origin (#3687). Installed
+// before the extension loads, so every fetch it makes goes through the guard.
+let hostConfig: unknown = {};
+try { hostConfig = JSON.parse(readFileSync(join(agentDir, "web-search.json"), "utf8")); } catch { /* The executor runs with forced defaults. */ }
+const credentialNames = WEB_SEARCH_PROVIDERS.flatMap(provider => provider.envVar ? [provider.envVar] : []);
+globalThis.fetch = Object.assign(guardCredentialRedirects(globalThis.fetch.bind(globalThis), webCredentialValues(resolveWebSearchEnv(), credentialNames, hostConfig)),
+  { preconnect: globalThis.fetch.preconnect }) as typeof fetch;
 
 const settingsManager = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" });
 const loader = new DefaultResourceLoader({

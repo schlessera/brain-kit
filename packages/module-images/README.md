@@ -29,6 +29,7 @@ serve at all:
 | Request | Routes to | Reason |
 |---|---|---|
 | Masked inpainting | OpenAI | Google's image API has no mask concept |
+| Markup-guided edit (`--markup`) | OpenAI GPT Image 2.6 or 2.5 | Only these models take an annotation layer; Gemini has none |
 | Transparent background | OpenAI, on the selected model | Every GPT Image 2.6 and 2.5 model returns real alpha on png or webp; Gemini documents none |
 | PNG or WebP | OpenAI | Every Gemini image model serves JPEG only |
 | Exact custom pixels | OpenAI | Gemini has fixed ratios; the 2.6 and 2.5 models take any size on a 16px grid up to 3840px, 3:1 and 8.3MP |
@@ -79,6 +80,16 @@ refused and nothing is written. The call has still been paid for. SVG authoring
 tokens are billed at a rate this module does not know, so the cost is reported
 as unknown, before and after the call. The `svg` authoring-model option is
 never sent.
+
+`--markup <path>` sends an annotation layer with an edit: a transparent PNG,
+the same width and height as the first `--ref`, whose circles, arrows and notes
+show the model what to change. It needs at least one `--ref` and cannot be
+combined with `--mask`. The layer is checked from the file headers before any
+request: it must be a PNG with an alpha channel, it must match the first
+reference's size (a JPEG reference is measured after its EXIF orientation), the
+reference and the layer may hold at most 16,777,216 pixels each, and the layer
+file at most 50 MB. Gemini has no annotation layer, so markup there is refused.
+OpenAI charges nothing extra for it.
 
 ### Retired models
 

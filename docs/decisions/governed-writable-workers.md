@@ -4084,7 +4084,7 @@ reason through as the refusal body's `error.message` and an additive
 `outward_not_approved` (`const refuse`,
 `packages/ui-sdk/src/server/provider-relay.ts:386-391`). The OpenAI image
 provider no longer appends its account hint to a relay refusal
-(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:255-256`).
+(`const relayRefusal`, `packages/module-images/src/providers/openai.ts:258-259`).
 A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
 section names these causes and what the user can do (`A blocked connection
 says why`, `packages/ui-sdk/src/server/system-prompt.ts:167-175`). Since #3246,
@@ -4729,6 +4729,38 @@ Subscription and current-model search is [#3688](https://github.com/schlessera/b
 Until those land, the egress and spend-coverage limits above still hold for
 the executor.
 
+
+#### The executor's mandatory egress route — built in #3687
+
+Item 3 of the bridge design (`docs/plans/host-owned-web-search.md`) is built
+as an operating-system boundary, not as proxy settings. The pinned extension
+honours `NO_PROXY`, sends loopback directly and can spawn `curl`, so proxy
+variables alone would not contain it. The executor therefore runs under
+bubblewrap in its own user, network, IPC, UTS and PID namespaces, and its only
+route out is a session-owned host egress proxy, reached through the same
+trusted loopback bootstrap the turn workers use (`webExecutorBoundary`,
+`packages/ui-backend-pi/src/web-executor.ts`).
+
+Under the proxy's new destination policy (`EgressDestinationPolicy`,
+`packages/ui-sdk/src/server/egress-proxy.ts`), the proxy resolves each
+destination itself and refuses an answer containing any non-public address.
+It connects to the address it checked, so a rebinding resolver gets no second
+chance. Each redirect hop is a new connection and is checked the same way.
+Two choices made here, open to review:
+
+- The host's own `ssrf.allowRanges` in `web-search.json` may admit private
+  ranges, because it is the owner's configuration. Metadata addresses stay
+  refused regardless.
+- Ports are 80 and 443, and one executor session may move 64 MiB.
+
+Without TLS interception the proxy cannot see request headers. A guard inside
+the executor (`guardCredentialRedirects`,
+`packages/ui-backend-pi/src/web-credential-guard.ts`) refuses to carry a
+provider key across a cross-origin redirect, whether `fetch` or the caller
+follows it. The first destination of a request remains the extension's
+choice from the host's configuration and its pinned code. The executor's
+copy of the configuration sets `ssrf.trustEnvProxy`, so the extension leaves
+name resolution to the route.
 
 #### Approved host OAuth refresh placement (2026-10-16)
 

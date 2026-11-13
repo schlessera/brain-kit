@@ -9,6 +9,7 @@ import { buildTaxonomy } from "@schlessera/brain/module";
 
 import { imageCommand } from "../src/cli";
 import { configSchema } from "../src/module";
+import { jpeg, png, webp } from "./image-bytes";
 
 const SUNBURST = "gpt-image-2.6-sunburst";
 const FLARE = "gpt-image-2.6-flare";
@@ -526,5 +527,124 @@ describe("brain image — static SVG on GPT Image 2.6 (#3784)", () => {
     expect(calls).toHaveLength(0);
     expect(report().output).toEndWith(".svg");
     expect(report().estimatedCostUsd).toBeNull();
+  });
+});
+
+describe("brain image — markup-guided edits (#3785)", () => {
+  const put = (name: string, data: Uint8Array) => writeFileSync(join(root, "photos", name), data);
+  const edit = (...flags: string[]) => run(["circle the ship", ...flags, "--out", "edit.png"]);
+
+  test("--ref with --markup posts a markup part to /images/edits on the default model, with no mask", async () => {
+    put("ithaca.png", png(1024, 768));
+    put("notes.png", png(1024, 768));
+    expect(await edit("--ref", "photos/ithaca.png", "--markup", "photos/notes.png")).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toEndWith("/images/edits");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("model")).toBe(SUNBURST);
+    const markup = form.get("markup");
+    expect(markup, "IMAGE_MARKUP_PART").toBeInstanceOf(Blob);
+    expect([...new Uint8Array(await (markup as Blob).arrayBuffer())]).toEqual([...png(1024, 768)]);
+    expect((markup as Blob).type).toBe("image/png");
+    expect(form.get("mask")).toBeNull();
+    expect(form.getAll("image[]")).toHaveLength(1);
+    expect(report().reason).toMatch(/markup/);
+  });
+
+  test("a GPT Image 2.5 model takes markup too", async () => {
+    put("ithaca.png", png(64, 64));
+    put("notes.png", png(64, 64));
+    expect(await edit("--ref", "photos/ithaca.png", "--markup", "photos/notes.png", "--model", "gpt-image-2.5-flare")).toBe(0);
+    expect((calls[0].init.body as FormData).get("model")).toBe("gpt-image-2.5-flare");
+  });
+
+  test("a palette PNG with a tRNS chunk counts as transparent", async () => {
+    put("ithaca.png", png(64, 64));
+    put("notes.png", png(64, 64, { colorType: 3, trns: true }));
+    expect(await edit("--ref", "photos/ithaca.png", "--markup", "photos/notes.png")).toBe(0);
+  });
+
+  test("the size of a JPEG --ref is read after its EXIF orientation", async () => {
+    // Stored 768 wide and 1024 high, rotated 90° to display as 1024x768.
+    put("ithaca.jpg", jpeg(768, 1024, 6));
+    put("notes.png", png(1024, 768));
+    expect(await edit("--ref", "photos/ithaca.jpg", "--markup", "photos/notes.png")).toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a WebP --ref's size is read from its header", async () => {
+    put("ithaca.webp", webp(800, 600));
+    put("notes.png", png(800, 600));
+    expect(await edit("--ref", "photos/ithaca.webp", "--markup", "photos/notes.png")).toBe(0);
+  });
+
+  const refused: [string, () => void, string[], RegExp][] = [
+    ["no --ref", () => put("notes.png", png(64, 64)), ["--markup", "photos/notes.png"], /--ref/],
+    [
+      "--mask",
+      () => (put("ithaca.png", png(64, 64)), put("notes.png", png(64, 64))),
+      ["--ref", "photos/ithaca.png", "--mask", "photos/mask.png", "--markup", "photos/notes.png"],
+      /exclusive/,
+    ],
+    [
+      "a JPEG named .png",
+      () => (put("ithaca.png", png(64, 64)), put("notes.png", jpeg(64, 64))),
+      ["--ref", "photos/ithaca.png", "--markup", "photos/notes.png"],
+      /not a PNG/,
+    ],
+    [
+      "a flattened PNG with no alpha",
+      () => (put("ithaca.png", png(64, 64)), put("notes.png", png(64, 64, { colorType: 2 }))),
+      ["--ref", "photos/ithaca.png", "--markup", "photos/notes.png"],
+      /alpha/,
+    ],
+    [
+      "mismatched dimensions",
+      () => (put("ithaca.png", png(1024, 768)), put("notes.png", png(1024, 1024))),
+      ["--ref", "photos/ithaca.png", "--markup", "photos/notes.png"],
+      /1024x1024 but .*1024x768/,
+    ],
+    [
+      "a JPEG --ref whose orientation swaps its edges",
+      () => (put("ithaca.jpg", jpeg(1024, 768, 8)), put("notes.png", png(1024, 768))),
+      ["--ref", "photos/ithaca.jpg", "--markup", "photos/notes.png"],
+      /1024x768 but .*768x1024/,
+    ],
+    [
+      "a first --ref past the pixel limit",
+      () => (put("ithaca.png", png(4097, 4096)), put("notes.png", png(4097, 4096))),
+      ["--ref", "photos/ithaca.png", "--markup", "photos/notes.png"],
+      /16,777,216/,
+    ],
+    [
+      "an unreadable first --ref",
+      () => (put("ithaca.png", new Uint8Array([1, 2, 3])), put("notes.png", png(64, 64))),
+      ["--ref", "photos/ithaca.png", "--markup", "photos/notes.png"],
+      /Cannot read/,
+    ],
+  ];
+  for (const [label, setup, flags, said] of refused) {
+    test(`markup with ${label} refuses before any request`, async () => {
+      setup();
+      expect(await edit(...flags)).toBe(1);
+      expect(calls, "IMAGE_MARKUP_REFUSED").toHaveLength(0);
+      expect(out.join("\n")).toMatch(said);
+    });
+  }
+
+  test("markup on Gemini refuses before any request", async () => {
+    process.env.GEMINI_API_KEY = "placeholder-never-sent";
+    put("ithaca.png", png(64, 64));
+    put("notes.png", png(64, 64));
+    expect(await edit("--ref", "photos/ithaca.png", "--markup", "photos/notes.png", "--provider", "gemini")).toBe(1);
+    expect(calls, "IMAGE_MARKUP_GEMINI").toHaveLength(0);
+    expect(out.join("\n")).toMatch(/markup/i);
+  });
+
+  test("a dry run checks the markup layer too", async () => {
+    put("ithaca.png", png(64, 64));
+    put("notes.png", png(32, 32));
+    expect(await edit("--ref", "photos/ithaca.png", "--markup", "photos/notes.png", "--dry-run")).toBe(1);
+    expect(out.join("\n")).toMatch(/must match/);
   });
 });

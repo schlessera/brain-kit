@@ -25,6 +25,7 @@ const MODELS: ModelCapabilities[] = [
     summary: "Nano Banana Pro — fallback; 4K and up to 5 characters, but below Flash at twice the price",
     transparentBackground: false,
     maskInpainting: false,
+    markupGuidance: false,
     complexityControl: false,
     arbitraryDimensions: false,
     presetSizes: [],
@@ -44,6 +45,7 @@ const MODELS: ModelCapabilities[] = [
     summary: "Nano Banana 2 — the workhorse; 10 references, 4 characters, up to 4K",
     transparentBackground: false,
     maskInpainting: false,
+    markupGuidance: false,
     complexityControl: false,
     arbitraryDimensions: false,
     presetSizes: [],
@@ -63,6 +65,7 @@ const MODELS: ModelCapabilities[] = [
     summary: "Nano Banana 2 Lite — the `--draft` tier; cheapest, 1K only, 14 references",
     transparentBackground: false,
     maskInpainting: false,
+    markupGuidance: false,
     complexityControl: false,
     arbitraryDimensions: false,
     presetSizes: [],
@@ -142,6 +145,13 @@ export const geminiProvider: Provider = {
   models: MODELS,
 
   async generate(model, req, apiKey) {
+    // No annotation layer here (#3785): routing refuses it, and a direct
+    // caller must not get an edit that silently ignored its markup.
+    if (req.markup) {
+      throw new ImageProviderError("Gemini takes no markup layer; use an OpenAI GPT Image 2.6 or 2.5 model.", {
+        retryable: false,
+      });
+    }
     const input: Record<string, unknown>[] = [{ type: "text", text: req.prompt }];
     // Editing is the same call with image parts alongside the text. There is no
     // mask concept in this API — routing sends masked work to OpenAI.

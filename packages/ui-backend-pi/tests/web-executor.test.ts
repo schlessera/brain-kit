@@ -45,12 +45,14 @@ describe("sanitizeWebExecutorConfig", () => {
     // Host-owned provider routing and endpoints are the executor's to use.
     expect(config.searchRouting).toEqual({ providers: ["exa", "brave"], fallbackOn: ["transient"] });
     expect(config.exaBaseUrl).toBe("https://exa.example");
+    // The egress route resolves and checks destinations; the executor never looks names up itself (#3687).
+    expect(config.ssrf, "WEB_CONFIG_TRUSTS_THE_ROUTE").toEqual({ trustEnvProxy: true });
     expect(removed).toEqual(expect.arrayContaining(["workflow", "allowBrowserCookies", "toolNames", "tools", "commands", "githubClone"]));
   });
 
   test("a non-object configuration becomes the forced defaults alone", () => {
     for (const host of [null, [], "provider", 3]) expect(Object.keys(sanitizeWebExecutorConfig(host).config).sort())
-      .toEqual(["allowBrowserCookies", "commands", "githubClone", "image", "tools", "video", "workflow", "youtube"]);
+      .toEqual(["allowBrowserCookies", "commands", "githubClone", "image", "ssrf", "tools", "video", "workflow", "youtube"]);
   });
 });
 
@@ -75,9 +77,13 @@ describe("prepareWebExecutorState", () => {
       PI_WEB_ACCESS_CACHE_ROOT: join(state.dir, "cache"), TMPDIR: join(state.dir, "tmp"), PI_OFFLINE: "1", EXA_API_KEY: "odysseus-env-key",
     });
     expect(readFileSync(hostConfig, "utf8"), "WEB_STATE_HOST_CONFIG_UNCHANGED").toBe(before);
-    const [, entry, dir] = webExecutorCommand("/usr/bin/bun", state.dir);
+    const command = webExecutorCommand("/usr/bin/bun", state.dir, { proxyDir: join(root, "egress") });
+    const [entry, dir] = command.slice(-2);
     expect(existsSync(entry!)).toBe(true);
     expect(dir).toBe(state.dir);
+    // The executor's network is its egress route alone (#3687).
+    expect(command, "WEB_EXECUTOR_NETWORK_NAMESPACE").toContain("--unshare-net");
+    expect(command.slice(command.indexOf(join(root, "egress")) - 1, command.indexOf(join(root, "egress")) + 2)).toEqual(["--ro-bind", join(root, "egress"), "/run/brain-egress"]);
     state.cleanup();
     expect(existsSync(state.dir)).toBe(false);
   });

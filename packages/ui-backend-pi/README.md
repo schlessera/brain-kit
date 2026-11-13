@@ -336,8 +336,21 @@ media, GitHub-cloning, command and browser-cookie paths, and removes every
 `!command` credential. Settings, the Settings card and the system-prompt
 brief list the same unavailable features (`WEB_TOOL_UNAVAILABLE_FEATURES`).
 The directory is removed when the executor ends; an executor that dies is
-replaced on the next call, and its stored results go with it. Mandatory
-egress and per-call admission are #3687; subscription and current-model
+replaced on the next call, and its stored results go with it.
+
+The executor's network is one mandatory route (#3687). It runs under
+bubblewrap in its own network namespace, which has only loopback, so a direct
+socket, a spawned `curl` or a `NO_PROXY` setting reaches nothing. A trusted
+bootstrap forwards loopback to a host egress proxy opened for that session.
+The proxy resolves every destination itself and checks every redirect hop as
+a new connection. It refuses loopback, private, link-local, shared, multicast
+and reserved addresses unless the host's own `ssrf.allowRanges` names them.
+Cloud metadata addresses are refused even then. Ports other than 80 and 443
+are refused, and the session's bytes are bounded (64 MiB). The proxy does not
+intercept TLS, so a guard inside the executor keeps provider keys from
+following a redirect to another origin. Refused connections are logged with
+their host, port and reason. A host without bubblewrap has no web executor.
+Per-call admission is #3687's second part; subscription and current-model
 search is #3688.
 
 ## Extensions (MCP, subagents)

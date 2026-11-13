@@ -15,6 +15,7 @@ import { prepareWorkerSandbox, workerHostBoundary } from "../../packages/ui-sdk/
 import { contentHash, createBrainApplication, readBrainApplicationBase } from "../../packages/ui-server/src/brain/application.js";
 import { createKeyedLock, type ServerMessage, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
 import { createHostWebTools } from "../../packages/ui-server/src/web-tools/host.js";
+import { fixtureTls } from "../../packages/ui-server/tests/fixtures/fixture-tls.js";
 import type { WebReceipt } from "../../packages/ui-server/src/web-tools/broker.js";
 import { createWebAccess } from "../../packages/ui-server/src/ws/bridge-capabilities/web.js";
 import * as piInternal from "../../packages/ui-backend-pi/src/internal.js";
@@ -239,20 +240,24 @@ const webReceipts: WebReceipt[] = [], webProviderKeys: Array<string | null> = []
 let webHostBytes: string | undefined;
 let webProvider: ReturnType<typeof Bun.serve> | undefined, webPages: ReturnType<typeof Bun.serve> | undefined;
 let webBroker: ReturnType<typeof createHostWebTools> | undefined;
+let webTls: ReturnType<typeof fixtureTls>;
 if (hostWeb) {
   mkdirSync(webRoot, { recursive: true });
-  webProvider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  // The executor's only network is its egress route, which resolves these fictional names to the loopback servers (#3687).
+  webTls = fixtureTls(join(webRoot, "tls"), ["exa.odysseus.test"]);
+  webProvider = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: webTls.cert, key: webTls.key }, async fetch(request) {
     await request.json(); webProviderKeys.push(request.headers.get("x-api-key"));
     return Response.json({ results: [{ title: "Ithaca harbour log", url: "https://ithaca.example/log", text: "The raft reaches Ithaca at dawn.", highlights: ["The raft reaches Ithaca at dawn."] }] });
   } });
   const article = Array.from({ length: 12 }, (_, index) => `<p>Watch ${index + 1}: Penelope keeps the loom while Telemachus watches the harbour of Ithaca for the raft at dawn.</p>`).join("");
   webPages = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`<!doctype html><html><head><title>Harbour log</title></head><body><article><h1>Harbour log</h1>${article}</article></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8" } }) });
-  writeFileSync(webHostConfig, JSON.stringify({ exaApiKey: webSentinel, exaBaseUrl: webProvider.url.origin, searchRouting: { providers: ["exa"], fallbackOn: ["transient"] }, ssrf: { allowRanges: ["127.0.0.0/8"] } }));
+  writeFileSync(webHostConfig, JSON.stringify({ exaApiKey: webSentinel, exaBaseUrl: `https://exa.odysseus.test:${webProvider.port}`, searchRouting: { providers: ["exa"], fallbackOn: ["transient"] }, ssrf: { allowRanges: ["127.0.0.0/8"] } }));
   webHostBytes = readFileSync(webHostConfig, "utf8");
   webBroker = createHostWebTools({ module: piInternal, root: webExecutorRoot, hostConfigPath: () => webHostConfig, env: {}, runtime: process.execPath,
-    path: process.env.PATH!, onReceipt: receipt => webReceipts.push(receipt) });
-  toolCalls = [{ name: "web_search", input: { query: "Odysseus mast" } }, { name: "fetch_content", input: { url: `${webPages.url.origin}/ithaca/log` } },
+    path: process.env.PATH!, onReceipt: receipt => webReceipts.push(receipt), caCertificates: webTls.ca, egressPorts: [webProvider!.port!, webPages!.port!],
+    lookup: async host => { if (!host.endsWith(".odysseus.test")) throw new Error(`ENOTFOUND ${host}`); return [{ address: "127.0.0.1", family: 4 }]; } });
+  toolCalls = [{ name: "web_search", input: { query: "Odysseus mast" } }, { name: "fetch_content", input: { url: `http://harbour.odysseus.test:${webPages.port}/ithaca/log` } },
     { name: "source_check", input: { claim: "The raft reaches Ithaca at dawn" } }];
 }
 /** The host-web follow-up: page the stored search by its host handle, and probe the host's files from inside the worker. */
