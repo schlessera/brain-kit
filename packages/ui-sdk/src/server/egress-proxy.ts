@@ -63,7 +63,8 @@ export interface EgressProxyOptions {
   /**
    * A destination passed every check; called before its first upstream byte.
    * A returned promise is awaited first, so a durable record it makes commits
-   * before any byte flows; its rejection refuses the connection.
+   * before any byte flows; its rejection refuses the connection, as
+   * `call_not_admitted` when it is an {@link EgressAdmissionRefused}.
    */
   admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
@@ -137,7 +138,8 @@ function matches(host: string, patterns: readonly string[]): boolean {
  * appears in either.
  */
 export interface EgressRefusal {
-  cause: "denied_host" | "not_allowlisted" | "byte_cap" | "taint_allowlist" | "outward_not_approved" | "private_destination" | "destination_port";
+  cause: "denied_host" | "not_allowlisted" | "byte_cap" | "taint_allowlist" | "outward_not_approved" | "private_destination" | "destination_port"
+    | "call_not_admitted";
   message: string;
 }
 function describeRefusal(reason: string | undefined, host: string, denied: boolean, tainted: string | null | undefined): EgressRefusal | undefined {
@@ -156,6 +158,8 @@ function describeRefusal(reason: string | undefined, host: string, denied: boole
       message: `Blocked: a connection to ${host} acts outside the brain in the user's name, and it was not approved. Do not retry it; say what you needed it for.` };
     case "private_destination": case "metadata_destination": case "unresolved_destination": return { cause: "private_destination",
       message: `Blocked: ${host} is not a public web address. Do not retry it; tell the user.` };
+    case "call_not_admitted": return { cause: "call_not_admitted",
+      message: `Blocked: this call may not send anything to ${host} under this conversation's provider policy or budget. Do not retry it; tell the user.` };
     case "destination_port": return { cause: "destination_port",
       message: `Blocked: ${host} was reached on a port the web route does not allow. Do not retry it; tell the user.` };
     default: return undefined;
@@ -167,7 +171,17 @@ const REFUSAL_STATUS: Readonly<Record<EgressRefusal["cause"], string>> = {
   byte_cap: "Forbidden - turn network byte limit reached", taint_allowlist: "Forbidden - untrusted session, host not allowed",
   outward_not_approved: "Forbidden - outward connection not approved",
   private_destination: "Forbidden - not a public web address", destination_port: "Forbidden - destination port not allowed",
+  call_not_admitted: "Forbidden - not admitted for this call",
 };
+
+/**
+ * Thrown by `admitted` to refuse one connection on the host's own authority
+ * (#3687): recorded as `denied` with reason `call_not_admitted`, where any
+ * other failure of the hook is `failed` with `proxy_error`.
+ */
+export class EgressAdmissionRefused extends Error {
+  constructor(message = "The host did not admit this connection.") { super(message); this.name = "EgressAdmissionRefused"; }
+}
 /** One refused connection's 403, with its reason when it has one. */
 function refusalHead(refusal: EgressRefusal | undefined, reason: string | undefined): { status: string; body: string } | undefined {
   if (!refusal) return undefined;
@@ -291,7 +305,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { await options.admitted?.({ host, port, method, inference, provider, connectionId, protocol:url.protocol }); } catch { finish("failed", "proxy_error"); return false; }
+      try { await options.admitted?.({ host, port, method, inference, provider, connectionId, protocol:url.protocol }); }
+      catch (error) { if (error instanceof EgressAdmissionRefused) finish("denied", "call_not_admitted"); else finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };

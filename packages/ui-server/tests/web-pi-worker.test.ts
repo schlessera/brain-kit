@@ -56,7 +56,7 @@ async function piTurn(mode: string) {
     // What makeBridge composes for a governed Pi turn: the scope is this turn's, never the call's.
     const web = createWebAccess({ host: { webTools: broker }, turn: { sessionId: "s-ithaca" }, turnId, principalId: "p-penelope", signal: controller.signal,
       backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "governed" }, current: () => !controller.signal.aborted,
-      recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" }, { policy: { hash: "rev-odyssey" } } as never);
+      recordingAvailable: () => true } as never, { collectedSessionId: "s-ithaca" }, { policy: { hash: "rev-odyssey", policy: { providers: [] } } } as never);
     await backend.startTurn({ prompt: mode, signal: controller.signal, turnId,
       workerSandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
       bridge: {

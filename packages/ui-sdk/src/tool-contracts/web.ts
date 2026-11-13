@@ -71,6 +71,8 @@ export const WEB_TOOL_LIMITS = Object.freeze({
 export const WEB_TOOL_ERROR_CODES = [
   "invalid_input", "unsupported", "provider_not_admitted", "unavailable", "unknown_handle", "replayed_call",
   "busy", "request_too_large", "response_too_large", "cancelled", "deadline", "executor_died", "failed",
+  // The calling turn's authority refused a recipient (#3687).
+  "policy_denied", "budget_exceeded",
 ] as const;
 export type WebToolErrorCode = (typeof WEB_TOOL_ERROR_CODES)[number];
 

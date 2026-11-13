@@ -50,7 +50,12 @@ const send = (frame: unknown): void => { process.stdout.write(redact(JSON.string
 let hostConfig: unknown = {};
 try { hostConfig = JSON.parse(readFileSync(join(agentDir, "web-search.json"), "utf8")); } catch { /* The executor runs with forced defaults. */ }
 const credentialNames = WEB_SEARCH_PROVIDERS.flatMap(provider => provider.envVar ? [provider.envVar] : []);
-globalThis.fetch = Object.assign(guardCredentialRedirects(globalThis.fetch.bind(globalThis), webCredentialValues(resolveWebSearchEnv(), credentialNames, hostConfig)),
+// One request per connection (#3687): the host admits and counts each
+// provider request as its egress route admits the connection, and a reused
+// TLS tunnel would carry a second request it never saw.
+const native = globalThis.fetch.bind(globalThis);
+const fresh = (input: string | URL | Request, init?: RequestInit) => native(input, { ...init, keepalive: false });
+globalThis.fetch = Object.assign(guardCredentialRedirects(fresh, webCredentialValues(resolveWebSearchEnv(), credentialNames, hostConfig)),
   { preconnect: globalThis.fetch.preconnect }) as typeof fetch;
 
 const settingsManager = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" });

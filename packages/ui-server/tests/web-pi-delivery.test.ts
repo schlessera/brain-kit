@@ -20,6 +20,7 @@ import { openSqliteWriter } from "../src/db/write-worker";
 import { createGovernanceWrites } from "../src/governance/event-writes";
 import { createSafetyCollector } from "../src/governance/safety-collector";
 import { safetyCatalogCreated, safetyRecords } from "../src/governance/safety-store";
+import { SafetyHistory } from "../src/governance/safety-history";
 import { createWebBroker } from "../src/web-tools/broker";
 import { createChildWebExecutor } from "../src/web-tools/child-executor";
 import { createWebAccess } from "../src/ws/bridge-capabilities/web";
@@ -63,7 +64,7 @@ test("installed Pi records a forwarded web result before the next provider reque
     // The ws web slice as makeBridge composes it for a governed Pi turn.
     const web = createWebAccess({ host: { webTools: broker }, turn: { sessionId: "ithaca" }, turnId: "voyage", principalId: "odysseus", signal: controller.signal,
       backendId: "pi", workerProfile: { origin: "interactive", actualProfile: "governed" }, current: () => !controller.signal.aborted,
-      recordingAvailable: () => true } as never, { collectedSessionId: "ithaca" }, { policy: { hash: "rev-odyssey" } } as never);
+      recordingAvailable: () => true } as never, { collectedSessionId: "ithaca" }, { policy: { hash: "rev-odyssey", policy: { providers: [] } } } as never);
     expect(web.webAccess, "WEB_SLICE_PRESENT_FOR_GOVERNED_PI").toBeFunction();
     const turn = createTurnContext();
     turn.bridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }), webAccess: web.webAccess } as never;
@@ -97,6 +98,14 @@ test("installed Pi records a forwarded web result before the next provider reque
     expect(safetyRecords(db, "ithaca").filter(record => record.kind === "occurrence").map(record => (record.payload as { source: string; tool: string })),
       "WEB_RESULT_TAINTS_SESSION").toEqual([expect.objectContaining({ source: "web_search", tool: "web_search" })]);
     expect(writes.safety(null, "ithaca").coverage.state, "WEB_RECORDING_COVERAGE_COMPLETE").toBe("complete");
+    // The owner sees it where every other taint shows: the chat's safety history (#3687).
+    const history = new SafetyHistory(db, () => true, () => writer.idle());
+    try {
+      const page = await history.read({ id: "odysseus" } as never, { sessionId: "ithaca" });
+      expect(page.records.filter(record => record.kind === "occurrence").map(record => ({ detector: (record as { detector?: string }).detector, source: (record as { source?: string }).source })),
+        "WEB_TAINT_IN_SAFETY_HISTORY").toEqual([{ detector: "tool_web_input", source: "web_search" }]);
+      expect(page.projection.restriction, "WEB_TAINT_RESTRICTS_THE_SESSION").toBe("restricted");
+    } finally { history.close(); }
   } finally {
     controller.abort();
     for (const session of sessions) { await session.abort(); session.dispose(); }
