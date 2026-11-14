@@ -1229,6 +1229,13 @@ are exported from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
 | `reference_source` | `repository` (1–2048 characters: https without credentials, loopback http or absolute `file://`), `revision` (1–200 characters, a branch or tag) | `{ ok: true, source, guidance }` |
 | `reference_worktree` | `action`: `request` (with `repository`, `revision`), `access`, `renew` or `release` (with `worktreeId`, 1–64 characters), or `list` (no other field) | `{ ok: true, action, worktree, guidance }`; for `list`, `{ ok: true, action: "list", worktrees, truncated, guidance }` with at most 20 worktrees, most recent activity first |
 
+Managed acquisition requires one unambiguous short branch/tag name (#3613).
+Raw `refs/...` names, refspecs and raw 40/64-hex object IDs are refused before
+transport dispatch. A branch and a tag sharing the requested short name are
+ambiguous even when they currently name identical commits. Only the requested
+ordinary full ref and its own annotated-tag peel may resolve; malformed,
+duplicate, foreign or oversized advertisements do not select a source.
+
 Inputs are strict objects: an action given a field it does not take, or
 missing one it needs, is invalid. Principal, profile, brain, session, worker
 generation and paths are never inputs; the host takes them from the

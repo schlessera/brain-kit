@@ -22,6 +22,13 @@ reported commit ([#2430](https://github.com/schlessera/brain-kit/issues/2430)).
 Repository locations follow the grant record's rules: HTTPS without
 credentials, loopback HTTP, or an absolute `file://` path.
 
+The managed-only qualification in #3613 additionally refuses a short name
+shared by a branch and a tag, raw full refs/refspecs and malformed or
+conflicting advertisements. Resolution binds the requested full ref and
+commit; fetching a moved commit cannot publish it as the earlier resolution.
+These checks do not establish repository identity, immutable-read provenance
+or network-byte qualification by themselves.
+
 ## Sharing domains
 
 Each source lives in exactly one domain, and a domain is one pool view.

@@ -54,7 +54,7 @@ export function referenceRevision(input: unknown): string {
   if (typeof input !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/+-]{0,199}$/.test(input) || input.includes("..") || input.includes("//")
     || input.endsWith("/") || input.endsWith(".") || input.endsWith(".lock") || input.split("/").some(part => part.startsWith(".") || part.endsWith(".lock")))
     throw new ReferenceTransportError("invalid", "revision must be one branch or tag name");
-  if (/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(input))
+  if (input.startsWith("refs/") || /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(input))
     throw new ReferenceTransportError("invalid", "request a branch or tag; a managed worktree pins an exact reported commit");
   return input;
 }
@@ -114,6 +114,7 @@ export function createReferenceTransport(options: {
   }
   return {
     async resolve({ repository, revision, token, signal }) {
+      revision = referenceRevision(revision);
       const scratch = mkdtempSync(join(tmpdir(), "brain-reference-resolve-"));
       try {
         const result = await run(command({ repository, token, network: true, mirror: scratch, signal,
@@ -122,15 +123,29 @@ export function createReferenceTransport(options: {
         if (result.killed) return { ok: false, reason: "unavailable", detail: "reference resolution timed out or was cancelled" };
         if (result.exitCode === 2) return { ok: false, reason: "missing", detail: `no branch or tag named ${revision}` };
         if (result.exitCode !== 0) return { ok: false, reason: classify(result.stderr), detail: result.stderr.trim().slice(-500) || `exit ${result.exitCode}` };
-        const rows = new Map(result.stdout.trim().split("\n").map(line => line.split("\t")).filter(row => row.length === 2 && /^[0-9a-f]{40,64}$/.test(row[0]!))
-          .map(row => [row[1]!, row[0]!]));
+        // Only the three explicitly requested advertisement rows may decide
+        // this source. A Map must not erase conflicting duplicate identities.
+        const allowed = new Set([`refs/heads/${revision}`, `refs/tags/${revision}`, `refs/tags/${revision}^{}`]);
+        const rows = new Map<string, string>();
+        if (Buffer.byteLength(result.stdout) > 4096) throw new ReferenceTransportError("invalid", "reference advertisement exceeds its bound");
+        const advertised = result.stdout.endsWith("\n") ? result.stdout.slice(0, -1) : result.stdout;
+        for (const line of advertised ? advertised.split("\n") : []) {
+          const fields = line.split("\t"), [commit, ref] = fields;
+          if (fields.length !== 2 || !commit || !ref || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)
+            || !allowed.has(ref) || rows.has(ref)) throw new ReferenceTransportError("invalid", "reference advertisement is ambiguous or malformed");
+          rows.set(ref, commit);
+        }
         const head = rows.get(`refs/heads/${revision}`), peeled = rows.get(`refs/tags/${revision}^{}`), tag = rows.get(`refs/tags/${revision}`);
+        if ((head && (tag || peeled)) || (peeled && !tag)) throw new ReferenceTransportError("invalid", "request one unambiguous branch or tag");
         if (head) return { ok: true, commit: head, ref: `refs/heads/${revision}` };
         if (peeled ?? tag) return { ok: true, commit: (peeled ?? tag)!, ref: `refs/tags/${revision}` };
         return { ok: false, reason: "missing", detail: `no branch or tag named ${revision}` };
       } finally { rmSync(scratch, { recursive: true, force: true }); }
     },
     async fetch({ repository, ref, token, root, signal }) {
+      const target = /^refs\/(?:heads|tags)\/(.+)$/.exec(ref);
+      if (!target) throw new ReferenceTransportError("invalid", "fetch requires one resolved ordinary branch or tag");
+      referenceRevision(target[1]);
       const gitDir = prepareReferenceGitDirectory(root);
       const fetched = await run(command({ repository, token, network: true, mirror: gitDir, signal,
         argv: [git(), "--git-dir", gitDir, ...networkArgs(repository, token), "fetch", "--no-tags", "--no-write-fetch-head", "--", repository.url, `+${ref}:refs/reference/source`] }));
@@ -143,11 +158,11 @@ export function createReferenceTransport(options: {
       const parsed = await run(command({ token: null, network: false, mirror: gitDir, signal,
         argv: [git(), "--git-dir", gitDir, "-c", "core.hooksPath=/dev/null", "rev-parse", "--verify", "refs/reference/source^{commit}"] }));
       const commit = parsed.stdout.trim();
-      if (parsed.killed || parsed.exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(commit)) throw new ReferenceTransportError("unavailable", "fetched reference commit is unreadable");
+      if (parsed.killed || parsed.exitCode !== 0 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new ReferenceTransportError("unavailable", "fetched reference commit is unreadable");
       return { commit };
     },
     async checkout({ root, commit, signal }) {
-      if (!/^[0-9a-f]{40,64}$/.test(commit)) throw new ReferenceTransportError("invalid", "checkout needs one commit id");
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new ReferenceTransportError("invalid", "checkout needs one commit id");
       const gitDir = prepareReferenceGitDirectory(root);
       const result = await run(command({ token: null, network: false, mirror: root, signal,
         argv: [git(), "--git-dir", gitDir, "--work-tree", root, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "checkout", "--force", "--detach", commit] }));
