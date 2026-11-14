@@ -299,7 +299,10 @@ export function createReferenceSources(options: {
     input = { ...input, grant };
     const credential = token(grant);
     const existing = row(domain, repository.canonical, revision);
-    const check = await transport.resolve({ repository, revision, token: credential, signal });
+    const check = await transport.resolve({ repository, revision, token: credential, signal }).catch((error: unknown) => {
+      if (error instanceof ReferenceTransportError && error.reason === "invalid") throw new ReferenceSourceError("invalid", error.message);
+      throw error;
+    });
     signal.throwIfAborted();
     if (!check.ok) {
       const detail = check.detail;
