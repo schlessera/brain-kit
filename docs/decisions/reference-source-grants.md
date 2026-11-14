@@ -28,7 +28,7 @@ The maintainer selected **owner-managed grant records** on 2026-10-22
 ## The record
 
 A grant is one row of the UI database's `reference_grants` table
-(`createReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:117-138`).
+(`createReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:122-149`).
 The table holds the served brain's identity, the principal, the canonical
 repository prefix, the credential name or null, the granting owner and the
 revocation time. It stores no credential value. A grant is **live** while it
@@ -47,17 +47,17 @@ owner session ends when that session does.
 
 A repository location is HTTPS without user info, query or fragment; loopback
 `http://`; or an absolute `file:///` path
-(`referenceRepository`, `packages/ui-server/src/db/reference-grants.ts:51-75`).
+(`referenceRepository`, `packages/ui-server/src/db/reference-grants.ts:52-76`).
 SSH is refused: no grantable credential is an SSH key. The canonical form
 lowercases the origin and drops a trailing slash and a hosted `.git` suffix. A
 prefix covers itself and every path below it at a segment boundary, so
 `…/odysseus` never covers `…/odysseus-crew`. The longest covering live prefix
 wins, read at the moment of use
-(`coveringReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:158-164`).
+(`coveringReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:169-175`).
 
 A grant names its credential from a fixed list of existing host selectors,
 each with the one origin it may be sent to
-(`REFERENCE_HOST_CREDENTIALS`, `packages/ui-server/src/db/reference-grants.ts:26-30`):
+(`REFERENCE_HOST_CREDENTIALS`, `packages/ui-server/src/db/reference-grants.ts:27-31`):
 `BRAIN_UI_SYNC_GITHUB_TOKEN`, `BRAIN_UI_SKILLS_GITHUB_TOKEN` and `GITHUB_TOKEN`,
 all for `https://github.com`. Loopback origins may also receive them, because
 they stay on this host; that is how the offline fixtures exercise a
@@ -78,7 +78,7 @@ anonymous success there says nothing about who may read the host path.
 Revocation is checked, not cached. Every new mount and every step that could
 publish private source asks for the live covering grant again. The revoke
 routes also report the lost authority synchronously
-(`app.delete("/auth/principals/:id/reference-grants/:grantId"`, `packages/ui-server/src/middleware/principals.ts:272-293`),
+(`app.delete("/auth/principals/:id/reference-grants/:grantId"`, `packages/ui-server/src/middleware/principals.ts:274-295`),
 so the acquisition layer can cancel in-flight private work rather than wait for
 its next check. Revocation cannot retract bytes a reader has already read.
 

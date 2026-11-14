@@ -7,7 +7,7 @@ over the [reference pool](reference-pool-accounting.md). It uses the
 [owner-managed grants](reference-source-grants.md) as its only private
 authority. This record names the concrete choices the rulings left to
 implementation. The service is `createReferenceSources`
-(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:91-782`),
+(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:91-786`),
 created at host start when the native manager reports a reference pool, and
 closed with the app. The agent tool that requests source arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432)
@@ -52,7 +52,7 @@ exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:293-339`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:293-342`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -79,18 +79,18 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:404-456`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:407-460`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
 2. The **network transport** fetches one ref into it. It is the only worker
    that may hold a credential: the granted host variable, delivered through a
    fixed credential helper, with one allowed protocol and no redirects
-   (`fetch({ repository, ref, token, root, signal })`, `packages/ui-server/src/brain/reference-transport.ts:133-148`).
+   (`fetch({ repository, ref, token, root, signal })`, `packages/ui-server/src/brain/reference-transport.ts:145-163`).
 3. A separate **checkout worker** has no credential and no network. It checks
    out the commit and evaluates the repository's attributes. No filter or
    hook is configured, so none runs
-   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:149-159`).
+   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:164-174`).
 4. The live grant is read again, the root is sealed, the grant is read
    again, and only then is the root published.
 
@@ -132,7 +132,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:363-379`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:366-382`).
 There is no idle expiry.
 
 ## Revocation and recovery
@@ -145,14 +145,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:651-671`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:655-675`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:674-718`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:678-722`).
 
 ## Evidence
 
