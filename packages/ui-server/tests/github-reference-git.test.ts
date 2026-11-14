@@ -1,6 +1,6 @@
 /** Real Git/TLS wire composition. The runner below deliberately does not claim native isolation. */
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -21,11 +21,24 @@ const NAME = "actual Git uses the fixed bounded HTTPS wire for public and privat
 async function offlineChild(): Promise<boolean> {
   const parentNetwork = process.env[OFFLINE];
   if (parentNetwork) {
-    expect(readlinkSync("/proc/self/ns/net"), "REFERENCE_GIT_HAS_FRESH_OFFLINE_NETWORK").not.toBe(parentNetwork);
-    expect(readdirSync("/sys/class/net"), "REFERENCE_GIT_HAS_ONLY_LOOPBACK").toEqual(["lo"]);
+    const namespace = readlinkSync("/proc/self/ns/net");
+    expect(namespace, "REFERENCE_GIT_HAS_FRESH_OFFLINE_NETWORK").not.toBe(parentNetwork);
+    // An inherited sysfs mount can still describe the parent's interfaces.
+    // Netlink queries describe this process's actual network namespace.
+    const query = (...args: string[]): unknown => {
+      const result = Bun.spawnSync(["ip", "-j", ...args], { stdout: "pipe", stderr: "pipe" });
+      expect(result.exitCode, `REFERENCE_GIT_KERNEL_NETWORK_QUERY_COMPLETES: ${result.stderr.toString()}`).toBe(0);
+      return JSON.parse(result.stdout.toString());
+    };
+    const links = query("link", "show") as { ifname: string }[];
+    expect(links.map(link => link.ifname), "REFERENCE_GIT_HAS_ONLY_LOOPBACK").toEqual(["lo"]);
+    const routes = ["-4", "-6"].map(family => query(family, "route", "show", "table", "main"));
+    for (const route of routes) expect(route, "REFERENCE_GIT_HAS_NO_EXTERNAL_ROUTES").toEqual([]);
     const capabilities = readFileSync("/proc/self/status", "utf8").split("\n").filter(line => /^Cap(?:Inh|Prm|Eff|Bnd|Amb):/u.test(line));
     expect(capabilities, "REFERENCE_GIT_CHECKS_ALL_CAPABILITY_SETS").toHaveLength(5);
     expect(capabilities.every(line => /^Cap\w+:\s+0+$/u.test(line)), "REFERENCE_GIT_DROPS_ALL_SETUP_CAPABILITIES").toBe(true);
+    console.log("REFERENCE_GIT_OFFLINE_NAMESPACE", JSON.stringify({ namespace, interfaces: links.map(link => link.ifname), routes,
+      capabilities: capabilities.map(line => line.trim()) }));
     return false;
   }
   // Git needs loopback only. Unlike browser proof, this needs no dummy device
@@ -46,6 +59,8 @@ exec setpriv --inh-caps=-all --ambient-caps=-all --bounding-set=-all "$@"`;
     const [code, stdout, stderr] = await Promise.all([child.exited, out, err]);
     expect(code, `REFERENCE_GIT_OFFLINE_CHILD_COMPLETES\n${stdout}\n${stderr}`).toBe(0);
     expect(stderr, "REFERENCE_GIT_REAL_CHILD_EXECUTED").toMatch(/\b1 pass\b/u);
+    const receipt = stdout.split("\n").find(line => line.startsWith("REFERENCE_GIT_OFFLINE_NAMESPACE "));
+    expect(receipt, "REFERENCE_GIT_OFFLINE_NAMESPACE_RECORDED").toBeDefined(); console.log(receipt);
     return true;
   } finally { clearTimeout(deadline); await child.stop("SIGTERM"); await child.finish(); await Promise.allSettled([out, err]); }
 }
