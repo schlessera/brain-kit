@@ -10,7 +10,7 @@ const commit = "a".repeat(40), tag = "b".repeat(40);
 function transport(stdout: string) {
   const calls: string[][] = [];
   return { calls, service: createReferenceTransport({ brainPath: "/unused", run: async input => {
-    calls.push(input.command); return { stdout, stderr: "", exitCode: 0, killed: false };
+    calls.push([...input.command]); return { stdout, stderr: "", exitCode: 0, killed: false };
   } }) };
 }
 

@@ -553,6 +553,8 @@ itself.
   `metadata_credential_recipient: "https://api.github.com"`. The permission
   shares the grant's brain, principal, repository scope and live revocation.
   It grants neither generic HTTP access nor repository source trust.
+  Changing this permission uses revoke/recreate; duplicate matching keeps the
+  existing principal/prefix/credential identity and does not expand a grant.
 - **DELETE `/api/auth/principals/:id/reference-grants/:grantId`**, body
   ignored, revokes that principal's live grant and returns `{ ok: true }`.
   Revocation applies to the next authority check, including in-flight private

@@ -1140,6 +1140,8 @@ FULL writer and is returned as optional
 receipts; legacy receipt shapes remain unchanged. It shares the live grant's
 brain/principal/repository scope and revocation. The field establishes no
 transport or source-trust qualification and exposes no generic API relay.
+Changing recipient permission uses revoke/recreate; an existing grant with
+the same principal/prefix/credential remains a duplicate.
 
 ## Content renderer bootstrap declarations (additive, #2087)
 
