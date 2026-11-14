@@ -1,7 +1,7 @@
 /** Fixed GitHub metadata validation. Parsing alone establishes no transport, access or source trust. */
 import { parseTrustGithub, TrustSelectorSchema } from "@schlessera/brain-common/internal/governance-policy";
 
-export interface GitHubReferenceRepository {
+interface GitHubReferenceRepository {
   owner: string;
   repository: string;
   canonical: string;
@@ -9,7 +9,7 @@ export interface GitHubReferenceRepository {
   metadataUrl: string;
 }
 
-export interface GitHubReferenceIdentity extends GitHubReferenceRepository {
+interface GitHubReferenceIdentity extends GitHubReferenceRepository {
   repositoryId: string;
   ownerId: string;
   private: boolean;
