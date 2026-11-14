@@ -1129,6 +1129,18 @@ its principal applies to the next authority check, including in-flight private
 refreshes. The routes add no credential storage and return no credential value.
 The [grant decision](../decisions/reference-source-grants.md) records the ruling.
 
+Additive #3613: grant creation also accepts optional
+`metadataCredentialRecipient: "https://api.github.com" | null`. Only an owner
+may give this separate fixed metadata credential-recipient permission on a
+GitHub HTTPS grant with a named credential. Other recipients and
+credentialless/non-GitHub grants are refused. Existing and omitted/null grants
+have no additional permission. Explicit permission persists through the shared
+FULL writer and is returned as optional
+`metadata_credential_recipient: "https://api.github.com"` in create/list
+receipts; legacy receipt shapes remain unchanged. It shares the live grant's
+brain/principal/repository scope and revocation. The field establishes no
+transport or source-trust qualification and exposes no generic API relay.
+
 ## Content renderer bootstrap declarations (additive, #2087)
 
 Authenticated `GET /api/status` includes optional `contentRenderers`, an array of
