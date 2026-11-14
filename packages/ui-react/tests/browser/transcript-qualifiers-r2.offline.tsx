@@ -143,7 +143,9 @@ for (const kind of ["recognized", "legend"] as const) test(`recognition ${kind} 
   const row = s.host.querySelector<HTMLElement>("[data-conversation-recognition]")!;
   const trigger = kind === "recognized" ? qualifier(row) : [...row.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === "Transcript symbols")!;
   expect(s.host.querySelector("[data-arrival-key]")!.contains(trigger), "fixture recognition is the oldest visible canonical row").toBe(true);
-  trigger.scrollIntoView(); await userEvent.click(trigger);
+  trigger.scrollIntoView();
+  if (kind === "recognized") await pointDetails(trigger);
+  else await userEvent.click(trigger);
   expect(document.querySelector("dialog[open]")).not.toBeNull();
   flushSync(()=>s.ui.connection.conversation.state.setState({outputs:[...outputs,{...outputs[0]!,outputId:"raft-tail"}]}));
   expect(document.querySelector("dialog[open]")).not.toBeNull();
