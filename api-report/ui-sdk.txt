@@ -1399,6 +1399,7 @@ export "./internal" (./src/internal.ts)
   createWorkerFileObserver
   denyWorkerCommand
   describeClient
+  egressAddressRefusal
   egressBootstrapEntry
   envMaskedPaths
   execWrapperSpawnOptions

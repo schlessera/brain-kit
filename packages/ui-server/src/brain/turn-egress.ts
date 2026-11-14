@@ -201,10 +201,12 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?:string }): Promise<void> => {
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?:string }): Promise<void> => {
     // A host relay's operation neither taints the session nor makes its host
     // one the worker's own traffic may reach once tainted (G6, #3246).
-    if (destination.inference || destination.provider) {
+    // A managed acquisition has not delivered source content to the model.
+    // Its immutable read must establish independent input evidence later.
+    if (destination.inference || destination.provider || destination.managedReference) {
       if(writes?.recordingAvailable&&!writes.recordingAvailable(options.turnId,options.sessionId())){fail();throw new Error("Input recording unavailable before provider dispatch");}
       return;
     }
@@ -230,7 +232,7 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    committed: destination => { if (!destination.inference && !destination.provider) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
+    committed: destination => { if (!destination.inference && !destination.provider && !destination.managedReference) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
@@ -248,6 +250,9 @@ export async function prepareTurnEgress(options: {
   };
   const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
     const operation = proxy[kind](method, target, signal);
+    return settleOperation(operation);
+  };
+  const settleOperation = (operation: ReturnType<typeof proxy.managedReference>) => {
     return { ...operation, async admit() {
       // Join this proxy's terminal records and this bridge's announced
       // session binding before the new snapshot. A concurrent FULL binding
@@ -268,5 +273,6 @@ export async function prepareTurnEgress(options: {
   };
   return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled,
     inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
-    relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal) };
+    relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal),
+    managedReference: (target: URL, signal: AbortSignal) => settleOperation(proxy.managedReference(target, signal)) };
 }

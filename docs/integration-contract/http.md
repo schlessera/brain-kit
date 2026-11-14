@@ -602,6 +602,18 @@ unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
 wrap. These foundations supply the later verdict slice's projection without
 publishing a mutation surface.
 
+<a id="managed-reference-acquisition-additive-3613"></a>
+
+**Managed reference acquisition audit (additive, #3613).** Version 1
+`egress_connection` may carry `managedReference: true` for the host's fixed
+GitHub acquisition wire. Worker headers cannot select this tag. Its TLS bytes
+share the turn's existing byte counter, and its recipient retains ordinary
+egress policy and restricted-recipient checks. These records never add the
+destination to the session's contacted hosts, in memory or after reload.
+Acquisition alone has delivered no source content to the model and records no
+input occurrence; an immutable read needs its own independently bound evidence.
+No repository trust capability or worker-facing authenticated relay is added.
+
 <a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
 
 **Shell taint behind the egress proxy (breaking before 1.0, #3429).** On a

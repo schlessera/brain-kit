@@ -22,6 +22,8 @@ export interface EgressRecord {
   inference?: true;
   /** Only a validated provider-relay operation supplies this tag (#3246); never with `inference`. */
   provider?: true;
+  /** Host-managed acquisition only; returned immutable content has its own read evidence. */
+  managedReference?: true;
   method: string;
   host: string;
   port: number;
@@ -66,9 +68,9 @@ export interface EgressProxyOptions {
    * before any byte flows; its rejection refuses the connection, as
    * `call_not_admitted` when it is an {@link EgressAdmissionRefused}.
    */
-  admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?: string }): unknown;
+  admitted?(destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?: string }): unknown;
   /** Synchronous notification only after final admission, immediately before dispatch. */
-  committed?(destination: { host: string; connectionId: string; inference: boolean; provider: boolean }): void;
+  committed?(destination: { host: string; connectionId: string; inference: boolean; provider: boolean; managedReference: boolean }): void;
   signal?: AbortSignal;
   /**
    * Destination address policy (#3687). When set, the proxy resolves every
@@ -226,8 +228,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
    * `relay` names the host relay that sent this operation; worker HTTP and
    * CONNECT traffic has none and cannot claim one, whatever its destination.
    */
-  function operation(method: string, url: URL, relay?: "inference" | "provider") {
-    const inference = relay === "inference", provider = relay === "provider";
+  function operation(method: string, url: URL, relay?: "inference" | "provider" | "reference") {
+    const inference = relay === "inference", provider = relay === "provider", managedReference = relay === "reference";
     const connectionId = crypto.randomUUID();
     let snapshot: AdmissionSafetySnapshot | undefined;
     const started = performance.now();
@@ -241,7 +243,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (finished) return;
       finished = true; finalOutcome = outcome; finalReason = reason; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ connectionId, ...(inference ? { inference: true } : {}), ...(provider ? { provider: true } : {}), ...(managedReference ? { managedReference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
@@ -272,8 +274,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     // An approval of this destination outside the taint allow-list (#3430).
     let granted = false;
     // Checked again after an approval wait, during which another connection may taint the session.
-    // Neither host relay is narrowed by taint (G6; #3246 for the provider relay).
-    const narrowed = (final = false) => !granted && !relay && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host);
+    // Inference/provider relays retain G5. Managed references retain ordinary
+    // G6 recipient narrowing; repository trust never grants outbound authority.
+    const narrowed = (final = false) => !granted && !inference && !provider && options.taint?.tainted(final ? connectionId : undefined) && !matches(host, options.taint.allow) && !options.taint.contacted(host);
     const narrowing = async () => {
       if (!narrowed()) return true;
       if (options.taint?.approve) granted = await approval(options.taint.approve.bind(options.taint));
@@ -305,7 +308,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (!await narrowing()) return false;
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { await options.admitted?.({ host, port, method, inference, provider, connectionId, protocol:url.protocol }); }
+      try { await options.admitted?.({ host, port, method, inference, provider, managedReference, connectionId, protocol:url.protocol }); }
       catch (error) { if (error instanceof EgressAdmissionRefused) finish("denied", "call_not_admitted"); else finish("failed", "proxy_error"); return false; }
       if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
@@ -315,7 +318,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || controller.signal.aborted || safetyAdmissionRefusal(options.admissionSafety, snapshot)) { finish("denied", "safety_changed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (narrowed(true)) { finish("denied", "taint_not_allowed"); return false; }
-      options.committed?.({ host, connectionId, inference, provider });
+      options.committed?.({ host, connectionId, inference, provider, managedReference });
       return true;
     };
     /** Why this connection was refused, for the tool that made it; undefined while admitted or for a bare refusal. */
@@ -431,7 +434,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop, usedBytes: () => usedBytes,
+  return { dir, socketPath, stop, usedBytes: () => usedBytes, remainingBytes: () => Math.max(0, options.maxBytes - usedBytes),
     /** The existing inference relay shares this turn's admission, counter and audit. */
     inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "inference"); },
     /**
@@ -442,8 +445,15 @@ export async function startEgressProxy(options: EgressProxyOptions) {
      * taint (G6, #3246); only the relay's own validated routes reach this.
      */
     relayed(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, "provider"); },
+    /** Host-only fixed GitHub acquisition channel. No worker header can select it. */
+    managedReference(target: URL, signal: AbortSignal) {
+      if (target.protocol !== "https:" || !["github.com", "api.github.com"].includes(target.hostname)
+        || target.port || target.username || target.password || target.search || target.hash)
+        throw new Error("Managed reference needs a fixed GitHub HTTPS recipient");
+      return relayedOperation("CONNECT", target, signal, "reference");
+    },
   };
-  function relayedOperation(method: string, target: URL, signal: AbortSignal, relay: "inference" | "provider") {
+  function relayedOperation(method: string, target: URL, signal: AbortSignal, relay: "inference" | "provider" | "reference") {
     const op = operation(method, new URL(target), relay);
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });

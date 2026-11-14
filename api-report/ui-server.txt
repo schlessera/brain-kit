@@ -679,6 +679,7 @@ signatures (every public export and the types it is made of)
                 durationMs: z.ZodNumber;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
+                managedReference: z.ZodOptional<z.ZodLiteral<true>>;
                 method: z.ZodString;
                 outcome: z.ZodEnum<{
                     cancelled: "cancelled";
