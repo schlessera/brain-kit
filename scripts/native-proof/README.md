@@ -342,6 +342,15 @@ its transport workers against the pool: it fetches and checks out a
 its view. The container therefore also has `SETUID`, `SETGID` and `SETFCAP`
 and unconfined system paths, like the native host proof, so the transport
 workers can map their user namespace and mount their own `/proc`.
+
+The managed GitHub case (#3613) uses real TLS and Git through the bounded host
+wire, actual production maintenance workers and native sealed publication.
+Only fixed DNS/TCP and a fixture CA replace the remote service; the disposable
+network-none container's system CA bundle is restored in cleanup. It verifies
+commit/tree and actual native root/generation mapping, a credential-free
+offline worker read, the kernel's `EROFS` refusal, turn byte charges and grant
+revocation after native sealing. It enables no repository read-trust exemption
+and does not claim both-backend equivalence for the managed path.
 A managed-worktree case ([#2430](https://github.com/schlessera/brain-kit/issues/2430))
 edits a writable snapshot of sealed source, diffs two of its read-only
 checkpoints and grants it to a running non-root bubblewrap worker through an

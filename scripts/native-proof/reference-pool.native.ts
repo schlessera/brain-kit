@@ -928,6 +928,17 @@ const shapes = await create("staging", 32 * MIB);
   rmSync(srv, { recursive: true, force: true });
 }
 
+// Managed GitHub production wire -> actual maintenance workers -> native
+// sealed publication. Its separate read-trust/backend limits stay explicit.
+{
+  const { proveManagedReferenceSource } = await import("./managed-reference-source.js");
+  await manager.close();
+  const served = await serveNativeBrainManager(config);
+  try { await proveManagedReferenceSource(createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), "/brain-fixture/brain", note); }
+  finally { await served.close(); }
+  manager = await createNativeBrainManager(config);
+}
+
 // 14. Restart reconstruction and the deterministic host projection.
 {
   const kept = await create("source", 4 * MIB);

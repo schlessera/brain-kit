@@ -4252,7 +4252,7 @@ outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call (only on a turn without the egress proxy
 since 2026-11-03, see below); and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:95-105`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:99-109`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). Historically the first source was the
@@ -4306,7 +4306,7 @@ proxy is up, the host tells the turn's recorder
 (`recorder?.setEgressProxied();`, `packages/ui-server/src/ws/run-session.ts:747`),
 and its shell calls skip the classifier
 (`const command = shellProxied ? null : commandTaintSource(tool, input);`,
-`packages/ui-server/src/activity/ingestion-taint.ts:97`). A `curl` on such a
+`packages/ui-server/src/activity/ingestion-taint.ts:101`). A `curl` on such a
 turn taints through the proxy's `egress_connection` record. Every non-shell
 source (web tools, other MCP servers, untrusted areas, marked files) still
 taints there. A turn without the proxy keeps the classifier unchanged
@@ -4450,7 +4450,7 @@ admitted file-tool read of it as untrusted input: a `Read`, `Edit`, `Grep`,
 reader, whose normalized brain-relative path is marked, or a search whose
 output names it, records `taint` with `source: "user_marked"` as the session's
 first source (`fileSource`,
-`packages/ui-server/src/activity/ingestion-taint.ts:81-86`). An untrusted area
+`packages/ui-server/src/activity/ingestion-taint.ts:85-90`). An untrusted area
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked

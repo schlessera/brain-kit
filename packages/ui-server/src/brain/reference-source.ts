@@ -26,6 +26,10 @@ import type { createNativeBrainManagerClient, NativePoolRecord } from "@schlesse
 import type { Logger } from "@opentelemetry/api-logs";
 import { coveringReferenceGrant, isLiveReferenceGrant, referenceRepository, type ReferenceGrant, type ReferenceRepository } from "../db/reference-grants.js";
 import { referenceRevision, ReferenceTransportError, type ReferenceTransport } from "./reference-transport.js";
+import type { createGitHubReferenceAccess } from "./github-reference-access.js";
+import { referenceAcquisitionMatches, type ReferenceAcquisition, type ReferenceAcquisitionContext } from "./reference-acquisition.js";
+
+type GitHubAccess = Awaited<ReturnType<ReturnType<typeof createGitHubReferenceAccess>["open"]>>;
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 export type ReferencePool = Pick<Client, "poolStatus" | "poolCreate" | "poolSeal" | "poolRelease" | "poolPublish" | "poolView" | "poolUnpublish" | "poolWithdraw" | "listPoolRecovery">;
@@ -92,6 +96,8 @@ export function createReferenceSources(options: {
   db: Database; pool: ReferencePool; transport: ReferenceTransport; brain: string;
   /** Host environment holding named credential values; a value alone never authorizes. */
   credentials: Readonly<Record<string, string | undefined>>;
+  /** Production GitHub requests require the actual turn's bounded host wire. */
+  github?: ReturnType<typeof createGitHubReferenceAccess>;
   limits?: Partial<ReferenceSourceLimits>;
   now?: () => number;
   log?: Logger;
@@ -105,6 +111,8 @@ export function createReferenceSources(options: {
   const write = referenceWrites(db);
   const now = options.now ?? Date.now;
   const operations = new Map<string, Operation>();
+  const operating = (key: string) => [...operations.values()].some(operation => operation.key === key);
+  const isManaged = (repository: string) => Boolean(options.github && new URL(repository).hostname.toLowerCase() === "github.com");
   const leases = new Map<string, number>();
   const withdrawn = new Set<string>();
   /** In-flight withdrawals; an acquisition of the same source waits for its withdrawal to finish. */
@@ -218,7 +226,7 @@ export function createReferenceSources(options: {
     const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state = 'superseded'")
       .all(domain, repository, revision) as { id: string }[];
     for (const root of roots) await releaseRoot(root.id);
-    if (withdrawn.has(key) && !operations.has(key) && !withdrawals.has(key)) {
+    if (withdrawn.has(key) && !operating(key) && !withdrawals.has(key)) {
       await write("sourceForget", domain, repository, revision);
       withdrawn.delete(key);
     }
@@ -368,7 +376,7 @@ export function createReferenceSources(options: {
     const candidates = db.query("SELECT * FROM reference_sources ORDER BY last_used_at ASC").all() as SourceRow[];
     for (const candidate of candidates) {
       const key = sourceKey(candidate.domain, candidate.repository, candidate.revision);
-      if (key === protect || leases.get(key) || operations.has(key)) continue;
+      if (key === protect || leases.get(key) || operating(key)) continue;
       const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ?").all(candidate.domain, candidate.repository, candidate.revision) as { id: string }[];
       if (roots.some(root => options.dependents?.(root.id))) continue;
       await withdraw(candidate.domain, candidate.repository, candidate.revision);
@@ -376,7 +384,7 @@ export function createReferenceSources(options: {
     }
     // Superseded roots of sources no reader or operation holds; protected ones stay.
     const superseded = (db.query("SELECT id, domain, repository, revision FROM reference_roots WHERE state = 'superseded'").all() as { id: string; domain: string; repository: string; revision: string }[])
-      .filter(root => { const key = sourceKey(root.domain, root.repository, root.revision); return !leases.get(key) && !operations.has(key) && !options.dependents?.(root.id); });
+      .filter(root => { const key = sourceKey(root.domain, root.repository, root.revision); return !leases.get(key) && !operating(key) && !options.dependents?.(root.id); });
     let freed = false;
     for (const root of superseded) { try { await releaseRoot(root.id); freed = true; } catch (error) { warn("reference eviction release failed", error); } }
     return freed;
@@ -406,32 +414,59 @@ export function createReferenceSources(options: {
   }
 
   async function acquire(signal: AbortSignal, input: { domain: string; principalId: string | null; repository: ReferenceRepository; revision: string; grant: ReferenceGrant | null;
-    credential: string | null; ref: string; expectedCommit: string; previous: SourceRow | null }) {
+    credential: string | null; ref: string; expectedCommit: string; previous: SourceRow | null;
+    managed?: { access: GitHubAccess; context: ReferenceAcquisitionContext; id: string; assertCurrent(): void } }) {
     const { domain, repository, revision } = input, key = sourceKey(domain, repository.canonical, revision);
     const name = referenceSourceName(repository, revision), view = await viewFor(domain);
     const staging = { id: randomUUID() };
     await write("sourceStage", staging.id, domain, repository.canonical, revision, now());
     const previousRoot = input.previous?.root_id ?? null;
-    const recheck = () => { if (domain !== PUBLIC && (!input.grant || !isLiveReferenceGrant(db, input.grant.id, now()))) authorize(domain, input.principalId, repository); };
+    const recheck = () => {
+      signal.throwIfAborted();
+      input.managed?.assertCurrent();
+      if (domain !== PUBLIC && (!input.grant || !isLiveReferenceGrant(db, input.grant.id, now()))) authorize(domain, input.principalId, repository);
+    };
     let publishing = false;
     try {
       const record = await create(staging, previousRoot, signal, key);
       recheck();
-      const { commit } = await transport.fetch({ repository, ref: input.ref, token: input.credential, root: record.path!, signal });
+      const { commit } = input.managed ? await input.managed.access.fetch(record.path!)
+        : await transport.fetch({ repository, ref: input.ref, token: input.credential, root: record.path!, signal });
       if (commit !== input.expectedCommit) throw new ReferenceTransportError("unavailable", "The reference moved after resolution; request it again.");
       await transport.checkout({ root: record.path!, commit, signal });
       signal.throwIfAborted();
       recheck();
-      await pool.poolSeal(staging.id, signal);
+      const tree = input.managed ? await transport.tree?.({ root: record.path!, commit, signal }) : undefined;
+      if (input.managed && !tree) throw new ReferenceSourceError("unavailable", "Managed source tree inspection is unavailable.");
+      recheck();
+      const sealed = await pool.poolSeal(staging.id, signal);
+      const sealedRoot = sealed.root ? { ...sealed.root } : null;
+      if (input.managed && (sealed.id !== staging.id || sealed.state !== "sealed" || sealed.purpose !== "source" || !sealed.root))
+        throw new ReferenceSourceError("unavailable", "Managed source has no verified sealed root identity.");
       // Authority is read again immediately before the only step readers can observe.
       recheck();
       signal.throwIfAborted();
       await exclusive(key, async () => {
+      // The source exposure lock can wait independently of all earlier checks.
+      recheck();
+      if (input.managed) await input.managed.access.revalidate();
+      recheck();
       publishing = true;
       hiddenRoots.delete(staging.id);
       const published = await pool.poolPublish(staging.id, view.id, name, signal);
+      recheck();
+      let acquisition: ReferenceAcquisition | undefined;
+      if (input.managed) {
+        if (!published.root || published.state !== "sealed" || published.purpose !== "source" || published.id !== staging.id
+          || published.root.uuid !== sealedRoot!.uuid || published.root.rootId !== sealedRoot!.rootId || published.root.otransid !== sealedRoot!.otransid)
+          throw new ReferenceSourceError("unavailable", "Managed source root changed during publication.");
+        acquisition = { id: input.managed.id, brain: options.brain, principalId: input.principalId!, turnId: input.managed.context.turnId,
+          identity: input.managed.access.identity, ref: input.ref, commit, tree: tree!, root: published.root,
+          grantId: input.managed.access.grantId, networkBytes: input.managed.access.bytes().chargedBytes, at: now() };
+      }
       const at = now(), grantId = domain === PUBLIC ? null : (input.grant && isLiveReferenceGrant(db, input.grant.id, at) ? input.grant.id : authorize(domain, input.principalId, repository)!.id);
-      await write("sourcePublish", dirname(published.path!), domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at);
+      await write("sourcePublish", dirname(published.path!), domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at, acquisition);
+      recheck();
       withdrawn.delete(key);
       // A newly validated commit is exposed; the superseded roots leave the view at
       // once, so a later bind reaches only the commit this request validated.
@@ -451,21 +486,91 @@ export function createReferenceSources(options: {
       // a suspended or lapsed one stays hidden and its name goes. Otherwise fence the source.
       if (publishing && previousRoot) {
         const previous = row(domain, repository.canonical, revision);
-        const exposed = !suspended.has(key) && previous?.root_id === previousRoot && validationLive(previous);
+        const exposed = !input.managed && !suspended.has(key) && previous?.root_id === previousRoot && validationLive(previous);
         await exclusive(key, async () => { if (exposed) await pool.poolPublish(previousRoot, view.id, name); else await pool.poolUnpublish(view.id, name); }).catch(async () => {
           await withdraw(domain, repository.canonical, revision).catch(cleanup => warn("reference source could not be fenced after a lost publication", cleanup));
         });
       }
+      if (publishing && input.managed) await withdraw(domain, repository.canonical, revision).catch(cleanup => warn("managed source withdrawal failed", cleanup));
       throw error;
     }
   }
 
-  async function request(input: { principalId: string; repository: unknown; revision: unknown; signal?: AbortSignal }): Promise<ReferenceSourceLease> {
+  /** No cross-turn joining: every managed request opens and pays for its own live authority check. */
+  async function managedRequest(input: { principalId: string; acquisition?: ReferenceAcquisitionContext; signal?: AbortSignal }, repository: ReferenceRepository, revision: string): Promise<ReferenceSourceLease> {
+    const context = input.acquisition;
+    if (!context || !context.turnId || !context.current()) throw new ReferenceSourceError("unavailable", "Managed GitHub acquisition needs a live admitted turn and its network budget.");
+    const controller = new AbortController(), signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
+    const id = randomUUID();
+    const operation: Operation = { key: sourceKey(PUBLIC, repository.canonical, revision), domain: PUBLIC, principalId: input.principalId,
+      grantId: null, controller, joiners: 1, promise: Promise.resolve(undefined as never) };
+    const assertTurn = () => { signal.throwIfAborted(); if (closed || !context.current()) throw new ReferenceSourceError("cancelled", "The acquiring turn is no longer available."); };
+    let result: ReferenceSourceLease | undefined;
+    operation.promise = (async () => {
+      const done = await admit(signal);
+      let access: GitHubAccess | undefined;
+      try {
+        assertTurn();
+        const maxBytes = Math.min(64 * 1048576, context.egress.remainingBytes());
+        if (maxBytes < 1) throw new ReferenceSourceError("capacity", "The acquiring turn has no network allowance left.");
+        access = await options.github!.open({ principalId: input.principalId, repository: repository.url, revision, egress: context.egress, maxBytes, signal,
+          current: () => !closed && context.current() });
+        const currentAccess = access;
+        const assertCurrent = () => { assertTurn(); currentAccess.assertCurrent(); };
+        assertCurrent();
+        const domain = access.domain === "public" ? PUBLIC : privateDomain(input.principalId);
+        Object.assign(operation, { domain, grantId: access.grantId, key: sourceKey(domain, repository.canonical, revision) });
+        await withdrawals.get(operation.key);
+        assertCurrent();
+        const check = await access.resolve();
+        assertCurrent();
+        if (!check.ok) throw new ReferenceSourceError(check.reason === "missing" ? "missing" : check.reason === "denied" ? "unauthorized" : "unavailable", check.detail);
+        const previous = row(domain, repository.canonical, revision);
+        let reused = false;
+        if (usable(previous) && previous.commit_id === check.commit && previous.ref === check.ref) {
+          await exclusive(operation.key, async () => {
+            assertCurrent();
+            const current = row(domain, repository.canonical, revision);
+            if (!usable(current) || current.root_id !== previous.root_id || withdrawn.has(operation.key)) return;
+            const record = await pool.poolSeal(current.root_id, signal);
+            assertCurrent();
+            if (!referenceAcquisitionMatches(db, current.root_id, record, { brain: options.brain, commit: check.commit, ref: check.ref, identity: access!.identity })) return;
+            await access!.revalidate();
+            assertCurrent();
+            const at = now();
+            await write("sourceValidate", at, at, check.ref, domain, repository.canonical, revision);
+            assertCurrent();
+            reused = true;
+          });
+        }
+        if (!reused) await acquire(signal, { domain, principalId: input.principalId, repository, revision,
+          grant: domain === PUBLIC ? null : authorize(domain, input.principalId, repository), credential: null,
+          ref: check.ref, expectedCommit: check.commit, previous, managed: { access, context, id, assertCurrent } });
+        assertCurrent();
+        const current = row(domain, repository.canonical, revision);
+        if (!usable(current)) throw new ReferenceSourceError("unavailable", "Managed source publication is unavailable.");
+        result = await restored(await lease(current, false, null), current, assertCurrent, signal);
+        assertCurrent();
+        return { kind: "source", row: current, stale: false, error: null };
+      } catch (error) {
+        result?.release(); result = undefined;
+        if (error instanceof ReferenceTransportError) throw new ReferenceSourceError(error.reason === "denied" ? "unauthorized" : error.reason, error.message);
+        throw error;
+      } finally { try { await access?.close(); } finally { done(); } }
+    })();
+    operations.set(id, operation);
+    try { await operation.promise; assertTurn(); return result!; }
+    catch (error) { result?.release(); throw error; }
+    finally { operations.delete(id); void settle(...splitKey(operation.key)).catch(error => warn("managed source settle failed", error)); }
+  }
+
+  async function request(input: { principalId: string; repository: unknown; revision: unknown; signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }): Promise<ReferenceSourceLease> {
     if (closed) throw new ReferenceSourceError("unavailable", "Reference sources are closed.");
     if (input.signal?.aborted) throw new ReferenceSourceError("cancelled", "Reference acquisition request was cancelled.");
     let repository: ReferenceRepository, revision: string;
     try { repository = referenceRepository(input.repository); revision = referenceRevision(input.revision); }
     catch (error) { throw new ReferenceSourceError("invalid", (error as Error).message); }
+    if (isManaged(repository.canonical)) return managedRequest(input, repository, revision);
     const probeKey = `${repository.canonical}\u0000${revision}`;
     const fresh = (source: SourceRow | null) => usable(source) && validationLive(source) && now() < source.refreshed_at + limits.refreshMs;
     if (repository.scheme !== "file" && !((notPublic.get(probeKey) ?? 0) > now())) {
@@ -522,6 +627,9 @@ export function createReferenceSources(options: {
    * revision is lost authority, as in a request.
    */
   function revalidate(source: SourceRow & { root_id: string }): Promise<boolean> {
+    // A bind occurs before a turn proxy exists. Its lapsed GitHub roots stay
+    // hidden until an explicit request can validate on that turn's own budget.
+    if (isManaged(source.repository)) return Promise.resolve(false);
     const key = sourceKey(source.domain, source.repository, source.revision);
     const running = revalidations.get(key);
     if (running) return running;
@@ -574,7 +682,7 @@ export function createReferenceSources(options: {
       const key = sourceKey(source.domain, source.repository, source.revision);
       // A withdrawal or an operation decides first; then the source is judged as it is now.
       await abortable(withdrawals.get(key), signal);
-      await abortable(operations.get(key)?.promise, signal);
+      await abortable(Promise.allSettled([...operations.values()].filter(operation => operation.key === key).map(operation => operation.promise)), signal);
       await abortable(exposing.get(key), signal);
       const current = row(source.domain, source.repository, source.revision);
       if (!usable(current) || withdrawn.has(key)) continue;
@@ -626,18 +734,19 @@ export function createReferenceSources(options: {
    * The lease is taken first, in the same turn as the outcome, so eviction can
    * never pick the source while it is being published again.
    */
-  async function restored(held: ReferenceSourceLease, source: SourceRow): Promise<ReferenceSourceLease> {
-    try { await restore(source); return held; } catch (error) { held.release(); throw error; }
+  async function restored(held: ReferenceSourceLease, source: SourceRow, assertCurrent?: () => void, signal?: AbortSignal): Promise<ReferenceSourceLease> {
+    try { await restore(source, assertCurrent, signal); return held; } catch (error) { held.release(); throw error; }
   }
   /**
    * Publish a source a validated request returned, if it was suspended. Under
    * the source's exposure lock, and only if nothing withdrew, replaced or
    * outlived it meanwhile.
    */
-  async function restore(source: SourceRow) {
+  async function restore(source: SourceRow, assertCurrent?: () => void, signal?: AbortSignal) {
     const key = sourceKey(source.domain, source.repository, source.revision);
     if (!suspended.has(key)) return;
     await exclusive(key, async () => {
+      assertCurrent?.();
       if (!suspended.has(key)) return;
       const current = row(source.domain, source.repository, source.revision);
       if (withdrawn.has(key) || withdrawals.has(key) || !usable(current) || current.root_id !== source.root_id || !validationLive(current))
@@ -645,7 +754,18 @@ export function createReferenceSources(options: {
       if (current.domain !== PUBLIC) authorize(current.domain, current.domain.slice("private:".length), referenceRepository(current.repository));
       // Until the pool confirms, the exposure is unknown: a failure leaves it for the next bind to take out again.
       unsettled.add(key); hiddenRoots.delete(current.root_id);
-      await pool.poolPublish(current.root_id, (await viewFor(current.domain)).id, current.name);
+      const view = await viewFor(current.domain);
+      assertCurrent?.();
+      try {
+        await pool.poolPublish(current.root_id, view.id, current.name, signal);
+        assertCurrent?.();
+      } catch (error) {
+        // A lost reply or authority after manager admission must not leave a
+        // newly restored name behind. A failed cleanup keeps it unsettled.
+        await pool.poolUnpublish(view.id, current.name);
+        await hideRoot(current.root_id);
+        throw error;
+      }
       suspended.delete(key); unsettled.delete(key);
     });
   }
@@ -693,6 +813,9 @@ export function createReferenceSources(options: {
     for (const source of db.query("SELECT * FROM reference_sources WHERE root_id IS NOT NULL").all() as SourceRow[]) {
       const record = byId.get(source.root_id!);
       let usableRoot = record?.purpose === "source" && record.state === "sealed";
+      if (usableRoot && isManaged(source.repository)) usableRoot = referenceAcquisitionMatches(db, source.root_id!, record!, {
+        brain: options.brain, commit: source.commit_id!, ref: source.ref,
+      });
       if (usableRoot && source.domain !== PUBLIC) {
         try { usableRoot = Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId: source.domain.slice("private:".length), repository: referenceRepository(source.repository), now: now() })); }
         catch { usableRoot = false; }

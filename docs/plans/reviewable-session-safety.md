@@ -29,8 +29,8 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:150`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:172`).
+  `packages/ui-server/src/activity/ingestion-taint.ts:154`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:176`).
   Workspace paths taint regardless of repository ownership. Awaited backend
   hooks commit before tool dispatch/result delivery; display frames alone
   never prove finalized delivery or complete coverage.
@@ -56,7 +56,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   ([reference-source grants](../decisions/reference-source-grants.md)). Its
   fixed Git transport separates network acquisition from credential-free,
   network-free checkout (`createReferenceTransport`,
-  `packages/ui-server/src/brain/reference-transport.ts:116-213`).
+  `packages/ui-server/src/brain/reference-transport.ts:108-205`).
 - The Security and Devices & agents surfaces already exist; policy facts are
   currently read-only (`AgentPolicyGroup`,
   `packages/ui-react/src/components/settings/agent-policy-group.tsx:8-51`).

@@ -1,0 +1,268 @@
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startEgressProxy } from "../../ui-sdk/src/server/egress-proxy";
+import { createGitHubReferenceAccess } from "../src/brain/github-reference-access";
+import { createReferenceSources } from "../src/brain/reference-source";
+import type { ReferenceTransport } from "../src/brain/reference-transport";
+import { createUiDb } from "../src/db/client";
+import { createPrincipal } from "../src/db/principals";
+import { createReferenceGrant, revokeReferenceGrant } from "../src/db/reference-grants";
+import { fixtureTls } from "./fixtures/fixture-tls";
+import { referencePoolDouble } from "./helpers/reference-pool-double";
+import { createReferenceTools } from "../src/brain/reference-tools";
+import { openSqliteWriter } from "../src/db/write-worker";
+import { registerReferenceWrites } from "../src/brain/reference-writes";
+import { createReferenceWorktrees } from "../src/brain/reference-worktrees";
+
+const repository = "https://github.com/odysseus/ithaca", commit = "a".repeat(40), tree = "b".repeat(40), brain = "ithaca-brain";
+let root: string, tls: ReturnType<typeof fixtureTls>;
+beforeAll(() => { root = mkdtempSync(join(tmpdir(), "odysseus-managed-source-")); tls = fixtureTls(root, ["api.github.com"]); });
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
+  const directory = mkdtempSync(join(root, "source-")), db = createUiDb(join(directory, "ui.db"));
+  const owner = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
+  const other = createPrincipal(db, { authMethod: "password", label: "Telemachus", ttlSeconds: 3600 });
+  const writer = options.worker ? openSqliteWriter(db) : undefined;
+  if (writer) registerReferenceWrites(db, writer);
+  const metadata: string[] = [], git: unknown[] = [];
+  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0 };
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: tls.cert, key: tls.key }, fetch(request) {
+    metadata.push(request.headers.get("authorization") ?? "anonymous");
+    if (options.private && !request.headers.has("authorization")) return new Response(null, { status: 404 });
+    return Response.json({ id: 101, owner: { id: state.ownerId, login: "Odysseus" }, name: "Ithaca", full_name: "Odysseus/Ithaca",
+      clone_url: `${repository}.git`, url: "https://api.github.com/repos/odysseus/ithaca", private: options.private ?? false });
+  } });
+  const records: unknown[] = [];
+  const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 4 * 1048576, observe(value) { records.push(value); } });
+  const secondEgress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 4 * 1048576, observe() {} });
+  const transport: ReferenceTransport = {
+    async resolve(input) { git.push(input); return { ok: true, commit, ref: "refs/heads/main" }; },
+    async fetch(input) { git.push(input); state.fetches++; writeFileSync(join(input.root, "README.md"), "Odysseus charts Ithaca on 2026-07-12.\n"); return { commit }; },
+    async checkout() {},
+    async tree() { return tree; },
+  };
+  const pool = referencePoolDouble(join(directory, "pool"));
+  const access = (database = db) => createGitHubReferenceAccess({ db: database, brain, credentials: { GITHUB_TOKEN: "odysseus-fixture-token" }, transport,
+    wireTransport: { ca: readFileSync(tls.ca, "utf8"), lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      connect: (() => connect({ host: "127.0.0.1", port: server.port! })) as typeof connect } });
+  const github = access();
+  const sourceOptions = { db, pool, transport, brain, credentials: { GITHUB_TOKEN: "odysseus-fixture-token" }, github, now: () => state.clock };
+  const sources = createReferenceSources(sourceOptions);
+  const grant = () => createReferenceGrant(db, { brain, principalId: owner.id, createdBy: owner.id, repositoryPrefix: repository,
+    credential: "GITHUB_TOKEN", metadataCredentialRecipient: "https://api.github.com", now: Date.now() });
+  const request = (principalId = owner.id, turnId = "odysseus-turn", proxy = egress) => {
+    const input = { repository, revision: "main", principalId, acquisition: { turnId, egress: proxy, current: () => state.current } };
+    return sources.request(input);
+  };
+  return { sources, sourceOptions, request, db, pool, transport, github, owner, other, grant, state, egress, secondEgress, metadata, git, records,
+    restart(database: ReturnType<typeof createUiDb>) { return createReferenceSources({ ...sourceOptions, db: database, github: access(database) }); },
+    databasePath: join(directory, "ui.db"),
+    async close() { await sources.close(); await writer?.close(); egress.stop(); secondEgress.stop(); server.stop(true); db.close(); } };
+}
+
+test("managed source publishes actual metadata, turn bytes and sealed root/tree facts in one catalog transaction", async () => {
+  const f = await fixture();
+  try {
+    const lease = await f.request();
+    try {
+      expect(readFileSync(join(lease.viewPath, lease.name, "README.md"), "utf8")).toContain("Odysseus");
+      const record = f.pool.records.get(lease.rootId)!;
+      expect(f.db.query("SELECT * FROM reference_acquisitions WHERE root_id = ?").get(lease.rootId), "REFERENCE_MANAGED_ROOT_MAPPING").toMatchObject({
+        brain, principal_id: f.owner.id, turn_id: "odysseus-turn", repository_id: "101", owner_id: "201", owner: "odysseus",
+        repository_name: "ithaca", ref: "refs/heads/main", commit_id: commit, tree_id: tree,
+        native_root_id: record.root!.rootId, native_uuid: record.root!.uuid, native_generation: record.root!.otransid, grant_id: null,
+      });
+      expect(f.egress.usedBytes(), "REFERENCE_SOURCE_CHARGES_ACTUAL_TURN").toBeGreaterThan(0);
+      expect(f.metadata, "REFERENCE_SOURCE_FINAL_IDENTITY_REVALIDATED").toEqual(["anonymous", "anonymous"]);
+      expect(f.git.every(input => (input as { wire?: unknown }).wire !== undefined), "REFERENCE_SOURCE_NEVER_BYPASSES_WIRE").toBe(true);
+    } finally { lease.release(); }
+  } finally { await f.close(); }
+});
+
+test("managed GitHub requests without an admitted turn budget refuse before any source transport", async () => {
+  const f = await fixture();
+  try {
+    await expect(f.sources.request({ principalId: f.owner.id, repository, revision: "main" }), "REFERENCE_SOURCE_REQUIRES_REAL_TURN").rejects.toMatchObject({ code: "unavailable" });
+    expect(f.git).toEqual([]); expect(f.metadata).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("a cached shared root still uses the requesting principal and turn's own metadata budget", async () => {
+  const f = await fixture();
+  try {
+    const first = await f.request();
+    const second = await f.request(f.other.id, "telemachus-turn", f.secondEgress);
+    try {
+      expect(first.rootId).toBe(second.rootId);
+      expect(f.state.fetches).toBe(1);
+      expect(f.secondEgress.usedBytes(), "REFERENCE_SOURCE_CACHE_CANNOT_BORROW_TURN_BUDGET").toBeGreaterThan(0);
+      expect(f.metadata).toHaveLength(4);
+    } finally { first.release(); second.release(); }
+  } finally { await f.close(); }
+});
+
+test("pre-proxy bind preparation with expired GitHub authority withholds source without network", async () => {
+  const f = await fixture();
+  try {
+    const lease = await f.request(); lease.release();
+    f.state.clock += 400_000;
+    const count = f.git.length, metadata = f.metadata.length;
+    await f.sources.bindable(f.owner.id);
+    expect(f.git.length, "REFERENCE_BIND_NEVER_SPENDS_UNBOUND_NETWORK").toBe(count);
+    expect(f.metadata.length).toBe(metadata);
+    expect(f.pool.events.some(event => event.operation === "unpublish"), "REFERENCE_BIND_WITHHOLDS_EXPIRED_MANAGED_SOURCE").toBe(true);
+  } finally { await f.close(); }
+});
+
+for (const change of ["turn", "grant", "owner", "root"] as const)
+  test(`managed source refuses ${change} change while sealing before actual publication`, async () => {
+    const f = await fixture({ private: change === "grant" }), grant = change === "grant" ? f.grant() : null;
+    const seal = f.pool.poolSeal;
+    f.pool.poolSeal = async (id, signal) => {
+      const result = await seal(id, signal);
+      if (change === "turn") f.state.current = false;
+      if (change === "grant") revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: grant!.id, now: Date.now() });
+      if (change === "owner") f.state.ownerId = 202;
+      if (change === "root") result.root = null;
+      return result;
+    };
+    try {
+      await expect(f.request(), "REFERENCE_MANAGED_FINAL_PUBLICATION_FENCE").rejects.toThrow();
+      expect(f.pool.events.filter(event => event.operation === "publish"), "REFERENCE_MANAGED_REFUSAL_HAS_NO_FILE_EFFECT").toEqual([]);
+      expect(f.db.query("SELECT * FROM reference_acquisitions").all()).toEqual([]);
+    } finally { await f.close(); }
+  });
+
+test("the host tool attaches only its admitted turn's budget and expires it at turn end", async () => {
+  const f = await fixture(), tools = createReferenceTools({ sources: f.sources });
+  try {
+    await tools.begin("odysseus-tool-turn", { principalId: f.owner.id, posture: "interactive", generation: null });
+    const call = { tool: "reference_source" as const, input: { repository, revision: "main" } };
+    expect(await tools.call("odysseus-tool-turn", f.owner.id, call)).toMatchObject({ ok: false, code: "unavailable" });
+    expect(() => tools.attachEgress("odysseus-tool-turn", f.other.id, { egress: f.egress, current: () => true })).toThrow();
+    tools.attachEgress("odysseus-tool-turn", f.owner.id, { egress: f.egress, current: () => f.state.current });
+    expect(() => tools.attachEgress("odysseus-tool-turn", f.owner.id, { egress: f.secondEgress, current: () => true })).toThrow();
+    const result = await tools.call("odysseus-tool-turn", f.owner.id, call);
+    expect(result, "REFERENCE_TOOL_USES_ACTUAL_HOST_TURN").toMatchObject({ ok: true, source: { domain: "public", commit } });
+    expect(f.db.query("SELECT turn_id FROM reference_acquisitions").get()).toEqual({ turn_id: "odysseus-tool-turn" });
+    tools.end("odysseus-tool-turn");
+    expect(await tools.call("odysseus-tool-turn", f.owner.id, call)).toMatchObject({ ok: false, code: "unavailable" });
+  } finally { tools.end("odysseus-tool-turn"); await f.close(); }
+});
+
+test("worker-owned publication persists acquisition facts across a fresh database connection and service restart", async () => {
+  const f = await fixture({ worker: true });
+  try {
+    const lease = await f.request(), id = lease.rootId; lease.release();
+    const original = f.db.query("SELECT * FROM reference_acquisitions").get();
+    await f.sources.close();
+    const db = createUiDb(f.databasePath), restarted = f.restart(db);
+    try {
+      const metadata = f.metadata.length;
+      await restarted.recover();
+      expect(f.metadata.length, "REFERENCE_RESTART_NEVER_SPENDS_UNBOUND_NETWORK").toBe(metadata);
+      expect(db.query("SELECT * FROM reference_acquisitions WHERE root_id = ?").get(id), "REFERENCE_ACQUISITION_SURVIVES_RESTART").toEqual(original);
+      expect(db.query("SELECT root_id FROM reference_sources").get()).toEqual({ root_id: id });
+    } finally { await restarted.close(); db.close(); }
+  } finally { await f.close(); }
+});
+
+for (const changed of ["uuid", "generation", "commit", "brain"] as const)
+  test(`restart refuses a retained managed root with a contradictory ${changed}`, async () => {
+    const f = await fixture();
+    try {
+      const lease = await f.request(), id = lease.rootId; lease.release();
+      await f.sources.close();
+      const record = f.pool.records.get(id)!;
+      if (changed === "uuid") record.root = { ...record.root!, uuid: "another-root" };
+      if (changed === "generation") record.root = { ...record.root!, otransid: "2" };
+      if (changed === "commit") f.db.query("UPDATE reference_sources SET commit_id = ?").run("c".repeat(40));
+      if (changed === "brain") f.db.query("UPDATE reference_acquisitions SET brain = 'troy-brain'").run();
+      const restarted = f.restart(f.db);
+      try {
+        await restarted.recover();
+        expect(f.db.query("SELECT * FROM reference_sources").all(), "REFERENCE_RESTART_REFUSES_CONTRADICTORY_ROOT").toEqual([]);
+        expect(record.state).toBe("reclaimed");
+      } finally { await restarted.close(); }
+    } finally { await f.close(); }
+  });
+
+test("two concurrent public requesters cannot join the first turn's in-flight acquisition", async () => {
+  const f = await fixture();
+  let entered!: () => void, release!: () => void;
+  const reached = new Promise<void>(resolve => { entered = resolve; }), held = new Promise<void>(resolve => { release = resolve; });
+  const fetch = f.transport.fetch; let calls = 0;
+  f.transport.fetch = async input => { if (++calls === 1) { entered(); await held; } return fetch(input); };
+  const first = f.request();
+  try {
+    await reached;
+    const second = await f.request(f.other.id, "telemachus-turn", f.secondEgress);
+    try {
+      expect(f.secondEgress.usedBytes(), "REFERENCE_CONCURRENT_REQUEST_PAYS_OWN_BUDGET").toBeGreaterThan(0);
+      expect(calls, "REFERENCE_CONCURRENT_REQUEST_NEVER_JOINS_FOREIGN_TURN").toBe(2);
+    } finally { second.release(); }
+    release(); (await first).release();
+  } finally { release(); await first.then(lease => lease.release(), () => {}); await f.close(); }
+});
+
+test("authority lost after native publication removes the name and acquisition rather than returning bytes", async () => {
+  const f = await fixture(), publish = f.pool.poolPublish;
+  let path = "";
+  f.pool.poolPublish = async (...args) => {
+    const result = await publish(...args); path = result.path!; f.state.current = false; return result;
+  };
+  try {
+    await expect(f.request(), "REFERENCE_POST_MANAGER_AUTHORITY_FENCE").rejects.toThrow();
+    expect(existsSync(path), "REFERENCE_POST_MANAGER_FAILURE_REMOVES_ROOT").toBe(false);
+    expect(f.db.query("SELECT * FROM reference_acquisitions").all()).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("a changed native root reply cannot be recorded as the root sealed before the publication wait", async () => {
+  const f = await fixture(), publish = f.pool.poolPublish;
+  let path = "";
+  f.pool.poolPublish = async (...args) => {
+    const result = await publish(...args); path = result.path!; result.root = { ...result.root!, uuid: "a-different-native-root" }; return result;
+  };
+  try {
+    await expect(f.request(), "REFERENCE_NATIVE_PUBLICATION_ROOT_MUST_MATCH_SEAL").rejects.toThrow();
+    expect(existsSync(path)).toBe(false);
+    expect(f.db.query("SELECT * FROM reference_acquisitions").all()).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("principal revocation committed with the async publication receipt withdraws the just-published root", async () => {
+  const f = await fixture({ worker: true }), publish = f.pool.poolPublish;
+  let path = "";
+  f.pool.poolPublish = async (...args) => { const result = await publish(...args); path = result.path!; return result; };
+  f.db.exec(`CREATE TRIGGER odysseus_revoke_at_publication AFTER INSERT ON reference_acquisitions
+    BEGIN UPDATE principals SET revoked_at = 1 WHERE id = NEW.principal_id; END`);
+  try {
+    await expect(f.request(), "REFERENCE_POST_DATABASE_AUTHORITY_FENCE").rejects.toThrow();
+    expect(existsSync(path), "REFERENCE_POST_DATABASE_FAILURE_REMOVES_ROOT").toBe(false);
+    expect(f.db.query("SELECT * FROM reference_acquisitions").all()).toEqual([]);
+    expect(f.db.query("SELECT * FROM reference_sources WHERE root_id IS NOT NULL").all()).toEqual([]);
+  } finally { await f.close(); }
+});
+
+for (const wait of ["coverage", "native-grant"] as const)
+  test(`managed worktree access fences acquiring-turn loss after its own ${wait} wait`, async () => {
+    const f = await fixture();
+    const context = { turnId: "odysseus-worktree-turn", egress: f.egress, current: () => f.state.current };
+    const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources,
+      coverage: async () => { if (wait === "coverage") f.state.current = false; } });
+    let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+    try {
+      const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+      generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+      const access = f.pool.poolAccess;
+      f.pool.poolAccess = async (...args) => { const result = await access(...args); if (wait === "native-grant") f.state.current = false; return result; };
+      await expect(worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context }),
+        "REFERENCE_WORKTREE_FINAL_TURN_FENCE").rejects.toThrow();
+      expect(f.pool.records.get(item.id)!.access, "REFERENCE_WORKTREE_STALE_GRANT_PARKED").toBeNull();
+    } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
+  });

@@ -57,6 +57,8 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
     },
     async poolSeal(id) {
       const record = records.get(id);
+      // The manager also verifies and returns an already sealed retained root.
+      if (record?.state === "sealed") return record;
       if (!record || record.state !== "writable") fail("released", "Only a writable reference pool root can be sealed.");
       note({ operation: "seal", id });
       record!.state = "sealed";

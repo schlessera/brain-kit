@@ -82,6 +82,27 @@ header selects it. The internal entry also exports the existing
 DNS address before connecting to a checked IP. These are implementation
 sharing, with no supported public transport extension seam (#3613).
 
+Production GitHub source requests use that wire through the actual admitted
+turn's proxy, including cached-source revalidation and source acquisition for
+managed worktrees. They do not join another turn's operation or use another
+turn's allowance. A request without that host context refuses. The operation
+ceiling is 64 MiB, further bounded by the remaining turn allowance; the finite
+wire deadline and ordinary G6 recipient rules remain. Bind preparation happens
+before the proxy exists, so expired GitHub source is withheld without network
+until an explicit turn request validates it. Other legacy repository transports
+remain unqualified for repository trust.
+
+Migration 089 records a retained source acquisition's host-issued identity,
+brain/principal/turn, stable repository and owner identities, resolved ref,
+commit/tree, sealed native root ID/UUID/creation generation, selected grant and
+charged wire bytes. Publication commits these facts with the source catalog;
+restart refuses contradictory root identities. They describe acquisition,
+never actual model-content reads or an independently approved owner boundary.
+File-tool reads under the reference/worktree worker roots continue to produce
+ordinary workspace restriction signals. No repository trust capability is
+enabled. Tool names, descriptions, input/result schemas and provider history
+are unchanged; actual immutable blob/range/digest evidence remains required.
+
 ## Prepared ordinary inference transport (internal #1665)
 
 The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created

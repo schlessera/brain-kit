@@ -1,5 +1,6 @@
 /** Reference catalog effects; acquisition and native pool calls stay with the caller (#2999). */
 import type { Database } from "bun:sqlite";
+import type { ReferenceAcquisition } from "./reference-acquisition.js";
 
 export function sourceWrites(db: Database) {
   function sourceView(domain: string, id: string): { id: string; hostPath: string | null } {
@@ -41,8 +42,15 @@ export function sourceWrites(db: Database) {
       const view = sourceView(domain, viewId);
       return { roots, view };
     },
-    sourcePublish(path: string, domain: string, repository: string, revision: string, url: string, name: string, id: string, commit: string, ref: string, grantId: string | null, at: number) {
+    sourcePublish(path: string, domain: string, repository: string, revision: string, url: string, name: string, id: string, commit: string, ref: string, grantId: string | null, at: number, acquisition?: ReferenceAcquisition) {
       db.transaction(() => {
+        if (acquisition) db.query(`INSERT INTO reference_acquisitions
+          (root_id, acquisition_id, brain, principal_id, turn_id, repository_id, owner_id, owner, repository_name, ref, commit_id, tree_id,
+            native_root_id, native_uuid, native_generation, grant_id, network_bytes, acquired_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, acquisition.id, acquisition.brain,
+            acquisition.principalId, acquisition.turnId, acquisition.identity.repositoryId, acquisition.identity.ownerId, acquisition.identity.owner,
+            acquisition.identity.repository, ref, commit, acquisition.tree, acquisition.root.rootId, acquisition.root.uuid, acquisition.root.otransid,
+            acquisition.grantId, acquisition.networkBytes, acquisition.at);
         db.query("UPDATE reference_views SET host_path = ? WHERE domain = ?").run(path, domain);
         db.query("UPDATE reference_roots SET state = 'superseded' WHERE domain = ? AND repository = ? AND revision = ? AND state = 'published'").run(domain, repository, revision);
         db.query("UPDATE reference_roots SET state = 'published' WHERE id = ?").run(id);

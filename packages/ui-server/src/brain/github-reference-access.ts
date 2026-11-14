@@ -7,7 +7,7 @@ import { createGitHubReferenceWire } from "./github-reference-wire.js";
 import { referenceRevision, ReferenceTransportError, type ReferenceCheck, type ReferenceTransport } from "./reference-transport.js";
 
 type WireOptions = Parameters<typeof createGitHubReferenceWire>[0];
-type RequestBounds = Pick<WireOptions, "egress" | "maxBytes" | "timeoutMs" | "signal">;
+type RequestBounds = Pick<WireOptions, "egress" | "maxBytes" | "timeoutMs" | "signal"> & { current?: () => boolean };
 
 export function createGitHubReferenceAccess(options: {
   db: Database;
@@ -48,6 +48,7 @@ export function createGitHubReferenceAccess(options: {
       principal(input.principalId);
       let grant: ReferenceGrant | null = null, credential: string | null = null;
       const authorize = (recipient: "git" | "metadata", credentialed: boolean) => {
+        if (input.current && !input.current()) throw new ReferenceTransportError("denied", "the acquiring turn is no longer available");
         principal(input.principalId);
         if (grant) {
           const current = coveringReferenceGrant(options.db, { brain: options.brain, principalId: input.principalId, repository, now: now() });

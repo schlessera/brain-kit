@@ -7,7 +7,7 @@ over the [reference pool](reference-pool-accounting.md). It uses the
 [owner-managed grants](reference-source-grants.md) as its only private
 authority. This record names the concrete choices the rulings left to
 implementation. The service is `createReferenceSources`
-(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:91-786`),
+(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:95-790`),
 created at host start when the native manager reports a reference pool, and
 closed with the app. The agent tool that requests source arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432)
@@ -47,12 +47,17 @@ validation lifetime, so later private requests skip the public probe.
 
 ## Two clocks
 
+The reuse/outage rules below describe legacy transports. Managed GitHub
+requests always perform their own bounded metadata/ref validation, including
+inside both windows, and do not serve stale results after identity refusal.
+The validation window still governs what a pre-proxy bind may expose.
+
 Each source records `validatedAt`, the last successful authority check of its
 exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:293-342`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:301-350`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -79,18 +84,18 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:408-461`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:415-468`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
 2. The **network transport** fetches one ref into it. It is the only worker
    that may hold a credential: the granted host variable, delivered through a
    fixed credential helper, with one allowed protocol and no redirects
-   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:198-219`).
+   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:182-203`).
 3. A separate **checkout worker** has no credential and no network. It checks
    out the commit and evaluates the repository's attributes. No filter or
    hook is configured, so none runs
-   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:220-229`).
+   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:204-213`).
 4. The live grant is read again, the root is sealed, the grant is read
    again, and only then is the root published.
 
@@ -142,24 +147,50 @@ revision is refused before metadata dispatch, fetch needs that acquisition's
 resolved full ref, and commit movement refuses before checkout. Failed final
 identity revalidation ends the acquisition. Cancellation, turn stop and a
 finite deadline close its sockets; a late successful command cannot outlive
-the wire. This wire establishes neither sealed-root provenance nor qualified
-immutable-read evidence and enables no repository trust rule by itself.
+the wire. The wire alone establishes neither sealed-root provenance nor
+qualified immutable-read evidence and enables no repository trust rule.
+
+Production GitHub acquisition now opens this service on the actual requesting
+turn's proxy. Each request, including cache revalidation and worktree source
+access, owns its own authority check and budget; it never joins a foreign
+turn. The operation limit is 64 MiB or the remaining turn allowance, whichever
+is smaller. Lapsed GitHub source found during pre-proxy bind preparation is
+withheld without network, then restored only by an explicit admitted request.
+Private GitHub acquisition requires the separately approved API credential
+recipient even if an older Git-only grant exists; host credential availability
+does not silently widen that grant. Other legacy transports retain their
+existing access rules and qualify for no repository trust.
+
+After offline checkout/tree inspection and native sealing, publication
+rechecks the acquiring turn, principal, selected grant and final fixed metadata
+identity after the source's own exposure lock. It compares sealed/published
+root ID, UUID and creation generation, then records those facts together with
+the source catalog on the database worker. Lost authority after manager or
+database waits withdraws the publication. Recovery compares the retained facts
+to the current native sealed root, refusing a different root/generation or
+contradictory brain/ref/commit. These host facts are outside repository content
+and provider history and are not read receipts. Normal source/worktree file
+tools remain workspace restriction signals; shell-local-read coverage retains
+its documented limitation. Actual immutable regular-blob/range/digest evidence,
+approved-owner matching and complete managed-path native/backend qualification
+remain required before repository trust can be enabled.
 
 ## Admission
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
-(`admit`, `packages/ui-server/src/brain/reference-source.ts:233-248`). Requests
-for the same source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:251-276`).
+(`admit`, `packages/ui-server/src/brain/reference-source.ts:241-256`). Requests
+for the same legacy source in the same domain join one operation
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:259-284`).
 Each principal's private source is its own domain, so two principals requesting
 the same private repository at once run two operations, each with its own
 credential and view. Admitted operations finish independently: a stalled one
 holds only its own slot.
 At most 64 distinct operations wait; beyond that a request is refused as busy.
 A requester that cancels leaves its operation, and the operation is cancelled
-when its last requester leaves. Readers are never admitted operations: a request
-inside both windows only takes a reader lease. No manager lock is held across a
+when its last requester leaves. Legacy readers are never admitted operations: a
+legacy request inside both windows only takes a reader lease. Managed GitHub
+cache validation uses an admitted operation and its own turn budget. No manager lock is held across a
 fetch; each pool call is one short serialized manager request.
 
 ## Readers, refresh and eviction
@@ -172,7 +203,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:367-383`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:374-390`).
 There is no idle expiry.
 
 ## Revocation and recovery
@@ -185,14 +216,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:657-677`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:775-795`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:680-724`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:798-842`).
 
 ## Evidence
 

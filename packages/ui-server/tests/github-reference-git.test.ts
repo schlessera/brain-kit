@@ -8,6 +8,8 @@ import { join, resolve } from "node:path";
 import { invocationChild } from "../../../scripts/test-invocation-child";
 import { startEgressProxy } from "../../ui-sdk/src/server/egress-proxy";
 import { createGitHubReferenceAccess } from "../src/brain/github-reference-access";
+import { createReferenceSources } from "../src/brain/reference-source";
+import { referencePoolDouble } from "./helpers/reference-pool-double";
 import { createReferenceTransport } from "../src/brain/reference-transport";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
@@ -165,5 +167,24 @@ test(NAME, async () => {
         expect(requests).toHaveLength(observed);
       } finally { await acquisition.close(); }
     }
+    // Exercise production source orchestration and offline tree inspection
+    // with real Git. The directory pool still does not prove native sealing.
+    privateSource = false; requests.length = 0; launched.length = 0;
+    const sources = createReferenceSources({ db, brain: "ithaca", pool: referencePoolDouble(join(root, "source-pool")), transport,
+      credentials: { GITHUB_TOKEN: token }, github: access });
+    try {
+      const lease = await sources.request({ principalId: principal.id, repository: "https://github.com/odysseus/ithaca", revision: "main",
+        acquisition: { turnId: "odysseus-source-turn", egress, current: () => true } });
+      try {
+        expect(readFileSync(join(lease.viewPath, lease.name, "README.md"), "utf8"), "REFERENCE_ACTUAL_GIT_SOURCE_PUBLICATION")
+          .toBe("Odysseus revises the Ithaca chart on 2026-07-12.\n");
+        expect(db.query("SELECT commit_id, tree_id, turn_id FROM reference_acquisitions WHERE root_id = ?").get(lease.rootId),
+          "REFERENCE_ACTUAL_GIT_SOURCE_TREE_BOUND").toEqual({ commit_id: git(work, "rev-parse", "HEAD"),
+          tree_id: git(work, "rev-parse", "HEAD^{tree}"), turn_id: "odysseus-source-turn" });
+        expect(launched.filter(value => !value.network)).toHaveLength(3); // fetched commit, checkout, tree.
+        expect(launched.filter(value => !value.network).every(value => !value.proxy && !value.credential)).toBe(true);
+        expect(requests.every(value => value.authorization === null)).toBe(true);
+      } finally { lease.release(); }
+    } finally { await sources.close(); }
   } finally { egress.stop(); server?.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
 }, 90000);
