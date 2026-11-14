@@ -11,7 +11,7 @@ import { openSqliteWriter } from "../src/db/write-worker.js";
 import { createPrincipal, PrincipalCreatorNotUsableError, PrincipalCredentialNotFoundError, PrincipalLimitError, resolvePrincipal } from "../src/db/principals.js";
 import { accountWrites, registerAccountWrites } from "../src/db/account-writes.js";
 import { registerPrincipalWrites } from "../src/db/principal-writes.js";
-import { createReferenceGrant, ReferenceGrantDuplicateError, ReferenceGrantPrincipalError, ReferenceRepositoryError } from "../src/db/reference-grants.js";
+import { coveringReferenceGrant, createReferenceGrant, referenceRepository, ReferenceGrantDuplicateError, ReferenceGrantPrincipalError, ReferenceRepositoryError } from "../src/db/reference-grants.js";
 import { principalManagementRoutes } from "../src/middleware/principals.js";
 import { authGuard, authRoutes, createLoginRateLimiter, type AuthRuntime } from "../src/middleware/auth.js";
 import { createPasskeyChallenges, passkeyManagementRoutes, passkeyPublicRoutes, type PasskeyContext, type PasskeyDeps } from "../src/middleware/passkeys.js";
@@ -69,6 +69,27 @@ for (const operation of ["mint", "revoke", "grant", "revokeGrant"] as const) {
     } finally { await f.close(); }
   });
 }
+
+test("explicit metadata recipient commits through FULL account writes and a queued revoked owner cannot grant it", async () => {
+  const f = fixture();
+  try {
+    const sites = await watchWriteSites(f.db, f.writer, ["reference_grants"]);
+    const input = { repositoryPrefix: "https://github.com/odysseus/ithaca", credential: "GITHUB_TOKEN", metadataCredentialRecipient: "https://api.github.com" };
+    const response = await f.app.request(`/api/auth/principals/${f.agent.id}/reference-grants`, json("POST", input));
+    expect(response.status).toBe(201);
+    expect(await response.json(), "REFERENCE_API_PERMISSION_FULL_RECEIPT").toHaveProperty("metadata_credential_recipient", "https://api.github.com");
+    expect(await sites.log(), "REFERENCE_API_PERMISSION_FULL_WRITER").toEqual(["reference_grants"]);
+    expect(coveringReferenceGrant(f.db, { brain: "ithaca", principalId: f.agent.id,
+      repository: referenceRepository(input.repositoryPrefix), now: Date.now() })).toHaveProperty("metadataCredentialRecipient", "https://api.github.com");
+    const held = f.writer.channel(probe, { table: "odysseus_log" }); await held.ready;
+    const slow = held.call("slow", "Calypso", 150);
+    const revoke = accountWrites(f.db).revokePrincipal(f.owner.id, Date.now());
+    const refused = expectRejection(accountWrites(f.db).createGrant({ ...input, repositoryPrefix: "https://github.com/odysseus/loom",
+      brain: "ithaca", principalId: f.agent.id, createdBy: f.owner.id, now: Date.now() }), ReferenceGrantPrincipalError, "REFERENCE_API_PERMISSION_RECHECKS_QUEUED_OWNER");
+    await Promise.all([slow, revoke, refused]);
+    expect(f.db.query("SELECT 1 FROM reference_grants WHERE repository_prefix = ?").get("https://github.com/odysseus/loom")).toBeNull();
+  } finally { await f.close(); }
+});
 
 for (const operation of ["publicKey", "subscribe", "unsubscribe", "unbindPrincipal"] as const) {
   test(`push ${operation} commits on the write worker at FULL, never on the app connection`, async () => {

@@ -530,7 +530,8 @@ itself.
   for that principal's live grants, oldest first; `created_at` is epoch
   milliseconds. An unknown, revoked, expired or non-cookie principal is 404.
 - **POST `/api/auth/principals/:id/reference-grants`**, JSON body
-  `{ repositoryPrefix: string, credential?: string | null }`. The prefix is an
+  `{ repositoryPrefix: string, credential?: string | null,
+  metadataCredentialRecipient?: "https://api.github.com" | null }`. The prefix is an
   HTTPS URL without user info, query or fragment, a loopback `http://` URL, or an
   absolute `file:///` path; it may be a bare HTTPS origin. Empty, `.` and `..`
   segments, whitespace, control characters, backslashes and percent-encoding
@@ -543,6 +544,17 @@ itself.
   is 201 with the grant object. Malformed or non-object JSON is 400; an unknown
   or unusable target principal is 404; an identical live grant is 409; 256 live
   grants is 503.
+  The optional `metadataCredentialRecipient` is independent owner permission
+  to send that named credential to the fixed GitHub identity metadata operation
+  (#3613). It requires a GitHub HTTPS prefix and a non-null named credential;
+  any other value or recipient is 400. Omitted or null grants no API recipient
+  permission, including on migrated records. When explicitly granted, the
+  response and list entry additionally carry
+  `metadata_credential_recipient: "https://api.github.com"`. The permission
+  shares the grant's brain, principal, repository scope and live revocation.
+  It grants neither generic HTTP access nor repository source trust.
+  Changing this permission uses revoke/recreate; duplicate matching keeps the
+  existing principal/prefix/credential identity and does not expand a grant.
 - **DELETE `/api/auth/principals/:id/reference-grants/:grantId`**, body
   ignored, revokes that principal's live grant and returns `{ ok: true }`.
   Revocation applies to the next authority check, including in-flight private

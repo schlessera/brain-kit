@@ -56,7 +56,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   ([reference-source grants](../decisions/reference-source-grants.md)). Its
   fixed Git transport separates network acquisition from credential-free,
   network-free checkout (`createReferenceTransport`,
-  `packages/ui-server/src/brain/reference-transport.ts:97-170`).
+  `packages/ui-server/src/brain/reference-transport.ts:97-176`).
 - The Security and Devices & agents surfaces already exist; policy facts are
   currently read-only (`AgentPolicyGroup`,
   `packages/ui-react/src/components/settings/agent-policy-group.tsx:8-51`).

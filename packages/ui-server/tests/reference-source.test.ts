@@ -86,6 +86,42 @@ function service(options: { limits?: Record<string, number>; capacityRoots?: num
 const read = (lease: ReferenceSourceLease) => readFileSync(join(lease.viewPath, lease.name, "README.md"), "utf8").trim();
 const minutes = (count: number) => { clock += count * 60_000; };
 
+test("ambiguous advertisements refuse one source explicitly without private fallback or a global latch", async () => {
+  const { sources, state } = service(), principal = owner();
+  grant(principal.id, principal.id);
+  state.onResolve = () => { throw new ReferenceTransportError("invalid", "request one unambiguous branch or tag"); };
+  try {
+    await expect(sources.request({ principalId: principal.id, repository: PUBLIC, revision: "main" }),
+      "REFERENCE_AMBIGUOUS_SOURCE_ACTIONABLE_REFUSAL").rejects.toMatchObject({ code: "invalid", message: "request one unambiguous branch or tag" });
+    expect(state.resolves).toEqual([{ repository: PUBLIC, token: null }]);
+    expect(state.fetches).toEqual([]);
+    state.onResolve = null;
+    const healthy = await sources.request({ principalId: principal.id, repository: PUBLIC, revision: "main" });
+    expect(healthy.stale, "REFERENCE_REFUSAL_CLEARS_ON_UNAMBIGUOUS_RETRY").toBe(false);
+    healthy.release();
+  } finally { await sources.close(); }
+});
+
+test("a ref that moves after resolution is refused before source publication", async () => {
+  const { sources, state, repos } = service();
+  const principal = owner();
+  const held = deferred();
+  state.gate = held;
+  const pending = sources.request({ principalId: principal.id, repository: PUBLIC, revision: "main" });
+  try {
+    await until(() => state.fetches.length === 1);
+    expect(state.fetches, "REFERENCE_MOVED_REF_FETCH_REACHED_BARRIER").toHaveLength(1);
+    repos.get(PUBLIC)!.tip = "f".repeat(40);
+    held.resolve();
+    await expect(pending, "REFERENCE_MOVED_REF_NOT_PUBLISHED").rejects.toMatchObject({ code: "unavailable" });
+    expect(db.query("SELECT * FROM reference_sources WHERE root_id IS NOT NULL").all(), "REFERENCE_MOVED_REF_NO_VISIBLE_SOURCE").toEqual([]);
+  } finally {
+    held.resolve();
+    await pending.then(lease => lease.release(), () => {});
+    await sources.close();
+  }
+});
+
 describe("authority and sharing domains", () => {
   test("public source is shared host-wide and only ever fetched anonymously", async () => {
     const { sources, state } = service();
