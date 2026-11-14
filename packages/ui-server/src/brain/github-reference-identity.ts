@@ -1,7 +1,7 @@
 /** Fixed GitHub metadata validation. Parsing alone establishes no transport, access or source trust. */
 import { parseTrustGithub, TrustSelectorSchema } from "@schlessera/brain-common/internal/governance-policy";
 
-interface GitHubReferenceRepository {
+export interface GitHubReferenceRepository {
   owner: string;
   repository: string;
   canonical: string;
@@ -9,10 +9,24 @@ interface GitHubReferenceRepository {
   metadataUrl: string;
 }
 
-interface GitHubReferenceIdentity extends GitHubReferenceRepository {
+export interface GitHubReferenceIdentity extends GitHubReferenceRepository {
   repositoryId: string;
   ownerId: string;
   private: boolean;
+}
+
+export interface GitHubReferenceOwner {
+  owner: string;
+  canonical: string;
+  metadataUrl: string;
+}
+
+/** Owner lookup has its own fixed anonymous operation; no dummy repository or Git authority. */
+export function githubReferenceOwner(input: unknown): GitHubReferenceOwner {
+  if (typeof input !== "string") throw new Error("Use one canonical GitHub owner");
+  const location = parseTrustGithub(input.replace(/^https:\/\/github\.com\//iu, "https://github.com/"));
+  if (location.repository) throw new Error("An owner lookup cannot name a repository");
+  return { owner: location.owner, canonical: `https://github.com/${location.owner}`, metadataUrl: `https://api.github.com/users/${location.owner}` };
 }
 
 /** Reject ambiguous syntax before a URL parser can erase traversal or separators. */
@@ -32,6 +46,19 @@ function providerId(value: unknown): string {
   }
   if (typeof value !== "string" || !/^[1-9][0-9]{0,19}$/u.test(value)) throw new Error("GitHub metadata has an unsupported stable identity");
   return value;
+}
+
+/** Identity data only. An owner observation does not establish an approved trust boundary. */
+export function parseGitHubOwnerMetadata(owner: unknown, input: unknown): GitHubReferenceOwner & { ownerId: string } {
+  const requested = githubReferenceOwner(owner);
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("GitHub owner metadata is unavailable");
+  const value = input as Record<string, unknown>;
+  if (typeof value.login !== "string" || value.login.toLowerCase() !== requested.owner
+    || typeof value.url !== "string" || value.url.toLowerCase() !== requested.metadataUrl
+    || typeof value.html_url !== "string" || value.html_url.toLowerCase() !== requested.canonical
+    || (value.type !== "User" && value.type !== "Organization"))
+    throw new Error("GitHub metadata does not bind the requested owner");
+  return { ...requested, ownerId: providerId(value.id) };
 }
 
 /** Validate only the fields the fixed host request consumes; no worker claims become verification flags. */

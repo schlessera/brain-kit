@@ -86,11 +86,11 @@ the previous root, so a refresh fetches only new objects. Then
 2. The **network transport** fetches one ref into it. It is the only worker
    that may hold a credential: the granted host variable, delivered through a
    fixed credential helper, with one allowed protocol and no redirects
-   (`fetch({ repository, ref, token, root, signal })`, `packages/ui-server/src/brain/reference-transport.ts:145-163`).
+   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:169-190`).
 3. A separate **checkout worker** has no credential and no network. It checks
    out the commit and evaluates the repository's attributes. No filter or
    hook is configured, so none runs
-   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:164-174`).
+   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:191-200`).
 4. The live grant is read again, the root is sealed, the grant is read
    again, and only then is the root published.
 
@@ -104,6 +104,46 @@ Neither worker mounts the brain; both use the transport envelope's empty root.
 A failure or cancellation releases the staging root through the pool, and only
 after the worker has exited. The pool keeps its reservation charged until
 reclamation is observed.
+
+## Fixed GitHub wire and identity authority (#3613)
+
+The concrete access owner (`createGitHubReferenceAccess`,
+`packages/ui-server/src/brain/github-reference-access.ts:12-129`) uses the
+fixed transport (`createGitHubReferenceWire`,
+`packages/ui-server/src/brain/github-reference-wire.ts:19-254`).
+
+The host-only GitHub access service binds one canonical repository and short
+branch/tag to a bounded acquisition. Anonymous metadata precedes a private
+attempt. Only an existing live grant for the actual brain/principal, with
+explicit permission for `https://api.github.com`, permits a credentialed
+metadata retry. Every use retains the selected grant identity and credential
+selector: replacement, revocation, a changed covering grant, changed credential
+or lost API permission refuses the operation. Public acquisition stays
+anonymous even when the host holds a credential and the principal has a grant.
+Owner identity uses its own anonymous `/users/<owner>` operation, without a
+Git channel or credentialed mode. Parsed identity data carries no trust or
+approved-owner-boundary claim.
+
+The fixed wire shares one operation allowance across metadata, Git discovery,
+authentication and fetch, and charges the real turn counter. It counts TLS
+framing and both directions. Before forwarding each chunk it rechecks live
+authority, final egress admission and the remaining allowance. An inbound chunk
+can already have crossed the socket when it exceeds that allowance: it is
+refused, the residual turn allowance is consumed, every channel closes and
+separate observed socket counts retain the overrun. This does not promise
+zero physical-network overshoot. Metadata bodies have a separate 65536-byte
+ceiling and never redirect. All DNS answers must be public; connection uses a
+checked address with system TLS verification of the fixed host.
+
+Separate random capabilities bind Git/API and anonymous/credentialed channels.
+Only the host's fixed Git argv receives a Git proxy capability; callers of the
+access service receive neither that capability nor the credential. An invalid
+revision is refused before metadata dispatch, fetch needs that acquisition's
+resolved full ref, and commit movement refuses before checkout. Failed final
+identity revalidation ends the acquisition. Cancellation, turn stop and a
+finite deadline close its sockets; a late successful command cannot outlive
+the wire. This wire establishes neither sealed-root provenance nor qualified
+immutable-read evidence and enables no repository trust rule by itself.
 
 ## Admission
 

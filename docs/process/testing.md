@@ -89,6 +89,12 @@ as true for local fixtures. Loopback alone reports false and correctly pauses
 share upload before the ownership assertions (#2401). Keep browser egress
 guards and the test preload enabled.
 
+An inherited `/sys/class/net` mount may still list the parent's interfaces
+after entering a fresh network namespace. Audit the current namespace through
+`ip -j link show` and its IPv4/IPv6 route queries; do not infer its interfaces
+from that inherited sysfs view. The managed Git wire fixture requires only
+loopback, empty main routes and all setup capabilities dropped before Git runs.
+
 Setup needs `unshare --keep-caps`, but retaining those capabilities for tests
 makes bubblewrap refuse with `Unexpected capabilities but not setuid`.
 The launcher drops inherited, ambient and bounding capabilities through

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { githubReferenceRepository, parseGitHubReferenceMetadata, sameGitHubReferenceIdentity } from "../src/brain/github-reference-identity";
+import { githubReferenceOwner, githubReferenceRepository, parseGitHubOwnerMetadata, parseGitHubReferenceMetadata, sameGitHubReferenceIdentity } from "../src/brain/github-reference-identity";
 
 function metadata(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { id: 101, owner: { id: 201, login: "Odysseus" }, name: "Ithaca", full_name: "Odysseus/Ithaca",
@@ -56,4 +56,17 @@ test("transfer, namespace reassignment, name reuse and privacy changes cannot be
   const renamed = parseGitHubReferenceMetadata("odysseus/argo", metadata({ name: "argo", full_name: "Odysseus/Argo",
     clone_url: "https://github.com/Odysseus/Argo.git", url: "https://api.github.com/repos/Odysseus/Argo" }));
   expect(sameGitHubReferenceIdentity(original, renamed), "a rename needs fresh validation, not an in-flight substitution").toBe(false);
+});
+
+test("owner identity uses its own anonymous endpoint and validates the independent namespace ID", () => {
+  const expected = { owner: "odysseus", canonical: "https://github.com/odysseus", metadataUrl: "https://api.github.com/users/odysseus" };
+  expect(githubReferenceOwner("HTTPS://GITHUB.COM/Odysseus")).toEqual(expected);
+  const data = { id: 201, login: "Odysseus", type: "User", url: "https://api.github.com/users/Odysseus", html_url: "https://github.com/Odysseus" };
+  for (const type of ["User", "Organization"])
+    expect(parseGitHubOwnerMetadata("odysseus", { ...data, type })).toEqual({ ...expected, ownerId: "201" });
+  for (const change of [{ id: null }, { id: 0 }, { id: Number.MAX_SAFE_INTEGER + 1 }, { login: "Penelope" },
+    { url: "https://api.github.com/orgs/odysseus" }, { html_url: "https://github.com/odysseus/ithaca" }, { type: "Bot" }])
+    expect(() => parseGitHubOwnerMetadata("odysseus", { ...data, ...change }), "GITHUB_OWNER_FIXED_IDENTITY_BOUNDARY").toThrow();
+  for (const input of ["odysseus/ithaca", "odysseus/", "https://github.com/odysseus/ithaca", "http://github.com/odysseus", "https://token@github.com/odysseus"])
+    expect(() => githubReferenceOwner(input), "GITHUB_OWNER_NO_DUMMY_REPOSITORY").toThrow();
 });

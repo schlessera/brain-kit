@@ -60,6 +60,17 @@ A backend that never calls it, and every call it reports nothing for, keeps
 the observation after each result. This is first-party implementation sharing
 under the internal-entry classification below and requires a patch changeset.
 
+## Managed GitHub acquisition wire (internal #3613)
+
+The internal turn proxy has a first-party `managedReference(target,
+signal)` operation for fixed GitHub HTTPS acquisition and a `remainingBytes()`
+counter. It retains ordinary G6 recipient narrowing, final admission fences
+and byte accounting; it cannot grant a contacted-host allowance. No worker
+header selects it. The internal entry also exports the existing
+`egressAddressRefusal` validator so the fixed acquisition wire validates every
+DNS address before connecting to a checked IP. These are implementation
+sharing, with no supported public transport extension seam (#3613).
+
 ## Prepared ordinary inference transport (internal #1665)
 
 The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
