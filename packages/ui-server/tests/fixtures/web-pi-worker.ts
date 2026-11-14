@@ -47,6 +47,10 @@ async function run(mode: string, detail: string) {
     if (found?.responseId) await call(1, "get_search_content", { responseId: found.responseId, queryIndex: 0 });
     await call(2, "fetch_content", { url: detail });
     await call(3, "source_check", { claim: "The raft reaches Ithaca at dawn" });
+  } else if (mode === "host-explicit") {
+    // A provider named outright (#3687), then a page.
+    await call(0, "web_search", { query: "Odysseus mast", provider: "exa" });
+    await call(1, "fetch_content", { url: detail });
   } else if (mode === "host-slow") await call(0, "web_search", { query: "slow Odysseus mast" });
   else if (mode === "forged") await call(0, "web_search", { query: "Odysseus mast" }, true);
   else if (mode === "unsupported") {

@@ -74,7 +74,7 @@ export async function makeBridge(host: WsHost, turn: RunningTurn, options: MakeB
   if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(ctx.turnId, ctx.principalId, call, ctx.signal);
   applyExternalServices(ctx, bridge, transcript, options.governance);
   Object.assign(bridge, createAttachmentRead(ctx, transcript));
-  Object.assign(bridge, createWebAccess(ctx, transcript, options.governance));
+  Object.assign(bridge, createWebAccess(ctx, transcript, options.governance, options.providerMasks));
   guardMaskedRecords(ctx, bridge);
   if (ctx.backendId === "claude" || ctx.backendId === "pi") applyLiveAuthority(ctx, bridge);
   if (host.activity?.governanceDb) {

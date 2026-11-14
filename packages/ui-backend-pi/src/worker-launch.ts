@@ -21,7 +21,7 @@ import { workerOutwardNote, workerCommandPolicyNote, createLimitTracker, launchA
   type LaunchedWorker, type WorkerStateHandle, type WorkerNoteFacts, type sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
-import { preparePiHostInference, type PiHostInference } from "./host-inference.js";
+import { piWebModelAccess, preparePiHostInference, type PiHostInference } from "./host-inference.js";
 import type { CreatePiBackendOptions, SessionEnv } from "./backend-options.js";
 import { configuredProfiles } from "./profiles.js";
 import type { TurnContext } from "./turn-context.js";
@@ -64,6 +64,8 @@ export interface PiWorkerAdmission {
   envelope: ReturnType<typeof piAutonomousEnvelope> | undefined;
   egress: WorkerSandbox["egress"] | undefined;
   hostInference: PiHostInference | undefined;
+  /** The relayed turn's model, lent to the host web executor (#3688); never the worker's to name. */
+  webModel: import("@schlessera/brain-ui-sdk/tool-contracts").WebModelAccess | undefined;
   cachedNpmModules: string | undefined;
   /** The worker's initialization message, without its sandbox note. */
   init: Record<string, unknown>;
@@ -136,7 +138,10 @@ export async function admitPiWorker(request: PiWorkerAdmissionRequest): Promise<
     // budget refuses as worker_state_busy before anything launches.
     reservation = processStateLedger().reserve(undefined, turnTempLimits);
   } catch (error) { envelope?.relay.stop(); hostInference?.stop(); throw error; }
-  return { agentDir, agentFiles, envelope, egress, hostInference, cachedNpmModules, init, reservation, admissionObservation, identity,
+  // The same model, credential store and admitted recipient the turn's own relay uses.
+  const webModel = hostInference && relayedModel ? piWebModelAccess({ provider: relayedModel.provider, modelId: relayedModel.id, agentDir,
+    brainPath: backend.brainPath, ...(recipient ? { recipientOrigin: recipient.origin } : {}), environment: subprocessEnv() }) : undefined;
+  return { agentDir, agentFiles, envelope, egress, hostInference, webModel, cachedNpmModules, init, reservation, admissionObservation, identity,
     hostEnv: { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution } };
 }
 

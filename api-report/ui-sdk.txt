@@ -1198,6 +1198,9 @@ export "./client" (./src/client/index.ts)
   WEB_TOOL_NAMES
   WEB_TOOL_NAME_LIST
   WEB_TOOL_PROVIDERS
+  type WebModelAccess
+  type WebModelEgress
+  type WebModelGrant
   type WebSearchInput
   type WebSocketClose
   type WebToolCall
@@ -1264,6 +1267,7 @@ export "./internal" (./src/internal.ts)
   type CleanupReconcilerOptions
   type CompiledWorkerCommandPolicy
   DEFAULT_TURN_TEMP_BYTES
+  EgressAdmissionRefused
   type EgressDestinationPolicy
   type EgressRecord
   type EgressRefusal
@@ -3013,6 +3017,9 @@ export "./server" (./src/server/index.ts)
   WEB_TOOL_NAMES
   WEB_TOOL_NAME_LIST
   WEB_TOOL_PROVIDERS
+  type WebModelAccess
+  type WebModelEgress
+  type WebModelGrant
   type WebSearchBrief
   type WebSearchInput
   type WebToolCall
@@ -3348,6 +3355,9 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   WEB_TOOL_NAMES
   WEB_TOOL_NAME_LIST
   WEB_TOOL_PROVIDERS
+  type WebModelAccess
+  type WebModelEgress
+  type WebModelGrant
   type WebSearchInput
   type WebToolCall
   type WebToolEnvelope
@@ -12989,7 +12999,7 @@ signatures (every public export and the types it is made of)
   WEB_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/web.ts)
     const WEB_TOOL_CONTRACTS: readonly ToolContract<WebToolName>[];
   WEB_TOOL_ERROR_CODES (packages/ui-sdk/src/tool-contracts/web.ts)
-    const WEB_TOOL_ERROR_CODES: readonly ["invalid_input", "unsupported", "provider_not_admitted", "unavailable", "unknown_handle", "replayed_call", "busy", "request_too_large", "response_too_large", "cancelled", "deadline", "executor_died", "failed"];
+    const WEB_TOOL_ERROR_CODES: readonly ["invalid_input", "unsupported", "provider_not_admitted", "unavailable", "unknown_handle", "replayed_call", "busy", "request_too_large", "response_too_large", "cancelled", "deadline", "executor_died", "failed", "policy_denied", "budget_exceeded"];
   WEB_TOOL_LIMITS (packages/ui-sdk/src/tool-contracts/web.ts)
     const WEB_TOOL_LIMITS: Readonly<{
         domainChars: 253;
@@ -13015,6 +13025,28 @@ signatures (every public export and the types it is made of)
     const WEB_TOOL_NAME_LIST: readonly WebToolName[];
   WEB_TOOL_PROVIDERS (packages/ui-sdk/src/tool-contracts/web.ts)
     const WEB_TOOL_PROVIDERS: readonly ["exa", "duckduckgo", "brave", "jina", "perplexity", "tavily", "openai", "gemini", "firecrawl", "kagi"];
+  WebModelAccess (packages/ui-sdk/src/tool-contracts/web.ts)
+    export interface WebModelAccess {
+        provider: string;
+        model: string;
+        open(egress: WebModelEgress, signal?: AbortSignal): Promise<{
+            grant: WebModelGrant;
+            stop(): void;
+        }>;
+    }
+  WebModelEgress (packages/ui-sdk/src/tool-contracts/web.ts)
+    export interface WebModelEgress {
+        dir: string;
+        inference(method: string, target: URL, signal: AbortSignal): unknown;
+    }
+  WebModelGrant (packages/ui-sdk/src/tool-contracts/web.ts)
+    export interface WebModelGrant {
+        provider: string;
+        model: string;
+        credential: "api_key" | "oauth";
+        basePath: string;
+        socket: string;
+    }
   WebSearchBrief (packages/ui-sdk/src/server/web-search.ts)
     export interface WebSearchBrief {
         toolName: string;
@@ -13038,6 +13070,7 @@ signatures (every public export and the types it is made of)
         tool: WebToolName;
         input: Record<string, unknown>;
         toolCallId: string;
+        model?: WebModelAccess;
     }
   WebToolEnvelope (packages/ui-sdk/src/tool-contracts/web.ts)
     export type WebToolEnvelope = {
@@ -14667,7 +14700,7 @@ signatures (every public export and the types it is made of)
   handleTurnTemp (packages/ui-sdk/src/server/bridge-tools/turn-temp.ts)
     export function handleTurnTemp(input: TurnTempInput, access: TurnTempAccess | undefined, record?: (event: TurnTempPurgeRecord) => void): object;
   handleWebTool (packages/ui-sdk/src/server/bridge-tools/web.ts)
-    export function handleWebTool(name: WebToolName, input: unknown, bridge: Pick<BackendBridge, "webAccess">, toolCallId: string): Promise<{
+    export function handleWebTool(name: WebToolName, input: unknown, bridge: Pick<BackendBridge, "webAccess">, toolCallId: string, model?: WebModelAccess): Promise<{
         text: string;
         isError: boolean;
     }>;

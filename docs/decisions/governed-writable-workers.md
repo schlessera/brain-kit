@@ -4762,6 +4762,103 @@ choice from the host's configuration and its pinned code. The executor's
 copy of the configuration sets `ssrf.trustEnvProxy`, so the extension leaves
 name resolution to the route.
 
+#### Per-call admission of the executor's recipients — built in #3687
+
+Item 4 of the bridge design reuses the admission a turn already has. Each
+forwarded call carries its turn's authority (`createWebAccess`,
+`packages/ui-server/src/ws/bridge-capabilities/web.ts`), built from the
+turn's frozen policy, the conversation's recorded exposures and the turn
+budgets, never from anything the worker or the executor says:
+
+- **Recipients.** A web provider is a recipient in the provider policy's
+  sense, as Apify is. Curated provider ids and the pinned extension's API
+  hosts name one (`webHostRecipient`, `packages/ui-server/src/web-tools/recipients.ts`).
+  Vendors that also serve inference keep their inference names, so Gemini is
+  `google` and OpenAI is `openai`. A host-configured `exaBaseUrl` or
+  `firecrawlBaseUrl` names its provider too.
+- **Where it applies.** A provider the call names is admitted before anything
+  is dispatched. Every connection the executor opens is attributed to the call
+  in flight, and one to a provider host is admitted again for that turn
+  (`admitConnection`, `packages/ui-server/src/web-tools/host.ts`). That covers
+  the automatic chain, extraction fallbacks such as Jina's reader, and nested
+  model calls such as Gemini's URL context, which no call field names. A
+  connection with no call in flight, or one that could belong to two turns,
+  is refused. The executor opens one connection per request, so a reused TLS
+  tunnel cannot carry a request the host did not admit.
+- **Data routing (G2).** The rules are Apify consent's: nothing leaves for a
+  recipient from a conversation that has shown it a provider folder the policy
+  keeps from it, and an exposure the host cannot judge refuses
+  (`webRoutingRefusal`, `packages/ui-server/src/web-tools/routing.ts`). This
+  extends ruling 3 of #2695, under which G2 governed only the inference
+  recipient: a web provider receives text the model wrote, which can quote
+  any folder the model was shown.
+- **Budget.** A blocked scope refuses the request. Each admitted provider
+  request is recorded as a dispatched relayed attempt with no usage
+  (`observeWebProvider`, `packages/ui-server/src/brain/turn-budgets.ts`), so
+  the receipt counts it in `unknownRuns` for the turn, conversation and day,
+  and never as zero. No web provider reports a price, so none is ever settled.
+- **Taint and attribution.** These were already in place since #3685: each
+  call taints the session before it runs and its result is recorded before
+  the model receives it, through the turn's input-safety collector, and the
+  owner sees both in the chat's safety history. Call receipts carry the
+  principal, session, turn and tool-call id.
+- **Outward actions.** The executor performs none. Its configuration turns off
+  every workflow, command and model mode that would act. A provider request
+  sends a query or a URL, and a page fetch reads.
+
+What stays unmetered, stated rather than hidden: pages the call fetches are
+egress-policy territory (G5), checked by the route for address, port and
+bytes but not for routing; a provider configured by hand outside the curated
+catalog is reached as a page, so its routing is not checked and its spend is
+not counted; and the receipt's `coverage` text keeps saying that other
+provider and tool spend is not metered.
+
+#### Subscription and current-model search on host-owned Pi auth — built in #3688
+
+The #1863 ruling of 2026-10-15 requires OpenAI search on a Pi ChatGPT/Codex
+login and on the current model; an API-key-only or standalone-MCP substitute
+does not meet it. Both upstream paths read the extension context's model
+registry and current model, so the executor's session supplies them, and the
+credential stays where the turn's own inference keeps it: on the host relay
+(#1665).
+
+- **Which model.** Only a turn whose inference runs on the host relay lends a
+  model, and it lends the one it was admitted for: its declared or saved
+  profile's provider and model, its credential store and its admitted
+  recipient origin (`piWebModelAccess`,
+  `packages/ui-backend-pi/src/host-inference.ts`). The backend sets it on the
+  host side of the bridge (`createPiBridgeTools`,
+  `packages/ui-backend-pi/src/bridge-tools.ts`); the tool input schema refuses
+  a `model` key, so the worker cannot name one.
+- **The credential.** For each call the executor host starts that model's
+  relay into the executor session's own egress directory and stops it when the
+  turn's calls are done (`modelLender`, `packages/ui-server/src/web-tools/host.ts`).
+  It is the turn relay's own code path, so refresh and writeback, the command
+  refusal, the authorized origins and the admitted-recipient check are
+  unchanged. The executor is told the credential's kind and the relay's
+  socket (`WebModelGrant`), never the credential. One session lends one turn's
+  model at a time.
+- **Inside the executor.** While a call holds the grant, the session's model
+  runtime knows exactly that model from Pi's built-in catalog, with a
+  placeholder credential of its kind, and the session's current model is that
+  model; between calls it knows none. It runs no model itself and cannot log
+  in, out or register providers (`createWebModelScope`,
+  `packages/ui-backend-pi/src/web-model-scope.ts`). A request to the model's
+  official endpoint goes to the relay, and one that names any other model,
+  such as an `openaiSearchModel` override, is refused before it is sent. A
+  model outside Pi's built-in catalog is refused.
+- **Admission.** The relay's requests pass the executor route's per-call
+  admission, so `chatgpt.com` and `api.openai.com` are the `openai` recipient
+  for data routing and budget, counted once per request although the relay
+  admits again just before dispatch.
+
+What is not claimed: no live ChatGPT/Codex login or OpenAI current-model
+search was exercised. The offline proof is a fictional stored login and a
+loopback provider. Claiming support for real subscriptions needs a separately
+authorized live-login qualification of both paths. Kimi's login stays outside
+the curated catalog, and Pi's other subscription logins are not relayed for
+web search.
+
 #### Approved host OAuth refresh placement (2026-10-16)
 
 The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to

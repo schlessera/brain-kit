@@ -371,10 +371,11 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   // The web tools (#3685) run in the host's executor: the host binds the
   // turn, holds provider configuration and credentials, and issues the
   // result handles. An unsupported feature or a refusal is a tool error.
+  // A relayed turn lends the executor its admitted model (#3688).
   if (capabilities?.web) for (const contract of WEB_TOOL_CONTRACTS) tools.push({
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
     async execute(id: string, input: unknown) {
-      const result = await handleWebTool(contract.name, input, turn.bridge ?? {}, id);
+      const result = await handleWebTool(contract.name, input, turn.bridge ?? {}, id, turn.webModel);
       if (result.isError) throw new Error(result.text);
       return textResult(result.text);
     },

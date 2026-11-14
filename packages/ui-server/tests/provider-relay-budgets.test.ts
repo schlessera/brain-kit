@@ -160,3 +160,19 @@ test("an attempt that settles after midnight counts toward the day it settled in
     expect((await f.budgets.providerAdmission(null, policy()))?.scope, "SETTLED_ATTEMPT_ON_ITS_SETTLEMENT_DAY").toBe("day");
   } finally { f.close(); }
 });
+
+test("an admitted web provider request is unknown spend in every scope, never zero and never priced (#3687)", async () => {
+  const f = fixture();
+  try {
+    await f.budgets.begin("athena", "ithaca", policy());
+    const before = f.budgets.receipt("athena").scopes.map(scope => scope.unknownRuns);
+    const result = (await f.budgets.observeWebProvider("athena", { attemptId: "web:call-1:a", host: "api.exa.ai" }))!;
+    expect(result.receipt.scopes.map(scope => scope.unknownRuns), "WEB_PROVIDER_UNKNOWN_SPEND").toEqual(before.map(count => count + 1));
+    expect(result.receipt.scopes.map(scope => scope.costUsd), "WEB_PROVIDER_NOT_ZERO").toEqual([null, null, null]);
+    // The same attempt recorded twice still counts once.
+    expect(await f.budgets.observeWebProvider("athena", { attemptId: "web:call-1:a", host: "api.exa.ai" })).toBeUndefined();
+    expect(f.budgets.receipt("athena").scopes[0]!.unknownRuns).toBe(before[0]! + 1);
+    // Unknown spend never blocks by itself: the next request is admitted.
+    expect(await f.budgets.providerAdmission("athena", policy())).toBeUndefined();
+  } finally { f.close(); }
+});
