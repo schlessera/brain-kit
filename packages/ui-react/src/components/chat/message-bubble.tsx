@@ -467,6 +467,7 @@ function AssistantContent({
               <ToolCallTimelineCell
                 key={`tool:${tool.id}`}
                 toolCalls={group.toolCalls}
+                turnId={message.turnId ?? message.streamTurnId}
                 toolIndex={toolIndex}
                 onApproval={onToolApproval}
                 live={!!message.isStreaming}

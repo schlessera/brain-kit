@@ -91,7 +91,7 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         principalKey: answerQueueKey(principal.id),
         ...(host.safetyHistory ? {safetyCapabilities: host.ownerSafetyReviews?.capabilities(principal) ?? SAFETY_READ_CAPABILITIES} : {}),
         capabilities: {
-          ...(host.safetyHistory ? {sessionSafetyHistory:true} : {}),
+          ...(host.safetyHistory ? {sessionSafetyHistory:true,sessionSafetyEntryCorrelation:true} : {}),
           multiSession: true,
           askUser: true,
           askUserList: true,

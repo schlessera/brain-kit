@@ -3,6 +3,8 @@ import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contr
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
+import { safetyReviewResponseSchema } from "@schlessera/brain-ui-sdk/schemas";
+import type { SafetyReviewBody } from "@schlessera/brain-ui-sdk/protocol";
 import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygienePreviewResponse, HygieneWorktreeDetailsRead, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
@@ -353,7 +355,17 @@ export function createBrainApi(
     return (await fetchResponse(path, init)).json();
   }
 
+  async function safetyReview(body:SafetyReviewBody,requestId:string|null,signal:AbortSignal) {
+    const path=`/sessions/${encodeURIComponent(body.session.sessionId)}/safety/reviews/${requestId===null?"prepare":`${encodeURIComponent(requestId)}/commit`}`;
+    const res=await request(`${getBase()}${path}`,{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal});
+    const value=await res.json(),parsed=safetyReviewResponseSchema.safeParse(value);
+    if(!parsed.success)throw new ApiRequestError(typeof value?.reason==="string"?value.reason:"Safety review unavailable",res.status);
+    return parsed.data;
+  }
+
   return {
+    safetyPrepare: (body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,null,signal),
+    safetyCommit: (requestId:string,body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,requestId,signal),
     turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnJournalDetails>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal`, { signal }),
     turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => fetchJson<{ inline: boolean; before?: string; after?: string; reason?: string; beforeBytes?: number; afterBytes?: number }>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${sequence}/preview`, { signal }),
     agentPolicy: (signal?: AbortSignal) => fetchJson<AgentPolicyRead>("/agent-policy", { cache: "no-store", ...(signal ? { signal } : {}) }),

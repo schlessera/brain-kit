@@ -16,6 +16,7 @@ import { useWebSocket } from "../../hooks/use-websocket.js";
 import { useTrackerSeen } from "../../hooks/use-tracker-seen.js";
 import { MaskEditor } from "../images/mask-editor.js";
 import { MessageBubble } from "./message-bubble.js";
+import { SessionSafety } from "./safety-indicator.js";
 import { useWorkRestore } from "../../hooks/use-local-work.js";
 import { messageFingerprint } from "../../lib/local-work.js";
 
@@ -738,6 +739,7 @@ export function ChatPage() {
                   className="mx-auto max-w-3xl divide-y divide-border/20"
                 >
                   {dialogueNotice && <p role="status" className="py-3 text-sm">{dialogueNotice}</p>}
+                  <SessionSafety />
                   {dialoguePage?.coverage === "legacy" && <p className="py-3 text-sm">Earlier spoken dialogue was not saved.</p>}
                   {dialoguePage?.before !== undefined && <Button label="Load earlier conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`,true)} />}
                   {dialoguePage && (dialoguePage.records.length > 0 || dialoguePage.through > 0) && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}

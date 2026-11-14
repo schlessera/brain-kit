@@ -3132,6 +3132,18 @@ After declaring the same capability in `client_hello`, clients may send:
   is `{sessionId}` or the exact provisional `{turnId,bindingId}`. Reads cannot
   discover/create a session by guessing aliases. The host replies
   `safety_history: {type,requestId,page:SafetyPage}`.
+  Additively for #3605, hosts advertise the independent boolean
+  `server_hello.capabilities.sessionSafetyEntryCorrelation`. Only after this
+  declaration may a client add `includeEntries:true`. Opted-in occurrence
+  records may contain `entry:{kind:"tool",toolUseId}`; the tool ID uses the
+  existing bounded ID grammar. Both the occurrence's host `turnId` and this
+  explicit tool identity must match a displayed entry. A host operation UUID,
+  names, arguments, timing and adjacency do not establish that join. Absent
+  correlation uses a separately named turn event. The snapshot pins this
+  choice for all pages and its subscription; changing it through a cursor
+  refuses. Default reads and subscriptions retain the original strict record
+  shape, and `safetyCapabilities` itself is unchanged for older clients.
+  Minimal correlation survives detail pruning and is deleted with its evidence.
 - `safety_subscribe`: `{type,version:1,requestId,identity,afterRevision,snapshotId}`.
   One selected history subscription per connection replaces its predecessor.
   `identity` is the canonical `{sessionId,historyOwnerId,historyGeneration}`

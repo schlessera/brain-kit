@@ -1009,6 +1009,9 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 1280])
   await expect.poll(() => s.host.querySelectorAll("[data-arrival-key]").length).toBe(40);
   const scroll = s.host.querySelector<HTMLElement>("[data-arrival-key]")!.parentElement!.parentElement!;
   scroll.scrollTop = 0; scroll.dispatchEvent(new Event("scroll"));
+  // Establish the reveal button's browser interaction position before measuring
+  // prepend recovery; the safety notice can move it within the clipped viewport.
+  page.getByRole("button", { name: /Show .*earlier/ }).element().scrollIntoView({ block: "center", behavior: "instant" });
   const anchor = s.host.querySelector<HTMLElement>("[data-arrival-key]")!;
   const top = anchor.getBoundingClientRect().top;
   await userEvent.click(page.getByRole("button", { name: /Show .*earlier/ }));

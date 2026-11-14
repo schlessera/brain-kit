@@ -1086,6 +1086,10 @@ signatures (every public export and the types it is made of)
                         tool_web_input: "tool_web_input";
                         unproxied_shell_input: "unproxied_shell_input";
                     }>;
+                    entry: z.ZodOptional<z.ZodObject<{
+                        kind: z.ZodLiteral<"tool">;
+                        toolUseId: z.ZodString;
+                    }, z.core.$strict>>;
                     epochId: z.ZodString;
                     exposure: z.ZodEnum<{
                         finalized: "finalized";

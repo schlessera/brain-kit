@@ -9,7 +9,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     if(disposed||!store.getState().supported)return;
     target=next;requestId=crypto.randomUUID();awaitingPage=true;store.getState().begin(requestId);
     send({type:"safety_unsubscribe",version:1});
-    send({type:"safety_read",version:1,requestId,target});
+    send({type:"safety_read",version:1,requestId,target,...(store.getState().entryCorrelation?{includeEntries:true as const}:{})});
   }
   function selected(): void {
     const id = root.stores.chat.getState().activeSessionId;
@@ -23,18 +23,19 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
     }
   }
   const detach=root.stores.chat.subscribe((state,previous)=>{if(state.activeSessionId!==previous.activeSessionId)selected();});
+  const detachRefresh=store.subscribe((state,previous)=>{if(state.refreshTick!==previous.refreshTick)selected();});
   return {
     frame(msg:ServerMessage):boolean{
       if(disposed)return false;
       if(msg.type==="server_hello"){
-        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true);selected();return false;
+        requestId=null;store.getState().reset(msg.capabilities?.sessionSafetyHistory===true&&msg.safetyCapabilities?.read===true,msg.safetyCapabilities??null,msg.capabilities?.sessionSafetyEntryCorrelation===true,msg.principalKey?`host:${msg.principalKey}`:`unbound:${crypto.randomUUID()}`);selected();return false;
       }
       if(msg.type==="chat_retired"){store.getState().retire(msg.sessionId,msg.historyOwnerIds);if(target&&"sessionId" in target&&target.sessionId===msg.sessionId){requestId=null;target=null;store.getState().unavailable("retired");}return false;}
       if(msg.type==="safety_history"){
         if(msg.requestId!==requestId||!target||!awaitingPage)return true;
         if(msg.page.cursor!==store.getState().nextCursor)return true;
         if(!store.getState().page(msg.requestId,msg.page)){read(target);return true;}
-        if(msg.page.nextCursor)send({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor});
+        if(msg.page.nextCursor)send({type:"safety_read",version:1,requestId:msg.requestId,target,cursor:msg.page.nextCursor,...(store.getState().entryCorrelation?{includeEntries:true as const}:{})});
         else{awaitingPage=false;send({type:"safety_subscribe",version:1,requestId:msg.requestId,identity:msg.page.identity,afterRevision:msg.page.highWater,snapshotId:msg.page.snapshotId});}return true;
       }
       if(msg.type==="safety_update"){
@@ -53,7 +54,7 @@ export function createSafetyClient(root:BrainUiServices,send:(message:ClientMess
       return false;
     },
     refresh():void{selected();},
-    disconnected():void{requestId=null;store.getState().reset();},
-    dispose():void{disposed=true;requestId=null;detach();store.getState().reset();},
+    disconnected():void{requestId=null;awaitingPage=true;store.getState().disconnected();},
+    dispose():void{disposed=true;requestId=null;detach();detachRefresh();store.getState().reset();},
   };
 }

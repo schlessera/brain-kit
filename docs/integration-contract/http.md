@@ -1169,6 +1169,11 @@ detector completeness are separate; neither omitted details nor a review receipt
 replace the aggregate. Route absence and refused reads are explicitly
 unavailable. Existing history visibility and mutation authority remain intact.
 
+Additively for #3605, `entries=1` requests explicit bounded tool-entry
+correlation on this read. No other value or duplicate parameter is accepted.
+The cursor and subsequent subscription retain that choice. Omitting it keeps
+the original strict version-1 record shape. This metadata grants no authority
+and never infers attribution for opaque transport.
 
 ### Selectable dictation providers (additive, #3707)
 

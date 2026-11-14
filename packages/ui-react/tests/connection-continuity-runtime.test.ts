@@ -619,7 +619,7 @@ async function mark(page: Page) {
     const field = document.querySelector("textarea[data-composer]")!;
     const column = document.querySelector("[data-reading-column]")!;
     const top = column.parentElement!.getBoundingClientRect().top;
-    const nodes = [...column.children];
+    const nodes = [...column.querySelectorAll(":scope > [data-arrival-key]")];
     const first = nodes.find((n) => n.getBoundingClientRect().bottom > top + 1)!;
     const images = [...column.querySelectorAll("img")];
     const pills = [...document.querySelectorAll('[data-row-half="right"] [data-pill]')];
@@ -817,7 +817,7 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
     expect(await s.page.evaluate(() => {
       const marks = (window as unknown as { __marks: { nodes: Element[] } }).__marks;
       const column = document.querySelector("[data-reading-column]")!;
-      return marks.nodes.at(-1)?.isConnected && column.children[1] === marks.nodes.at(-1);
+      return marks.nodes.at(-1)?.isConnected && column.querySelectorAll(":scope > [data-arrival-key]")[1] === marks.nodes.at(-1);
     }), "recovered text and the terminal replay kept the original answer node").toBe(true);
     expect(await s.page.locator('[data-row-half="right"] [data-pill]').count(), "the queued follow-up was taken").toBe(0);
   } catch (error) {

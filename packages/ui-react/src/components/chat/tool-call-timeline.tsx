@@ -1,4 +1,5 @@
 import { PolicyChangeCard } from "./policy-change-card.js";
+import { ToolSafetyIndicator } from "./safety-indicator.js";
 import { useBrainUiRoot } from "../../root-context.js";
 import { TextButton } from "@schlessera/brain-ui-kit";
 import { useState, useEffect, useRef, type CSSProperties } from "react";
@@ -44,11 +45,13 @@ export function ToolCallTimeline({
   toolCalls,
   onApproval,
   live = false,
+  turnId,
 }: {
   toolCalls: ToolCall[];
   onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
   /** Parent message still streaming — keep the timeline open while work runs. */
   live?: boolean;
+  turnId?: string;
 }) {
   // Resolution happens below during this render, before effects can run.
   const root = useBrainUiRoot();
@@ -73,11 +76,11 @@ export function ToolCallTimeline({
 
   if (effectiveCollapsed) {
     return (
-      <TimelineSummaryRow
+      <div className="flex min-w-0 items-center"><TimelineSummaryRow
         toolCalls={toolCalls}
         backendId={backendId}
         onExpand={() => setCollapsed(false)}
-      />
+      /><ToolSafetyIndicator turnId={turnId} toolIds={toolCalls.map(t=>t.id)}/></div>
     );
   }
 
@@ -93,6 +96,7 @@ export function ToolCallTimeline({
             toolCall={tool}
             backendId={backendId}
             onApproval={onApproval}
+            turnId={turnId}
           />
         ))}
       </div>
@@ -102,7 +106,7 @@ export function ToolCallTimeline({
 
 /** Flat message slots keep a card mounted when recovered text splits its run. */
 export function ToolCallTimelineCell({
-  toolCalls, toolIndex, onApproval, live, collapsed, onExpand, onCollapse,
+  toolCalls, toolIndex, onApproval, live, collapsed, onExpand, onCollapse, turnId,
 }: {
   toolCalls: ToolCall[];
   toolIndex: number;
@@ -111,6 +115,7 @@ export function ToolCallTimelineCell({
   collapsed: boolean;
   onExpand: () => void;
   onCollapse: () => void;
+  turnId?: string;
 }) {
   const root = useBrainUiRoot();
   registerBuiltinRenderers(root.renderers);
@@ -123,12 +128,12 @@ export function ToolCallTimelineCell({
       marginTop: first ? undefined : 0,
       marginBottom: toolIndex === toolCalls.length - 1 ? undefined : 0,
     }}>
-      {first && effectiveCollapsed && <TimelineSummaryRow toolCalls={toolCalls} backendId={backendId} onExpand={onExpand} />}
+      {first && effectiveCollapsed && <div className="flex min-w-0 items-center"><TimelineSummaryRow toolCalls={toolCalls} backendId={backendId} onExpand={onExpand} /><ToolSafetyIndicator turnId={turnId} toolIds={toolCalls.map(t=>t.id)}/></div>}
       {first && !effectiveCollapsed && !live && !hasPending && (
         <TextButton tone="meta" label="Hide steps" glyph={<ChevronDown />} onClick={onCollapse} style={{ marginBottom: 4 }} />
       )}
       <div hidden={effectiveCollapsed} className="relative ml-1 border-l-2 border-border/40 pl-4" style={{ paddingTop: first ? undefined : 6 }}>
-        <ToolCallEntry toolCall={toolCalls[toolIndex]!} backendId={backendId} onApproval={onApproval} />
+        <ToolCallEntry toolCall={toolCalls[toolIndex]!} backendId={backendId} onApproval={onApproval} turnId={turnId} />
       </div>
     </div>
   );
@@ -196,6 +201,7 @@ type EntryProps = {
   toolCall: ToolCall;
   backendId: string;
   onApproval: (toolUseId: string, approved: boolean, always?: boolean) => void;
+  turnId?: string;
 };
 
 function ToolCallEntry(props: EntryProps) {
@@ -238,6 +244,7 @@ function ToolCallEntryView({
   fallback,
   expanded,
   setExpanded,
+  turnId,
 }: EntryProps & { fallback: boolean; expanded: boolean; setExpanded: (expanded: boolean) => void }) {
   const root = useBrainUiRoot();
   // One clock for live and reloaded views: when the activity stream carries
@@ -277,9 +284,9 @@ function ToolCallEntryView({
   const Input = renderer.Input;
   const Output = renderer.Output;
 
-  if (toolCall.policyChange) return <PolicyChangeCard toolCall={toolCall} onApproval={onApproval} />;
+  if (toolCall.policyChange) return <div data-tool-call={toolCall.id}><ToolSafetyIndicator turnId={turnId} toolIds={[toolCall.id]}/><PolicyChangeCard toolCall={toolCall} onApproval={onApproval} /></div>;
   return (
-    <div className="relative">
+    <div className="relative" data-tool-call={toolCall.id}>
       {/* Timeline dot: a bare mark with no content, so it takes the MARK
           weight — a fill sits at 1.3-1.8:1 on paper at any diameter. */}
       <div
@@ -302,6 +309,7 @@ function ToolCallEntryView({
       />
 
       {/* Header row */}
+      <div className="flex min-w-0 items-center">
       <button
         // raw-button: row — tool header with icon, mono label and summary
         style={{ "--hv-bg": "var(--bk-hover-veil-strong)" } as CSSProperties}
@@ -349,6 +357,8 @@ function ToolCallEntryView({
           )}
         </span>
       </button>
+      <ToolSafetyIndicator turnId={turnId} toolIds={[toolCall.id]}/>
+      </div>
 
       {/* Why a restored card is read-only (D52 §4 R3), on its own line so the
           words wrap at a phone's width instead of leaving the header row. */}

@@ -311,7 +311,7 @@ function appendRecord(db:Database,c:Collection,id:string,kind:"occurrence"|"expo
    kind,occurrenceId,source,detector,state,payload}));
  if(bytes>SAFETY_LIMITS.occurrenceBytes)throw new SafetyCapacityExhausted("Safety occurrence byte limit exceeded","turn");
  const previous=one<RecordRow|null>(db,"SELECT * FROM safety_records WHERE id=?",id);
- if(previous){if(previous.collection_id!==c.id||(previous.detail_pruned ? previous.payload!==JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(json).digest("hex")}) : previous.payload!==json))throw new SafetyUnavailable("Conflicting safety occurrence identity");return;}
+ if(previous){if(previous.collection_id!==c.id||(previous.detail_pruned ? JSON.parse(previous.payload).sha256!==new Bun.CryptoHasher("sha256").update(json).digest("hex") : previous.payload!==json))throw new SafetyUnavailable("Conflicting safety occurrence identity");return;}
  const rows=kind==="occurrence"?(state==="finalized"?2:4):0,
    reserved=kind==="occurrence"?bytes+VERDICT_BYTES+(state==="finalized"?0:2*TERMINAL_BYTES):0;
  if(kind==="exposure"&&bytes>TERMINAL_BYTES)throw new SafetyCapacityExhausted("Safety terminal reserve exceeded","turn");
@@ -501,7 +501,10 @@ export function recoverSafetyCollections(db:Database):void {
 export function pruneSafetyDetail(db:Database,before:number):number {
  return db.transaction(()=>{
    const rows=db.query("SELECT id,payload FROM safety_records WHERE observed_at<? AND detail_pruned=0 LIMIT 1000").all(before) as {id:string;payload:string}[];
-   for(const row of rows)db.query("UPDATE safety_records SET payload=?,detail_pruned=1 WHERE id=?").run(JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(row.payload).digest("hex")}),row.id);
+   for(const row of rows){
+     const entry=JSON.parse(row.payload).occurrence?.entry;
+     db.query("UPDATE safety_records SET payload=?,detail_pruned=1 WHERE id=?").run(JSON.stringify({sha256:new Bun.CryptoHasher("sha256").update(row.payload).digest("hex"),...(entry?{entry}:{})}),row.id);
+   }
    return rows.length;
  }).immediate();
 }

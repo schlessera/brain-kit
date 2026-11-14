@@ -38,7 +38,7 @@ function mount(view: (props: { calls: ToolCall[] }) => ReactNode, calls: ToolCal
   return render;
 }
 const reports = (spy: ReturnType<typeof vi.spyOn>) => spy.mock.calls.filter((args: unknown[]) => String(args[0]).includes("renderer for the odyssey_rigging tool failed"));
-const headers = () => [...host!.querySelectorAll<HTMLElement>(".relative.ml-1 > div > button")];
+const headers = () => [...host!.querySelectorAll<HTMLElement>("[data-tool-call] > div > button")];
 
 test("a renderer that throws from its header falls back to the generic view and keeps the other rows", async () => {
   const errors = vi.spyOn(console, "error").mockImplementation(() => {});
