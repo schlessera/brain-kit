@@ -383,7 +383,12 @@ are sealed, so their comparisons use the census's exclusive extents.
 `pendingBytes` and `availableBytes` are the admission reservations. A
 `btrfs filesystem du` census reports total, exclusive and shared extents per
 path. Git's `count-objects` is recorded as logical object size only; no
-logical size or sum of `st_blocks` is reported as unique usage. The run checks:
+logical size or sum of `st_blocks` is reported as unique usage. Every row also
+carries `io`: the pool loop device's block reads and writes from
+`/proc/diskstats`, and this process's own I/O with its reaped transport
+workers from `/proc/self/io`, both since the previous row and after a `sync`.
+Cold, warm and refresh rows add `peak`, the highest combined charge and
+reservation sampled every 50 ms while the step ran. The run checks:
 
 - **Reuse.** A repeat read inside the refresh window, and an unchanged
   refresh after it, reuse the one source root and allocate at most 256 KiB.
@@ -403,6 +408,20 @@ logical size or sum of `st_blocks` is reported as unique usage. The run checks:
 - **Sharing loss.** `git repack -a -d -f` in a worktree, or a linked
   `git worktree add` inside one, allocates its objects or checkout as new
   extents charged to that worktree alone.
+- **Write-time EDQUOT.** A worktree writing past its allowance is refused by
+  `write()` with `EDQUOT`, charging neither its sibling nor its source. A
+  commit larger than one operation's allowance is refused inside the refresh
+  fetch: the previous root keeps serving, marked stale with Git's quota error,
+  and the staging root is released and reclaimed.
+- **Cancellation.** A refresh whose only requester leaves once its staging
+  root is writable rejects as `cancelled`, publishes nothing, and its staging
+  root is released and reclaimed.
+- **Crash and restart.** A second app instance on the same database
+  (`reference-efficiency-crash-child.ts`) is killed with `SIGKILL` while its
+  staging root is writable. The manager keeps that root writable and charged.
+  The next instance's startup `recover()` releases it, retains nothing and
+  keeps the previous source, and the space is observed reclaimed. The changed
+  refresh then runs on that restarted instance.
 
 Repository features, as the transport handles them:
 
@@ -447,6 +466,23 @@ must be left untouched. For Pi it holds every provider request's tools, system
 and earlier messages byte-identical. For Claude it holds the system-prompt
 option and the assembled MCP roster. It is not part of the default runtime
 cell.
+
+The repository carries three incompressible 2 MiB charts beside its books, so
+Git objects and checkout both hold real data
+([#3513](https://github.com/schlessera/brain-kit/issues/3513)). The first turn
+ends with a warm read of the same source. Throughout every turn, from its
+message to its settled idle status, the parent samples `GET /api/health`
+every 100 ms and a WebSocket `ping`/`pong` every 200 ms. It also samples the
+pool's peak charge and reservations every 100 ms, and reads the pool device's
+block I/O per turn. The child times each reference tool call at the model
+boundary: one in-process MCP call for Claude, and for Pi the span from the
+scripted answer naming the step to the request carrying its result.
+`reference-integration-latency.json` records the samples' p50, p95 and maximum,
+the elapsed times and the kernel, btrfs-progs, Git, Bun and candidate
+identities. Every health probe must answer and every ping must return its
+pong. The warm read must add no source root and be faster than the cold one.
+Latencies, elapsed times and the first turn's peak are held to
+`INTEGRATED_TOLERANCES` in `reference-integration.native.ts`.
 
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and
