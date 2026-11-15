@@ -19,6 +19,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_REPO, type Gh } from "./issue-queue";
 import { RECEIPT_START } from "./check-receipt";
+import { EXPECTED_FAILURE_PREFIX } from "./expected-failure-log";
 
 const realGh: Gh = args => {
   const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -55,11 +56,17 @@ export function summarizeChecks(rollup: readonly Rollup[]): Checks & { total: nu
 const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
 const FAILING = /\(fail\)|\berror\b[:\s]|\bError:|✗|\bFAIL\b|##\[error\]|Process completed with exit code [1-9]/;
 
-/** The lines of a job log worth reading: failures, without timestamps or colour. */
+/**
+ * The lines of a job log worth reading: failures, without timestamps or colour.
+ * A deliberate negative control's lines are counted, not shown: it fails by
+ * design, and its parent reports in plain text whether it failed as designed.
+ */
 export function failingLines(log: string, limit = 30): string[] {
   const lines = log.split("\n").map(line => line.replace(ANSI, "").replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /, "").trimEnd());
-  const found = lines.filter(line => FAILING.test(line));
-  return found.length > limit ? [...found.slice(0, limit), `(+${found.length - limit} more failing lines)`] : found;
+  const failing = lines.filter(line => FAILING.test(line));
+  const found = failing.filter(line => !line.startsWith(EXPECTED_FAILURE_PREFIX)), control = failing.length - found.length;
+  const cut = found.length > limit ? [...found.slice(0, limit), `(+${found.length - limit} more failing lines)`] : found;
+  return control ? [...cut, `(${control} line${control === 1 ? "" : "s"} of a deliberate expected-failure control left out)`] : cut;
 }
 
 export interface StatusIo { gh?: Gh; out: (text: string) => void }
