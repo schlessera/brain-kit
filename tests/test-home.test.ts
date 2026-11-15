@@ -1,6 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeHomeSnapshot, createInvokingTestHome, installTestHome } from "../scripts/test-home";
@@ -54,7 +53,8 @@ test("the invoking-home guard detects a same-size overwrite without adding paths
   expect(existsSync(invoking.root)).toBe(false);
 });
 
-test("home isolation leaves filesystem originals and descriptors available to fixture spies", () => {
+test("home isolation leaves filesystem originals and descriptors available to fixture spies", async () => {
+  const fs = await import("node:fs");
   const descriptor = Object.getOwnPropertyDescriptor(fs, "mkdtempSync")!;
   const original = fs.mkdtempSync;
   const created: string[] = [];
