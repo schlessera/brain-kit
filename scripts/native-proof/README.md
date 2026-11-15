@@ -54,6 +54,22 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+Its `phases` section (#2915) attributes each observed writer's worker hold and
+each harbour turn's journal begin and finish to their steps: the queue for the
+journal, the wait for room behind earlier releases, checkpoint, delta,
+metadata reads, capture, each turn's record, publication and facts query, the
+commit and, for finish, its end record, object collection and publication. The
+app child stamps the journal's internal observation trace, and the fixture's
+manager stamps each request's lock wait (with the operation it waited behind)
+and its steps, both with `performance.timeOrigin + performance.now()`. A
+checkpoint or delta step is broken down by the one manager request that arrived
+inside it; the run fails unless every such step pairs with exactly one request
+and each checkpoint answered before its step ended, which is the proof that
+the two processes' clocks agree. Per-phase medians count an absent phase as
+zero; coverage is attributed time over the independently measured hold or
+journal call. `observation-traces.json` keeps the raw traces and manager spans
+(`scripts/native-proof/observation-phases.ts`).
+
 `bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
 the host identity protocol. It compiles the test-only helper on the host without
 setuid permissions, then installs it as root-owned setuid only inside its owned,
