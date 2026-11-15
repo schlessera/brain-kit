@@ -1318,7 +1318,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`qualify(settings`, `packages/ui-backend-claude/src/turn-inference-relay.ts:112-137`).
+(`qualify(settings`, `packages/ui-backend-claude/src/turn-inference-relay.ts:115-140`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a

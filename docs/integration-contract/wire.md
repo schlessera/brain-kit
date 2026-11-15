@@ -955,7 +955,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   0.45.0, #3787) means the host inference relay refused the model request,
   including cancelled admission (HTTP 499). It carries no `authAction` and
   does not update subscription authentication status. Its message names a
-  known host denial cause; replay with only relay text claims no finer cause.
+  known, unambiguous host denial cause; conflicting observed causes and replay
+  with only relay text claim no finer cause.
   `worker_host_unsupported` means
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
