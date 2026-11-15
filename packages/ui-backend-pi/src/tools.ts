@@ -1,4 +1,4 @@
-import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE, WEB_TOOL_NAME_LIST } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE, GITHUB_READ_TOOL_NAMES, WEB_TOOL_NAME_LIST } from "@schlessera/brain-ui-sdk/server";
 /**
  * The curated brain tool surface for the pi backend.
  *
@@ -114,6 +114,7 @@ export interface BrainToolDeps {
     apify?: boolean;
     attachments?: boolean;
     web?: boolean;
+    github?: boolean;
   };
 }
 
@@ -153,6 +154,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   // Host-owned web tools (#3685): the host's executor reads the web; nothing
   // the agent owns changes.
   web_search: "read", fetch_content: "read", get_search_content: "read", source_check: "read",
+  // Host GitHub reads (#3797): the host reads GitHub with its own credential.
+  brain_github_issue_read: "read", brain_github_issue_search: "read",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor
@@ -206,6 +209,9 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
   // The host-owned web tools (#3685), parity with Claude's auto-allowed
   // WebSearch/WebFetch: the host binds and bounds every call.
   ...WEB_TOOL_NAME_LIST,
+  // Host GitHub reads (#3797): the host binds the turn, holds the credential
+  // and taints the session; a card would ask to read.
+  ...GITHUB_READ_TOOL_NAMES,
   // pi-subagents (recommended fan-out extension) — parity with Claude's
   // auto-allowed Agent tool. NOTE: a child agent's own tool calls run inside
   // pi's child session with that agent's declared tools, NOT through this

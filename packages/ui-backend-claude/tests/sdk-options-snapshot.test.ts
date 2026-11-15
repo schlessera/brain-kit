@@ -21,6 +21,9 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * and the user-selected shortlist; tool names, allowlists and prompts stay fixed.
  * #3788 adds the ten in-worker `mcp__brain__brain_apify_*` names to every mode's
  * `disallowedTools`; nothing else moves.
+ * #3797 adds the two host GitHub read tools to the four interactive modes'
+ * stable roster (names and the schema digest); allowlists, prompts and
+ * autonomous modes stay byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */
