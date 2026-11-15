@@ -1,5 +1,5 @@
 import { GhostBand } from "../internal/GhostBand.js";
-import { useId, type CSSProperties, type KeyboardEvent } from "react";
+import { useId, useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import { Ghosted, ghostLength, useArrival, useLastLengths, useLoadingValue, type GhostTextProps } from "../internal/GhostText.js";
 import { Icon, type IconName } from "../primitives/Icon.js";
@@ -67,7 +67,8 @@ export interface SearchResultCardProps {
 export function SearchResultCard(p: SearchResultCardProps) {
   const view = p.view || "ready";
   const loading = view === "loading";
-  const arriving = useArrival(loading);
+  const frame = useRef<HTMLDivElement>(null);
+  const arriving = useArrival(loading, frame);
   // The ghost's seed is this instance — kept per item key, not per list
   // position — so re-ranking a row never regenerates its glyphs.
   const id = useId();
@@ -167,6 +168,7 @@ export function SearchResultCard(p: SearchResultCardProps) {
 
   return (
     <div
+      ref={frame}
       style={{ ...box, position: "relative" }}
       data-search-result-card=""
       aria-busy={loading ? true : undefined}

@@ -1,5 +1,5 @@
-/** Runtime regression for the handoff clock, with the real populated card (#1179, #3417). */
-import { expect, test, vi } from "vitest";
+/** Runtime regression for the handoff clock, with the real populated card (#1179, #3417, #3425). */
+import { expect, test } from "vitest";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { Handoff, playHandoff } from "../../stories/_ghost.js";
@@ -37,12 +37,20 @@ function stallAfter(delay: number, ms: number) {
   }, delay);
 }
 
-const drive = (host: HTMLElement, beforeLand = 0, stall?: { at: number; ms: number }) => playHandoff({
+/** A long task in the arrival's own task, after React has committed it and
+ * before the browser can render the frame that starts its fades (#3425). */
+function stallNow(ms: number) {
+  const start = performance.now();
+  while (performance.now() - start < ms) { /* a long task */ }
+}
+
+const drive = (host: HTMLElement, beforeLand = 0, stall?: { at: number; ms: number }, commitStall = 0) => playHandoff({
   canvasElement: host,
   canvas: {findByRole: async (_role, {name}) => [...host.querySelectorAll("button")].find(b => b.textContent === name)!},
   userEvent: {click: async element => {
     if (element.textContent === "Land" && beforeLand) await new Promise(resolve => setTimeout(resolve, beforeLand));
     (element as HTMLElement).click();
+    if (element.textContent === "Land" && commitStall) stallNow(commitStall);
     if (element.textContent === "Land" && stall) stallAfter(stall.at, stall.ms);
     await new Promise(resolve => setTimeout(resolve, 0));
   }},
@@ -66,21 +74,28 @@ for (const theme of ["dark", "light"]) {
     });
   });
 
+  // #3425: the fades start on the first frame after the commit. A long task
+  // right after the commit makes that frame late; the ghost must still fade
+  // to its end before it goes, rather than be cut at 600ms from the commit.
+  test(`${theme}: a long task right after arrival delays the fades, and each ghost still fades to its end`, async () => {
+    await withCard(theme, async host => {
+      await drive(host, 0, undefined, 300);
+      expect(host.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
+    });
+  });
+
   test(`${theme}: a handoff held 200ms past its fade at only 720px still fails`, async () => {
     await withCard(theme, async host => {
-      const nativeTimeout = globalThis.setTimeout;
-      let handoffTimers = 0;
-      const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: unknown[]) => {
-        // Native timers and React execute normally. Hold only the second
-        // frame's outgoing layer beyond budget; the first frame stays valid.
-        if (args[1] === 600 && ++handoffTimers === 2) args[1] = 800;
-        return Reflect.apply(nativeTimeout, globalThis, args);
-      }) as typeof nativeTimeout);
+      // The handoff ends when both of its fades have. Hold only the second
+      // frame's incoming fade 200ms longer; its outgoing fade, and the first
+      // frame, stay valid, so the 720px ghost outlives its own fade.
+      const hold = document.createElement("style");
+      hold.textContent = '[data-width="720"] .bk-ghost-in { animation-duration: 800ms !important; }';
+      document.head.append(hold);
       try {
         await expect(drive(host)).rejects.toThrow(/720px: frames rendered with the ghost after its fade ended/);
-        expect(handoffTimers).toBe(2);
       } finally {
-        timer.mockRestore();
+        hold.remove();
       }
     });
   });
