@@ -9,6 +9,8 @@ import { collectReservationHistory, mergeLeaseObservations, type ReservationArch
 import { TimingClient, TimingBudgetStop } from "./ci-timing-api";
 import { seedTimings } from "./ci-timing-seed";
 import { gitEpochSource } from "./ci-epochs";
+import { collectCoordinatorRuns, collectRedMainHistory, RED_MAIN_ARCHIVE, redIntervals, redMainMarkdown, summarizeRedMain,
+  type CoordinatorObservation, type RedMainArchive } from "./ci-red-main";
 
 export interface TimingAPI { json(path: string): Promise<any>; log(job: number): Promise<string>; }
 interface RawRun {
@@ -370,28 +372,33 @@ interface LifecycleAcquisition {
   errors: { pr: number; problem: string }[];
 }
 async function readOperationalData(dir: string): Promise<{ pulls: PullObservation[]; events: WorkEvent[];
-  acquisitions: LifecycleAcquisition[]; reservations: ReservationArchive[] }> {
+  acquisitions: LifecycleAcquisition[]; reservations: ReservationArchive[]; redMain: RedMainArchive[]; coordinator: CoordinatorObservation[] }> {
   const pulls: PullObservation[] = [], events: WorkEvent[] = [];
   const acquisitions: LifecycleAcquisition[] = [], reservations: ReservationArchive[] = [];
+  const redMain: RedMainArchive[] = [], coordinator: CoordinatorObservation[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       const children = await readOperationalData(path);
       pulls.push(...children.pulls); events.push(...children.events);
       acquisitions.push(...children.acquisitions); reservations.push(...children.reservations);
+      redMain.push(...children.redMain); coordinator.push(...children.coordinator);
     }
     else if (/^pull-\d+\.json$/.test(entry.name)) pulls.push(await Bun.file(path).json());
     else if (/^event-[\w-]+\.json$/.test(entry.name)) events.push(validateWorkEvent(await Bun.file(path).json()));
     else if (entry.name === "enrichment.json") acquisitions.push(await Bun.file(path).json());
     else if (entry.name === "reservations.json") reservations.push(await Bun.file(path).json());
+    else if (entry.name === RED_MAIN_ARCHIVE) redMain.push(await Bun.file(path).json());
+    else if (COORDINATOR_FILE.test(entry.name)) coordinator.push(await Bun.file(path).json());
   }
   const unique = new Map<string, PullObservation>();
   for (const p of pulls) {
     const key = `${p.repository}/${p.number}`, old = unique.get(key);
     if (!old || p.collectedAt > old.collectedAt) unique.set(key, p);
   }
-  return { pulls: [...unique.values()], events, acquisitions, reservations };
+  return { pulls: [...unique.values()], events, acquisitions, reservations, redMain, coordinator };
 }
+const COORDINATOR_FILE = /^coordinator-\d+-attempt-\d+\.json$/;
 
 function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation[]) {
   if (!input.length) return null;
@@ -439,7 +446,7 @@ async function writeReport(dir: string, history: string, scenario?: Scenario) {
   }
   const basic = summarize(snapshots), operational = await readOperationalData(dir);
   if (new Set([...snapshots, ...collections, ...operational.pulls, ...operational.events,
-    ...operational.acquisitions, ...operational.reservations].map(s => s.repository)).size > 1) throw new Error("Report one repository at a time");
+    ...operational.acquisitions, ...operational.reservations, ...operational.redMain, ...operational.coordinator].map(s => s.repository)).size > 1) throw new Error("Report one repository at a time");
   const analysisPath = join(dir, "analysis-window.json"), scenarioPath = join(dir, "scenario.json");
   const intervals = collections.filter(c => stampForWindow(c.since) && stampForWindow(c.until));
   const window = await Bun.file(analysisPath).exists() ? await Bun.file(analysisPath).json() : intervals.length ? {
@@ -447,7 +454,8 @@ async function writeReport(dir: string, history: string, scenario?: Scenario) {
   scenario ??= await Bun.file(scenarioPath).exists() ? await Bun.file(scenarioPath).json() : { failedPRFraction: .3, additionalPushes: 2, failedRunCostFraction: 1 };
   const lifecycleAcquisition = lifecycleCoverage(operational.acquisitions, operational.pulls);
   const reservationAcquisition = reservationCoverage(operational.reservations);
-  const report = { ...basic, lifecycleAcquisition, reservationAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
+  const redMain = summarizeRedMain({ archives: operational.redMain, coordinator: operational.coordinator, snapshots: deduplicate(snapshots), pulls: operational.pulls });
+  const report = { ...basic, lifecycleAcquisition, reservationAcquisition, redMain, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
     { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.complete ? reservationAcquisition.leases : undefined, gitEpochSource(process.cwd(), history)) : null,
     collectionCoverage: { missingAttempts: [...missing],
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
@@ -460,7 +468,7 @@ async function writeReport(dir: string, history: string, scenario?: Scenario) {
     (report.throughput ? "" : "\nPR lifecycle throughput is unknown until enrichment and an analysis window are available.\n") +
     `\nPartial collection scopes: ${collections.filter(c => c.status !== "completed").length}; budget stops: ${collections.filter(c => c.requestBudget?.stopped).length}; seed gaps: ${collections.filter(c => c.seed?.error).length}.\n` +
     `Reservation acquisition gaps: ${reservationAcquisition?.scopes.filter(s => s.error !== undefined).length ?? "unknown"}.\n` +
-    `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n`);
+    `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n` + redMainMarkdown(redMain));
   return report;
 }
 const stampForWindow = (s: unknown): s is string => typeof s === "string" && Number.isFinite(Date.parse(s));
@@ -510,11 +518,12 @@ if (import.meta.main) {
   try {
     const args = process.argv.slice(2), mode = args.shift();
     const options = new Map<string, string>();
-    let resources = false, reservations = false;
+    let resources = false, reservations = false, redMain = false;
     while (args.length) {
       const flag = args.shift()!;
       if (flag === "--resources") { resources = true; continue; }
       if (flag === "--reservations") { reservations = true; continue; }
+      if (flag === "--red-main") { redMain = true; continue; }
       if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve", "--history"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
       options.set(flag, args.shift()!);
     }
@@ -532,6 +541,14 @@ if (import.meta.main) {
       catch (error) { archive = { version: 1, repository, collectedAt: new Date().toISOString(),
         sourceRef: "refs/heads/brain-integration-reservation", sourceHead: null, leases: [], error: String(error) }; }
       await Bun.write(join(dir, "reservations.json"), JSON.stringify(archive, null, 2) + "\n");
+    }
+    let redHistory: RedMainArchive | null = null;
+    if (redMain) {
+      if (!options.has("--since")) throw new Error("Red-main history requires --since");
+      try { redHistory = collectRedMainHistory(repository, options.get("--since")!); }
+      catch (error) { redHistory = { version: 1, repository, collectedAt: new Date().toISOString(), sourceRef: "refs/heads/brain-integration-reservation",
+        sourceHead: null, since: options.get("--since")!, incidents: [], flakes: [], error: String(error) }; }
+      await Bun.write(join(dir, RED_MAIN_ARCHIVE), JSON.stringify(redHistory, null, 2) + "\n");
     }
     if (options.has("--scenario")) await Bun.write(join(dir, "scenario.json"), JSON.stringify(await Bun.file(options.get("--scenario")!).json(), null, 2));
     if (options.has("--since") && options.has("--until")) await Bun.write(join(dir, "analysis-window.json"), JSON.stringify({ since: options.get("--since"), until: options.get("--until"), source: "explicit analysis interval" }));
@@ -627,6 +644,20 @@ if (import.meta.main) {
         s.run.prs = numbers!; s.run.attribution = numbers!.length ? "exact merged squash SHA" : "unresolved exact squash lookup";
         await Bun.write(join(dir, `run-${s.run.id}-attempt-${s.run.attempt}.json`), JSON.stringify(s, null, 2) + "\n");
       }
+      // Coordinator logs only for the hours main was red; a gap stays a red-main coverage gap, never zero cancellations.
+      if (redHistory && !redHistory.error) {
+        const intervals = redIntervals(redHistory, since ?? redHistory.since, cutoff);
+        redHistory.coordinatorScope = { intervals, status: "completed", error: null };
+        try {
+          const known = async (run: number, attempt: number) => {
+            const file = Bun.file(join(dir, `coordinator-${run}-attempt-${attempt}.json`));
+            return await file.exists() ? await file.json() as CoordinatorObservation : null;
+          };
+          for (const row of await collectCoordinatorRuns(api, repository, intervals, known))
+            await Bun.write(join(dir, `coordinator-${row.run}-attempt-${row.attempt}.json`), JSON.stringify(row, null, 2) + "\n");
+        } catch (error) { redHistory.coordinatorScope = { intervals, status: "partial", error: String(error) }; }
+        await Bun.write(join(dir, RED_MAIN_ARCHIVE), JSON.stringify(redHistory, null, 2) + "\n");
+      }
       const enrichmentErrors = await enrich(dir, api, repository, false, pulls);
       if (api.budget.stopped) errors.push({ run: 0, attempt: 0, error: String(new TimingBudgetStop(api.budget.stopped)) });
       const incomplete = (await readSnapshots(dir)).some(s => s.problems.length || s.run.status !== "completed");
@@ -638,6 +669,6 @@ if (import.meta.main) {
       if (errors.some(e => !budgetProblem(e.error)) || enrichmentErrors.some(e => !budgetProblem(e.problem)) ||
         (await readSnapshots(dir)).some(s => s.problems.some(p => !budgetProblem(p))) ||
         !api.budget.stopped && report.collectionCoverage.missingAttempts.length) process.exitCode = 1;
-    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--event JSON] [--scenario JSON] [--history REF] [--repo owner/repo] [--out DIR]");
+    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--reservations] [--red-main] [--event JSON] [--scenario JSON] [--history REF] [--repo owner/repo] [--out DIR]");
   } catch (error) { console.error(error); process.exitCode = 1; }
 }
