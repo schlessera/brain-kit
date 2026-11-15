@@ -44,7 +44,7 @@ deadline, one bounded rate-limit retry and explicit failure outcomes
 (`createJevClient`, `packages/core/src/lib/jev.ts:248-333`). The search
 reranker also uses Choice, but asks which search candidate answers a query;
 its probabilities rank candidate IDs, not briefing action categories
-(`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:227-244`).
+(`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:231-248`).
 Reuse the transport, not the search question. TypeSafe's
 [API reference](https://docs.typesafe.ai/api) and
 [model limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13)

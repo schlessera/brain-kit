@@ -304,7 +304,8 @@ export interface RerankerSelection {
  *   then the configured `reranker.provider` (default `jev`).
  * - Judgment ordering requires `config.enabled === true`. Credentials and
  *   mode selection cannot enable it. Preview constructs a request only.
- * - The built-in `jev` needs its key. Without it the configured default
+ * - The built-in `jev` needs its key, or the host's provider relay for a key
+ *   the host withholds (#3792). Without either the configured default
  *   quietly keeps the lifecycle ordering, the rule that keeps a keyless brain
  *   working; an explicit request for `jev` gets the same ordering plus a
  *   warning, never a silent pretence.
@@ -350,8 +351,9 @@ export function selectReranker(
     };
   }
   if (!explicit && typeof provider !== "string") return { rerank: "jev", reranker: provider, warning };
-  // A dry run builds the request without sending it, so it needs no key.
-  if (!opts.preview && !readEnvVar(rerankerKeyEnv(config))) {
+  // A dry run builds the request without sending it, so it needs no key. A
+  // key the host withholds and relays is available through the relay (#3792).
+  if (!opts.preview && !readEnvVar(rerankerKeyEnv(config)) && !relayedKey(rerankerKeyEnv(config))) {
     const key = rerankerKeyEnv(config);
     return {
       rerank: "heuristic",
