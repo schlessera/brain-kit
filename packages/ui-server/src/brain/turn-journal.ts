@@ -2,6 +2,7 @@
 import type { JournalRecoveryStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { BRAIN_WORKSPACES_DIR } from "@schlessera/brain-common/internal/worker-areas";
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { ConfigurationCoverageRead, JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { recordedConfigurationSet } from "./journal-configuration-sets.js";
@@ -274,7 +275,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   }
   const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
-  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void>();
+  const observers = new Set<(turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void>();
   const pendingReadReleases = new Set<string>();
   const failures = new Map<string, string>();
   const failedAdmissions = new Set<string>();
@@ -488,7 +489,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         // versions. The disposable index is counted the same way, ignored or not,
         // including history recorded before it became metadata-only (#2873). A
         // host publication copy of it is no turn write once it is gone (#2831).
-        const facts = db.query(`SELECT count(*) AS changedPaths,coalesce(sum(hashedBytes+ignoredBytes),0) AS observedBytes FROM (
+        // Workspace paths are counted separately so the scope monitor can leave
+        // reference clones out of files_changed (#3793). GLOB only narrows the
+        // candidates; containment is isWithin's, so `workspaces-old/` stays out.
+        const facts = db.query(`SELECT count(*) AS changedPaths,coalesce(sum(hashedBytes+ignoredBytes),0) AS observedBytes,
+          json_group_array(path) FILTER (WHERE path GLOB ?) AS workspaceCandidates FROM (
           SELECT path,sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND coalesce(json_extract(after_json,'$.ignored'),0)!=1 AND NOT disposable
             AND json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash')
             THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS hashedBytes,
@@ -497,8 +502,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
           FROM (SELECT *,(path IN (SELECT value FROM json_each(?)) OR coalesce(json_extract(after_json,'$.metadataOnly'),0)=1) AS disposable FROM turn_journal_changes AS change
             WHERE turn_id=? AND NOT (path GLOB ? AND (SELECT after_json FROM turn_journal_changes WHERE turn_id=change.turn_id
               AND path=change.path ORDER BY sequence DESC LIMIT 1) IS NULL)) GROUP BY path
-        )`).get(DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number };
-        for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
+        )`).get(`${BRAIN_WORKSPACES_DIR}*`, DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number; workspaceCandidates: string };
+        const workspacePaths = (JSON.parse(facts.workspaceCandidates) as string[]).filter(path => isWithin(BRAIN_WORKSPACES_DIR, path, { includeRoot: false })).length;
+        for (const observer of observers) observer(turnId, { changedPaths: facts.changedPaths, observedBytes: facts.observedBytes, workspacePaths, partial: summary(turnId).state === "partial" });
         step?.();
       }
       const committed = timing?.("observe_commit");
@@ -515,8 +521,12 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   }
   return {
-    /** @internal Host scope monitor consumes this same observation window. */
-    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
+    /**
+     * @internal Host scope monitor consumes this same observation window.
+     * `changedPaths` counts every changed path; `workspacePaths` is how many
+     * of them lie below `workspaces/` (#3793).
+     */
+    onObservation(observer: (turnId: string, facts: { changedPaths: number; observedBytes: number; workspacePaths: number; partial: boolean }) => void, periodic?: { before(): void; after(completed: boolean): void }) {
       observers.add(observer); if (periodic) periodicObservers.add(periodic);
       return () => { if (periodic) periodicObservers.delete(periodic); return observers.delete(observer); };
     },

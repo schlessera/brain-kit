@@ -56,7 +56,11 @@ export function fixtureDelta(before: { uuid: string; transaction: string; entrie
     else records.push(command(22, [[15, bytes(path)], [18, u64(0n)], [4, u64(BigInt(current.bytes))]]));
   }
   const raw = Buffer.concat([bytes("btrfs-stream\0"), Buffer.from([1, 0, 0, 0]), ...records, command(21)]);
-  const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(raw); controller.close(); } });
+  // Bounded chunks, as the native manager streams them: a large delta is never one oversized chunk.
+  const stream = new ReadableStream<Uint8Array>({ start(controller) {
+    for (let offset = 0; offset < raw.length; offset += NATIVE_DATA_CHUNK_BYTES) controller.enqueue(raw.subarray(offset, offset + NATIVE_DATA_CHUNK_BYTES));
+    controller.close();
+  } });
   return { stream, completed: Promise.resolve({ exitCode: 0 as const, bytes: raw.byteLength }) };
 }
 
