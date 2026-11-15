@@ -9,6 +9,7 @@ import { nativeReleaseObservations } from "./native-release-observation.js";
 import { Database } from "bun:sqlite";
 import { NativeEventLog } from "./event-log.js";
 import { proveRecoveryInventory } from "./recovery-inventory.js";
+import { observationPhases, summarizePhases, median as phaseMedian, type ManagerSpan, type ObservationTrace, type PhaseSample } from "./observation-phases.js";
 
 const SOURCE = "/repo";
 const ARTIFACTS = "/proof/run";
@@ -74,9 +75,11 @@ print(json.dumps(result))`;
   const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(fs.stdout.toString())![1]!;
   mkdirSync("/native-runtime", { mode: 0o755, recursive: true });
   const socket = "/native-runtime/manager.sock";
+  // #2915: every manager operation's lock wait and steps, kept in memory so recording adds no write to its path.
+  const managerSpans: ManagerSpan[] = [];
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: socket,
     appUid: APP_UID, appGid: APP_UID, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
-    capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+    capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 }, OBSERVATION_TIMING ? { trace: (span: ManagerSpan) => { managerSpans.push(span); } } : {});
   const { createNativeBrainManagerClient } = await import(join(SOURCE, "packages/ui-sdk/src/server/native-brain-manager-client.ts"));
   const admitted = await createNativeBrainManagerClient({ socketPath: socket }).ready();
   expect(admitted.privatePaths, "NATIVE_ADMITTED_EXACT_BACKING_PRIVATE_PATH").toContain("/native-backing/fixture.img");
@@ -349,7 +352,7 @@ print(json.dumps(result))`;
           const within = (at: number) => result && next && at >= result.at - 1 && at <= next.at;
           const observed = captures.filter(row => within(row.at));
           const frozenAt = freezes.find(row => within(row.at))?.at, resumedAt = frozenAt === undefined ? undefined : resumes.find(row => row.at >= frozenAt && (!next || row.at <= next.at))?.at;
-          return { step: response.step, tool: response.tool, label: response.label as string, isError: result?.isError ?? null, roundTripMs, toolMs,
+          return { step: response.step, tool: response.tool, label: response.label as string, toolUseId: response.toolUseId as string, isError: result?.isError ?? null, roundTripMs, toolMs,
             addedMs: roundTripMs !== null && toolMs !== null ? roundTripMs - toolMs : null, resultToNextRequestMs: result && next ? next.at - result.at : null,
             captures: observed.length, frozenMs: frozenAt !== undefined && resumedAt !== undefined ? resumedAt - frozenAt : null,
             resumeToNextRequestMs: resumedAt !== undefined && next ? next.at - resumedAt : null };
@@ -428,12 +431,41 @@ print(json.dumps(result))`;
       const beginFinish = harbour.map(turnId => ({ turnId, beginMs: elapsed("journal_begin_end", turnId) ?? null, finishMs: elapsed("journal_finish_end", turnId) ?? null }))
         .map(row => ({ ...row, totalMs: row.beginMs !== null && row.finishMs !== null ? row.beginMs + row.finishMs : null }));
       const total = (field: "beginMs" | "finishMs" | "totalMs") => beginFinish.map(row => row[field]).filter((value): value is number => value !== null);
+      // #2915: each writer's hold and each harbour turn's begin and finish, attributed to its steps.
+      const traces: ObservationTrace[] = eventLog.read("observation-trace").filter(row => row.kind === "observation_trace")
+        .map(row => ({ kind: row.traceKind, turnId: row.turnId, ...(row.toolUseId ? { toolUseId: row.toolUseId } : {}), steps: row.steps }));
+      writeFileSync(join(ARTIFACTS, "observation-traces.json"), JSON.stringify({ traces, managerSpans }));
+      const WRITERS = ["write_file", "edit_file", "bash write"];
+      const writers = (timeline?.calls ?? []).filter(call => WRITERS.includes(call.label)).flatMap(call => {
+        const trace = traces.find(item => item.kind === "tool" && item.toolUseId === call.toolUseId);
+        return trace ? [{ label: call.label, sample: { phases: observationPhases(trace, managerSpans), measuredMs: call.frozenMs } as PhaseSample }] : [];
+      });
+      const journalSamples = (kind: "begin" | "finish", field: "beginMs" | "finishMs") => beginFinish.flatMap(row => {
+        const trace = traces.find(item => item.kind === kind && item.turnId === row.turnId);
+        return trace ? [{ phases: observationPhases(trace, managerSpans), measuredMs: row[field] }] : [];
+      });
+      const begins = journalSamples("begin", "beginMs"), finishes = journalSamples("finish", "finishMs");
+      const pairedTotals = begins.flatMap((begin, i) => finishes[i] ? [begin.phases.holdMs + finishes[i]!.phases.holdMs] : []);
+      const begin = summarizePhases(begins), finish = summarizePhases(finishes);
+      const observationSteps = {
+        clock: "performance.timeOrigin + performance.now() in the app child and the fixture's manager; a manager request counts toward the app step it arrived in",
+        writer: { all: summarizePhases(writers.map(item => item.sample)),
+          byTool: Object.fromEntries(WRITERS.map(label => [label, summarizePhases(writers.filter(item => item.label === label).map(item => item.sample))])) },
+        begin, finish,
+        beginPlusFinish: { pairedHoldMedianMs: phaseMedian(pairedTotals), sumOfHoldMediansMs: begin.hold.medianMs !== null && finish.hold.medianMs !== null ? begin.hold.medianMs + finish.hold.medianMs : null, pairs: pairedTotals.length },
+        traces: traces.length, managerSpans: managerSpans.length,
+      };
       const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
         tools: timeline?.tools ?? null, admission, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
-          beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, calls: timeline?.calls ?? null };
+          beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, phases: observationSteps, calls: timeline?.calls ?? null };
       writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
       console.log(JSON.stringify({ observationTiming: { ...result, calls: undefined, journal: { ...result.journal, turns: undefined } } }));
       expect(total("totalMs"), "OBSERVATION_TIMING_10_HARBOUR_TURNS").toHaveLength(10);
+      expect([begins.length, finishes.length], "OBSERVATION_TIMING_HARBOUR_TRACES").toEqual([10, 10]);
+      if (timeline) expect(writers.length, "OBSERVATION_TIMING_EVERY_OBSERVED_WRITER_TRACED").toBe(timeline.calls.filter(call => WRITERS.includes(call.label) && call.captures).length);
+      // One clock: every native step paired with exactly one request that arrived in it, and each checkpoint answered before its step ended.
+      for (const [name, summary] of Object.entries({ writer: observationSteps.writer.all, begin, finish }))
+        expect([name, summary.clock.unpaired, (summary.clock.minEndSlackMs ?? 0) >= 0], "OBSERVATION_TIMING_ONE_CLOCK").toEqual([name, [], true]);
       for (const [name, row] of Object.entries({ ...admission.scenarios, ...Object.fromEntries(warm.map((row, i) => [`warm-${i}`, row])) }))
         expect(row?.journalBeginMs !== null && row?.governedAdmissionMs !== null && Object.keys(row?.steps ?? {}).length > 0, `OBSERVATION_TIMING_ADMISSION_STEPS_RECORDED ${name}`).toBe(true);
       if (timeline) {
