@@ -304,7 +304,9 @@ async function handleProbe(io: CoordinatorIO, run: WorkflowRun) {
   }
   if (!real.length) return;
   const { after } = await updateRecord(io, (current, now) => openRed(current, { firstBad: identity.sha, run: identity.source, failures: real }, now));
-  await cancelDoomed(io, await ensureIncident(io, after));
+  const withIncident = await ensureIncident(io, after), cancelled = await cancelDoomed(io, withIncident);
+  // The same line as a main run's, so the evidence collector (#2953) sees every cancellation.
+  io.print(`BRAIN_RED_MAIN ${JSON.stringify({ firstBad: withIncident.open?.firstBad, incident: withIncident.open?.incident, cancelled })}`);
 }
 
 export async function coordinate(io: CoordinatorIO, run: WorkflowRun) {

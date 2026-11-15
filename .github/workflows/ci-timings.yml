@@ -38,7 +38,7 @@ jobs:
           TIMING_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           since=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
-          bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations
+          bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations --red-main
       - name: Retain normalized timing archive
         if: always()
         uses: actions/upload-artifact@v7
