@@ -4203,6 +4203,35 @@ retain existing owned checkpoint authority and storage caps; they do not
 authorize arbitrary host paths. See the [host boundary](../hosting/agent-workers.md#separate-worker-identity)
 for descriptor transfer, supervision, cleanup and best-effort limits.
 
+### Managed turn data trees (additive, 0.45.0, #2911)
+
+The native manager client gains two operations, and the lease owner wraps
+both:
+
+- `prepareTurnTree(id, allowanceBytes)` returns `NativeTurnTree`
+  (`{ id, path, allowanceBytes }`). `id` is a caller-generated UUID and
+  `allowanceBytes` a positive multiple of 4096. The manager alone chooses the
+  path: `<store>/.brain-native/trees/<id>`, owned by its fixed app UID and
+  group with mode `0710`. It refuses with `capacity` when the live trees'
+  allowances, this one and one emergency reserve's worth of headroom do not
+  fit the volume's free space, or while the emergency reserve is consumed. A
+  retry with the same identity and allowance returns the same tree; a
+  released identity refuses with `released`.
+- `releaseTurnTree(id)` returns `{ id, state: "deleted" }` once the manager has
+  removed the directory and observed a filesystem commit. It refuses with
+  `unavailable`, removing nothing, while any process still mounts the tree. An
+  unrecorded directory refuses with `unknown`. An unknown identity with no
+  directory is recorded as deleted, which fences a later create.
+
+`NativeRecoveryRecord.kind` gains `tree`, and records gain an optional
+`treeRequest` (`{ allowanceBytes }`). Checkpoint operations refuse a tree
+identity with `invalid`, and the tree operations refuse a checkpoint or stage
+identity the same way. The lease owner records a `tree` root lease before each
+request. It releases only its own trees, or a dead owner's during recovery,
+and its lease table migrates in place. No call accepts a host path, UID or
+mode. The rules are in the
+[native storage decision](../decisions/native-brain-storage.md#turn-data-trees-on-the-managed-volume-2911).
+
 ### Reference pool storage (additive, #2428)
 
 The root-owned `brain-native-store` configuration accepts an optional

@@ -20,6 +20,15 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Turn data trees on the managed volume (additive, 0.45.0, #2911)
+
+The native manager client and the lease owner gain `prepareTurnTree(id,
+allowanceBytes)`, returning `NativeTurnTree` (`{ id, path, allowanceBytes }`),
+and `releaseTurnTree(id)`. `NativeRecoveryRecord.kind` gains `tree`, with an
+optional `treeRequest`. A strict, voice or autonomous turn on managed storage
+now keeps its data tree there, filled by reflinks. Described in
+[the package API](integration-contract/package-api.md#managed-turn-data-trees-additive-0450-2911).
+
 ## The Start card's persona choice (additive, 0.45.0, #3698)
 
 In `@schlessera/brain-ui-react`, the conversation client's state adds

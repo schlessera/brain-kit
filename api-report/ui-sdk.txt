@@ -1300,6 +1300,7 @@ export "./internal" (./src/internal.ts)
   type NativePoolRecord
   type NativePoolState
   type NativePoolStatus
+  type NativeTurnTree
   ORIENTATION_MAX_BYTES
   OUTWARD_VOICE_REFUSAL
   type ObservedWorkerFile
@@ -1427,6 +1428,7 @@ export "./internal" (./src/internal.ts)
   mountPointsUnder
   nativeFileVersion
   nativeObservationIdentity
+  nativeTurnTreeManager
   nativeWorkerStartupInput
   observeClassification
   observeOutwardPlan

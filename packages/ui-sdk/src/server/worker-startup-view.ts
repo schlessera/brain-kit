@@ -21,7 +21,8 @@ export interface WorkerStartupView {
 }
 
 type NativeClient = ReturnType<typeof createNativeBrainManagerClient>;
-const nativeInputs = new WeakMap<WorkerStartupView, { checkpoint: NativeCheckpoint; manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">> }>();
+type NativeViewManager = Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage" | "prepareTurnTree" | "releaseTurnTree">>;
+const nativeInputs = new WeakMap<WorkerStartupView, { checkpoint: NativeCheckpoint; manager: NativeViewManager }>();
 /** Trusted acquisition metadata; no request-supplied manager or checkpoint is accepted. */
 export function nativeWorkerStartupInput(view: WorkerStartupView) {
   if (releasedViews.has(view)) throw new Error("native startup checkpoint owner is closed");
@@ -38,6 +39,18 @@ export function isManagedWorkerStartupView(view: WorkerStartupView | undefined):
   if (!view || releasedViews.has(view)) return false;
   const input = nativeInputs.get(view);
   return Boolean(input?.manager.prepareStage && input.manager.inspectStage && input.manager.releaseStage);
+}
+/**
+ * The manager that acquired a live managed view, for placing the turn's data
+ * tree on the same volume (#2911); undefined for an unmanaged view. A managed
+ * view whose manager cannot place one is refused, never given a full copy.
+ */
+export function nativeTurnTreeManager(view: WorkerStartupView): Pick<NativeClient, "prepareTurnTree" | "releaseTurnTree"> | undefined {
+  if (!isManagedWorkerStartupView(view)) return undefined;
+  const manager = nativeInputs.get(view)!.manager;
+  if (!manager.prepareTurnTree || !manager.releaseTurnTree)
+    throw new Error("The native manager that acquired this startup view cannot place a turn data tree on the managed volume; no full-copy fallback runs.");
+  return manager as Pick<NativeClient, "prepareTurnTree" | "releaseTurnTree">;
 }
 /** Why a governed or strict turn whose startup view is not on managed native storage is refused (#3314). */
 export const UNMANAGED_TURN_STORAGE = "Governed and strict turns need a startup view the native manager acquired on managed native storage, where the turn egress relay runs; this turn's view is not one, so it is refused.";
@@ -107,7 +120,7 @@ export function retainWorkerStartupView(view: WorkerStartupView): WorkerStartupV
  * await the owner's cleanup. A lost RPC releases/reconciles the same identity.
  */
 export async function prepareNativeWorkerStartupView(brainPath: string,
-  manager: Pick<NativeClient, "checkpoint" | "release"> & Partial<Pick<NativeClient, "prepareStage" | "inspectStage" | "releaseStage">>,
+  manager: NativeViewManager,
   signal?: AbortSignal): Promise<WorkerStartupView> {
   signal?.throwIfAborted();
   const brain = realpathSync(brainPath), id = randomUUID();
