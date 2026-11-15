@@ -1504,12 +1504,43 @@ evidence is unproven.
 The pi backend reports evidence only from its own record of each call's RPCs.
 A call that names two tools, takes the write lock as a read, or reports only
 part of its read proves nothing (`export function provenToolExecution`,
-`packages/ui-backend-pi/src/worker-session.ts:29-37`). It reports nothing at
+`packages/ui-backend-pi/src/worker-session.ts:30-38`). It reports nothing at
 all for a worker that loads extensions. Extension handlers run on every tool
 event, bridge reads included, and can write at any time
-(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:139`).
-With extensions loaded, which is pi's default, every result is observed as
-before. The worker's reports are evidence only while it has run nothing but
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:143`).
+With extensions loaded every result is observed as before.
+
+Whether a worker loaded any is read from the worker's own loader, not only
+from its configuration (#2874). The curated default
+(`export function discoversPiExtensions`,
+`packages/ui-backend-pi/src/extension-inspection.ts:64-66`) loads none. A
+worker with discovery on counts every extension, extension load error and
+extension runner path its session holds (`export function loadedPiExtensions`,
+`packages/ui-backend-pi/src/native-session-runtime.ts:136-139`) and sends
+that count in its `ready` frame, before the prompt and before any
+model-directed code runs. The host accepts a count of zero as extension-free
+and any other count as unproven, whatever the configuration said; a worker
+that sends no count keeps the configuration's answer
+(`function createExecutionProof`,
+`packages/ui-backend-pi/src/worker-session.ts:253-259`). An installed or
+repo-local extension is counted, and the managed worker then refuses the turn
+anyway (`function unqualifiedResources`,
+`packages/ui-backend-pi/src/native-session-runtime.ts:143-145`).
+
+The count cannot change during the turn. In pi 0.99.2 the loaded set changes
+only in `AgentSession.reload()`, which reloads the settings and the resource
+loader and builds a new extension runner. Its only callers are pi's
+interactive `/reload` and an extension command's `ctx.reload()`, which pi's
+modes bind through `bindExtensions`. A managed worker runs no pi mode and
+binds nothing, and a `/` prompt reaches only commands that loaded extensions
+registered. With none loaded nothing can reach `reload()`. A turn that writes `.pi/extensions/`, a
+settings file or a package changes only what a later worker loads. A worker
+whose set can change, which is any worker with an extension loaded, proves
+nothing. The guard before each model request rechecks the set as a backstop
+(`export function installPiToolSafety`,
+`packages/ui-backend-pi/src/tool-safety.ts:27-42`).
+
+The worker's reports are evidence only while it has run nothing but
 curated code. Once it admits a call outside the provable set (`bash`, `grep`,
 an index tool that loads `brain.config.ts`, an application tool), or starts a
 call under a running call's identity, it reports nothing more until it exits.

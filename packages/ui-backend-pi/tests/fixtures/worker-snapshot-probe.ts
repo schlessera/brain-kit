@@ -20,7 +20,8 @@ mock.module("../../src/native-session-runtime.js", () => ({
       },
       async abort() {}, dispose() {}, getSessionStats: () => ({ cost: 0 }),
     };
-    return { newSession: async () => ({ session }) };
+    // A count no real worker reaches: the ready frame must carry the runtime's own (#2874).
+    return { newSession: async () => ({ session, loadedExtensions: 3 }) };
   },
 }));
 await import("../../src/worker-entry.js");
