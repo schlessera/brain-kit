@@ -6,6 +6,7 @@ import type { CheckPlan } from "../scripts/ci-plan";
 import { GitReservationStore } from "../scripts/integration-reservation";
 import { addSuspect, classifyFailure, clearRed, declareFix, emptyRedMain, FLAKE_WINDOW_MS, gateDecision, includeRedSet, junitFailures, recordExpedited,
   openRed, parseRedMain, POST_MERGE_CATEGORIES, postMergeOnly, type RedFailure, type RedMainRecord } from "../scripts/red-main";
+import { coordinatorCancellations } from "../scripts/ci-red-main";
 import { coordinate, detectLanded, includedRedSet, incidentMarker, type CoordinatorIO, type Job, type Snapshot, type WorkflowRun } from "../scripts/red-main-coordinator";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -175,7 +176,7 @@ describe("hosted gate", () => {
 function fakeGitHub(options: { jobs: Job[]; junit?: string; artifact?: Record<string, string>; closure?: boolean | null; pulls?: Record<string, number>; prRuns?: WorkflowRun[]; history?: WorkflowRun[]; historyJobs?: Record<number, Job[]> }) {
   let snapshot: Snapshot = { oid: null, redMain: emptyRedMain() }, version = 0, clock = NOW;
   const issues: { number: number; title: string; body: string; labels: string[] }[] = [];
-  const comments: { issue: number; body: string }[] = [], cancelled: number[] = [], dispatched: unknown[] = [], events: unknown[] = [];
+  const comments: { issue: number; body: string }[] = [], cancelled: number[] = [], dispatched: unknown[] = [], events: unknown[] = [], printed: string[] = [];
   const io: CoordinatorIO = {
     repository: "odysseus/brain-kit",
     async json(path) {
@@ -217,9 +218,9 @@ function fakeGitHub(options: { jobs: Job[]; junit?: string; artifact?: Record<st
     isAncestor: (a, b) => a === b || (a === A && b !== A) || (a === B && b === C),
     commitTime: () => NOW,
     async recordEvent(event) { events.push(event); },
-    print() {},
+    print(line) { printed.push(line); },
   };
-  return { io, issues, comments, cancelled, dispatched, events, record: () => snapshot.redMain, set: (record: RedMainRecord) => { snapshot = { oid: String(++version), redMain: record }; } };
+  return { io, issues, comments, cancelled, dispatched, events, printed, record: () => snapshot.redMain, set: (record: RedMainRecord) => { snapshot = { oid: String(++version), redMain: record }; } };
 }
 const mainRun = (sha: string, conclusion: string, id = 100): WorkflowRun => ({ id, name: "CI", event: "push", head_branch: "main", head_sha: sha, status: "completed", conclusion,
   run_attempt: 1, display_title: "squash", created_at: "2026-07-12T00:00:00Z" });
@@ -268,7 +269,7 @@ describe("coordinator", () => {
   });
 
   test("a suspected flake files its test issue and dispatches a probe without declaring main red", async () => {
-    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], closure: false,
+    const gh = fakeGitHub({ jobs: [{ id: 2, name: "unit (2)", conclusion: "failure", steps: [] }], closure: false, prRuns: [prRun(320, 9, C)],
       junit: junit.replace("<failure>expect(received).toBe(expected)</failure>", "<failure message=\"Timed out after 5000ms\"/>") });
     await coordinate(gh.io, mainRun(B, "failure"));
     expect(gh.record().open).toBeNull();
@@ -279,6 +280,9 @@ describe("coordinator", () => {
     await coordinate(gh.io, { ...mainRun(B, "failure", 200), name: "red-main-probe", event: "workflow_dispatch", display_title: `red-main probe flake 100 ${B}` });
     expect(gh.record().open?.failures[0]?.reasons).toEqual(["probe-reproduced"]);
     expect(gh.comments.some(comment => comment.issue === 500 && comment.body.includes("**failed**"))).toBe(true);
+    // The probe path prints the main-run cancellation line too, so the evidence collector (#2953) sees it.
+    expect(gh.cancelled).toEqual([320]);
+    expect(coordinatorCancellations(gh.printed.join("\n"), "failure"), "PROBE_CANCELLATIONS_PRINTED").toEqual([320]);
   });
 
   test("first bad is the first commit after the last green run, and a squash landed while red is reported", async () => {
