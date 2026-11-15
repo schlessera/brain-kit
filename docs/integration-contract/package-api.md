@@ -546,6 +546,25 @@ input and forwards `{ tool, input }` to the optional new
 [the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
 export changes.
 
+## GitHub detail-page types (additive, 0.45.0, #3796)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the item and page types the internal
+[GitHub detail route](../http-api.md#github-detail-pages-internal-0450-3796)
+returns: `GITHUB_DETAIL_PARTS` with `isGithubDetailPart` and the
+`GithubDetailPart` type, `GITHUB_DETAIL_PAGE_SIZE` (30),
+`GITHUB_REVIEW_COMMENT_SCHEMA`, `GITHUB_CHANGED_FILE_SCHEMA` with
+`GITHUB_CHANGED_FILE_STATUSES`, `GITHUB_CHECK_RUN_SCHEMA` with
+`GITHUB_CHECK_CONCLUSIONS`, `GITHUB_DETAIL_PAGE_SCHEMA` (one page per part, in
+the existing comment, review and commit types and the three new ones),
+`GITHUB_DETAIL_ERROR_SCHEMA` (the tools' error plus a nullable `reset_at`) and
+`GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA`, and the matching types
+`GithubReviewComment`, `GithubChangedFile`, `GithubCheckRun`,
+`GithubDetailPage` and `GithubDetailError`. Text GitHub users wrote is marked
+untrusted as in the tool payloads. The route's raw path and payload stay
+internal; these exports are the types a client binds to. No existing export
+changes.
+
 ## Package entry points
 
 **Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each

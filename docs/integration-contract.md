@@ -47,6 +47,20 @@ shape changes. See
 [the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
 This ships in a minor.
 
+## GitHub detail-page types (additive, 0.45.0, #3796)
+
+`@schlessera/brain-ui-sdk/tool-contracts` adds the detail-page part list,
+the page-size bound, the review-comment, changed-file and check-run item
+schemas, the page schema and the detail error schema with `reset_at`, which
+the two new internal ui-server routes return to the chat's GitHub components:
+`GET /api/sessions/:id/github/:owner/:repo/:number/:part` and
+`GET /api/sessions/:id/github/avatars/:login`. The routes are internal (`I`)
+with no compatibility guarantee; nothing they serve enters the
+provider-facing conversation. See
+[the package API](integration-contract/package-api.md#github-detail-page-types-additive-0450-3796)
+and [the HTTP API](http-api.md#github-detail-pages-internal-0450-3796).
+This ships in a minor.
+
 ## Host GitHub tools (additive, 0.45.0, #3797)
 
 Both first-party backends' interactive sessions gain two host-executed read

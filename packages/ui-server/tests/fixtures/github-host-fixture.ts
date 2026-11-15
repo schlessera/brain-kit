@@ -72,7 +72,9 @@ export function fakeGithub(options: FakeGithubOptions = {}): FakeGithub {
       case "/repos/odysseus/ithaca/issues/8": return json(pullIssue);
       case "/repos/odysseus/ithaca/issues/7/comments": {
         const all = Array.from({ length: commentCount }, (_, index) => issueComment(7, 9000 + index, "issues"));
-        return json(all.slice((page - 1) * perPage, page * perPage));
+        // GitHub names the next page in a Link header.
+        return json(all.slice((page - 1) * perPage, page * perPage), page * perPage < commentCount
+          ? { headers: { link: `<${API}/issues/7/comments?per_page=${perPage}&page=${page + 1}>; rel="next"` } } : undefined);
       }
       case "/repos/odysseus/ithaca/issues/8/comments": return json([issueComment(8, 9101, "pull")]);
       case "/repos/odysseus/ithaca/pulls/8": return json(pull);

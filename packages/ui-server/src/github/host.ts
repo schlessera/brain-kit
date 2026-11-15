@@ -48,25 +48,26 @@ export interface GithubToolsHost {
   call(turn: GithubToolsTurn, call: GithubToolCall): Promise<GithubToolResult>;
 }
 
-class GithubRefusal extends Error {
-  constructor(readonly code: GithubErrorCode, readonly reason: string | null, message: string) { super(message); }
+/** A typed refusal; `resetAt` is when a spent rate limit resets, when GitHub says. */
+export class GithubRefusal extends Error {
+  constructor(readonly code: GithubErrorCode, readonly reason: string | null, message: string, readonly resetAt: string | null = null) { super(message); }
 }
 
-type Json = Record<string, unknown>;
-const record = (value: unknown): Json | null => value && typeof value === "object" && !Array.isArray(value) ? value as Json : null;
-const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
-const text = (value: unknown): string | null => typeof value === "string" ? value : null;
-const integer = (value: unknown): number | null => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+export type Json = Record<string, unknown>;
+export const record = (value: unknown): Json | null => value && typeof value === "object" && !Array.isArray(value) ? value as Json : null;
+export const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+export const text = (value: unknown): string | null => typeof value === "string" ? value : null;
+export const integer = (value: unknown): number | null => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 const flag = (value: unknown): boolean => value === true;
-const LOGIN = /^[A-Za-z0-9-]{1,39}(?:\[bot\])?$/;
-const SHA = /^[0-9a-f]{40}$/;
+export const LOGIN = /^[A-Za-z0-9-]{1,39}(?:\[bot\])?$/;
+export const SHA = /^[0-9a-f]{40}$/;
 const COLOR = /^[0-9a-fA-F]{6}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-const time = (value: unknown): string | null => typeof value === "string" && ISO.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
-const requiredTime = (value: unknown, fallback: string): string => time(value) ?? fallback;
+export const time = (value: unknown): string | null => typeof value === "string" && ISO.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
+export const requiredTime = (value: unknown, fallback: string): string => time(value) ?? fallback;
 
 /** Cut at `max` characters without splitting a surrogate pair. */
-function cut(value: string, max: number): { text: string; truncated: boolean } {
+export function cut(value: string, max: number): { text: string; truncated: boolean } {
   if (value.length <= max) return { text: value, truncated: false };
   let end = max;
   const code = value.charCodeAt(end - 1);
@@ -79,10 +80,10 @@ function user(value: unknown): GithubUser {
   const login = text(raw?.login);
   return { login: login && LOGIN.test(login) ? login : null, is_bot: raw?.type === "Bot" || (login?.endsWith("[bot]") ?? false) };
 }
-function author(value: unknown, association: unknown): GithubAuthor {
+export function author(value: unknown, association: unknown): GithubAuthor {
   return { ...user(value), author_association: (GITHUB_AUTHOR_ASSOCIATIONS as readonly unknown[]).includes(association) ? association as GithubAuthor["author_association"] : null };
 }
-function body(value: unknown, max: number) {
+export function body(value: unknown, max: number) {
   const raw = text(value) ?? "";
   const { text: kept, truncated } = cut(raw, max);
   return { body: raw.length ? kept : null, body_length: raw.length, body_truncated: truncated };
@@ -99,7 +100,7 @@ function labels(value: unknown) {
 const stateReason = (value: unknown) => (["completed", "not_planned", "reopened", "duplicate"] as const).find(reason => reason === value) ?? null;
 const state = (value: unknown): "open" | "closed" => value === "open" ? "open" : "closed";
 
-function comment(value: Json, scope: GithubLinkScope, fallback: string): GithubComment | null {
+export function comment(value: Json, scope: GithubLinkScope, fallback: string): GithubComment | null {
   const id = integer(value.id);
   if (!id) return null;
   return { id, author: author(value.user, value.author_association), created_at: requiredTime(value.created_at, fallback),
@@ -108,7 +109,7 @@ function comment(value: Json, scope: GithubLinkScope, fallback: string): GithubC
 }
 
 const REVIEW_STATES: Record<string, GithubReview["state"]> = { APPROVED: "approved", CHANGES_REQUESTED: "changes_requested", COMMENTED: "commented", DISMISSED: "dismissed", PENDING: "pending" };
-function review(value: Json, scope: GithubLinkScope): GithubReview | null {
+export function review(value: Json, scope: GithubLinkScope): GithubReview | null {
   const id = integer(value.id), reviewState = REVIEW_STATES[String(value.state)];
   if (!id || !reviewState) return null;
   return { id, author: author(value.user, value.author_association), state: reviewState, submitted_at: time(value.submitted_at),
@@ -132,7 +133,7 @@ export function reviewDecisions(reviews: readonly GithubReview[]): GithubReviewD
   return [...latest.values()];
 }
 
-function commit(value: Json, scope: GithubLinkScope): GithubCommit | null {
+export function commit(value: Json, scope: GithubLinkScope): GithubCommit | null {
   const sha = text(value.sha);
   if (!sha || !SHA.test(sha)) return null;
   const detail = record(value.commit), recorded = record(detail?.author);
@@ -144,7 +145,7 @@ function commit(value: Json, scope: GithubLinkScope): GithubCommit | null {
 }
 
 /** The `rel="next"` target of a Link header, when GitHub names one. */
-function nextLink(response: Response): string | null {
+export function nextLink(response: Response): string | null {
   const header = response.headers.get("link");
   if (!header) return null;
   for (const part of header.split(",")) {
@@ -154,43 +155,58 @@ function nextLink(response: Response): string | null {
   return null;
 }
 
+/**
+ * When a spent rate limit resets: `x-ratelimit-reset` (epoch seconds), else
+ * `retry-after` (seconds from now), else unknown.
+ */
+function rateLimitReset(response: Response, now: () => number): string | null {
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  if (Number.isSafeInteger(reset) && reset > 0 && reset < 1e11) return new Date(reset * 1000).toISOString();
+  const after = Number(response.headers.get("retry-after"));
+  if (Number.isSafeInteger(after) && after >= 0 && after < 1e7) return new Date(now() + after * 1000).toISOString();
+  return null;
+}
+
+/** How a GET reaches the API: the test seam, the clock and one request's limit. */
+export interface GithubTransport { fetch?: typeof fetch; now?: () => number; timeoutMs?: number }
+
+/** One GET against the fixed API origin with the host credential. Redirects are followed only within it. */
+export async function githubGet(transport: GithubTransport, token: string, path: string, signal: AbortSignal | undefined): Promise<{ json: unknown; response: Response }> {
+  let url = new URL(path, GITHUB_API_ORIGIN);
+  for (let hop = 0; hop < 4; hop++) {
+    if (url.origin !== GITHUB_API_ORIGIN) throw new GithubRefusal("upstream_error", "redirect", "GitHub redirected outside its API.");
+    const timeout = AbortSignal.timeout(transport.timeoutMs ?? 20_000);
+    let response: Response;
+    try {
+      response = await (transport.fetch ?? fetch)(url, { method: "GET", redirect: "manual",
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "brain-ui" } });
+    } catch {
+      if (signal?.aborted) throw new GithubRefusal("upstream_error", "cancelled", "The turn ended before GitHub answered.");
+      throw new GithubRefusal("upstream_error", timeout.aborted ? "timeout" : "network", timeout.aborted ? "GitHub did not answer in time." : "GitHub could not be reached.");
+    }
+    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
+      url = new URL(response.headers.get("location")!, url);
+      continue;
+    }
+    if (!response.ok) {
+      const limited = response.headers.get("x-ratelimit-remaining") === "0" || response.status === 429;
+      if (limited) throw new GithubRefusal("rate_limited", null, "GitHub's rate limit for the host credential is spent; try again later.", rateLimitReset(response, transport.now ?? Date.now));
+      if (response.status === 401) throw new GithubRefusal("unavailable", "credential_rejected", "GitHub rejected the host's GitHub tools credential.");
+      if (response.status === 404 || response.status === 410) throw new GithubRefusal("not_found", null, "GitHub has no such issue or repository, or the host's credential cannot see it.");
+      if (response.status === 403) throw new GithubRefusal("forbidden", null, "The host's GitHub credential is not permitted to read this.");
+      if (response.status === 422) throw new GithubRefusal("invalid_input", "github_validation", "GitHub refused the search.");
+      throw new GithubRefusal("upstream_error", `http_${response.status}`, `GitHub answered ${response.status}.`);
+    }
+    try { return { json: await response.json(), response }; }
+    catch { throw new GithubRefusal("upstream_error", "malformed", "GitHub returned malformed JSON."); }
+  }
+  throw new GithubRefusal("upstream_error", "redirect", "GitHub redirected too many times.");
+}
+
 export function createGithubToolsHost(options: GithubToolsHostOptions): GithubToolsHost {
   const now = options.now ?? Date.now;
-  const timeoutMs = options.timeoutMs ?? 20_000;
-
-  /** One GET against the fixed API origin. Redirects are followed only within it. */
-  async function get(token: string, path: string, signal: AbortSignal | undefined): Promise<{ json: unknown; response: Response }> {
-    let url = new URL(path, GITHUB_API_ORIGIN);
-    for (let hop = 0; hop < 4; hop++) {
-      if (url.origin !== GITHUB_API_ORIGIN) throw new GithubRefusal("upstream_error", "redirect", "GitHub redirected outside its API.");
-      const timeout = AbortSignal.timeout(timeoutMs);
-      let response: Response;
-      try {
-        response = await (options.fetch ?? fetch)(url, { method: "GET", redirect: "manual",
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-          headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "brain-ui" } });
-      } catch {
-        if (signal?.aborted) throw new GithubRefusal("upstream_error", "cancelled", "The turn ended before GitHub answered.");
-        throw new GithubRefusal("upstream_error", timeout.aborted ? "timeout" : "network", timeout.aborted ? "GitHub did not answer in time." : "GitHub could not be reached.");
-      }
-      if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
-        url = new URL(response.headers.get("location")!, url);
-        continue;
-      }
-      if (!response.ok) {
-        const limited = response.headers.get("x-ratelimit-remaining") === "0" || response.status === 429;
-        if (limited) throw new GithubRefusal("rate_limited", null, "GitHub's rate limit for the host credential is spent; try again later.");
-        if (response.status === 401) throw new GithubRefusal("unavailable", "credential_rejected", "GitHub rejected the host's GitHub tools credential.");
-        if (response.status === 404 || response.status === 410) throw new GithubRefusal("not_found", null, "GitHub has no such issue or repository, or the host's credential cannot see it.");
-        if (response.status === 403) throw new GithubRefusal("forbidden", null, "The host's GitHub credential is not permitted to read this.");
-        if (response.status === 422) throw new GithubRefusal("invalid_input", "github_validation", "GitHub refused the search.");
-        throw new GithubRefusal("upstream_error", `http_${response.status}`, `GitHub answered ${response.status}.`);
-      }
-      try { return { json: await response.json(), response }; }
-      catch { throw new GithubRefusal("upstream_error", "malformed", "GitHub returned malformed JSON."); }
-    }
-    throw new GithubRefusal("upstream_error", "redirect", "GitHub redirected too many times.");
-  }
+  const get = (token: string, path: string, signal: AbortSignal | undefined) => githubGet(options, token, path, signal);
 
   /** A path below the API origin from a `next` link, only when it stays there. */
   const relative = (link: string) => {
