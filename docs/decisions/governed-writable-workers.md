@@ -1525,7 +1525,7 @@ evidence is unproven.
 | Pi `read_file` (direct worker read) | The curated `readFileSync` in the worker | The governed `read_start` and `read_end` RPCs for that call, and no lock | Not observed |
 | Pi `write_file`, `edit_file` (direct worker writers) | The curated write under its path lock | The lock RPC plus `write_check` and `write_end` | Observed |
 | `bash`, `grep`, `brain_search`, `brain_context`, `brain_read`, `brain_list`, `brain_graph`, `brain_read_many`, extension and subagent tools, anything else | A subprocess, or brain-owned code: `brain.config.ts` evaluated in the worker by the first index query (`async function ensureContext`, `packages/ui-backend-pi/src/brain-access.ts:175`), which stays loaded. Index readers also run a host index barrier first, which can write `.brain-index/` | None | Observed, and every later result of the turn is observed too |
-| Every Claude tool | Built-ins run in the worker next to project settings hooks and the brain's own MCP server, which can run brain-owned code on any tool event | None reported | Observed, as before |
+| Every Claude tool | Built-ins run in the worker next to project settings hooks and the brain's own MCP server, which can run brain-owned code on any tool event | None reported; no proof condition holds for a journaled Claude turn ([#2875](#claude-tool-execution-evidence--2026-11-15-2875)) | Observed, as before |
 
 The pi backend reports evidence only from its own record of each call's RPCs.
 A call that names two tools, takes the write lock as a read, or reports only
@@ -1598,6 +1598,103 @@ The observation's native checkpoint and release dominate a writer's cost
 automatic refresh (#2873, since made metadata-only; see below). Neither can be
 cut by scheduling without weakening capture, so these targets are reported as
 unmet rather than relaxed.
+
+### Claude tool execution evidence — 2026-11-15 (#2875)
+
+**Conclusion: negative.** The Claude backend reports no
+`StartTurnRequest.toolExecution` evidence, and every Claude tool result stays
+observed. No condition the host can check proves that a journaled Claude call
+ran no project hook and no brain-owned MCP code. This was checked against the
+installed Claude Agent SDK 0.3.293 and its bundled CLI (build 2026-10-07).
+
+**The proof conditions.** A Claude read could skip its observation only if
+all of these held for the whole session, as the pi backend's extension-free
+worker does:
+
+1. No hook runs from any source the CLI loads: managed policy, project
+   settings, plugins, or agent and skill definitions.
+2. No MCP server runs except the host's in-process `brain-ui` server. That
+   rules out the brain's own `brain mcp` server and any other `.mcp.json`,
+   plugin or agent-frontmatter server.
+3. Neither of the first two can change during the session, including
+   through reloads and code a turn introduces.
+4. The host verifies all three from the runtime it launched, not from a
+   configured flag or from documentation.
+
+**Why none of them holds.**
+
+- **Only interactive turns are journaled, and they load project
+  configuration.** Evidence is wired only into the session-run turn request
+  for a governed turn with a journal (`export function turnRequest`,
+  `packages/ui-server/src/ws/session-run/backend-entry.ts:203-218`). That turn
+  is never a restricted autonomous one. It runs with `settingSources:
+  ["project"]` and without `strictMcpConfig`
+  (`const sdkOptions: Options`, `packages/ui-backend-claude/src/sdk-options.ts:406-422`).
+  Only the restricted envelope reads no settings and uses no project MCP
+  configuration (`function applyTurnSettings`,
+  `packages/ui-backend-claude/src/sdk-options.ts:615-624`), and no journaled
+  turn uses that envelope. Without `strictMcpConfig`, the SDK applies project
+  `.mcp.json`, plugin and on-disk agent-frontmatter MCP servers (the installed
+  `sdk.d.ts`, `strictMcpConfig`).
+- **The default brain runs brain-owned code for the whole session.** The
+  template's `.mcp.json` declares the `brain` server, `bun
+  node_modules/.bin/brain mcp`. It starts with the CLI, before any call. It
+  evaluates `brain.config.ts` and its modules, opens `brain.db`, registers
+  module tools, and advances compute jobs it started for as long as it lives
+  (`export async function startMcpServer`,
+  `packages/core/src/mcp-server.ts:723-795`). That is the Claude counterpart of
+  a pi worker with extensions loaded, which reports nothing.
+- **The CLI reloads configuration during the session.** The bundled CLI has
+  a settings change detector that watches the settings files for additions,
+  changes and deletions, a skill change detector, a plugin-directory watch and
+  a managed-settings poll. Each re-reads its source mid-session, subject only
+  to a `ConfigChange` hook. The SDK lists `user_settings`, `project_settings`,
+  `local_settings`, `policy_settings` and `skills` as sources that can change
+  (the installed `sdk.d.ts`, `ConfigChangeHookInput`). Settings checked at
+  launch therefore do not describe a later call.
+- **The host cannot read the effective hook set.** Managed hooks run even
+  under a non-managed `disableAllHooks` (the installed `sdk.d.ts`,
+  `policyHookCount`). The SDK's `Query` exposes no method that returns the
+  hooks in force. `get_hooks_listing` exists only as an internal control
+  request subtype, and it would be a snapshot that a reload can make stale.
+  `includeHookEvents` streams hook lifecycle messages, but the SDK documents
+  it as an output option, not as a complete or ordered record. Hooks on
+  events other than tool use, such as `ConfigChange`, `FileChanged` and
+  `InstructionsLoaded`, also run outside any call.
+- **Protection does not cover every input.** `.claude/settings.json`,
+  `.claude/settings.local.json` and `.mcp.json` are tier B, which the policy
+  may release (`export const PROTECTED_TIER_B`,
+  `packages/common/src/protected-paths.ts:25-34`). `.claude/skills/`,
+  `.claude/agents/` and the scripts a hook command runs are not protected.
+  Code a turn writes there itself is covered: the call that writes it is
+  unproven, so every later result of that turn is observed. A change by
+  another writer outside every active turn's calls is not covered. That
+  includes an external editor or host maintenance, and the CLI would pick the
+  change up by reloading.
+
+**What is guarded.** The backend never calls `toolExecution`. A scripted
+Claude turn with a project `PostToolUse` hook and the brain's `.mcp.json`
+server, and one with neither at turn start, runs `Read`, `Grep`, `Glob`, two
+`mcp__brain-ui__` reads and `mcp__brain__brain_search` to their results. The
+test fails if any of them reports evidence
+(`packages/ui-backend-claude/tests/tool-execution-evidence.test.ts`). On the
+host, evidence reported for a Claude tool name classifies as unproven, because
+the classified names are the pi and bridge names
+(`export function toolObservation`,
+`packages/ui-server/src/brain/tool-observation.ts:37-42`). The schedule test
+covers both points.
+
+**Not measured.** No Claude read qualifies, so
+`scripts/prove-native-host.ts --observation-timing` has no proven Claude read
+to time. Claude's per-result observations are unchanged from #2834.
+
+**What would reopen this.** The question can be reopened if a later runtime
+gives the host a verified, session-stable hook and MCP server set: a public
+query of the effective set together with a way to pin it against reloads, or
+a launch mode that loads none. Even then, it would apply only to a brain whose
+`.mcp.json` declares no `brain` server. Turning hooks off for interactive
+turns, or dropping the brain MCP server from them, would change what a brain's
+own configuration does, and that needs a maintainer ruling first.
 
 ### Metadata-only index history — 2026-10-25 (#2873)
 
