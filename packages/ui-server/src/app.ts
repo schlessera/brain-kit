@@ -40,11 +40,12 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, githubToolsTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
+import { createGithubToolsHost } from "./github/host.js";
 import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
@@ -796,6 +797,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   // Settle, time out and clean up open runs now and periodically; a no-op until a ledger exists.
   const stopApifyReconciler = apifyHost.startReconciler();
+  // Host GitHub tools (#3797): the dedicated credential only, never GITHUB_TOKEN.
+  // The session's G6 taint commits before any GitHub text reaches a turn.
+  const githubTools = createGithubToolsHost({ token: githubToolsTokenSource(),
+    untrusted: async (turn, event) => {
+      const collection=db.query("SELECT id,policy_hash FROM safety_collections WHERE turn_id=?").get(turn.turnId) as {id:string;policy_hash:string|null}|null;
+      const observed=occurrence(collection?.id??crypto.randomUUID(),"compute_input",null,"finalized");
+      observed.admission={trusted:false,policyHash:collection?.policy_hash??null,trustRevision:"0"};
+      await activity.governanceWrites.firstTaint({ kind: "taint", payload: { source: "github_result", tool: event.tool, detail: event.detail.slice(0, 200), occurrence: observed },
+        sessionId: turn.sessionId(), turnId: turn.turnId, actor: "interactive", model: null, profile: null });
+    },
+    report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   bootCleanup.push(() => { stopApifyReconciler(); apifyHost.close(); apifyLedger?.close(); apifyLedger = undefined; });
   const safetyHistory = new SafetyHistory(db, principal => { const current=resolvePrincipal(db,principal.id); return !!current && isUsablePrincipal(current,Date.now()); }, () => writer.idle());
   const accountSeed = await accountWrites(db).partitionSeed();
@@ -842,6 +854,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     ...(referenceWorktrees ? { referenceWorktrees, referenceWorktreeAccess: true } : {}),
     ...(referenceTools ? { referenceTools } : {}),
     apify: apifyHost,
+    githubTools,
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
