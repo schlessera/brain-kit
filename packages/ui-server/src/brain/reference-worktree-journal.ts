@@ -24,15 +24,21 @@ export const REFERENCE_WORKTREE_JOURNAL_SCOPE = "reference_worktree";
 export interface ReferenceWorktreeCheckpointLedger { record(id: string, worktreeId: string): void; forget(id: string): void }
 
 export function referenceWorktreeJournalManager(pool: ReferenceWorktreeJournalPool, worktreeId: string, ledger?: ReferenceWorktreeCheckpointLedger): NativeJournalManager {
+  // Identities whose ledger record failed: the pool never saw them, so their
+  // release only forgets whatever of the record may have committed (#3528).
+  const unsent = new Set<string>();
   return {
     async checkpoint(id, signal) {
-      await ledger?.record(id, worktreeId);
+      try { await ledger?.record(id, worktreeId); } catch (error) { unsent.add(id); throw error; }
       const checkpoint = await pool.poolCheckpoint(id, worktreeId, signal);
       if (checkpoint.from !== worktreeId || !checkpoint.path || !checkpoint.root) throw new Error("Worktree checkpoint reply does not name its worktree.");
       return { id: checkpoint.id, path: checkpoint.path, uuid: checkpoint.root.uuid, transaction: checkpoint.transaction, readOnly: true };
     },
     delta: (from, to, signal) => pool.poolDelta(from, to, signal),
-    async release(id, signal) { const result = await pool.poolRelease(id, signal); await ledger?.forget(id); return result; },
+    async release(id, signal) {
+      if (unsent.has(id)) { await ledger?.forget(id); unsent.delete(id); return { id, state: "deleted" }; }
+      const result = await pool.poolRelease(id, signal); await ledger?.forget(id); return result;
+    },
     readCheckpoint: (id, path, maximum, workerUid, signal) => pool.poolReadCheckpoint(id, path, maximum, workerUid, signal),
     statCheckpoint: (id, path, workerUid, signal) => pool.poolStatCheckpoint(id, path, workerUid, signal),
     listCheckpoint: (id, path, workerUid, signal) => pool.poolListCheckpoint(id, path, workerUid, signal),
