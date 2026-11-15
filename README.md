@@ -246,3 +246,11 @@ paths and were copied byte for byte from `main`
 Use the bundle's full containing commit when citing it. Verify its own
 `SHA256SUMS`; the top-level manifest and checksums still describe only the
 original snapshot.
+
+## Historical load receipts — 2026-11-15 (#3398)
+
+Two unreferenced historical load receipts from `docs/process/evidence/` were
+copied unchanged from main `a9bcdbd6734c1733390570e2a68c10afde3b00a9`.
+See `scripts/measurements/load-evidence-3398-2026-11-15/README.md` for provenance and evidence limits,
+and its `MANIFEST.json` and `SHA256SUMS` for byte verification.
+Use the full containing archive commit when citing this bundle.
