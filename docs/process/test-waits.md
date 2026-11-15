@@ -624,7 +624,7 @@ stories run in both Storybook theme projects. Chromium's
 `packages/ui-kit/tests/visual/ghost-handoff.visual.tsx` retains both themes,
 input-orchestration and main-thread-stall exclusion, a long task right after
 the commit that delays the fades' start (#3425), and the mutation holding one
-width's ghost 200 ms past its fade that still fails.
+width's ghost 400 ms past its fade that still fails.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
 

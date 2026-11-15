@@ -84,13 +84,15 @@ for (const theme of ["dark", "light"]) {
     });
   });
 
-  test(`${theme}: a handoff held 200ms past its fade at only 720px still fails`, async () => {
+  test(`${theme}: a handoff held 400ms past its fade at only 720px still fails`, async () => {
     await withCard(theme, async host => {
       // The handoff ends when both of its fades have. Hold only the second
-      // frame's incoming fade 200ms longer; its outgoing fade, and the first
-      // frame, stay valid, so the 720px ghost outlives its own fade.
+      // frame's incoming fade 400ms longer; its outgoing fade, and the first
+      // frame, stay valid, so the 720px ghost outlives its own fade. 400ms, not
+      // 200: a CPU-starved browser renders a 200ms hold in as few as three
+      // frames, inside the allowance.
       const hold = document.createElement("style");
-      hold.textContent = '[data-width="720"] .bk-ghost-in { animation-duration: 800ms !important; }';
+      hold.textContent = '[data-width="720"] .bk-ghost-in { animation-duration: 1000ms !important; }';
       document.head.append(hold);
       try {
         await expect(drive(host)).rejects.toThrow(/720px: frames rendered with the ghost after its fade ended/);

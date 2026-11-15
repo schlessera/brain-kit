@@ -111,12 +111,14 @@ for (const theme of ["dark", "light"]) {
     await withStream(theme, host => drive(host, 0, 0, undefined, 300));
   });
 
-  if (theme === "light") test(`${theme}: a first-token ghost held 200ms past its fade still fails`, async () => {
+  if (theme === "light") test(`${theme}: a first-token ghost held 400ms past its fade still fails`, async () => {
     await withStream(theme, async host => {
       // The handoff ends when both of its fades have. Hold the incoming fade
-      // 200ms longer, so the outgoing ghost outlives its own fade.
+      // 400ms longer, so the outgoing ghost outlives its own fade. 400ms, not
+      // 200: a CPU-starved browser renders a 200ms hold in as few as three
+      // frames, inside the allowance.
       const hold = document.createElement("style");
-      hold.textContent = ".bk-ghost-in { animation-duration: 800ms !important; }";
+      hold.textContent = ".bk-ghost-in { animation-duration: 1000ms !important; }";
       document.head.append(hold);
       try {
         await expect(drive(host)).rejects.toThrow(/frames rendered with the ghost after its fade ended/);
