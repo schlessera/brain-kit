@@ -26,9 +26,13 @@ export const FROZEN_CASES = cases;
  */
 export const STABLE_BRIDGE_ROSTER = [
   "apply_staged_changes", "ask_user", "ask_user_form", "ask_user_list", "ask_user_rank",
-  "brain_add", "brain_archive", "brain_read_base", "brain_update", "complete_share",
+  "brain_add", "brain_apify_abort", "brain_apify_approvals", "brain_apify_availability",
+  "brain_apify_discover", "brain_apify_inspect", "brain_apify_prepare", "brain_apify_results",
+  "brain_apify_revoke", "brain_apify_run", "brain_apify_status", "brain_archive",
+  "brain_compute_cancel", "brain_compute_collect", "brain_compute_health", "brain_compute_plan",
+  "brain_compute_run", "brain_compute_status", "brain_read_base", "brain_update", "complete_share",
   "edit_file", "get_current_location", "inbox_add", "inbox_get", "inbox_list",
-  "propose_policy_change", "query_activity", "reference_source", "reference_worktree",
+  "propose_policy_change", "query_activity", "read_attachment", "reference_source", "reference_worktree",
   "request_image_mask", "resolve_action", "show_block", "turn_temp", "write_file",
 ] as const;
 export function createFixture(control?: { corpus?: boolean }) {
