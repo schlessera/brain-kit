@@ -1540,7 +1540,13 @@ kept observation, is not retained, just as it was not when no tool result fell
 between.
 
 **Scope limits.** `files_changed` and `turn_bytes` are evaluated on each
-observation's facts. A proven read changes nothing, so it cannot cross a limit.
+observation's facts. `files_changed` counts only changed paths outside
+`workspaces/`, by path containment rather than a string prefix, so
+`workspaces-old/` still counts. A reference clone fetched or checked out there
+touches hundreds of files without changing the brain, and that alone paused
+interactive turns. `turn_bytes` and the free-space floor still count every
+workspace write, and the journal summary still reports every changed path
+(#3793). A proven read changes nothing, so it cannot cross a limit.
 A writer's result is still observed, so its own crossing is detected there.
 After an unproven call every result is observed, so a limit that a background
 writer crosses between two calls is detected at the next result, as before.
@@ -2184,7 +2190,8 @@ Queue budgets keep their existing admission and containment semantics.
 
 The policy's `scope` limits apply per turn to:
 
-- distinct paths changed in the brain and workspaces;
+- distinct paths changed in the brain, outside `workspaces/`;
+- bytes written, in the brain and workspaces;
 - wall time;
 - tool calls.
 
