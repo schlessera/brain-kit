@@ -12,7 +12,7 @@ const indexFamilyPaths = new Set(INDEX_FAMILY_PATHS);
 /**
  * Maintenance publication stages each changed file as `.maintenance-<uuid>`
  * beside its target, then renames it over the target (`const handle = { fd: preparationDirectory(brain, rel), name:`,
- * `packages/ui-sdk/src/server/worker-native-output.ts:397`; `const temporary = at(handle.fd,`,
+ * `packages/ui-sdk/src/server/worker-native-output.ts:443`; `const temporary = at(handle.fd,`,
  * `packages/ui-sdk/src/server/worker-output.ts:180`). Inside the index
  * directory such a copy is an index refresh in progress. As a SQLite GLOB.
  */
