@@ -41,25 +41,54 @@ test("approval publishes exact bytes under the shared brain lock and the next ad
   expect(admitted.policy.profiles.interactive).toBe("governed");
   expect(result.sections).toEqual(["profiles.interactive"]); expect(result.bodyChanged).toBe(true);
 });
-test("the review splits frontmatter where the policy parser ends it (#2507)", async () => {
-  // Unclosed: the parser reads every line as YAML, so the rules are frontmatter, not body.
-  const unclosed = "---\nschema_version: 1\nprofiles:\n  interactive: strict\n";
-  const f = fixture(), pending = f.service.propose(f.turn, "unclosed", { ...input, content: unclosed }); await f.service.settled();
-  const review = f.service.read("odysseus", "policy-turn", "unclosed")!;
-  expect(review.frontmatterDiff).toContain("+   interactive: strict"); expect(review.bodyDiff).not.toContain("interactive");
-  await f.answer(false); await pending;
-  // `---x` closes the block for the parser: the line after it is body, not frontmatter.
-  const dashed = "---\nschema_version: 1\nprofiles:\n  interactive: governed\n---x\nlater: 1\n---\nOdysseus reviews the policy.\n";
-  const g = fixture(), second = g.service.propose(g.turn, "dashed", { ...input, content: dashed }); await g.service.settled();
-  const split = g.service.read("odysseus", "policy-turn", "dashed")!;
-  expect(split.frontmatterDiff).not.toContain("later"); expect(split.frontmatterDiff.endsWith("+ ---")).toBe(true); expect(split.bodyDiff).toContain("+ later: 1");
-  await g.answer(false); await second;
-  // Whitespace after the closing dashes: the whole closing line stays frontmatter.
-  const spaced = proposed.replace("strict\n---\n", "strict\n---  \n");
-  const h = fixture(), third = h.service.propose(h.turn, "spaced", { ...input, content: spaced }); await h.service.settled();
-  const line = h.service.read("odysseus", "policy-turn", "spaced")!;
-  expect(line.frontmatterDiff).toContain("+ ---  \n+ "); expect(line.bodyDiff).toBe("- Odysseus reviews the policy.\n- \n+ Odysseus approves the policy.\n+ ");
-  await h.answer(false); await third;
+const ambiguousProposals = [
+  ["unclosed", "---\nschema_version: 1\nprofiles:\n  interactive: strict\n"],
+  ...["---x", "---yaml", "----"].flatMap(fence => [
+    [`opening ${fence}`, proposed.replace(/^---/, fence)],
+    [`closing ${fence}`, proposed.replace("strict\n---\n", `strict\n${fence}\n`)],
+  ]),
+] as const;
+for (const [name, content] of ambiguousProposals) test(`ambiguous proposal ${name} refuses before approval (#3666)`, async () => {
+  const f = fixture();
+  // Settle acceptance too, so removing the guard fails on the rejection assertion without hanging.
+  f.turn.approve = async () => { throw new Error("APPROVAL_MUST_NOT_BE_REQUESTED"); };
+  await expect(f.service.propose(f.turn, "ambiguous", { ...input, content })).rejects.toThrow("Invalid policy");
+  expect(f.service.read("odysseus", "policy-turn", "ambiguous")).toBeNull();
+  expect(f.db.query("SELECT count(*) AS n FROM policy_proposals").get()).toEqual({ n: 0 });
+  expect(f.emitted).toEqual([]); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
+  expect(readFileSync(f.path, "utf8")).toBe(original);
+});
+for (const [name, content] of [
+  ["LF", proposed],
+  ["trailing spaces and tabs", proposed.replaceAll("---\n", "--- \t\n")],
+  ["BOM", `\uFEFF${proposed}`],
+  ["CRLF", proposed.replaceAll("\n", "\r\n")],
+  ["BOM and spaced CRLF", `\uFEFF${proposed.replaceAll("---\n", "--- \t\n").replaceAll("\n", "\r\n")}`],
+  ["EOF closing fence", proposed.slice(0, proposed.indexOf("\n---\n") + 4)],
+] as const) test(`standalone proposal fences preserve exact ${name} bytes (#3666)`, async () => {
+  const f = fixture(), pending = f.service.propose(f.turn, "valid", { ...input, content });
+  await f.service.settled(); expect(f.count()).toBe(1);
+  const review = f.service.read("odysseus", "policy-turn", "valid")!;
+  expect(review.frontmatterDiff).toContain("+   interactive: strict");
+  expect(review.bodyDiff).not.toContain("interactive");
+  expect(review.frontmatterDiff).not.toContain("Odysseus approves");
+  if (name === "trailing spaces and tabs") {
+    expect(review.frontmatterDiff).toContain("+ --- \t\n+ ");
+    expect(review.bodyDiff).toBe("- Odysseus reviews the policy.\n- \n+ Odysseus approves the policy.\n+ ");
+  }
+  if (content.includes("Odysseus approves")) expect(review.bodyDiff).toContain("+ Odysseus approves the policy.");
+  await f.answer(true); expect((await pending).state).toBe("updated");
+  expect(readFileSync(f.path, "utf8")).toBe(content); expect(f.edits).toEqual([original, content]); expect(f.events).toHaveLength(1);
+});
+for (const [name, before] of ambiguousProposals) test(`valid replacement repairs old ${name} with parser-aligned review (#3666)`, async () => {
+  const f = fixture(); writeFileSync(f.path, before);
+  const pending = f.service.propose(f.turn, "repair", input); await f.service.settled();
+  const review = f.service.read("odysseus", "policy-turn", "repair")!;
+  // Old delimiters retain the shared parser's split; strictness only applies to new bytes.
+  if (name.startsWith("opening")) expect(review.frontmatterDiff + review.bodyDiff).toContain(`- ${name.slice(8)}`);
+  if (name === "unclosed") expect(review.bodyDiff).not.toContain("-   interactive: strict");
+  if (name === "closing ---x") { expect(review.frontmatterDiff).not.toContain("- x"); expect(review.bodyDiff).toContain("- x"); }
+  await f.answer(true); expect((await pending).state).toBe("updated"); expect(readFileSync(f.path, "utf8")).toBe(proposed); expect(f.edits).toEqual([before, proposed]);
 });
 test("decline preserves bytes and retains the same request receipt", async () => {
   const f = fixture(), pending = f.service.propose(f.turn, "policy-1", input); await f.answer(false);
@@ -287,4 +316,18 @@ test("an occupied staging name never grants cleanup ownership of a real similarl
   const changes=journal.details("ithaca","policy-turn")!.changes;
   expect(changes).toHaveLength(1);expect(changes[0]).toMatchObject({path:name,actor:"agent",class:"content"});
   expect(journal.version("ithaca","policy-turn",changes[0]!.sequence,"after")!.bytes(1024).toString()).toBe(bytes);
+});
+
+test("publication rechecks strict boundaries after schema validation (#3666)", async () => {
+  let calls = 0;
+  const f = fixture({ validate: bytes => {
+    const result = parseGovernancePolicy(bytes);
+    // The existing validation seam changes the selected delimiter only on revalidation.
+    if (++calls === 2) bytes[proposed.indexOf("\n---\n") + 4] = "x".charCodeAt(0);
+    return result;
+  } });
+  const pending = f.service.propose(f.turn, "revalidate-boundary", input); await f.answer(true);
+  const result = await pending;
+  expect(result.state).toBe("invalid"); expect(result.message).toContain("standalone ---");
+  expect(readFileSync(f.path, "utf8")).toBe(original); expect(f.edits).toEqual([]); expect(f.events).toEqual([]);
 });
