@@ -18,7 +18,7 @@ const DENIAL_DETAILS: Readonly<Record<string, string>> = {
 
 /** Relay-owned signals, read only from a runtime error, never model prose. */
 export function hostRefusal(text: string, status: number | undefined, reason?: string): TurnFailure | null {
-  const fixed = /^(?:Failed to authenticate\. )?API Error: [1-5]\d\d (?:Inference network admission refused|Inference request refused|Inference request cancelled|Inference egress limit exceeded)\.?$/;
+  const fixed = /^(?:(?:Failed to authenticate\. )?API Error: [1-5]\d\d )?(?:Inference network admission refused|Inference request refused|Inference request cancelled|Inference egress limit exceeded)\.?$/;
   const body = /"type"\s*:\s*"brain_inference_refused"/.test(text);
   if (!fixed.test(text) && !body) return null;
   // Only first-party codes become prose; arbitrary host data is not disclosed.

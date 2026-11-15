@@ -24,6 +24,10 @@ const read = (entries: SessionMessage[]) =>
   buildSessionHistory(SESSION, (async () => entries) as unknown as typeof getSessionMessages, import.meta.dir);
 
 describe("an API error replays as the turn's failure", () => {
+  test("bare retained relay refusal text names the host without inventing a status or cause", async () => {
+    const [, answer] = await read([userTurn("Continue"), syntheticEntry("Inference network admission refused")]);
+    expect(answer!.failure).toEqual({ errorClass: "host_refused", message: "The host refused this model request." });
+  });
   test.each([403, 499])("a relay %i replays as host refusal without a login instruction", async status => {
     const [, answer] = await read([userTurn("Continue"), syntheticEntry(
       `${status === 403 ? "Failed to authenticate. " : ""}API Error: ${status} Inference network admission refused`)]);
