@@ -1979,6 +1979,61 @@ send 1 to 2 ms each); the rest of the hold is not attributed
 (#2915). The targets are
 reported as unmet, not relaxed.
 
+### Where an observation's time goes — 2026-11-15 (#2915)
+
+**What is measured.** `--observation-timing` now attributes each observed
+writer's worker hold and each harbour turn's journal begin and finish to their
+steps. The journal reports every step of a held observation to an internal
+trace (`observationTrace`, `packages/ui-server/src/brain/turn-journal.ts`),
+the hold itself last, and the native manager reports each request's wait for
+its single operation lock, the operation it waited behind, and its checkpoint,
+release and delta steps (`trace`, `NativeBrainManagerOptions`,
+`packages/ui-sdk/src/server/native-brain-manager.ts`). The app child and the
+fixture's manager stamp both with `performance.timeOrigin + performance.now()`.
+A checkpoint or delta step is broken down by the one manager request that
+arrived inside it. The run fails unless every such step pairs with exactly one
+request and each checkpoint answered before its step ended: that is the proof
+that the two processes' clocks agree
+(`scripts/native-proof/observation-phases.ts`). Nothing is traced unless a
+caller passes a trace, and no step, check or durability write changed.
+Admission's lifecycle steps gain the same new names (`observe_reserve`,
+`observe_release_reads`, `observe_worktrees`, `observe_publish`,
+`observe_facts`), additively.
+
+**Measured.** pi, governed, UID 1000, 2,000 notes, on hosted GitHub runners
+(1-minute load 1 to 2), on 2026-11-15. The first row is one run; the other two
+ran back to back on one runner. Median added ms / p95 with the median worker
+hold, and journal begin plus finish as the median / p95 of paired totals:
+
+| | `write_file` | `edit_file` | Writing `bash` | Begin + finish |
+| --- | --- | --- | --- | --- |
+| This change, run 1 | 71 / 494, held 45 | 59 / 249, held 33 | 86 / 614, held 57 | 218 / 1,577 |
+| Base `3f8ff293`, paired | 67 / 97, held 38 | 69 / 74, held 38 | 76 / 96, held 40 | 62 / 181 |
+| This change, paired | 68 / 126, held 38 | 68 / 80, held 40 | 72 / 79, held 38 | 68 / 144 |
+
+The paired runs show the trace costs nothing measurable. The phases cover
+98 to 99 % of the measured hold, begin and finish by median, and at least
+92.9 % of every single sample. In the paired run a writer's 38 ms hold is the
+queue for the journal and the workers' freeze (3.7 ms), the checkpoint
+(18.1 ms: qualification 4.5, the two fsynced intents 4.3, the snapshot 5.8, the
+Unix round trip 2.4), the delta (3.9), content capture of the written file
+(6.9), and the record, publication and facts query (about 3). Finish is the
+same observation plus its end record (1.2) and object collection (0.7). The
+release owner (#2872) rarely delays anything any more: a writer's checkpoint
+waited behind a release in 2 of 60 calls in run 1.
+
+**Targets.** On these runners both #2834 targets are met, at the base and with
+this change: writers add 67 to 76 ms (target under 150) and begin plus finish
+takes 62 to 68 ms (target at most 300). Run 1 shows what the slower host in
+#2872's runs paid for. Finish's median was 139 ms and its p95 1.6 s, and almost
+all of it sat in two required durability steps: the checkpoint's intent fsync
+(110 ms median) or the snapshot, whichever met the btrfs writeback of the
+turn's and the index refresh's dirty data first. Nothing was cut. Every
+remaining phase is a qualification check, an identity check, a durability
+write, a journal capture or the hold mechanism itself, and none may be skipped
+or cached. Moving that writeback out of the hold is a separate question
+(#4019).
+
 ## Monitoring
 
 **Where it lives.** All monitoring is host operational state in `brain-ui.db`
