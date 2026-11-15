@@ -1356,7 +1356,6 @@ export "./internal" (./src/internal.ts)
   type InferenceRelayEvent
   type LaunchedWorker
   MAINTENANCE_HOME
-  MAX_PROVIDER_REQUEST_BYTES
   type MaintenanceCommand
   type MaintenanceHost
   type MaintenanceResult
@@ -1367,11 +1366,8 @@ export "./internal" (./src/internal.ts)
   type NativeBrainDeltaCandidate
   NativeBrainManagerError
   NativeFileVersions
-  type NativePoolAccess
   type NativePoolCheckpoint
-  type NativePoolCreatePurpose
   type NativePoolRecord
-  type NativePoolState
   type NativePoolStatus
   ORIENTATION_MAX_BYTES
   OUTWARD_VOICE_REFUSAL
@@ -1385,12 +1381,10 @@ export "./internal" (./src/internal.ts)
   PROVIDER_RELAY_KEYS_NAME
   PROVIDER_RELAY_SOCKET_NAME
   type PreparedWorkerOutput
-  type ProviderOperation
   type ProviderRelay
   type ProviderRelayOptions
   type ProviderRelayReceipt
   type ProviderRelayRefusal
-  type ProviderUsage
   type QuestionObservation
   REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
@@ -1420,8 +1414,6 @@ export "./internal" (./src/internal.ts)
   WORKER_EMPTY_HOME
   WORKER_INFERENCE_SOCKET
   WORKER_PROVIDER_CREDENTIAL_ENV
-  WORKER_PROVIDER_RELAY_DIR
-  WORKER_PROVIDER_RELAY_SOCKET
   WORKER_REFERENCE_ROOT
   WORKER_SCRATCH
   WORKER_STATE
@@ -1452,7 +1444,6 @@ export "./internal" (./src/internal.ts)
   applyClassification
   archivesDocument
   assertManagedTurnStartupView
-  assertScratchMask
   assertScratchMaskAsync
   bashCommand
   canonicalModelId
@@ -1489,7 +1480,6 @@ export "./internal" (./src/internal.ts)
   launchAgentWorker
   launchAgentWorkerAsync
   launchLimits
-  launchMaintenanceWorker
   launchMaintenanceWorkerAsync
   limitFailureMessage
   loadedSdkIdentity
@@ -1522,13 +1512,11 @@ export "./internal" (./src/internal.ts)
   prepareWorkerSandboxAsync
   probeNativeMaintenanceWorker
   probeWorkerHost
-  probeWorkerHostAsync
   processCleanupReconciler
   processStateLedger
   projectConversationGuidance
   promptPrefixFingerprint
   protectedPaths
-  providerUsage
   readWebSearchOverride
   readWebSearchRouting
   recoveredWorkerFile
