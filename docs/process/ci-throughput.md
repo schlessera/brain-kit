@@ -121,7 +121,11 @@ bun scripts/ci-timings.ts record --event tmp/work-event.json --out tmp/ci-timing
 ```
 
 The command supplies version, UUID, current timestamp and repository. Explicit
-ID/time permit attributed historical observations. IDs cannot be overwritten
+ID/time permit attributed historical observations. Optional `orchestrator` IDs
+use the same opaque syntax as worker/task IDs. `preempted` records a preemption
+without claiming a pass or failure; it requires worker/task IDs. Explicit
+[publication](ci-timings.md#publish-local-coordination-events) appends these
+local events to the durable measurement ref. IDs cannot be overwritten
 with different content. Pairs are `work-started`/`work-finished` and
 `wait-started`/`wait-finished`; waits require `reason` set to `reservation`,
 `ci`, `review`, `conflict` or `other`. Each pair shares worker/task/reason.
