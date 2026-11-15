@@ -6,42 +6,23 @@
  * carries no module or repository information.
  */
 import type { MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
-import { brainCommandClass, type HostBoundary } from "../brain/host-boundary.js";
+import type { HostBoundary } from "../brain/host-boundary.js";
 import { canonicalRepository, fetchModuleRepository, grantModuleRepositories, moduleRepositoryMirrorPath, MODULE_REPOSITORIES_ENV,
   type ModuleRepositoryAccess, type RepositoryTransportRun } from "../brain/module-repositories.js";
 import type { BrainModuleListPayload } from "./emit.js";
+import { readModuleList, type DiscoveryAttempt } from "./module-discovery.js";
 
 /**
  * Read the module list through the host boundary, credential-free and gated
- * shared: a maintenance worker while the boundary holds. The same read as the
- * crontab's module discovery, kept separate so a job never depends on it.
+ * shared: a maintenance worker while the boundary holds. One attempt of the
+ * crontab's module discovery read, without its retries: a job that cannot
+ * learn its module says why instead of waiting.
  */
 export async function readJobModuleList(
   env: Record<string, string | undefined>,
   boundary: HostBoundary
-): Promise<BrainModuleListPayload | null> {
-  try {
-    // The CLI imports the repository's config, so this read goes through the
-    // host boundary like every other CLI launch: a maintenance worker while
-    // it holds, the exec wrapper otherwise.
-    const result = await boundary.run({ argv: ["brain", "module", "list", "--json"], env,
-      ...brainCommandClass(["module", "list"]), purpose: "brain module list" });
-    const exitCode = result.exitCode;
-    const stdout = result.stdout;
-    if (exitCode !== 0 || stdout.trim() === "") return null;
-    const parsed: unknown = JSON.parse(stdout);
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !Array.isArray((parsed as Partial<BrainModuleListPayload>).enabled) ||
-      !Array.isArray((parsed as Partial<BrainModuleListPayload>).available)
-    ) {
-      return null;
-    }
-    return parsed as BrainModuleListPayload;
-  } catch {
-    return null;
-  }
+): Promise<DiscoveryAttempt> {
+  return readModuleList(env, boundary);
 }
 
 /**
@@ -71,15 +52,20 @@ export async function prepareJobRepositories(input: {
   env: MaintenanceCommand["env"];
   /** The operator allow-list, already parsed from host configuration. */
   allowList: readonly string[];
-  listModules: () => Promise<BrainModuleListPayload | null>;
+  /** The module list, or why there is none; a bare payload or null is accepted too. */
+  listModules: () => Promise<DiscoveryAttempt | BrainModuleListPayload | null>;
   tempLimits?: MaintenanceCommand["tempLimits"]; tempDomain?: MaintenanceCommand["tempDomain"]; signal?: AbortSignal;
   /** @internal Test seams for the transport and the credential's fixture origin. */
   run?: RepositoryTransportRun; credentialOrigin?: string;
 }): Promise<JobRepositories> {
   // Module jobs are always `<module>-<entry>`; a core job never asks.
   if (!input.jobName.includes("-")) return { ok: true, repositories: [], notes: [] };
-  const payload = await input.listModules();
-  if (!payload) return { ok: true, repositories: [], notes: ["module list unavailable: no repository is fetched for this job"] };
+  const listed = await input.listModules();
+  const payload = listed && "modules" in listed ? listed.modules : listed;
+  if (!payload) {
+    const cause = listed && "cause" in listed ? `: ${listed.cause}` : "";
+    return { ok: true, repositories: [], notes: [`module list unavailable${cause}; no repository is fetched for this job`] };
+  }
   const owners = modulesForJob(payload, input.jobName, input.command);
   const requested = [...new Set(owners.flatMap(module => Array.isArray(module.repositories) ? module.repositories : []))];
   if (requested.length === 0) return { ok: true, repositories: [], notes: [] };

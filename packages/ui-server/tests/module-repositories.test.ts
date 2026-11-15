@@ -147,6 +147,15 @@ describe("the host fetch (loopback Git fixture, synthetic credential)", () => {
       .toEqual({ ok: true, repositories: [], notes: [] });
   });
 
+  test("a module list that cannot be read names its cause and fetches nothing", async () => {
+    const before = received.length;
+    const result = await prepareJobRepositories({ ...JOB, brainPath: brain, env, allowList: [watchtower()], run: hostRun, credentialOrigin: origin(),
+      listModules: async () => ({ modules: null, cause: "brain module list exited 1; stderr: config failed to load", retryable: true }) });
+    expect(result, "MODULE_LIST_CAUSE_NAMED").toEqual({ ok: true, repositories: [],
+      notes: ["module list unavailable: brain module list exited 1; stderr: config failed to load; no repository is fetched for this job"] });
+    expect(received.slice(before)).toEqual([]);
+  });
+
   test("the job's worker reads the mirror through a URL rewrite and its environment never holds the credential", async () => {
     const result = await prepareJobRepositories({ ...JOB, brainPath: brain, dbPath: join(state, "ui.db"), env, allowList: [watchtower()],
       listModules: async () => moduleList([watchtower()]), run: hostRun, credentialOrigin: origin() });
