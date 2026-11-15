@@ -543,7 +543,7 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:426-433`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:432-439`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
@@ -4257,7 +4257,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:660-694`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:518-529`).
+  `packages/ui-server/src/brain/host-boundary.ts:526-537`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -4300,8 +4300,8 @@ is now consumer-qualified independently of reference classification (#2028). The
 | Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
 
 This mapping was checked against core's (`loadModules`,
-`packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
-`packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
+`packages/core/src/lib/module-loader.ts:114-122`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:221-253`), Pi's (`build`,
 `packages/ui-backend-pi/src/session-resources.ts:93-137`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
