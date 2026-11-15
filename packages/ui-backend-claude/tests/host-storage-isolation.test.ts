@@ -24,8 +24,8 @@ test("the shared preload keeps default and explicit-profile turns out of the inv
     expect(claudeHomeSnapshot(home), "INVOKING_CLAUDE_HOME_UNCHANGED").toBe(baseline);
     expect(readFileSync(sentinel, "utf8")).toBe("Ithaca\n");
     const report = JSON.parse(readFileSync(join(root, "report.json"), "utf8"));
-    expect(report.records).toEqual([1, 1]);
-    expect(report.storageWasInsideTestHome).toBe(true);
+    expect(report.records).toEqual([1, 1, 1]);
+    expect(report.storageWasOwned).toBe(true);
     expect(existsSync(report.home)).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

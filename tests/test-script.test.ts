@@ -33,7 +33,7 @@ async function run(args: string[], env: Record<string, string> = {}) {
     if (existsSync(script)) {
       mkdirSync(join(dir, "scripts"));
       cpSync(script, join(dir, "scripts/test.ts"));
-      for (const helper of ["runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
+      for (const helper of ["runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-home.ts", "test-claude-home-guard.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"]) {
         cpSync(join(ROOT, "scripts", helper), join(dir, "scripts", helper));
       }
       // The actual preload also owns cleanup for the shared CLI harness.

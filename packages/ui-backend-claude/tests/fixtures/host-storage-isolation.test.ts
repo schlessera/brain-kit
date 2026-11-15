@@ -12,11 +12,12 @@ mockWorkerHostForSdkStream();
 test("default and explicit profile saves settle in the disposable test home", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-isolation-turn-"));
   const records: number[] = [];
-  let storageWasInsideTestHome = true;
+  let storageWasOwned = true;
   try {
-    for (const explicit of [false, true]) {
-      const brain = join(root, String(explicit)); mkdirSync(brain);
-      const profile = { id: "voyage", label: "Voyage", billing: "api" as const, requiredEnvKeys: [], buildEnv: () => ({}) };
+    for (const mode of ["default", "empty", "override"]) {
+      const explicit = mode !== "default";
+      const brain = join(root, mode); mkdirSync(brain);
+      const profile = { id: "voyage", label: "Voyage", billing: "api" as const, requiredEnvKeys: [], buildEnv: () => mode === "override" ? { CLAUDE_CONFIG_DIR: join(root, "config") } : {} };
       const session = "44444444-4444-4444-8444-444444444444";
       const backend = createClaudeBackend({ brainPath: brain, log: () => {},
         ...(explicit ? { profiles: [profile] } : {}),
@@ -30,10 +31,10 @@ test("default and explicit profile saves settle in the disposable test home", as
         bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }) } });
       const storage = join(transcriptPaths(brain, explicit ? turnEnv(profile) : undefined).archive, "native-observations");
       records.push(readdirSync(storage).filter(name => name.endsWith(".json")).length);
-      storageWasInsideTestHome &&= storage.startsWith(join(process.env.HOME!, ".claude") + "/");
+      storageWasOwned &&= storage.startsWith((mode === "override" ? join(root, "config") : join(process.env.HOME!, ".claude")) + "/");
     }
-    expect(records).toEqual([1, 1]);
+    expect(records).toEqual([1, 1, 1]);
     if (process.env.ODYSSEUS_ISOLATION_REPORT) writeFileSync(process.env.ODYSSEUS_ISOLATION_REPORT,
-      JSON.stringify({ records, storageWasInsideTestHome, home: process.env.HOME }));
+      JSON.stringify({ records, storageWasOwned, home: process.env.HOME }));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
