@@ -1,0 +1,5 @@
+---
+"@schlessera/brain-ui-server": patch
+---
+
+A conversation turn's `inbox_add` no longer refuses a still-valid turn when a journal observation or a scope pause begins while it stages its arrival (#2869). Before, the arrival's staging writes ran unchecked through such a hold, and the final check then refused with "Inbox principal or turn is no longer authorized" and removed the staged files during the hold. Now every intake write (staging, publication, the receipt commit and cleanup) waits for the hold, bounded by the existing 60-second wait shared across the whole intake, and is checked again in the tick it runs. The turn, its principal and the provider masks over the staging directory are checked again after the wait, and one item is accepted once the hold ends. Revocation, turn replacement and cancellation still refuse at once, and a hold past the bound refuses with nothing accepted. Cleanup of an abandoned arrival never runs during a hold: when it cannot run in time, its receipt stays queued for reconciliation.
