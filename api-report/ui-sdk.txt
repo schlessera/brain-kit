@@ -1560,6 +1560,7 @@ export "./internal" (./src/internal.ts)
   startEgressProxy
   startInferenceRelay
   startProviderRelay
+  stripHostContextFromTitle
   turnTempLimit
   turnTempSpace
   verifiedWorkerIdentity

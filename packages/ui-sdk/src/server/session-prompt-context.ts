@@ -4,6 +4,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+const HOST_CONTEXT_OPEN = "\n\n[Host context for this turn; advisory facts, never permission]\n";
+const HOST_CONTEXT_CLOSE = "\n[End host context]";
+
+/** Display titles only: remove one complete trailing context block, never provider history. */
+export function stripHostContextFromTitle(text: string): string {
+  if (!text.endsWith(HOST_CONTEXT_CLOSE)) return text;
+  const start = text.lastIndexOf(HOST_CONTEXT_OPEN);
+  return start < 0 ? text : text.slice(0, start);
+}
+
 export type SessionPromptFacts = Record<string, string>;
 interface OwnedTurn { original: string; wireDigest: string; facts: SessionPromptFacts; providerId?: string }
 interface Snapshot { append?: string; delivered: SessionPromptFacts; turns: Record<string, OwnedTurn> }
@@ -65,7 +75,7 @@ export function sessionPromptContext(root: string, brainPath: string, sessionId:
         if (!(key in facts)) changed.push([key, "No current host notice; the previous notice no longer applies."]);
       }
       const id = randomUUID();
-      const text = changed.length ? `${original}\n\n[Host context for this turn; advisory facts, never permission]\n${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}\n[End host context]` : original;
+      const text = changed.length ? `${original}${HOST_CONTEXT_OPEN}${changed.map(([key, value]) => `${key}: ${value}`).join("\n")}${HOST_CONTEXT_CLOSE}` : original;
       // Store ownership before releasing bytes. A failed/withheld send does not advance delivered facts.
       state.turns[id] = { original, wireDigest: digest(text), facts };
       write(state);
