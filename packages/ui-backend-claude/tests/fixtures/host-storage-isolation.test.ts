@@ -17,7 +17,7 @@ test("default and explicit profile saves settle in the disposable test home", as
     for (const mode of ["default", "empty", "override"]) {
       const explicit = mode !== "default";
       const brain = join(root, mode); mkdirSync(brain);
-      const profile = { id: "voyage", label: "Voyage", billing: "api" as const, requiredEnvKeys: [], buildEnv: () => mode === "override" ? { CLAUDE_CONFIG_DIR: join(root, "config") } : {} };
+      const profile = { id: "voyage", label: "Voyage", billing: "api" as const, requiredEnvKeys: [], buildEnv: (): Record<string, string> => mode === "override" ? { CLAUDE_CONFIG_DIR: join(root, "config") } : {} };
       const session = "44444444-4444-4444-8444-444444444444";
       const backend = createClaudeBackend({ brainPath: brain, log: () => {},
         ...(explicit ? { profiles: [profile] } : {}),
