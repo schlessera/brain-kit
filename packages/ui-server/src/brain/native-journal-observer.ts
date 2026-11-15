@@ -388,11 +388,14 @@ export function createNativeJournalObserver(native: NativeJournalManager, worker
   }
   async function prepare(signal?: AbortSignal, timing?: PhaseTimer): Promise<NativeJournalObservation> {
     await initialize(signal);
+    // The wait for room behind earlier releases (#2915), before any checkpoint.
+    let end = timing?.("observe_reserve");
     await reserveRelease();
+    end?.();
     const active = signalFor(signal), before = root!;
     let after: NativeJournalCheckpoint | undefined, reader: RootMetadataReader | undefined;
     try {
-      let end = timing?.("observe_checkpoint");
+      end = timing?.("observe_checkpoint");
       after = await checkpoint(active);
       end?.(); end = timing?.("observe_delta");
       const job = await native.delta(before.id, after.id, active);
