@@ -51,6 +51,15 @@ import type { TurnLockBinding } from "./turn-lock.js";
  * tool list never depends on configuration (provider-history.md).
  */
 export const IN_WORKER_COMPUTE_TOOLS: readonly string[] = Object.freeze(COMPUTE_TOOL_CONTRACTS.map(contract => `mcp__brain__${contract.name}`));
+/**
+ * The in-worker brain MCP server's fixed Apify tools (#3788). That server
+ * registers `brain_apify_*` unconditionally, but a worker holds neither the
+ * token nor the ledger (`HOST_ONLY_SECRET_ENV`), so every call there refuses
+ * with `ledger_unset`, under the same names and descriptions as the host's
+ * working `mcp__brain-ui__brain_apify_*` tools. Disallowed in every session,
+ * like compute, so the tool list never depends on configuration.
+ */
+export const IN_WORKER_APIFY_TOOLS: readonly string[] = Object.freeze(Object.values(APIFY_TOOL_NAMES).map(name => `mcp__brain__${name}`));
 /** The prompt-brief keys of the compute contracts, as `SurfaceTools` names them. */
 const COMPUTE_SURFACE_KEYS = [["computeHealth", "brain_compute_health"], ["computePlan", "brain_compute_plan"], ["computeRun", "brain_compute_run"],
   ["computeStatus", "brain_compute_status"], ["computeCancel", "brain_compute_cancel"], ["computeCollect", "brain_compute_collect"]] as const;
@@ -424,7 +433,7 @@ function assembleClaudeSdkTurn(
     allowedTools: allowed,
     // The built-in AskUserQuestion picker needs a TTY; keep it disabled even
     // when no ask-user handler is present.
-    disallowedTools: ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...((hosted || req.autonomous) ? [
+    disallowedTools: ["AskUserQuestion", ...IN_WORKER_COMPUTE_TOOLS, ...IN_WORKER_APIFY_TOOLS, ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
     ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
