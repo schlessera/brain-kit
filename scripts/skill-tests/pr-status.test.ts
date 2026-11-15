@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Gh } from "../issue-queue";
 import { failingLines, main, summarizeChecks } from "../pr-status";
 import { RECEIPT_START } from "../check-receipt";
+import { EXPECTED_FAILURE_PREFIX } from "../expected-failure-log";
 
 const REPO = "schlessera/brain-kit";
 const HEAD = "a".repeat(40), BASE = "b".repeat(40), OLD_BASE = "c".repeat(40), MERGE = "d".repeat(40);
@@ -45,6 +46,21 @@ describe("reading a job log", () => {
 
   test("only failing lines are kept, without timestamps or colour", () => {
     expect(failingLines(log)).toEqual(["(fail) the ship > reefs the sail [4.01ms]", "error: expect(received).toBe(expected)", "##[error]Process completed with exit code 1."]);
+  });
+
+  test("a deliberate expected-failure control's lines are left out, and counted", () => {
+    // #2921: runtime_host's retained-namespace control fails by design in every
+    // run, green or red; its lines were read as the job's failure six times.
+    const control = [
+      "2026-07-12T09:00:00.0000000Z Verifying the deliberately retained index namespace reproduces the expected failure.",
+      `2026-07-12T09:00:01.0000000Z ${EXPECTED_FAILURE_PREFIX}{"kind": "command", "code": 1, "stderr": "error: NATIVE_AUTOMATIC_INDEX_COMPLETED: AbortError"}`,
+      `2026-07-12T09:00:01.1000000Z ${EXPECTED_FAILURE_PREFIX}\u001b[31merror\u001b[0m: Native hosted proof failed (1); inspect run-pi-uid0-Ithaca.`,
+      "2026-07-12T09:00:02.0000000Z Verified expected automatic-index failure, namespace correlation and owned cleanup; all four healthy cells remain qualified.",
+      "2026-07-12T09:00:03.0000000Z error: Identity fixture mutation anchor changed",
+      "2026-07-12T09:00:03.1000000Z ##[error]Process completed with exit code 1.",
+    ].join("\n");
+    expect(failingLines(control)).toEqual(["error: Identity fixture mutation anchor changed", "##[error]Process completed with exit code 1.",
+      "(2 lines of a deliberate expected-failure control left out)"]);
   });
 
   test("a long failure is cut, and says by how much", () => {

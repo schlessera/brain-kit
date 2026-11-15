@@ -2,6 +2,7 @@
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { verifyIndexReleaseReproduction } from "./native-proof/verify-index-release-repro.js";
+import { EXPECTED_FAILURE_PREFIX, runExpectedFailureControl } from "./expected-failure-log.js";
 
 import { ownedCleanupComplete } from "./native-proof/verify-owned-remove.js";
 
@@ -90,10 +91,9 @@ if (import.meta.main) {
       // Four healthy cells qualify first. This separate negative control must
       // fail the original index-completion assertion for the measured reason.
       const before = new Set(readdirSync(output));
-      console.log("Verifying the deliberately retained index namespace reproduces the expected failure.");
-      const reproduction = Bun.spawn([process.execPath, import.meta.filename, "--backend=pi", "--app-uid=0", "--retain-index-namespace"],
-        { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
-      const code = await reproduction.exited;
+      // #2921: its designed failure reads like the job's, so every line it prints is marked.
+      console.log(`Verifying the deliberately retained index namespace reproduces the expected failure. Its lines carry "${EXPECTED_FAILURE_PREFIX.trim()}"; the verdict follows.`);
+      const code = await runExpectedFailureControl([process.execPath, import.meta.filename, "--backend=pi", "--app-uid=0", "--retain-index-namespace"]);
       const created = readdirSync(output, { withFileTypes: true }).filter(entry => entry.isDirectory() && !before.has(entry.name));
       if (created.length !== 1) throw Error("Native index-release reproduction did not retain exactly one owned invocation");
       const receipt = verifyIndexReleaseReproduction(join(output, created[0]!.name), code);
