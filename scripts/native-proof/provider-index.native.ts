@@ -32,6 +32,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
   writeFileSync(join(brain, "notes/provider-peer.md"), document("Odysseus shared raft", "A peer may change this note mid-turn."));
   writeFileSync(join(brain, "context/policies/governance.md"),
     "---\nschema_version: 1\nproviders: [{ paths: [me/**], allow: [anthropic] }]\n---\nOdysseus keeps his oath with one provider.\n");
+  const peerTrees: string[] = [];
   try {
     writeFileSync(join(brain, ".gitignore"), ".brain/scratch/\n.brain-index/\n");
     const git = Bun.spawnSync(["/usr/bin/git", "init", "--shared=group", "-q", brain],
@@ -45,19 +46,21 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
     try { expect(initial.query("SELECT path FROM documents WHERE content LIKE ?").all(`%${sentinel}%`),
       "NATIVE_REAL_INDEX_POSITIVE_SENTINEL_CONTROL").toEqual([{ path: "me/oath.md" }]); }
     finally { initial.close(); }
+    // The manager's private paths are every worker's masks, as the app applies them (#2911).
+    const privatePaths = (await manager.ready()).privatePaths;
     for (const profile of ["strict", "governed"] as const) {
       const root = `/identity-fixture/provider-index-${profile}`;
       mkdirSync(root, { mode: 0o700 });
       const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
       const reports: string[] = [];
-      const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, profile, requireGate: true });
+      const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, nativeMaskPaths: privatePaths, profile, requireGate: true });
       execution.attach(db);
-      const turns = createGovernedTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
+      const turns = createGovernedTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: privatePaths,
         index: async () => {}, report: message => reports.push(message),
         privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"] });
       let hold: Awaited<ReturnType<typeof turns.begin>> | undefined;
       let prepared: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
-      let privateIndex: string | undefined;
+      let privateIndex: string | undefined, treeRoot: string | undefined;
       try {
         hold = await turns.begin(`native-private-index-${profile}`, new AbortController().signal);
         expect(hold.managedStorage, "NATIVE_PROVIDER_INDEX_MANAGED_ADMISSION").toBe(true);
@@ -66,6 +69,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         const scratch = hold.sandbox.areas.find(area => area.name === "scratch")?.mount;
         expect(scratch?.writable, `NATIVE_PROVIDER_INDEX_WRITABLE_SCRATCH: ${JSON.stringify(scratch)}`).toBe(true);
         privateIndex = hold.sandbox.providerMasks!.index!;
+        treeRoot = hold.sandbox.dataTree?.root;
         const info = statSync(privateIndex);
         // The worker's user namespace deliberately does not map the server UID.
         expect(info.uid, "NATIVE_PRIVATE_INDEX_SERVER_OWNER").toBe(21001);
@@ -99,10 +103,20 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
           expect(command, "NATIVE_STRICT_PROVIDER_INDEX_KEEPER_NAMESPACE").toContain(Bun.which("nsenter")!);
           expect(command, "NATIVE_STRICT_PROVIDER_INDEX_KEEPER_PID").toContain(String(storage.namespacePid));
         } else expect(hold.startupView, "NATIVE_GOVERNED_PROVIDER_INDEX_LIVE_BRAIN").toBeUndefined();
+        // #2911: the strict tree is the manager's, on the managed volume; a
+        // peer's tree beside it holds a note the worker must never reach.
+        let peerTree = "";
+        if (profile === "strict") {
+          const root = hold.sandbox.dataTree?.root ?? "";
+          expect(root.startsWith(join(brain, "..", ".brain-native", "trees") + "/"), `NATIVE_STRICT_TREE_ON_THE_MANAGED_VOLUME: ${root}`).toBe(true);
+          const peer = await manager.prepareTurnTree(crypto.randomUUID(), 1024 * 1024);
+          peerTrees.push(peer.id); peerTree = peer.path;
+          mkdirSync(join(peer.path, "data")); writeFileSync(join(peer.path, "data/odysseus-peer.md"), document("Another turn's note", "Not this turn's."));
+        }
         const launch = { brainPath: brain, sandbox: hold.sandbox,
           ...(prepared ? { startupView: prepared.view, preparedOutput: prepared } : {}), stateBytes: MIB, turnTempBytes: 16 * MIB,
           env: { PATH: "/usr/local/bin:/usr/bin:/bin", BRAIN_ROOT: brain, HOME: "/tmp", NO_COLOR: "1" },
-          command: [process.execPath, "/repo/scripts/native-proof/provider-index-worker.ts", profile, `${info.dev}:${info.ino}`, `applied:${applied}:notes/provider-applied-${profile}.md`] };
+          command: [process.execPath, "/repo/scripts/native-proof/provider-index-worker.ts", profile, `${info.dev}:${info.ino}`, `applied:${applied}:notes/provider-applied-${profile}.md`, peerTree] };
         const result = await (async () => {
           const worker = launchAgentWorker(launch), timer = setTimeout(() => worker.kill("SIGKILL"), 30_000);
           worker.stdin.end();
@@ -134,6 +148,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         }
       }
       expect(privateIndex && existsSync(privateIndex), "NATIVE_PRIVATE_INDEX_REMOVED_AFTER_TURN").toBe(false);
+      expect(treeRoot && existsSync(treeRoot), "NATIVE_MANAGER_REMOVED_THE_TREE_AFTER_TURN").toBe(false);
       // The peer's copy is live, permitted text now; the next profile's turn
       // would rightly index it. Restore the note before that turn's checkpoint.
       writeFileSync(join(brain, "notes/provider-peer.md"), document("Odysseus shared raft", "A peer may change this note mid-turn."));
@@ -206,6 +221,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       console.log(JSON.stringify({ nativeProviderHardlink: "refused", profile }));
     }
   } finally {
+    for (const id of peerTrees) await manager.releaseTurnTree(id);
     for (const rel of ["me", "context", ".git", ".gitignore", ".brain-index", ".brain-cache", "notes/provider-voyage.md", "notes/provider-peer.md", "notes/provider-applied-strict.md", "notes/provider-applied-governed.md", "notes/oath-alias.txt",
       ".brain/scratch/provider-index-strict", ".brain/scratch/provider-index-governed"])
       rmSync(join(brain, rel), { recursive: true, force: true });

@@ -1,6 +1,6 @@
 /** Real CLI search/rebuild and core capture inside the admitted native worker. */
 import { expect } from "bun:test";
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { initContext } from "../../packages/core/src/lib/context.js";
 import { openDatabase } from "../../packages/core/src/lib/db.js";
@@ -81,4 +81,18 @@ expect(readFileSync(join(captureRoot, capturePath), "utf8"), "NATIVE_CAPTURE_MAR
 expect(search(captured), "NATIVE_SCRATCH_CAPTURE_NEVER_WRITES_THE_PRIVATE_INDEX").toEqual([]);
 expect(search(sentinel), "NATIVE_CAPTURE_NEVER_EXPOSES_MASKED_DOCUMENT").toEqual([]);
 expect(sentinelFiles(), "NATIVE_PRIVATE_INDEX_HOLDS_NO_SENTINEL_BYTE_AT_TURN_END").toEqual([]);
+// #2911: a strict worker's tree is on the managed volume. It reads its own
+// tree, cannot change it, and cannot reach the manager's area or a peer's tree.
+const peerTree = process.argv[5];
+if (profile === "strict") {
+  if (!peerTree) throw Error("The strict proof names a peer turn tree");
+  const data = "/tmp/brain-worker-data";
+  expect(readFileSync(join(data, "notes/provider-voyage.md"), "utf8"), "NATIVE_WORKER_READS_ITS_OWN_TREE").toContain(permitted);
+  const write = (() => { try { writeFileSync(join(data, "notes/odysseus-tree-write.md"), "Not this worker's to write.\n"); return "written"; } catch (error) { return (error as NodeJS.ErrnoException).code; } })();
+  expect(write, "NATIVE_WORKER_CANNOT_MUTATE_ITS_TREE").toBe("EROFS");
+  const peer = (() => { try { return readFileSync(join(peerTree, "data/odysseus-peer.md"), "utf8"); } catch (error) { return (error as NodeJS.ErrnoException).code; } })();
+  expect(["ENOENT", "EACCES"], `NATIVE_WORKER_CANNOT_REACH_A_PEER_TREE: ${peer}`).toContain(peer ?? "unknown");
+  const area = (() => { try { return readdirSync("/brain-fixture/.brain-native/trees"); } catch { return []; } })();
+  expect(area, "NATIVE_WORKER_SEES_NO_TREE_AREA").toEqual([]);
+}
 console.log(JSON.stringify({ nativeProviderIndexWorker: "pass", profile, uid: process.getuid?.(), capturePath }));
