@@ -157,8 +157,9 @@ The heuristics' remaining benign cards come mostly from the taint-host signal:
 a link the tainting content named is the commonest benign follow-up and also
 where an injected instruction points. That is the band Jev is asked about.
 
-Heuristic cost is a few tens of microseconds per call on the measuring machine
-(median 22–33 µs, p95 66–90 µs across runs), with no data flow and no spend.
+Heuristic cost is tens of microseconds per call on the measuring machine
+(recorded run: median 18 µs, p95 56 µs; repeated runs reached 33 µs and 90 µs),
+with no data flow and no spend.
 
 ## Measuring Jev
 
