@@ -721,14 +721,28 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         // labelled from the session list, so wait until the list has read B's
         // host title; before that the label falls back to B's first prompt.
         await until(a.page, `p.listedTitle(${JSON.stringify(B)}) === ${JSON.stringify(titles.get(B))}`);
+        // B's recovery reads from here on answer only after the clock moves,
+        // as a slow read under load does (#3414): the fake clock also runs
+        // the read's timeout, so the fast-forward below cuts B's read short.
+        let answerB!: () => void;
+        const slowB = new Promise<void>((resolve) => { answerB = resolve; });
+        const readsB = `**/api/sessions/${B}/recovery`;
+        await a.context.route(readsB, async (route) => { await slowB; await route.continue().catch(() => {}); });
         await release(pb, "fail");
         await until(a.page, `${state(B)}?.state === "failed"`);
         await until(a.page, "p.spoken().length >= 1");
         await a.page.waitForTimeout(300);
         expect(await probe(a.page, (p) => p.spoken()), "B's failure is spoken once").toEqual([`${titles.get(B)} failed.`]);
+        await until(a.page, `p.recoveryReads()[${JSON.stringify(B)}]?.complete === false`);
 
-        // Two minutes pass: A's age is redrawn, and nothing is announced for it.
+        // Two minutes pass: A's age is redrawn, and nothing is announced for
+        // it. B's cut-short read makes B "can't check" until the next read
+        // answers it failed again: the same failure, which is not a change.
         await a.page.clock.fastForward("02:05");
+        await until(a.page, `${state(B)}?.state === "cant_check"`);
+        answerB();
+        await a.context.unroute(readsB);
+        await until(a.page, `${state(B)}?.state === "failed"`);
         const age = trackerControl(run, a.page, A).first();
         await a.page.waitForFunction((el) => el?.textContent?.includes("running · 2m") ?? false, await age.elementHandle(), { timeout: 10_000 });
         expect(await age.getAttribute("aria-label")).toBe(`${titles.get(A)}, running, 2m. Open session.`);
