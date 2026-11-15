@@ -99,10 +99,11 @@ function seededSnapshot(id: number): TimingSnapshot {
 
 test("scheduled seeded collection fetches only new, incomplete and rerun attempts and reuses merged lifecycle data", () => {
   const f = fixture({ count: 3, rerun: true, pullCount: 1, headerlessDownloads: true });
+  const complete = seededSnapshot(12); complete.version = 2; complete.jobs[0]!.createdAt = complete.jobs[0]!.startedAt;
   const incomplete = seededSnapshot(13); incomplete.jobs = []; incomplete.problems = ["jobs unavailable"];
   const old = seededSnapshot(15); old.run.createdAt = "2026-07-04T10:00:00Z";
   try {
-    f.seed({ "run-12-attempt-1.json": seededSnapshot(12), "run-13-attempt-1.json": incomplete,
+    f.seed({ "run-12-attempt-1.json": complete, "run-13-attempt-1.json": incomplete,
       "run-15-attempt-1.json": old,
       // A red-main coordinator observation (#2953) is carried forward so its log is never fetched twice.
       "coordinator-900-attempt-1.json": { version: 1, repository, collectedAt: "2026-07-12T11:00:00Z", run: 900, attempt: 1,

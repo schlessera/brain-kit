@@ -64,6 +64,7 @@ execution. It is not complete lifetime cost without complete lifetime coverage.
 | Merge → same-commit green | Time to observed green main proof on that exact squash. Recovery via a later repair commit needs an explicit related record. |
 | Pre-green/main-nongreen | A green aggregate at the final head followed by non-green first main proof. Discordance, not a diagnosed escaped defect. |
 | Same-source recovery | Failed/cancelled first main attempt followed by green at the same SHA. Not, by itself, a diagnosed flaky test. |
+| Runner-slot wait | Job creation → observed execution start, in seconds. Overall and workflow/category/event cohorts report known sample count, median, nearest-rank p90, max, unknown count and jobs waiting strictly over 300 seconds / known jobs (with percentage). |
 | Dependency → job start | Metadata completion → selected job start, including dispatch/queue delay. Does not isolate capacity pressure. |
 | CI concurrency | Time-weighted executed-job overlap, peak and means while active/across the interval. Adjacent end-exclusive intervals do not invent overlap. |
 | PR verification concurrency | Distinct PRs with verification intervals, merging overlapping attempts of one PR. Includes queueing; not active agent count. |
@@ -210,3 +211,32 @@ agent-concurrency settings, work/queue/lease events, complete proof, main result
 and follow-up incident records. Compare green deliveries/day, tail latency,
 runner cost and recovery work together. A faster merge with unfinished main
 verification does not meet this objective.
+
+## Runner-slot wait
+
+New `run` snapshots use schema v2 and retain each job's API `created_at` as
+`jobs[].createdAt`. Readers accept v1 and v2 and refuse unknown versions;
+legacy v1 archives are preserved without inventing creation timestamps.
+`summary.json` is v2 and exposes `runnerSlotWait.overall`, `byWorkflow`
+(workflow path), `byCategory` and `byEvent`. `summary.md` renders those cohorts.
+Each cohort carries `n`, `mean`, `median`, `p90`, `max`, `unknown` and
+`overFiveMinutes: { numerator, denominator, percent }`. Durations are seconds;
+Markdown displays minutes. The percentage denominator is known intervals only,
+and an empty denominator has an unknown percentage.
+
+PR event cohorts are `pull_request_draft` and `pull_request_ready` when retained
+planner context establishes draft or feedback/confirmation cadence. Without
+that evidence they are `pull_request_unknown`; current PR draft state is never
+projected onto a historical run. Optional `--resources` enrichment reads this
+context; the hourly collector does not fetch logs just to classify PRs.
+Main pushes use `push_main` when the retained branch is `main`; dispatch uses
+`workflow_dispatch`, and other events retain their API event name.
+
+Missing, invalid or reversed timestamps and jobs without observed executed
+steps count as unknown and stay outside percentiles and the five-minute share.
+A real zero remains a known sample. For example, creation at 10:00:00 and start
+at 10:03:30 yields 210 seconds. Queue cancellations with synthetic-looking
+start timestamps cannot establish a start. This is creation-to-start latency,
+including dependency/dispatch delay; it does not isolate runner capacity,
+reservation admission or draft-feedback starvation. It remains separate from
+the first-attempt run-level initial queue estimate and metadata-to-job delay.
