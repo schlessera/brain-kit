@@ -1127,6 +1127,7 @@ signatures (every public export and the types it is made of)
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    github_result: "github_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";

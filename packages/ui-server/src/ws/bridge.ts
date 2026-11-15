@@ -123,6 +123,12 @@ function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transc
       posture: work?.posture === "voice" ? "voice" : "interactive",
       approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
   }
+  // GitHub (#3797): the host holds the credential and records the session's
+  // taint; the turn, never the call, names principal and session.
+  if (host.githubTools) {
+    const github = host.githubTools;
+    bridge.github = call => github.call({ turnId, principalId, sessionId: () => transcript.collectedSessionId ?? turn.sessionId ?? null, signal }, call);
+  }
 }
 
 /**
@@ -155,7 +161,7 @@ export function applyIndexReads(ctx: Pick<BridgeContext, "host" | "signal">, bri
  */
 export function applyLiveAuthority(ctx: Pick<BridgeContext, "work" | "afterHolds" | "assertAuthority">, bridge: BackendBridge): void {
   const { work, afterHolds, assertAuthority } = ctx;
-  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "readAttachment", "webAccess"] as const) {
+  for (const name of ["requestPermission", "askUser", "askUserList", "askUserRank", "askUserForm", "getLocation", "queryActivity", "requestMask", "pruneScratch", "inboxList", "inboxGet", "inboxAdd", "resolveAction", "completeShare", "referenceAccess", "compute", "apify", "github", "readAttachment", "webAccess"] as const) {
     const original = bridge[name];
     if (!original) continue;
     (bridge as unknown as Record<string, unknown>)[name] = async (...args: unknown[]) => {
