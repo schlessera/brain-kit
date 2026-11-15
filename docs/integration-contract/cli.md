@@ -268,6 +268,7 @@ environment carries. A built-in provider whose key is withheld from the process
 | Anthropic completions | `anthropic` | `POST /v1/messages` |
 | OpenAI images | `openai` | `POST /v1/images/generations`, `/v1/images/edits` (multipart) |
 | Gemini images | `gemini` | `POST /v1beta/interactions` |
+| `jev` reranker (additive, 0.45.0, #3792) | `typesafe` | `POST /v1/systemone` |
 
 The request keeps its method, path, body and content headers. The CLI drops
 every credential header and adds three headers that are names, never values:
@@ -290,9 +291,22 @@ built-in providers retry as a transient error.
 A seam that is only available through the relay counts as configured: hybrid
 `brain search` embeds its query, `brain process` completes, `brain image` lists
 the provider's models, `brain video watch` uploads a local video (additive,
-0.45.0, #2738). Without the variable, or for a key that is set or never
-withheld, a provider behaves as before. The `jev` reranker is not relayed and
-keeps the `provider_unavailable` notice. Existing JSON envelopes are unchanged.
+0.45.0, #2738), and an enabled `jev` reranker reranks `brain search` and
+`brain_search` (additive, 0.45.0, #3792). Without the variable, or for a key
+that is set or never withheld, a provider behaves as before: on a host without
+the relay, the `jev` reranker keeps the `provider_unavailable` notice and
+lifecycle order. Existing JSON envelopes are unchanged.
+
+The `jev` reranker's family (additive, 0.45.0, #3792). `typesafe` relays only
+`POST /v1/systemone` without a query string; any other method, path or query
+under it is refused before contact. Its key, `TYPESAFE_API_KEY` by default,
+goes only to `https://api.typesafe.ai`, as `Authorization: Bearer`, unless the
+operator lists that key and an exact origin in `BRAIN_UI_CLI_PROVIDER_ORIGINS`;
+a custom `apiKeyEnv` needs its own listing. Each request is one metered
+attempt with operation `reranking`, carrying the usage the response reports.
+No rate is held for it, so its cost is unknown, never zero. The relay carries
+it for governed and strict turn workers; a credentialed maintenance worker
+keeps `TYPESAFE_API_KEY` and calls the provider directly, as before.
 
 The video files lifecycle (additive, 0.45.0, #2738). The relay answers a
 resumable upload start with an `x-goog-upload-url` of its own,

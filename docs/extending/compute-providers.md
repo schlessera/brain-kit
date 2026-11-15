@@ -59,9 +59,9 @@ inside core. Core declares it as an optional peer; an instance naming `boat`
 without the package installed is `provider_unavailable` and names the install
 it needs. A built-in package is loaded only when an instance names it; it
 exports `computeProvider` and may export `defaultKeyEnv`, the variable an
-instance without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:437-461`).
+instance without `apiKeyEnv` reads (`export async function loadComputePackage`, `packages/core/src/lib/registry.ts:439-463`).
 Resolution gives each instance its own options and secret
-(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:515-561`).
+(`export async function resolveComputeInstance`, `packages/core/src/lib/registry.ts:517-563`).
 
 ## The Boat built-in
 

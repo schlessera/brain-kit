@@ -25,6 +25,7 @@ import { foreignCoreSkill } from "../../lib/skills/core-installation.js";
 import { packageVersion } from "../../package-version.js";
 import { missingEmbeddingKey, rerankerKeyEnv, resolveReranker } from "../../lib/registry.js";
 import { JEV_MODEL } from "../../lib/llm-defaults.js";
+import { relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import type { CoreCommand, CliContext } from "../types.js";
 import { emit, embeddingDims, parseArgs } from "../io.js";
 import { resolveEmitters } from "../skills-util.js";
@@ -368,7 +369,8 @@ function checkReranker(cli: CliContext): Check {
     return { id: "reranker", status: "pass", detail: `reranking by ${cfg?.provider === "none" ? "retrieval order (none)" : "lifecycle factors (heuristic)"}, set in config` };
   }
   const keyEnv = rerankerKeyEnv(cfg);
-  if (!readEnvVar(keyEnv)) {
+  // A key the host withholds and relays is available through the relay (#3792).
+  if (!readEnvVar(keyEnv) && !relayedKey(keyEnv)) {
     return {
       id: "reranker",
       status: "warn",

@@ -250,7 +250,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "Extra recipients for the brain CLI's relayed provider keys: KEY=origin[,origin], separated by semicolons. " +
       "Each origin is an exact https origin (http only for a loopback host). By default the relay sends GEMINI_API_KEY, " +
-      "ANTHROPIC_API_KEY and OPENAI_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
+      "ANTHROPIC_API_KEY, OPENAI_API_KEY and TYPESAFE_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
       "variable is refused unless listed here. A malformed value stops the server.",
     default: "(unset; first-party origins only)",
     required: false,

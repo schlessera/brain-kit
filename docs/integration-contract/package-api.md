@@ -108,7 +108,8 @@ that has a turn proxy, and one per credentialed maintenance run where the host
 has managed native storage. A relay sends a key only to that key's built-in
 first-party origin (`GEMINI_API_KEY` to `https://generativelanguage.googleapis.com`,
 `ANTHROPIC_API_KEY` to `https://api.anthropic.com`, `OPENAI_API_KEY` to
-`https://api.openai.com`) or to an exact origin the server's
+`https://api.openai.com`, `TYPESAFE_API_KEY` to `https://api.typesafe.ai`
+since #3792) or to an exact origin the server's
 `BRAIN_UI_CLI_PROVIDER_ORIGINS` (`KEY=origin[,origin];...`) lists for that key.
 A custom endpoint or a custom key variable is refused unless listed. The
 public protocol adds the `TurnBudgetCoverage` type ([wire](wire.md#completed-inference-usage-and-budgets-additive-1669)).

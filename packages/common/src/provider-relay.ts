@@ -19,7 +19,7 @@ import { INFERENCE_RELAY_PLACEHOLDER, isWithheldKey } from "./provider-unavailab
 
 /** Absolute path of the host's provider relay socket, set by the worker launcher. */
 export const PROVIDER_RELAY_SOCKET_ENV = "BRAIN_PROVIDER_RELAY_SOCKET";
-/** Which first-party request family the CLI sent: `gemini`, `anthropic` or `openai`. */
+/** Which first-party request family the CLI sent: `gemini`, `anthropic`, `openai` or `typesafe` (the `jev` reranker, #3792). */
 export const PROVIDER_RELAY_FAMILY_HEADER = "x-brain-provider";
 /** The environment variable whose host value the request needs. A name, never a value. */
 export const PROVIDER_RELAY_KEY_HEADER = "x-brain-provider-key";
@@ -28,7 +28,7 @@ export const PROVIDER_RELAY_ORIGIN_HEADER = "x-brain-provider-origin";
 /** What a relayed provider holds where its key would be. Never a secret. */
 export const PROVIDER_RELAY_PLACEHOLDER = "brain-provider-relay-placeholder";
 
-export type ProviderRelayFamily = "gemini" | "anthropic" | "openai";
+export type ProviderRelayFamily = "gemini" | "anthropic" | "openai" | "typesafe";
 
 /** Credential headers the CLI never sends to the relay, whatever a provider SDK set. */
 const CREDENTIAL_HEADERS = ["authorization", "x-api-key", "x-goog-api-key", "api-key", "cookie", "proxy-authorization"];

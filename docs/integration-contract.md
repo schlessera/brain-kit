@@ -20,6 +20,19 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## JeV reranking through the provider relay (additive, 0.45.0, #3792)
+
+The CLI provider relay gains the `typesafe` family, `x-brain-provider:
+typesafe`, whose only route is `POST /v1/systemone`. A governed or strict turn
+worker whose `TYPESAFE_API_KEY` the host withholds sends the `jev` reranker's
+request there; the host adds its key for `https://api.typesafe.ai` and meters
+the attempt as operation `reranking`, with an unknown cost rather than zero.
+Such a worker's `brain search` and `brain_search` are reranked instead of
+reporting `provider_unavailable` and falling back to lifecycle order; a host
+without the relay keeps that notice. Credentialed maintenance workers keep the
+key as before. See [the CLI component](integration-contract/cli.md#provider-relay-additive-0440-1673).
+This ships in a minor; no breaking ruling is required.
+
 ## The Start card's persona choice (additive, 0.45.0, #3698)
 
 In `@schlessera/brain-ui-react`, the conversation client's state adds
