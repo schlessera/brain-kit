@@ -8,6 +8,7 @@
  * rules left.
  */
 
+import { withoutSigningForEach } from "./git-fixture";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,6 +38,8 @@ import {
   type Brain,
   write,
 } from "./sync-fixture";
+
+withoutSigningForEach();
 
 afterEach(cleanupFixtures);
 

@@ -4,6 +4,7 @@
  * off; the judged paths run in-process with a fake Jev, never the network.
  */
 
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,6 +24,8 @@ import {
   syncJson,
   write,
 } from "./sync-fixture";
+
+withoutSigningForEach();
 
 afterEach(cleanupFixtures);
 
