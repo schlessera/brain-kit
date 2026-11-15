@@ -345,6 +345,8 @@ workers can map their user namespace and mount their own `/proc`.
 
 The managed GitHub case (#3613) uses real TLS and Git through the bounded host
 wire, actual production maintenance workers and native sealed publication.
+The image installs OpenSSL and the system CA bundle during dependency setup,
+before offline execution; certificate generation never installs a package.
 Only fixed DNS/TCP and a fixture CA replace the remote service; the disposable
 network-none container's system CA bundle is restored in cleanup. It verifies
 commit/tree and actual native root/generation mapping, a credential-free
