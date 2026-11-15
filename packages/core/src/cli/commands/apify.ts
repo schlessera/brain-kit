@@ -33,6 +33,28 @@ export const apifyCommandDeps: { create: (root: string) => StandaloneApify } = {
   create: root => createStandaloneApify({ root }),
 };
 
+/**
+ * A consent reference or run handle that starts with `--`. Both are 32 random
+ * bytes in base64url, 43 characters (`reference`,
+ * packages/common/src/apify/consent.ts:412; the run handle,
+ * packages/common/src/apify/ledger.ts:390), and about one in 4,096 begins with
+ * `--`. No flag has this shape, so it is the positional value (#3689).
+ */
+const DASHED_REFERENCE = /^--[A-Za-z0-9_-]{41}$/u;
+
+/**
+ * The arguments with each dashed reference before a bare `--` moved after one,
+ * where the shared parser keeps it positional verbatim. Everything else keeps
+ * its order, and values already after a separator are untouched.
+ */
+function referencesAsPositional(args: string[]): string[] {
+  const separator = args.indexOf("--");
+  const options = separator === -1 ? args : args.slice(0, separator);
+  const dashed = options.filter(arg => DASHED_REFERENCE.test(arg));
+  if (!dashed.length) return args;
+  return [...options.filter(arg => !DASHED_REFERENCE.test(arg)), "--", ...dashed, ...(separator === -1 ? [] : args.slice(separator + 1))];
+}
+
 function number(flag: string, value: string | boolean | undefined): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !/^-?\d+(\.\d+)?$/u.test(value.trim())) throw new UsageError(`--${flag} needs a number.`);
@@ -94,7 +116,7 @@ export const apifyCommand: CoreCommand = {
   summary: "Discover, inspect and run Apify Actors under the governance policy",
   helpBlock: USAGE,
   async run(args, cli) {
-    const { args: positional, flags } = parseArgs(args);
+    const { args: positional, flags } = parseArgs(referencesAsPositional(args));
     const [word, ...rest] = positional;
     if (!word) throw new UsageError(`Usage: ${USAGE.split("\n")[0]}`);
     const common = ["json", "human", "session"];
