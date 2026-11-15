@@ -24,9 +24,9 @@
  * the span the retriever already matched, and unconditioned text dilutes it.
  */
 
-import { readEnvVar } from "../../config/env.js";
 import { JEV_MODEL } from "../../lib/llm-defaults.js";
 import type { Ranked, RerankCandidate, Reranker, RerankRequest } from "../../lib/seams.js";
+import { providerCredential, providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
 
 const API_URL = "https://api.typesafe.ai/v1/systemone";
@@ -223,6 +223,10 @@ export function orderFromAnswer<C extends RerankCandidate>(
  * Create a Jev-backed Reranker. Constructing it makes no network call; the
  * key is read on first rerank(). A single attempt per search: retrying inside
  * an interactive deadline only delays the fallback to retrieval order.
+ *
+ * In a worker whose key the host withholds and relays, the request goes to the
+ * host's provider relay instead, unchanged and without a credential; the host
+ * adds the key and meters the call (#3792).
  */
 export function jevReranker(config: JevRerankerConfig = {}): Reranker {
   const model = config.model ?? JEV_MODEL;
@@ -240,14 +244,15 @@ export function jevReranker(config: JevRerankerConfig = {}): Reranker {
     },
 
     async rerank(req) {
-      const apiKey = readEnvVar(apiKeyEnv);
-      if (!apiKey) throw new Error(missingKeyMessage(apiKeyEnv, "jev", "reranking", `${apiKeyEnv} environment variable is required for the jev reranker`));
+      const relay = providerRelayFetch("typesafe", apiKeyEnv);
+      const apiKey = relay ? undefined : providerCredential(apiKeyEnv);
+      if (!relay && !apiKey) throw new Error(missingKeyMessage(apiKeyEnv, "jev", "reranking", `${apiKeyEnv} environment variable is required for the jev reranker`));
       if (req.candidates.length < 2) return req.candidates.map((item) => ({ item, score: 1 }));
 
       const { body, included } = buildJevRequest(model, req);
-      const res = await doFetch(url, {
+      const res = await (relay ?? doFetch)(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        headers: { "Content-Type": "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
         body: JSON.stringify(body),
         signal: req.signal,
       });

@@ -127,6 +127,41 @@ message that names the host execution boundary and the state area, not a
 bare `EROFS`. The cron runner adds the same explanation when a module job's
 own subprocess prints one.
 
+### Reading another repository from a scheduled job
+
+A module job's worker holds no Git credential. A module whose job needs another
+repository, such as a private one with scripts it runs, asks for it in its
+config block with the core-owned `repositories` key:
+
+```ts
+modules: {
+  "./modules/beacon": { repositories: ["https://github.com/ithaca/watchtower"] },
+}
+```
+
+- Each entry is a plain `https://` repository URL, with no credential, query,
+  fragment or dot segment, and at most 16 per module. A loopback `http://` URL
+  is accepted for local fixtures. Core validates the list and removes it before
+  the module's own `configSchema` sees the block, as it does for `enabled`.
+- Asking grants nothing by itself. Before each module job, the cron runner
+  reads `brain module list --json` without a credential to find the job's
+  module, and the host fetches a requested repository only when the operator's
+  `BRAIN_UI_MODULE_REPOSITORIES` allow-list names it too. That list lives in
+  host configuration, outside the brain, so editing `brain.config.ts` cannot
+  widen it. A request the list does not cover fails the run before the job
+  starts, and the run's error names the repository and the setting.
+- The host fetches each granted repository into a private mirror with its own
+  credential, the same way it fetches for `sync`. The job's worker gets the
+  mirror read-only and a Git URL rewrite onto it, so the job's own
+  `git clone https://github.com/ithaca/watchtower` reads the mirror, without a
+  credential and without the network.
+- Clone into a temporary directory on each run. The clone is local and fast,
+  and a working copy kept in the state area would be published back after
+  every run.
+
+This applies to scheduled jobs on a host that runs repository jobs in
+maintenance workers. A module command run by hand gets no mirror.
+
 ### Hygiene checks read the index through `ctx.queries`
 
 A hygiene check receives `{ queries, root, config }`. `queries` is a frozen
@@ -307,7 +342,9 @@ Every entry under `modules:` remains configured and loaded. A key is a package
 name or a local path; the value keeps the module's domain configuration. The
 optional core-owned `enabled` boolean defaults to `true`. Core validates and
 removes that flag before handing the remaining block to the module's schema,
-including when `enabled: false` makes the module dormant.
+including when `enabled: false` makes the module dormant. The optional
+core-owned `repositories` list is removed the same way
+([reading another repository](#reading-another-repository-from-a-scheduled-job)).
 
 Install a package before enabling it, for example `bun add
 @schlessera/brain-module-speaking`. Keep first-party module versions aligned

@@ -36,6 +36,7 @@
 import type { InlineExtension, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
   APIFY_TOOL_NAMES,
+  GITHUB_READ_TOOL_NAMES,
   WEB_TOOL_NAME_LIST,
   checkEditedApproval,
   createToolPermissionRequest,
@@ -77,6 +78,7 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
     read_attachment: "readAttachment",
     ...Object.fromEntries(WEB_TOOL_NAME_LIST.map(name => [name, "webAccess"])),
+    ...Object.fromEntries(GITHUB_READ_TOOL_NAMES.map(name => [name, "github"])),
   };
   const handler = handlers[name];
   if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")

@@ -543,10 +543,13 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:426-433`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:441-448`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
-key on a host without managed native storage, where there is no relay.
+key on a host without managed native storage, where there is no relay. Since
+#3792 a turn worker's `jev` reranker is relayed; a maintenance worker keeps
+that key, because its sync judge and propagation review call TypeSafe
+directly.
 
 ### Module jobs: durable state and other repositories — 2026-11-02 (#3380)
 
@@ -576,6 +579,29 @@ remote, through the mirror transport). The
 
 Forwarding a generic `GITHUB_TOKEN` into maintenance workers and restoring
 host-directory writes remain out of scope.
+
+A second ruling the same day settled how point 2 grants and finds a repository:
+
+3. **The grant is an intersection.** The module's config block declares the
+   repositories it wants (a core-owned `repositories` key), and the host
+   refuses any that the operator's allow-list, `BRAIN_UI_MODULE_REPOSITORIES`
+   in host configuration outside the brain, does not also name.
+   `brain.config.ts` is protected by default, but a governance policy may
+   release it to governed turns. Without the host list, a governed edit
+   could have turned the host credential into a read of every private
+   repository it reaches. With it, the brain can narrow the host's grant but
+   never widen it.
+4. **The runner maps a job to its module at run time.** Before each module
+   job, the runner runs a credential-free `brain module list --json`, which
+   reports each module's `repositories`, and matches the job by its
+   `<module>-<entry>` name and its command. Names alone are ambiguous because
+   both parts may contain `-`. The crontab layout stays as it is.
+
+A refused or failed fetch refuses the job before it starts. The fetch reuses
+the sync transport unchanged: the same fixed mirror configuration, the
+credential sent only to `https://github.com`, and a transport worker that
+never mounts the brain
+([the contract](../integration-contract/package-api.md#module-repositories)).
 
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
@@ -649,7 +675,7 @@ the key and forwards it as the turn's own egress (G5). A key goes only to its
 built-in first-party origin, or to an exact origin the operator lists for that
 key in `BRAIN_UI_CLI_PROVIDER_ORIGINS`, under the 2026-10-23 ruling on #1673;
 the backends' origin rulings grant the CLI nothing by analogy
-(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:323-328`).
+(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:329-334`).
 The inference relay's placeholder is not a key: the launcher names a key that
 holds it as withheld, so a relayed Claude API-key turn's `anthropic-haiku`
 reaches the host's key instead of failing authentication. The `jev` reranker
@@ -3374,7 +3400,7 @@ recipient only when it can record what the turn is shown (`const recipient = opt
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
-(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:81-83`),
 pi refuses a changed endpoint before its credential is read, and a turn that
 has a recipient but no relay refuses to start. A model change inside a turn
 cannot leave the one relay socket the worker has.
@@ -3504,7 +3530,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:71`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:73`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -4177,7 +4203,7 @@ only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
 `error.reason`, using the `egress_denial` reason words plus
 `outward_not_approved` (`const refuse`,
-`packages/ui-sdk/src/server/provider-relay.ts:386-391`). The OpenAI image
+`packages/ui-sdk/src/server/provider-relay.ts:392-397`). The OpenAI image
 provider no longer appends its account hint to a relay refusal
 (`const relayRefusal`, `packages/module-images/src/providers/openai.ts:258-259`).
 A cancelled connection keeps its bare 403. The system prompt's turn-lifecycle
@@ -4329,7 +4355,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:660-694`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:518-529`).
+  `packages/ui-server/src/brain/host-boundary.ts:535-546`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -4372,8 +4398,8 @@ is now consumer-qualified independently of reference classification (#2028). The
 | Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
 
 This mapping was checked against core's (`loadModules`,
-`packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
-`packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
+`packages/core/src/lib/module-loader.ts:114-122`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:221-253`), Pi's (`build`,
 `packages/ui-backend-pi/src/session-resources.ts:93-137`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
