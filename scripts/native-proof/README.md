@@ -277,6 +277,21 @@ expected failure with `qualification: false`; it does not turn the failing
 invocation into a healthy fifth matrix cell. The selected hosted runtime job
 therefore exercises the reproduction under its enforced AppArmor profile too.
 
+So every `runtime_host` log, green or red, holds a Pi UID 0 invocation that
+fails `NATIVE_AUTOMATIC_INDEX_COMPLETED: NativeBrainManagerError: Native manager
+outcome is unknown … AbortError` and then `Native hosted proof failed (1)`.
+That is the control failing as designed. The parent prints each of its lines
+behind `expected-failure control | ` (`scripts/expected-failure-log.ts`), and
+`bun scripts/pr-status.ts <pr> --failures --logs <dir>` counts them instead of
+listing them. The plain lines after them are the verdict.
+`Verified expected automatic-index failure …` means the control passed. A
+thrown `NATIVE_INDEX_RELEASE_REPRO_<fact>` means it did not fail as designed:
+it failed somewhere else, or its evidence is incomplete. Every other failure in
+the job belongs to the phase that `BRAIN_RESOURCE_RECEIPT` records with
+`"success":false`. #2921 traced six recorded "automatic-index aborts" to this
+control. Each of those jobs had failed for a different, separately owned
+reason.
+
 ## Reference pool allocation
 
 `bun scripts/prove-reference-pool.ts` is the reference pool's required runtime
