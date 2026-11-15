@@ -45,10 +45,48 @@ test("idle sessions move to gzip with SDK metadata and round-trip byte-identical
   expect(readFileSync(join(live, `${ID}.jsonl`))).toEqual(before);
   expect(readFileSync(join(live, ID, "notes.bin"))).toEqual(Buffer.from([0, 255, 17]));
   expect(readFileSync(join(live, ID, "subagents/agent.jsonl"), "utf8")).toBe("Athena\n");
-  expect(statSync(join(live, `${ID}.jsonl`)).mtimeMs).toBe(now);
+  expect(statSync(join(live, `${ID}.jsonl`)).mtimeMs).toBe(now - 31 * DAY);
   expect(savedIndex()).toEqual([]); expect(existsSync(join(archive, ID))).toBe(false);
   now += DAY; await archiveIdleSessions(options);
-  expect(existsSync(join(live, `${ID}.jsonl`))).toBe(true);
+  expect(existsSync(join(live, `${ID}.jsonl`))).toBe(false);
+});
+test("history restoration retains listed activity and a real append advances it", async () => {
+  session();
+  const activity = now - 31 * DAY;
+  const transcript = join(live, `${ID}.jsonl`);
+  // The SDK reads lastModified from the live transcript's stat. Keep that
+  // boundary real rather than returning the fixture's stale metadata.
+  const history = createHistory({ brainPath: brain, env: options.env,
+    listSessionsFn: async () => existsSync(transcript)
+      ? [{ ...metadata[0]!, lastModified: statSync(transcript).mtimeMs }] : [],
+    getSessionMessagesFn: async () => {
+      expect(readFileSync(transcript)).toEqual(Buffer.from('Odysseus\n\u0000\u00ff'));
+      return [];
+    } });
+  expect((await history.listSessions())[0]!.lastActiveAt).toBe(activity);
+  await archiveIdleSessions(options);
+  now += DAY;
+  expect((await history.listSessions())[0]!.lastActiveAt).toBe(activity);
+  const restoreClock = spyOn(Date, "now").mockReturnValue(now);
+  try {
+    await history.getHistory(ID);
+    expect((await history.listSessions())[0]!.lastActiveAt, "RESTORE_RETAINS_ACTIVITY_TIME").toBe(activity);
+  } finally { restoreClock.mockRestore(); }
+  // Model the resumed CLI's own append; the filesystem supplies its new mtime.
+  fs.appendFileSync(transcript, "\nReturn to Ithaca\n");
+  const appendedAt = statSync(transcript).mtimeMs;
+  expect(appendedAt).toBeGreaterThan(activity);
+  expect((await history.listSessions())[0]!.lastActiveAt).toBe(appendedAt);
+});
+test("a history-only restore is archived by the next daily sweep without a new inactivity period", async () => {
+  session(); await archiveIdleSessions(options);
+  const history = createHistory({ brainPath: brain, env: options.env, getSessionMessagesFn: async () => [] });
+  await history.getHistory(ID);
+  now += DAY; await archiveIdleSessions(options);
+  expect(errors).toEqual([]);
+  expect(existsSync(join(live, `${ID}.jsonl`)), "RESTORE_DOES_NOT_RESET_IDLE_THRESHOLD").toBe(false);
+  expect(existsSync(join(live, ID))).toBe(false);
+  expect(listArchivedSessions(options)[0]!.lastActiveAt).toBe(now - 32 * DAY);
 });
 test("newest nested mtime protects a session; exactly 30 days is not idle enough", async () => {
   session(); session(OTHER, 30);
@@ -123,7 +161,10 @@ test("interrupted restore is completed on the next sweep, never deleted as an ol
   expect(() => restoreArchivedSession(ID, { ...options, checkpoint: () => { throw new Error("interrupted restore"); } })).toThrow("interrupted restore");
   expect(existsSync(join(archive, ID, "restoring"))).toBe(true);
   now += DAY; await archiveIdleSessions(options);
-  expect(errors).toEqual([]); expect(savedIndex()).toEqual([]);
+  expect(errors).toEqual([]);
+  expect(existsSync(join(archive, ID, "restoring"))).toBe(false);
+  restoreArchivedSession(ID, options);
+  expect(savedIndex()).toEqual([]);
   expect(readFileSync(join(live, ID, "subagents/agent.jsonl"), "utf8")).toBe("Athena\n");
 });
 test("recovery never deletes changed source bytes or a running session", async () => {
