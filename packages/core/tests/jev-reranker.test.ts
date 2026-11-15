@@ -116,7 +116,7 @@ describe("jevReranker", () => {
 
   test("names the source per candidate only when the pool spans several stores", () => {
     const single = buildJevRequest(JEV_MODEL, { query: "q", candidates: [candidate(0), candidate(1)] }).body;
-    expect(single.state.candidates.every((c) => !("source" in c))).toBe(true);
+    expect(single.state.candidates.filter((c) => "source" in c)).toEqual([]);
     expect(single.questions.ranking.instructions.situation).not.toContain("`source`");
 
     const union = buildJevRequest(JEV_MODEL, {

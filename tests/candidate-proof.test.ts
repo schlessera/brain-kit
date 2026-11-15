@@ -28,7 +28,12 @@ test("events distinguish cheap drafts, fast pushes, explicit final requests and 
   plan.cadence = "feedback";
   expect(proofSelections(plan)).toEqual({ verify: true, pack: false, unit: false, browser: false, layout: false, captures: false, runtime: false, runtime_host: false, endurance: false });
   plan.cadence = "confirmation";
-  expect(proofSelections(plan).endurance).toBe(true);
+  // Hybrid ruling: ready confirmation runs the fast categories; heavy categories run on main.
+  expect(proofSelections(plan), "CONFIRMATION_RUNS_FAST_CATEGORIES_ONLY").toEqual({ verify: true, pack: true, unit: true, browser: false, layout: false, captures: false, runtime: false, runtime_host: false, endurance: false });
+  plan.cadence = "integrated";
+  expect(Object.values(proofSelections(plan)).every(Boolean), "MAIN_RUNS_EVERY_SELECTED_CATEGORY").toBe(true);
+  plan.cadence = "exhaustive";
+  expect(Object.values(proofSelections(plan)).every(Boolean)).toBe(true);
 });
 
 test("intermediate green feedback cannot satisfy final candidate confirmation", async () => {

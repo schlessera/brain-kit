@@ -1,6 +1,6 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { rewriteWorkerRtk, workerCleanupUnconfirmed } from "@schlessera/brain-ui-sdk/internal";
+import { rewriteWorkerRtk, workerCleanupUnconfirmed, reportStrandedWorkerCleanup } from "@schlessera/brain-ui-sdk/internal";
 import { EventEmitter } from "node:events";
 import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
@@ -95,7 +95,7 @@ export const CLAUDE_INFERENCE_ENV: readonly string[] = Object.freeze(["CLAUDE_CO
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits">
-    & { /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler } = {},
+    & { /** Owns a refused end-of-turn cleanup (#2871); defaults to the process's one. */ cleanup?: CleanupReconciler; reportCleanup?: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => void } = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
   startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
   persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
@@ -188,7 +188,16 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, hostHome: env.HOME || homedir(), credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
-      } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }
+      } catch (error) {
+        record(error);
+        if (!workerCleanupUnconfirmed(error)) state.release();
+        else if (error.close) (stateOptions.cleanup ?? processCleanupReconciler()).retain({
+          bytes: state.bytes, turnTempBytes: state.turnTempBytes, close: error.close,
+          release: () => state.release(), report: stateOptions.reportCleanup,
+        }, error);
+        else reportStrandedWorkerCleanup("claude", state, error);
+        throw error;
+      }
       let startFailure: unknown;
       reports.push(worker.limitReport);
       const handle = worker.state!;
@@ -278,7 +287,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           try { await close(); }
           catch (error) {
             (stateOptions.cleanup ?? processCleanupReconciler()).retain({ bytes: state.bytes, turnTempBytes: state.turnTempBytes,
-              close, release: () => state.release() });
+              close, release: () => state.release(), report: stateOptions.reportCleanup }, error);
             throw error;
           }
           state.release();
@@ -349,7 +358,12 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         try {
           signal.throwIfAborted();
           return await spawnNow({ ...options, signal }, signal, output);
-        } catch (error) { await output.cleanup(); throw error; }
+        } catch (error) {
+          // An unconfirmed launch owns this output until its retryable close
+          // confirms the worker's cleanup. Do not race that owner here.
+          if (!workerCleanupUnconfirmed(error)) await output.cleanup();
+          throw error;
+        }
       }, [immediateSignal, options.signal]);
       // Register preparation immediately: finish must own it even before a
       // native child exists, including a cancelled late preparation result.

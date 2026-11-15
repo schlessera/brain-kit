@@ -1,4 +1,5 @@
 /** Real FULL writer, immutable occurrences and host-only individual verdicts. */
+import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -275,8 +276,11 @@ test("failed new recording cannot be hidden by resolving previously retained evi
 test("a loss notice whose COMMIT rolls back still refuses verdicts through the shared local failure marker", async () => {
   const f = await fixture(); try {
     const a = await f.add("A"), value = f.body(a), prepared = await f.writes.safetyPrepareReview(value, f.actor);
+    holdSafetyRecovery(f.db);
     f.db.exec(`CREATE TABLE loss_commit_probe(id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED);
       CREATE TRIGGER fail_loss_commit AFTER UPDATE OF failed ON safety_meta WHEN NEW.failed=1
+      BEGIN INSERT INTO loss_commit_probe VALUES('missing-raft'); END;
+      CREATE TRIGGER fail_loss_chat AFTER UPDATE OF failure ON safety_collections WHEN NEW.failure IS NOT NULL
       BEGIN INSERT INTO loss_commit_probe VALUES('missing-raft'); END`);
     await expectRejection(f.writes.safetyFail("voyage"), "FOREIGN KEY constraint failed");
     expect(f.db.query("SELECT failed FROM safety_meta").get()).toEqual({ failed: 0 });

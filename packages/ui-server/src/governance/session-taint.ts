@@ -24,8 +24,8 @@ export function recordFirstTaint(db: Database, event: GovernanceEventInput<"tain
 }
 
 /**
- * Hosts the session's turn proxies admitted before, excluding both host
- * relays: the inference relay and a validated provider-relay operation, whose
+ * Hosts the session's turn proxies admitted before, excluding inference,
+ * provider and managed-reference host operations, whose
  * host never becomes one the worker's own traffic may reach once tainted, in
  * any turn (#3246). The proxy charges bytes only after admission, so a charged
  * record is admission evidence whatever its final outcome; an attempt
@@ -35,6 +35,7 @@ export function contactedHosts(db: Database, sessionId: string | null): string[]
   if (!sessionId) return [];
   const rows = db.query(`SELECT DISTINCT json_extract(payload, '$.host') AS host FROM governance_events
     WHERE kind='egress_connection' AND session_id=? AND json_extract(payload, '$.bytes') > 0
-      AND json_extract(payload, '$.inference') IS NULL AND json_extract(payload, '$.provider') IS NULL`).all(sessionId) as { host: string }[];
+      AND json_extract(payload, '$.inference') IS NULL AND json_extract(payload, '$.provider') IS NULL
+      AND json_extract(payload, '$.managedReference') IS NULL`).all(sessionId) as { host: string }[];
   return rows.map(row => row.host);
 }

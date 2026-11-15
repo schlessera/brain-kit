@@ -3,8 +3,8 @@
  * (AE7 — fixture-verified until core grows an agent loop), and the closed
  * cron-status name gap.
  */
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, appendFileSync } from "fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -14,8 +14,15 @@ import { createUiDb } from "../src/db/client";
 import { createCronScheduler, recordCronRun } from "../src/cron/scheduler";
 import { createBrainClient } from "../src/brain/client";
 
+const sinkDirs: string[] = [];
+afterEach(() => {
+  for (const dir of sinkDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 function sinkDir(): string {
-  return mkdtempSync(join(tmpdir(), "span-sink-"));
+  const dir = mkdtempSync(join(tmpdir(), "span-sink-"));
+  sinkDirs.push(dir);
+  return dir;
 }
 
 describe("span-sink ingest (AE7)", () => {

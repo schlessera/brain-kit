@@ -55,7 +55,10 @@ test("notifier ticks and delivery writes commit on the write worker at FULL, nev
     // `changes` counts the watch's own trigger rows, so read the result back.
     expect(await notifier.acknowledgeAll(), "NOTIFY_ACK_ALL_COMMITS_ON_WORKER").toBeGreaterThan(0);
     expect(notifier.inbox(), "NOTIFY_ACK_ALL_COMMITTED").toEqual([]);
-    expect(await notifier.pruneAcknowledged(0), "NOTIFY_PRUNE_COMMITS_ON_WORKER").toBeGreaterThanOrEqual(0);
+    // A cutoff in the future makes every acknowledged intent old enough, so the
+    // prune's committed effect is an empty table, whatever its trigger-inflated count.
+    await notifier.pruneAcknowledged(-60_000);
+    expect(f.db.query("SELECT COUNT(*) AS n FROM notification_intents").get(), "NOTIFY_PRUNE_COMMITS_ON_WORKER").toEqual({ n: 0 });
     const log = await sites.log();
     expect(new Set(log), "NOTIFY_TABLES_WRITTEN_ON_WORKER").toEqual(new Set(["notification_intents", "settings"]));
   } finally { await f.close(); }

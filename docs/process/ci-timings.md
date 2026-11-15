@@ -51,8 +51,15 @@ proof of a successful candidate.
 
 ## Automatic archival
 
+The [evidence archive and delivery decision](../decisions/ci-evidence.md)
+records the permanent measurement ref, monthly schema rules, retention split,
+publication permissions and daily/weekly delivery cadence. That ruling is
+separate from the hourly artifact collection described here; this guide does
+not imply that durable compaction or scheduled report delivery is enabled.
+
 `.github/workflows/ci-timings.yml` collects an overlapping two-day creation
-window hourly, with job/step timings, PR lifecycle and reservation history,
+window hourly, with job/step timings, PR lifecycle, reservation history and
+[red-main evidence](ci-throughput.md#red-main-incidents-flakes-and-proof-stopped-while-red),
 and supports manual dispatch. Each invocation seeds from the preceding
 default-branch `ci-timings` artifact, then fetches only new or incomplete
 attempts. Completed attempts and unchanged/merged lifecycle observations are
@@ -95,7 +102,10 @@ older rerun attempts also need an attempt-identity call. One shared PR index
 costs one call per 100 recently updated PRs. A changed PR normally costs two
 calls (detail and one timeline page), or three when its immutable squash is
 read. Unattributed main heads add an exact-SHA lookup. No resource-job log
-calls occur on the schedule.
+calls occur on the schedule. Red-main history is read through Git, not the API.
+Only while main was red does each new coordinator attempt cost two calls (jobs
+and its log), plus one discovery call per 100 coordinator runs in each red
+interval.
 
 For example, a warm run with two discovery pages, one PR-index page, 20 new
 attempts, and five changed merged PRs costs **42 calls**: `1 + 3 + 2 + 1 + 20 +
@@ -123,7 +133,11 @@ Reservation-history failures are isolated: `reservations.json` records an
 continues. The report keeps that error in its reservation scopes and sets
 `reservationAcquisition.complete` to false. Any failed reservation scope leaves
 total occupancy unknown; successful lease observations remain available in
-`reservationAcquisition.leases` for inspection.
+`reservationAcquisition.leases` for inspection. Red-main history failures are
+isolated the same way in `red-main.json`. A failed coordinator discovery, or a
+budget stop before it, marks that scope `partial` in its `coordinatorScope`.
+The report then lists it under `redMain.acquisition`, rather than reporting no
+cancellations.
 
 Download archives before they expire, using their measurement workflow run IDs:
 

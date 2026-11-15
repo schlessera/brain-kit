@@ -8,7 +8,7 @@
  */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { workerCleanupUnconfirmed, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
+import { processCleanupReconciler, type CleanupReconciler, workerCleanupUnconfirmed, reportStrandedWorkerCleanup, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
 import { stateRoomCopy, stateRoomWarning, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -21,7 +21,7 @@ import { workerOutwardNote, workerCommandPolicyNote, createLimitTracker, launchA
   type LaunchedWorker, type WorkerStateHandle, type WorkerNoteFacts, type sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
-import { preparePiHostInference, type PiHostInference } from "./host-inference.js";
+import { piWebModelAccess, preparePiHostInference, type PiHostInference } from "./host-inference.js";
 import type { CreatePiBackendOptions, SessionEnv } from "./backend-options.js";
 import { configuredProfiles } from "./profiles.js";
 import type { TurnContext } from "./turn-context.js";
@@ -64,6 +64,8 @@ export interface PiWorkerAdmission {
   envelope: ReturnType<typeof piAutonomousEnvelope> | undefined;
   egress: WorkerSandbox["egress"] | undefined;
   hostInference: PiHostInference | undefined;
+  /** The relayed turn's model, lent to the host web executor (#3688); never the worker's to name. */
+  webModel: import("@schlessera/brain-ui-sdk/tool-contracts").WebModelAccess | undefined;
   cachedNpmModules: string | undefined;
   /** The worker's initialization message, without its sandbox note. */
   init: Record<string, unknown>;
@@ -100,7 +102,7 @@ export async function admitPiWorker(request: PiWorkerAdmissionRequest): Promise<
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, ...workerSessionEnv } = env;
+  const { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, cleanupActivity: _cleanupActivity, ...workerSessionEnv } = env;
   const npmPath = envelope ? undefined : join(agentDir, "npm", "node_modules");
   let cachedNpmModules: string | undefined;
   if (npmPath && existsSync(npmPath)) {
@@ -136,7 +138,10 @@ export async function admitPiWorker(request: PiWorkerAdmissionRequest): Promise<
     // budget refuses as worker_state_busy before anything launches.
     reservation = processStateLedger().reserve(undefined, turnTempLimits);
   } catch (error) { envelope?.relay.stop(); hostInference?.stop(); throw error; }
-  return { agentDir, agentFiles, envelope, egress, hostInference, cachedNpmModules, init, reservation, admissionObservation, identity,
+  // The same model, credential store and admitted recipient the turn's own relay uses.
+  const webModel = hostInference && relayedModel ? piWebModelAccess({ provider: relayedModel.provider, modelId: relayedModel.id, agentDir,
+    brainPath: backend.brainPath, ...(recipient ? { recipientOrigin: recipient.origin } : {}), environment: subprocessEnv() }) : undefined;
+  return { agentDir, agentFiles, envelope, egress, hostInference, webModel, cachedNpmModules, init, reservation, admissionObservation, identity,
     hostEnv: { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution } };
 }
 
@@ -242,18 +247,33 @@ export async function launchPiWorker(request: PiWorkerLaunchRequest): Promise<La
     // exist. Stop and drain this owned child before deleting its native stage.
     const cleanupErrors: unknown[] = [];
     const attempt = async (cleanup: () => unknown | Promise<unknown>): Promise<boolean> => { try { await cleanup(); return true; } catch (failure) { cleanupErrors.push(failure); return false; } };
-    let workerStorageReleased = !workerCleanupUnconfirmed(error);
     if (launchedChild) {
       await attempt(() => launchedChild!.kill("SIGKILL"));
       await attempt(() => launchedChild!.exited);
       // Nothing reads its stdio yet: close the server's ends, then wait out Bun's duplicates (#2863).
       await attempt(() => { launchedChild!.stdin.end(); launchedChild!.stdout.destroy(); launchedChild!.stderr.destroy(); return launchedChild!.released(); });
-      workerStorageReleased = await attempt(() => launchedChild!.turnTemp?.closeAsync());
     }
-    if (workerStorageReleased) await attempt(() => preparedOutput?.cleanup());
+    let closing: Promise<void> | undefined;
+    const close = (): Promise<void> => closing ??= (async () => {
+      if (launchedChild) await launchedChild.turnTemp?.closeAsync();
+      else if (workerCleanupUnconfirmed(error)) {
+        if (!error.close) throw error;
+        await error.close();
+      }
+      await preparedOutput?.cleanup();
+    })().catch((failure: unknown) => { closing = undefined; throw failure; });
+    try { await close(); reservation.release(); }
+    catch (failure) {
+      if (!launchedChild && workerCleanupUnconfirmed(error) && !error.close) reportStrandedWorkerCleanup("pi", reservation, error);
+      else {
+        cleanupErrors.push(failure);
+        const activity = env.cleanupActivity ?? turnContext.bridge?.activity;
+        processCleanupReconciler().retain({ bytes: reservation.bytes, turnTempBytes: reservation.turnTempBytes,
+          close, release: () => reservation.release(), report: notice => activity?.({ kind: "worker_cleanup", ...notice }) }, failure);
+      }
+    }
     await attempt(() => envelope?.relay.stop());
     await attempt(() => hostInference?.stop());
-    if (workerStorageReleased) await attempt(() => reservation.release());
     if (cleanupErrors.length) {
       try { backend.log?.("warn", `Pi startup cleanup retained failures after its original refusal: ${cleanupErrors.map(String).join("; ")}`); } catch { /* Reporting cannot replace the startup error. */ }
     }
@@ -287,7 +307,7 @@ export interface PiWorkerSupervision {
  * turn temp, relays, locks, stderr and host-limit reports.
  */
 export function superviseWorker(worker: { child: LaunchedWorker; reservation: Reservation; turnTemp: WorkerStateHandle | undefined;
-  env: SessionEnv; turnContext: TurnContext; admission: Pick<PiWorkerAdmission, "envelope" | "hostInference">; answerText(): string }): PiWorkerSupervision {
+  env: SessionEnv; turnContext: TurnContext; admission: Pick<PiWorkerAdmission, "envelope" | "hostInference">; answerText(): string; cleanup?: CleanupReconciler }): PiWorkerSupervision {
   const { child, reservation, turnTemp, env, turnContext, answerText } = worker;
   const { envelope, hostInference } = worker.admission;
   const held = reservation;
@@ -298,8 +318,18 @@ export function superviseWorker(worker: { child: LaunchedWorker; reservation: Re
    * separate-UID worker's broker cleanup is confirmed; a refusal keeps it
    * charged, and the next call tries again (#2854).
    */
-  const closeTurnTemp = (): Promise<void> => turnTempClosing ??= (async () => { await turnTemp?.closeAsync(); held.release(); })()
-    .catch((error: unknown) => { turnTempClosing = undefined; throw error; });
+  let released = false;
+  const releaseReservation = () => { if (!released) { released = true; held.release(); } };
+  const activity = env.cleanupActivity ?? turnContext.bridge?.activity;
+  const cleanup = { bytes: held.bytes, turnTempBytes: held.turnTempBytes, close: () => closeStorage(), release: releaseReservation,
+    report: (notice: import("@schlessera/brain-ui-sdk/internal").CleanupNotice) => activity?.({ kind: "worker_cleanup", ...notice }) };
+  const closeStorage = (): Promise<void> => turnTempClosing ??= (async () => { await turnTemp?.closeAsync(); })()
+    .catch((error: unknown) => {
+      turnTempClosing = undefined;
+      (worker.cleanup ?? processCleanupReconciler()).retain(cleanup, error);
+      throw error;
+    });
+  const closeTurnTemp = async () => { await closeStorage(); releaseReservation(); };
   // The turn_temp tool reaches this worker's /tmp only while it runs (#1703).
   let workerLive = true;
   void child.exited.finally(() => { workerLive = false; }).catch(() => {});

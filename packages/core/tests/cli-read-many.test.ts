@@ -43,7 +43,7 @@ describe("brain read-many --json", () => {
     expect(r.stdout.trimEnd().length).toBeLessThanOrEqual(2_000);
     const body = JSON.parse(r.stdout);
     expect(body.items.map((i: { kind: string }) => i.kind)).toEqual(["full", "partial"]);
-    expect(body.items[0].content.startsWith("## Reaching Odysseus\n")).toBe(true);
+    expect(body.items[0].content).toStartWith("## Reaching Odysseus\n");
   });
 
   test("the cap flags apply to argument paths and are refused, not clamped, out of range", async () => {

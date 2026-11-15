@@ -1,24 +1,23 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, unlinkSync } from "fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createUiDb } from "../src/db/client";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 
-const TEST_DB = `/tmp/brain-ui-cost-test-${process.pid}.db`;
-
 describe("session cost persistence", () => {
-  let db: Database;
+  let db: Database, root: string;
 
+  // A private directory per test: no fixed path another run or file can share.
   beforeEach(() => {
-    if (existsSync(TEST_DB)) unlinkSync(TEST_DB);
-    db = createUiDb(TEST_DB);
+    root = mkdtempSync(join(tmpdir(), "odysseus-session-cost-"));
+    db = createUiDb(join(root, "ui.db"));
   });
 
   afterEach(() => {
     db.close();
-    for (const s of ["", "-shm", "-wal"]) {
-      if (existsSync(TEST_DB + s)) unlinkSync(TEST_DB + s);
-    }
+    rmSync(root, { recursive: true, force: true });
   });
 
   function upsertSession(id: string, title: string, costUsd: number, numTurns: number) {

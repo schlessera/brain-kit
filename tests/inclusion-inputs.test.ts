@@ -10,7 +10,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 const spec = "packages/ui-kit/tests/visual/one.visual.tsx", second = "packages/ui-kit/tests/visual/two.visual.tsx";
 const inventory: Spec[] = [spec, second].map(file => ({ project: "ui-react-layout", file }));
 function write(root: string, file: string, text: string) { mkdirSync(dirname(join(root, file)), { recursive: true }); writeFileSync(join(root, file), text); }
-function commit(root: string) { git(root, "add", "."); git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "fixture"); return git(root, "rev-parse", "HEAD").trim(); }
+function commit(root: string) { git(root, "add", "."); git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"); return git(root, "rev-parse", "HEAD").trim(); }
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "inclusion-inputs-")); roots.push(root); git(root, "init", "-q"); git(root, "config", "commit.gpgsign", "false");
   write(root, ".gitignore", "node_modules\n"); symlinkSync(resolve(import.meta.dir, "../node_modules"), join(root, "node_modules"), "dir");

@@ -1,0 +1,6 @@
+interface:
+  display_name: "One full pass of brain-kit's tests"
+  short_description: "Fan the test-health audit out over the whole suite and land it as one pull request"
+  default_prompt: "Use $test-health-push to run one dedicated push: shard the suite, run test-health workers against an integration branch, shake the result out and land it on main as one pull request."
+policy:
+  allow_implicit_invocation: false

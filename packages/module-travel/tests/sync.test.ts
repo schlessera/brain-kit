@@ -108,8 +108,9 @@ describe("travel sync", () => {
     expect((await sync(root)).files).toEqual(["trips/_index.md", "places/_index.md"]);
     const trips = read(root, "trips/_index.md");
     const [before, after] = prose.split(/<!-- brain:generated:travel-trips -->[\s\S]*<!-- \/brain:generated:travel-trips -->/);
-    expect(trips.startsWith(before.replace(/^updated: .*$/m, trips.match(/^updated: .*$/m)![0]))).toBe(true);
-    expect(trips.endsWith(after)).toBe(true);
+    const head = before.replace(/^updated: .*$/m, trips.match(/^updated: .*$/m)![0]);
+    expect(trips.slice(0, head.length)).toBe(head);
+    expect(trips.slice(trips.length - after.length)).toBe(after);
     expect(after).toBe("\n\nNotes kept by hand.\n");
     expect(region(root, "trips/_index.md", "travel-trips")).toBe([
       "_Generated from each trip's frontmatter by `brain travel sync`. Edit the trips, not these tables._",

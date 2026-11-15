@@ -67,7 +67,12 @@ for (const [name, flags] of invalidCases) {
   for (const seeded of [false, true]) {
     test(`jobs search gives usage for ${name} with ${seeded ? "populated" : "absent"} database`, async () => {
       const root = seeded ? populated : fixture();
+      const path = join(root, "jobs.db");
+      expect(existsSync(path)).toBe(seeded);
       const result = await runCli(root, ["jobs", "search", "navigation", ...flags]);
+      // Keep this before the usage assertion: it independently observes opening
+      // with CREATE, even when the later SQL query fails for the expected reason.
+      expect(existsSync(path)).toBe(seeded);
       expect(result.stderr).toContain("--limit must be a positive safe integer");
       expect(result.stderr).toContain("Usage: brain jobs search");
       expect(result.code).toBe(1);
@@ -75,17 +80,6 @@ for (const [name, flags] of invalidCases) {
       expect(result.stderr).not.toMatch(/datatype mismatch|SQLITE|SQLiteError/);
     });
   }
-
-  test(`jobs search does not create a database for ${name}`, async () => {
-    const root = fixture();
-    const path = join(root, "jobs.db");
-    expect(existsSync(path)).toBe(false);
-    const result = await runCli(root, ["jobs", "search", "navigation", ...flags]);
-    // Keep this before the usage assertion: it independently observes opening
-    // with CREATE, even when the later SQL query fails for the expected reason.
-    expect(existsSync(path)).toBe(false);
-    expect(result.code).toBe(1);
-  });
 }
 
 for (const [name, flags, count] of [

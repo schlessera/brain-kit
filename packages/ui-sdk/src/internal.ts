@@ -1,7 +1,7 @@
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
 export { BRAIN_INTERACTION_GUIDANCE, projectConversationGuidance, conversationOrientation, ORIENTATION_MAX_BYTES } from "./server/interaction-guidance.js";
 export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";
-export { workerCleanupUnconfirmed, workerIdentityHelper } from "./server/worker-identity.js";
+export { workerCleanupUnconfirmed, workerIdentityHelper, reportStrandedWorkerCleanup } from "./server/worker-identity.js";
 export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
 export { launchAgentWorker, launchAgentWorkerAsync, launchLimits, requireWorkerHost, requireWorkerHostAsync, WorkerResourceLimitError, probeWorkerHost, probeWorkerHostAsync, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
 export { WORKER_EMPTY_HOME } from "./server/worker-xdg.js";
@@ -14,17 +14,18 @@ export type { ClassificationAnswers, ClassificationPlan, ClassificationRequest, 
 export { claudeMaskFilename, claudeReportedMaskPath, piMaskFilename, piReportedMaskPath } from "./server/bridge-tools/index.js";
 export { GIT_LOCK_KEY } from "./server/lock-keys.js";
 export { VERSION_PROBE_TIMEOUT_MS } from "./server/version-probe.js";
-export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, hasWebSearchCredential, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
+export type { WebToolUnavailableFeature } from "./server/web-search.js";
+export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, WEB_TOOL_UNAVAILABLE_FEATURES, hasWebSearchCredential, webSearchKeySource, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
 export { canonicalModelId } from "./protocol-helpers.js";
 export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrapper.js";
 
 export { assertScratchMask, assertScratchMaskAsync } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_SOCKET } from "./server/inference-relay.js";
 export type { InferenceRelay, InferenceRelayEvent } from "./server/inference-relay.js";
-export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
+export { startEgressProxy, egressAddressRefusal, egressBootstrapEntry, EgressAdmissionRefused, WORKER_EGRESS_DIR, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export { startProviderRelay, parseCliProviderOrigins, relayedProviderKeys, heldCustomProviderKeys, PROVIDER_RELAY_KEYS_NAME, providerUsage, FIRST_PARTY_PROVIDER_RECIPIENTS, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET, MAX_PROVIDER_REQUEST_BYTES, type ProviderRelay, type ProviderRelayOptions, type ProviderRelayReceipt, type ProviderRelayRefusal, type ProviderUsage, type ProviderOperation } from "./server/provider-relay.js";
 export { hostProviderCredential, hostComputeCredential } from "./config/env.js";
-export type { EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
+export type { EgressDestinationPolicy, EgressRecord, EgressRefusal } from "./server/egress-proxy.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "./server/worker-launcher.js";
 export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
@@ -79,7 +80,7 @@ export type { NativePoolRecord, NativePoolStatus, NativePoolState, NativePoolChe
 export { REFERENCE_POOL_CHECKPOINT_BYTES } from "./server/native-brain-manager-protocol.js";
 
 export { RTK_WORKER_ENV } from "./server/rtk.js";
-export { sessionPromptContext } from "./server/session-prompt-context.js";
+export { sessionPromptContext, stripHostContextFromTitle } from "./server/session-prompt-context.js";
 export type { SessionPromptFacts } from "./server/session-prompt-context.js";
 
 export { describeClient } from "./server/system-prompt.js";
@@ -96,3 +97,6 @@ export type { RemovalRun, SessionRetirement, SessionRetirementOptions } from "./
 export { sessionReplayLocation } from "./server/session-replay.js";
 export { sessionPromptContextLocation } from "./server/session-prompt-context.js";
 export { nativeObservationIdentity } from "./server/native-observation-storage.js";
+
+export { createCleanupReconciler, processCleanupReconciler, CLEANUP_RETRY_ATTEMPTS, CLEANUP_RETRY_BASE_MS, CLEANUP_RETRY_MAX_MS } from "./server/cleanup-reconciler.js";
+export type { CleanupNotice, CleanupReconciler, CleanupReconcilerOptions, RetainedCleanup } from "./server/cleanup-reconciler.js";

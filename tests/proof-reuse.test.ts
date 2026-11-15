@@ -29,7 +29,7 @@ const inventory: Spec[] = normalizeInventory([
 ]);
 function write(root: string, file: string, text: string) { mkdirSync(dirname(join(root, file)), { recursive: true }); writeFileSync(join(root, file), text); }
 function commit(root: string): string {
-  git(root, "add", "."); git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "fixture");
+  git(root, "add", "."); git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture");
   return checkout(root).sha;
 }
 function fixture() {
@@ -46,7 +46,7 @@ function fixture() {
   write(root, ".github/workflows/ci.yml", "name: CI\n");
   write(root, "packages/core/fixtures/corpus/input.md", "Fixture source\n"); const base = commit(root);
   write(root, "pr-input.txt", "immutable contribution\n"); const head = commit(root);
-  const merged = git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit-tree", checkout(root).tree, "-p", base, "-p", head, "-m", "combined fixture").trim();
+  const merged = git(root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "-c", "commit.gpgsign=false", "commit-tree", checkout(root).tree, "-p", base, "-p", head, "-m", "combined fixture").trim();
   git(root, "reset", "--hard", merged);
   return root;
 }

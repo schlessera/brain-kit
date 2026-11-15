@@ -109,8 +109,8 @@ describe("commit", () => {
     for (const file of [EAGLE, IDEA]) expect(readFileSync(join(root, file), "utf-8")).toContain(`updated: ${localDate()}`);
     const subjects = body.commits.map((c: { subject: string }) => c.subject);
     expect(subjects).toHaveLength(2);
-    expect(subjects.some((s: string) => s.startsWith("Update note: "))).toBe(true);
-    expect(subjects.some((s: string) => s.startsWith("Add health: Sailor hydration"))).toBe(true);
+    expect(subjects).toContainEqual(expect.stringMatching(/^Update note: /));
+    expect(subjects).toContainEqual(expect.stringMatching(/^Add health: Sailor hydration/));
     for (const c of body.commits) expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
     expect(Number(git(root, "rev-list", "--count", "HEAD"))).toBe(before + 2);
     expect(git(root, "status", "--porcelain", "--", EAGLE, IDEA, HYDRATION)).toBe("");

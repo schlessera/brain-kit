@@ -94,10 +94,11 @@ async function ownedChild() {
   expect(ready.stage).toBe("held");
   const pid = Number(ready.pid);
   const captures = await waitForHostProcesses(marker);
-  const process = captures.find(process => (typeof process === "number" ? process : process.pid) === pid);
-  expect(process, "ACKNOWLEDGED_NATIVE_CHILD_CAPTURED").toBeDefined();
-  const parent = captures.find(process => (typeof process === "number" ? process : process.pid) === owner.pid);
-  expect(parent, "WAIT_OWNER_CAPTURED").toBeDefined();
+  // Only the wait owner carries the marker on its argv, and the forked child inherits it.
+  expect(captures.map(capture => capture.pid).sort((a, b) => a - b), "OWNER_AND_CHILD_CAPTURED_ALONE")
+    .toEqual([owner.pid, pid].sort((a, b) => a - b));
+  const process = captures.find(capture => capture.pid === pid);
+  const parent = captures.find(capture => capture.pid === owner.pid);
   return { pid, process: process!, parent: parent!, marker, close, async command(command: string) {
     owner.stdin.write(command + "\n");
     await owner.stdin.flush();
@@ -196,7 +197,7 @@ test("argument capture revalidates identity across cmdline and propagates unknow
   // Use this process's real argv, which is available throughout the control.
   const argument = fs.readFileSync(`/proc/${process.pid}/cmdline`, "utf8").split("\0")[1]!;
   const restore = procReads((text, call) => call === 1 ? text : replacement(text));
-  expect(hostProcessesWithArg(argument).some(value => value.pid === process.pid)).toBe(false);
+  expect(hostProcessesWithArg(argument).map(value => value.pid)).not.toContain(process.pid);
   await restore();
   const unknown = new Error("capture read failure");
   await procReads(() => { throw unknown; });

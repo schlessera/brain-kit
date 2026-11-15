@@ -62,7 +62,7 @@ test("messages arriving during routing become ordered turns in one reserved sess
   await handleClientMessage(host, ws, { type: "chat_message", text: "second", sessionId: "same", client: { formFactor: "phone" } }, connection);
   expect(host.coordinator.startingSessions).toBe(1);
   expect(host.coordinator.startingBySession.get("same")?.queue).toHaveLength(1);
-  expect(sent.some(f => f.type === "status" && f.status === "queued")).toBe(true);
+  expect(sent).toContainEqual(expect.objectContaining({ type: "status", status: "queued" }));
   routing.release();
   await until(() => started.length === 1);
   expect(host.coordinator.running.size).toBe(1);
@@ -93,10 +93,10 @@ test("routing queues enforce the same depth cap and release a failed reservation
   await handleClientMessage(host, ws, { type: "chat_message", text: "first", sessionId: "same" }, connection);
   for (let i = 0; i < 51; i++) await handleClientMessage(host, ws, { type: "chat_message", text: `queued ${i}`, sessionId: "same" }, connection);
   expect(host.coordinator.startingBySession.get("same")?.queue).toHaveLength(50);
-  expect(sent.some(f => f.type === "error" && f.code === "SESSION_QUEUE_FULL")).toBe(true);
+  expect(sent).toContainEqual(expect.objectContaining({ type: "error", code: "SESSION_QUEUE_FULL" }));
   routing.release(); await until(() => host.coordinator.startingSessions === 0);
   expect(host.coordinator.startingBySession.size).toBe(0);
-  expect(sent.some(f => f.type === "error" && f.code === "BACKEND_ERROR")).toBe(true);
+  expect(sent).toContainEqual(expect.objectContaining({ type: "error", code: "BACKEND_ERROR" }));
 });
 
 

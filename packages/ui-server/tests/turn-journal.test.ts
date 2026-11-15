@@ -7,12 +7,14 @@ import { expectRejection } from "./helpers/expect-rejection.js";
 import { closeSync, fstatSync, mkdtempSync, mkdirSync, openSync, rmSync, writeFileSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createActivityStore } from "../src/activity/store.js";
 import { createUiDb } from "../src/db/client.js";
 import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { journalStatement } from "../src/brain/journal-store.js";
 import { configurationSet } from "../src/brain/journal-configuration-sets.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
+import { createStatusRoutes } from "../src/routes/health.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 import { exportInboxSnapshot } from "../src/inbox/snapshot.js";
 
@@ -243,13 +245,15 @@ test("a delayed observation holds authority synchronously until its complete ser
   } finally { resume(); await f.close(); }
 });
 
-test("a previous checkpoint is released after the hold, and a release failure found there still stops every active turn", async () => {
+test("a previous checkpoint is released after the hold, and a release failure leaves every active turn running", async () => {
   const f = fixture();
   const release = f.native.manager.release;
   let fail: ((error: Error) => void) | undefined, entered!: () => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
   try {
     const stopped: Error[] = [];
+    const activity = createActivityStore(f.db);
+    for (const id of ["telemachus", "penelope"]) activity.startSpan({ spanId: `${id}:turn`, runId: id, name: "Voyage", kind: "turn", origin: "session" });
     for (const id of ["telemachus", "penelope"])
       await f.journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => stopped.push(error));
     await f.journal.releasesSettled();
@@ -263,16 +267,19 @@ test("a previous checkpoint is released after the hold, and a release failure fo
     expect(f.journal.summary("telemachus").state).toBe("recording");
     fail!(new Error("Odysseus release refused"));
     await f.journal.releasesSettled();
-    expect(stopped.length, "JOURNAL_LATE_RELEASE_FAILURE_STOPS_EVERY_ACTIVE_TURN").toBe(2);
+    expect(stopped, "JOURNAL_RELEASE_FAILURE_LEAVES_TURNS_RUNNING").toEqual([]);
     await f.journal.idle();
-    for (const id of ["telemachus", "penelope"]) expect(f.journal.summary(id).state, `JOURNAL_LATE_RELEASE_FAILURE_PARTIAL ${id}`).toBe("partial");
+    for (const id of ["telemachus", "penelope"]) expect(f.journal.summary(id).state, `JOURNAL_RELEASE_FAILURE_STILL_RECORDING ${id}`).toBe("recording");
+    const diagnostics = f.db.query("SELECT payload FROM activity_events WHERE event_type='checkpoint_release_retry'").all();
+    expect(diagnostics, "CHECKPOINT_CAUSE_DURABLE_FOR_BOTH_TURNS").toHaveLength(2);
+    expect(JSON.stringify(diagnostics)).toContain("Odysseus release refused");
     f.native.manager.release = release;
     for (const id of ["telemachus", "penelope"]) await f.journal.finish(id);
-    expect(f.journal.summary("telemachus").state).toBe("partial");
+    expect(f.journal.summary("telemachus").state).toBe("complete");
   } finally { fail?.(new Error("Odysseus cleanup")); f.native.manager.release = release; await f.close(); }
 });
 
-test("a release failing during an admission refuses it and fails the hold it overlaps", async () => {
+test("a release failing during admission preserves admission and resumes its hold", async () => {
   const f = fixture();
   const release = f.native.manager.release;
   try {
@@ -282,17 +289,17 @@ test("a release failing during an admission refuses it and fails the hold it ove
     f.journal.onObservation(() => {}, { before() {}, after(ok) { completed.push(ok); } });
     // The release begun by this admission's observation fails before the admission registers its turn.
     f.native.manager.release = async () => { throw new Error("Odysseus release refused"); };
-    await expectRejection(f.begin("penelope"), "release failed during admission");
+    await f.begin("penelope");
     await f.journal.releasesSettled(); await f.journal.idle();
-    expect(f.journal.summary("penelope").state, "JOURNAL_ADMISSION_REFUSED_BY_LATE_RELEASE_FAILURE").not.toBe("recording");
-    expect(stopped.length, "JOURNAL_ACTIVE_TURN_STOPPED_BY_LATE_RELEASE_FAILURE").toBe(1);
-    expect(completed, "JOURNAL_OVERLAPPED_HOLD_DOES_NOT_RESUME").toEqual([false]);
+    expect(f.journal.summary("penelope").state, "JOURNAL_ADMISSION_SURVIVES_RELEASE_FAILURE").toBe("recording");
+    expect(stopped, "JOURNAL_RELEASE_FAILURE_STOPS_NOTHING").toEqual([]);
+    expect(completed, "JOURNAL_OVERLAPPED_HOLD_RESUMES").toEqual([true]);
     f.native.manager.release = release;
     await f.journal.finish("telemachus"); await f.journal.finish("penelope");
   } finally { f.native.manager.release = release; await f.close(); }
 });
 
-test("an admission queued behind other journal work is refused when a release fails while it waits", async () => {
+test("an admission queued behind other journal work survives a superseded release failure", async () => {
   const f = fixture();
   const release = f.native.manager.release, delta = f.native.manager.delta;
   let fail: ((error: Error) => void) | undefined, resume!: () => void, entered!: () => void;
@@ -311,9 +318,9 @@ test("an admission queued behind other journal work is refused when a release fa
     fail!(new Error("Odysseus release refused")); fail = undefined;
     f.native.manager.release = release; f.native.manager.delta = delta; resume();
     await occupied.catch(() => {});
-    await expectRejection(queued, "release failed during admission");
-    expect(stopped.length, "JOURNAL_ACTIVE_TURN_STOPPED_BY_LATE_RELEASE_FAILURE").toBe(1);
-    expect(f.journal.summary("penelope").state, "JOURNAL_QUEUED_ADMISSION_REFUSED_BY_RELEASE_FAILURE").not.toBe("recording");
+    await queued;
+    expect(stopped, "JOURNAL_RELEASE_FAILURE_STOPS_NOTHING").toEqual([]);
+    expect(f.journal.summary("penelope").state, "JOURNAL_QUEUED_ADMISSION_SURVIVES_RELEASE_FAILURE").toBe("recording");
     await f.journal.finish("telemachus"); await f.journal.finish("penelope");
   } finally { fail?.(new Error("Odysseus cleanup")); resume(); f.native.manager.release = release; f.native.manager.delta = delta; await f.close(); }
 });
@@ -718,4 +725,81 @@ test("native capture excludes an alternate trusted index identity without a publ
       await observed.commit();
     } catch (error) { await observed.abort(); throw error; }
   } finally { await capture.close(); await f.close(); }
+});
+
+test("journal startup quarantines one corrupt object and preserves unrelated history", async () => {
+  const f = fixture();
+  let reopened: ReturnType<typeof createTurnJournal> | undefined;
+  try {
+    await f.begin("odysseus-corrupt");
+    writeFileSync(join(f.brain, "notes/odysseus.md"), "# New voyage\n");
+    await f.journal.finish("odysseus-corrupt");
+    await f.begin("athena-healthy");
+    writeFileSync(join(f.brain, "notes/athena.md"), "# Guidance\n");
+    await f.journal.finish("athena-healthy");
+    const before = f.journal.details("ithaca", "odysseus-corrupt")!.changes.find(change => change.path === "notes/odysseus.md")!.before!;
+    await f.journal.close();
+    // Reproduce an interrupted publisher on an existing retained object.
+    const {createJournalAccounting} = await import("../src/brain/journal-accounting.js");
+    const accounting = createJournalAccounting(f.db, join(f.root, "ui.db"));
+    accounting.write(() => f.db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash) VALUES (?,?,?,'gone',0,?)")
+      .run(crypto.randomUUID(), before.bytes, process.pid, before.hash!));
+    accounting.write(() => f.db.query("UPDATE turn_journal_turns SET ended_at=NULL,state='recording',pid=?,pid_start='gone' WHERE turn_id='odysseus-corrupt'").run(process.pid));
+    writeFileSync(join(f.root, "objects", before.hash!), Buffer.alloc(before.bytes));
+    reopened = createTurnJournal(f.db, {nativeManager:f.native.manager,brainPath:f.brain,dbPath:join(f.root,"ui.db"),objectsRoot:join(f.root,"objects")});
+    await reopened.ready;
+    expect(reopened.summary("odysseus-corrupt").state, "JOURNAL_READY_AFTER_CORRUPT_PUBLICATION").toBe("partial");
+    expect(reopened.details("ithaca", "odysseus-corrupt")!.missing).toContainEqual({path:"notes/odysseus.md",reason:"retained_object_corrupt"});
+    expect(reopened.hasRetainedVersion("odysseus-corrupt", before)).toBe(false);
+    const other = reopened.details("ithaca", "athena-healthy")!;
+    expect(other.summary.state, "JOURNAL_OTHER_HISTORY_STAYS_COMPLETE").toBe("complete");
+    expect(reopened.hasRetainedVersion("athena-healthy", other.changes.find(change => change.path === "notes/athena.md")!.after!)).toBe(true);
+    const stopped: Error[] = [];
+    for (const id of ["telemachus-active", "penelope-active"]) await reopened.begin(id,
+      {sessionId:"ithaca",actor:"interactive",model:null,profile:"governed",policyHash:null}, error => stopped.push(error));
+    writeFileSync(join(f.brain, "notes/odysseus.md"), "# Ithaca\r\n");
+    writeFileSync(join(f.brain, "notes/athena.md"), "# More guidance\n");
+    const observed = await reopened.finish("telemachus-active").then(() => null, error => error);
+    expect(stopped, "JOURNAL_RECAPTURE_DOES_NOT_STOP_OTHER_ACTIVE_TURNS").toEqual([]);
+    expect(observed, "JOURNAL_QUARANTINE_RECAPTURE_COMPLETES_OBSERVATION").toBeNull();
+    await reopened.finish("penelope-active");
+    expect(reopened.details("ithaca", "penelope-active")!.missing.find(item => item.path === "notes/odysseus.md")).toMatchObject({reason:"retained_object_corrupt"});
+    const healthy = reopened.details("ithaca", "penelope-active")!.changes.find(change => change.path === "notes/athena.md")!;
+    expect(reopened.version("ithaca", "penelope-active", healthy.sequence, "after")!.bytes(100)).toEqual(Buffer.from("# More guidance\n"));
+    expect(reopened.hasRetainedVersion("odysseus-corrupt", before), "JOURNAL_OLD_GAP_NEVER_CLEARS").toBe(false);
+  } finally { await reopened?.close(); await f.close(); }
+});
+
+
+test("a quarantine gap added by recovery preserves an open turn until normal completion", async () => {
+  const f = fixture();
+  try {
+    await f.begin("odysseus-live");
+    await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET missing=? WHERE turn_id='odysseus-live'",JSON.stringify([{path:"notes/odysseus.md",reason:"retained_object_corrupt"}]))]);
+    expect(f.journal.summary("odysseus-live").state).toBe("recording");
+    await f.journal.finish("odysseus-live");
+    expect(f.journal.summary("odysseus-live").state,"JOURNAL_FINISH_PRESERVES_RECOVERY_GAP").toBe("partial");
+    expect(f.journal.details("ithaca","odysseus-live")!.missing).toContainEqual({path:"notes/odysseus.md",reason:"retained_object_corrupt"});
+  } finally { await f.close(); }
+});
+
+test("idle checkpoint cleanup records its cause durably before any turn exists and exposes authenticated status", async () => {
+  const f = fixture();
+  const release = f.native.manager.release;
+  try {
+    f.native.manager.release = async () => { throw new Error("Odysseus idle checkpoint release refused"); };
+    await f.journal.observe();
+    await f.journal.releasesSettled(); await f.journal.idle();
+    expect(f.db.query("SELECT count(*) AS n FROM turn_journal_turns").get()).toEqual({ n: 0 });
+    const saved = new Database(join(f.root, "ui.db"), { readonly: true });
+    try {
+      const failure = saved.query("SELECT value FROM settings WHERE key='journal.cleanup.lastFailure'").get();
+      expect(failure, "IDLE_CLEANUP_CAUSE_DURABLE").not.toBeNull();
+      expect(failure).toMatchObject({ value: expect.stringContaining("Odysseus idle checkpoint release refused") });
+    } finally { saved.close(); }
+    const routes = createStatusRoutes({ sourceCommit: "fixture", getCronStatus: () => [], isTurnActive: () => false,
+      getJournalCleanup: () => f.journal.cleanupStatus() });
+    const status = await (await routes.request("/status")).json() as any;
+    expect(status.journalCleanup).toMatchObject({ retained: { failed: 1 }, lastFailure: { cause: "Error: Odysseus idle checkpoint release refused" } });
+  } finally { f.native.manager.release = release; await f.close(); }
 });

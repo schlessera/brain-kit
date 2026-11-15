@@ -80,7 +80,10 @@ export function readCopy(entries: readonly AttachmentReadEntry[]): { text: strin
  * undefined while they are unknown (an older host, or the session's records
  * not arrived yet): then the row claims neither "read" nor "not read yet".
  */
-export function attachmentRowProps(file: AttachmentFile, reads?: readonly AttachmentReadEntry[]): AttachmentRowProps {
+export function attachmentRowProps(file: AttachmentFile, recorded?: readonly AttachmentReadEntry[]): AttachmentRowProps {
+  // An image reaches the agent as its frame and its original, never through a
+  // reader: its row makes no claim about reading (#3155).
+  const reads = file.kind === "image" ? undefined : recorded;
   const read = reads ? readCopy(reads) : null;
   if (file.kind === "track" && file.track && !file.trackRejected) {
     const row = trackRowProps({ ...file.track, incomingName: file.incomingName ?? file.track.incomingName });

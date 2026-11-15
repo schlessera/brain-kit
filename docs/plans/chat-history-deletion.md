@@ -22,7 +22,7 @@ owner for typed chats created after it.)
 **Built (#3229):** first-party native removal behind the optional
 `historyRemoval` backend capability
 ([package contract](../integration-contract/package-api.md#native-history-removal-additive-3229)).
-Claude (`removeClaudeSession`, `packages/ui-backend-claude/src/transcript-archive.ts:331-357`)
+Claude (`removeClaudeSession`, `packages/ui-backend-claude/src/transcript-archive.ts:337-363`)
 and Pi (`removePiSession`, `packages/ui-backend-pi/src/session-storage.ts:101-117`)
 name their owned artifacts; the shared fence
 (`createSessionRetirement`, `packages/ui-sdk/src/server/native-history-removal.ts:117-224`)
@@ -148,7 +148,7 @@ and [operational recovery](../inbox-recovery.md) remain binding.
 There is no general delete operation: `createSessionRoutes` only lists/reads
 (`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:9-157`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
-(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:765-808`). A storage root
+(`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:826-882`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
 actual contract assessment and a CONTRACT commit; additive capability negotiation
 ships in a minor. The approved retention exception is recorded before runtime
@@ -167,11 +167,11 @@ must be tested through their installed runtime, not inferred from directory name
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
   (`createHistory`, `packages/ui-backend-claude/src/history.ts:45-103`;
-  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:179-207`).
+  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:180-213`).
   The live/archive roots are resolved by the backend
   (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
   Archive movement and crash recovery must join the same lifecycle fence
-  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:261-321`).
+  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:267-327`).
   Delete all owned branches/subagents/copies, not just the displayed branch.
   Unknown/unattributable archive remnants mean removal is incomplete.
 - **Native Pi history.** SessionManager JSONL trees retain inactive branches and
@@ -183,7 +183,7 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native-adjacent host files.** Display text mappings and replay receipts include
   tool inputs/outputs (`sessionReplay`, `packages/ui-sdk/src/server/session-replay.ts:24-78`).
   Prompt context retains original user text, the frozen append and delivered facts
-  (`sessionPromptContext`, `packages/ui-sdk/src/server/session-prompt-context.ts:26-87`).
+  (`sessionPromptContext`, `packages/ui-sdk/src/server/session-prompt-context.ts:36-97`).
   These hashed session files are outside the brain and are not fully enumerated
   by the backend's transcript roots. Removal must explicitly include them.
 - **Canonical dialogue and provenance.** `071_session_dialogue.sql` owns
@@ -290,11 +290,11 @@ restore, resend, draft autosave and answer-delivery callbacks. Activity/Inbox/
 journal APIs remain independent retained surfaces under the selected exclusion.
 Concrete entry points include `readSessionRecovery`
 (`readSessionRecovery`, `packages/ui-server/src/ws/recovery.ts:209-222`),
-`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-93`),
+`FailureReplay` (`FailureReplay`, `packages/ui-server/src/ws/turn-failures.ts:67-94`),
 and both handoff stages (`startHandoff`, `packages/ui-server/src/ws/handoff.ts:100-110`;
 `prepareHandoff`, `packages/ui-server/src/ws/handoff.ts:273-285`). Draft autosave
 belongs to `createDraftClient` (`createDraftClient`,
-`packages/ui-react/src/lib/draft-client.ts:53-65`); browser reloadable work belongs
+`packages/ui-react/src/lib/draft-client.ts:54-66`); browser reloadable work belongs
 to `createLocalWork` (`createLocalWork`, `packages/ui-react/src/lib/local-work.ts:227-245`).
 The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`, with one
 handler per frame under `ws/handlers/`; gating its resume handler alone would leave HTTP, background readers and provider startup open.
@@ -334,7 +334,7 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1344-1394`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1375-1425`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
 `packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline

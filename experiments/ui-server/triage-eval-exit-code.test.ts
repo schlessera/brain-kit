@@ -61,7 +61,7 @@ describe("eval:triage exit code", () => {
     expect(result.code).toBe(0);
     const written = await Bun.file(path).json();
     expect(written.results.map((row: { effort: string }) => row.effort).sort()).toEqual(["high", "low"]);
-    expect(written.results.every((row: { pass: boolean }) => row.pass)).toBe(true);
+    expect(written.results.map((row: { pass: boolean }) => row.pass)).toEqual([true, true]);
   });
 
   test("a failed gate exits 1 and the report is unchanged", async () => {
@@ -283,8 +283,8 @@ describe("eval:triage repetition and coverage gate", () => {
       const record = (await Bun.file(path).json()).results[0];
       expect(record.repetitions).toHaveLength(2);
       expect(record.repetitions.map((rep: { gate: { pass: boolean } }) => rep.gate.pass)).toEqual([false, true]);
-      expect(record.repetitions.every((rep: { requestedIds: string[]; judgedIds: string[] }) =>
-        rep.requestedIds.length === 20 && rep.judgedIds.length === 20)).toBe(true);
+      expect(record.repetitions.map((rep: { requestedIds: string[]; judgedIds: string[] }) =>
+        [rep.requestedIds.length, rep.judgedIds.length])).toEqual([[20, 20], [20, 20]]);
     });
   }
 });

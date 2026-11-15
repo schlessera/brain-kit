@@ -1229,6 +1229,13 @@ are exported from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
 | `reference_source` | `repository` (1–2048 characters: https without credentials, loopback http or absolute `file://`), `revision` (1–200 characters, a branch or tag) | `{ ok: true, source, guidance }` |
 | `reference_worktree` | `action`: `request` (with `repository`, `revision`), `access`, `renew` or `release` (with `worktreeId`, 1–64 characters), or `list` (no other field) | `{ ok: true, action, worktree, guidance }`; for `list`, `{ ok: true, action: "list", worktrees, truncated, guidance }` with at most 20 worktrees, most recent activity first |
 
+Managed acquisition requires one unambiguous short branch/tag name (#3613).
+Raw `refs/...` names, refspecs and raw 40/64-hex object IDs are refused before
+transport dispatch. A branch and a tag sharing the requested short name are
+ambiguous even when they currently name identical commits. Only the requested
+ordinary full ref and its own annotated-tag peel may resolve; malformed,
+duplicate, foreign or oversized advertisements do not select a source.
+
 Inputs are strict objects: an action given a field it does not take, or
 missing one it needs, is invalid. Principal, profile, brain, session, worker
 generation and paths are never inputs; the host takes them from the
@@ -1391,7 +1398,32 @@ message, feature? } }` as a tool error. `text` is external content. The codes
 (`WEB_TOOL_ERROR_CODES`) are `invalid_input`, `unsupported`,
 `provider_not_admitted`, `unavailable`, `unknown_handle`, `replayed_call`,
 `busy`, `request_too_large`, `response_too_large`, `cancelled`, `deadline`,
-`executor_died` and `failed`.
+`executor_died`, `failed`, and, since #3687, `policy_denied` and
+`budget_exceeded`.
+
+Since #3687 every external recipient a call reaches is admitted for the
+calling turn: a provider the call names before anything is dispatched, and
+each request the executor sends to a provider's API host while the call runs,
+whether a search, an extraction fallback or a nested model call. A
+conversation that has shown a provider folder to its model sends no recipient
+the provider policy keeps that folder from (`policy_denied`; an exposure the
+host cannot judge is refused too), and a blocked budget scope refuses the
+request (`budget_exceeded`). Each admitted provider request counts toward the
+turn, conversation and day as unknown spend in the budget receipt's
+`unknownRuns`, never as zero. Pages the call fetches are checked by the egress
+route, not the provider policy.
+
+Since #3688 a Pi turn whose inference the host relays lends that admitted
+model to its web calls. OpenAI search then works on the turn's ChatGPT/Codex
+login (`openaiSearchProviders`) or on the current model
+(`searchRouting.useCurrentModel`), and uses that model and no other: a
+request that names another, such as an `openaiSearchModel` override, is
+refused before anything is sent. The host resolves and refreshes the
+credential on every request; the executor holds only a placeholder. A missing
+login, or one the host cannot refresh, fails the call with nothing sent.
+These requests go to `openai` as their recipient and are admitted and counted
+like any other provider request. A turn without the relay has no Pi login to
+search with, as before.
 
 A `responseId` is an opaque handle the host issues. It is scoped to the
 calling principal and session and to the executor session that stored the
@@ -1403,6 +1435,16 @@ authenticated turn and are never inputs. A tool-call id runs once per turn.
 Each call taints the session (`web_search` or `web_fetch`) before it runs, and
 its result is recorded before the model receives it. A call appends an
 ordinary tool result; no earlier message, tool or system text changes.
+
+Since #3686 the host runs these tools on the pinned upstream extension in a
+trusted Pi session. One child process serves each principal's session, and
+its stored results live and end with it. The brief of a session that lists
+the tools names what they do not offer. Those features come from one list,
+`WEB_TOOL_UNAVAILABLE_FEATURES`: curator review and automatic summaries,
+answer mode, image, video and YouTube analysis, GitHub repository cloning,
+the extension's commands and shortcuts, and the excluded browser-cookie and
+credential-command modes. `GET /api/web-search` reports the same list as
+`unavailable`.
 
 ## Hosted policy proposal (additive, #1662)
 
@@ -1418,6 +1460,18 @@ card. Invalid input returns errors and creates no card. The native permission
 checkpoint delegates to this validation/write route; the eventual tool handler
 reconciles the same tool-use identity rather than executing a second write.
 A remembered tool grant cannot authorize a policy change. Speech never grants.
+
+**Breaking input narrowing for 0.45.0 (#3666, maintainer-approved pre-1.0
+break):** proposed frontmatter must have closed, standalone `---` delimiter
+lines, with optional trailing spaces/tabs. Unclosed blocks, annotated/suffixed
+openings such as `---yaml` or `---x`, and parser-recognized closing prefixes
+such as `---x`, `---yaml` or `----` are refused before approval or any pending
+actionable card. Refusal publishes no file bytes, journal edit or policy-change
+event. Migration: submit standalone, closed `---` fences. BOM, LF/CRLF and an
+EOF closing fence remain supported; accepted content is published byte for
+byte without normalization. The same validation runs again at publication.
+This rule applies only to proposed bytes: a valid replacement can repair an
+old ambiguous policy, whose review retains the shared parser's boundaries.
 
 A valid card names the exact base hash (null for no file), frontmatter diff,
 changed section names, body-change indicator/body diff and quoted agent

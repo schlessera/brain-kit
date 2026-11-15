@@ -118,19 +118,19 @@ for (const mode of ["providers", "cli", "images"] as const) {
         expect(
           result.transport
             .slice(0, 5)
-            .every(
+            .filter(
               (call: { method: string; model: string }) =>
-                call.method === "POST" &&
-                call.model.replace(/^models\//, "") === "gemini-embedding-2"
+                call.method !== "POST" ||
+                call.model.replace(/^models\//, "") !== "gemini-embedding-2"
             ),
           "NATIVE_EMBEDDING_MODEL_AND_METHOD"
-        ).toBe(true);
+        ).toEqual([]);
         expect(
-          result.transport.some(
-            (call: { method: string; path: string }) =>
-              call.method === "DELETE" && call.path === "/v1beta/files/odysseus"
-          )
-        ).toBe(true);
+          result.transport.map((call: { method: string; path: string }) => [
+            call.method,
+            call.path,
+          ])
+        ).toContainEqual(["DELETE", "/v1beta/files/odysseus"]);
       } else if (mode === "cli") {
         expect(Number(result.index.code), String(result.index.stderr)).toBe(0);
         expect(result.index.embeddingRequests).toBeGreaterThan(0);

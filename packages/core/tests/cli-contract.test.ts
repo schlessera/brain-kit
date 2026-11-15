@@ -10,7 +10,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { cleanup, makeTempBrain, runCli } from "./cli-harness";
+import { cleanup, keylessEnv, makeTempBrain, runCli } from "./cli-harness";
+import { withoutSigning } from "./git-fixture";
 import { packageVersion } from "../src/package-version";
 
 let root: string;
@@ -540,8 +541,12 @@ describe("sync", () => {
   test("human mode: the report, then the agent's text; machine mode: one result", async () => {
     const brain = makeTempBrain({ empty: true });
     const remote = mkdtempSync(join(tmpdir(), "brain-contract-remote-"));
+    // Signing is switched off per command (#3485): an environment-scoped
+    // GIT_CONFIG_COUNT outranks the repository-local setting below, and both
+    // the fixture's commit and the one `brain sync` makes would try to sign.
+    const unsigned = withoutSigning(keylessEnv(brain));
     const git = (...args: string[]) => {
-      const result = Bun.spawnSync(["git", "-C", brain, ...args]);
+      const result = Bun.spawnSync(["git", "-C", brain, ...args], { env: unsigned });
       if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
     };
     try {
@@ -570,7 +575,7 @@ export default defineConfig({
       writeFileSync(join(brain, "survey.xyz"), "eagle survey grid\n");
 
       // An output flag is not a verb: `--human` is the text…
-      const human = await runCli(brain, ["sync", "--human"]);
+      const human = await runCli(brain, ["sync", "--human"], unsigned);
       expect(human.code).toBe(0);
       expect(human.stdout).toStartWith("brain sync: complete\n");
       expect(human.stdout).toContain("  unknown: survey.xyz\n");
@@ -579,7 +584,7 @@ export default defineConfig({
 
       // …and `--json`, or a stdout that is not a terminal, the one result.
       for (const flags of [[], ["--json"]]) {
-        const { stdout, code } = await runCli(brain, ["sync", ...flags]);
+        const { stdout, code } = await runCli(brain, ["sync", ...flags], unsigned);
         expect(code).toBe(0);
         const body = JSON.parse(stdout);
         expect(body.run.status).toBe("complete");
@@ -594,7 +599,7 @@ export default defineConfig({
         });
       }
 
-      const unknown = await runCli(brain, ["sync", "--not-a-flag"]);
+      const unknown = await runCli(brain, ["sync", "--not-a-flag"], unsigned);
       expect(unknown.code).toBe(1);
       expect(unknown.stderr).toContain("Unknown flag: --not-a-flag");
     } finally {

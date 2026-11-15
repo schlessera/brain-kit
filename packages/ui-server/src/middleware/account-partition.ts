@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Database } from "bun:sqlite";
-import type { Principal } from "../db/principals.js";
+import { resolvePrincipal, type Principal } from "../db/principals.js";
 import type { AuthMode } from "./auth.js";
 
 /**
@@ -66,6 +66,31 @@ export function accountScope(principal: Principal, authMode: AuthMode): string |
   if (principal.kind !== "ambient") return null;
   // A proxy names its upstream user; the ambient id is a digest of it.
   return authMode === "proxy" ? `proxy\u0000${principal.id}` : "owner";
+}
+
+// A record keeps who made it, not the auth mode it was made under.
+const EVERY_AUTH_MODE: Record<AuthMode, true> = { password: true, tailscale: true, proxy: true, none: true };
+
+/**
+ * Whether `principal` is the same account as the principal a record is bound
+ * to (#3952): a chat's safety history, for one, belongs to the account, so
+ * another device's login continues it. A principal id always matches itself.
+ * Two different ids match only when both resolve to principals that
+ * `accountScope` puts in the same partition in every auth mode, which today
+ * means two owner logins: the one owner mints a principal at every sign-in.
+ * An ambient principal shares the owner's partition only in some modes, and
+ * an agent or system principal holds none, so each matches only itself. A
+ * missing or unresolvable principal is unknown and matches no other id.
+ */
+export function sameAccount(db: Database, bound: string | null | undefined, principal: string | null | undefined): boolean {
+  if (!bound || !principal) return false;
+  if (bound === principal) return true;
+  const a = resolvePrincipal(db, bound), b = resolvePrincipal(db, principal);
+  if (!a || !b) return false;
+  return (Object.keys(EVERY_AUTH_MODE) as AuthMode[]).every(mode => {
+    const scope = accountScope(a, mode);
+    return scope !== null && scope === accountScope(b, mode);
+  });
 }
 
 export function deriveAccountPartitionKey(seed: string, root: string, scope: string): string {

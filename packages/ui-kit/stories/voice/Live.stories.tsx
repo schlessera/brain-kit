@@ -28,9 +28,11 @@ const TALL: LiveId[] = ["L1", "L1d", "L1u", "L1o", "L2", "L3", "L4", "L4d", "L5"
 /** Interrupt is live only while brain is speaking (L4, with or without a draft). */
 async function interruptOnlyWhileSpeaking(canvas: ReturnType<typeof within>, id: LiveId) {
   const interrupt = canvas.queryByRole("button", { name: "Interrupt" });
-  if (!interrupt) return;
-  if (id === "L4" || id === "L4d") await expect(interrupt, "Interrupt only while speaking").toBeEnabled();
-  else await expect(interrupt, "Interrupt only while speaking").toBeDisabled();
+  if (id === "L4" || id === "L4d") {
+    // While speaking the control must be there: a missing one is not "live".
+    await expect(interrupt, "Interrupt is drawn while speaking").not.toBeNull();
+    await expect(interrupt, "Interrupt only while speaking").toBeEnabled();
+  } else if (interrupt) await expect(interrupt, "Interrupt only while speaking").toBeDisabled();
 }
 
 /** The controls row's accessible names, left to right. */

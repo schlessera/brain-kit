@@ -72,7 +72,7 @@ describe("declared forms", () => {
     ]);
     // Each span is exactly the destination as written, so a rewrite touches nothing else.
     for (const r of refs) expect(text.slice(r.span![0], r.span![1])).toBe(r.target);
-    expect(refs.every((r) => r.path === HARBOUR && r.note === "places/ithaca.md")).toBe(true);
+    expect(refs.filter((r) => r.path !== HARBOUR || r.note !== "places/ithaca.md").map((r) => [r.line, r.path, r.note])).toEqual([]);
   });
 
   test("frontmatter values and HTML src, href and poster are detected and never rewritable", () => {

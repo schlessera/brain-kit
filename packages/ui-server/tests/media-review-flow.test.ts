@@ -376,7 +376,8 @@ test("isolation: another owner device cannot undo Odysseus's effect, and a deleg
   expect((await f.undo(receipt.media.journalId, "agent")).status, "MEDIA_FLOW_ISOLATION_AGENT_UNDO").toBe(403);
   const agent = await f.device("agent");
   agent.resolve(pending.id, "media-delete");
-  await Bun.sleep(500);
+  // The server answers the agent's decision with a refusal: once it has, the decision is over.
+  await f.until(() => agent.frames.some(m => m.type === "error" && m.code === "INBOX_DECISION_REFUSED"), "the agent's decision refused");
   expect((await f.read()).action, "MEDIA_FLOW_ISOLATION_AGENT_CARD").toEqual(pending);
   expect(f.bytes(), "MEDIA_FLOW_ISOLATION_AGENT_NO_WRITE").toEqual(deleted);
   agree(await f.parity({ sync: false }), { pending: 1 });

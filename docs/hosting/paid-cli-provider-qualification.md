@@ -9,7 +9,8 @@ the maintainer's 2026-10-23 rulings on that issue: first-party recipients by
 default plus `BRAIN_UI_CLI_PROVIDER_ORIGINS`, a socket the CLI finds through
 `BRAIN_PROVIDER_RELAY_SOCKET`, per-attempt rows with no reservation, maintenance
 charged to its turn or day, and no relay for video or JeV. #2738 later relayed
-the video Files lifecycle (see below). The sections below
+the video Files lifecycle (see below), and #3792 the JeV reranker's request for
+turn workers (`typesafe` family, operation `reranking`, unpriced). The sections below
 keep the audit's evidence and requirements; where the relay settles one, it
 says so.
 
@@ -56,7 +57,7 @@ SDK conversion without adding a public embedding-provider seam.
 
 The image CLI preserves `bytes`, `costIsEstimate`, `costUsd`, `model`, `note`,
 `output`, `outputs`, `provider`, `reason` and `renamed`
-(`const payload`, `packages/module-images/src/cli.ts:408-420`). Its help example
+(`const payload`, `packages/module-images/src/cli.ts:490-501`). Its help example
 is abbreviated; it is not the complete machine contract. Internal image raw
 usage does not imply that this envelope exposes it.
 

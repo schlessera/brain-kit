@@ -39,9 +39,13 @@ beforeEach(() => {
   writeFileSync(join(brain, ".gitignore"), ".brain/scratch/\n");
   writeFileSync(join(brain, "ithaca.md"), "# Ithaca\n");
   maintenance = createFixtureMaintenanceHost(brain);
-  for (const [key, value] of [["HOME", home], ["PI_CODING_AGENT_DIR", join(root, "agent")]] as const) {
+  // The expected notes name no provider key, so the fixture owns the provider
+  // environment too: an ambient key would otherwise appear in pi's note (#2769).
+  const owned: Array<readonly [string, string | undefined]> = [["HOME", home], ["PI_CODING_AGENT_DIR", join(root, "agent")],
+    ...worker.WORKER_PROVIDER_CREDENTIAL_ENV.map(key => [key, undefined] as const)];
+  for (const [key, value] of owned) {
     const previous = process.env[key];
-    process.env[key] = value;
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
     restore.push(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
   }
 });

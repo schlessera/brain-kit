@@ -196,32 +196,39 @@ describe("Files tree keys (sixth pass §8)", () => {
 
 describe("Actions dismissal (sixth pass §4)", () => {
   test("Dismiss all leaves no receipt; the drained section is the empty state with its heading focused", async () => {
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/activity/inbox") && !url.includes("/ack")) {
-        return Response.json({
-          intents: [1, 2].map((n) => ({
-            id: n, runId: `run-${n}`, spanId: null, kind: "failure", tag: "t",
-            title: `Intent ${n}`, body: "", status: "pending", acknowledged: false, createdAt: Date.now(),
-          })),
-        });
-      }
-      if (url.includes("/activity/runs?")) return Response.json({ live: [], history: [] });
-      if (url.includes("/activity/rollups")) return Response.json({ timeZone: "UTC", days: [] });
-      if (url.includes("/models/pricing")) return Response.json({ stale: false, error: null });
-      if (url.includes("/ack")) return Response.json({ ok: true });
-      return Response.json({ error: "not_found" }, { status: 404 });
-    }) as typeof fetch;
-    const page = render(<ActivityPage />);
-    const intents = await page.findAllByRole("button", { name: /Intent \d/ }, { timeout: 5000 });
-    expect(intents).toHaveLength(2);
-    fireEvent.click(page.getByRole("button", { name: "Dismiss all" }));
-    const empty = await page.findByRole("heading", { name: "Nothing is waiting on you" }, { timeout: 5000 });
-    expect(useActivityStore.getState().inbox).toEqual([]);
-    expect(page.queryByText("Dismissed")).toBeNull();
-    expect(page.queryByText("2 items")).toBeNull();
-    expect(document.activeElement).toBe(empty);
-    page.unmount();
+    // The fake must not outlive this test: later tests and files share the global.
+    const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/activity/inbox") && !url.includes("/ack")) {
+          return Response.json({
+            intents: [1, 2].map((n) => ({
+              id: n, runId: `run-${n}`, spanId: null, kind: "failure", tag: "t",
+              title: `Intent ${n}`, body: "", status: "pending", acknowledged: false, createdAt: Date.now(),
+            })),
+          });
+        }
+        if (url.includes("/activity/runs?")) return Response.json({ live: [], history: [] });
+        if (url.includes("/activity/rollups")) return Response.json({ timeZone: "UTC", days: [] });
+        if (url.includes("/models/pricing")) return Response.json({ stale: false, error: null });
+        if (url.includes("/ack")) return Response.json({ ok: true });
+        return Response.json({ error: "not_found" }, { status: 404 });
+      }) as typeof fetch;
+      const page = render(<ActivityPage />);
+      const intents = await page.findAllByRole("button", { name: /Intent \d/ }, { timeout: 5000 });
+      expect(intents).toHaveLength(2);
+      fireEvent.click(page.getByRole("button", { name: "Dismiss all" }));
+      const empty = await page.findByRole("heading", { name: "Nothing is waiting on you" }, { timeout: 5000 });
+      expect(useActivityStore.getState().inbox).toEqual([]);
+      expect(page.queryByText("Dismissed")).toBeNull();
+      expect(page.queryByText("2 items")).toBeNull();
+      expect(document.activeElement).toBe(empty);
+      page.unmount();
+    } finally {
+      if (fetchDescriptor) Object.defineProperty(globalThis, "fetch", fetchDescriptor);
+      else delete (globalThis as { fetch?: unknown }).fetch;
+    }
   });
 });
 

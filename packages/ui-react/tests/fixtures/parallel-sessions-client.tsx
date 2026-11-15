@@ -85,9 +85,9 @@ Object.assign(window, {
     draft: () => {
       const drafts = root.stores.drafts.getState();
       const d = drafts.drafts[drafts.idFor(root.stores.chat.getState().activeSessionId)];
-      return { text: d?.text ?? "", images: d?.attachments.length ?? 0, sessionId: d?.sessionId ?? null };
+      return { text: d?.text ?? "", images: (d?.attachments.length ?? 0) + (d?.files ?? []).filter((f) => f.file.kind === "image").length, sessionId: d?.sessionId ?? null };
     },
-    unbound: () => Object.values(root.stores.drafts.getState().drafts).filter((d) => d.sessionId === null && (d.text || d.attachments.length)).map((d) => d.text),
+    unbound: () => Object.values(root.stores.drafts.getState().drafts).filter((d) => d.sessionId === null && (d.text || d.attachments.length || d.files?.length)).map((d) => d.text),
     /** The messages of a session's buffer, as roles and text. */
     transcript: (sessionId: string | null) => {
       const chat = root.stores.chat.getState();

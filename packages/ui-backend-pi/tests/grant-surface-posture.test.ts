@@ -65,7 +65,7 @@ async function runTurn(
 
 /** The turn ran and succeeded: not merely resolved (a failed turn resolves too). */
 function expectSucceeded(frames: ServerMessage[]): void {
-  expect(frames.some((f) => f.type === "error")).toBe(false);
+  expect(frames.filter((f) => f.type === "error")).toEqual([]);
   expect(frames.find((f) => f.type === "result")).toMatchObject({
     outcome: "success",
     isError: false,

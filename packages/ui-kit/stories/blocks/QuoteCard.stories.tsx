@@ -57,7 +57,7 @@ export const LongUnbrokenRunWraps = meta.story({
   play: async ({ canvas, canvasElement }) => {
     await expect(longUrl.length).toBe(200);
     await expect(longNote.length).toBe(200);
-    await expect(/\s/.test(longUrl + longNote)).toBe(false);
+    await expect(longUrl + longNote).not.toMatch(/\s/);
 
     const quote = canvas.getByText(longUrl);
     const card = quote.parentElement!;

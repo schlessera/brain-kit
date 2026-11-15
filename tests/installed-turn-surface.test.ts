@@ -19,6 +19,8 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_add",
     // The core server's fixed Apify tools (#3162): deferred like every core tool, and refused in a worker,
     // which holds neither the token nor the ledger; the turn's own Apify tools are the eager bridge ones.
+    // Every session disallows them, like the in-worker compute tools (#3788). This capture serves core
+    // in-process, where the CLI still lists a disallowed tool; over the `.mcp.json` stdio server it drops them.
     "mcp__brain__brain_apify_abort", "mcp__brain__brain_apify_approvals", "mcp__brain__brain_apify_availability", "mcp__brain__brain_apify_discover", "mcp__brain__brain_apify_inspect", "mcp__brain__brain_apify_prepare",
     "mcp__brain__brain_apify_results", "mcp__brain__brain_apify_revoke", "mcp__brain__brain_apify_run", "mcp__brain__brain_apify_status",
     "mcp__brain__brain_archive",
@@ -37,8 +39,8 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     expect(tool?.input_schema).toBeDefined();
     expect(tool?.defer_loading).not.toBe(true);
   }
-  expect(capture.request.tools.some(tool => tool.name === "Skill")).toBe(true);
-  expect(capture.request.tools.some(tool => tool.name === "Read")).toBe(true);
+  expect(capture.request.tools.map(tool => tool.name)).toContain("Skill");
+  expect(capture.request.tools.map(tool => tool.name)).toContain("Read");
   const text = JSON.stringify(capture.request.messages);
   expect(capture.fixtureSkills).toHaveLength(3);
   for (const skill of capture.fixtureSkills) expect(text).toContain(`${skill.name}: ${skill.description}`);

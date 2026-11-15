@@ -7,7 +7,7 @@ over the [reference pool](reference-pool-accounting.md). It uses the
 [owner-managed grants](reference-source-grants.md) as its only private
 authority. This record names the concrete choices the rulings left to
 implementation. The service is `createReferenceSources`
-(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:91-782`),
+(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:91-786`),
 created at host start when the native manager reports a reference pool, and
 closed with the app. The agent tool that requests source arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432)
@@ -21,6 +21,13 @@ stable reads of an exact commit belong to a managed worktree created from a
 reported commit ([#2430](https://github.com/schlessera/brain-kit/issues/2430)).
 Repository locations follow the grant record's rules: HTTPS without
 credentials, loopback HTTP, or an absolute `file://` path.
+
+The managed-only qualification in #3613 additionally refuses a short name
+shared by a branch and a tag, raw full refs/refspecs and malformed or
+conflicting advertisements. Resolution binds the requested full ref and
+commit; fetching a moved commit cannot publish it as the earlier resolution.
+These checks do not establish repository identity, immutable-read provenance
+or network-byte qualification by themselves.
 
 ## Sharing domains
 
@@ -45,7 +52,7 @@ exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:293-339`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:293-342`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -72,18 +79,18 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:404-456`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:407-460`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
 2. The **network transport** fetches one ref into it. It is the only worker
    that may hold a credential: the granted host variable, delivered through a
    fixed credential helper, with one allowed protocol and no redirects
-   (`fetch({ repository, ref, token, root, signal })`, `packages/ui-server/src/brain/reference-transport.ts:133-148`).
+   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:169-190`).
 3. A separate **checkout worker** has no credential and no network. It checks
    out the commit and evaluates the repository's attributes. No filter or
    hook is configured, so none runs
-   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:149-159`).
+   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:191-200`).
 4. The live grant is read again, the root is sealed, the grant is read
    again, and only then is the root published.
 
@@ -97,6 +104,46 @@ Neither worker mounts the brain; both use the transport envelope's empty root.
 A failure or cancellation releases the staging root through the pool, and only
 after the worker has exited. The pool keeps its reservation charged until
 reclamation is observed.
+
+## Fixed GitHub wire and identity authority (#3613)
+
+The concrete access owner (`createGitHubReferenceAccess`,
+`packages/ui-server/src/brain/github-reference-access.ts:12-129`) uses the
+fixed transport (`createGitHubReferenceWire`,
+`packages/ui-server/src/brain/github-reference-wire.ts:19-254`).
+
+The host-only GitHub access service binds one canonical repository and short
+branch/tag to a bounded acquisition. Anonymous metadata precedes a private
+attempt. Only an existing live grant for the actual brain/principal, with
+explicit permission for `https://api.github.com`, permits a credentialed
+metadata retry. Every use retains the selected grant identity and credential
+selector: replacement, revocation, a changed covering grant, changed credential
+or lost API permission refuses the operation. Public acquisition stays
+anonymous even when the host holds a credential and the principal has a grant.
+Owner identity uses its own anonymous `/users/<owner>` operation, without a
+Git channel or credentialed mode. Parsed identity data carries no trust or
+approved-owner-boundary claim.
+
+The fixed wire shares one operation allowance across metadata, Git discovery,
+authentication and fetch, and charges the real turn counter. It counts TLS
+framing and both directions. Before forwarding each chunk it rechecks live
+authority, final egress admission and the remaining allowance. An inbound chunk
+can already have crossed the socket when it exceeds that allowance: it is
+refused, the residual turn allowance is consumed, every channel closes and
+separate observed socket counts retain the overrun. This does not promise
+zero physical-network overshoot. Metadata bodies have a separate 65536-byte
+ceiling and never redirect. All DNS answers must be public; connection uses a
+checked address with system TLS verification of the fixed host.
+
+Separate random capabilities bind Git/API and anonymous/credentialed channels.
+Only the host's fixed Git argv receives a Git proxy capability; callers of the
+access service receive neither that capability nor the credential. An invalid
+revision is refused before metadata dispatch, fetch needs that acquisition's
+resolved full ref, and commit movement refuses before checkout. Failed final
+identity revalidation ends the acquisition. Cancellation, turn stop and a
+finite deadline close its sockets; a late successful command cannot outlive
+the wire. This wire establishes neither sealed-root provenance nor qualified
+immutable-read evidence and enables no repository trust rule by itself.
 
 ## Admission
 
@@ -125,7 +172,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:363-379`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:366-382`).
 There is no idle expiry.
 
 ## Revocation and recovery
@@ -138,14 +185,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:651-671`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:655-675`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:674-718`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:678-722`).
 
 ## Evidence
 

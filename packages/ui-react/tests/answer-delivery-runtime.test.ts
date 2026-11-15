@@ -692,7 +692,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       expect(await page.locator('[data-answer-delivery="update"] h4').textContent()).toBe("CAN'T SEND · UPDATE NEEDED");
       await page.waitForTimeout(500);
       expect(settlements.get(requestId)).toEqual([]);
-      expect(net.frames.some((f) => f.dir === "up" && f.type === "ask_user_rank_response")).toBe(false);
+      expect(net.frames.filter((f) => f.dir === "up" && f.type === "ask_user_rank_response")).toEqual([]);
     } finally {
       await context.close();
     }
@@ -712,7 +712,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       await waitForState(page, requestId, "notSaved");
       expect(await page.locator('[data-answer-delivery="notSaved"] h4').textContent()).toBe("NOT SAVED ON THIS DEVICE");
       expect(await page.getByRole("textbox", { name: "Supply note", exact: true }).inputValue()).toBe(NOTE);
-      expect(net.frames.some((f) => f.dir === "up" && f.type === "ask_user_form_response")).toBe(false);
+      expect(net.frames.filter((f) => f.dir === "up" && f.type === "ask_user_form_response")).toEqual([]);
       expect(settlements.get(requestId)).toEqual([]);
     } finally {
       await context.close();
@@ -734,7 +734,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       await online(page);
       await waitForState(page, requestId, "signedOut");
       expect(await page.locator('[data-answer-delivery="signedOut"] h4').textContent()).toBe("NOT SENT · SIGNED OUT");
-      expect(net.frames.some((f) => f.dir === "up" && (f.type === "ask_user_list_response" || f.type === "ask_answer_status"))).toBe(false);
+      expect(net.frames.filter((f) => f.dir === "up" && (f.type === "ask_user_list_response" || f.type === "ask_answer_status"))).toEqual([]);
       expect(settlements.get(requestId)).toEqual([]);
     } finally {
       await context.close();
@@ -917,7 +917,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       await page.waitForFunction("window.__answers?.connected()");
       await page.waitForTimeout(300);
       expect(await page.evaluate(() => (window as unknown as { __answers: { held(): unknown[] } }).__answers.held())).toEqual([]);
-      expect(net.frames.some((f) => f.dir === "up" && (f.type === "ask_user_response" || f.type === "ask_answer_status"))).toBe(false);
+      expect(net.frames.filter((f) => f.dir === "up" && (f.type === "ask_user_response" || f.type === "ask_answer_status"))).toEqual([]);
     } finally {
       await context.close();
     }

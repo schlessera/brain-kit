@@ -156,6 +156,9 @@ export const Tapped = meta.story({
 export const Static = meta.story({
   args: { onClick: undefined, selected: true },
   play: async ({ canvas, canvasElement }) => {
+    // The row is there, displaying its value; only the pressable part is gone.
+    await expect(await canvas.findByText("First light tomorrow")).toBeVisible();
+    await expect(await canvas.findByText("05:30")).toBeVisible();
     await expect(canvas.queryByRole("button")).toBeNull();
     await expect(canvasElement.querySelector(".bk-row")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();

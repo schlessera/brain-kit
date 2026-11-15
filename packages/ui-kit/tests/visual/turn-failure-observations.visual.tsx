@@ -118,8 +118,13 @@ const retryFrames = () => socket.frames().filter(frame => frame.type === "retry_
 const retryValue = (card: HTMLElement) => [...card.querySelectorAll(".bk-turn-error-facts span")]
   .find(node => node.textContent === "retries")?.nextElementSibling?.textContent;
 
+// Storybook owns light and dark parity (docs/process/theme-parity.md). These
+// cases drive the real store and decoder and never read a colour, so each width
+// runs in one theme, dark at 320 and light at 860. The expiry case keeps both:
+// it writes each theme's attachments.
+const oneTheme = (width: number) => (width === 320 ? "dark" : "light");
 for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
-  test(`${theme} ${width}: a retained failure card withdraws its replayed announcement`, async () => {
+  if (oneTheme(width) === theme) test(`${theme} ${width}: a retained failure card withdraws its replayed announcement`, async () => {
     await page.viewport(width, 1000); mount(width, theme);
     const failure = { errorClass: "rate_limit" as const, message: "Reported limit", attempts: 2 };
     flushSync(() => {
@@ -144,7 +149,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
     expect(root!.stores.chat.getState().buffers[SESSION].messages.at(-1)!.failure, "the retained card keeps the host's failure").toEqual(failure);
   });
 
-  test(`${theme} ${width}: observed retries agree live and replay; unknown values stay absent`, async () => {
+  if (oneTheme(width) === theme) test(`${theme} ${width}: observed retries agree live and replay; unknown values stay absent`, async () => {
     await page.viewport(width, 1000);
     mount(width, theme);
     const failure = { errorClass: "rate_limit", status: 429, message: "Reported limit", attempts: 2, resetsAt: NOW + 40_000 };
@@ -203,7 +208,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
     expect(action(cards()[0], "Retry")).toBeUndefined();
   });
 
-  test(`${theme} ${width}: replay retains the absolute reset rather than restarting or erasing it`, async () => {
+  if (oneTheme(width) === theme) test(`${theme} ${width}: replay retains the absolute reset rather than restarting or erasing it`, async () => {
     await page.viewport(width, 1000);
     mount(width, theme);
     const resetsAt = NOW + 3250;
@@ -239,7 +244,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
     expect(action(cards()[0], "Retry")?.getAttribute("aria-disabled")).not.toBe("true");
   });
 
-  test(`${theme} ${width}: multiple failures retain their observations after a later success`, async () => {
+  if (oneTheme(width) === theme) test(`${theme} ${width}: multiple failures retain their observations after a later success`, async () => {
     await page.viewport(width, 1000);
     mount(width, theme);
     live({ errorClass: "server_error", message: "First failure", attempts: 2, resetsAt: NOW + 20_000 });
@@ -265,7 +270,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
     for (const card of cards()) expect(action(card, "Retry")).toBeUndefined();
   });
 
-  test(`${theme} ${width}: expiry preserves pending and uncertain delivery reconciliation`, async () => {
+  if (oneTheme(width) === theme) test(`${theme} ${width}: expiry preserves pending and uncertain delivery reconciliation`, async () => {
     await page.viewport(width, 1000);
     mount(width, theme);
     live({ errorClass: "rate_limit", message: "Reported limit", resetsAt: NOW + 2000 });
@@ -287,7 +292,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
     expect(retryFrames()).toHaveLength(1);
   });
 
-  test(`${theme} ${width}: future resets keep delivery checks available without sending a retry`, async () => {
+  if (oneTheme(width) === theme) test(`${theme} ${width}: future resets keep delivery checks available without sending a retry`, async () => {
     await page.viewport(width, 1000);
     mount(width, theme);
     live({ errorClass: "rate_limit", message: "Reported limit", resetsAt: NOW + 5000 });
@@ -306,7 +311,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 860]) {
     expect(retryFrames()).toHaveLength(0);
   });
 
-  test(`${theme} ${width}: pi observations with no reset and expired resets add no wait`, async () => {
+  if (oneTheme(width) === theme) test(`${theme} ${width}: pi observations with no reset and expired resets add no wait`, async () => {
     await page.viewport(width, 1000);
     mount(width, theme, "pi");
     live({ errorClass: "server_error", message: "Reported retries", attempts: 2 });

@@ -86,6 +86,11 @@ for (const site of ["working", "pending", "model"] as const) for (const theme of
     expect(sheet(site)!.getBoundingClientRect().width, "the modal escapes its 280px size container").toBe(width);
     expect(sheet(site)!.closest<HTMLElement>('[data-theme]')!.dataset.theme, "the sheet inherits its subtree theme").toBe(theme);
   });
+  // Storybook owns light and dark parity (docs/process/theme-parity.md). The
+  // trap, stacking and caller wiring below never read the theme, so each width
+  // runs in one theme: dark at 320, light at 1280. Entry above keeps all four,
+  // because subtree theme inheritance is its claim.
+  if ((width === 320) !== (theme === "dark")) continue;
   test(`sheet Tab wraps inside: ${scene}`, async () => {
     await mount(site, width, theme); await open(site);
     const items = stops(site); expect(items.length, "nonempty trap").toBeGreaterThan(1);

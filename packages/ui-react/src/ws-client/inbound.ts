@@ -10,6 +10,7 @@ import type { ReconnectHealing } from "./reconnect.js";
 import type { RestorationDriver } from "./restoration.js";
 import type { TurnRetries } from "./turn-retry.js";
 import type { FollowUpPlacement } from "./follow-ups.js";
+import { refusalReason } from "../lib/turn-failure.js";
 import type { AccountServices } from "./account.js";
 import type { createConversationClient } from "../voice/conversation-client.js";
 
@@ -236,7 +237,7 @@ export function createInbound(root: BrainUiServices, deps: InboundDeps) {
       // A turn-scoped error in a session means the request ran there: it was
       // accepted, then failed. One with no session left nothing to return to,
       // so its words come back to the draft, as a refusal's do.
-      if (deps.services.drafts.receipt(msg.requestId, msg.turnId && msg.sessionId ? "accepted" : "refused", msg.sessionId)) state.clearChatReceipt(msg.requestId);
+      if (deps.services.drafts.receipt(msg.requestId, msg.turnId && msg.sessionId ? "accepted" : "refused", msg.sessionId, refusalReason(msg))) state.clearChatReceipt(msg.requestId);
       root.stores.handoff.getState().noteRefusal(msg.requestId, msg.message);
       // A refused follow-up was never pending; the composer keeps its draft.
       // A turn-scoped error is not a refusal: the follow-up's turn started

@@ -65,7 +65,7 @@ test("invalid effort is rejected on the socket before backend execution; a valid
   const ws = { send: (raw: string) => frames.push(JSON.parse(raw)) };
   const handlers = createWsHandlers(testHost(), testPrincipal());
   handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "invalid", thinkingLevel: "enormous" }) } as MessageEvent, ws);
-  await Bun.sleep(10);
+  await until(() => frames.some((frame) => frame.type === "error"));
   expect(frames.find((frame) => frame.type === "error")).toMatchObject({ code: "PARSE_ERROR" });
   expect(calls).toHaveLength(0);
   handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "valid", thinkingLevel: "medium" }) } as MessageEvent, ws);

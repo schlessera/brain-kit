@@ -39,7 +39,7 @@ test("absent and dormant diagrams modules report actual fences without loading a
  }finally{cleanup(root);}
 });
 test("enabled hygiene reports invalid fresh specs and sees old documents beyond the list query cap",async()=>{
- const root=makeTempBrain({empty:true});try{configure(root);for(let i=0;i<105;i++)writeFileSync(join(root,`note-${i}.md`),markdown("A voyage note."));writeFileSync(join(root,"dispatch.md"),markdown(fence()));expect((await runCli(root,["index","--force"])).code).toBe(0);writeFileSync(join(root,"dispatch.md"),markdown('```diagram\nschema_version: 1\ntype: unknown\n```\n'));expect(categories((await runCli(root,["audit","--json"])).stdout).some((x:{category:string;path:string})=>x.category==="diagram-invalid"&&x.path==="dispatch.md")).toBe(true);
+ const root=makeTempBrain({empty:true});try{configure(root);for(let i=0;i<105;i++)writeFileSync(join(root,`note-${i}.md`),markdown("A voyage note."));writeFileSync(join(root,"dispatch.md"),markdown(fence()));expect((await runCli(root,["index","--force"])).code).toBe(0);writeFileSync(join(root,"dispatch.md"),markdown('```diagram\nschema_version: 1\ntype: unknown\n```\n'));expect(categories((await runCli(root,["audit","--json"])).stdout).map((x:{category:string;path:string})=>[x.category,x.path])).toContainEqual(["diagram-invalid","dispatch.md"]);
  }finally{cleanup(root);}
 });
 test("flattening preserves literal source text and resolves opaque generated mix steps",()=>{

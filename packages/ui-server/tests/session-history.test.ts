@@ -179,3 +179,28 @@ test("ambiguous cross-stream order qualifies only a possibly newest omission, no
  expect(out.tailOmitted,"BOTH_SOURCE_TAILS_INCLUDED_DO_NOT_INVENT_A_NEWEST_OMISSION").toBe(false);
  expect(out.coverage.state).toBe("partial");
 });
+
+// #3699: the coverage count names exactly the messages serialized, never results, gaps or dropped items.
+test("includedMessages counts the serialized chat and spoken messages only", () => {
+  const items: HistoricalItem[] = [
+    typed("m1", "Which harbour did Penelope name?"),
+    { ref: "s1", kind: "recognized", text: "the bronze owl signal", finalization: "final", provenance: prov },
+    { ref: "g1", kind: "generated", text: "I will look that up.", provenance: prov },
+    fact("r1", "Departure signal: a bronze owl over the blue sail."),
+    { ref: "x1", kind: "gap", reason: "source_unavailable" } as HistoricalItem,
+    typed("m2", "Thanks, keep the blue sail.", "assistant"),
+  ];
+  const all = boundHistory(env(items));
+  const sent = data(all.text).filter(row => typeof row.from === "string" && row.from !== "host_result").length;
+  expect(sent).toBe(4);
+  expect(all.includedMessages, "COVERAGE_COUNT_MATCHES_SERIALIZED_MESSAGES").toBe(sent);
+  // A tight bound keeps the newest few: the count follows what fit.
+  const tight = boundHistory(env(items), new Set(), { ...HISTORY_LIMITS, maxBytes: u8(HISTORY_PREAMBLE) + 160, maxFactBytes: 0 });
+  expect(tight.includedMessages).toBe(data(tight.text).filter(row => typeof row.from === "string").length);
+  expect(tight.includedMessages).toBeLessThan(4);
+  expect(boundHistory(undefined).includedMessages, "nothing sent, nothing counted").toBe(0);
+  // The host-only coverage the session reports carries the same count.
+  const live = liveContext({ conversationId: "ithaca-new", epoch: 1 }, { signal: new AbortController().signal, resync: { work: [], results: [] }, history: env(items) }, STARTUP_CONTEXT_LIMITS.gpt);
+  expect(live.coverage.includedMessages).toBe(4);
+  for (const block of live.blocks) expect(block, "the count never reaches the provider").not.toContain("includedMessages");
+});

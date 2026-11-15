@@ -1,7 +1,7 @@
 /**
  * A refused end-of-turn Claude worker cleanup has an owner (#2871): the
  * reconciler retains the retryable close and the reservation, retries with
- * finite attempts and backoff, and releases exactly once, only after a close
+ * capped backoff without giving up, and releases exactly once, only after a close
  * is confirmed. Shutdown neither releases nor waits.
  */
 import { expect, spyOn, test } from "bun:test";
@@ -78,24 +78,29 @@ test("retry delays double from the base and stop at the maximum", async () => {
   const reconciler = createCleanupReconciler({ attempts: 5, baseDelayMs: 10, maxDelayMs: 25, schedule, log: () => {} });
   reconciler.retain(refusingCleanup(Infinity).cleanup);
   for (let i = 0; i < 6; i++) await clock.tick();
-  expect(seen, "BOUNDED_EXPONENTIAL_BACKOFF").toEqual([10, 20, 25, 25, 25]);
+  expect(seen, "BOUNDED_EXPONENTIAL_BACKOFF").toEqual([10, 20, 25, 25, 25, 25, 25]);
+  reconciler.close();
 });
 
-test("a permanently refusing cleanup ends in an observable terminal failure with its allowance still charged", async () => {
+test("a cleanup refused beyond the foreground limit keeps retrying and releases only on confirmation", async () => {
   const clock = manualClock(), logs: Array<{ message: string; error: unknown }> = [];
   const reconciler = createCleanupReconciler({ attempts: 3, baseDelayMs: 1, schedule: clock.schedule, log: (message, error) => { logs.push({ message, error }); } });
-  const fixture = refusingCleanup(Infinity);
+  const fixture = refusingCleanup(6);
   reconciler.retain(fixture.cleanup);
   for (let i = 0; i < 6; i++) await clock.tick();
-  expect(fixture.calls(), "FINITE_ATTEMPTS").toBe(3);
-  expect(clock.live(), "NO_RETRY_AFTER_TERMINAL_FAILURE").toBe(0);
+  expect(fixture.calls(), "RETRIES_BEYOND_FOREGROUND_LIMIT").toBe(6);
+  expect(clock.live(), "RECONCILIATION_REMAINS_OWNED").toBe(1);
   expect(fixture.released(), "TERMINAL_FAILURE_NEVER_RELEASES").toBe(0);
   expect(reconciler.held, "TERMINAL_FAILURE_STAYS_HELD").toBe(1);
   expect(logs.length, "TERMINAL_FAILURE_LOGGED_ONCE").toBe(1);
   expect(logs[0]!.message, "TERMINAL_FAILURE_NAMES_THE_HELD_ALLOWANCE").toContain("4 MiB of runtime state and 1 MiB of turn temp stay charged");
   expect(String(logs[0]!.error), "TERMINAL_FAILURE_KEEPS_THE_CAUSE").toContain("worker_identity_cleanup_unconfirmed");
-  // Shutdown reports what the terminal failure still holds.
-  expect(reconciler.close(), "SHUTDOWN_REPORTS_TERMINAL_HOLD").toEqual({ held: 1, bytes: 4 * MiB, turnTempBytes: MiB });
+  await clock.tick();
+  expect(fixture.released(), "LATE_CONFIRMATION_RELEASES_ONCE").toBe(1);
+  expect(reconciler.held).toBe(0);
+  await clock.tick();
+  expect(fixture.released()).toBe(1);
+  reconciler.close();
 });
 
 test("shutdown during a retry neither releases nor waits for the close in flight", async () => {
@@ -147,9 +152,10 @@ test("a turn whose end-of-turn cleanup is refused hands it to the reconciler, wh
   const clock = manualClock();
   const cleanup = createCleanupReconciler({ attempts: 3, baseDelayMs: 1, schedule: clock.schedule, log: () => {} });
   const ledger = createStateLedger();
+  const notices: unknown[] = [];
   try {
     const spawner = createWorkerSpawn(brain, {}, new AbortController().signal, { inferenceDir }, undefined, undefined, undefined,
-      { ledger, cleanup, limits: { allowanceBytes: 4 * MiB, budgetBytes: 8 * MiB }, turnTempLimits: { allowanceBytes: MiB, budgetBytes: 2 * MiB } });
+      { ledger, cleanup, reportCleanup: notice => notices.push(notice), limits: { allowanceBytes: 4 * MiB, budgetBytes: 8 * MiB }, turnTempLimits: { allowanceBytes: MiB, budgetBytes: 2 * MiB } });
     const child = spawner.spawn({ command: "/bin/true", args: [], env: { HOME: root }, signal: new AbortController().signal } as never);
     child.on("error", () => {});
     await expect(spawner.finish(), "REFUSED_CLEANUP_STILL_FAILS_THE_TURN").rejects.toThrow("worker_identity_cleanup_unconfirmed");
@@ -165,5 +171,6 @@ test("a turn whose end-of-turn cleanup is refused hands it to the reconciler, wh
     expect(ledger.held, "NO_RUNTIME_STATE_STILL_CHARGED").toBe(0);
     expect(ledger.turnTempHeld, "NO_TURN_TEMP_STILL_CHARGED").toBe(0);
     expect(cleanup.held, "RECONCILER_NO_LONGER_HOLDS_IT").toBe(0);
+    expect(notices).toMatchObject([{ state: "retrying", message: expect.stringContaining("worker_identity_cleanup_unconfirmed") }, { state: "resolved" }]);
   } finally { launch.mockRestore(); host.mockRestore(); cleanup.close(); rmSync(root, { recursive: true, force: true }); }
 });

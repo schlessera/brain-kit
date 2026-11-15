@@ -93,16 +93,23 @@ test("owner mutation requires a present matching Origin and bounded exact JSON",
   } finally { await f.close(); }
 });
 
-test("signed delegated and foreign-owner cookies cannot mutate another history", async () => {
+test("signed delegated cookies and owner cookies on another account's history cannot mutate it", async () => {
   const f = await safetyHistoryFixture(true,true);
   try {
     const body = bodyFor(f,(await f.add("A")).id);
     const agent = createPrincipal(f.db,{authMethod:"delegated",createdBy:f.principal.id,label:"Telemachus",ttlSeconds:3600});
-    const foreign = createPrincipal(f.db,{authMethod:"password",label:"Penelope",ttlSeconds:3600});
+    const otherLogin = createPrincipal(f.db,{authMethod:"password",label:"Odysseus at Ithaca",ttlSeconds:3600});
     expect((await post(f,"/prepare",body,{cookie:await f.cookieFor(agent)})).status,"OWNER_REVIEW_DELEGATION_IS_NOT_HUMAN_AUTHORITY").toBe(403);
-    const denied = await post(f,"/prepare",body,{cookie:await f.cookieFor(foreign)});
-    expect(denied.status).toBe(404);
-    expect(await denied.json()).toEqual({code:"unavailable",reason:"unavailable",retryable:false});
+    // Every password login is the one owner: another device's login reviews the chat (#3952).
+    expect((await post(f,"/prepare",body,{cookie:await f.cookieFor(otherLogin)})).status,"OWNER_REVIEW_ANOTHER_LOGIN_IS_THE_SAME_ACCOUNT").toBe(200);
+    // A history bound to another account stays unavailable to every owner login.
+    f.db.query("UPDATE safety_sessions SET principal_id=? WHERE session_id='ithaca'").run(agent.id);
+    for (const cookie of [f.cookie, await f.cookieFor(otherLogin)]) {
+      const denied = await post(f,"/prepare",body,{cookie});
+      expect(denied.status,"OWNER_REVIEW_FOREIGN_ACCOUNT_HISTORY").toBe(404);
+      expect(await denied.json()).toEqual({code:"unavailable",reason:"unavailable",retryable:false});
+    }
+    f.db.query("UPDATE safety_sessions SET principal_id=? WHERE session_id='ithaca'").run(f.principal.id);
     const {handle} = await prepared(f,body.occurrenceId);
     revokePrincipal(f.db,f.principal.id,Date.now());
     expect((await post(f,`/${handle}/commit`,body)).status,"OWNER_REVIEW_REVOKED_COOKIE_CANNOT_COMMIT").toBe(401);

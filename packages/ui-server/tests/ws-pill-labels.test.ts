@@ -26,6 +26,14 @@ async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 const settle = () => new Promise((r) => setTimeout(r, 25));
+/** Poll an asynchronous read, such as the session list route, until it holds. */
+async function untilAsync(cond: () => Promise<boolean>, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!(await cond())) {
+    if (Date.now() - start > timeoutMs) throw new Error("untilAsync: timed out");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
 
 const SESSION = "sess-ithaca";
 const LABELS: Record<string, string> = {
@@ -186,14 +194,14 @@ describe("pill labels (#1004)", () => {
     const client = await s.connect();
     await s.busy(client);
     await until(() => s.asked.length === 1);
-    await settle();
+    await untilAsync(async () => (await s.listed()).label === "Route home");
     expect((await s.listed()).label).toBe("Route home");
 
     client.send({ type: "chat_message", text: "Ask Aeolus about the winds", sessionId: SESSION, requestId: "req-winds" });
     await until(() => labels(client.frames("session_queue").at(-1))[0] === "Asking Aeolus");
     s.finishers.at(-1)!();
     await until(() => s.prompts.length === 2);
-    await settle();
+    await untilAsync(async () => (await s.listed()).label === "Asking Aeolus");
     expect((await s.listed()).label).toBe("Asking Aeolus");
     // The turn's request was labelled when it was queued: no second call.
     expect(s.asked).toEqual(["Chart the way home", "Ask Aeolus about the winds"]);
@@ -207,7 +215,7 @@ describe("pill labels (#1004)", () => {
     await until(() => labels(client.frames("session_queue").at(-1))[0] === "Bag of winds");
     s.finishers.at(-1)!();
     await until(() => s.prompts.length === 2);
-    await settle();
+    await untilAsync(async () => (await s.listed()).label === "Bag of winds");
     expect((await s.listed()).label).toBe("Bag of winds");
     expect(s.asked.filter((text) => text === "Keep the bag of winds shut")).toHaveLength(1);
   });
@@ -233,7 +241,7 @@ describe("pill labels (#1004)", () => {
     client.send({ type: "chat_message", text: "Chart the way home", sessionId: SESSION, requestId: "req-resume" });
     await until(() => s.finishers.length === 1);
     await until(() => s.asked.length === 1);
-    await settle();
+    await untilAsync(async () => (await s.listed()).label === "Route home");
     expect((await s.listed()).label).toBe("Route home");
   });
 

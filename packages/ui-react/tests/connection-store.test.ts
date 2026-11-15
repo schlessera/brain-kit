@@ -8,6 +8,7 @@ beforeEach(() => {
     vpnStatus: "checking",
     handshakeFailures: 0,
     lastCloseCode: null,
+    socketOpens: 0,
     lastError: null,
   });
 });
@@ -40,7 +41,7 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().vpnStatus).toBe("connected");
   });
 
-  test("setVpnStatus to disconnected", () => {
+  test("setVpnStatus to unreachable", () => {
     useConnectionStore.getState().setVpnStatus("unreachable");
     expect(useConnectionStore.getState().vpnStatus).toBe("unreachable");
   });

@@ -1,5 +1,6 @@
 /** Changed-only publication from a root-inspected trusted OverlayFS stage. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
+import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
 import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
@@ -216,6 +217,28 @@ function currentVersion(root: string, rel: string): string | undefined {
   let handle: ReturnType<typeof parent>; try { handle = parent(root, rel); } catch (error) { if (absent(error)) return undefined; throw error; }
   try { return versionAt(handle.fd, handle.name); } finally { closeSync(handle.fd); }
 }
+/**
+ * SQLite's wal-index for the index database (#2878). It is shared memory, not
+ * data: every connection maps it, and a read-only `brain_search` writes its
+ * read mark into it or creates it, so its bytes differ from the checkpoint's
+ * while nothing indexed changed. The first connection to open an inode nobody
+ * holds discards its contents and rebuilds it from the WAL. It is therefore
+ * never compared or copied: whenever the database or its WAL publishes, a
+ * fresh empty inode replaces it, so no new connection pairs the new WAL with a
+ * wal-index an old reader still holds. Every write to the index still changes
+ * the database or its WAL, which keep the full stale-input refusal.
+ */
+const WAL_INDEX = `${INDEX_DB_PATH}-shm`, WAL_INDEX_FAMILY = [INDEX_DB_PATH, `${INDEX_DB_PATH}-wal`];
+/** Only its kind and mode: a regular file, an absent name, or something publication refuses. */
+function walIndexAt(fd: number, name: string): Entry | undefined {
+  const info = lstatSync(at(fd, name), { bigint: true, throwIfNoEntry: false });
+  if (!info) return undefined;
+  return info.isFile() ? { type: "file", mode: Number(info.mode & 0o777n) } : { type: info.isDirectory() ? "directory" : "symlink", mode: Number(info.mode & 0o7777n) };
+}
+function walIndexEntry(root: string, rel: string): Entry | undefined {
+  let handle: ReturnType<typeof parent>; try { handle = parent(root, rel); } catch (error) { if (absent(error)) return undefined; throw error; }
+  try { return walIndexAt(handle.fd, handle.name); } finally { closeSync(handle.fd); }
+}
 function processStart(pid: number) { return Bun.file(`/proc/${pid}/stat`).text().then(t => t.replace(/^.*\) /s, "").split(" ")[19]); }
 /** Acquisition completes before any synchronous SDK spawn callback. No copy/userxattr fallback. */
 export async function prepareNativeWorkerOutput(brain: string, options: { startupView: WorkerStartupView; areas?: readonly string[]; folderPaths?: readonly string[]; signal?: AbortSignal }): Promise<PreparedWorkerOutput> {
@@ -233,15 +256,21 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   let indexPreparation: NativeMaintenanceIndexPreparation | undefined, indexPoisoned = false;
   const gitScaffolds = new Map<MaintenanceGitScaffold["name"], MaintenanceGitScaffoldReceipt>();
   let gitPreparation: NativeMaintenanceGitPreparation | undefined, gitPoisoned = false, gitParentInode: string | undefined;
-  const cleanup = () => cleanupPromise ??= (async () => {
-    if (prepared) await executionDrain.get(prepared)?.exited;
-    identityTicket?.close(); identityTicket = undefined;
-    if (fd !== undefined) { closeSync(fd); fd = undefined; }
-    // The stage and checkpoint remain owned if the manager cannot confirm
-    // deletion. Releasing capacity on that failure would hide retained bytes.
-    if (stageRequested) await native.manager.releaseStage(id);
-    reservation?.release(); await view.cleanup();
-  })();
+  let cleanupFailed = false;
+  const cleanup = () => {
+    // Keep cleanupPromise set between attempts: publication and new retains
+    // stay refused once deletion begins, including while its receipt is lost.
+    if (cleanupFailed) { cleanupFailed = false; cleanupPromise = undefined; }
+    return cleanupPromise ??= (async () => {
+      if (prepared) await executionDrain.get(prepared)?.exited;
+      identityTicket?.close(); identityTicket = undefined;
+      if (fd !== undefined) { closeSync(fd); fd = undefined; }
+      // The stage and checkpoint remain owned if the manager cannot confirm
+      // deletion. Releasing capacity on that failure would hide retained bytes.
+      if (stageRequested) await native.manager.releaseStage(id);
+      reservation?.release(); await view.cleanup();
+    })().catch((error: unknown) => { cleanupFailed = true; throw error; });
+  };
   try {
     reservation = processStateLedger().reserve(undefined, undefined, limits);
     stageRequested = true;
@@ -308,6 +337,13 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       if ((await privateStat(stageInput, rel))?.stamp !== info.stamp) throw Error("Native private output changed while hashing");
       return { entry: { type: "file", mode: info.mode, hash: hash.digest("hex") }, stamp: version };
     }
+    async function walIndexInput(stageInput: boolean): Promise<Captured> {
+      try { return { entry: walIndexEntry(stageInput ? output.source : view.root, WAL_INDEX), stamp: undefined }; }
+      catch (error) { if (!identityTicket || !permissionDenied(error)) throw error; }
+      const info = await privateStat(stageInput, WAL_INDEX);
+      if (!info) return { entry: undefined, stamp: undefined };
+      return { entry: info.kind === "file" ? { type: "file", mode: info.mode } : { type: info.kind === "directory" ? "directory" : "symlink", mode: info.mode }, stamp: undefined };
+    }
     async function validateGitScaffolds(signal?: AbortSignal, live = false) {
       if (!gitParentInode && gitScaffolds.size === 0) return;
       const uid = await readerUid();
@@ -357,11 +393,15 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       if (receipt.checkpointId !== native.checkpoint.id || receipt.checkpointUuid !== native.checkpoint.uuid) throw Error("Native output inspection changed its lower identity");
       const selected = (rel: string) => !options.areas || options.areas.some(area => isWithin(area, rel));
       const before = new Map<string, Captured>(), after = new Map<string, Captured>();
-      for (const rel of [...candidates].filter(selected).sort()) {
+      for (const rel of [...candidates].filter(rel => selected(rel) && rel !== WAL_INDEX).sort()) {
         const next = await inspectInput(true, rel); after.set(rel, next);
         before.set(rel, await inspectInput(false, rel, !next.entry));
       }
       const changed = [...before.keys()].filter(rel => !equal(before.get(rel)!.entry, after.get(rel)!.entry));
+      if (selected(WAL_INDEX) && changed.some(rel => WAL_INDEX_FAMILY.includes(rel))) {
+        before.set(WAL_INDEX, await walIndexInput(false)); after.set(WAL_INDEX, await walIndexInput(true));
+        changed.push(WAL_INDEX); changed.sort();
+      }
       const releases: (() => void)[] = [];
       try {
         if (lock) for (const rel of [...new Set([...changed, ...[...gitScaffolds.keys()].map(name => `.git/${name}`)])].sort())
@@ -379,6 +419,11 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           if (next?.type === "symlink") {
             const target = resolve(brain, join(rel, ".."), next.link!);
             if (!isWithin(brain, target) || rel.startsWith(".git/") || PROTECTED_TIER_A.some(p => isWithin(rel, p, { includeRoot: false }))) throw Error(`maintenance output has an escaping link: ${rel}`);
+          }
+          if (rel === WAL_INDEX) {
+            const live = walIndexEntry(brain, rel);
+            if (next && next.type !== "file" || live && live.type !== "file") throw Error(`stale maintenance output: ${rel}`);
+            continue;
           }
           const live = await inspect(brain, rel, previous?.type === "directory" && !next); authoritative.set(rel, live);
           if (!equal(previous, live.entry, previous?.type === "directory" && !next)) throw Error(`stale maintenance output: ${rel}`);
@@ -398,10 +443,11 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
             const handle = { fd: preparationDirectory(brain, rel), name: `.maintenance-${randomUUID()}` }, temporary = at(handle.fd, handle.name);
             pending.push({ rel, ...handle, temporary, next });
             if (next.type === "symlink") symlinkSync(next.link!, temporary);
+            else if (rel === WAL_INDEX) { const target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode); try { await target.chmod(next.mode); } finally { await target.close(); } }
             else {
               if (after.get(rel)!.stamp?.startsWith("worker:")) {
                 const beforeRead = await privateStat(true, rel);
-                if (`worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind}` !== after.get(rel)!.stamp) throw Error(`Native private output changed before copy: ${rel}`);
+                if (`worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind}` !== after.get(rel)!.stamp) throw Error(`Native private output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found worker:${beforeRead?.stamp}:${beforeRead?.mode}:${beforeRead?.kind})`);
                 try {
                   pending.at(-1)!.recovery = processStateLedger().reserve(undefined, undefined, { allowanceBytes: beforeRead!.bytes, budgetBytes: hostOutputStagingLimits().budgetBytes });
                 } catch { throw Error("Native private output recovery capacity unavailable; the turn already executed and its output was not published"); }
@@ -426,14 +472,16 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
               catch (error) { closeSync(source.fd); throw error; }
               let target: Awaited<ReturnType<typeof open>> | undefined;
               try {
-                if (stamp(await input.stat({ bigint: true })) !== after.get(rel)!.stamp) throw Error(`Native output changed before copy: ${rel}`);
+                const found = stamp(await input.stat({ bigint: true }));
+                if (found !== after.get(rel)!.stamp) throw Error(`Native output changed before copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${found})`);
                 target = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, next.mode);
                 const buffer = Buffer.alloc(64 * 1024);
                 for (;;) { const { bytesRead } = await input.read(buffer); if (!bytesRead) break; let written = 0;
                   while (written < bytesRead) written += (await target.write(buffer, written, bytesRead - written)).bytesWritten;
                   await Bun.sleep(0);
                 }
-                if (stamp(await input.stat({ bigint: true })) !== after.get(rel)!.stamp) throw Error(`Native output changed during copy: ${rel}`);
+                const copied = stamp(await input.stat({ bigint: true }));
+                if (copied !== after.get(rel)!.stamp) throw Error(`Native output changed during copy: ${rel} (inspected ${after.get(rel)!.stamp}, found ${copied})`);
                 await target.chmod(next.mode);
               } finally { closeSync(source.fd); await input.close(); await target?.close(); }
             }
@@ -442,6 +490,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           if (await processStart(stage!.namespacePid).catch(() => undefined) !== stage!.namespaceStart) throw Error("Native output stage was lost; discard outputs and reconcile ownership");
           // Recheck all bases after async preparation and before the first mutation.
           for (const rel of changed) {
+            if (rel === WAL_INDEX) { const live = walIndexEntry(brain, rel); if (live && live.type !== "file") throw Error(`stale maintenance output: ${rel}`); continue; }
             const current = currentVersion(brain, rel), expected = authoritative.get(rel)!.stamp;
             // Parent-local preparation changes only directory timestamps. The
             // established directory predicate guards inode/mode; deletion also
@@ -450,7 +499,14 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
             if (directory ? current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":") : current !== expected) throw Error(`stale maintenance output: ${rel}`);
           }
           for (const rel of changed.filter(p => !after.get(p)!.entry).sort((a,b) => b.split("/").length-a.split("/").length)) {
-            const handle = parent(brain, rel); try { const current = versionAt(handle.fd, handle.name), expected = authoritative.get(rel)!.stamp;
+            const handle = parent(brain, rel); try {
+              if (rel === WAL_INDEX) {
+                const current = walIndexAt(handle.fd, handle.name);
+                if (current && current.type !== "file") throw Error(`stale maintenance output: ${rel}`);
+                try { unlinkSync(at(handle.fd, handle.name)); } catch (error) { if (!absent(error)) throw error; }
+                continue;
+              }
+              const current = versionAt(handle.fd, handle.name), expected = authoritative.get(rel)!.stamp;
               if (before.get(rel)!.entry!.type === "directory" ? current?.split(":").slice(0,3).join(":") !== expected?.split(":").slice(0,3).join(":") : current !== expected) throw Error(`stale maintenance output: ${rel}`);
               if (before.get(rel)!.entry!.type === "directory") rmdirSync(at(handle.fd, handle.name)); else unlinkSync(at(handle.fd, handle.name));
             } finally { closeSync(handle.fd); }
@@ -468,6 +524,11 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           for (const item of pending) {
             const destination = parent(brain, item.rel);
             try {
+              if (item.rel === WAL_INDEX) {
+                const current = walIndexAt(destination.fd, destination.name);
+                if (current && current.type !== "file") throw Error(`stale maintenance output: ${item.rel}`);
+                renameSync(item.temporary!, at(destination.fd,destination.name)); continue;
+              }
               if (versionAt(destination.fd, destination.name) !== authoritative.get(item.rel)!.stamp) throw Error(`stale maintenance output: ${item.rel}`);
               if (before.get(item.rel)!.entry) renameSync(item.temporary!, at(destination.fd,destination.name));
               else { try { linkSync(item.temporary!, at(destination.fd,destination.name)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw Error(`stale maintenance output: ${item.rel}`); throw error; } }

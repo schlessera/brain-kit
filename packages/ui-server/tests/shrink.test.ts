@@ -36,7 +36,7 @@ describe("shrinkForReplication", () => {
     expect(shrunk.output.length).toBeLessThan(huge.length);
     expect(shrunk.output).toContain("chars elided");
     // Truncation is head-preserving.
-    expect(shrunk.output.startsWith("aaaa")).toBe(true);
+    expect(shrunk.output).toStartWith("aaaa");
   });
 
   test("head-clips an oversized array of many small blocks", () => {
@@ -49,7 +49,7 @@ describe("shrinkForReplication", () => {
     expect(JSON.stringify(shrunk).length).toBeLessThanOrEqual(FRAME_BUDGET_BYTES);
     expect(shrunk.content.length).toBeLessThan(content.length);
     // Typed arrays must contain only their original element type.
-    expect(shrunk.content.every((block) => typeof block === "object")).toBe(true);
+    expect(shrunk.content.filter((block) => typeof block !== "object")).toEqual([]);
     // Head blocks are preserved in order.
     expect(shrunk.content[0]).toEqual({ type: "text", text: "block-0" });
   });

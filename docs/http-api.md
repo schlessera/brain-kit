@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion and individual safety-review routes mounted by `createApp`: 179 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery and live-persona routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 187 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -156,7 +156,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/journal/configuration-coverage` | S | Read the brain's current untraced configuration-input set | Latest complete inventoried turn only; explicit `unknown`, never an empty list. |
 | GET | `/api/agent-policy` | I | Read shared admission policy and reported enforcing limits | Read-only Devices & agents facts; no editor or duplicate policy cache. |
 | GET | `/api/policy-proposals/:turnId/:requestId` | I | Read one principal-owned policy request receipt | Same-request reconciliation only; never writes or reactivates approval. |
-| GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Exact authenticated history owner; immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
+| GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
 | POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
@@ -179,11 +179,19 @@ client code has a gap. Source owners are listed after the table.
 | POST | `/api/skills/install/github` | I | Install skills from GitHub and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | POST | `/api/skills/install/zip` | I | Install uploaded skill archive and sync | React skill settings; integration directories and UI editor transport are internal. CLI/module/skill formats retain their own guarantees. |
 | GET | `/api/status` | S | Read protected operational/runtime status | Independent monitoring and React status; preserve release/runtime/subscription promises. |
+| POST | `/api/status/safety-recording/recover` | S | Owner fallback: clear a latched safety recorder whose producers have stopped | Owner tooling when automatic recovery cannot run; additive #3810 ([contract](integration-contract/http.md#safety-recording-status-additive-3810)). Refuses with 409 `producers_open`, changing nothing, while any safety producer is open. |
 | POST | `/api/status/worker-host` | S | Re-run the agent worker host probe and return what it recorded | React "Check again" and independent monitoring; additive #1632 ([contract](integration-contract/http.md#worker-host-status-additive-1632)). Admits no turn. |
 | POST | `/api/track-upload` | I | Validate and stage composer track originals | Paired React composer transport; the published file-reference wire/block behavior remains its own contract. |
 | GET | `/api/tracks` | I | Resolve canonical imported-track evidence | Paired React track-block/export transport; no independent retrieval API selected. |
 | GET | `/api/tool-permissions` | I | List remembered always-allow grants | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
 | DELETE | `/api/tool-permissions/:tool` | I | Revoke one remembered grant | React approval settings; paired administrative transport. Permission behavior remains governed by its own contract. |
+| GET | `/api/voice/personas` | S | List live-conversation personas, Standard first, without instruction text | Human owner/ambient only; others get an empty 403. |
+| POST | `/api/voice/personas` | S | Create a persona file under `_voice/personas` | Human owner/ambient only; 409 `PERSONA_EXISTS`/`PERSONA_LIMIT`. |
+| GET | `/api/voice/personas/:id` | S | Read one persona with its plain-text instructions | Human owner/ambient only. |
+| PUT | `/api/voice/personas/:id` | S | Replace a persona at its current revision | Human owner/ambient only; stale writes return 409 `PERSONA_CHANGED` with `current`. |
+| DELETE | `/api/voice/personas/:id` | S | Delete a persona at its current revision | Human owner/ambient only; a selected persona's selection becomes Standard first. |
+| GET | `/api/settings/voice` | S | Read the live-service default and the live persona selection, each with its revision | Human owner/ambient only; independent of the model and dictation defaults. |
+| PUT | `/api/settings/voice` | S | Save the live-service default and/or the live persona selection at their revisions | Owner human session or ambient human only, 403 empty body otherwise; stale writes return 409 `LIVE_SETTINGS_CHANGED` or `LIVE_PERSONA_CHANGED`. |
 | GET | `/api/voice/providers` | S | Read registered dictation providers and effective selection; never mint | Authenticated discovery, no-store. |
 | GET | `/api/voice/dictation/settings` | S | Read brain-wide dictation choice, SMART mode and revision | Independent of live conversation settings. |
 | PUT | `/api/voice/dictation/settings` | S | Save dictation choice with If-Match revision | Human owner/ambient only; stale writes never overwrite. |
@@ -212,7 +220,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 179 declared endpoints are mounted regardless of backend, renderer or
+All 187 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -348,13 +356,16 @@ universal Cache-Control header is promised.
 the app's SQLite schema. Healthy: 200
 `{ status: "healthy", uptime: number, timestamp: string }`, where uptime is
 milliseconds since the route module initialized and timestamp is ISO UTC.
+A failed secondary backend returns 200 with `status: "degraded"` and
+`reasons: ["backend_unavailable"]`, retaining uptime and timestamp. Error text
+and backend identities remain behind authentication on `/api/status`.
 An unreadable database yields 503 `{ status: "unhealthy" }`, without detail.
 It never exposes release, source commit, runtime, credentials or session state;
 healthy does not certify upstream model or brain CLI availability.
 
 **GET /api/status** is protected, accepts no inputs, and returns
-`{ healthy: true, uptime, version, software, cronJobs, activeSession, metrics,
-runtime?, subscription? }`. `version` is the configured source commit (default
+`{ healthy: boolean, uptime, version, software, cronJobs, activeSession, metrics,
+runtime?, subscription?, backendAvailability?, nativeRecovery? }`. `version` is the configured source commit (default
 `"dev"`), not a release; `software` is `{ release, sourceCommit }`. `cronJobs`
 contains `{ name, lastRunAt, lastStatus, lastDurationMs, lastError }`, nullable
 when a job has not run; it includes recorded jobs and configured in-process
@@ -363,6 +374,23 @@ jobs. `activeSession` means any active turn, not simply an open socket.
 series have name, kind (counter/updowncounter/histogram/gauge), numeric
 value and scalar attributes; histogram value is the observation count.
 Operational reads can fail with the common 500.
+
+`backendAvailability` contains `unavailable` (this boot's excluded backends) and
+`lastFailures` (the latest persisted failure per backend, retained after repair).
+Each record has `backendId`, `phase: "resolution" | "runtime"`, `errorClass`,
+`message`, `site` (the failed boot check) and ISO `at`. `healthy` is false while `unavailable` is nonempty.
+The default backend must pass boot validation; unavailable secondary backends
+are never constructed or routed to. Correct the package/runtime or host
+configuration and start again to revalidate. Prior records alone do not imply
+current degradation.
+
+`nativeRecovery`, when present, reports native intent quarantine at server boot:
+`{ quarantinedIntents, stagingChargedBytes, diagnosticsPath }`. A null charge
+means its bound could not be established; it never means zero, and `healthy` is
+false while that recovery restriction remains. A numeric zero means no stage
+storage can belong to the quarantined identities. The diagnostics
+path is host-private and appears only behind authentication, never on `/health`.
+Healthy identities remain usable within provably available staging capacity.
 
 `runtime.workerHost` is whether this host can run agent workers (#1632):
 `{ ordinary?, restricted? }`, each `{ available, checkedAt, trigger }` plus
@@ -373,6 +401,11 @@ re-records the mode it probed. It never admits or refuses a turn: each turn
 runs its own probe. **POST /api/status/worker-host** is protected, accepts no
 body, re-runs the boot's probes and returns the same `workerHost` object
 ([contract](integration-contract/http.md#worker-host-status-additive-1632)).
+For the owner only, `safetyRecording` reports the brain-wide safety recorder
+(#3810): `{ latched, since, reason, cause, retained, lastRecovery }`. A latch
+is normally cleared by the host itself (#3812); **POST
+/api/status/safety-recording/recover** is the owner's fallback
+([contract](integration-contract/http.md#safety-recording-status-additive-3810)).
 While the server runs as uid 0, `workerHost` also carries
 `rootServer: { warning }` (#1638): the boot log's warning that its workers can
 read root-owned files and connect to root-owned and abstract Unix sockets.
@@ -400,7 +433,12 @@ and the [sync reporting contract](integration-contract/wire.md#activity-stream-r
 `subscription` contains `tokenSet`, nullable ISO `mintedAt`, `expiresAt`,
 `lastProvenAt`, `provenBy: "turn" | "model_discovery" | null` and nullable
 `lastAuthFailure` (`errorClass`, ISO `at`, `action`, `source`, optional
-`runId`, `message`, `status`). It never returns the token. Optional monitoring
+`runId`, `message`, `status`). An invalid configured mint date leaves
+`mintedAt` and `expiresAt` null and adds `expiryWarning` with
+`reason: "invalid_mint_date"`, `message` starting "expiry unknown: invalid mint date",
+`errorClass` and ISO `at`. It warns at boot and retains the last cause in the
+operational settings store; it never refuses serving or changes authentication.
+It never returns the token. Optional monitoring
 fields reflect injected capabilities; they are not a liveness requirement.
 
 ## Login, passkeys and delegated credentials
@@ -492,7 +530,8 @@ itself.
   for that principal's live grants, oldest first; `created_at` is epoch
   milliseconds. An unknown, revoked, expired or non-cookie principal is 404.
 - **POST `/api/auth/principals/:id/reference-grants`**, JSON body
-  `{ repositoryPrefix: string, credential?: string | null }`. The prefix is an
+  `{ repositoryPrefix: string, credential?: string | null,
+  metadataCredentialRecipient?: "https://api.github.com" | null }`. The prefix is an
   HTTPS URL without user info, query or fragment, a loopback `http://` URL, or an
   absolute `file:///` path; it may be a bare HTTPS origin. Empty, `.` and `..`
   segments, whitespace, control characters, backslashes and percent-encoding
@@ -505,6 +544,17 @@ itself.
   is 201 with the grant object. Malformed or non-object JSON is 400; an unknown
   or unusable target principal is 404; an identical live grant is 409; 256 live
   grants is 503.
+  The optional `metadataCredentialRecipient` is independent owner permission
+  to send that named credential to the fixed GitHub identity metadata operation
+  (#3613). It requires a GitHub HTTPS prefix and a non-null named credential;
+  any other value or recipient is 400. Omitted or null grants no API recipient
+  permission, including on migrated records. When explicitly granted, the
+  response and list entry additionally carry
+  `metadata_credential_recipient: "https://api.github.com"`. The permission
+  shares the grant's brain, principal, repository scope and live revocation.
+  It grants neither generic HTTP access nor repository source trust.
+  Changing this permission uses revoke/recreate; duplicate matching keeps the
+  existing principal/prefix/credential identity and does not expand a grant.
 - **DELETE `/api/auth/principals/:id/reference-grants/:grantId`**, body
   ignored, revokes that principal's live grant and returns `{ ok: true }`.
   Revocation applies to the next authority check, including in-flight private
@@ -1398,6 +1448,96 @@ saved switch (initially true). A failed exact mint returns generic 500
 `{ error: "Voice session failed" }` without provider diagnostics or credentials.
 Bodyless legacy requests retain their previous response/error shape.
 
+## Live-conversation service default
+
+`/api/settings/voice` (below, under personas) also carries the saved brain-wide
+default live-conversation service (#3616) as top-level
+`{ defaultProvider: string | null, revision: number }` (`VoiceLiveSettings`),
+beside `persona` with its own revision. Nothing saved reads as
+`{ defaultProvider: null, revision: 0 }`; a corrupt or unknown
+`voice.live.defaultProvider` row in the ui-server settings store reads the same.
+A saved id the host no longer registers stays saved until changed here.
+
+`PUT` saves it from `{ defaultProvider: string | null, revision: number }`,
+where `revision` is the one last read and `null` clears the default; send it
+alone, or beside `persona` (the live default is then saved first). The route
+has its own owner-only write guard, checked before the body is read: only the
+brain owner's human session (password or passkey) or the ambient human
+principal passes, and any other principal gets 403 with an empty body. A
+malformed pair is 400 `{ error: "LIVE_SETTINGS_INVALID" }`; an id that is not
+registered is 400 `{ error: "LIVE_PROVIDER_UNKNOWN" }`; a stale revision is 409
+`{ error: "LIVE_SETTINGS_CHANGED", message, current }`. A successful write
+returns 200 with the whole settings body and sends `live_settings` on every open
+WebSocket connection ([wire](integration-contract/wire.md#live-service-selection-additive-3616)).
+
+Neither read nor write reports a credential, key presence or endpoint, opens a
+provider, captures audio or reads chat history. A save takes effect at the next
+explicit Start and never retargets a running conversation. The ordinary model
+default (`/api/models/default`) and the dictation choice
+(`/api/voice/dictation/settings`) are separate settings with their own routes
+and revisions.
+
+## Live-conversation personas
+
+Personas are Markdown files at `_voice/personas/<id>.md` in the brain, where
+`id` matches `[a-z0-9-]{1,48}` and never changes:
+
+```md
+---
+schema: 1
+name: "Ithaca steward"
+voices:
+  gemini-live: "Kore"
+  gpt-live: "marin"
+---
+Calm, brief, plain words. Speak like a ship's steward reporting to Odysseus.
+```
+
+`name` is 1–40 characters after trimming, without control characters. `voices`
+maps a live service id to that service's voice id; a missing key means the
+service default, and keys for services this host does not register are kept.
+The body is the instructions: plain text, line endings normalized to LF and
+trimmed, at most 6,000 UTF-8 bytes. A file over that, with unreadable front
+matter or with `schema` other than 1 is listed with `invalid` and cannot be
+selected; so are usable files beyond the 20th by name. Standard is built in,
+read-only and has no file. Core excludes `_voice` from the content index, so
+persona text never reaches search or agent context.
+
+Every route is `no-store` and needs a human session of the brain (owner or
+ambient); others receive `403` with an empty body.
+
+- `GET /api/voice/personas` returns `{ personas: LivePersonaSummary[] }`:
+  Standard first, then by name. Summaries carry `id`, `name`, `voices`,
+  `instructionBytes`, `revision` (sha-256 hex of the file), and `builtIn` or
+  `invalid` when they apply, never the instructions.
+- `GET /api/voice/personas/:id` returns `LivePersona` (the summary plus
+  `instructions`) or 404 `PERSONA_NOT_FOUND`.
+- `POST /api/voice/personas` takes `{ id?, name, voices, instructions }`. Without
+  `id` one is derived from `name`. It returns 201 with the persona, 400
+  `PERSONA_INVALID` with a `reason`, 409 `PERSONA_EXISTS` or 409 `PERSONA_LIMIT`.
+  A new persona is not selected.
+- `PUT /api/voice/personas/:id` takes `{ baseRevision, name, voices,
+  instructions }` and replaces the file atomically. A revision mismatch returns
+  409 `{ error: "PERSONA_CHANGED", current }`; Standard returns 409
+  `PERSONA_READ_ONLY`.
+- `DELETE /api/voice/personas/:id?baseRevision=<revision>` returns 204. When the
+  persona is selected, the selection is saved as Standard first and the file is
+  deleted only after that write succeeds.
+- `GET /api/settings/voice` returns `{ defaultProvider, revision, persona: { value, revision },
+  livePersona: LivePersonaStatus }` (the first pair is the
+  [live-service default](#live-conversation-service-default)). `PUT` takes `{ persona: { value, revision } }`;
+  a missing or invalid persona returns 400, a stale revision 409
+  `{ error: "LIVE_PERSONA_CHANGED", persona, livePersona }`. The selection is the
+  `voice.live.persona` server setting with its own revision; a corrupt row reads
+  as Standard at revision 0.
+
+Writes go through the brain's files with an atomic replace, inside a
+directory chain opened without following links; storage that is unavailable or
+redirected returns 503 `PERSONA_STORAGE`. An edit made directly to a file is
+equally valid and applies from the next Start. Nothing here opens a provider,
+the microphone or a running conversation, which keeps the persona frozen at its
+Start ([wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617)).
+
 ## Saved-audio transcription
 
 The protected `GET /api/voice/capabilities` returns `VoiceCapabilitiesResponse`
@@ -1586,7 +1726,7 @@ read by any authenticated principal.
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
 | `safety_admission_expired` | 1 | `toolUseId`, `evidenceRevision`, `trustRevision`, `authorityEpoch`, `reason` | A waiting or claimed safety-bound approval was withdrawn before dispatch. The server commits this terminal fact before settling the backend wait or publishing the coordinator's `expired` result. Revisions describe the card's original host snapshot; `reason` is `safety_changed`, `turn_ended` or `grant_storage_failed`. Storage failure stops the turn with an explicit failed terminal outcome, without claiming durable withdrawal. This grants no replay and changes no historical approval. |
-| `egress_connection` | 1 | `connectionId` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, and only a validated provider-relay operation sets `provider: true`; a record never carries both. Neither relay's record makes its host a contacted one for a tainted session's worker traffic. Headers, query strings and content are absent. |
+| `egress_connection` | 1 | `connectionId` (optional), `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `provider` (optional, #3246), `managedReference` (optional, #3613), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`, only a validated provider-relay operation sets `provider: true`, and only the fixed host GitHub acquisition wire sets `managedReference: true`. Each operation supplies its own exclusive tag. These host records grant no contacted-host authority to a tainted session's worker traffic. Managed acquisition retains ordinary recipient restrictions and claims no model-content delivery or repository trust. Headers, query strings and content are absent. |
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds`, `tainted` (optional) | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is the current unresolved taint event or `null`. New observations may carry `tainted: true` for effective restriction, including unknown coverage without an attributable source. Historical rows retain their original attribution. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |
@@ -1959,9 +2099,22 @@ and `detailPruned`. Responses are `Cache-Control: no-store` and at most 262144
 UTF-8 bytes. No request invokes a verdict, policy writer, backend turn or
 provider transcript write.
 
-The exact live principal must own the retained history. There is no equivalence
-between separate owner logins, delegated credentials or ambient identities.
-The existing native-history and dialogue APIs keep their visibility rules.
+Optional `entries=1` includes the host-owned `entry:{kind:"tool",toolUseId}`
+only where recorded. The same choice is required on every cursor page; its
+subscription inherits it. No other `entries` value is accepted. The default
+response retains the original strict version-1 record shape. Correlation
+requires both the exact host turn and tool identity; opaque network input and
+unknown legacy attribution remain separate named turn events. Minimal entry
+identity survives detail pruning; retirement removes it with the evidence.
+
+The live principal must belong to the retained history's account (#3952). A
+principal id always matches itself. Two different ids match only when both
+resolve to the same account partition in every auth mode, which today means
+two owner logins; a delegated, ambient or system principal matches only
+itself, and a missing or unresolvable principal matches no other id. A cursor
+stays with the one login that read it: another login's cursor is refused as
+expired (409). The existing native-history and dialogue APIs keep their
+visibility rules.
 Unknown/unowned legacy safety collections return explicit unavailable; known
 legacy collection gaps never imply normal. Revoked/expired callers receive
 401, malformed queries 400, expired/generation-changed or membership-gap cursors 409, capacity
@@ -2053,3 +2206,10 @@ principal, generation, finalized-exposure and permanent retirement fences in
 the writer and SQLite trigger. Resolving a known event cannot repair unknown
 detector coverage, recording loss or another unresolved event. No model/voice
 tool, WS mutation frame, Settings rule or provider transcript edit is added.
+
+
+The authenticated status response also includes `journalCleanup` (#3815):
+current retained-checkpoint counts and bytes, plus `lastFailure`, a durable
+historical cause even when cleanup failed before the first turn. The historical
+record survives successful cleanup; current retained charges are reported
+separately. It is never part of public `/health`.

@@ -4,6 +4,8 @@ import { z } from "zod";
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const OccurrenceSchema = z.strictObject({
   id, epochId: id, operationId: id.nullable(), signalId: id, exposureId: id,
+  /** Captured by the host collector, never inferred from display content. */
+  entry: z.strictObject({kind:z.literal("tool"),toolUseId:id}).optional(),
   detector: z.enum(["tool_web_input", "tool_file_input", "tool_search_output", "external_mcp_input", "attachment_input",
     "compute_input", "unproxied_shell_input", "proxy_input", "explicit_untrusted_input"]),
   // Observation of a result is not proof that input delivery has ended.

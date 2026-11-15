@@ -27,6 +27,22 @@ const eventSchema = z.discriminatedUnion("type", [
 ]);
 type EventBody = LiveConversationEvent extends infer E ? E extends unknown ? Omit<E, keyof ConversationScope> : never : never;
 
+/**
+ * Built-in `audio.output.voice` names (#3617), copied from the Live API
+ * reference's session config enum, checked 2026-11-10:
+ * https://developers.openai.com/api/reference/resources/live
+ * Custom voice objects are not offered for personas.
+ */
+export const GPT_LIVE_VOICES = [
+  "alloy", "ash", "ballad", "beacon", "bossa", "brise", "calandria", "cedar", "cinder", "compas",
+  "coral", "delta", "destello", "echo", "flitz", "gleam", "halo", "harema", "hornero", "juni",
+  "luciernaga", "marin", "meridian", "nira", "noeul", "nuri", "pearl", "quartz", "ripple", "sage",
+  "shida", "shimmer", "sillage", "stone", "tempo", "verse", "vesper", "willow",
+] as const;
+const DEFAULT_VOICE = "marin";
+/** Application limit on persona instructions (P3): keeps the 7,500-byte startup estimate. */
+export const GPT_PERSONA_BYTES = 2_000;
+
 /** Fixed GPT-Live configuration, explicitly registered; key stays server-side. */
 export function createGptLiveConversationProvider(apiKey: string): LiveConversationProvider {
   if (!apiKey.trim()) throw new Error("GPT-Live requires a server API key.");
@@ -37,6 +53,9 @@ export function createGptLiveConversationProvider(apiKey: string): LiveConversat
       nonblockingWork: "supported", manualEndpoint: "unsupported", finalTranscript: "unsupported",
       remoteOutputCancelAck: "unproven", exactPermissionSpeech: "unsupported", echoIsolatedInput: "unproven", outputWordAlignment: "unproven",
     },
+    voices: GPT_LIVE_VOICES.map(id => ({ id, label: id })),
+    defaultVoice: DEFAULT_VOICE,
+    personaInstructionBytes: GPT_PERSONA_BYTES,
     disclosure: {
       voiceService: "OpenAI Live API v1, gpt-live-1, marin",
       destinations: ["Microphone audio and transcripts go through this host to OpenAI GPT-Live.",
@@ -63,6 +82,9 @@ function chunks(text: string): string[] {
 
 async function openGptLive(apiKey: string, scope: ConversationScope, options: LiveConversationOpenOptions): Promise<LiveConversationSession> {
   if (options.signal.aborted) throw new Error("GPT-Live epoch already ended.");
+  const persona = options.persona;
+  if (persona && (persona.voice !== undefined && !(GPT_LIVE_VOICES as readonly string[]).includes(persona.voice) ||
+      Buffer.byteLength(persona.instructions, "utf8") > GPT_PERSONA_BYTES)) throw new Error("GPT-Live persona is not supported.");
   let socket: WebSocket;
   try {
     // Bun supports server-only connection headers. No browser or URL credential.
@@ -125,9 +147,10 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
     try {
 
       send({ type: "session.start", session: {
-        model: MODEL, audio: { format: { type: "audio/pcm", rate: 24000 }, output: { voice: "marin" } },
+        model: MODEL, audio: { format: { type: "audio/pcm", rate: 24000 }, output: { voice: persona?.voice ?? DEFAULT_VOICE } },
         delegation: { type: "client", acknowledgement_delay_ms: 800 }, store: false,
-        instructions: liveInstructions("gpt", options.contextualTasks === true),
+        // Host rules first and unchanged; a persona only appends its fenced section.
+        instructions: liveInstructions("gpt", options.contextualTasks === true) + context.persona,
         input: context.blocks.map(text => ({ role: "user", content: [{ type: "input_text", text }] })),
       } });
     } catch { fail("GPT-Live setup failed."); }

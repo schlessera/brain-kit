@@ -44,6 +44,22 @@ const messageSchema = z.object({
 type EventBody = LiveConversationEvent extends infer E ? E extends unknown ? Omit<E, keyof ConversationScope> : never : never;
 
 /**
+ * Prebuilt voices for native-audio Live models (#3617). The Live API accepts
+ * any Text-to-Speech voice; list copied from the speech-generation guide's
+ * voice table, checked 2026-11-10:
+ * https://aistudio.google.com/docs/live-api/capabilities ("Change voice and language")
+ * https://aistudio.google.com/docs/speech-generation (voices)
+ */
+export const GEMINI_LIVE_VOICES = [
+  "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe",
+  "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar",
+  "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi", "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
+] as const;
+const DEFAULT_VOICE = "Kore";
+/** Application limit on persona instructions (P3), not a provider guarantee. */
+export const GEMINI_PERSONA_BYTES = 6_000;
+
+/**
  * Fixed qualified configuration; credentials stay in the server closure.
  * Register explicitly as CreateAppOptions.conversationProvider. No auto-detection.
  * Live handshake/device behavior still needs the separately authorized #961 run.
@@ -58,6 +74,9 @@ export function createGeminiConversationProvider(apiKey: string): LiveConversati
       finalTranscript: "unproven", remoteOutputCancelAck: "unproven",
       exactPermissionSpeech: "unproven", echoIsolatedInput: "unproven", outputWordAlignment: "unproven",
     },
+    voices: GEMINI_LIVE_VOICES.map(id => ({ id, label: id })),
+    defaultVoice: DEFAULT_VOICE,
+    personaInstructionBytes: GEMINI_PERSONA_BYTES,
     disclosure: {
       voiceService: `Gemini Developer API v1beta, ${MODEL}, Kore`,
       destinations: [
@@ -75,6 +94,9 @@ async function openGemini(
   apiKey: string, scope: ConversationScope, options: LiveConversationOpenOptions
 ): Promise<LiveConversationSession> {
   if (options.signal.aborted) throw new Error("Gemini Live epoch already ended.");
+  const persona = options.persona;
+  if (persona && (persona.voice !== undefined && !(GEMINI_LIVE_VOICES as readonly string[]).includes(persona.voice) ||
+      Buffer.byteLength(persona.instructions, "utf8") > GEMINI_PERSONA_BYTES)) throw new Error("Gemini Live persona is not supported.");
   let socket: WebSocket;
   try { socket = new WebSocket(`${ENDPOINT}?key=${encodeURIComponent(apiKey)}`); }
   catch { throw new Error("Gemini Live connection failed."); }
@@ -134,8 +156,9 @@ async function openGemini(
     try {
       send({ setup: {
         model: `models/${MODEL}`,
-        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } },
-        systemInstruction: { parts: [{ text: liveInstructions("gemini", options.contextualTasks === true) }] },
+        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: persona?.voice ?? DEFAULT_VOICE } } } },
+        // Host rules first and unchanged; a persona only appends its fenced section.
+        systemInstruction: { parts: [{ text: liveInstructions("gemini", options.contextualTasks === true) + context.persona }] },
         inputAudioTranscription: {}, outputAudioTranscription: {},
         realtimeInputConfig: { automaticActivityDetection: { disabled: true }, activityHandling: "START_OF_ACTIVITY_INTERRUPTS" },
         // Parameterless declarations omit parameters; the protobuf Schema is

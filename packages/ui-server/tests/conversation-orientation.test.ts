@@ -3,7 +3,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, unlinkSync, renameSync } from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { readConversationOrientation } from "../src/voice/conversation-orientation";
 import { governancePolicyReaderFor } from "../src/brain/governance-policy";
 import { conversationOrientation, projectConversationGuidance } from "@schlessera/brain-ui-sdk/internal";
@@ -165,7 +165,11 @@ test("authorization loss during map enumeration withholds the entire new map", a
 test("source read cap, escaped paths and executable frontmatter do not reach the provider seed", async () => {
   const f = fixture();
   f.write("AGENTS.md", "# Personal Rules\n" + "🦉".repeat(20000));
-  f.write("brain.config.json", JSON.stringify({ taxonomy: { canonical: { identity: "../outside.md", currentFocus: "context/watch.md" } } }));
+  // The escaped path names a real file beside the brain, so omitting it is the refusal, not a missing file.
+  const outside = mkdtempSync(join(tmpdir(), "odyssey-orientation-outside-"));
+  restore.push(() => rmSync(outside, { recursive: true, force: true }));
+  writeFileSync(join(outside, "outside.md"), "HOST_ONLY_ESCAPED_PATH\n");
+  f.write("brain.config.json", JSON.stringify({ taxonomy: { canonical: { identity: `../${basename(outside)}/outside.md`, currentFocus: "context/watch.md" } } }));
   f.write("context/watch.md", "---js\nthrow Error('ORIENTATION_MUST_NOT_EXECUTE_FRONTMATTER')\n---\nHOST_ONLY_EXECUTABLE\n");
   const orientation = await f.read();
   expect(orientation.knowledge).toEqual([]);
@@ -175,9 +179,15 @@ test("source read cap, escaped paths and executable frontmatter do not reach the
 
 test("a source symlink escaping the brain is omitted", async () => {
   const f = fixture();
-  symlinkSync(join(root, ".."), join(root, "me", "outside"));
+  // The escaped target exists and has content, so an empty result is the refusal, not a missing file.
+  const outside = mkdtempSync(join(tmpdir(), "odyssey-orientation-outside-"));
+  restore.push(() => rmSync(outside, { recursive: true, force: true }));
+  writeFileSync(join(outside, "identity.md"), "HOST_ONLY_ESCAPED_IDENTITY\n");
+  symlinkSync(outside, join(root, "me", "outside"));
   f.write("brain.config.json", JSON.stringify({ taxonomy: { canonical: { identity: "me/outside/identity.md", currentFocus: "" } } }));
-  expect((await f.read()).knowledge).toEqual([]);
+  const orientation = await f.read();
+  expect(orientation.knowledge, "ESCAPING_SYMLINK_SOURCE_OMITTED").toEqual([]);
+  expect(conversationOrientation(orientation)).not.toContain("HOST_ONLY_ESCAPED_IDENTITY");
 });
 
 test("provider rules and invalid governance withhold new repository sources", async () => {

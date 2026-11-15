@@ -1,5 +1,5 @@
 import { claudePromptContext } from "./prompt-context.js";
-import { sessionReplay } from "@schlessera/brain-ui-sdk/internal";
+import { sessionReplay, stripHostContextFromTitle } from "@schlessera/brain-ui-sdk/internal";
 import { dirname } from "node:path";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import {
@@ -66,7 +66,7 @@ export function createHistory(deps: HistoryDeps): History {
 
     const live = humanSessions.map((s) => ({
       id: s.sessionId,
-      title: s.customTitle || s.summary || s.firstPrompt || null,
+      title: s.customTitle || s.summary || (s.firstPrompt ? stripHostContextFromTitle(s.firstPrompt) : null) || null,
       createdAt: s.createdAt || s.lastModified,
       lastActiveAt: s.lastModified,
       totalCostUsd: 0,

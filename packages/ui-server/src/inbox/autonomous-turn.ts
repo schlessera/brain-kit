@@ -278,7 +278,7 @@ async function executeAutonomousTurn(
   const bridge: BackendBridge = {
     ...inbox,
     emit,
-    activity: (event) => { if (!closed) { checkPrincipal(); recorder.observeActivity(event); } },
+    activity: (event) => { if (event.kind === "worker_cleanup") recorder.observeActivity(event); else if (!closed) { checkPrincipal(); recorder.observeActivity(event); } },
     checkpointPermission: (request) => checkpoint({ kind: "permission", request }),
     requestPermission: async (request) => {
       checkpoint({ kind: "permission", request });

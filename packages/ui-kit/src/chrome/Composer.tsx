@@ -303,12 +303,14 @@ export function Composer(p: ComposerProps) {
     background: "transparent",
     border: "none",
     padding: 0,
-    margin: 0,
+    // One shorthand, never `margin` beside `marginBottom`: a caller's mic
+    // comes and goes on one mounted field (#3693), and React cannot update a
+    // longhand that a shorthand also sets.
+    margin: micControl ? `0 0 ${TEXT_LIFT}px` : 0,
     resize: "none",
     // `auto`, not the source's `hidden`: a clipped single-line SPAN is fine,
     // a clipped input takes the caret off-screen as you type.
     overflow: "auto",
-    ...(micControl ? { marginBottom: TEXT_LIFT } : null),
   };
 
   const disc = (size: number, fill: string, glow: boolean): CSSProperties => ({

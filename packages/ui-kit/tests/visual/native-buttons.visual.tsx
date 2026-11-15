@@ -90,7 +90,7 @@ for (const size of ["sm", "md"] as const) {
     // The reach stops at 44px: 1px past it belongs to neither Button.
     const box = buttons[0]!.getBoundingClientRect();
     const past = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2 - (coarse ? 23 : box.height / 2 + 1));
-    expect(buttons.some(button => button.contains(past)), "nothing past the target").toBe(false);
+    expect(buttons.filter(button => button.contains(past)).map(button => button.textContent), "nothing past the target").toEqual([]);
   });
   // A mouse click, not a tap: Chromium's touch adjustment snaps a tap near a
   // control onto it, so a tap passes with no reach at all. The mixed lane has

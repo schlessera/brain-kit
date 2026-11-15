@@ -47,7 +47,8 @@ function fixture(options: { writer?: boolean; slowPolicyRecord?: boolean } = {})
   // With a writer, admission records commit on it, as in the app (#2850).
   const writer = options.writer ? openSqliteWriter(db) : undefined;
   if (writer) cleanup.push(() => { void writer.close(); });
-  const records = writer ? procedureCaller(db, governedTurnWrites, undefined, writer) : undefined;
+  // The production recorder (#2758): on the writer when there is one, inline on this connection otherwise.
+  const records = procedureCaller(db, governedTurnWrites, undefined, writer);
   const exposures = writer ? createProviderExposures(db, writer) : undefined;
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db, writer);
   const notices: string[] = [];
@@ -55,10 +56,8 @@ function fixture(options: { writer?: boolean; slowPolicyRecord?: boolean } = {})
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report: message => notices.push(message),
     peerFolderPlanWaitMs: 300,
     ...(exposures ? { exposures } : {}),
-    recordPolicy: (turnId, origin, profile, policy) => records
-      ? (options.slowPolicyRecord ? void slowCommit(writer!, 300) : undefined, records("recordPolicy", turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1))
-      : void db.query("INSERT INTO turn_governance_policy (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1) });
+    recordPolicy: (turnId, origin, profile, policy) =>
+      (options.slowPolicyRecord ? void slowCommit(writer!, 300) : undefined, records("recordPolicy", turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1)) });
   return { brain, path, write, db, execution, notices, turns, writer, exposures };
 }
 
@@ -162,18 +161,18 @@ test("confirmed session preference tightens the next actual worker without chang
     const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: strict.sandbox, startupView: strict.startupView, env: {}, command: ["/bin/sh", "-c", 'if printf attack > harbor.md; then exit 41; fi; printf STRICT_SESSION_WRITE_REFUSED'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(worker.exitCode, worker.stderr.toString()).toBe(0);
     expect(worker.stdout.toString()).toBe("STRICT_SESSION_WRITE_REFUSED");
-  } finally { strict.end(); active.end(); }
+  } finally { await strict.end(); await active.end(); }
   const other = await f.turns.begin("preference-other", signal, "interactive", "governed");
-  expect(other.sandbox.profile).toBe("governed"); other.end();
+  expect(other.sandbox.profile).toBe("governed"); await other.end();
   const voice = await f.turns.begin("preference-voice", signal, "voice", "strict");
-  expect(voice.sandbox.profile, "SESSION_PROFILE_VOICE_IGNORES_INTERACTIVE_PREFERENCE").toBe("governed"); voice.end();
+  expect(voice.sandbox.profile, "SESSION_PROFILE_VOICE_IGNORES_INTERACTIVE_PREFERENCE").toBe("governed"); await voice.end();
   f.write("profiles: { interactive: strict }");
   const facts = f.turns.facts();
   expect(facts.policyProfile).toBe("strict");
   f.write("unknown: true");
   const locked = await f.turns.begin("preference-policy-lock", signal, "interactive", "governed");
   expect(locked.sandbox.profile, "SESSION_PROFILE_POLICY_LOWER_BOUND").toBe("strict");
-  expect(locked.policy.hash).toBe(facts.policy.hash); locked.end();
+  expect(locked.policy.hash).toBe(facts.policy.hash); await locked.end();
 });
 
 
@@ -473,14 +472,12 @@ test("a governed turn's admission records have committed when admission settles,
   const f = fixture({ writer: true });
   f.write("profiles: { interactive: governed }");
   const hold = await f.turns.begin("ithaca-records", new AbortController().signal);
-  const policy = f.db.query("SELECT profile FROM turn_governance_policy WHERE turn_id = 'ithaca-records'").get() as { profile: string } | null;
-  expect(policy, "ADMISSION_POLICY_RECORD_COMMITTED_BEFORE_ADMISSION_SETTLES").not.toBeNull();
-  const governed = policy!.profile === "governed";
-  const manifest = () => f.db.query("SELECT ended_at FROM governed_turn_manifests WHERE turn_id = 'ithaca-records'").get() as { ended_at: number | null } | null;
-  if (governed) expect(manifest(), "ADMISSION_MANIFEST_COMMITTED_BEFORE_ADMISSION_SETTLES").toEqual({ ended_at: null });
+  const policy = f.db.query("SELECT profile FROM turn_governance_policy WHERE turn_id = 'ithaca-records'").get();
+  expect(policy, "ADMISSION_POLICY_RECORD_COMMITTED_BEFORE_ADMISSION_SETTLES").toEqual({ profile: "governed" });
+  const manifest = () => f.db.query("SELECT ended_at FROM governed_turn_manifests WHERE turn_id = 'ithaca-records'").get();
+  expect(manifest(), "ADMISSION_MANIFEST_COMMITTED_BEFORE_ADMISSION_SETTLES").toEqual({ ended_at: null });
   await hold.end();
-  if (governed) expect(manifest()?.ended_at, "ADMISSION_MANIFEST_CLOSE_COMMITTED_BEFORE_END_SETTLES").not.toBeNull();
-  expect(governed, "ADMISSION_FIXTURE_IS_GOVERNED").toBe(true);
+  expect(manifest(), "ADMISSION_MANIFEST_CLOSE_COMMITTED_BEFORE_END_SETTLES").toEqual({ ended_at: expect.any(Number) });
 });
 
 test("an exposure read waits for every exposure write submitted before it (#2850)", async () => {

@@ -44,6 +44,7 @@ let style: HTMLStyleElement | undefined;
 let outerBefore: { width: number; height: number } | undefined;
 let frameBefore: { width: number; height: number } | undefined;
 let opened: string[] = [];
+const themeBefore = document.documentElement.dataset.theme;
 
 beforeEach(() => {
   opened = [];
@@ -68,6 +69,8 @@ afterEach(async () => {
   document.querySelectorAll("dialog").forEach((d) => d.remove());
   renderer = undefined; ui = undefined; host = undefined; style = undefined;
   vi.unstubAllGlobals();
+  if (themeBefore === undefined) delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = themeBefore;
   if (frameBefore) await page.viewport(frameBefore.width, frameBefore.height);
   if (outerBefore) await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
 });

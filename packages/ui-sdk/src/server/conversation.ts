@@ -18,15 +18,17 @@ import { z } from "zod";
 import type {
   ConversationAudioFormat,
   ConversationCapabilities,
+  ConversationVoice,
   ConversationDisclosure,
   ConversationInterval,
   ConversationWorkReceipt,
 } from "../protocol.js";
-import { CONVERSATION_CAPABILITY_KEYS, CONVERSATION_LIMITS } from "../protocol.js";
+import { CONVERSATION_CAPABILITY_KEYS, CONVERSATION_LIMITS, LIVE_PERSONA_LIMITS } from "../protocol.js";
 import {
   conversationAudioFormatSchema,
   conversationCapabilitiesSchema,
   conversationDisclosureSchema,
+  conversationVoiceSchema,
 } from "../schemas.js";
 
 /** @experimental Part of the `LiveConversationProvider` seam. */
@@ -198,6 +200,20 @@ export interface LiveConversationOpenOptions {
   history?: ConversationHistoryEnvelope;
   /** Authorized, bounded brain orientation, fixed once at this epoch's Start. */
   orientation?: ConversationOrientation;
+  /**
+   * The persona frozen at this conversation's Start (#3617). Absent: Standard,
+   * the provider's exact behaviour before personas. `voice` is one of the
+   * provider's `voices`; absent means `defaultVoice`. `instructions` is plain
+   * text within `personaInstructionBytes`, never authority: the provider frames
+   * it after its own fixed rules and never lets it reach tools or permissions.
+   */
+  persona?: ConversationPersona;
+}
+
+/** @experimental Part of the `LiveConversationProvider` seam. */
+export interface ConversationPersona {
+  voice?: string;
+  instructions: string;
 }
 
 /**
@@ -206,8 +222,12 @@ export interface LiveConversationOpenOptions {
  * @experimental Part of the `LiveConversationProvider` seam.
  */
 export interface LiveConversationSession {
-  /** Actual bounded historical seed coverage, when the adapter supports it. */
-  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean };
+  /**
+   * Actual bounded historical seed coverage, when the adapter supports it.
+   * `includedMessages` counts the prior chat and spoken messages the seed
+   * carried (not results or gap markers).
+   */
+  historyCoverage?: { state: "complete" | "bounded" | "partial" | "unavailable"; tailOmitted: boolean; includedMessages?: number };
   events: AsyncIterable<LiveConversationEvent>;
   appendAudio(chunk: LiveConversationAudioChunk): void;
   markEndpoint(utteranceId: string): void;
@@ -231,6 +251,15 @@ export interface LiveConversationProvider {
   id: string;
   capabilities: ConversationCapabilities;
   disclosure: ConversationDisclosure;
+  /**
+   * Persona support (#3617), all three or none. `voices` lists the voice ids
+   * the provider accepts, verified against its documentation; `defaultVoice`
+   * is one of them and is what an omitted persona voice uses;
+   * `personaInstructionBytes` caps persona instructions in exact UTF-8 bytes.
+   */
+  voices?: readonly ConversationVoice[];
+  defaultVoice?: string;
+  personaInstructionBytes?: number;
   open(scope: ConversationScope, options: LiveConversationOpenOptions): Promise<LiveConversationSession>;
 }
 
@@ -262,6 +291,18 @@ export function assertLiveConversationProvider(provider: LiveConversationProvide
   }
   if (typeof provider.open !== "function") {
     throw new Error(`Invalid LiveConversationProvider "${provider.id}": open must be a function.`);
+  }
+  const persona = [provider.voices, provider.defaultVoice, provider.personaInstructionBytes];
+  if (persona.some(value => value !== undefined)) {
+    const voices = provider.voices;
+    if (!Array.isArray(voices) || voices.length < 1 || voices.length > 128 ||
+        !voices.every(voice => conversationVoiceSchema.safeParse(voice).success) ||
+        new Set(voices.map(voice => voice.id)).size !== voices.length ||
+        !voices.some(voice => voice.id === provider.defaultVoice) ||
+        !Number.isSafeInteger(provider.personaInstructionBytes) || provider.personaInstructionBytes! < 1 ||
+        provider.personaInstructionBytes! > LIVE_PERSONA_LIMITS.maxInstructionBytes) {
+      throw new Error(`Invalid LiveConversationProvider "${provider.id}": persona support needs one to 128 unique voices, a defaultVoice among them and personaInstructionBytes from 1 to ${LIVE_PERSONA_LIMITS.maxInstructionBytes}.`);
+    }
   }
 }
 

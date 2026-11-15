@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { REPOS, isOwnNotice, main, runtime } from "../scripts/sync-project.ts";
+import { OPEN_ISSUE_LIMIT, REPOS, isOwnNotice, main, runtime } from "../scripts/sync-project.ts";
 
 interface FakeIssue {
   repo: string;
@@ -112,7 +112,8 @@ class FakeGitHub {
     if (a === "issue" && b === "list") {
       need("--state", "open");
       need("--json", "number,title,url,labels,body");
-      return JSON.stringify(this.open(at("--repo")).map((i) => this.json(i)));
+      // The real gh stops at --limit, newest first, without saying so.
+      return JSON.stringify(this.open(at("--repo")).slice(0, Number(at("--limit"))).map((i) => this.json(i)));
     }
     if (a === "pr" && b === "list") {
       need("--state", "open");
@@ -277,6 +278,28 @@ describe("the full sweep", () => {
     expect(code).toBe(0);
     expect(fake.items.find((i) => i.id === "epic")!.Track).toBe("Voice");
     expect(fake.items.find((i) => i.id === "child")!.Track).toBe("Voice");
+  });
+
+  test("reaches an open issue older than the newest 200, and gives it its track", async () => {
+    // The newest issues come first; the old epic is the 251st open issue.
+    const newer = Array.from({ length: 250 }, (_, k) => ({ repo: KIT, number: 10_000 + k }));
+    const fake = new FakeGitHub(
+      [...newer, { repo: KIT, number: 912, labels: ["epic"] }],
+      [{ id: "old-epic", url: url(KIT, 912), Status: "Backlog" }],
+    );
+    const { code } = await run(fake, ["--apply"]);
+    expect(code).toBe(0);
+    expect(fake.items.find((i) => i.id === "old-epic")!.Track).toBe("Async collaboration");
+  });
+
+  test("refuses an open-issue list that reaches the cap, before any write", async () => {
+    const capped = Array.from({ length: OPEN_ISSUE_LIMIT }, (_, k) => ({ repo: KIT, number: 10_000 + k }));
+    const fake = new FakeGitHub(
+      [...capped, { repo: KIT, number: 912, labels: ["epic"] }],
+      [{ id: "old-epic", url: url(KIT, 912), Status: "Backlog" }],
+    );
+    await expect(run(fake, ["--apply"])).rejects.toThrow("may be truncated");
+    expect(fake.writes).toEqual([]);
   });
 
   test("never writes over a Status a person set, and still writes a derived one", async () => {

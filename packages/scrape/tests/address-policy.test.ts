@@ -121,7 +121,9 @@ describe('addressPolicy "public-only"', () => {
           NonPublicAddressError
         );
         // Only the public host was contacted; the redirect target never was.
-        expect(attempts.every((attempt) => new URL(attempt.url).hostname === PUBLIC_ADDRESS)).toBe(true);
+        expect(attempts.map((attempt) => new URL(attempt.url).hostname)).toEqual(
+          respectRobots ? [PUBLIC_ADDRESS, PUBLIC_ADDRESS] : [PUBLIC_ADDRESS]
+        );
         expect(attempts.map((attempt) => new URL(attempt.url).pathname)).toEqual(
           respectRobots ? ["/robots.txt", "/voyage"] : ["/voyage"]
         );

@@ -252,7 +252,8 @@ test("the endpoint admits only the authenticated owner and answers with content-
     expect(accepted.headers.get("cache-control")).toBe("no-store");
     expect(JSON.parse(text)).toEqual({ operationId: "delete-voyage", generation: 2, status: "removed",
       stores: { dialogue: "removed", drafts: "removed", native: "removed", projections: "removed", tasks: "removed" }, retained: RETAINED });
-    expect(text.includes(MARKER) || text.includes("ithaca"), "RECEIPT_CARRIES_NO_TEXT_OR_IDENTITIES").toBe(false);
+    expect(text, "RECEIPT_CARRIES_NO_TEXT").not.toContain(MARKER);
+    expect(text, "RECEIPT_CARRIES_NO_IDENTITIES").not.toContain("ithaca");
     // Revoked after the retirement: the operation's outcome is not disclosed.
     revokePrincipal(db, f.owner, Date.now());
     expect((await post(app, f.owner, requestBody())).status, "REVOKED_CALLER_LEARNS_NOTHING").toBe(401);
@@ -277,7 +278,7 @@ test("a session read held across retirement publishes nothing, and lists omit th
     const response = await reading;
     const body = await response.text();
     expect(response.status, "HELD_READ_REFUSED_AFTER_RETIREMENT").toBe(404);
-    expect(body.includes(MARKER), "HELD_READ_PUBLISHES_NO_MARKER").toBe(false);
+    expect(body, "HELD_READ_PUBLISHES_NO_MARKER").not.toContain(MARKER);
     const list = await (await app.request("/api/sessions?includeRetainedConversations=true", { headers: { "x-odysseus-principal": f.owner } })).json();
     expect(list.sessions.map((s: { id: string }) => s.id), "LIST_OMITS_RETIRED").toEqual(["aeaea"]);
   } finally { await f.host.close(); }
@@ -299,8 +300,8 @@ test("live startup history held across retirement never seeds a provider", async
     await deletionFor(catalog, native).deletion.delete(voyage(f.owner));
     release();
     const outcome = await reading;
-    expect("error" in outcome && outcome.error instanceof ChatRetiredError, "STARTUP_SEED_REFUSED_AFTER_RETIREMENT").toBe(true);
-    expect(JSON.stringify(outcome).includes(MARKER)).toBe(false);
+    expect((outcome as { error?: unknown }).error, "STARTUP_SEED_REFUSED_AFTER_RETIREMENT").toBeInstanceOf(ChatRetiredError);
+    expect(JSON.stringify(outcome)).not.toContain(MARKER);
   } finally { await f.host.close(); }
 });
 
@@ -420,6 +421,7 @@ test("a principal revoked during the read gets 401, never the receipt", async ()
     const response = await read(app, f.owner, "delete-voyage");
     const text = await response.text();
     expect([response.status, JSON.parse(text)], "REVOKED_MID_READ").toEqual([401, { error: "Authentication required", authRequired: true }]);
-    expect(text.includes("delete-voyage") || text.includes("removed"), "REVOKED_LEARNS_NOTHING").toBe(false);
+    expect(text, "REVOKED_LEARNS_NOTHING").not.toContain("delete-voyage");
+    expect(text, "REVOKED_LEARNS_NOTHING").not.toContain("removed");
   } finally { await f.host.close(); }
 });

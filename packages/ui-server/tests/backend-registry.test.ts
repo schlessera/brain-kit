@@ -124,17 +124,9 @@ describe("backend registry", () => {
   test("pi mode remains isolated from the default Claude backend", async () => {
     const registry = registryFor({ AGENT_BACKEND: "pi" });
 
-    try {
-      expect((await registry.getBackends()).map((backend) => backend.id)).toEqual(["pi"]);
-    } catch (err) {
-      // The optional pi package is intentionally absent in this checkout. The
-      // actionable error also proves registry construction took the pi-only
-      // branch before considering any other backend.
-      expect(err).toBeInstanceOf(Error);
-      expect((err as Error).message).toContain(
-        'AGENT_BACKEND=pi but "@schlessera/brain-backend-pi" is not installed'
-      );
-    }
+    // The pi package is a workspace member, so the pi-only branch must
+    // resolve; a missing-package refusal is a failure here, not a pass.
+    expect((await registry.getBackends()).map((backend) => backend.id)).toEqual(["pi"]);
   });
 });
 

@@ -18,13 +18,20 @@
  *   after the turn stopped being current, is discarded. Each settled call
  *   and each ended executor session leaves a receipt.
  *
+ * - Admission (#3687): before a call is dispatched, each provider it names
+ *   is put to the calling turn's own authority (data routing and budget).
+ *   While it runs, every connection its executor opens can be put to the same
+ *   authority through `inFlight`; a refusal there settles the call with the
+ *   authority's code, whatever the executor made of the failed connection.
+ *
  * Provider credentials and configuration stay with the executor; the broker
  * knows only which provider ids the host admits.
  */
 import { randomBytes } from "node:crypto";
 import {
-  parseWebToolInput, webToolProviders, type WebToolCall, type WebToolEnvelope, type WebToolErrorCode, type WebToolName,
+  parseWebToolInput, webToolProviders, type WebModelAccess, type WebModelGrant, type WebToolCall, type WebToolEnvelope, type WebToolErrorCode, type WebToolName,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { webProviderRecipient } from "./recipients.js";
 
 /** The authenticated turn's identity for one call, captured by the ws bridge. */
 export interface WebCallScope {
@@ -36,6 +43,31 @@ export interface WebCallScope {
   policyRevision: string | null;
 }
 
+/** Why the calling turn's authority refused a recipient: a web call error code and the words for the model. */
+export interface WebCallRefusal { code: "policy_denied" | "budget_exceeded" | "unavailable"; message: string }
+
+/**
+ * The calling turn's own admission for the external recipients one web call
+ * reaches (#3687). Built by the ws bridge from the authenticated turn, never
+ * from anything the worker or executor says, and never sent to the executor.
+ */
+export interface WebCallAuthority {
+  /** Data routing (G2) and budget admission for one recipient, by its policy name. */
+  admit(recipient: string): Promise<WebCallRefusal | null>;
+  /** One admitted provider request, attributed to the turn: unknown cost, never zero. */
+  attempt(event: { recipient: string; host: string; callId: string }): void;
+}
+
+/** A dispatched call, as an executor connection is attributed to it. */
+export interface WebInFlightCall {
+  callId: string;
+  tool: WebToolName;
+  scope: WebCallScope;
+  authority: WebCallAuthority | undefined;
+  /** Settle the call as refused by its authority; the first refusal wins. */
+  refuse(refusal: WebCallRefusal): void;
+}
+
 /** One call as the executor receives it: validated input, host scope, upstream handle substituted. */
 export interface WebExecutorRequest {
   /** Broker-issued, unique per call. */
@@ -43,10 +75,15 @@ export interface WebExecutorRequest {
   tool: WebToolName;
   input: Record<string, unknown>;
   scope: WebCallScope;
+  /** The calling turn's admitted model (#3688), from its backend on the host; the executor host relays it. */
+  model?: WebModelAccess;
+  /** What the executor itself is told of that model once its relay runs: never a credential. */
+  modelGrant?: WebModelGrant;
 }
 
 export type WebExecutorResult =
-  | { ok: true; text: string; /** The executor's own id for stored content, if it stored any. */ handle?: string }
+  | { ok: true; text: string; /** The executor's own id for stored content, if it stored any. */ handle?: string;
+      /** Further ids the same result stored, such as a search's fetched pages; each gets its own host handle. */ handles?: string[] }
   | { ok: false; code: "failed" | "unsupported" | "unknown_handle"; message: string; feature?: string };
 
 /** How an executor session ended, observed rather than assumed. */
@@ -57,6 +94,8 @@ export interface WebExecutorExit {
   signal: string | null;
   /** The process and its group were observed gone. */
   exited: boolean;
+  /** The session's private state was removed; absent when it had none. */
+  cleaned?: boolean;
 }
 
 /** One principal's session's executor: its stored results live and die with it. */
@@ -128,8 +167,13 @@ interface WebBrokerOptions {
 }
 
 export interface WebBroker {
-  /** `current` reports whether the calling turn still holds authority. */
-  call(scope: WebCallScope, call: WebToolCall, signal: AbortSignal, current: () => boolean): Promise<WebToolEnvelope>;
+  /**
+   * `current` reports whether the calling turn still holds authority;
+   * `authority` is that turn's admission for the recipients the call reaches.
+   */
+  call(scope: WebCallScope, call: WebToolCall, signal: AbortSignal, current: () => boolean, authority?: WebCallAuthority): Promise<WebToolEnvelope>;
+  /** The calls one principal's session has dispatched and not settled, for attributing its executor's connections. */
+  inFlight(owner: { principalId: string; sessionId: string }): readonly WebInFlightCall[];
   /** Close every executor session and refuse further calls. */
   close(): Promise<void>;
   /** For tests and diagnostics: counts only, no content. */
@@ -147,6 +191,8 @@ interface Owned {
   idle?: ReturnType<typeof setTimeout>;
   /** Opaque handle -> executor handle, insertion ordered. */
   handles: Map<string, string>;
+  /** Calls dispatched to this executor session and not yet settled. */
+  inFlight: Map<string, WebInFlightCall>;
   ended: boolean;
 }
 
@@ -202,6 +248,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
     entry.ended = true;
     if (entry.idle) clearTimeout(entry.idle);
     entry.handles.clear();
+    entry.inFlight.clear();
     if (owned.get(entry.key) === entry) owned.delete(entry.key);
     receipt({ kind: "executor", owner: entry.owner, generation: entry.generation, calls: entry.calls, exit });
     wake();
@@ -229,7 +276,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
       if (owned.has(key)) return owned.get(key)!;
     }
     const entry: Owned = { key, owner, generation: ++generation, session: options.executor.open(owner, lifetime.signal), active: 0, calls: 0,
-      lastUsed: now(), handles: new Map(), ended: false };
+      lastUsed: now(), handles: new Map(), inFlight: new Map(), ended: false };
     owned.set(key, entry);
     entry.session.then(session => session.ended.then(exit => end(entry, exit)),
       () => end(entry, { reason: "start_failed", pid: null, code: null, signal: null, exited: false }));
@@ -243,7 +290,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
     return handle;
   }
 
-  async function run(scope: WebCallScope, call: WebToolCall, signal: AbortSignal, current: () => boolean): Promise<{ envelope: WebToolEnvelope; callId: string | null; requestBytes: number; responseBytes: number; queuedMs: number; startedAt: number }> {
+  async function run(scope: WebCallScope, call: WebToolCall, signal: AbortSignal, current: () => boolean, authority: WebCallAuthority | undefined): Promise<{ envelope: WebToolEnvelope; callId: string | null; requestBytes: number; responseBytes: number; queuedMs: number; startedAt: number }> {
     const tool = call.tool;
     const fail = (code: WebToolErrorCode, message: string, feature?: string): WebToolEnvelope => ({ ok: false, tool, error: { code, message, ...(feature ? { feature } : {}) } });
     const started = now();
@@ -261,6 +308,14 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
     seen.add(replayKey);
     while (seen.size > limits.replayWindow) seen.delete(seen.values().next().value!);
     if (signal.aborted || !current()) return { ...base, requestBytes, envelope: fail("cancelled", "The turn is no longer current.") };
+    // Each provider the call names is admitted before anything is queued or sent.
+    for (const provider of webToolProviders(parsed.input)) {
+      let refusal: WebCallRefusal | null;
+      try { refusal = authority ? await authority.admit(webProviderRecipient(provider)) : null; }
+      catch { refusal = { code: "unavailable", message: "The host could not check this web call's admission; nothing was sent." }; }
+      if (refusal) return { ...base, requestBytes, envelope: fail(refusal.code, refusal.message) };
+    }
+    if (signal.aborted || !current()) return { ...base, requestBytes, envelope: fail("cancelled", "The turn is no longer current.") };
 
     const owner = { principalId: scope.principalId, sessionId: scope.sessionId };
     const key = ownerKey(owner);
@@ -275,6 +330,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
     catch (error) { return { ...base, requestBytes, envelope: error instanceof Settled ? fail(error.code, error.message) : fail("failed", "The call could not be admitted.") }; }
     const queuedMs = now() - started;
     let entry: Owned | undefined;
+    let dispatched: (() => WebCallRefusal | undefined) | undefined;
     const callId = `wc_${randomBytes(12).toString("base64url")}`;
     const controller = new AbortController();
     let outcome: Settled | undefined;
@@ -289,6 +345,10 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
         return { ...base, callId, requestBytes, queuedMs, envelope: fail("unknown_handle", "That stored web result is no longer available. Run the search or fetch again.") };
       }
       entry.active++; entry.calls++; entry.lastUsed = now();
+      let refused: WebCallRefusal | undefined;
+      const inFlight: WebInFlightCall = { callId, tool, scope, authority, refuse: refusal => { refused ??= refusal; } };
+      entry.inFlight.set(callId, inFlight);
+      dispatched = () => refused;
       if (entry.idle) clearTimeout(entry.idle);
       let session: WebExecutorSession;
       try { session = await entry.session; }
@@ -300,9 +360,11 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
         if (controller.signal.aborted) reject(controller.signal.reason);
         controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true });
       });
-      const result = await Promise.race([session.call({ callId, tool, input, scope }, controller.signal), stopped]);
+      const result = await Promise.race([session.call({ callId, tool, input, scope, ...(call.model ? { model: call.model } : {}) }, controller.signal), stopped]);
       // No late or cross-turn result: re-check liveness before any data returns.
       if (outcome) throw outcome;
+      const refusal = dispatched?.();
+      if (refusal) return { ...base, callId, requestBytes, queuedMs, envelope: fail(refusal.code, refusal.message) };
       if (signal.aborted || !current()) throw new Settled("cancelled", "The turn stopped being current before the result returned; it was discarded.");
       if (!result.ok) return { ...base, callId, requestBytes, queuedMs, envelope: fail(result.code, result.message, result.feature) };
       const responseBytes = bytes(result.text);
@@ -313,6 +375,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
       let responseId: string | undefined;
       if (tool === "get_search_content") responseId = String(parsed.input.responseId);
       else if (result.handle) responseId = issueHandle(entry, result.handle);
+      for (const extra of result.handles ?? []) if (typeof extra === "string" && extra && extra !== result.handle) issueHandle(entry, extra);
       // No executor id reaches the model: every id this session's executor
       // issued is replaced by the host's handle for it, wherever it appears.
       let text = result.text;
@@ -327,14 +390,14 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
       signal.removeEventListener("abort", onAbort);
       controller.abort(new Settled("cancelled", "settled"));
       active--;
-      if (entry) { entry.active--; entry.lastUsed = now(); scheduleIdle(entry); }
+      if (entry) { if (dispatched) entry.inFlight.delete(callId); entry.active--; entry.lastUsed = now(); scheduleIdle(entry); }
       wake();
     }
   }
 
   return {
-    async call(scope, call, signal, current) {
-      const ran = await run(scope, call, signal, current);
+    async call(scope, call, signal, current, authority) {
+      const ran = await run(scope, call, signal, current, authority);
       receipt({ kind: "call", callId: ran.callId, tool: call.tool, scope, outcome: ran.envelope.ok ? "completed" : ran.envelope.error.code,
         requestBytes: ran.requestBytes, responseBytes: ran.responseBytes, queuedMs: ran.queuedMs, durationMs: now() - ran.startedAt });
       return ran.envelope;
@@ -345,6 +408,7 @@ export function createWebBroker(options: WebBrokerOptions): WebBroker {
       for (const waiter of queue.splice(0)) waiter.reject(new Settled("unavailable", "The host closed its web tools."));
       await Promise.allSettled([...owned.values()].map(entry => retire(entry, "closed")));
     },
+    inFlight: owner => [...owned.get(ownerKey(owner))?.inFlight.values() ?? []],
     stats: () => ({ active, queued: queue.length, sessions: owned.size, handles: [...owned.values()].reduce((sum, entry) => sum + entry.handles.size, 0) }),
   };
 }

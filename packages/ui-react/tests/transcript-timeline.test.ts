@@ -4,7 +4,7 @@ import { createTranscriptTimeline, transcriptMessage, transcriptRange, transcrip
 
 function entryText(e: TranscriptEntry) {
   if (e.kind === "history-notice") return e.label;
-  if (e.kind === "voice-boundary") return "";
+  if (e.kind === "voice-boundary" || e.kind === "voice-coverage") return "";
   if (e.kind === "recognition") return e.fragments.map(f => f.text).join("");
   if (e.kind === "speech") return e.output.generated;
   const message = transcriptMessage(e);
@@ -369,4 +369,44 @@ test("backend position qualification waits for completed native text",()=>{
  expect(rows().filter(e=>e.kind==="history-notice"),"FINAL_LENGTH_RECONCILES_POSITION").toHaveLength(1);
  expect(rows().filter(e=>e.kind==="message").map(entryText).join("\n")).toContain("The mast is ready. Tail.");
  }finally{root.dispose();}
+});
+
+// R2 (#3699): incomplete startup-context coverage opens the live section in the chat, once.
+test("incomplete live coverage is one chat entry after the earlier turns; complete coverage draws none", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const chat = root.stores.chat.getState();
+    const timeline = transcriptTimelineFor(root.stores.chat).state;
+    chat.addUserMessage("ithaca", "Which harbour first?");
+    const voice = root.connection.conversation.state;
+    const profile = (conversationId: string, state: "complete" | "bounded") => ({ conversationId, epoch: 1, providerId: "gpt-live", capabilities: {}, historyCoverage: { state, tailOmitted: state !== "complete" } }) as unknown as NonNullable<ReturnType<typeof voice.getState>["profile"]>;
+    voice.setState({ active: true, sessionId: "ithaca", profile: profile("calm", "complete") });
+    expect(timeline.getState().entries.some(e => e.kind === "voice-coverage"), "complete coverage claims nothing").toBe(false);
+    voice.setState({ active: true, sessionId: "ithaca", profile: profile("windy", "bounded") });
+    // A reconnect later in the section does not move or repeat it.
+    voice.setState({ profile: { ...voice.getState().profile!, epoch: 2 } });
+    chat.addUserMessage("ithaca", "And then Ithaca.");
+    const kinds = timeline.getState().entries.filter(e => e.sessionId === "ithaca").map(e => e.kind);
+    expect(kinds, "VOICE_COVERAGE_OPENS_LIVE_SECTION").toEqual(["message", "voice-coverage", "voice-boundary", "message"]);
+    const notice = timeline.getState().entries.find(e => e.kind === "voice-coverage");
+    expect(notice?.kind === "voice-coverage" && notice.coverage).toEqual({ state: "bounded", tailOmitted: true });
+    voice.setState({ active: false, profile: null });
+    expect(timeline.getState().entries.some(e => e.kind === "voice-coverage"), "it leaves with the live section that has no retained evidence").toBe(false);
+  } finally { root.dispose(); }
+});
+
+// #3699 ruling: a host-reported count opens the section even when coverage is complete.
+test("a sent-message count draws the coverage notice; an empty complete history draws none", () => {
+  const root = createBrainUiRoot({ storage: null });
+  try {
+    const timeline = transcriptTimelineFor(root.stores.chat).state;
+    root.stores.chat.getState().addUserMessage("ithaca", "Which harbour first?");
+    const voice = root.connection.conversation.state;
+    const profile = (conversationId: string, includedMessages: number) => ({ conversationId, epoch: 1, providerId: "gpt-live", capabilities: {}, historyCoverage: { state: "complete", tailOmitted: false, includedMessages } }) as unknown as NonNullable<ReturnType<typeof voice.getState>["profile"]>;
+    voice.setState({ active: true, sessionId: "ithaca", profile: profile("empty", 0) });
+    expect(timeline.getState().entries.some(e => e.kind === "voice-coverage"), "nothing sent, nothing to say").toBe(false);
+    voice.setState({ active: true, sessionId: "ithaca", profile: profile("counted", 12) });
+    const notice = timeline.getState().entries.find(e => e.kind === "voice-coverage");
+    expect(notice?.kind === "voice-coverage" && notice.coverage.includedMessages, "VOICE_COVERAGE_CARRIES_COUNT").toBe(12);
+  } finally { root.dispose(); }
 });

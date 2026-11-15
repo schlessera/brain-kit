@@ -638,7 +638,7 @@ maintainer ruled on four more questions on 2026-11-02.
 - **Configuration as data.** The host reads `brain config check --json`'s new
   `compute` summary in a credential-free strict worker that sees only the
   policy's protected paths, once per turn, as it reads the taxonomy
-  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:977-989`). A
+  (`readHostedComputeConfig`, `packages/ui-server/src/brain/compute-host.ts:980-992`). A
   provider value is reported by id only. A job keeps the instance
   configuration it was admitted under, so its driver never reaches another
   account however the brain changes later.
@@ -717,8 +717,10 @@ These refine the notes above; where they differ, these hold.
   tracked, and is retried. A job the host abandons settles its reservation as
   unknown, and at boot a reservation left without a job record settles as
   unknown; both keep counting at the reserved amount, never zero. A job the
-  driver stops advancing after repeated failures keeps its reservation active
-  and its run flagged stuck until the next restart reattaches it.
+  driver cannot advance after repeated failures keeps its reservation active
+  and its run flagged stuck, with the cause in Activity. Under #3815 it keeps
+  visiting at the capped interval until settlement can be confirmed, without
+  requiring a restart or another admitted turn.
 - **Activity over HTTP.** `GET /api/activity/runs` and
   `GET /api/activity/runs/:runId` return `compute` runs only to a request that
   declares the capability, as the live stream does.

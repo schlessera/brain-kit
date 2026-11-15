@@ -5821,24 +5821,21 @@ describe("ComposerView", () => {
     streaming.unmount();
   });
 
-  test("the paperclip names live conversation whenever its menu offers it (#3045)", () => {
+  test("the paperclip names its menu, and live conversation is the mic's hold, not a row (#3045, #3693)", () => {
     const h = handlers();
-    const live = "Attach — live conversation, photo, camera, files";
-    const view = render(<ComposerView {...base} value="" attachMenuOpen onConversation={mock(() => {})} onPickTracks={mock(() => {})} {...h} />);
-    const trigger = view.getByRole("button", { name: live });
+    const name = "Attach — photo, camera, files";
+    const view = render(<ComposerView {...base} value="" attachMenuOpen onPickTracks={mock(() => {})} micControl={<button type="button" aria-label="Dictate" data-caller-mic="" />} {...h} />);
+    const trigger = view.getByRole("button", { name });
     // The tooltip paints the name itself, hidden from the accessibility tree so it is heard once.
-    expect(trigger.querySelector("[data-composer-tip]")?.textContent).toBe(live);
+    expect(trigger.querySelector("[data-composer-tip]")?.textContent).toBe(name);
     expect(trigger.querySelector("[data-composer-tip]")?.getAttribute("aria-hidden")).toBe("true");
-    expect(view.getByRole("button", { name: /^Live conversation/ })).toBeTruthy();
+    expect(view.queryByRole("button", { name: /live conversation/i })).toBeNull();
+    // The caller's mic takes the kit's mic slot.
+    expect(view.container.querySelectorAll("[data-composer-mic] [data-caller-mic]")).toHaveLength(1);
     view.unmount();
 
-    const without = render(<ComposerView {...base} value="" attachMenuOpen {...h} />);
-    expect(without.getByRole("button", { name: "Attach — photo, camera, files" })).toBeTruthy();
-    expect(without.queryByRole("button", { name: /live conversation/i })).toBeNull();
-    without.unmount();
-
     // Dictating: the trigger is inert, with no name and no tooltip.
-    const dictating = render(<ComposerView {...base} value="" state="dictating" onConversation={mock(() => {})} {...h} />);
+    const dictating = render(<ComposerView {...base} value="" state="dictating" {...h} />);
     expect(dictating.queryByRole("button", { name: /^Attach/ })).toBeNull();
     expect(dictating.container.querySelector("[data-composer-tip]")).toBeNull();
     dictating.unmount();

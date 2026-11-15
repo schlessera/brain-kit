@@ -37,7 +37,8 @@ function fixture(idleObservationMs?: number) {
 test("the observer is initialized once startup recovery commits, before any admission", async () => {
   const f = fixture(3_600_000);
   try {
-    await f.journal.ready; await f.journal.maintain();
+    // No explicit maintain(): the pass under test is the one the journal starts once ready settles.
+    await f.journal.ready; await f.journal.idle();
     expect(f.checkpoints.map(item => item.phase), "JOURNAL_INITIALIZED_BEFORE_FIRST_ADMISSION").toContain("boot");
   } finally { await f.close(); }
 });

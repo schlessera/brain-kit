@@ -353,10 +353,16 @@ signatures (every public export and the types it is made of)
         token: number;
         connection: "Connecting" | "Connected" | "Reconnecting" | "Speech lost";
         micOn: boolean;
+        capture: "idle" | "listening" | "muted" | "stopped";
         interaction: "Listening" | "Sending soon" | "Review before sending" | "Working" | "Speaking" | "Checking whether the reply stopped" | "Answering question";
         disclosureOpen: boolean;
         profile: ServerConversationOpened | null;
         conversationProfile: ConversationProfile | null;
+        conversationProfiles: ConversationProfile[];
+        liveDefault: LiveDefault | null;
+        serviceChoice: string | null;
+        personaChoice: ConversationPersonaRef | null;
+        livePersona: LivePersonaStatus | null;
         durableAvailable: boolean;
         sessionId: string | null;
         agentProviderId: string | null;
@@ -963,6 +969,11 @@ signatures (every public export and the types it is made of)
         overriddenBy: string | null;
         appliesTo: string[];
         providers: WebSearchProvider[];
+        unavailable?: Array<{
+            id: string;
+            label: string;
+            kind: "deferred" | "excluded";
+        }>;
     }
   WebSearchProvider (packages/ui-react/src/lib/api-client.ts)
     export interface WebSearchProvider {
@@ -972,6 +983,7 @@ signatures (every public export and the types it is made of)
         hasKeyField: boolean;
         keyConfigured: boolean;
         keyFromEnv: boolean;
+        keyIsCommand?: boolean;
         keyless: boolean;
         costNote: string;
         blurb: string;
@@ -1107,6 +1119,8 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<WorkerHostStatus>;
+        createLivePersona: (request: LivePersonaCreateRequest) => Promise<LivePersona>;
+        deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
         dictationSettings: () => Promise<DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
@@ -1128,6 +1142,9 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<HygieneReviewRead>;
         hygienePreview: (request: HygienePreviewRequest, signal?: AbortSignal) => Promise<HygienePreviewResponse>;
         hygieneReview: () => Promise<HygieneReviewRead>;
+        livePersona: (id: string) => Promise<LivePersona>;
+        livePersonas: () => Promise<LivePersonaListResponse>;
+        liveSettings: () => Promise<VoiceLiveSettings>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1229,7 +1246,305 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<ModelCatalogResponse>;
+        safetyCommit: (requestId: string, body: SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
+        safetyPrepare: (body: SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
         saveDictationSettings: (settings: DictationSettings) => Promise<DictationSettings>;
+        saveLivePersonaSelection: (value: string, revision: number) => Promise<VoiceSettingsResponse>;
+        saveLiveSettings: (update: VoiceLiveSettingsUpdate) => Promise<VoiceLiveSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<SessionRecoveryResult>;
@@ -1331,12 +1646,14 @@ signatures (every public export and the types it is made of)
         }>;
         turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
         turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        updateLivePersona: (id: string, request: LivePersonaUpdateRequest) => Promise<LivePersona>;
         voiceKeyterms: () => Promise<VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: PronunciationOverride[];
         }>;
         voiceProviders: () => Promise<VoiceProvidersResponse>;
         voiceSession: (signal?: AbortSignal, selection?: VoiceSessionRequest) => Promise<VoiceSessionResponse>;
+        voiceSettings: () => Promise<VoiceSettingsResponse>;
         voiceToken: () => Promise<VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;
@@ -1381,6 +1698,8 @@ signatures (every public export and the types it is made of)
         connect: () => () => void;
         conversation: {
             attachControls(): () => void;
+            choosePersona(ref: import("@schlessera/brain-ui-sdk").ConversationPersonaRef | null): void;
+            chooseService(providerId: null | string): void;
             commit: (own: number) => boolean;
             details(): void;
             discard(): void;
@@ -1389,6 +1708,10 @@ signatures (every public export and the types it is made of)
             frame: (message: import("@schlessera/brain-ui-sdk").ServerMessage) => import("@schlessera/brain-ui-sdk").ServerMessage | null;
             historyOwnerFor: (key: string) => string | undefined;
             leave: () => void;
+            levels: () => {
+                input: number;
+                output: number;
+            };
             loadDialogue: (key: string, older?: boolean) => void;
             mute(): void;
             permissions: {
@@ -1607,6 +1930,8 @@ signatures (every public export and the types it is made of)
             success: boolean;
         }>;
         checkWorkerHost: () => Promise<import("@schlessera/brain-ui-sdk").WorkerHostStatus>;
+        createLivePersona: (request: import("@schlessera/brain-ui-sdk").LivePersonaCreateRequest) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
+        deleteLivePersona: (id: string, baseRevision: string) => Promise<void>;
         dictationSettings: () => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
         fileResolve: (path: string) => Promise<{
             ancestors: string[];
@@ -1628,6 +1953,9 @@ signatures (every public export and the types it is made of)
         hygieneMediaUndo: (journalId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").HygienePreviewResponse>;
         hygieneReview: () => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        livePersona: (id: string) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
+        livePersonas: () => Promise<import("@schlessera/brain-ui-sdk").LivePersonaListResponse>;
+        liveSettings: () => Promise<import("@schlessera/brain-ui-sdk").VoiceLiveSettings>;
         login: (password: string) => Promise<{
             ok: true;
         }>;
@@ -1729,7 +2057,305 @@ signatures (every public export and the types it is made of)
             timeZone: null | string;
         }>;
         refreshModels: () => Promise<import("@schlessera/brain-ui-sdk").ModelCatalogResponse>;
+        safetyCommit: (requestId: string, body: import("@schlessera/brain-ui-sdk").SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
+        safetyPrepare: (body: import("@schlessera/brain-ui-sdk").SafetyReviewBody, signal: AbortSignal) => Promise<{
+            code: "capacity" | "not_finalized" | "recording_failed" | "request_conflict" | "request_expired" | "resync_required" | "retired" | "stale_revision" | "unauthorized" | "unavailable";
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            reason: string;
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            retryable: false;
+            version: 1;
+        } | {
+            currentProjection: null | {
+                coverage: {
+                    detectorVersion: 1;
+                    epochs: {
+                        acknowledged: string[];
+                        backendId: string;
+                        endSequence: null | string;
+                        id: string;
+                        mandatory: string[];
+                        reason: null | string;
+                        startSequence: string;
+                        status: "complete" | "incomplete" | "unknown";
+                    }[];
+                    exclusions: string[];
+                    state: "complete" | "incomplete" | "unknown";
+                };
+                earliestUnresolvedId: null | string;
+                evidenceRevision: string;
+                pendingCount: number;
+                reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                restriction: "normal" | "restricted";
+                session: null | {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                unresolvedCount: number;
+            };
+            receipt: {
+                occurrenceId: string;
+                operationId: null | string;
+                projection: null | {
+                    coverage: {
+                        detectorVersion: 1;
+                        epochs: {
+                            acknowledged: string[];
+                            backendId: string;
+                            endSequence: null | string;
+                            id: string;
+                            mandatory: string[];
+                            reason: null | string;
+                            startSequence: string;
+                            status: "complete" | "incomplete" | "unknown";
+                        }[];
+                        exclusions: string[];
+                        state: "complete" | "incomplete" | "unknown";
+                    };
+                    earliestUnresolvedId: null | string;
+                    evidenceRevision: string;
+                    pendingCount: number;
+                    reasons: ("capacity" | "coverage_unknown" | "recording_failed" | "recording_pending" | "unresolved")[];
+                    restriction: "normal" | "restricted";
+                    session: null | {
+                        historyGeneration: string;
+                        historyOwnerId: string;
+                        sessionId: string;
+                    };
+                    unresolvedCount: number;
+                };
+                reason: null | string;
+                requestId: null | string;
+                session: {
+                    historyGeneration: string;
+                    historyOwnerId: string;
+                    sessionId: string;
+                };
+                stage: "prepared" | "refused" | "verdict_committed";
+                verdict: "committed" | "unresolved";
+                version: 1;
+            };
+            version: 1;
+        }>;
         saveDictationSettings: (settings: import("@schlessera/brain-ui-sdk").DictationSettings) => Promise<import("@schlessera/brain-ui-sdk").DictationSettings>;
+        saveLivePersonaSelection: (value: string, revision: number) => Promise<import("@schlessera/brain-ui-sdk").VoiceSettingsResponse>;
+        saveLiveSettings: (update: import("@schlessera/brain-ui-sdk").VoiceLiveSettingsUpdate) => Promise<import("@schlessera/brain-ui-sdk").VoiceLiveSettings>;
         sessionRecovery: (sessionId: string, opts?: {
             signal?: AbortSignal;
         }) => Promise<import("@schlessera/brain-ui-sdk").SessionRecoveryResult>;
@@ -1831,12 +2457,14 @@ signatures (every public export and the types it is made of)
         }>;
         turnRevertPlan: (sessionId: string, turnId: string, action?: "restore" | "revert", signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertPlan>;
         turnRevertReceipt: (sessionId: string, turnId: string, operationId: string, signal?: AbortSignal) => Promise<import("@schlessera/brain-ui-sdk").TurnRevertReceipt>;
+        updateLivePersona: (id: string, request: import("@schlessera/brain-ui-sdk").LivePersonaUpdateRequest) => Promise<import("@schlessera/brain-ui-sdk").LivePersona>;
         voiceKeyterms: () => Promise<import("@schlessera/brain-ui-sdk").VoiceKeytermsResponse>;
         voiceOverrides: (signal?: AbortSignal) => Promise<{
             overrides: import("@schlessera/brain-ui-sdk").PronunciationOverride[];
         }>;
         voiceProviders: () => Promise<import("@schlessera/brain-ui-sdk").VoiceProvidersResponse>;
         voiceSession: (signal?: AbortSignal, selection?: import("@schlessera/brain-ui-sdk").VoiceSessionRequest) => Promise<import("@schlessera/brain-ui-sdk").VoiceSessionResponse>;
+        voiceSettings: () => Promise<import("@schlessera/brain-ui-sdk").VoiceSettingsResponse>;
         voiceToken: () => Promise<import("@schlessera/brain-ui-sdk").VoiceTokenResponse>;
         vpnCheck: () => Promise<{
             vpn: boolean;

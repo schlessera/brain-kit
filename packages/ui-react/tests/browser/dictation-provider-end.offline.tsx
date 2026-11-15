@@ -7,8 +7,8 @@
  * standing in for both the host and the speech socket, which the test closes
  * the ways a provider and a network do. For Web Speech: a scripted recognizer
  * in place of the browser's, which would need Google's servers. Either way
- * the words heard must be on the review card once the dictation sheet is
- * gone, not lost with it.
+ * the words heard must be in the draft once the voice field is gone, not
+ * lost with it.
  *
  * Every test owns its root, mount and network, removed when it ends.
  */
@@ -83,31 +83,24 @@ async function mount(ctx: TestContext, providerId: "deepgram" | "webspeech"): Pr
   return { ui, host, net };
 }
 
-const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] [role="button"][aria-label^="Dictate"]');
+const dictate = (s: Scene) => s.host.querySelector<HTMLElement>('[data-composer] :is(button,[role="button"])[aria-label^="Dictate"]');
 
 /** Taps Dictate and waits for the provider's client to be listening. */
 async function startDictating(s: Scene) {
   await expect.poll(() => dictate(s), { message: "the composer has a mic" }).not.toBe(null);
   await userEvent.click(dictate(s)!);
-  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the dictation sheet is open" }).toBe("dictate");
+  await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the voice field is open" }).toBe("dictate");
   await expect.poll(() => s.ui.stores.voice.getState().connecting, { message: "the microphone is live", timeout: 5_000 }).toBe(false);
 }
 
-/** The review card's transcript, outside the dictation sheet. */
-function reviewed(s: Scene): string | null {
-  for (const p of s.host.querySelectorAll("p")) {
-    if (p.closest("[data-dictation-transcript]")) continue;
-    if (p.textContent === "Ask Nestor about the ships") return p.textContent;
-  }
-  return null;
-}
+/** The draft, where what a take heard waits as editable text (D6, #3694). */
+const draft = (s: Scene) => s.host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")?.value ?? null;
 
 async function expectReviewed(s: Scene) {
   await expect.poll(() => s.ui.stores.voice.getState().mode, { message: "the provider ended the dictation" }).toBe("idle");
-  const voice = s.ui.stores.voice.getState();
-  expect(voice.reviewText, "what was heard waits for review").toBe("Ask Nestor about the ships");
-  expect(voice.finalText, "nothing is stranded in the capture").toBe("");
-  await expect.poll(() => reviewed(s), { message: "the review card shows the words" }).toBe("Ask Nestor about the ships");
+  expect(s.ui.stores.voice.getState().finalText, "nothing is stranded in the capture").toBe("");
+  await expect.poll(() => draft(s), { message: "the words heard are in the draft" }).toBe("Ask Nestor about the ships");
+  expect(s.ui.stores.voice.getState().reviewText, "and nowhere else").toBe("");
 }
 
 const deepgramEndings: { name: string; end: (net: FaultNetwork) => void }[] = [
@@ -118,7 +111,7 @@ const deepgramEndings: { name: string; end: (net: FaultNetwork) => void }[] = [
 ];
 
 for (const ending of deepgramEndings) {
-  test(`${ending.name} mid-dictation, and the words heard wait on the review card`, { timeout: 20_000 }, async (ctx) => {
+  test(`${ending.name} mid-dictation, and the words heard wait in the draft`, { timeout: 20_000 }, async (ctx) => {
     const s = await mount(ctx, "deepgram");
     await startDictating(s);
     await expect.poll(() => s.net.socket(SPEECH)?.readyState, { message: "the speech socket is open", timeout: 5_000 }).toBe(1);
@@ -157,7 +150,7 @@ const webSpeechEndings: { name: string; end: (r: ScriptedRecognition) => void }[
 ];
 
 for (const ending of webSpeechEndings) {
-  test(`${ending.name} mid-dictation, and the words heard wait on the review card`, { timeout: 20_000 }, async (ctx) => {
+  test(`${ending.name} mid-dictation, and the words heard wait in the draft`, { timeout: 20_000 }, async (ctx) => {
     ScriptedRecognition.last = null;
     vi.stubGlobal("SpeechRecognition", ScriptedRecognition);
     vi.stubGlobal("webkitSpeechRecognition", ScriptedRecognition);

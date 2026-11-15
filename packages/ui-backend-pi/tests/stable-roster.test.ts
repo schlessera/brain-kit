@@ -18,7 +18,7 @@ test("Pi production session acquisition builds one full roster even voice-first 
       ...(mode === "voice" ? { posture: "voice" } : {}), noGrantSurface: mode !== "typed" });
     const tools = createPiBridgeTools({ brainPath: "/tmp/odysseus", turn: entry.turnContext, capabilities: observed!.caps });
     rosters.push(JSON.stringify(tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))));
-    for (const name of [...names, "brain_compute_run", "brain_compute_collect"]) expect(tools.some(tool => tool.name === name), `PI_FULL_ROSTER_${mode}_${name}`).toBe(true);
+    for (const name of [...names, "brain_compute_run", "brain_compute_collect"]) expect(tools.map(tool => tool.name), `PI_FULL_ROSTER_${mode}_${name}`).toContain(name);
     pool.finish(entry);
   }
   for (const roster of rosters.slice(1)) expect(roster, "PI_FIXED_VOICE_FIRST_ROSTER").toBe(rosters[0]);

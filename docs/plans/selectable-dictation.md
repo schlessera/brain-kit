@@ -435,8 +435,8 @@ The Voice pane sits under *This brain*, between Models and Accounts, with the
 meta text "dictation". #3616 later adds its **Live service** group to the same
 pane. Whichever issue lands first creates the pane frame. The groups do not
 share state or routes, so neither blocks the other. #3690 owns the unified
-presentation: until it lands, the existing dictation sheet carries the
-destination line and acknowledgement card below. Rows are 52 px tall with 44 px
+presentation: the voice field carries the destination line (its label meta)
+and the acknowledgement card below (D0), #3694. Rows are 52 px tall with 44 px
 targets. Selecting a radio saves immediately, as the Models default does.
 
 ```text
@@ -477,7 +477,8 @@ targets. Selecting a radio saves immediately, as the Models default does.
 | Take active while saved elsewhere | Info line "Dictating with *X* now. Your change applies to the next take." | Unchanged until the next take |
 | Read-only (non-owner human) | Radios disabled; "Only the owner can change this." | Effective as resolved |
 
-**Acknowledgement card (D4)** is shown in the dictation sheet before any
+**Acknowledgement card (D4)** is shown above the composer, as the voice
+field's D0 notice (#3694), before any
 session request or microphone access:
 
 ```text

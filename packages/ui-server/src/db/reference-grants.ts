@@ -17,6 +17,7 @@ export const REFERENCE_GRANT_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_REPOSITORY_LENGTH = 2048;
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const GITHUB = "https://github.com";
+export const REFERENCE_METADATA_CREDENTIAL_RECIPIENT = "https://api.github.com";
 
 /**
  * Existing host credential selectors a grant may name, and the origin each may
@@ -92,15 +93,19 @@ export interface ReferenceGrant {
   principalId: string;
   repositoryPrefix: string;
   credential: string | null;
+  /** Explicit owner permission for the fixed identity operation; absent on legacy grants. */
+  metadataCredentialRecipient?: typeof REFERENCE_METADATA_CREDENTIAL_RECIPIENT;
   createdBy: string;
   createdAt: number;
   revokedAt: number | null;
 }
 
-interface GrantRow { id: string; brain: string; principal_id: string; repository_prefix: string; credential: string | null; created_by: string; created_at: number; revoked_at: number | null }
-const COLUMNS = "g.id, g.brain, g.principal_id, g.repository_prefix, g.credential, g.created_by, g.created_at, g.revoked_at";
+interface GrantRow { id: string; brain: string; principal_id: string; repository_prefix: string; credential: string | null; created_by: string; created_at: number; revoked_at: number | null;
+  metadata_credential_recipient: typeof REFERENCE_METADATA_CREDENTIAL_RECIPIENT | null }
+const COLUMNS = "g.id, g.brain, g.principal_id, g.repository_prefix, g.credential, g.created_by, g.created_at, g.revoked_at, g.metadata_credential_recipient";
 const fromRow = (row: GrantRow): ReferenceGrant => ({ id: row.id, brain: row.brain, principalId: row.principal_id, repositoryPrefix: row.repository_prefix,
-  credential: row.credential, createdBy: row.created_by, createdAt: row.created_at, revokedAt: row.revoked_at });
+  credential: row.credential, createdBy: row.created_by, createdAt: row.created_at, revokedAt: row.revoked_at,
+  ...(row.metadata_credential_recipient ? { metadataCredentialRecipient: row.metadata_credential_recipient } : {}) });
 /** A live grant has no revocation and a usable cookie-bearing principal. */
 const LIVE = `g.revoked_at IS NULL AND p.revoked_at IS NULL AND p.expires_at > ? AND p.kind IN ('owner', 'agent')`;
 
@@ -116,12 +121,18 @@ export class ReferenceGrantDuplicateError extends Error {
 
 export function createReferenceGrant(db: Database, input: {
   brain: string; principalId: string; repositoryPrefix: unknown; credential: unknown; createdBy: string; now: number;
+  metadataCredentialRecipient?: unknown;
 }): ReferenceGrant {
   const prefix = referenceRepository(input.repositoryPrefix, { prefix: true });
   if (input.credential !== null && typeof input.credential !== "string") throw new ReferenceRepositoryError("credential must be a string or null");
   assertGrantCredential(input.credential, prefix);
+  const metadataRecipient = input.metadataCredentialRecipient ?? null;
+  if (metadataRecipient !== null && (metadataRecipient !== REFERENCE_METADATA_CREDENTIAL_RECIPIENT
+    || prefix.origin !== GITHUB || input.credential === null))
+    throw new ReferenceRepositoryError("metadata credential permission requires the fixed API recipient, a GitHub prefix and a named host credential");
   const grant: ReferenceGrant = { id: randomBytes(16).toString("base64url"), brain: input.brain, principalId: input.principalId,
-    repositoryPrefix: prefix.canonical, credential: input.credential, createdBy: input.createdBy, createdAt: input.now, revokedAt: null };
+    repositoryPrefix: prefix.canonical, credential: input.credential, createdBy: input.createdBy, createdAt: input.now, revokedAt: null,
+    ...(metadataRecipient === REFERENCE_METADATA_CREDENTIAL_RECIPIENT ? { metadataCredentialRecipient: metadataRecipient } : {}) };
   db.transaction(() => {
     const target = resolvePrincipal(db, input.principalId), creator = resolvePrincipal(db, input.createdBy);
     if (!target || !isCookieBearingPrincipal(target) || !isUsablePrincipal(target, input.now)) throw new ReferenceGrantPrincipalError();
@@ -131,8 +142,8 @@ export function createReferenceGrant(db: Database, input: {
     if (live.count >= MAX_LIVE_REFERENCE_GRANTS) throw new ReferenceGrantLimitError();
     if (db.prepare(`SELECT 1 FROM reference_grants g WHERE g.revoked_at IS NULL AND g.brain = ? AND g.principal_id = ? AND g.repository_prefix = ? AND g.credential IS ?`)
       .get(grant.brain, grant.principalId, grant.repositoryPrefix, grant.credential)) throw new ReferenceGrantDuplicateError();
-    db.prepare(`INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(grant.id, grant.brain, grant.principalId, grant.repositoryPrefix, grant.credential, grant.createdBy, grant.createdAt);
+    db.prepare(`INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at, metadata_credential_recipient) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(grant.id, grant.brain, grant.principalId, grant.repositoryPrefix, grant.credential, grant.createdBy, grant.createdAt, metadataRecipient);
   }).immediate();
   return grant;
 }
@@ -146,7 +157,7 @@ export function listReferenceGrants(db: Database, brain: string, principalId: st
 /** Revoke one live grant of this principal; returns it, or null when none matched. */
 export function revokeReferenceGrant(db: Database, input: { brain: string; principalId: string; id: string; now: number }): ReferenceGrant | null {
   const row = db.prepare(`UPDATE reference_grants SET revoked_at = ? WHERE id = ? AND brain = ? AND principal_id = ? AND revoked_at IS NULL
-    RETURNING id, brain, principal_id, repository_prefix, credential, created_by, created_at, revoked_at`).get(input.now, input.id, input.brain, input.principalId) as GrantRow | null;
+    RETURNING id, brain, principal_id, repository_prefix, credential, created_by, created_at, revoked_at, metadata_credential_recipient`).get(input.now, input.id, input.brain, input.principalId) as GrantRow | null;
   return row ? fromRow(row) : null;
 }
 

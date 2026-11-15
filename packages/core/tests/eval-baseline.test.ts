@@ -157,7 +157,10 @@ describe("--redact", () => {
   });
 
   test("a redacted run still works as a baseline", async () => {
-    const { code, out } = await evalRun("--set", "evals/set.jsonl", "--baseline", "evals/shared.json");
+    // Its own redacted baseline, so the test does not need the one above to have run first.
+    const written = await evalRun("--set", "evals/set.jsonl", "--redact", "--out", "evals/redacted-baseline.json");
+    expect(written.code).toBe(0);
+    const { code, out } = await evalRun("--set", "evals/set.jsonl", "--baseline", "evals/redacted-baseline.json");
     expect(code).toBe(0);
     expect(out.baseline.modes[0].hit_at["1"].unchanged).toBe(4);
   });

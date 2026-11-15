@@ -20,6 +20,8 @@ export function FileChip(p: {
   stored?: AttachmentFile;
   /** A stored original this draft's id cannot bind (it came from another draft id). */
   detached?: boolean;
+  /** An image original: whether its frame goes inline, and its thumbnail once made. */
+  image?: { placement: "inline" | "not_inline" | "pending"; previewUrl?: string };
   onRemove: () => void;
   onRetry?: () => void;
 }) {
@@ -27,14 +29,16 @@ export function FileChip(p: {
   const size = trackBytes(p.queued?.file.size ?? p.stored?.bytes ?? 0);
   const copy = p.detached
     ? { status: "not attached", detail: "It belongs to an earlier version of this draft. Choose it again to attach it." }
-    : p.queued ? queuedFileCopy(p.queued) : storedFileCopy(p.stored!);
+    : p.queued ? queuedFileCopy(p.queued) : storedFileCopy(p.stored!, p.image?.placement);
   const kind = p.stored ? fileKindLabel(p.stored) : "file";
   const state = p.queued?.state ?? (p.detached ? "detached" : "stored");
   const retry = p.queued && (p.queued.state === "failed" || p.queued.state === "unknown") && p.onRetry;
   return <div className="min-w-0 rounded-lg border border-border bg-surface text-foreground" data-file-chip={state}
     role="group" aria-label={`${name}, ${kind}, ${size}, ${copy.status}`}>
     <div className="flex min-w-0 items-center gap-2 pl-3">
-      <FileText aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+      {p.image?.previewUrl && p.image.placement === "inline" && !p.detached
+        ? <img src={p.image.previewUrl} alt="" data-file-thumbnail="" className="my-2 h-10 w-10 shrink-0 rounded-md border border-border object-cover" />
+        : <FileText aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />}
       <div className="min-w-0 flex-1 py-2">
         <div className="break-words text-sm font-medium">{name}</div>
         <div className="break-words text-xs text-muted-foreground" data-file-status="">{copy.status}</div>

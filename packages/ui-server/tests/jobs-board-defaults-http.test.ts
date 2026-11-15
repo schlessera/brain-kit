@@ -49,7 +49,7 @@ for (const scenario of [
       expect(code, stderr + stdout).toBe(0);
       const report = JSON.parse(stdout).report;
       expect(report.sources.map((entry: { source: string }) => entry.source)).toEqual(scenario.expected);
-      expect(report.sources.every((entry: { status: string }) => entry.status === "empty")).toBe(true);
+      expect(report.sources.map((entry: { status: string }) => entry.status)).toEqual(scenario.expected.map(() => "empty"));
       expect(report.total_errors).toEqual([]);
       expect(readFileSync(join(t.brainPath, "brain.config.ts"), "utf8")).toBe(config);
     } finally { await t.close(); }

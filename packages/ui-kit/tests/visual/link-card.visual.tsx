@@ -120,6 +120,6 @@ describe("LinkPreviewCard link mode: the network", () => {
     await userEvent.click(el.querySelector("a")!);
     await settle();
     const seen = await outbound();
-    expect(seen.some((url) => url.includes(HOST))).toBe(true);
+    expect(seen.filter((url) => url.includes(HOST)), "the destination request is logged").not.toEqual([]);
   });
 });

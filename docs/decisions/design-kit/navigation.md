@@ -54,6 +54,16 @@ The fifth drop answered the eleven questions the maintainer forwarded
    > composer detail (capture is a menu behind attach); it adds no separate
    > entry, no persistent desktop label and no touch long-press, and the kit
    > and the menu keep their ownership.
+
+   > **2026-11-09 — Live entry moved to the mic by #3693 (epic #3690, ruling
+   > V1; composition signed off on #3727).** Live conversation is no longer a
+   > row in the attach menu, and the attach trigger's name no longer lists it:
+   > it is "Attach — photo, camera, files" again ("Attach — files" with the
+   > desktop Files menu). The composer's one mic is the kit's `MicButton` in
+   > the `micControl` slot: a tap dictates, and a 0.6 s hold opens Start
+   > (Shift+Enter on the mic, or its "Talk live…" action, for keyboards and
+   > screen readers). This supersedes the #3045 note above for live
+   > conversation only; the trigger's tooltip and its rules are unchanged.
 5. **No snooze on a blocking approval**; "Always allow" has no key.
 6. **Focus after the last decision in a list goes to the `EmptyState` heading
    that replaces the section, with the `InlineToast` receipt above it**; the

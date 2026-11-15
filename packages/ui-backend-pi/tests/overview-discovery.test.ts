@@ -68,6 +68,8 @@ describe("pi brain_list paged discovery", () => {
     const { text } = await call("brain_list", { type: "project", limit: 5 });
     const value = JSON.parse(text) as { documents: object[] };
     expect(Object.keys(value)).toEqual(["documents"]);
+    // The corpus holds more than five projects, so the loop below checks a full page.
+    expect(value.documents).toHaveLength(5);
     for (const row of value.documents) expect(Object.keys(row)).toEqual(["path", "title", "type", "relevance", "status", "tags"]);
   });
 

@@ -2,7 +2,7 @@ import { generateSignedCookie } from "hono/cookie";
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createInboxIntake } from "../src/inbox/intake.js";
 import { pruneShareStaging } from "../src/share/staging.js";
-import { writeFile, chmod, mkdir, utimes, readFile } from "node:fs/promises";
+import { writeFile, chmod, mkdir, utimes, readFile, rm } from "node:fs/promises";
 import { createRecordingObservability } from "../src/observability/index.js";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -38,23 +38,34 @@ function share(url: string, extras: Record<string, string> = {}) {
 }
 
 test("mounted share replay creates one untrusted thread, triage item and staging area", async () => {
+  // The app is shared by every test in this file, so count only what this share adds.
+  const before = createInboxStore(fixture.app.db).snapshot();
+  const added = (snapshot: typeof before) => ({
+    threads: snapshot.threads.filter(thread => !before.threads.some(prior => prior.id === thread.id)),
+    items: snapshot.items.filter(item => !before.items.some(prior => prior.id === item.id)),
+  });
+  // The staging root does not exist until the first arrival in this file.
+  const dirsBefore = await readdir(join(fixture.brainPath, ".brain-ui/inbox")).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return [] as string[];
+    throw error;
+  });
   const first = await share("https://example.org/odysseus-route");
   expect(first.status).toBe(201);
   const firstBody = await first.json();
-  const firstSnapshot = createInboxStore(fixture.app.db).snapshot();
-  expect(firstSnapshot.threads).toHaveLength(1);
-  expect(firstSnapshot.items).toHaveLength(1);
-  expect(firstSnapshot.threads[0]!.trustClass).toBe("untrusted");
-  expect(firstSnapshot.threads[0]!.source).toBe("share");
-  expect(firstSnapshot.items[0]!.type).toBe("triage");
+  const firstAdded = added(createInboxStore(fixture.app.db).snapshot());
+  expect(firstAdded.threads).toHaveLength(1);
+  expect(firstAdded.items).toHaveLength(1);
+  expect(firstAdded.threads[0]!.trustClass).toBe("untrusted");
+  expect(firstAdded.threads[0]!.source).toBe("share");
+  expect(firstAdded.items[0]!.type).toBe("triage");
   const repeated = await share("https://example.org/odysseus-route");
   expect(repeated.status).toBe(201);
   expect(await repeated.json()).toEqual(firstBody);
-  const snapshot = createInboxStore(fixture.app.db).snapshot();
-  expect(snapshot.threads).toHaveLength(1);
-  expect(snapshot.items).toHaveLength(1);
-  expect(snapshot.threads[0]!.lastSeenAt).toBeGreaterThanOrEqual(firstSnapshot.threads[0]!.lastSeenAt);
-  expect((await readdir(join(fixture.brainPath, ".brain-ui/inbox"))).filter(name => !name.startsWith("."))).toEqual([firstBody.id]);
+  const repeatedAdded = added(createInboxStore(fixture.app.db).snapshot());
+  expect(repeatedAdded.threads).toHaveLength(1);
+  expect(repeatedAdded.items).toHaveLength(1);
+  expect(repeatedAdded.threads[0]!.lastSeenAt).toBeGreaterThanOrEqual(firstAdded.threads[0]!.lastSeenAt);
+  expect((await readdir(join(fixture.brainPath, ".brain-ui/inbox"))).filter(name => !name.startsWith(".") && !dirsBefore.includes(name))).toEqual([firstBody.id]);
   expect(fixture.app.db.query("SELECT COUNT(*) AS n FROM activity_run_rollups").get()).toEqual({ n: 0 });
   expect(startedTurns).toBe(0);
 });
@@ -143,16 +154,17 @@ test("recovery compensates an abandoned preparation and preserves committed byte
   await writeFile(join(dir, "meta.json"), "abandoned bytes");
   fixture.app.db.query("INSERT INTO inbox_intake_receipts (staging_id, source, principal_id, dedup_key, content_hash, created_at, reconcile_after, state) VALUES (?, 'share', ?, 'share:abandoned', 'hash', 0, 0, 'preparing')").run(id, principalId);
   const intake = createInboxIntake(fixture.app.db, fixture.brainPath);
-  await intake.reconcile();
-  expect(await Bun.file(join(dir, "meta.json")).exists()).toBe(false);
-  expect(fixture.app.db.query("SELECT 1 FROM inbox_intake_receipts WHERE staging_id = ?").get(id)).toBeNull();
-  const response = await share("https://example.org/odysseus-retained");
-  const body = await response.json();
-  const committedDir = join(fixture.brainPath, body.dir);
-  await utimes(committedDir, new Date(0), new Date(0));
-  await pruneShareStaging(fixture.brainPath, Date.now(), undefined, intake.protectedIds());
-  expect(await Bun.file(join(committedDir, "meta.json")).exists()).toBe(true);
-  await intake.close();
+  try {
+    await intake.reconcile();
+    expect(await Bun.file(join(dir, "meta.json")).exists()).toBe(false);
+    expect(fixture.app.db.query("SELECT 1 FROM inbox_intake_receipts WHERE staging_id = ?").get(id)).toBeNull();
+    const response = await share("https://example.org/odysseus-retained");
+    const body = await response.json();
+    const committedDir = join(fixture.brainPath, body.dir);
+    await utimes(committedDir, new Date(0), new Date(0));
+    await pruneShareStaging(fixture.brainPath, Date.now(), undefined, intake.protectedIds());
+    expect(await Bun.file(join(committedDir, "meta.json")).exists()).toBe(true);
+  } finally { await intake.close(); }
 });
 
 test("authority overrides are rejected by both mounted endpoints", async () => {
@@ -297,5 +309,5 @@ test("the real CLI refuses to follow a redirect carrying its principal cookie", 
     expect(result.exit).toBe(1);
     expect(result.body.error?.code).toBe("queue_failed");
     expect(forwardedRequests).toBe(0);
-  } finally { redirect.stop(true); target.stop(true); }
+  } finally { redirect.stop(true); target.stop(true); await rm(credentialFile, { force: true }); }
 });

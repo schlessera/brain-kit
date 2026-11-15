@@ -98,7 +98,7 @@ Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
 (`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/session-run/admission.ts:191-203`;
-`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:852-863`).
+`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:886-897`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
 restricted worker never binds a generation. Nothing returns a host path to the
@@ -125,8 +125,8 @@ A managed worktree is not inside the brain, so the brain's checkpoints never
 cover it. The turn journal observes each covered worktree as its own root,
 through that worktree's read-only checkpoints and deltas and the same observer
 and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:562-574`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:392-406`).
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:596-608`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:430-444`).
 Coverage starts with a baseline checkpoint and inventory before the grant, and
 every journal observation, periodic, at a scope cap or at the turn's end, then
 observes the worktree too.
@@ -212,10 +212,10 @@ nothing.
 **Shared source is read through views.** Each such turn's workers bind the
 public view and their principal's private view whole and read-only at
 `/tmp/brain-reference/public` and `/tmp/brain-reference/private`
-(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:873-884`).
+(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:898-909`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:741-753`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:745-776`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -255,7 +255,7 @@ check before a new mount) applies to the bind itself. The maintainer ruled on
 before a turn's workers bind a view, every source in it whose validation lapsed
 is validated again, including sources a running turn reads; one that fails is
 withheld from the new bind, and a running reader keeps its existing mount
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:565-603`):
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:569-607`):
 
 - a source with less than the bind margin of validation left counts as
   lapsed: a minute, or half of a shorter configured lifetime, so it does not
@@ -269,7 +269,7 @@ withheld from the new bind, and a running reader keeps its existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:501-512`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:505-516`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
@@ -288,7 +288,7 @@ withheld rather than checked again; withholding takes only short pool calls,
 so the bind converges whatever the cache size. A bind that still cannot be
 admitted, because a pool change stays unconfirmed, refuses, and the turn runs
 without shared source views
-(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:609-618`).
+(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:613-622`).
 The margin covers the moments between admission and the workers' mounts.
 
 Suspension, restoration, withdrawal and publication of one source run one at a

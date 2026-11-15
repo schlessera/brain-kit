@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import type { SafetyIdentity, SafetyTarget, SafetyPage, SafetyRecord, SafetyUpdate, SafetyUnavailable as Unavailable } from "@schlessera/brain-ui-sdk/protocol";
 import { safetyPageSchema, safetyUpdateSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { Principal } from "../db/principals.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { assertLive } from "../ws/chat-lifecycle.js";
 import { safetyProjection } from "./safety-store.js";
 import { safetyQueue } from "./safety-queue.js";
@@ -12,7 +13,7 @@ export class SafetyReadUnavailable extends Error {
   constructor(readonly reason: Reason = "unavailable") { super(reason); }
 }
 interface Snapshot { id:string; principalId:string; target:SafetyTarget; identity:SafetyIdentity; highWater:string;
-  projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number }
+  projection:SafetyPage["projection"]; membership:string; expiresAt:number; pruned:number; bytes:number; entries:boolean }
 interface Row { id:string; sequence:string; observed_at:number; kind:string; occurrence_id:string; source:string|null;
   detector:string|null; state:string|null; payload:string; detail_pruned:number; turn_id:string; collection_id:string }
 const same = (a:unknown,b:unknown) => JSON.stringify(a)===JSON.stringify(b);
@@ -25,7 +26,7 @@ const wireId = (value:string) => {
 
 export class SafetyHistory {
   private readonly subscriptions = new Map<object, { principal:Principal; identity:SafetyIdentity; revision:string; membership:string; projectionHash:string; valid:()=>boolean;
-    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean }>();
+    send:(value:SafetyUpdate|Unavailable)=>void; busy:boolean; entries:boolean }>();
   private readonly snapshots = new Map<string, Snapshot>();
   private readonly cursors = new Map<string, {snapshotId:string; after:string}>();
   private retainedBytes = 0;
@@ -45,18 +46,19 @@ export class SafetyHistory {
     if("sessionId" in target){
       const s=this.db.query("SELECT session_id,history_owner_id,generation,principal_id FROM safety_sessions WHERE session_id=?").get(target.sessionId) as
         {session_id:string;history_owner_id:string;generation:string;principal_id:string|null}|null;
-      if(!s||s.principal_id!==principal.id)throw new SafetyReadUnavailable();
+      // Another login of the chat's account reads it; nobody else does (#3952).
+      if(!s||!sameAccount(this.db,s.principal_id,principal.id))throw new SafetyReadUnavailable();
       const owner=this.db.query("SELECT principal_id,generation FROM dialogue_owners WHERE id=?").get(s.history_owner_id) as {principal_id:string;generation:number}|null;
-      if(owner&&(owner.principal_id!==principal.id||String(owner.generation)!==s.generation))throw new SafetyReadUnavailable("generation_changed");
+      if(owner&&(!sameAccount(this.db,owner.principal_id,principal.id)||String(owner.generation)!==s.generation))throw new SafetyReadUnavailable("generation_changed");
       try{assertLive(this.db,[["session",s.session_id],["dialogue_owner",s.history_owner_id]]);}catch{throw new SafetyReadUnavailable();}
       return {sessionId:s.session_id,historyOwnerId:s.history_owner_id,historyGeneration:s.generation};
     }
     const c=this.db.query("SELECT session_id,principal_id,history_owner_id,generation FROM safety_collections WHERE id=? AND turn_id=?").get(target.bindingId,target.turnId) as
       {session_id:string|null;principal_id:string|null;history_owner_id:string;generation:string}|null;
-    if(!c||c.principal_id!==principal.id||this.db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(target.turnId))throw new SafetyReadUnavailable();
+    if(!c||!sameAccount(this.db,c.principal_id,principal.id)||this.db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(target.turnId))throw new SafetyReadUnavailable();
     if(c.session_id)return this.authorize(principal,{sessionId:c.session_id});
     const owner=this.db.query("SELECT generation,principal_id FROM dialogue_owners WHERE id=?").get(c.history_owner_id) as {generation:number;principal_id:string}|null;
-    if(owner&&(String(owner.generation)!==c.generation||owner.principal_id!==principal.id))throw new SafetyReadUnavailable("generation_changed");
+    if(owner&&(String(owner.generation)!==c.generation||!sameAccount(this.db,owner.principal_id,principal.id)))throw new SafetyReadUnavailable("generation_changed");
     try{assertLive(this.db,[["dialogue_owner",c.history_owner_id]]);}catch{throw new SafetyReadUnavailable();}
     return {turnId:target.turnId,bindingId:target.bindingId};
   }
@@ -101,7 +103,7 @@ export class SafetyHistory {
       if(failed){p.coverage.state="incomplete";if(!p.reasons.includes("recording_failed"))p.reasons.push("recording_failed");}}
     return p as SafetyPage["projection"];
   }
-  private records(identity:SafetyIdentity,after:string,through:string,limit:number):SafetyRecord[] {
+  private records(identity:SafetyIdentity,after:string,through:string,limit:number,entries:boolean):SafetyRecord[] {
     const {sql,args}=this.scope(identity);
     const rows=this.db.query(`SELECT * FROM (
       SELECT r.*,c.turn_id FROM safety_records r JOIN safety_collections c ON c.id=r.collection_id WHERE ${sql}
@@ -122,7 +124,7 @@ export class SafetyHistory {
       // model text, prompt or page body cross this read boundary.
       return {...common,kind:"occurrence",epochId:o?.epochId??r.collection_id,detector:r.detector,source:r.source??"legacy_unknown",operationId:o?.operationId??null,
         signalId:o?.signalId??null,exposureId:o?.exposureId??null,exposure:r.state??"interrupted_unknown",summary:r.source==="egress_connection"?"Network input; operation attribution unavailable":"Recorded input exposure",
-        provenance:o?.provenance??null} as SafetyRecord;
+        provenance:o?.provenance??null,...(entries&&(o?.entry??p.entry)?{entry:o?.entry??p.entry}:{})} as SafetyRecord;
     });
   }
   private drop(id:string):void {
@@ -138,7 +140,7 @@ export class SafetyHistory {
     return ()=>{const left=this.pendingReads.get(principal.id)!-1;if(left)this.pendingReads.set(principal.id,left);else this.pendingReads.delete(principal.id);};
   }
   /** Every await precedes fresh authority, identity and clock checks. */
-  async read(principal:Principal,target:SafetyTarget,cursor:string|null=null,limit:number=50):Promise<SafetyPage> {
+  async read(principal:Principal,target:SafetyTarget,cursor:string|null=null,limit:number=50,entries=false):Promise<SafetyPage> {
     if(!Number.isInteger(limit)||limit<1||limit>100||cursor!==null&&cursor.length>512)throw new SafetyReadUnavailable();
     this.authorize(principal,target);
     const release=this.reserveRead(principal);
@@ -148,7 +150,7 @@ export class SafetyHistory {
       let snapshot:Snapshot,after="0";
       if(cursor!==null){
         const position=this.cursors.get(cursor),s=position&&this.snapshots.get(position.snapshotId);
-        if(!s||s.principalId!==principal.id||!same(s.target,target))throw new SafetyReadUnavailable("expired");
+        if(!s||s.principalId!==principal.id||!same(s.target,target)||s.entries!==entries)throw new SafetyReadUnavailable("expired");
         snapshot=s;after=position!.after;
         if(!same(identity,s.identity))throw new SafetyReadUnavailable("generation_changed");
         if(this.membership(identity,s.highWater)!==s.membership)throw new SafetyReadUnavailable("gap");
@@ -157,10 +159,10 @@ export class SafetyHistory {
         if(this.snapshots.size>=256||[...this.snapshots.values()].filter(s=>s.principalId===principal.id).length>=32)throw new SafetyReadUnavailable("capacity");
         const projection=this.projection(identity),size=bytes(projection)+2048;
         if(this.retainedBytes+size>4194304)throw new SafetyReadUnavailable("capacity");
-        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size};
+        snapshot={id:crypto.randomUUID(),principalId:principal.id,target,identity,projection,highWater:projection.evidenceRevision,membership:this.membership(identity,projection.evidenceRevision),expiresAt:this.clock()+300000,pruned:this.pruned(identity),bytes:size,entries};
         this.snapshots.set(snapshot.id,snapshot);this.retainedBytes+=size;
       }
-      const fetched=this.records(identity,after,snapshot.highWater,limit+1),records:SafetyRecord[]=[];
+      const fetched=this.records(identity,after,snapshot.highWater,limit+1,snapshot.entries),records:SafetyRecord[]=[];
       const page:SafetyPage={version:1,identity,snapshotId:snapshot.id,cursor,highWater:snapshot.highWater,projection:snapshot.projection,records,nextCursor:null,snapshotComplete:false,detailPruned:snapshot.pruned>0};
       for(const record of fetched.slice(0,limit)){if(bytes({...page,records:[...records,record]})>261000)break;records.push(record);}
       if(fetched.length&&!records.length)throw new SafetyReadUnavailable("capacity");
@@ -181,13 +183,13 @@ export class SafetyHistory {
   }
   async delta(principal:Principal,identity:SafetyIdentity,after:string,snapshotId:string):Promise<SafetyUpdate> {
     const anchor=this.anchor(principal,identity,after,snapshotId);
-    const result=await this.readDelta(principal,identity,after,anchor.membership);
+    const result=await this.readDelta(principal,identity,after,anchor.membership,anchor.entries);
     this.anchor(principal,identity,after,snapshotId);
     this.delivery(principal,identity,snapshotId,result.update.projection);
     if(this.membership(identity,result.update.toRevision)!==result.membership)throw new SafetyReadUnavailable("gap");
     return result.update;
   }
-  private async readDelta(principal:Principal,identity:SafetyIdentity,after:string,membership:string):Promise<{update:SafetyUpdate;membership:string}> {
+  private async readDelta(principal:Principal,identity:SafetyIdentity,after:string,membership:string,entries:boolean):Promise<{update:SafetyUpdate;membership:string}> {
     const target:SafetyTarget="sessionId" in identity?{sessionId:identity.sessionId}:identity;
     this.authorize(principal,target);const release=this.reserveRead(principal);
     try{await this.settled();
@@ -196,7 +198,7 @@ export class SafetyHistory {
       if(this.membership(identity,after)!==membership)throw new SafetyReadUnavailable("gap");
       const projection=this.projection(identity);
       if(BigInt(after)>BigInt(projection.evidenceRevision))throw new SafetyReadUnavailable("gap");
-      const records=this.records(identity,after,projection.evidenceRevision,101);
+      const records=this.records(identity,after,projection.evidenceRevision,101,entries);
       const update:SafetyUpdate={version:1,identity,fromRevision:after,toRevision:projection.evidenceRevision,projection,records};
       if(records.length>100||bytes(update)>262000)throw new SafetyReadUnavailable("capacity");
       this.authorize(principal,target);this.clock();
@@ -207,7 +209,7 @@ export class SafetyHistory {
   subscribe(key:object,principal:Principal,identity:SafetyIdentity,revision:string,snapshotId:string,valid:()=>boolean,send:(value:SafetyUpdate|Unavailable)=>void):void {
     if(!this.subscriptions.has(key)&&this.subscriptions.size>=256)throw new SafetyReadUnavailable("capacity");
     const anchor=this.anchor(principal,identity,revision,snapshotId);
-    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(anchor.projection),valid,send,busy:false});this.poll();
+    this.subscriptions.set(key,{principal,identity,revision,membership:anchor.membership,projectionHash:fingerprint(anchor.projection),valid,send,busy:false,entries:anchor.entries});this.poll();
   }
   unsubscribe(key:object):void {this.subscriptions.delete(key);}
   revoke(principalIds:readonly string[]):void {
@@ -239,7 +241,7 @@ export class SafetyHistory {
     for(const [key,s] of this.subscriptions){
       if(!s.valid()||!this.valid(s.principal)){this.subscriptions.delete(key);continue;}
       if(s.busy)continue;s.busy=true;
-      void this.readDelta(s.principal,s.identity,s.revision,s.membership).then(({update,membership})=>{
+      void this.readDelta(s.principal,s.identity,s.revision,s.membership,s.entries).then(({update,membership})=>{
         if(this.subscriptions.get(key)!==s||!s.valid()||!this.valid(s.principal))return;
         try{this.delivery(s.principal,s.identity,undefined,update.projection);
           if(this.membership(s.identity,update.toRevision)!==membership)throw new SafetyReadUnavailable("gap");

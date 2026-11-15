@@ -160,6 +160,73 @@ conflicts, unavailable detail, unknown outcomes and partial work remain explicit
 voice, agent and autonomous execution do not gain a history action. This is
 additive in 0.42.0; no existing read or CLI/MCP shape changes.
 
+<a id="native-intent-recovery-additive-3816"></a>
+
+### Native intent recovery (additive, #3816)
+
+Authenticated `GET /api/status` adds optional `nativeRecovery`:
+`{ quarantinedIntents: number, stagingChargedBytes: number | null,
+diagnosticsPath: string }`, also declared by `SystemStatus`. It reports the
+manager's boot quarantine and conservative staging charge. Invalid UUIDs and
+confirmed absent stage directories charge zero; surviving stages retain their
+independently recorded historical tmpfs allowance. The charge includes known
+stage reservations at boot. `null` means no safe bound is proven, never zero:
+`healthy` is false and staging refuses with a recovery diagnostic rather than
+claiming a temporary busy slot. Other operations remain available. The private
+diagnostics path and causes are never exposed by unauthenticated `/api/health`.
+This optional reporting is additive in 0.45.0; no CLI/MCP shape changes.
+
+### Staging refusal and unresolved journal recovery (additive, #3826)
+
+Authenticated `GET /api/status` extends `nativeRecovery` with optional
+`stagingRefusal: string`. It describes the recovery needed when a quarantined
+charge is unknown or when quarantine alone leaves too little budget for the
+configured per-stage allowance. In either case `healthy` is false. Individual
+stage requests use their actual requested allowance: a smaller request may fit;
+only pressure that can clear when active stages finish returns temporary busy.
+The refusal tells the owner to inspect private diagnostics, then either repair
+the stage's receipt or confirm its storage is removed (bounded quarantine) or
+restore the allowance record from proof of the original size (unknown bound),
+and to restart the native manager and the server: `nativeRecovery` is read when
+the server boots. No unknown or surviving storage charge is released.
+
+The response also adds optional `journalRecovery`, declared by `SystemStatus`:
+`{ unresolvedRecords: number, firstCause: null | { reservationId: string,
+hash: string, at: number, errorClass: string, message: string, site: string } }`.
+This is the journal worker's boot recovery summary: the count is unresolved
+object reservations, including multiple reservations of the same hash, and
+`firstCause` is the earliest recorded I/O refusal among them (`at` is Unix
+milliseconds). The first cause stays on its charged reservation across restarts;
+a successful later recovery removes both. Zero unresolved records means
+`firstCause: null`. Any unresolved records make `healthy` false without refusing
+boot or unrelated work. If persisting a cause fails, the current boot still
+reports it and logs the diagnostic-write failure; the existing reservation
+remains durable and charged. Neither summary is exposed by unauthenticated
+`/api/status` or public `/api/health`. Additive in 0.45.0.
+
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+### Degraded backend availability and unknown expiry (additive, #3817)
+
+A failed secondary backend leaves public `GET /api/health` live (HTTP 200),
+with `status: "degraded"` and `reasons: ["backend_unavailable"]`; uptime and
+timestamp stay present. Raw causes and backend identities remain protected.
+Authenticated `GET /api/status` adds `backendAvailability` with this boot's
+`unavailable` array and durable `lastFailures` (latest per backend). Records
+carry `backendId`, `phase`, `site`, `errorClass`, `message`, and ISO `at` as specified
+in [the HTTP reference](../http-api.md#liveness-and-operational-status).
+`healthy` is false while any secondary backend is excluded. The default
+backend still must pass; no version-incompatible backend executes.
+
+An invalid subscription mint date adds `subscription.expiryWarning` with
+`reason: "invalid_mint_date"`, `message`, `errorClass`, and ISO `at` while
+`mintedAt` and `expiresAt` remain null. Serving and authentication continue.
+The missing-date and valid-date shapes are unchanged. These additions ship
+in 0.45.0; no CLI/MCP envelope or provider history changes. The exported
+`assertBackendResolvable` now returns the excluded secondary backends as
+`BackendBootFailure[]`; callers that ignored its former void return continue
+to work. Primary-backend and shared profile-configuration errors still throw.
+
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 
 ### Published React health and sync helpers (breaking health correction)
@@ -228,6 +295,55 @@ launch times out during identity setup, its refusal names the supervisor's last
 recorded setup step there. The probe's own requirement is unchanged
 ([additive, #3664](../integration-contract.md#setup-timeouts-name-their-step-additive-0450-3664)).
 Clients must tolerate either mode being absent.
+
+<a id="safety-recording-status-additive-3810"></a>
+
+### Safety recording status and owner recovery (additive, #3810, #3812)
+
+For an owner principal, authenticated `GET /api/status` gains optional
+`safetyRecording`: `{ latched, since, reason, cause, retained, lastRecovery }`.
+`latched` is true while the brain-wide safety recorder is failed. `since` is
+the Unix-millisecond time of the first latch; `reason` is `recording_failed`
+or `capacity`, and `capacity` only when a capacity check refused the write.
+`cause` is the first latch's `{ reason, site, turnId, errorClass, message,
+stack, since, count, durable }`: identifiers and error text only, never
+message content; later latches only increase `count`. `retained` is true when
+only this process holds the loss because its durable notice could not commit;
+`cause` is then the cause this process holds, with `durable: false`.
+`lastRecovery` is the latest `{ trigger, actor, at, gapped, cause }`, where
+`trigger` is `boot`, `automatic` or `owner`. Other principals never receive
+the field.
+
+A brain-wide latch is the exception, not the rule. A failure before delivery
+refuses its one turn; lost evidence after delivery restricts its chat with a
+permanent gap; only an evidence store that cannot take a scoped fact latches
+the brain. While latched, new turns run under their tainted policy with a
+permanent pre-delivery gap, and the host clears the latch by itself once the
+gap facts are durable and every producer that predates it has ended, failed or
+not
+([proportionate containment](../decisions/proportionate-containment.md)).
+
+Owner-only `POST /api/status/safety-recording/recover` takes a JSON body
+(ignored), runs the same recovery and answers 200 with `{ recovery,
+safetyRecording }`. It refuses with 409 `{ code: "producers_open", message,
+retryable: true }`, changing nothing, while any safety producer or collection
+is open. Each recovery is recorded with its trigger, actor, time and the cause
+it cleared. Affected chats keep their gaps.
+
+<a id="account-bound-safety-history-additive-3952"></a>
+
+### A chat's safety history belongs to its account (additive, #3952)
+
+A turn, a safety read (`GET /api/sessions/:id/safety`, WS `safety_read`) and
+an owner review of a chat now accept any principal of the chat's account, not
+only the principal that started it. A principal id always matches itself.
+Two different ids match only when both resolve to the same account partition,
+which today means two owner logins, so an agent, ambient or system principal
+matches only itself; a missing or unresolvable principal matches no other id.
+Another account's principal is refused exactly as before. Read
+snapshots, review handles, receipts and the verdict's `principalId` stay bound
+to the exact principal. Nothing previously accepted is refused, and stored
+rows are not rewritten ([decision](../decisions/session-safety-reviews.md#a-chats-safety-history-belongs-to-its-account-3952)).
 
 <a id="root-server-warning-additive-1638"></a>
 
@@ -371,6 +487,8 @@ Queued continuations retain that snapshot without recopying source evidence or
 importing later source activity. Actual catalog creator, principal,
 history owner, aliases and generation govern binding. Retired session/owner/turn
 identities refuse late callbacks even after private detail is removed.
+The principal binds as its account
+([additive, #3952](#account-bound-safety-history-additive-3952)).
 
 Effective admission is restricted for any unresolved occurrence, incomplete or
 unknown coverage, pending recording, failure or exhausted capacity. Only a
@@ -483,6 +601,18 @@ Detail pruning preserves IDs, counts and compact audit/reserved capacity;
 unbound safety evidence has no eviction TTL. Revision exhaustion refuses before
 wrap. These foundations supply the later verdict slice's projection without
 publishing a mutation surface.
+
+<a id="managed-reference-acquisition-additive-3613"></a>
+
+**Managed reference acquisition audit (additive, #3613).** Version 1
+`egress_connection` may carry `managedReference: true` for the host's fixed
+GitHub acquisition wire. Worker headers cannot select this tag. Its TLS bytes
+share the turn's existing byte counter, and its recipient retains ordinary
+egress policy and restricted-recipient checks. These records never add the
+destination to the session's contacted hosts, in memory or after reload.
+Acquisition alone has delivered no source content to the model and records no
+input occurrence; an immutable read needs its own independently bound evidence.
+No repository trust capability or worker-facing authenticated relay is added.
 
 <a id="shell-taint-behind-the-egress-proxy-breaking-3429"></a>
 
@@ -1011,6 +1141,20 @@ its principal applies to the next authority check, including in-flight private
 refreshes. The routes add no credential storage and return no credential value.
 The [grant decision](../decisions/reference-source-grants.md) records the ruling.
 
+Additive #3613: grant creation also accepts optional
+`metadataCredentialRecipient: "https://api.github.com" | null`. Only an owner
+may give this separate fixed metadata credential-recipient permission on a
+GitHub HTTPS grant with a named credential. Other recipients and
+credentialless/non-GitHub grants are refused. Existing and omitted/null grants
+have no additional permission. Explicit permission persists through the shared
+FULL writer and is returned as optional
+`metadata_credential_recipient: "https://api.github.com"` in create/list
+receipts; legacy receipt shapes remain unchanged. It shares the live grant's
+brain/principal/repository scope and revocation. The field establishes no
+transport or source-trust qualification and exposes no generic API relay.
+Changing recipient permission uses revoke/recreate; an existing grant with
+the same principal/prefix/credential remains a duplicate.
+
 ## Content renderer bootstrap declarations (additive, #2087)
 
 Authenticated `GET /api/status` includes optional `contentRenderers`, an array of
@@ -1051,6 +1195,11 @@ detector completeness are separate; neither omitted details nor a review receipt
 replace the aggregate. Route absence and refused reads are explicitly
 unavailable. Existing history visibility and mutation authority remain intact.
 
+Additively for #3605, `entries=1` requests explicit bounded tool-entry
+correlation on this read. No other value or duplicate parameter is accepted.
+The cursor and subsequent subscription retain that choice. Omitting it keeps
+the original strict version-1 record shape. This metadata grants no authority
+and never infers attribution for opaque transport.
 
 ### Selectable dictation providers (additive, #3707)
 
@@ -1065,3 +1214,42 @@ Saved-audio PUT binds `Speech-Provider` before claim/body consumption; absent
 headers preserve effective-provider resolution. Retry provider changes return
 409 `transcription_provider_mismatch` with the receipt. Settings revisions,
 error codes, response schemas and operation binding are supported HTTP promises.
+
+
+### Live-conversation service default (additive, #3616)
+
+[`GET`/`PUT /api/settings/voice`](../http-api.md#live-conversation-service-default)
+read and save the brain-wide default live-conversation service as the top-level
+`VoiceLiveSettings` pair `{ defaultProvider: string | null, revision: number }`,
+beside the persona selection (#3617) with its own revision.
+Reading needs a human session (owner or ambient); writing has its own
+owner-only guard: the owner's password or passkey session, or the ambient human,
+and 403 with an empty body for anyone else, before the body is read. Unknown
+ids are 400 `LIVE_PROVIDER_UNKNOWN`, malformed bodies 400 `LIVE_SETTINGS_INVALID`,
+stale revisions 409 `LIVE_SETTINGS_CHANGED` with `current`. A save sends
+[`live_settings`](wire.md#live-service-selection-additive-3616) and applies from
+the next explicit Start. It is independent of `/api/models/default` and
+`/api/voice/dictation/settings`. The route shapes, error codes and the guard are
+supported HTTP promises.
+
+### Live-conversation personas (additive, 0.45.0, #3617)
+
+The [persona routes](../http-api.md#live-conversation-personas) read and write
+`_voice/personas/<id>.md` and the selection. Every route requires a human
+session of the brain (an owner, or an ambient-auth account); delegated agent,
+worker and system principals receive `403` with an empty body. Writes replace
+the file atomically inside the brain and never follow a link out of
+`_voice/personas`. Revisions are the sha-256 of the file bytes; `PUT` and
+`DELETE` must name the current one or receive `409 PERSONA_CHANGED`. Error
+bodies are fixed codes, never persona text. Route paths, request and response
+schemas, revision semantics and error codes are supported HTTP promises.
+
+### Checkpoint cleanup diagnostics (additive, #3815)
+
+Authenticated `GET /api/status` adds `journalCleanup`: `retained` contains
+`pending`, `failed` and `retainedBytes` for this process's superseded checkpoints;
+`lastFailure` is null or the durable historical failure with `kind`,
+`checkpointId`, `at` (epoch milliseconds), `scope`, `errorClass`, `cause` and
+`retrying: true` at the time it was recorded. The historical cause survives
+recovery and restart; it does not assert a currently blocked turn. Current
+charges remain separate in `retained`. No field changes public `/health`.

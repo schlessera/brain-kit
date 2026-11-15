@@ -1,6 +1,6 @@
 import { transcriptMessage, transcriptTimelineFor, transcriptRange } from "../../lib/transcript-timeline.js";
 import { useStore } from "zustand";
-import { ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
+import { ConversationCoverageNotice, ConversationOutput, ConversationRecognitionRow, ConversationPermissionOutcomes, ConversationTaskContext, conversationEndLabel } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -16,6 +16,7 @@ import { useWebSocket } from "../../hooks/use-websocket.js";
 import { useTrackerSeen } from "../../hooks/use-tracker-seen.js";
 import { MaskEditor } from "../images/mask-editor.js";
 import { MessageBubble } from "./message-bubble.js";
+import { SessionSafety } from "./safety-indicator.js";
 import { useWorkRestore } from "../../hooks/use-local-work.js";
 import { messageFingerprint } from "../../lib/local-work.js";
 
@@ -738,6 +739,7 @@ export function ChatPage() {
                   className="mx-auto max-w-3xl divide-y divide-border/20"
                 >
                   {dialogueNotice && <p role="status" className="py-3 text-sm">{dialogueNotice}</p>}
+                  <SessionSafety />
                   {dialoguePage?.coverage === "legacy" && <p className="py-3 text-sm">Earlier spoken dialogue was not saved.</p>}
                   {dialoguePage?.before !== undefined && <Button label="Load earlier conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`,true)} />}
                   {dialoguePage && (dialoguePage.records.length > 0 || dialoguePage.through > 0) && <Button label="Show latest conversation" tone="ghost" onClick={()=>root.connection.conversation.loadDialogue(sessionId ?? `dialogue:${dialoguePage.ownerId}`)} />}
@@ -760,6 +762,7 @@ export function ChatPage() {
                   <TranscriptReadingScope onRead={beginReading} returnFocus={readingFallback}>
                   {visibleEntries.map((entry) => {
                     if (entry.kind === "history-notice") return <p key={entry.key} className="py-3 text-sm">{entry.label}</p>;
+                    if (entry.kind === "voice-coverage") return <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationCoverageNotice conversationId={entry.conversationId} coverage={entry.coverage} /></div>;
                     if (entry.kind === "speech") return <ConversationOutput key={entry.key} arrivalKey={entry.key} output={entry.output} restored={entry.restored} cutOff={entry.cutOff} />;
                     if (entry.kind === "voice-boundary") return entry.label === "Voice ended"
                       ? <div key={entry.key} data-arrival-key={entry.key} tabIndex={-1} className="py-3"><ConversationEndDivider label={conversationEndLabel(entry.durationMs)} /></div>

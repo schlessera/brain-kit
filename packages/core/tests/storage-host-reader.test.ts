@@ -34,7 +34,7 @@ test("public host reader resolves approved worktree markers and refuses redirect
     expect((await readStorageInventory({ brainPath: worktree })).errors, "STORAGE_HOST_APPROVED_ROOTS_ONLY").toContainEqual({ path: "git", reason: "external-git-root-not-approved" });
     const result = await readStorageInventory({ brainPath: worktree, gitRoots: [repo, alternate] });
     expect(result.status, JSON.stringify(result.errors)).toBe("complete");
-    expect(result.roots.some(value => value.path === join(alternate, "objects"))).toBe(true);
+    expect(result.roots.map(value => value.path)).toContain(join(alternate, "objects"));
     const common = join(repo, ".git", "worktrees", "voyage", "commondir"), outside = join(root, "outside-marker");
     unlinkSync(common); writeFileSync(outside, "../..\n"); symlinkSync(outside, common);
     expect((await readStorageInventory({ brainPath: worktree, gitRoots: [repo, alternate] })).errors, "STORAGE_HOST_MARKER_REDIRECT_REFUSED").toContainEqual({ path: "git", reason: "git-metadata-unsupported" });

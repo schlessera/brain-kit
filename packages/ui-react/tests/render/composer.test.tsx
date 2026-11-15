@@ -116,12 +116,23 @@ test("switching sessions restores each session's draft without crossing their co
   expect(m.frames).toEqual([]);
 });
 
-test("send combines nonempty typed and dictated drafts and marks the message as dictated", async () => {
-  const root = fixture(); root.stores.voice.setState({ reviewText: "Athena says the wind is favourable." });
-  const m = mount(root); await tick(); m.type(TEXT); m.send();
-  expect(m.frames[0]).toMatchObject({ text: `${TEXT}\nAthena says the wind is favourable.`, source: "voice-dictate" });
+test("dictated words join the typed draft as plain editable text (D6), and the mic says Dictate more until it is sent", async () => {
+  const root = fixture();
+  const drafts = root.stores.drafts.getState();
+  drafts.edit(drafts.idFor(SESSION), SESSION, { text: TEXT });
+  root.stores.voice.setState({ reviewText: "Athena says the wind is favourable." });
+  const m = mount(root); await tick();
+  expect(m.field().value, "the words are in the field, after the typed draft").toBe(`${TEXT} Athena says the wind is favourable.`);
+  expect(root.stores.voice.getState().reviewText).toBe("");
+  expect(m.view.getByRole("button", { name: "Dictate more" })).toBeTruthy();
+  expect(m.frames, "nothing is sent without Send").toEqual([]);
+  m.send();
+  expect(m.frames[0]).toMatchObject({ text: `${TEXT} Athena says the wind is favourable.`, source: "voice-dictate" });
   expect(m.field().value).toBe("");
-  expect(m.view.queryByText("Athena says the wind is favourable.") === null).toBe(true);
+  // Sent: a typed draft from here on is not a dictated one.
+  m.type(OTHER);
+  expect(m.view.queryByRole("button", { name: "Dictate more" }) === null).toBe(true);
+  expect(m.view.getByRole("button", { name: "Dictate" })).toBeTruthy();
 });
 
 // Slash commands (#1504): Enter runs a command the reader typed or picked from

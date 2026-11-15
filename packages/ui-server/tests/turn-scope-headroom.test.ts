@@ -23,7 +23,7 @@ function fixture(origin: "interactive" | "voice" = "interactive") {
   const summary = () => JSON.parse((db.query("SELECT summary FROM turn_scope WHERE turn_id='voyage'").get() as { summary: string }).summary) as TurnScopeSummary;
   const receipt = () => summary().receipts.at(-1)!;
   const observe = (count: number, dimension: "files_changed" | "turn_bytes" = "files_changed", partial = false) => {
-    periodic.before(); observer("voyage", { changedPaths: dimension === "files_changed" ? count : 0, observedBytes: dimension === "turn_bytes" ? count : 0, partial }); periodic.after(true);
+    periodic.before(); observer("voyage", { changedPaths: dimension === "files_changed" ? count : 0, observedBytes: dimension === "turn_bytes" ? count : 0, workspacePaths: 0, partial }); periodic.after(true);
   };
   const message = (action: ClientScopeDecision["action"] = "continue", submissionId = "athena-grant"): ClientScopeDecision => ({ type: "scope_decision", sessionId: "ithaca", turnId: "voyage", eventId: receipt().eventId, submissionId, action });
   return { db, scope, summary, receipt, observe, message, get callbacks() { return { freezes, resumes, kills }; }, advance(ms: number) { clock += ms; }, disconnect() { connected = false; }, end() { current = false; }, floor() { free = 0; }, close() { scope.close(); db.close(); } };

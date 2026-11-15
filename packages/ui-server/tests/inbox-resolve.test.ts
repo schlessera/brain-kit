@@ -58,7 +58,8 @@ test("creation and replay accept semantically identical operation input and opti
   expect(f.store.checkpoints("harbor")[0]!.facts.operations).toHaveLength(1);
   let result: ReturnType<typeof f.resolver.resolve> | undefined;
   expect(() => { result = f.resolver.resolve(f.principal.id, request(input.action.id)); }).not.toThrow();
-  expect(result?.followUpId).toBeDefined();
+  expect(result?.replay).toBe(false);
+  expect(f.store.getItem(result!.followUpId!)).toMatchObject({ queue: "queue", type: "execute", status: "ready", payload: { operation } });
   expect(f.resolver.resolve(f.principal.id, request(input.action.id))).toMatchObject({ replay: true, followUpId: result!.followUpId });
 });
 
@@ -275,7 +276,7 @@ test("two real engine processes race a gated resolution and persist one follow-u
   for (const child of children) cleanup.push(async () => { if (child.exitCode === null) child.kill(); await child.exited; });
   const deadline = Date.now() + 5000;
   while (!ready.every(file => existsSync(file)) && Date.now() < deadline) await Bun.sleep(2);
-  expect(ready.every(file => existsSync(file))).toBe(true);
+  expect(ready.filter(file => !existsSync(file))).toEqual([]);
   expect(f.store.getItem(input.itemId)).toMatchObject({ status: "blocked" });
   expect(f.store.exportState().inbox_resolutions).toEqual([]);
   writeFileSync(gate, "go");

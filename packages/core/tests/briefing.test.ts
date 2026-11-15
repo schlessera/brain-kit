@@ -156,7 +156,7 @@ describe("Overdue Reviews", () => {
   test("reviewLimit overrides the cap", async () => {
     const lines = section(await brief(await makeBrain(SEVEN), { reviewLimit: 7 }), "Overdue Reviews");
     expect(lines).toHaveLength(7);
-    expect(lines.some((l) => l.includes("more (brain audit)"))).toBe(false);
+    expect(lines.filter((l) => l.includes("more (brain audit)"))).toEqual([]);
   });
 
   test("--limit-reviews reaches the briefing, and must be a non-negative integer", async () => {
@@ -232,8 +232,8 @@ describe("review round 1", () => {
         .map((i) => i.path)
     );
     const omitted = [1, 2].map((n) => `notes/r${n}.md`);
-    expect(listed.some((l) => omitted.some((p) => l.includes(p)))).toBe(false);
-    for (const path of omitted) expect(audited.has(path)).toBe(true);
+    expect(listed.filter((l) => omitted.some((p) => l.includes(p)))).toEqual([]);
+    expect([...audited]).toEqual(expect.arrayContaining(omitted));
   });
 
   test("open entries inside a longer fence, or after a fake closing line, are not counted", async () => {

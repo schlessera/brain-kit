@@ -242,6 +242,15 @@ signatures (every public export and the types it is made of)
     export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
         [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
     };
+  BackendBootFailure (packages/ui-server/src/agent/backend.ts)
+    export interface BackendBootFailure {
+        backendId: string;
+        phase: "resolution" | "runtime";
+        site: "assertBackendResolvable" | "probeBackendRuntimes";
+        errorClass: string;
+        message: string;
+        at: string;
+    }
   BackendRegistry (packages/ui-server/src/agent/backend.ts)
     export interface BackendRegistry {
         getBackends(): Promise<AgentBackend[]>;
@@ -515,6 +524,8 @@ signatures (every public export and the types it is made of)
         speechProviders?: SpeechProvider[];
         defaultSpeechProviderId?: string;
         conversationProvider?: LiveConversationProvider;
+        conversationProviders?: LiveConversationProvider[];
+        defaultConversationProviderId?: string;
         labeller?: LabellerOptions;
         turnTimeoutMs?: number;
         registry?: BackendRegistry;
@@ -668,6 +679,7 @@ signatures (every public export and the types it is made of)
                 durationMs: z.ZodNumber;
                 host: z.ZodString;
                 inference: z.ZodOptional<z.ZodLiteral<true>>;
+                managedReference: z.ZodOptional<z.ZodLiteral<true>>;
                 method: z.ZodString;
                 outcome: z.ZodEnum<{
                     cancelled: "cancelled";
@@ -1075,6 +1087,10 @@ signatures (every public export and the types it is made of)
                         tool_web_input: "tool_web_input";
                         unproxied_shell_input: "unproxied_shell_input";
                     }>;
+                    entry: z.ZodOptional<z.ZodObject<{
+                        kind: z.ZodLiteral<"tool">;
+                        toolUseId: z.ZodString;
+                    }, z.core.$strict>>;
                     epochId: z.ZodString;
                     exposure: z.ZodEnum<{
                         finalized: "finalized";
@@ -1435,6 +1451,13 @@ signatures (every public export and the types it is made of)
         timeoutMs?: number;
         billing?: BillingMode;
     }
+  LiveProviderRegistry (packages/ui-server/src/voice/live-providers.ts)
+    export interface LiveProviderRegistry {
+        readonly providers: readonly LiveConversationProvider[];
+        readonly hostDefault: string | null;
+        get(id: string): LiveConversationProvider | undefined;
+        resolve(saved: string | null): LiveDefault;
+    }
   LocalExchangeRecord (packages/ui-server/src/ws/local-exchanges.ts)
     export interface LocalExchangeRecord extends LocalExchange {
         seq: number;
@@ -1564,6 +1587,12 @@ signatures (every public export and the types it is made of)
         statCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["statCheckpoint"];
         listCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["listCheckpoint"];
     }
+  NativeJournalReleaseAccounting (packages/ui-server/src/brain/native-journal-observer.ts)
+    export interface NativeJournalReleaseAccounting {
+        pending: number;
+        failed: number;
+        retainedBytes: number;
+    }
   NativeManagerReady (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativeManagerReady {
         brainPath: string;
@@ -1575,6 +1604,12 @@ signatures (every public export and the types it is made of)
         availableBytes: number;
         recoveryReserveBytes: number;
         reserveAllocatedBytes: number;
+        recovery?: {
+            quarantinedIntents: number;
+            stagingChargedBytes: number | null;
+            stagingRefusal?: string;
+            diagnosticsPath: string;
+        };
     }
   NativePoolAccess (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolAccess {
@@ -2237,6 +2272,7 @@ signatures (every public export and the types it is made of)
         referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
         idleObservationMs?: number;
+        log?: Logger;
     }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
@@ -2374,6 +2410,7 @@ signatures (every public export and the types it is made of)
         maxConcurrentSessions: () => number;
         readonly observability: Observability;
         readonly isPrincipalAuthorized: (principalId: string) => boolean;
+        readonly liveProviders: LiveProviderRegistry;
         readonly dialogue: DialogueJournal;
         constructor(options: WsHostOptions);
         close(): Promise<void>;
@@ -2399,6 +2436,8 @@ signatures (every public export and the types it is made of)
         isPrincipalValid?: (principal: Principal) => boolean;
         isPrincipalAuthorized?: (principalId: string) => boolean;
         conversationProvider?: LiveConversationProvider;
+        conversationProviders?: LiveConversationProvider[];
+        defaultConversationProviderId?: string;
     }
   apifyActorGrant (packages/common/src/governance-policy.ts)
     const apifyActorGrant: z.ZodObject<{
@@ -2427,7 +2466,7 @@ signatures (every public export and the types it is made of)
         turn_usd: z.ZodNumber;
     }, z.core.$strict>;
   assertBackendResolvable (packages/ui-server/src/agent/backend.ts)
-    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): void;
+    export function assertBackendResolvable(agent: AgentConfig, resolve?: (specifier: string) => void, load?: (specifier: string) => unknown): BackendBootFailure[];
   attribution (packages/ui-server/src/governance/events.ts)
     const attribution: z.ZodObject<{
         actor: z.ZodEnum<{
@@ -2569,6 +2608,10 @@ signatures (every public export and the types it is made of)
             inode: string;
             note: string;
         };
+        cleanupStatus(): {
+            lastFailure: unknown;
+            retained: import("./native-journal-observer.js").NativeJournalReleaseAccounting;
+        };
         close(): Promise<void>;
         configurationCoverage(): ConfigurationCoverageRead;
         coverPaths(turnId: string, paths: readonly string[]): void;
@@ -2585,6 +2628,7 @@ signatures (every public export and the types it is made of)
             changedPaths: number;
             observedBytes: number;
             partial: boolean;
+            workspacePaths: number;
         }) => void, periodic?: {
             after(completed: boolean): void;
             before(): void;
@@ -2603,6 +2647,7 @@ signatures (every public export and the types it is made of)
             inode: string;
             note: string;
         }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
+        recoveryStatus(): JournalRecoveryStatus;
         releasesSettled(): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;

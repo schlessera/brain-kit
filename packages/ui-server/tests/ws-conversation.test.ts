@@ -1364,7 +1364,7 @@ test("a fresh host instance recovers scoped outcomes into a later epoch without 
   await until(() => !s.host.coordinator.isTurnActive());
   await s.host.catalog.settled!();
   s.host.conversations!.closeAll();
-  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.live.provider), configurable: true });
+  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.host.liveProviders), configurable: true });
   const resumed = await s.connect();
   const next = await resumed.open({ conversationId: c.id, contextualTasks: true });
   expect(next.epoch).toBe(2);
@@ -1394,7 +1394,7 @@ test("concurrent durable recovery has one owner and monotonically distinct epoch
   const c = await initial.open({ contextualTasks: true });
   s.host.conversations!.closeAll();
   await s.host.catalog.settled!();
-  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.live.provider), configurable: true });
+  Object.defineProperty(s.host, "conversations", { value: new ConversationHost(s.host, s.host.liveProviders), configurable: true });
   const load = s.host.catalog.loadConversation!.bind(s.host.catalog);
   const releases: (() => void)[] = [];
   Object.defineProperty(s.host.catalog, "loadConversation", { value: async (...args: Parameters<typeof load>) => {

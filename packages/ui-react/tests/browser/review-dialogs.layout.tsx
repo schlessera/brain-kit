@@ -57,7 +57,7 @@ async function mount(ctx: TestContext, site: Site, width = 1280, theme = "dark",
   }
   ctx.onTestFinished(async () => {
     flushSync(() => renderer.unmount()); await frame(); ui.dispose(); host.remove();
-    document.documentElement.dataset.theme = before.theme;
+    if (before.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = before.theme;
     await page.viewport(before.width, before.height);
     await commands.formViewport(outer.width - 100, outer.height - 120);
   });
@@ -69,11 +69,13 @@ async function mount(ctx: TestContext, site: Site, width = 1280, theme = "dark",
   return { ui, id, host, opener, dialog, hideOpener, closes: () => closes };
 }
 
-for (const site of ["local", "diagnostic", "compare"] as const) for (const theme of ["dark", "light"]) for (const width of [320, 1280]) {
-  const cell = `${site} ${theme} ${width}`;
+// One theme per cell: focus, trapping, dismissal and geometry take no
+// theme-specific class, and Storybook owns light/dark parity.
+for (const site of ["local", "diagnostic", "compare"] as const) for (const width of [320, 1280]) {
+  const cell = `${site} ${width}`;
   test(`${cell}: initial focus and accessible name`, async ctx => {
     // Mutation: remove the adapter's initialFocus; heading entry assertion fails.
-    const s = await mount(ctx, site, width, theme);
+    const s = await mount(ctx, site, width);
     expect(document.activeElement, "review focuses its reading heading").toBe(s.dialog()!.querySelector("h2"));
     const d = s.dialog()!;
     expect(d.getAttribute("aria-label") ?? document.getElementById(d.getAttribute("aria-labelledby")!)?.textContent, "preserved review name").toBe(names[site]);
@@ -81,7 +83,7 @@ for (const site of ["local", "diagnostic", "compare"] as const) for (const theme
   });
   test(`${cell}: traps Tab in both directions`, async ctx => {
     // Mutation: replace showModal with show and disable Overlay's Tab wrap.
-    const s = await mount(ctx, site, width, theme);
+    const s = await mount(ctx, site, width);
     const d = s.dialog()!;
     const stops = [...d.querySelectorAll<HTMLElement>('button,[role=button],input,textarea,[tabindex]')].filter(el => el.tabIndex >= 0 && !el.matches(":disabled,[aria-disabled=true]") && el.getClientRects().length > 0);
     expect(stops.length, "nonempty review controls").toBeGreaterThan(1);
@@ -93,30 +95,30 @@ for (const site of ["local", "diagnostic", "compare"] as const) for (const theme
   });
   test(`${cell}: Escape requests dismissal`, async ctx => {
     // Mutation: replace each adapter's onClose with a no-op.
-    const s = await mount(ctx, site, width, theme);
+    const s = await mount(ctx, site, width);
     await userEvent.keyboard("{Escape}"); await frame();
     expect(s.dialog(), "Escape dismisses review").toBeNull();
     expect(s.closes(), "one close request").toBe(1);
   });
   test(`${cell}: closing returns opener focus`, async ctx => {
     // Mutation: disable Overlay's returnFocus policy.
-    const s = await mount(ctx, site, width, theme);
+    const s = await mount(ctx, site, width);
     await userEvent.keyboard("{Escape}"); await frame();
     expect(document.activeElement, "review returns focus to its opener").toBe(s.opener);
   });
   test(`${cell}: scrim follows caller policy`, async ctx => {
     // Mutation: change local closerequest to any, and the other adapters to closerequest.
-    const s = await mount(ctx, site, width, theme);
+    const s = await mount(ctx, site, width);
     await userEvent.click(s.dialog()!.querySelector(".bk-overlay-scrim")!, { position: { x: 8, y: 8 } }); await frame();
     expect(s.closes(), "preserved scrim close policy").toBe(site === "local" ? 0 : 1);
     expect(!!s.dialog(), "scrim leaves local work mounted only").toBe(site === "local");
   });
 }
 
-for (const site of ["local", "diagnostic", "compare"] as const) for (const theme of ["dark", "light"]) for (const width of [320, 899, 900, 1280]) {
-  test(`${site} ${theme} ${width}: shared 900px geometry`, async ctx => {
+for (const site of ["local", "diagnostic", "compare"] as const) for (const width of [320, 899, 900, 1280]) {
+  test(`${site} ${width}: shared 900px geometry`, async ctx => {
     // Mutation: force top placement instead of responsive center.
-    const s = await mount(ctx, site, width, theme);
+    const s = await mount(ctx, site, width);
     const surface = s.dialog()!.querySelector<HTMLElement>(".bk-overlay-surface")!;
     const r = surface.getBoundingClientRect();
     expect(Math.abs(width < 900 ? r.bottom - innerHeight : r.top + r.height / 2 - innerHeight / 2), "review docks below 900 and centers from 900").toBeLessThanOrEqual(1);

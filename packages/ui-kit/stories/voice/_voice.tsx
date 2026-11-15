@@ -306,7 +306,7 @@ export function draftControls(o: { speaking?: boolean } = {}) {
     <>
       <VoiceControlButton name="Mute" icon="mic" pressed={false} onClick={fn()} />
       {o.speaking ? <VoiceControlButton name="Interrupt" icon="interrupt" onClick={fn()} /> : null}
-      <VoiceControlButton name="Discard draft" icon="withdrawn" onClick={fn()} />
+      <VoiceControlButton name="Discard draft" icon="backspace" onClick={fn()} />
       <VoiceControlButton name="Send now" icon="send" tone="you" onClick={fn()} />
       <VoiceControlButton name="End" icon="dismiss" tone="end" onClick={fn()} />
     </>

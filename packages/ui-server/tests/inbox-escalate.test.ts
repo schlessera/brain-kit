@@ -114,12 +114,12 @@ test("two device connections resolve one stored option into one follow-up withou
   const other = createInboxResolver(db2, { allowedOperations: () => [operation] });
   const request = { type: "inbox_resolve" as const, itemId: f.action.id, optionId: "approve" };
   const first = resolver.resolve(f.principal.id, request, 1);
-  expect(first.followUpId).toBeDefined();
+  expect(first.replay).toBe(false);
   expect(other.resolve(f.principal.id, request, 1)).toMatchObject({ replay: true, followUpId: first.followUpId });
   expect(f.db.query("SELECT COUNT(*) AS n FROM inbox_resolutions").get()).toEqual({ n: 1 });
   const executable = f.store.snapshot().items.filter(i => i.queue === "queue" && i.type === "execute");
   expect(executable).toHaveLength(1);
-  expect(executable[0]).toMatchObject({ status: "ready", payload: { operation } });
+  expect(executable[0]).toMatchObject({ id: first.followUpId, status: "ready", payload: { operation } });
   expect(f.store.getItem("share")).toMatchObject({ status: "superseded" });
   expect(f.store.getItem(f.action.id)).toMatchObject({ status: "resolved" });
   expect(f.db.query("SELECT COUNT(*) AS n FROM activity_spans").get()).toEqual({ n: 0 });

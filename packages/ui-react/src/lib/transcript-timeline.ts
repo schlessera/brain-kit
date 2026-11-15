@@ -13,6 +13,8 @@ export type TranscriptEntry =
       /** From the retained end's host clock span. "Voice ended" comes only from retained evidence, so live and reloaded chats agree. */
       durationMs?: number }
   | {key:string;sessionId:string|null;kind:"history-notice";label:string}
+  /** R2 (#3699): the startup-context coverage of one live conversation, at the start of its live section, when it names a sent count or is incomplete. */
+  | { key: string; sessionId: string | null; kind: "voice-coverage"; conversationId: string; coverage: NonNullable<NonNullable<ConversationClientState["profile"]>["historyCoverage"]> }
   | { key: string; sessionId: string | null; kind: "recognition"; fragments: ConversationRecognition[] };
 
 /**
@@ -45,6 +47,7 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
     return positions.get(key)!.arrival;
   };
   const boundaries = new Map<string, Extract<TranscriptEntry, { kind: "voice-boundary" }>>();
+  const coverages = new Map<string, Extract<TranscriptEntry, { kind: "voice-coverage" }>>();
   const split = new Set<string>();
   const runs = new Map<string, Array<{ key: string; start: number; end: number }>>();
   const textBefore = new Map<string, string>();
@@ -238,6 +241,13 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       boundary.sessionId = recognition?.sessionId ?? output?.sessionId ?? boundary.sessionId;
       entries.push(boundary);
     }
+    for (const [key, notice] of coverages) {
+      const recognition = v.recognition.find(f => f.conversationId === notice.conversationId);
+      const output = v.outputs.find(o => o.conversationId === notice.conversationId);
+      if (!recognition && !output && !(v.active && v.profile?.conversationId === notice.conversationId)) { coverages.delete(key); continue; }
+      notice.sessionId = recognition?.sessionId ?? output?.sessionId ?? notice.sessionId;
+      entries.push(notice);
+    }
     const rank = (key:string):readonly number[] => {
       const durable=ordered.get(key); if(durable!==undefined)return [durable,0,0];
       const at=position(key), anchor=positions.get(key)?.afterHostSequence;
@@ -310,9 +320,16 @@ export function createTranscriptTimeline(chat: StoreApi<ChatState>, voice: Store
       position(key); latest.set(next.sessionId, key);
       boundaries.set(key, { kind: "voice-boundary", key, sessionId: next.sessionId, conversationId: profile.conversationId, epoch: profile.epoch, label: "Voice reconnected" });
     }
+    // The coverage notice opens the live section once its conversation reports it.
+    const coverage = next.active ? next.profile?.historyCoverage : undefined;
+    if (next.profile && coverage && ((coverage.includedMessages ?? 0) > 0 || coverage.state !== "complete") && !coverages.has(JSON.stringify(["voice-coverage", next.profile.conversationId]))) {
+      const key = JSON.stringify(["voice-coverage", next.profile.conversationId]);
+      position(key); latest.set(next.sessionId, key);
+      coverages.set(key, { kind: "voice-coverage", key, sessionId: next.sessionId, conversationId: next.profile.conversationId, coverage });
+    }
     if (next.profile !== old.profile || next.recognition !== old.recognition || next.outputs !== old.outputs || next.active !== old.active || next.sessionId !== old.sessionId || next.dialogue !== old.dialogue) sync(); });
   sync();
-  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); boundaries.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
+  return { state, dispose() { stopChat(); stopVoice(); positions.clear(); boundaries.clear(); coverages.clear(); runs.clear(); split.clear(); latest.clear(); textBefore.clear(); state.setState({ entries: [] }); } };
 }
 
 /** Data-only display projections. Text ordinals stay intact for classified blocks. */

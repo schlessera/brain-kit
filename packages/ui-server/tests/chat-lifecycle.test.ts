@@ -216,7 +216,8 @@ test("retirement fences every identity, refuses late writes and keeps unrelated 
 
 test("fences survive content cascades and restart; consumed identities never execute again", async () => {
   const f = await fixture();
-  {
+  let host: ReturnType<typeof open> | undefined;
+  try {
     expect((await f.host.catalog.retireChat!(request(f.owner), idle)).status).toBe("retired");
     // What later content owners may remove, including the cascading task ledger.
     f.host.db.exec(`DELETE FROM conversation_epochs WHERE id='ithaca';
@@ -224,8 +225,8 @@ test("fences survive content cascades and restart; consumed identities never exe
       DELETE FROM dialogue_owners WHERE id='ithaca'; DELETE FROM sessions WHERE id='voyage'`);
     expect(f.host.db.query("SELECT COUNT(*) AS n FROM conversation_tasks WHERE conversation_id='ithaca'").get()).toEqual({ n: 0 });
     await f.host.close();
-    const host = open(f.path);
-    try {
+    host = open(f.path);
+    {
       const { catalog } = host;
       // Without the fence each of these would succeed against the scrubbed rows.
       await catalog.saveConversationEpoch!({ id: "odyssey-new", principalId: f.owner, epoch: 1 });
@@ -246,8 +247,8 @@ test("fences survive content cascades and restart; consumed identities never exe
       expect(host.db.query("SELECT COUNT(*) AS n FROM sessions WHERE id='voyage'").get(), "RETIRED_SESSION_ROW_NOT_RECREATED").toEqual({ n: 0 });
       expect(await readable(catalog, f.other, "aeaea")).toEqual([CONTROL]);
       expect(await catalog.chatRetirement!("retire-voyage", f.owner)).toMatchObject({ status: "retired", generation: 2, cleanup: "pending" });
-    } finally { await host.close(); }
-  }
+    }
+  } finally { await (host ?? f.host).close(); }
 });
 
 for (const order of ["adoption-first", "retirement-first"] as const) test(`racing adoption is decided on one side of the retirement (${order})`, async () => {

@@ -8,6 +8,7 @@ import type { GovernanceEventInput } from "../governance/events.js";
 import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from "../governance/session-taint.js";
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyProjection } from "../governance/safety-store.js";
+import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -200,10 +201,12 @@ export async function prepareTurnEgress(options: {
    * has committed by then. It is in force for every later admission from the
    * moment it is submitted.
    */
-  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; connectionId: string; protocol?:string }): Promise<void> => {
+  const admitted = async (destination: { host: string; port: number; method: string; inference: boolean; provider: boolean; managedReference: boolean; connectionId: string; protocol?:string }): Promise<void> => {
     // A host relay's operation neither taints the session nor makes its host
     // one the worker's own traffic may reach once tainted (G6, #3246).
-    if (destination.inference || destination.provider) {
+    // A managed acquisition has not delivered source content to the model.
+    // Its immutable read must establish independent input evidence later.
+    if (destination.inference || destination.provider || destination.managedReference) {
       if(writes?.recordingAvailable&&!writes.recordingAvailable(options.turnId,options.sessionId())){fail();throw new Error("Input recording unavailable before provider dispatch");}
       return;
     }
@@ -229,7 +232,7 @@ export async function prepareTurnEgress(options: {
     outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
     outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted,
-    committed: destination => { if (!destination.inference && !destination.provider) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
+    committed: destination => { if (!destination.inference && !destination.provider && !destination.managedReference) contacted.add(destination.host); }, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;
       const decision = await requestToolPermission(options.bridge, { toolUseId: crypto.randomUUID(), toolName: "Network",
@@ -247,23 +250,29 @@ export async function prepareTurnEgress(options: {
   };
   const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
     const operation = proxy[kind](method, target, signal);
+    return settleOperation(operation);
+  };
+  const settleOperation = (operation: ReturnType<typeof proxy.managedReference>) => {
     return { ...operation, async admit() {
-      // A completed worker connection may still be committing its terminal
-      // exposure. Join only this turn proxy's submitted records before taking
-      // a fresh admission snapshot; independent pending input still refuses.
+      // Join this proxy's terminal records and this bridge's announced
+      // session binding before the new snapshot. A concurrent FULL binding
+      // must not change a healthy scope underneath its first admission.
+      // Independent pending input still refuses in the unchanged final fences.
       if (operation.signal.aborted) return false;
       let abort: (() => void) | undefined;
       try {
-        const ready = await Promise.race([settled().then(() => true), new Promise<false>(resolve => {
+        const ready = await Promise.race([settled().then(() => settleTurnSessionBinding(original, operation.signal)).catch(() => false), new Promise<false>(resolve => {
           abort = () => resolve(false);
           operation.signal.addEventListener("abort", abort, { once: true });
           if (operation.signal.aborted) resolve(false);
         })]);
-        return ready && !operation.signal.aborted && await operation.admit();
+        if (!ready) { operation.finish("denied", "session_binding_unavailable"); return false; }
+        return !operation.signal.aborted && await operation.admit();
       } finally { if (abort) operation.signal.removeEventListener("abort", abort); }
     } };
   };
   return { ...proxy, bridge, recordingFailure: () => recordingFailure, settled,
     inference: (method: string, target: URL, signal: AbortSignal) => relayOperation("inference", method, target, signal),
-    relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal) };
+    relayed: (method: string, target: URL, signal: AbortSignal) => relayOperation("relayed", method, target, signal),
+    managedReference: (target: URL, signal: AbortSignal) => settleOperation(proxy.managedReference(target, signal)) };
 }

@@ -15,10 +15,11 @@ const meta = preview.meta({
   },
 });
 
-const play = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+const play = async ({ canvasElement, args }: { canvasElement: HTMLElement; args: { actions?: readonly unknown[] } }) => {
   const card = canvasElement.querySelector<HTMLElement>('[aria-label="Turn failed"]')!;
   await expect(overflowing(card)).toEqual([]);
   await expect(card.getBoundingClientRect().width).toBeCloseTo(card.parentElement!.getBoundingClientRect().width, 0);
+  await expect(card.querySelectorAll('.bk-turn-error-actions [role="button"]'), "every action is an operable control").toHaveLength(args.actions?.length ?? 0);
   for (const control of card.querySelectorAll<HTMLElement>('[role="button"]')) {
     await expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   }

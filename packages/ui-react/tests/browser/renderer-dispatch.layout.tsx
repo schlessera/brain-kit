@@ -16,7 +16,7 @@ let importerStarts = 0;
 const originalTheme = document.documentElement.dataset.theme;
 beforeAll(async () => { styles=document.createElement("style");styles.textContent=await commands.formConsumerStyles();document.head.append(styles); });
 afterAll(()=>{styles.remove();});
-afterEach(()=>{if(renderer)flushSync(()=>renderer.unmount());root?.dispose();host?.remove();defaultContentRendererRegistry.reset();document.documentElement.dataset.theme=originalTheme;});
+afterEach(()=>{if(renderer)flushSync(()=>renderer.unmount());root?.dispose();host?.remove();defaultContentRendererRegistry.reset();if(originalTheme===undefined)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=originalTheme;});
 function mount(content: string, theme: "light"|"dark"="light", file?: string) {
   document.documentElement.dataset.theme=theme;
   root=createBrainUiRoot({storage:null,request:async()=>Response.json({})});root.stores.ui.setState({theme});
@@ -37,7 +37,7 @@ test("pack chunk is requested only when its matching fence first appears", async
   // modulepreload that never invokes React's importer. An empty snapshot alone
   // races Chromium. Importer initiation is a separate, synchronous observation.
   const unmatchedRequests = await commands.requestLog({settle:true});
-  expect(unmatchedRequests.some(url=>new URL(url).searchParams.has("request-log-boundary"))).toBe(true);
+  expect(unmatchedRequests.filter(url=>new URL(url).searchParams.has("request-log-boundary")), "the request-log boundary was observed").not.toEqual([]);
   expect(unmatchedRequests.filter(url=>url.includes("renderer-demo-chunk")), "unmatched content must not acquire the renderer chunk").toEqual([]);
   expect(importerStarts, "unmatched content must not initiate the renderer importer").toBe(0);
   expect((await commands.requestLog()).filter(url=>url.includes("renderer-demo-chunk"))).toEqual([]);
@@ -79,7 +79,7 @@ test("declared missing fence and file pack show source with accessible unbundled
   mount("```absent\nThe missing fleet\n```");
   expect(host.querySelector('[role="status"]')?.textContent).toBe("Renderer not bundled.");expect(host.textContent).toContain("The missing fleet");
   root.stores.file.setState({currentPath:"fleet.absent",currentContent:{path:"fleet.absent",kind:"text",content:"The missing fleet",size:17,mtime:Date.parse("2026-07-12T00:00:00Z")},contentLoading:false,viewMode:"preview"});render("",true);
-  expect([...host.querySelectorAll('[role="status"]')].some(note=>note.textContent==="Renderer not bundled.")).toBe(true);
+  expect([...host.querySelectorAll('[role="status"]')].map(note=>note.textContent)).toContain("Renderer not bundled.");
 });
 test("share surface passes print theme to a matched component",async()=>{
   register();mount("");flushSync(()=>renderer.render(<BrainUiProvider root={root}><ContentRendererSurface.Provider value={{mode:"share"}}><BrainMarkdown content={"```demo\nHomecoming\n```"}/></ContentRendererSurface.Provider></BrainUiProvider>));

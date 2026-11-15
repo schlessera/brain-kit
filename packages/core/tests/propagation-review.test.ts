@@ -154,7 +154,7 @@ test("real CLI reconciliation automates benign findings and cached judgment pers
   writeFileSync(source, readFileSync(source, "utf8") + "\nAn escort is now required.\n");
   const changed = await scriptedCli(brain, ["reconcile"], "needs_update");
   expect(changed.propagation.reviewRequired).toBe(1);
-  expect(changed.detected.some((i: { category: string }) => i.category === "propagation")).toBe(true);
+  expect(changed.detected.map((i: { category: string }) => i.category)).toContain("propagation");
   expect(readFileSync(requests, "utf8").trim().split("\n")).toHaveLength(2);
 });
 
@@ -162,7 +162,7 @@ test("inspection-only next does not ask a provider or write a receipt even with 
   const brain = fixture();
   const baseline = await runCli(brain.root, ["hygiene", "reconcile", "--json"]); // Explicitly keyless child.
   expect(baseline.code, baseline.stderr).toBe(0);
-  expect(JSON.parse(baseline.stdout).detected.some((i: { category: string }) => i.category === "propagation")).toBe(true);
+  expect(JSON.parse(baseline.stdout).detected.map((i: { category: string }) => i.category)).toContain("propagation");
   await scriptedCli(brain, ["next", "--dry-run"], "forbid");
   expect(existsSync(join(brain.root, "propagation-requests.jsonl"))).toBe(false);
   expect(existsSync(join(brain.root, PROPAGATION_REVIEWS_PATH))).toBe(false);

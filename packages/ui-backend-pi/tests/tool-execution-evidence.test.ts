@@ -44,7 +44,7 @@ async function evidence(loadExtensions: boolean | undefined, modes: string[]) {
           frames.push(frame); if ("sessionId" in frame) sessionId ??= frame.sessionId;
         }, requestPermission: async () => ({ behavior: "allow" }),
         readBrainBase: async () => ({ content: "Penelope weaves.\n", expectedBaseHash: "0".repeat(64) }) } });
-      expect(frames.filter(frame => frame.type === "tool_result").every(frame => frame.type === "tool_result" && !frame.isError), `PI_EVIDENCE_${mode.toUpperCase()}_RESULTS`).toBe(true);
+      expect(frames.filter(frame => frame.type === "tool_result" && frame.isError), `PI_EVIDENCE_${mode.toUpperCase()}_RESULTS`).toEqual([]);
 
     }
     return { reported };

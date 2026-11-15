@@ -53,7 +53,8 @@ export const Idle = meta.story({
     const box = mic.getBoundingClientRect();
     await expect([box.width, box.height], "the 44px target").toEqual([44, 44]);
     const outer = field(canvasElement).getBoundingClientRect();
-    await expect(box.top >= outer.top && box.bottom <= outer.bottom, "the target stays inside the border").toBe(true);
+    await expect(box.top, "the target stays inside the top border").toBeGreaterThanOrEqual(outer.top);
+    await expect(box.bottom, "the target stays inside the bottom border").toBeLessThanOrEqual(outer.bottom);
     const disc = centre(canvasElement.querySelector(".bk-voice-mic-disc")!);
     for (const name of ["Attach — photo, camera, files", "Send"]) {
       await expect(Math.abs(centre(canvas.getByRole("button", { name })) - disc), `${name} centred on the mic`).toBeLessThanOrEqual(0.5);

@@ -159,7 +159,8 @@ test("large host facts use bounded quiet chunks then one commentary with the ori
   await until(() => f.sent.some((m) => m.type === "session.commentary.append"));
   const updates = f.sent.filter((m) => /session\.(thinking|commentary)\.append/.test(m.type));
   expect(updates.map((m) => m.content).join("")).toBe(facts);
-  expect(updates.every((m) => m.delegation_id === "delegation-1" && Buffer.byteLength(m.content) <= 500)).toBe(true);
+  expect(new Set(updates.map((m) => m.delegation_id))).toEqual(new Set(["delegation-1"]));
+  expect(Math.max(...updates.map((m) => Buffer.byteLength(m.content)))).toBeLessThanOrEqual(500);
   expect(updates.filter((m) => m.type === "session.commentary.append")).toHaveLength(1);
   expect(updates.at(-1).type).toBe("session.commentary.append");
 });
@@ -243,9 +244,9 @@ test("real adapter and host keep chat progress and a question interactive while 
   expect(turns).toHaveLength(0);
   send({ type: "conversation_commit", conversationId, epoch, utteranceId: "u1", requestId: "request-1", text: "Check the Ithaca note." });
   await until(() => frames.some((m) => m.type === "ask_user_request"));
-  expect(frames.some((m) => m.type === "text_delta" && m.text === "Checking the harbour notes.")).toBe(true);
+  expect(frames).toContainEqual(expect.objectContaining({ type: "text_delta", text: "Checking the harbour notes." }));
   expect(f.sent.some((m) => m.type === "session.commentary.append")).toBe(false);
-  expect(frames.some((m) => m.type === "tool_use_start" && m.toolUseId === "lookup-1")).toBe(true);
+  expect(frames).toContainEqual(expect.objectContaining({ type: "tool_use_start", toolUseId: "lookup-1" }));
   expect(turns[0]!.noGrantSurface).toBeUndefined();
   send({ type: "conversation_audio", conversationId, epoch, utteranceId: "u2", sequence: 1, rate: 24000, pcm: "AAA=" });
   await until(() => f.sent.filter((m) => m.type === "session.input_audio.append").length === 2);
@@ -256,7 +257,7 @@ test("real adapter and host keep chat progress and a question interactive while 
   release();
   await until(() => f.sent.some((m) => m.type === "session.commentary.append"));
   expect(f.sent.find((m) => m.type === "session.commentary.append")).toMatchObject({ delegation_id: "host-1" });
-  expect(frames.some((m) => m.type === "result")).toBe(true);
+  expect(frames).toContainEqual(expect.objectContaining({ type: "result" }));
 });
 
 
@@ -405,11 +406,16 @@ test("contextual GPT lost append acknowledgement is unknown and cannot replay an
   f.emit(delegation("lost-ack")); await until(() => f.received.some(e => e.kind === "unassigned_delegation"));
   f.session.bindContextualWork!({ nativeHandle: "lost-ack", taskId: "task-one", requestId: "request-one" });
   const contextual = { conversationId: "ithaca", epoch: 1, provenance: "contextual" as const, taskId: "task-one", requestId: "request-one", turnId: "turn-one", nativeHandle: "lost-ack" };
-  const returning = f.session.returnWork(contextual, result);
-  const rejection = expect(returning).rejects.toThrow("unknown");
+  // Settle by hand: a pending `expect(...).rejects` would hold the test until
+  // the 2 s acknowledgement timer answered, and the loss itself went untested.
+  let outcome: unknown;
+  void f.session.returnWork(contextual, result).then(value => { outcome = value; }, (error: Error) => { outcome = error.message; });
   await until(() => f.sent.some(m => m.type === "session.commentary.append"));
-  f.closeRemote(); await rejection;
+  expect(outcome).toBeUndefined();
   await expect(f.session.returnWork(contextual, result)).rejects.toThrow("correlation");
+  f.closeRemote();
+  await until(() => f.received.some(e => e.kind === "closed"));
+  expect(outcome).toBe("GPT-Live result acceptance is unknown.");
   expect(f.sent.filter(m => m.type === "session.commentary.append")).toHaveLength(1);
 });
 

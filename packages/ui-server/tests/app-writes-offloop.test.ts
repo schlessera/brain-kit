@@ -49,8 +49,9 @@ test("governance events commit on the write worker at FULL, never on the app con
     expect(await writes.firstTaint({ ...attribution, kind: "taint", payload: { source: "egress_connection", tool: null, detail: "GET troy.example:443" } }), "GOVERNANCE_TAINT_COMMITS_ON_WORKER").toBe(true);
     await writes.bind("voyage", "ithaca");
     expect(f.db.query("SELECT count(*) AS n FROM governance_events WHERE session_id = 'ithaca'").get(), "GOVERNANCE_BIND_COMMITS_ON_WORKER").toEqual({ n: 2 });
-    expect(await writes.roadblocks({ ...attribution, sessionId: "ithaca" }, { startedAt: 0, endedAt: 1, calls: [], usage: [], finalUsage: null, outcomeDetail: null }))
-      .toBeGreaterThanOrEqual(0);
+    // The committed scope cap is one roadblock episode for this turn.
+    expect(await writes.roadblocks({ ...attribution, sessionId: "ithaca" }, { startedAt: 0, endedAt: 1, calls: [], usage: [], finalUsage: null, outcomeDetail: null }), "GOVERNANCE_ROADBLOCK_COMMITS_ON_WORKER")
+      .toBe(1);
     const runtime = createActivityRuntime(f.db, { log: quietLog, writer: f.writer });
     try { await runtime.governance({ ...attribution, kind: "budget_warning", payload: { scope: "turn", unit: "usd", limit: 1, observed: 1, source: "policy" } }); }
     finally { runtime.close(); }

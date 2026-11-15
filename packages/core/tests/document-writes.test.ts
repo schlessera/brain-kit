@@ -67,6 +67,8 @@ describe("brain_update", () => {
   });
 
   test("a write that fails part-way leaves the document as it was", async () => {
+    // Its own starting bytes: the successful update below may have run first.
+    writeFileSync(join(root, "notes/ledger.md"), SOURCE);
     // The appended section alone is several times the limit: a write of it fails.
     expect(OVERSIZED_APPEND.length).toBeGreaterThan(SIZE_LIMIT_BLOCKS * 1024 * 2);
     const res = await limited.callTool({

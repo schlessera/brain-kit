@@ -4,8 +4,7 @@ import {
   SettingsManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { buildSystemPromptAppend, type WebSearchBrief } from "@schlessera/brain-ui-sdk/server";
-import { resolveWebSearchConfigPath, webSearchBrief } from "@schlessera/brain-ui-sdk/internal";
+import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -16,7 +15,6 @@ import type {
   SessionToolkit,
 } from "./backend-options.js";
 import type { BrainAccess } from "./brain-access.js";
-import { resolveWebSearchEnv } from "./config/env.js";
 import { createPermissionGate } from "./permission-gate.js";
 import { restrictedResources } from "./restricted-resources.js";
 import { createTurnContext } from "./turn-context.js";
@@ -112,17 +110,12 @@ export function createSessionResources(options: {
     }
     const subagentTool =
       loadExtensions && hasPackage(settingsManager, "pi-subagents") ? "subagent" : false;
-    // No web extension, no search tool — and nothing to say about providers.
-    const webSearch =
-      loadExtensions && hasPackage(settingsManager, "pi-web-access")
-        ? readWebSearchBrief()
-        : undefined;
-    const brief = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch, Boolean(options.shellCwd));
+    const brief = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, Boolean(options.shellCwd));
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true,
-      } }, subagentTool, webSearch, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
+        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true, web: true,
+      } }, subagentTool, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
@@ -176,7 +169,6 @@ function buildAppend(
   options: CreatePiBackendOptions,
   env: SessionEnv,
   subagentTool: string | false,
-  webSearch: WebSearchBrief | undefined,
   perTurnProcess: boolean
 ): string {
   // The chat-surface brief for one session: what the answer renders into
@@ -188,9 +180,10 @@ function buildAppend(
     buildSystemPromptAppend({
       ...(env.client ? { client: env.client } : {}),
       ...(env.turnBudgetMs ? { turnBudgetMs: env.turnBudgetMs } : {}),
-      // Which search providers this deployment actually reaches. Omitted when
-      // the web extension is absent — there is no search tool then.
-      ...(webSearch ? { webSearch } : {}),
+      // The host-owned web tools (#3686), listed in every interactive
+      // session: the brief says what they do not offer. The worker never
+      // reads the host's web configuration.
+      ...(env.caps.web ? { webTools: true } : {}),
       // Named only when the bridge actually provides the handler — the toolkit
       // registers each tool on the same condition.
       tools: {
@@ -247,39 +240,3 @@ function hasPackage(settingsManager: SettingsManager, name: string): boolean {
   }
 }
 
-/**
- * The web-search brief for this session, read from the same `web-search.json`
- * the pi-web-access extension reads.
- *
- * Resolved through the SDK helper, NOT from `agentDir`: pi puts its agent dir
- * at `~/.pi/agent` while the extension reads `~/.pi/web-search.json`, one level
- * up. Reading the wrong one finds nothing and would silently tell the model no
- * providers are configured.
- *
- * The extension lets its tool be renamed (`toolNames.webSearch`), so the brief
- * names whatever the model will actually see.
- */
-function readWebSearchBrief(): WebSearchBrief | undefined {
-  try {
-    const env = resolveWebSearchEnv();
-    const path = resolveWebSearchConfigPath(env);
-    const raw = existsSync(path) ? readFileSync(path, "utf-8") : "{}";
-    const parsed = JSON.parse(raw) as unknown;
-    const config =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-    const names = config.toolNames;
-    const named =
-      names && typeof names === "object" && !Array.isArray(names)
-        ? (names as Record<string, unknown>).webSearch
-        : undefined;
-    const toolName =
-      typeof named === "string" && named.trim() ? named.trim() : "web_search";
-    return webSearchBrief(config, { toolName, env });
-  } catch {
-    // A malformed config is the extension's problem to report; the brief just
-    // stays silent rather than claiming a provider set it cannot read.
-    return undefined;
-  }
-}

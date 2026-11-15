@@ -18,8 +18,8 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 // and composed Settings/Dictation handlers exercise deletion and modal races.
 const candidates = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 const executablePath = candidates.find((path) => path && statSync(path, { throwIfNoEntry: false })?.isFile());
-if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Local work runtime proof requires real Chrome");
-if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM) console.warn("SKIPPING local work runtime proof: no Chrome; device-local drafts are unverified in a browser locally.");
+if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM && process.env.BRAIN_REQUIRE_CHROME === "1") throw new Error("Association sign-out runtime proof requires real Chrome");
+if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM) console.warn("SKIPPING association sign-out runtime proof: no Chrome; association and scoped sign-out are unverified in a browser locally.");
 
 const repo = resolve(import.meta.dir, "../../..");
 const PASSWORD = "the bow only Odysseus can string";
@@ -81,7 +81,7 @@ const hook = runtimeHookPhases("association-signout-runtime.test.ts");
 beforeAll(() => hook.phase("setup", async () => {
   if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM) return;
   const [out, err, code] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
-  if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
+  if (code !== 0) throw new Error(`Association sign-out fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-association-signout-"));
   brain = resolve(scratch, "brain");
   await hook.phase("fixture-files", () => createFixtureBrain(repo, brain));
@@ -89,7 +89,7 @@ beforeAll(() => hook.phase("setup", async () => {
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/association-signout-client.tsx"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [bundleOut, bundleErr, bundleCode] = await hook.child("client-build", bundle);
-  if (bundleCode !== 0) throw new Error(`Local work client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
+  if (bundleCode !== 0) throw new Error(`Association sign-out client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
   await hook.phase("fixture-assets", async () => {
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   await writeFile(resolve(assets, "signout-worker.js"), 'self.addEventListener("install",event=>event.waitUntil(caches.open("odysseus-signout-shell").then(cache=>cache.addAll(["/","/client.js","/kit.css","/app.css"]))));self.addEventListener("activate",event=>event.waitUntil(self.clients.claim()));self.addEventListener("fetch",event=>{if(new URL(event.request.url).pathname.startsWith("/api/"))return;event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));});');

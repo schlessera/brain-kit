@@ -51,17 +51,25 @@ Only the phase changes announce. The existing composer owns the single Stop.
 
 ## Dictation
 
-At widths of 900px and above, dictation opens a panel immediately above the
-composer, bounded to its width. Done or the composer's mic stops capture and
-hands the transcript to review. Conversation text remains selectable while
-recording. Done receives focus on opening; Enter or Space activates the
-focused stop control, and Escape cancels. Closing returns focus to the mic.
+Dictation happens in the voice field (#3694), drawn with the kit's
+`VoiceField`, `VoiceText`, `VoiceNotice` and `VoiceControlButton`. Tapping the
+mic replaces the composer with the compact field. While the session is fetched
+the field is grey, reads "Connecting" and "Not listening yet", and offers
+**Cancel dictation**. If the browser asks for the microphone, its notice
+replaces the field. Once the microphone is open the field turns amber and reads
+"Listening", with the level meter, then goes flat when there has been no speech
+for a moment, and reads "Finishing" while the last words arrive. Its label meta
+names where the words go in every one of these states: "to Google Gemini",
+"via Deepgram", "browser speech · audio goes to Google" in Chrome, or "browser
+speech · sent by your browser" elsewhere. The ✓ (**Finish dictation**) ends
+the take, and so does 30 seconds without speech. Escape cancels a take that is
+not finishing. The field keeps one 84px height throughout.
 
-Below 900px, dictation keeps the full-width phone sheet and its backdrop stop
-control. Its 200ms upward entrance respects reduced-motion preferences through
-both stylesheet entry points. Both forms keep the provider disclosure,
-transcript scrolling and review flow. The composer preserves its draft and
-prevents typing or sending while capture or its final drain is active.
+What a take heard joins the draft as plain editable text, after anything
+already typed, with the caret at its end. Nothing is sent until **Send**. While
+the draft holds dictated words the mic reads **Dictate more** and adds the
+next take after them, and the send is marked as dictated. A take that heard
+nothing returns focus to the mic.
 
 ### Choosing the dictation service
 
@@ -93,9 +101,14 @@ shows where its audio goes, with **Cancel** and **Start dictation**, before any
 session request or microphone access. The acknowledgement is stored on the
 device per account, keyed by the service and its destination text; storage that
 fails asks again. A take sends the service it disclosed and refuses a session
-for any other; a default saved during a take applies to the next one. After
-**Start dictation**, focus continues on **Done**. With no service to send to,
-the sheet says so and offers **Open Settings**. Saved recordings are confirmed
+for any other; a default saved during a take applies to the next one. The
+acknowledgement is a notice above the composer: "Your words are sent to …
+to be written down.", then what happens to the audio. For Google Gemini that
+is "The audio isn't kept."; for any other service the app can't verify
+retention, so it says the service's own policy applies ("Deepgram's
+retention policy applies.", or for browser speech "Your browser's speech
+service policy applies."). Initial focus is on **Start dictation**; Cancel and Escape return focus to the mic. With no service to send
+to, a notice says so and offers **Open Settings**. Saved recordings are confirmed
 for the effective service when it can transcribe them; otherwise the tray
 offers an unsaved, per-recording choice among the services that can. Each new
 confirmation is resolved from the root's current discovery and keeps that
@@ -105,11 +118,85 @@ upload needs a new confirmation. Labels and destinations the server sends win;
 built-ins registered without them fall back to client-side names.
 
 When a provider ends dictation with an error, or dictation cannot start, a
-persistent amber notice explains the failure below review. Its safe copy refers
-only to words from that capture. Dismiss keeps the review words; a new capture
-or review Send/Edit/Discard clears the notice. Typing and session changes keep
-it. It is announced once politely, appears without moving focus, and offers no
-automatic restart. Distinct local microphone notices remain visible afterward.
+notice above the composer explains it. A refused microphone reads "Microphone
+is blocked" with **OK**. Any other failure reads "Dictation stopped" and quotes
+the words the take kept, which are already in the draft, with **Dismiss** and
+**Try again**. Its safe copy never carries provider text. Typing and session
+changes keep it; a new take or a send clears it. It is announced once politely,
+never takes focus, and offers no automatic restart. Distinct local microphone
+notices remain visible afterward.
+
+### Choosing the live-conversation service
+
+The Live service group of Settings › Voice, below Dictation, holds the
+brain-wide default live-conversation service (#3616). It lists the services
+the host registered, from the connection's `server_hello`, and reads and
+writes `GET`/`PUT /api/settings/voice` against its revision; a pick saves at
+once. Rows are marked "saved default", "host default" (while nothing is saved)
+and "in use now"; a saved default the host no longer registers is a dashed
+"saved default · not available" row that cannot be chosen. With one service the
+group is a read-only row; with none it says live conversation isn't set up.
+Only the owner can change it: the route refuses anyone else, and the group then
+says so. A save applies from the next Start and never retargets a running
+conversation; opening or saving the group opens no provider, no microphone and
+reads no history. A save another device overtook says "Changed on another
+device. Showing the latest." and reloads; a failed save reverts and offers
+**Try again**.
+
+Before Start, the conversation client exposes the pick through
+`chooseService(providerId | null)`, which applies to that Start only and is
+never saved, and `conversationProfile` is the service Start would disclose and
+open: the pick, else the effective service, else `null` when a pick is required.
+The Start card draws that pick as its Service row (below).
+
+### Live-conversation personas
+
+The Persona group in Settings › Voice lists the built-in **Standard** persona
+and the personas you add, each a Markdown file at `_voice/personas/<id>.md` in
+your brain. A persona has a name, one voice per live service (or that
+service's default) and **How it speaks**, plain-text instructions about tone,
+brevity and manner. Picking a radio saves the brain-wide selection at once.
+**+ New persona** and each row's **⋯** menu (Edit, Rename, Duplicate, Delete;
+desktop also shows **Edit**) open the editor in the pane. The editor counts the
+instructions in exact UTF-8 bytes per service: GPT-Live accepts 2,000 and Gemini
+Live 6,000, so a persona can be fine for one service and too long for the other.
+Nothing is ever truncated; Start refuses instead. A save that another device
+overtook keeps your text and offers **Show the newer version**; leaving with
+unsaved edits asks first. Deleting the selected persona moves the selection to
+Standard. Files that cannot be used are listed with the reason and cannot be
+selected.
+
+Edits, selection and delete apply from the next Start. A running conversation,
+including its reconnects, keeps the persona it started with. The connection
+client's state carries `livePersona`, the selected persona as the host resolves
+it per service (voice, default or stale voice, over-limit), and Start echoes
+its `personaRef`. A persona shapes speech only; it cannot change what brain may
+do, see or approve. The pane never opens the microphone or a provider.
+
+### The Start card
+
+Entering live conversation opens the kit `StartCard` in place of the composer
+(#3698), with focus on its Start. Its first line names the service Start would
+open; **What's shared** lists the full disclosure: the service's own words and
+destinations, the host relay, the agent backend, task and retention notes and
+history coverage. The Service row shows **Change** only when two or more
+services are usable; each press moves to the next one for this conversation
+only and never saves the default. When the saved service is unavailable, the
+row asks to **Choose** a service and Start stays unavailable until one is
+picked; the host default is never substituted. The persona list preselects the
+saved persona, and picking one also saves it as the default.
+
+One notice above Start says what changes it: a persona with no voice on this
+service names the default voice it will use; a saved voice the service no
+longer offers blocks Start until **Use the default voice this time**; persona
+instructions over the service's byte cap block Start (**Edit persona** opens
+Settings › Voice, or change the service); a persona file that can't be used
+offers **Use Standard this time**. Those one-time choices go into the Start's
+`personaRef` and are not saved. Change, a persona pick and every notice
+action open no microphone, read no history and contact no provider; Start is
+the only way out that does, and it sends exactly the service, persona and
+voice the card shows. × or Escape leaves. A refused Start is drawn as the
+stopped notice, whose **Start again** reopens the card.
 
 ### Recording on the device
 
@@ -511,7 +598,7 @@ minimal view of each store rather than its full state:
 | Hook | View | Fields |
 | --- | --- | --- |
 | `useChatStore` | `ChatShellState` | `buffers`, `draft`, `activeSessionId` (what `activeChat` and `anyStreaming` read) |
-| `useVoiceStore` | `VoiceShellState` | `mode`, `connecting`, `draining`, `reviewText` |
+| `useVoiceStore` | `VoiceShellState` | `mode`, `connecting`, `draining`, `reviewText` (dictated words not yet in a draft; a mounted composer moves them in at once) |
 | `useShareStore` | `ShareShellState` | `queue`, `busy` (what `hasPendingShare` reads) |
 | `useUIStore` | `UIShellState` | `activeView`, `setActiveView`, `setFilePanelOpen` |
 | `useFileStore` | `FileShellState` | `openFile`, `openDir` |
@@ -748,7 +835,8 @@ offers **Refresh and retry**. Sync and reset use immediate layout updates.
 
 Settings exposes the same nine panes on phone, tablet and desktop: Appearance
 & input, Models, Voice, Accounts, Skills, Modules, Storage, Security, and Devices & agents.
-Voice holds the dictation service (see [Choosing the dictation service](#choosing-the-dictation-service));
+Voice holds the dictation service (see [Choosing the dictation service](#choosing-the-dictation-service))
+and the live-conversation persona (see [Live-conversation personas](#live-conversation-personas));
 its groups each own their route and state, so the live-conversation service can
 join the same pane without sharing a revision.
 Theme and the single-key shortcut switch apply only on this device and live in

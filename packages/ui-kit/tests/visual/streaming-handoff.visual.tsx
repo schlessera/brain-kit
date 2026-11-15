@@ -78,23 +78,25 @@ async function drive(host: HTMLElement, beforeInput = 0, afterInput = 0, stall?:
   }
 }
 
+// Storybook owns light and dark parity (docs/process/theme-parity.md). The
+// handoff timing never reads a colour, so each case runs in one theme.
 for (const theme of ["dark", "light"]) {
-  test(`${theme}: input orchestration before the first token is outside its arrival budget`, async () => {
+  if (theme === "dark") test(`${theme}: input orchestration before the first token is outside its arrival budget`, async () => {
     await withStream(theme, host => drive(host, 180));
   });
 
-  test(`${theme}: final observation after ghost removal is outside its arrival budget`, async () => {
+  if (theme === "light") test(`${theme}: final observation after ghost removal is outside its arrival budget`, async () => {
     await withStream(theme, host => drive(host, 0, 900));
   });
 
   // #3417: a long task spanning the fade's end delays the removal timer, the
   // fade's own end and every frame alike. Wall time grows by the stall; the
   // frames rendered with a faded ghost do not.
-  test(`${theme}: a main-thread stall across the fade's end is outside the handoff budget`, async () => {
+  if (theme === "dark") test(`${theme}: a main-thread stall across the fade's end is outside the handoff budget`, async () => {
     await withStream(theme, host => drive(host, 0, 0, { at: 590, ms: 150 }));
   });
 
-  test(`${theme}: a first-token ghost held 200ms past its fade still fails`, async () => {
+  if (theme === "light") test(`${theme}: a first-token ghost held 200ms past its fade still fails`, async () => {
     await withStream(theme, async host => {
       const nativeTimeout = globalThis.setTimeout;
       let handoffTimers = 0;
@@ -111,7 +113,7 @@ for (const theme of ["dark", "light"]) {
     });
   });
 
-  test(`${theme}: a fade slowed to 900ms still fails on its own animation clock`, async () => {
+  if (theme === "dark") test(`${theme}: a fade slowed to 900ms still fails on its own animation clock`, async () => {
     await withStream(theme, async host => {
       const nativeTimeout = globalThis.setTimeout;
       const slow = document.createElement("style");

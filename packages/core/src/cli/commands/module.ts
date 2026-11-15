@@ -57,6 +57,7 @@ function moduleList(cli: CliContext): Record<string, unknown> {
     commands: Object.keys(m.manifest.commands ?? {}),
     tools: Object.keys(m.manifest.tools ?? {}).map((local) => `${m.manifest.name}_${local}`),
     cron: m.state === "dormant" ? [] : m.manifest.cron ?? [],
+    repositories: [...(m.repositories ?? [])],
     state: m.state ?? "active",
     contextTokens: moduleContextTokens(cli.brain.root, cli.brain.modules, m),
     settings: Boolean(m.declaration?.configSchema),

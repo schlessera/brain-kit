@@ -33,7 +33,7 @@
  * executes.
  */
 
-import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import type { InlineExtension, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
   APIFY_TOOL_NAMES,
   WEB_TOOL_NAME_LIST,
@@ -108,6 +108,26 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
     name: "brain-permission-gate",
     factory: (pi) => {
       pi.on("tool_call", async (event) => {
+        // Each tool_call event is one admission of its id, counted before
+        // anything is decided (#3812).
+        const safety = turn.bridge?.inputSafety;
+        safety?.admitting?.(event.toolCallId, event.toolName);
+        const answer = await admit(event);
+        // A block is this host's denial before the call runs. It refuses the
+        // id at the collector, so nothing later under it is admitted or let
+        // through, and for the id's only admission, never let through, it
+        // discharges the call's result obligation.
+        if (answer?.block) { await safety?.refused?.(event.toolCallId, true); return answer; }
+        // The collector's last check before the call runs: one it can no
+        // longer let run is blocked instead.
+        try { await safety?.allowed?.(event.toolCallId); }
+        catch (error) {
+          await safety?.refused?.(event.toolCallId, true);
+          return { block: true, reason: error instanceof Error ? error.message : "Safety recording refused this call." };
+        }
+        return answer;
+      });
+      async function admit(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
         if (turn.signal?.aborted) return { block: true, reason: "Turn cancelled before tool admission." };
         if (isCompletedAutonomousToolCall(turn.autonomous, event.toolName, event.input))
           return { block: true, reason: "This call already completed before yielding; inspect its retained result instead of replaying it." };
@@ -135,7 +155,7 @@ export function createPermissionGate(options: PermissionGateOptions): InlineExte
           Object.assign(target, decision.updatedInput);
         }
         return undefined;
-      });
+      }
     },
   };
 }

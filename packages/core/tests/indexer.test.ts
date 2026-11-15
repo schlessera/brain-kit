@@ -707,9 +707,11 @@ describe("asset cache non-poisoning", () => {
       "assets/logo.png": FAKE_PNG,
     });
 
-    // No provider and no enrichment: the asset is registered with a descriptor
-    // placeholder, nothing is embedded, and no sidecar is written.
-    await runIndex(root, { embeddings: true });
+    // A provider and no enrichment: the asset is registered with a descriptor
+    // placeholder, and the embeddings run still writes the sidecar caches, so
+    // the placeholder filter is what keeps it out. Without a provider no cache
+    // is written at all and nothing here could fail.
+    await runIndex(root, { embeddings: true, provider: makeProvider() });
 
     const db = await openRead(root);
     const asset = db
@@ -719,12 +721,8 @@ describe("asset cache non-poisoning", () => {
     db.close();
 
     // The committed sidecar cache must never learn placeholders or title
-    // fallbacks (the file may legitimately not exist at all).
-    for (const entry of readAssetCache(root)) {
-      expect(entry.v.startsWith("[Image:")).toBe(false);
-      expect(entry.v.startsWith("[PDF:")).toBe(false);
-      expect(entry.v).not.toBe("assets: logo");
-    }
+    // fallbacks: the one asset has no description, so the cache holds nothing.
+    expect(readAssetCache(root)).toEqual([]);
   });
 
   test("the sidecar rehydrates a lost brain.db even without enrichment", async () => {

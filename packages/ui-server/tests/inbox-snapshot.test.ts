@@ -196,7 +196,11 @@ test("operational backup includes a versioned database image instead of audit-on
   store.commit([{ kind: "heartbeat", name: "inbox-drain", tickAt: 1000, changeCursor: 0 }]);
   expect(store.exportState().inbox_scheduler_heartbeats).toHaveLength(1);
   const snapshot = await exportInboxSnapshot(db, root, 1000);
-  expect(snapshot.format).toBe("brain-ui-operational-backup");
+  expect(snapshot).toMatchObject({ format: "brain-ui-operational-backup", version: 1 });
+  const bytes = Buffer.from(snapshot.database.data, "base64");
+  expect(hash(bytes), "BACKUP_IMAGE_DIGEST").toBe(snapshot.database.sha256);
+  const archived = Database.deserialize(bytes); cleanup.push(() => archived.close());
+  expect(archived.query("SELECT * FROM inbox_scheduler_heartbeats").all(), "BACKUP_IMAGE_ROWS").toEqual([{ name: "inbox-drain", tick_at: 1000, change_cursor: 0 }]);
 });
 
 test("populated image restores all logical tables, staging, principals and settled counters", async () => {

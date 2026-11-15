@@ -242,11 +242,11 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await release(first);
         await until(a.page, `f.lastAssistant() === "Phorcys' harbour, under the olive tree."`);
 
-        // An image joins it; the host stores the bytes before it says saved.
+        // An image joins it as its stored original (#3155); the host binds it before it says saved.
         await a.page.locator('input[type="file"][accept="image/*"]:not([capture])').setInputFiles({ name: "harbour.png", mimeType: "image/png", buffer: HARBOUR });
         await until(a.page, "f.view().images === 1");
         await a.page.locator('[data-draft-save="saved"]').waitFor();
-        await hostUntil((d) => d.some((x) => x.sessionId === session && x.attachmentCount === 1));
+        await hostUntil((d) => d.some((x) => x.sessionId === session && x.fileCount === 1 && !x.attachmentCount));
         await expectHarbourImage(a.page);
 
         // New chat: an empty composer, the session's draft kept.
@@ -338,7 +338,9 @@ describe.skipIf(!executablePath)("mounted per-session drafts", () => {
         await until(a.page, `f.sends().some(send => !${JSON.stringify(saved.priorRequests)}.includes(send.requestId) && send.state === "accepted")`);
         const accepted = (await fixture(a.page, (f) => f.sends())).filter(send => !saved.priorRequests.includes(send.requestId));
         expect(accepted).toHaveLength(1);
-        expect(accepted[0]?.draftRef).toEqual({ draftId: saved.view.draftId, revision: saved.view.revision! });
+        // The draft holds an image original, so Send is a snapshot (#3155): it is
+        // written in the one save that clears the composer, and the message names that revision.
+        expect(accepted[0]?.draftRef).toEqual({ draftId: saved.view.draftId, revision: saved.view.revision! + 1 });
         await hostUntil((d) => !d.some((x) => x.sessionId === session) && prompts.filter((p) => p === offline).length >= 1);
         expect((await hostDrafts()).some((x) => x.sessionId === session)).toBe(false);
         expect(await composer(a.page).inputValue()).toBe("");

@@ -110,7 +110,7 @@ describe("detection and dispositions", () => {
     const shown = JSON.stringify({ finding, preview, list: await f.list(), card });
     // #2734: the owning principal's label is a private detail too.
     for (const secret of ["penelope-loom", "odysseus/", "2222222222", "odyssey.md", "secret-route", f.telemachus.id, "Telemachus"])
-      expect(shown.includes(secret), `REFERENCE_WORKTREE_HYGIENE_PRIVATE_OPAQUE ${secret}`).toBe(false);
+      expect(shown, `REFERENCE_WORKTREE_HYGIENE_PRIVATE_OPAQUE ${secret}`).not.toContain(secret);
     expect(shown).toContain(tree.id);
     expect(finding).toMatchObject({ worktree: { domain: "private", changedPaths: 1 } });
   });
@@ -536,7 +536,7 @@ describe("human-started review", () => {
     await review.resolver.resolveAsync(f.penelope.id, { type: "inbox_resolve", itemId: read.action!.id, optionId: "delete-worktree" });
     expect(createInboxStore(db).getItem(read.action!.id)?.status, "REFERENCE_WORKTREE_OWNER_REVIEWS_DELEGATED").toBe("resolved");
     expect(f.pool.records.get(tree.id)?.state).toBe("reclaimed");
-    expect(f.calls.some(args => ["resolve", "check", "dismiss", "snooze"].includes(args[0]!)), "REFERENCE_WORKTREE_NEVER_SENT_TO_THE_CLI").toBe(false);
+    expect(f.calls.filter(args => ["resolve", "check", "dismiss", "snooze"].includes(args[0]!)), "REFERENCE_WORKTREE_NEVER_SENT_TO_THE_CLI").toEqual([]);
   });
 
   test("selection reassesses its winner, so a card never offers a repair its preview would find stale", async () => {
@@ -637,7 +637,7 @@ describe("owner-only private details (#2734)", () => {
     await get(f.penelope, `/hygiene/review/details/${encodeURIComponent(card.id)}`);
     const surfaces = replicated() + JSON.stringify({ owner, list: await f.list() });
     for (const secret of [...SECRETS, f.telemachus.id])
-      expect(surfaces.includes(secret), `REFERENCE_WORKTREE_DETAILS_NEVER_REPLICATED ${secret}`).toBe(false);
+      expect(surfaces, `REFERENCE_WORKTREE_DETAILS_NEVER_REPLICATED ${secret}`).not.toContain(secret);
   });
 
   test("reading details assesses nothing and changes no finding, fingerprint, last_seen or state", async () => {
@@ -669,7 +669,7 @@ describe("owner-only private details (#2734)", () => {
     expect(JSON.parse(gone.body), "REFERENCE_WORKTREE_DETAILS_GONE").toEqual({ status: "gone" });
     expect(JSON.parse((await get(f.penelope, "/hygiene/review/details/no-such-card")).body), "REFERENCE_WORKTREE_DETAILS_UNKNOWN_IS_GONE").toEqual({ status: "gone" });
     for (const secret of [...SECRETS, f.telemachus.id])
-      expect((changed.body + gone.body).includes(secret), `REFERENCE_WORKTREE_DETAILS_NO_VALUES ${secret}`).toBe(false);
+      expect(changed.body + gone.body, `REFERENCE_WORKTREE_DETAILS_NO_VALUES ${secret}`).not.toContain(secret);
   });
 
   test("a removed owning principal reads as removed", async () => {

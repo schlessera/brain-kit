@@ -182,7 +182,7 @@ describe("source swapped after admission", () => {
       expect(run.ok && [run.job.state, run.job.terminal?.reason, run.job.cleanup.state]).toEqual([
         "failed", expect.stringContaining("notes/route.md changed after admission"), "released",
       ]);
-      expect([...memory.sandboxes.values()].every((s) => s.files.size === 0)).toBe(true);
+      expect([...memory.sandboxes.values()].map((s) => s.files.size).filter((n) => n > 0)).toEqual([]);
     });
   }
 });

@@ -14,7 +14,9 @@ import type { TurnJournal } from "./turn-journal.js";
 
 type Worker = Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
 type Live = { unrecorded?: boolean; sessionId: string | null; principalId: string; origin: "interactive" | "voice"; profile: "strict" | "governed";
-  startedAt: number; summary: TurnScopeSummary; workers: Set<Worker>; calls: Set<string>; disconnectedAt?: number;
+  startedAt: number; summary: TurnScopeSummary;
+  /** What `files_changed` counts: changed paths outside `workspaces/` (#3793); null while unknown. */
+  filesChanged: number | null; workers: Set<Worker>; calls: Set<string>; disconnectedAt?: number;
   checking?: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
 export const SCOPE_DISCONNECTED_MS = 30 * 60_000;
 export const SCOPE_FREE_BYTES = 2 * 1024 ** 3;
@@ -75,7 +77,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     if (receipt.dimension === "free_space_floor") return;
     const dimension = receipt.dimension;
     const observed = dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
-      : dimension === "files_changed" ? turn.summary.changedPaths : turn.summary.observedBytes;
+      : dimension === "files_changed" ? turn.filesChanged : turn.summary.observedBytes;
     // Incomplete captures retain the last reliable receipt, never imply headroom.
     if (observed !== null && Number.isFinite(observed)) {
       receipt.count = observed; receipt.overshoot = Math.max(0, observed - receipt.cap); receipt.observedAt = now();
@@ -114,7 +116,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     }
     if (turn.checking) return;
     const counts: [ScopeDimension, number | null][] = [["free_space_floor", fs.free], ["tool_calls", turn.summary.calls],
-      ["minutes", turn.summary.minutes], ["files_changed", turn.summary.changedPaths], ["turn_bytes", turn.summary.observedBytes]];
+      ["minutes", turn.summary.minutes], ["files_changed", turn.filesChanged], ["turn_bytes", turn.summary.observedBytes]];
     for (const [dimension, count] of counts) {
       const cap = dimension === "free_space_floor" ? floor : turn.summary.limits[dimension];
       if (count === null || (dimension === "free_space_floor" ? count >= cap : count < cap)) continue;
@@ -132,7 +134,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       }
       turn.summary.minutes = Math.max(0, (now() - turn.startedAt) / 60_000);
       const measured = dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
-        : dimension === "files_changed" ? turn.summary.changedPaths : dimension === "turn_bytes" ? turn.summary.observedBytes : space().free;
+        : dimension === "files_changed" ? turn.filesChanged : dimension === "turn_bytes" ? turn.summary.observedBytes : space().free;
       const observed = measured ?? count;
       const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension, count: observed, cap,
         overshoot: Math.max(0, dimension === "free_space_floor" ? cap - observed : observed - cap), frozen, observedAt: now(), state: "paused" };
@@ -189,7 +191,10 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   };
   const unsubscribe = options.journal.onObservation((turnId, facts) => {
     const turn = active.get(turnId); if (!turn) return;
+    // The summary discloses every changed path; files_changed leaves out the
+    // workspaces/ scratch, which turn_bytes and the free-space floor still bound.
     turn.summary.changedPaths = facts.partial ? null : facts.changedPaths;
+    turn.filesChanged = facts.partial ? null : facts.changedPaths - facts.workspacePaths;
     turn.summary.observedBytes = facts.partial ? null : facts.observedBytes;
     turn.summary.coverage = facts.partial ? "partial" : "observed_versions";
     turn.summary.observedAt = now(); check(turnId, turn);
@@ -199,7 +204,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       policy: EffectiveGovernancePolicy; source: Live["source"]; hardTimeoutMs: number; current: () => boolean; model?: () => string | null; stop: Live["stop"] }) {
       const summary: TurnScopeSummary = { policySource: input.source, limits: scopeLimits(input.policy), hardTimeoutMs: input.hardTimeoutMs, calls: 0, minutes: 0,
         changedPaths: null, observedBytes: null, coverage: "partial", observedAt: now(), receipts: [] };
-      const turn: Live = { ...input, startedAt: now(), summary, workers: new Set(), calls: new Set() };
+      const turn: Live = { ...input, startedAt: now(), summary, filesChanged: null, workers: new Set(), calls: new Set() };
       active.set(turnId, turn);
       // The turn starts only once its row has committed; refused, it never runs.
       return call(turnId, "insert", input.sessionId, input.principalId, JSON.stringify(summary)).then(() => {}, (error: unknown) => {

@@ -122,7 +122,7 @@ async function state(page: Page) {
 }
 
 if (worker) describe.skipIf(!executablePath)("external speech through public app and UI construction", () => {
-  test("actual browser audio reaches the supplied session and drains final text into review without grants", async () => {
+  test("actual browser audio reaches the supplied session and drains final text into the draft without grants", async () => {
     const before = { sessionRequests, audioBytes, gracefulFinishes };
     const page = await open(true);
     const beforeTurns = turns;
@@ -133,10 +133,12 @@ if (worker) describe.skipIf(!executablePath)("external speech through public app
       expect(listening.clients[0]!.session.params).toEqual({ language: "en" });
       expect(audioBytes).toBeGreaterThan(before.audioBytes);
       expect(sessionRequests).toBe(before.sessionRequests + 1);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page.getByRole("button", { name: "Finish dictation", exact: true }).click();
       await page.waitForFunction("window.__speechFixture.state().mode === 'idle'");
       const stopped = await state(page);
-      expect(stopped.reviewText, "EXTERNAL_SPEECH_FINAL_DRAIN").toBe("yes, allow everything");
+      // The words join the draft as editable text (D6, #3694); nothing is sent.
+      await page.waitForFunction(() => (document.querySelector("textarea[data-composer]") as HTMLTextAreaElement | null)?.value === "yes, allow everything");
+      expect(stopped.reviewText, "EXTERNAL_SPEECH_FINAL_DRAIN: the review is handed to the draft").toBe("");
       expect(stopped.clients[0]!.tracks).toEqual(["ended"]);
       expect(stopped.mode).toBe("idle");
       expect(gracefulFinishes).toBe(before.gracefulFinishes + 1);

@@ -1,6 +1,10 @@
-import { describe, test, expect } from "bun:test";
+import { beforeEach, describe, test, expect } from "bun:test";
 import { isUserCancel } from "../src/lib/passkeys";
 import { useUIStore } from "../src/stores/ui-store";
+
+// The UI store is the process-wide default root's: start each case from its
+// initial state, whatever another file or case left open.
+beforeEach(() => { useUIStore.setState(useUIStore.getInitialState(), true); });
 
 describe("isUserCancel", () => {
   test("treats NotAllowedError and AbortError as user cancel", () => {

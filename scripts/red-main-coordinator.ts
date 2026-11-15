@@ -5,7 +5,7 @@
  * A rerun is only a triage probe: it never turns proof green or makes anything mergeable.
  */
 import { scanText } from "./check-leakage";
-import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, coversRedSet, failureKey, gateDecision, junitFailures, openRed, refineFirstBad,
+import { addSuspect, attachIncident, CATEGORIES, classifyFailure, clearRed, coversRedSet, failureKey, gateDecision, junitFailures, openRed, postMergeOnly, refineFirstBad,
   reportLanded, settleSuspect, type Category, type FailureEvidence, type IncludedRedSet, type RedFailure, type RedMainRecord, type Signature } from "./red-main";
 
 export const PROBE_WORKFLOW = "red-main-probe.yml";
@@ -121,7 +121,10 @@ export async function ensureIncident(io: CoordinatorIO, record: RedMainRecord): 
       "Failing tests and categories:",
       ...open.failures.map(f => `- \`${f.test ?? f.category}\` (${f.category}; ${f.reasons.join(", ")}; run ${runUrl(io, f.run)})`),
       "",
-      "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green. Declare a fix or targeted revert PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins. Only a green main run that includes this failing set clears the record, so a failure that does not reproduce still needs a declared fix to land.",
+      postMergeOnly(open.failures)
+        ? "Every failure here is post-merge proof, which ready confirmation does not run, so ordinary confirmation and merges continue. Each main run includes this failing set until one is green."
+        : "Hosted proof whose merge ref contains this commit is refused or cancelled, and `integrate.ts` refuses ordinary confirmation and merges, until a main run that includes this failing set is green.",
+      "Declare a fix or targeted revert PR with `bun scripts/integrate.ts declare-fix <pr>`; the first confirmed fix wins. Only a green main run that includes this failing set clears the record, so a failure that does not reproduce still needs a declared fix to land.",
       "",
       "One orchestrator owns the fix: it claims it with `bun scripts/red-main-incident.ts claim --worker <id> --orchestrator <id>`, which writes the claim into the red-main record. After a quick assessment the claimant chooses a fix PR or a targeted revert PR from causal and current-tree evidence, and records that choice and its rationale here as `decision` evidence; a red check or the latest squash alone is not proof of cause. Every other orchestrator adds evidence here with `bun scripts/red-main-incident.ts evidence ...` instead of opening another issue.",
       ...(related.size ? ["", `Possibly related open issues: ${[...related].sort((a, b) => a - b).map(n => `#${n}`).join(", ")}.`] : []),
@@ -182,6 +185,8 @@ export async function cancelDoomed(io: CoordinatorIO, record: RedMainRecord): Pr
 export async function detectLanded(io: CoordinatorIO, record: RedMainRecord, run: WorkflowRun): Promise<boolean> {
   const open = record.open, sha = run.head_sha;
   if (!open || sha === open.firstBad || open.reported.includes(sha) || !io.isAncestor(open.firstBad, sha)) return false;
+  // Landing while only post-merge proof is red is the hybrid model's normal path, not a bypass.
+  if (postMergeOnly(open.failures)) return false;
   const pulls = await io.json(`repos/${io.repository}/commits/${sha}/pulls`);
   const pr = (pulls as { number: number; merged_at: string | null }[]).find(p => p.merged_at)?.number;
   if (!pr || open.fixes.includes(pr)) return false;
@@ -299,7 +304,9 @@ async function handleProbe(io: CoordinatorIO, run: WorkflowRun) {
   }
   if (!real.length) return;
   const { after } = await updateRecord(io, (current, now) => openRed(current, { firstBad: identity.sha, run: identity.source, failures: real }, now));
-  await cancelDoomed(io, await ensureIncident(io, after));
+  const withIncident = await ensureIncident(io, after), cancelled = await cancelDoomed(io, withIncident);
+  // The same line as a main run's, so the evidence collector (#2953) sees every cancellation.
+  io.print(`BRAIN_RED_MAIN ${JSON.stringify({ firstBad: withIncident.open?.firstBad, incident: withIncident.open?.incident, cancelled })}`);
 }
 
 export async function coordinate(io: CoordinatorIO, run: WorkflowRun) {

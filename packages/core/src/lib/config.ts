@@ -546,8 +546,11 @@ export const DEFAULT_EXCLUDE = {
   // it, and a note beside the set quoting its queries would answer them.
   // context/scheduled-tasks: host-managed schedule definitions (#914). They
   // are content in Git, never index documents; only the UI host parses them.
+  // _voice: live-conversation personas (#3617, P5). Their instructions shape
+  // how a voice service speaks, so search, briefings and agent context never
+  // see them; the files stay in Git and editable on disk.
   dirs: [".git", "node_modules", ".claude", ".agents", "scripts", "logs", "tmp", "workspaces", "okf-dist", SCRATCH_DIR, "evals",
-    "context/scheduled-tasks", "context/policies"],
+    "context/scheduled-tasks", "context/policies", "_voice"],
   files: ["CLAUDE.md", "README.md", "AGENTS.md", "GEMINI.md"],
   segments: [] as string[],
 };

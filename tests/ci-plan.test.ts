@@ -227,7 +227,8 @@ describe("affected CI checks", () => {
       const expected = proofSelections(JSON.parse(readFileSync(plan, "utf8")), draft === "true");
       expect(readFileSync(output, "utf8")).toBe(`unit_shards=[1,2,3,4]\ncadence=${draft === "true" ? "draft" : "confirmation"}\nred_main_oid=\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
       expect(expected.unit).toBe(draft === "false");
-      expect(expected.runtime).toBe(draft === "false");
+      // Ready confirmation leaves heavy runtime proof to the squash's main run (hybrid ruling).
+      expect(expected.runtime, "CONFIRMATION_DEFERS_RUNTIME").toBe(false);
       expect(JSON.parse(readFileSync(plan, "utf8")).tests.length).toBeGreaterThan(0);
     }
   });

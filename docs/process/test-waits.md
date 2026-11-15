@@ -317,8 +317,8 @@ requires it; host/network failure maxima and retry intervals are not sleeps to
 be added to these windows.
 
 For real IME start and commit, input also arms the **800 ms host debounce**
-(`SAVE_DELAY_MS`, `packages/ui-react/src/lib/draft-client.ts:35-37`;
-`schedule`, `packages/ui-react/src/lib/draft-client.ts:79-83`). The native horizon
+(`SAVE_DELAY_MS`, `packages/ui-react/src/lib/draft-client.ts:36-38`;
+`schedule`, `packages/ui-react/src/lib/draft-client.ts:80-84`). The native horizon
 is 1000 ms: that 800 ms opportunity plus 200 ms (25%) dispatch/IO/render headroom
 and the original two frames. The parallel 250 ms device debounce is inside this
 horizon. The final exact committed draft still has to reach the host. Returning

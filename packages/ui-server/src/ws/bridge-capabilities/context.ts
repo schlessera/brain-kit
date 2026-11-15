@@ -21,6 +21,8 @@ export interface MakeBridgeOptions {
    */
   onSessionNamed?: ((sessionId: string) => void) | undefined;
   onTerminalFailure?: ((sessionId: string, failure: TurnFailure) => void) | undefined;
+  /** Called before this turn's own result frame goes out. */
+  onTurnResult?: ((sessionId: string) => void) | undefined;
   /** The pill label the request already has, read when the session is named (#1004). */
   promptLabel?: (() => string | undefined) | undefined;
   applicationPolicy?: BrainApplicationPolicy | undefined;

@@ -2878,9 +2878,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 .bk-voice-close > span { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--bk-color-raised); box-shadow: inset 0 0 0 1px var(--bk-color-edge); }
 .bk-voice-service { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px 0 12px; border-radius: 12px; background: var(--bk-color-surface); box-shadow: inset 0 0 0 1px var(--bk-color-edge); }
 .bk-voice-service[data-required="true"] { box-shadow: inset 0 0 0 1.5px var(--bk-amber-ink); }
-.bk-voice-service-key { font: 600 10px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--bk-color-ink-mute); }
+.bk-voice-service-key { flex: none; white-space: nowrap; font: 600 10px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--bk-color-ink-mute); }
 .bk-voice-service-name { flex: 1 1 auto; min-width: 0; font: 600 13px/18px "Plus Jakarta Sans", sans-serif; color: var(--bk-color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bk-voice-link { appearance: none; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--bk-teal-ink); font: 600 12.5px/1 "Plus Jakarta Sans", sans-serif; cursor: pointer; }
+.bk-voice-link { appearance: none; flex: none; white-space: nowrap; min-height: 44px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--bk-teal-ink); font: 600 12.5px/1 "Plus Jakarta Sans", sans-serif; cursor: pointer; }
 .bk-voice-personas { display: flex; flex-direction: column; margin: 0; padding: 0; border-radius: 12px; overflow: hidden; background: var(--bk-color-surface); box-shadow: inset 0 0 0 1px var(--bk-color-edge); }
 .bk-voice-persona { appearance: none; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; margin: 0; padding: 7px 12px; border: 0; border-top: 1px solid var(--bk-color-line); background: transparent; color: var(--bk-color-ink); text-align: left; font: inherit; cursor: pointer; }
 .bk-voice-persona:first-child { border-top: 0; }
@@ -2951,3 +2951,116 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 [data-motion="reduce"] .bk-voice-ring-fill { transition: none; }
 [data-motion="reduce"] .bk-voice-cursor, [data-motion="reduce"] .bk-voice-ctl-spin, [data-motion="reduce"] .bk-voice-spin { animation: none; }
 [data-motion="reduce"] .bk-spoken-turn[data-details] .bk-transcript-reveal { transition: none; }
+
+/* Settings › Voice, Live service group (#3616). Phone: label above the rows.
+   A wide container puts the label in a 140px column, and exactly two
+   services side by side. Rows are 52px with the whole row as the target. */
+.bk-live-service {
+  /* An inline-size container takes no width from its content: fill the column. */
+  container-type: inline-size;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.bk-live-service-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+.bk-live-service-label {
+  margin: 0;
+  font: 600 11px/1.4 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bk-color-ink-mute);
+}
+.bk-live-service-body,
+.bk-live-service-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.bk-live-service-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.bk-live-service-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid var(--bk-color-edge);
+  border-radius: 10px;
+  background: var(--bk-color-surface);
+  color: var(--bk-color-ink);
+  flex-direction: column;
+  justify-content: center;
+}
+label.bk-live-service-row {
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  cursor: pointer;
+}
+.bk-live-service-row[data-checked] {
+  border-color: var(--bk-choice-border-selected);
+  background: var(--bk-choice-tint-selected);
+}
+.bk-live-service-row[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.bk-live-service-row[data-unavailable] {
+  border-style: dashed;
+  background: transparent;
+  gap: 2px;
+}
+.bk-live-service-radio {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--bk-teal-ink);
+}
+.bk-live-service-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.bk-live-service-name {
+  font: 600 13px/1.35 'Plus Jakarta Sans', sans-serif;
+}
+.bk-live-service-mark {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--bk-color-ink-mute);
+}
+.bk-live-service-detail,
+.bk-live-service-note,
+.bk-live-service-hint {
+  margin: 0;
+  font: 400 12px/1.45 'Plus Jakarta Sans', sans-serif;
+  color: var(--bk-color-ink-mute);
+}
+.bk-live-service-hint {
+  font-weight: 600;
+  color: var(--bk-color-ink);
+}
+.bk-live-service-status:empty {
+  display: none;
+}
+@container (min-width: 560px) {
+  .bk-live-service-grid {
+    grid-template-columns: 140px minmax(0, 1fr);
+    column-gap: 16px;
+  }
+  .bk-live-service[data-count="2"] .bk-live-service-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

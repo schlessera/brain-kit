@@ -166,7 +166,7 @@ for (const provider of ["gemini", "gpt"] as const) test(`${provider} contextual 
   const s = await contextualScene(ctx, provider, "permitted", 320);
   const { recognition, generated } = await discuss(s, provider);
   for (const afterLeave of [false, true]) {
-    if (afterLeave) { await userEvent.click(s.button("Leave voice")); await s.pump(); }
+    if (afterLeave) { await userEvent.click(s.button("End")); await s.pump(); }
     await expect.poll(() => s.host.querySelector('[aria-label="Voice review controls"]'), { message: "CONTEXT_IS_DISCUSSION_NOT_UNSENT" }).toBeNull();
     expect(s.button("Review in composer")).toBeUndefined();
     expect(s.host.textContent).not.toContain("voice fragments weren't sent");

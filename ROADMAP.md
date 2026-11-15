@@ -85,7 +85,10 @@ when it was made — not a preference.
    maintainer ruling first, and from 1.0 a major bump.
 5. **Fail closed on exposure.** A publicly reachable chat UI without auth
    refuses to boot, the renderer is denied every egress channel, and
-   `brain doctor` warns loudly on a public content remote.
+   `brain doctor` warns loudly on a public content remote. Every other
+   guard contains proportionately: it restricts only what is uncertain, runs
+   restricted before refusing and recovers automatically when recovery needs no
+   judgment. See [docs/decisions/proportionate-containment.md](docs/decisions/proportionate-containment.md).
 6. **Your content repo stays yours.** brain-kit is infrastructure delivered by
    version bump; it never merges into your content, and your taxonomy is built
    by onboarding rather than shipped by us.

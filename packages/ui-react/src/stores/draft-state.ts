@@ -337,8 +337,8 @@ export interface DraftStoreState {
   /** The frame never left: the content goes back where it was. */
   sendFailed(requestId: string): void;
   accepted(requestId: string, sessionId: string | undefined): void;
-  /** The host refused it: nothing was consumed, so the content goes back. */
-  refused(requestId: string): void;
+  /** The host refused it: nothing was consumed, so the content goes back. `reason` replaces the generic copy. */
+  refused(requestId: string, reason?: string): void;
   unconfirmed(reason: "disconnected" | "uncorrelated"): string[];
   /** Edit (the review block): the text and images go back into the draft. */
   editSend(requestId: string): void;
@@ -891,7 +891,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
       },
 
 
-      refused(requestId) {
+      refused(requestId, reason) {
         const send = get().sends[requestId];
         if (!send || send.state === "accepted" || send.state === "refused") return;
         if (send.snapshotId) {
@@ -899,7 +899,7 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
           const owned = snapshotOf(send);
           set((st) => ({ sends: { ...st.sends, [requestId]: { ...send, state: "refused" } } }));
           if (owned) withSnapshots(owned.d.draftId, (list) => list.map((x) => x.snapshotId === send.snapshotId
-            ? { ...x, state: "returned", dispatch: undefined, why: { kind: "refused", reason: "The brain refused this message." } } : x));
+            ? { ...x, state: "returned", dispatch: undefined, why: { kind: "refused", reason: reason ?? "The brain refused this message." } } : x));
           return;
         }
         // The refused message stays in the transcript, its images with it.

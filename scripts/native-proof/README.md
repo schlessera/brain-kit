@@ -54,6 +54,22 @@ phases and steps per scenario, and the host load before and after are in
 `observation-timing.json`. It is a measurement, not part of the default
 qualification.
 
+Its `phases` section (#2915) attributes each observed writer's worker hold and
+each harbour turn's journal begin and finish to their steps: the queue for the
+journal, the wait for room behind earlier releases, checkpoint, delta,
+metadata reads, capture, each turn's record, publication and facts query, the
+commit and, for finish, its end record, object collection and publication. The
+app child stamps the journal's internal observation trace, and the fixture's
+manager stamps each request's lock wait (with the operation it waited behind)
+and its steps, both with `performance.timeOrigin + performance.now()`. A
+checkpoint or delta step is broken down by the one manager request that arrived
+inside it; the run fails unless every such step pairs with exactly one request
+and each checkpoint answered before its step ended, which is the proof that
+the two processes' clocks agree. Per-phase medians count an absent phase as
+zero; coverage is attributed time over the independently measured hold or
+journal call. `observation-traces.json` keeps the raw traces and manager spans
+(`scripts/native-proof/observation-phases.ts`).
+
 `bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
 the host identity protocol. It compiles the test-only helper on the host without
 setuid permissions, then installs it as root-owned setuid only inside its owned,
@@ -276,6 +292,21 @@ fails that verification. `index-release-reproduction.json` records this as an
 expected failure with `qualification: false`; it does not turn the failing
 invocation into a healthy fifth matrix cell. The selected hosted runtime job
 therefore exercises the reproduction under its enforced AppArmor profile too.
+
+So every `runtime_host` log, green or red, holds a Pi UID 0 invocation that
+fails `NATIVE_AUTOMATIC_INDEX_COMPLETED: NativeBrainManagerError: Native manager
+outcome is unknown … AbortError` and then `Native hosted proof failed (1)`.
+That is the control failing as designed. The parent prints each of its lines
+behind `expected-failure control | ` (`scripts/expected-failure-log.ts`), and
+`bun scripts/pr-status.ts <pr> --failures --logs <dir>` counts them instead of
+listing them. The plain lines after them are the verdict.
+`Verified expected automatic-index failure …` means the control passed. A
+thrown `NATIVE_INDEX_RELEASE_REPRO_<fact>` means it did not fail as designed:
+it failed somewhere else, or its evidence is incomplete. Every other failure in
+the job belongs to the phase that `BRAIN_RESOURCE_RECEIPT` records with
+`"success":false`. #2921 traced six recorded "automatic-index aborts" to this
+control. Each of those jobs had failed for a different, separately owned
+reason.
 
 ## Reference pool allocation
 

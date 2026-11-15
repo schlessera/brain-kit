@@ -128,7 +128,7 @@ describe("records", () => {
     const run = await svc.run(HOSTED, { instance: "ithaca", argv: ["printenv"], env: { VOYAGE: "home" }, source: ["notes/raft.md"] });
     if (!run.ok) throw new Error(run.code);
     await svc.status(HOSTED, run.job.id);
-    expect(memory.calls.every((c) => c.secret === "sk-ithaca-the-loom-unravels")).toBe(true);
+    expect(memory.calls.filter((c) => c.secret !== "sk-ithaca-the-loom-unravels").map((c) => c.method)).toEqual([]);
     expect(filesContaining(box.state, "sk-ithaca-the-loom-unravels")).toEqual([]);
   });
 });

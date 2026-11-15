@@ -697,14 +697,18 @@ test("review: opening a bound other version resumes its conversation", async (ct
   expect((await view(b)).text).toBe(ORIGINAL);
 }, 60000);
 
-test("review: sign-out inventory includes dictation retained in a closed tab context", async (ctx) => {
+// Since #3694 (D6) a mounted composer moves dictated words into its draft,
+// so a closed tab keeps them as a draft, and sign-out counts that draft.
+test("review: sign-out inventory includes dictation a closed tab kept in its draft", async (ctx) => {
   const a = await openScene(
     new URL("./offline/scenes/draft-branches.scene.tsx", import.meta.url)
   );
   let closed = false;
   ctx.onTestFinished(() => (closed ? undefined : a.close()));
   await a.call("ready", 320, "dark");
+  const before = (await a.call<{ drafts: number }>("loss")).drafts;
   await a.call("review", "Odysseus reviews the fleet order.");
+  await expect.poll(() => a.call<{ drafts: number }>("loss").then((l) => l.drafts), { message: "the words are a draft" }).toBe(before + 1);
   await a.call("save");
   const b = await a.sibling();
   ctx.onTestFinished(() => b.close());
@@ -714,9 +718,9 @@ test("review: sign-out inventory includes dictation retained in a closed tab con
   await b.call("review", "");
   await b.call("save");
   expect(
-    (await b.call<{ review: boolean }>("loss")).review,
-    "sign-out warns about dictation retained by a closed tab"
-  ).toBe(true);
+    (await b.call<{ drafts: number }>("loss")).drafts,
+    "sign-out warns about dictation a closed tab kept"
+  ).toBeGreaterThanOrEqual(before + 1);
 }, 60000);
 
 for (const kind of ["removed", "gone"])

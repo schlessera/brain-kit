@@ -464,6 +464,16 @@ export function createTurnRecorder(
 
     observeActivity(event) {
       guard(() => {
+        // Cleanup owns a reservation after its turn ends. Its receipt still
+        // belongs to this run; it never changes the run's terminal outcome.
+        if (event.kind === "worker_cleanup") {
+          ensureRoot();
+          store.appendEvent(rootSpanId, "worker_cleanup", event);
+          log?.emit({ severityText: event.state === "retrying" ? "WARN" : "INFO", body: "Worker cleanup reconciliation",
+            attributes: { turnId: runId, ...event } });
+          onWrite?.();
+          return;
+        }
         if (finished) return;
         switch (event.kind) {
 

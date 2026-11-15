@@ -416,6 +416,7 @@ describe("real keyless stdio MCP exercise", () => {
   test("roster cost: the listed brain_search definition and the proposed one", async () => {
     const { tools } = await client.listTools();
     const listed = tools.find(t => t.name === "brain_search")!;
+    expect(listed?.name).toBe("brain_search");
     // A like-for-like definition: brain_search's own input schema and descriptions as the item schema, plus the call's fields.
     const { query: _q, ...listedProps } = (listed.inputSchema as { properties: Record<string, unknown> }).properties;
     const likeForLike = {

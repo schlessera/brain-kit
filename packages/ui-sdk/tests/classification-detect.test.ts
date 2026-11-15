@@ -33,9 +33,9 @@ describe("detectCandidates", () => {
       ["Host", "Penelope", "Nestor", "Menelaus"],
     ]);
     const cut = COMPARISON.slice(table.start, table.end);
-    expect(cut.startsWith("| | Ithaca")).toBe(true);
-    expect(cut.endsWith("| Menelaus |")).toBe(true);
-    expect(COMPARISON.slice(table.end).trim().startsWith("Pick Ithaca")).toBe(true);
+    expect(cut).toStartWith("| | Ithaca");
+    expect(cut).toEndWith("| Menelaus |");
+    expect(COMPARISON.slice(table.end).trim()).toStartWith("Pick Ithaca");
   });
 
   test("a ragged row is padded to the header width, as GFM renders it", () => {
@@ -141,7 +141,7 @@ describe("detectCandidates", () => {
     if (quote?.kind !== "blockquote") return;
     expect(quote.text).toBe("Sing to me of the man, Muse.");
     expect(quote.source).toBe("Homer, Odyssey, Book 1");
-    expect(text.slice(quote.start, quote.end).endsWith("Book 1")).toBe(true);
+    expect(text.slice(quote.start, quote.end)).toEndWith("Book 1");
     expect(text.slice(quote.end).trim()).toBe("That is the opening.");
   });
 

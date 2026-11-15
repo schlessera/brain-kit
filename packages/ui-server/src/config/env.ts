@@ -20,6 +20,7 @@ import { join, resolve } from "path";
 import { ATTACHMENT_POOL_DEFAULT_BYTES, isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
+import { parseRepositoryAllowList } from "../brain/module-repositories.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -191,6 +192,18 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_MODULE_REPOSITORIES",
+    description:
+      "Operator allow-list of repository URLs (comma or whitespace separated, HTTPS) " +
+      "a module cron job may read. The host fetches a repository a module's " +
+      "`repositories` config asks for only when this list names it too, using the " +
+      "sync transport's credential (BRAIN_UI_SYNC_GITHUB_TOKEN, else GITHUB_TOKEN); " +
+      "the job's worker reads a host mirror and never holds the credential. Read by " +
+      "the cron runner only, never forwarded to a job. Empty refuses every request.",
+    default: "(empty — no module repository is fetched)",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_SYNC_GITHUB_TOKEN",
     description:
       "GitHub HTTPS credential for the host-owned sync mirror transport. " +
@@ -250,7 +263,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "Extra recipients for the brain CLI's relayed provider keys: KEY=origin[,origin], separated by semicolons. " +
       "Each origin is an exact https origin (http only for a loopback host). By default the relay sends GEMINI_API_KEY, " +
-      "ANTHROPIC_API_KEY and OPENAI_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
+      "ANTHROPIC_API_KEY, OPENAI_API_KEY and TYPESAFE_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
       "variable is refused unless listed here. A malformed value stops the server.",
     default: "(unset; first-party origins only)",
     required: false,
@@ -653,7 +666,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "The date CLAUDE_CODE_OAUTH_TOKEN was minted (ISO 8601, e.g. 2026-09-23), " +
       "set next to the token in the same redeploy. The server counts the " +
       "token's one-year lifetime from it and warns 30 days before expiry. " +
-      "An unparseable date refuses boot. Server-only.",
+      "An invalid date keeps serving with an explicit unknown-expiry warning in owner status and logs. Server-only.",
     default: "no expiry warning (one WARN at boot says so)",
     required: false,
   },
@@ -999,6 +1012,8 @@ export interface CronConfig {
   exec: ExecWrapperConfig;
   /** BRAIN_UI_CLI_PROVIDER_ORIGINS, for the provider relay of a credentialed job (#1673). */
   cliProviderOrigins: ReadonlyMap<string, readonly string[]>;
+  /** BRAIN_UI_MODULE_REPOSITORIES: the operator's allow-list of repositories a module job may read (#3380). */
+  moduleRepositories: { allowed: string[]; invalid: string[] };
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1362,6 +1377,7 @@ export function resolveCronConfig(
     ),
     exec: execConfig(env),
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
+    moduleRepositories: parseRepositoryAllowList(env.BRAIN_UI_MODULE_REPOSITORIES),
   };
 }
 
@@ -1470,9 +1486,11 @@ export function resolvePiConfigDir(env: EnvRecord = process.env): string {
  * The environment the web-search surface reads: the variables that locate the
  * extension's `web-search.json`, plus each provider's API-key variable.
  *
- * PRESENCE is all anything does with the key values — they are never logged,
- * returned over the API, or copied into the config file. Reading them here
- * keeps the rest of the package taking configuration as a value.
+ * The Settings surface checks only the PRESENCE of the key values; the host
+ * web executor (#3686) receives them in its own environment, never a
+ * worker's. They are never logged, returned over the API, or copied into the
+ * config file. Reading them here keeps the rest of the package taking
+ * configuration as a value.
  */
 export function resolveWebSearchEnv(
   env: NodeJS.ProcessEnv = process.env
@@ -1492,8 +1510,9 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
     source: "web-search provider catalog (`WEB_SEARCH_PROVIDERS`)",
     description:
       "Presence checks for catalog-declared API-key names when reporting " +
-      "web-search provider availability. Credentials are not returned over " +
-      "the API, logged or copied into web-search.json.",
+      "web-search provider availability, and the values handed to the host " +
+      "web executor's own environment (#3686). Credentials are not returned " +
+      "over the API, logged, given to workers or copied into web-search.json.",
   },
   {
     source: "filtered environment snapshot (`subprocessEnv`)",

@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { SlidePanel } from "../../src/components/layout/slide-panel.js";
-import { DictationSheet } from "../../src/components/voice/dictation-sheet.js";
+import { DictationCapture } from "../../src/components/voice/dictation-field.js";
 import { createRoot } from "react-dom/client";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
@@ -77,10 +77,11 @@ function Fixture() {
     shownRoot.stores.connection.getState().setVpnStatus("connected", accountKey);
     setProvidedRoot(shownRoot);
   };
-  compose = () => setComposed(true);
+  compose = () => { root.stores.voice.setState({ connecting: true }); setComposed(true); };
   if (account === null && accountCommitGate) { accountCommitHeld = true; throw accountCommitGate; }
   return <BrainUiProvider root={providedRoot}><ConnectionGate>{composed ? <>
-    <DictationSheet open onStop={() => {}} onCancel={() => { dictationCancelled++; root.stores.voice.getState().resetCapture(); }} />
+    {/* Connecting (Dc): the field's own Escape cancels, so it must never hear the dialog's. */}
+    <DictationCapture onFinish={() => {}} onCancel={() => { dictationCancelled++; root.stores.voice.getState().resetCapture(); }} />
     <SlidePanel open title="Settings" onClose={() => { settingsClosed++; }}><PasskeyTab active /></SlidePanel>
   </> : <div style={{ maxWidth: 720, marginInline: "auto", padding: 12 }}><RecordingsTray /><PasskeyTab active /></div>}</ConnectionGate></BrainUiProvider>;
 }

@@ -55,18 +55,21 @@ export const REPOS = [
  * Membership is seeded from the epic an issue belongs to. Standalone issues
  * are listed explicitly, because "which theme is this" is a judgement and not
  * something a label can answer.
+ *
+ * Seeding reaches an epic's direct sub-issues only. A nested epic is therefore
+ * listed itself, under its ancestor's track, so its own children inherit it.
  */
-const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]> = {
+export const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]> = {
   // Getting the thing into somebody else's hands: the two templates, and the
   // public documentation and website that introduce it to new users.
   Distribution: [
-    { epics: [26, 70, 608, 1348], also: [69], repo: "schlessera/brain-kit" },
+    { epics: [26, 70, 608, 1348, 1422], also: [69], repo: "schlessera/brain-kit" },
     { epics: [], also: [1, 2, 3], repo: "schlessera/brain-template" },
   ],
-  Hardening: [{ epics: [1343, 1636, 1642, 1643, 1644, 1645, 1646, 1647, 1668, 1863, 2539, 2554, 2765, 3234, 3669], also: [38, 152, 251, 282, 1391], repo: "schlessera/brain-kit" }],
+  Hardening: [{ epics: [1343, 1636, 1642, 1643, 1644, 1645, 1646, 1647, 1668, 1863, 2539, 2554, 2765, 3234, 3428, 3596, 3597, 3598, 3669, 3813], also: [38, 152, 251, 282, 1391], repo: "schlessera/brain-kit" }],
   Reliability: [{
-    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347, 1392, 1767, 1777, 2045, 2540, 2542, 2565, 2587, 2753, 2850, 2934, 2948],
-    also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598],
+    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347, 1392, 1767, 1777, 1779, 1849, 2045, 2540, 2542, 2565, 2587, 2753, 2850, 2934, 2948, 2963, 3133],
+    also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598, 1152, 1365, 1366],
     repo: "schlessera/brain-kit",
   }],
   "Design system": [{
@@ -74,11 +77,11 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
     also: [46, 47, 48, 88, 93, 541, 543],
     repo: "schlessera/brain-kit",
   }],
-  "Answer quality": [{ epics: [363, 364, 365, 838, 1603, 3103, 3150, 3157, 3640], also: [50], repo: "schlessera/brain-kit" }],
-  Modules: [{ epics: [32, 524, 731, 732, 733, 1100, 2079], also: [59, 60, 1393], repo: "schlessera/brain-kit" }],
-  "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
-  Voice: [{ epics: [54, 3705], also: [91], repo: "schlessera/brain-kit" }],
-  "Contract and 1.0": [{ epics: [56, 1341, 1345, 2541], also: [57, 62], repo: "schlessera/brain-kit" }],
+  "Answer quality": [{ epics: [363, 364, 365, 838, 918, 1603, 3103, 3120, 3150, 3157, 3640, 3791], also: [50], repo: "schlessera/brain-kit" }],
+  Modules: [{ epics: [32, 524, 731, 732, 733, 1100, 2079, 3017, 3018, 3781], also: [59, 60, 1393], repo: "schlessera/brain-kit" }],
+  "Async collaboration": [{ epics: [51, 912], also: [], repo: "schlessera/brain-kit" }],
+  Voice: [{ epics: [54, 3690, 3705], also: [91], repo: "schlessera/brain-kit" }],
+  "Contract and 1.0": [{ epics: [56, 1341, 1345, 2541], also: [57, 62, 1375], repo: "schlessera/brain-kit" }],
 };
 
 const SIZES = ["XS", "S", "M", "L"];
@@ -276,6 +279,15 @@ interface Issue {
   repo: string;
 }
 
+/**
+ * How many open issues one repository may list. `gh issue list` returns the
+ * newest first and stops at `--limit` without saying so, so a cap below the
+ * real count silently drops the oldest issues from every sweep: no Track, no
+ * Status, no `blocked` cleanup. A list that reaches the cap may be truncated,
+ * and the sweep refuses it rather than treat the missing issues as synced.
+ */
+export const OPEN_ISSUE_LIMIT = 5000;
+
 async function openIssues(): Promise<Issue[]> {
   const all: Issue[] = [];
   for (const repo of REPOS) {
@@ -287,11 +299,17 @@ async function openIssues(): Promise<Issue[]> {
       "--state",
       "open",
       "--limit",
-      "200",
+      String(OPEN_ISSUE_LIMIT),
       "--json",
       "number,title,url,labels,body",
     ]);
-    for (const issue of JSON.parse(raw) as Omit<Issue, "repo">[]) all.push({ ...issue, repo });
+    const issues = JSON.parse(raw) as Omit<Issue, "repo">[];
+    if (issues.length >= OPEN_ISSUE_LIMIT) {
+      throw new Error(
+        `${repo} listed ${issues.length} open issues, the OPEN_ISSUE_LIMIT cap; the list may be truncated, so the sweep stops before any write. Raise OPEN_ISSUE_LIMIT.`,
+      );
+    }
+    for (const issue of issues) all.push({ ...issue, repo });
   }
   return all;
 }

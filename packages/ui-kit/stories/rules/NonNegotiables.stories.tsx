@@ -104,7 +104,12 @@ export const NeverColourAlone = meta.story({
     // mark with no text anywhere near it. A StatusDot is the one component that
     // IS pure colour, which is why it never appears alone in this kit — it is a
     // mark beside a word, and the rows above are where that is proven.
-    await expect(canvasElement.querySelector(".bk-colour-only")).toBeNull();
+    // Measured on the dots themselves: every round mark in the render shares
+    // its container with words. (No class marks a colour-only element, so
+    // asserting one absent would hold whatever the components drew.)
+    const dots = [...canvasElement.querySelectorAll<HTMLElement>('span[style*="border-radius: 50%"]')];
+    await expect(dots.length).toBeGreaterThanOrEqual(QUEUE_STATES.length);
+    for (const dot of dots) await expect(dot.parentElement!.textContent!.trim()).not.toBe("");
   },
 });
 

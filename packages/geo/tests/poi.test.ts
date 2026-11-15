@@ -235,7 +235,7 @@ describe("bounded shared Overpass POI queries", () => {
     const cap = await capped.poi(query);
     expect(cap.value).toHaveLength(1_000);
     expect(cap).toMatchObject({status: "partial", truncated: true, counts: {input: 1_001, retained: 1_000, omitted: 1}});
-    expect(cap.warnings.some(w => w.includes("more matching"))).toBe(true);
+    expect(cap.warnings).toContainEqual(expect.stringContaining("more matching"));
   });
 
   test("every failed endpoint is attempted once and a cached fallback retains its cause", async () => {

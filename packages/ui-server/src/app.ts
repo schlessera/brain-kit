@@ -40,7 +40,8 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, apifyLedgerPath, apifyTokenSource, referenceCredentialValues, resolveComputeConfig, resolveServerConfig, resolveWebSearchEnv, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { createHostWebTools } from "./web-tools/host.js";
 import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governanceApifyPolicy, openApifyLedger, type ApifyLedger } from "@schlessera/brain-common/internal/apify";
 import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
@@ -48,10 +49,10 @@ import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
-import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
+import { createSubscriptionMonitor } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, probeWorkerHostRecordedAsync, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
-import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { createNativeBrainManagerClient, PROVIDER_CACHE_FILES, resolveWebSearchConfigPath, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainRoutes } from "./routes/brain.js";
 import { createSessionProfiles } from "./ws/session-profiles.js";
@@ -74,6 +75,8 @@ import { createTranscriptionWrites } from "./voice/transcription-writes.js";
 import { createSettingsWrites } from "./db/settings-writes.js";
 import { createSpeechProviderRegistry } from "./voice/speech-providers.js";
 import { createVoiceRoutes } from "./routes/voice.js";
+import { createVoicePersonaRoutes } from "./routes/voice-personas.js";
+import { createLivePersonaService } from "./voice/personas.js";
 import { createFilesRoutes, HTML_PREVIEW_CSP, HTML_PREVIEW_PATH } from "./routes/files.js";
 import { createInboxIntake } from "./inbox/intake.js";
 import { createQueueRoutes } from "./routes/queue.js";
@@ -130,7 +133,9 @@ import {
   getCustomOpenRouterModels,
   getDefaultModelId,
   getHiddenModelIds,
+  getLiveDefaultProvider,
   getSetting,
+  setSetting,
   getThinkingOverrides,
 } from "./db/settings.js";
 import { createActivityRuntime } from "./activity/runtime.js";
@@ -149,6 +154,7 @@ import {
   probeBackendRuntimes,
   createBackendRegistry,
   validateBackendVersionRequirements,
+  loadBackendInternal,
   type BackendRegistry,
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion, requeueWhenBusy } from "./brain/client.js";
@@ -202,6 +208,8 @@ export interface CreateAppOptions {
   computeOverrides?: Partial<Pick<import("./brain/compute-host.js").ComputeHostOptions, "readConfig" | "core" | "serviceOptions" | "driver" | "credential" | "clock" | "workerEnvExtra">>;
   /** Tighten ordinary hosted turns to the read-only brain profile. Default: governed. */
   workerProfile?: "governed" | "strict";
+  /** @internal `false` starts no host web executor even where pi is configured (#3686). */
+  webTools?: false;
   /** Full SemVer minima composed with package requirements; unknown explicit identities refuse startup. */
   versionRequirements?: HostVersionRequirements;
   /**
@@ -250,6 +258,19 @@ export interface CreateAppOptions {
    * @experimental Part of the LiveConversationProvider seam until 1.0.
    */
   conversationProvider?: LiveConversationProvider;
+  /**
+   * Several live-conversation providers, fixed at construction (#3616).
+   * Exclusive with `conversationProvider`, which means a list of one. Startup
+   * fails on both options, duplicate ids or an invalid provider. Registration
+   * is discovery only, never proof that a provider's key works.
+   * @experimental Part of the LiveConversationProvider seam until 1.0.
+   */
+  conversationProviders?: LiveConversationProvider[];
+  /**
+   * The host's default live service when nothing is saved in Settings › Voice
+   * (#3616). Must name a registered provider, or startup fails.
+   */
+  defaultConversationProviderId?: string;
   /**
    * The small, fast model that labels working-session and pending follow-up
    * pills with a few words (#1004): any value of core's `CompletionProvider`
@@ -364,6 +385,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const privateStatePaths = config.inbox?.pokeTokenFile
     ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
   privateStatePaths.push({ setting: "Storage transfer cache", path: storageCacheRoot }, { setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
+  // The host web executor's per-session private directories (#3686): host
+  // operational state beside the journal, refused inside the brain and masked
+  // from workers like the rest.
+  const webExecutorRoot = `${journalRoot}.web-executor`;
+  privateStatePaths.push({ setting: "web executor state", path: webExecutorRoot });
   // Hosted external compute state (#3108, ruling R5): host operational state
   // beside the database, refused inside the brain and masked from workers.
   // An ephemeral database has no durable place for it, so compute is off.
@@ -422,22 +448,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (options.registry && Object.keys(backendRequirements ?? {}).length > 0) {
     throw new Error(`Cannot verify host versionRequirements.backends during startup through an injected registry: detected identities unknown; declarations ${JSON.stringify(backendRequirements)}. Use the descriptor-backed default registry, or omit explicit backend requirements.`);
   }
-  // A missing (or unrecognized) agent backend refuses to boot HERE, not on the
-  // first turn — otherwise /api/health reports healthy while every turn is
-  // guaranteed to fail. Descriptor loading and profile validation happen here;
-  // backend construction and model discovery remain lazy.
-  // Skipped when the embedder injects its own registry.
-  if (!options.registry) assertBackendResolvable(config.agent);
-  // An unparseable token mint date refuses here, before anything is opened
-  // (#254): ignoring it would silently switch the expiry warning off.
-  parseMintedAt(config.subscription.mintedAt);
-  // The runtime every active backend would spawn, probed now (#211): a
-  // missing or unstartable binary refuses the boot here instead of failing
-  // the first turn — and before anything is opened, so a refused boot leaves
-  // nothing behind. Skipped with an injected registry, like the check above.
+  // The default must work. A secondary package/runtime failure removes only
+  // that backend; the same exclusion reaches lazy registry construction.
+  const unavailableBackends = options.registry ? [] : assertBackendResolvable(config.agent);
   const runtimeProbes = options.registry
     ? []
-    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements, config.exec);
+    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements, config.exec, unavailableBackends);
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
@@ -539,6 +555,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recovered.retained.length) brainLog.emit({ severityText: "WARN", body: `Managed worktree recovery retained ${recovered.retained.length} unresolved worktree or generation record(s).` });
   }
   assertInboxRecoveryReady(db);
+  const storedBackendFailures = getSetting<typeof unavailableBackends>(db, "boot.backendFailures", []);
+  // Diagnostics cannot turn a malformed historical setting into a new boot gate.
+  const lastBackendFailures = Array.isArray(storedBackendFailures) ? storedBackendFailures.filter(entry => entry
+    && ["claude", "pi"].includes(entry.backendId) && ["resolution", "runtime"].includes(entry.phase)
+    && ["assertBackendResolvable", "probeBackendRuntimes"].includes(entry.site)
+    && typeof entry.message === "string" && typeof entry.errorClass === "string" && typeof entry.at === "string") : [];
+  for (const failure of unavailableBackends) {
+    const previous = lastBackendFailures.findIndex(entry => entry.backendId === failure.backendId);
+    if (previous < 0) lastBackendFailures.push(failure); else lastBackendFailures[previous] = failure;
+    observability.logger("agent").emit({ severityText: "WARN", body: `Backend ${failure.backendId} unavailable: ${failure.message}`,
+      attributes: { "backend.id": failure.backendId, "boot.phase": failure.phase, "boot.site": failure.site, "error.type": failure.errorClass,
+        "boot.at": failure.at, "boot.scope": "backend" } });
+  }
+  if (unavailableBackends.length) setSetting(db, "boot.backendFailures", lastBackendFailures);
+  const backendAvailability = { unavailable: unavailableBackends, lastFailures: lastBackendFailures };
   // One package-local pricing instance, shared by admission and Activity.
   // Refresh warms in the background; resolve() is synchronous and rollups
   // never wait on the network.
@@ -607,6 +638,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Activity record: span store + live stream + notifications + lifecycle
   // sweeps, owned by the runtime (see activity/runtime.ts).
   const settingsWrites = createSettingsWrites(db, writer, dbLog);
+  // Persona Markdown lives in the brain; the selection in the settings store (#3617).
+  const livePersonas = createLivePersonaService({ brainPath: config.brainPath, db, settingsWrites,
+    providers: () => options.conversationProviders ?? (options.conversationProvider ? [options.conversationProvider] : []) });
   const activity = createActivityRuntime(db, {
     settingsWrites,
     log: observability.logger("activity"),
@@ -628,6 +662,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       exec: config.exec,
       maintenance: boundary.maintenance,
       versionRequirements: backendRequirements,
+      unavailableBackends,
       brainPath: config.brainPath,
       agent: config.agent,
       getHiddenModelIds: () => getHiddenModelIds(db, dbLog),
@@ -710,7 +745,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs }, { writer, catalog });
   // Idle passes keep the observer initialized and current, and expire old
   // turns, off the next admission's path (#3355).
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000,
+  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer, idleObservationMs: 60_000, log: brainLog,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
@@ -767,7 +802,33 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const accountKeys = createAccountPartitionKeys(db, config.brainPath, authMode, accountSeed);
   const ownerSafetyReviews = new OwnerSafetyReviews(db, activity.governanceWrites, authMode,
     deriveAccountPartitionKey(accountSeed,realpathSync(config.brainPath),"owner"));
+  // The host-owned web tools (#3686): the broker over the trusted Pi
+  // executor, wherever the pi backend is configured and available. Without
+  // it the four tools stay listed and are refused before they run.
+  let webTools: import("./web-tools/broker.js").WebBroker | undefined;
+  const piUsable = (Boolean(config.agent.piProfilesJson) || (config.agent.backend || "claude") === "pi")
+    && !unavailableBackends.some(failure => failure.backendId === "pi");
+  if (piUsable && options.webTools !== false) {
+    const webLog = observability.logger("web");
+    try {
+      const module = (await loadBackendInternal("pi")) as import("./web-tools/host.js").PiWebExecutorModule;
+      const webEnv = resolveWebSearchEnv();
+      webTools = createHostWebTools({ module, root: webExecutorRoot, hostConfigPath: () => resolveWebSearchConfigPath(webEnv), env: webEnv,
+        runtime: process.execPath, path: subprocessEnv("brainCli").PATH ?? "/usr/bin:/bin",
+        // Refused connections are worth an owner's look; the rest is routine. Host, port and reason only.
+        onEgress: record => { if (record.outcome === "denied") webLog.emit({ severityText: "WARN", body: `web executor connection refused: ${record.reason ?? "denied"}`,
+          attributes: { "web.egress.host": record.host, "web.egress.port": record.port, "web.egress.reason": record.reason ?? "denied" } }); },
+        onPrepared: removed => { if (removed.length) webLog.emit({ severityText: "INFO", body: `web executor configuration: turned off or removed ${removed.join(", ")}` }); },
+        onReceipt: receipt => { if (receipt.kind === "executor") webLog.emit({ severityText: receipt.exit.exited && receipt.exit.cleaned !== false ? "INFO" : "WARN",
+          body: `web executor session ended: ${receipt.exit.reason}`, attributes: { "web.calls": receipt.calls, "web.exit_code": receipt.exit.code ?? -1,
+            "web.exited": receipt.exit.exited, "web.cleaned": receipt.exit.cleaned ?? true } }); } });
+      bootCleanup.push(() => webTools?.close());
+    } catch (error) {
+      webLog.emit({ severityText: "WARN", body: `Pi web tools are unavailable on this host: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }
   const host = new WsHost({
+    ...(webTools ? { webTools } : {}),
     safetyHistory,
     ownerSafetyReviews,
     turnReverts: reverts,
@@ -806,7 +867,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity: { store: activity.store, onWrite: () => activity.stream.pump() },
     }),
     scratchPrune: () => scratchPrune.tick(),
-    ...(options.conversationProvider ? { conversationProvider: options.conversationProvider } : {}),
+    ...(options.conversationProvider !== undefined ? { conversationProvider: options.conversationProvider } : {}),
+    ...(options.conversationProviders !== undefined ? { conversationProviders: options.conversationProviders } : {}),
+    ...(options.defaultConversationProviderId !== undefined ? { defaultConversationProviderId: options.defaultConversationProviderId } : {}),
+    liveDefaultProvider: () => getLiveDefaultProvider(db).defaultProvider,
+    ...(options.conversationProvider !== undefined || options.conversationProviders !== undefined ? { livePersonas } : {}),
     ...(options.appName ? { appName: options.appName } : {}),
     // Explicit option wins; then the env-resolved config; then the host default.
     ...(options.turnTimeoutMs ?? config.turnTimeoutMs
@@ -1009,7 +1074,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // probe and the login/logout routes are reachable without a session.
   // /api/status is intentionally NOT here — it leaks the git SHA, cron errors,
   // and a session oracle, so it lives behind the guard below.
-  app.route("/api", createHealthRoutes({ db }));
+  app.route("/api", createHealthRoutes({ db, degradedReasons: () => unavailableBackends.length ? ["backend_unavailable"] : [] }));
   // Not under /api, and not behind the guard: this is where a system share
   // lands when no service worker was around to intercept it. See the route.
   app.route("/", shareTargetFallbackRoutes);
@@ -1055,7 +1120,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route(
     "/api",
     createStatusRoutes({
+      getJournalRecovery: () => journal.recoveryStatus(),
+      getJournalCleanup: () => journal.cleanupStatus(),
       sourceCommit: config.sourceCommit,
+      getBackendAvailability: () => backendAvailability,
+      getNativeRecovery: () => nativeReady.recovery,
       getContentRenderers: async signal => brain.modules ? declaredContentRenderers((await brain.modules({ signal })).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
@@ -1080,6 +1149,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
       },
+      getSafetyRecording: () => activity.governanceWrites.recordingStatus(),
+      recoverSafetyRecording: actor => activity.governanceWrites.recoverRecording(actor),
     })
   );
   // Host readers of the index wait for application updates queued before them (#2835).
@@ -1188,6 +1259,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createActivityRoutes({ db, settingsWrites, store: activity.store, notifier: activity.notifier, actionNotices: activity.actionNotices }));
   app.route("/api", createPushRoutes({ sender: activity.pushSender, notices: activity.actionNotices }));
   app.route("/api", createVoiceRoutes({ voice: config.voice, keyterms, speechProviders, db, settingsWrites }));
+  app.route("/api", createVoicePersonaRoutes(livePersonas, { read: () => getLiveDefaultProvider(db),
+    save: (revision, id) => settingsWrites.saveLiveDefaultProvider(revision, id), known: (id) => host.liveProviders.get(id) !== undefined,
+    changed: () => host.conversations?.broadcastSettings() }));
   const transcriptions = createTranscriptionWrites(db, { brainPath: config.brainPath, authMode }, writer);
   app.route("/api", createTranscriptionRoutes({ store: transcriptions, keyterms, speechProviders, db }));
   app.route(
@@ -1213,8 +1287,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createModelRoutes({ registry, db, settingsWrites, pricing, log: observability.logger("models") })
   );
-  app.route("/api", createPiAuthRoutes({ agent: config.agent }));
-  app.route("/api", createWebSearchRoutes({ agent: config.agent }));
+  // A backend excluded at boot never executes, including its auth and extension services (#3817).
+  const piExcluded = () => unavailableBackends.some(failure => failure.backendId === "pi");
+  app.route("/api", createPiAuthRoutes({ agent: config.agent, excluded: piExcluded }));
+  app.route("/api", createWebSearchRoutes({ agent: config.agent, excluded: piExcluded }));
   const apifyOwner = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
   // Settings edits (#3163) go through the existing policy proposals, the only policy writer, in a user journal window.
   const apifyEdits = createApifyPolicyEdits({ root: config.brainPath, proposals: policyProposals, journal, authorized: apifyOwner });

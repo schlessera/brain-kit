@@ -18,6 +18,7 @@ import {createUiDb} from "../src/db/client";
 import {openSqliteWriter} from "../src/db/write-worker";
 import {createGovernanceWrites} from "../src/governance/event-writes";
 import {createSafetyCollector} from "../src/governance/safety-collector";
+import {holdSafetyRecovery} from "./helpers/hold-safety-recovery";
 import {recoverSafetyRecording,safetyCatalogCreated,safetyRecords} from "../src/governance/safety-store";
 
 const injected="workspaces/voyage/raft.md:1: External instructions";
@@ -31,6 +32,7 @@ async function fixture(mode:Mode="normal",acknowledge=true,durable=false) {
  writeFileSync(join(root,"docs/decisions/provider-history.md"),"Odysseus records an unchanged voyage.\n");
  mkdirSync(join(root,"workspaces/voyage"),{recursive:true});writeFileSync(join(root,"workspaces/voyage/raft.md"),"Odysseus repairs the raft.\n");
  const db=createUiDb(durable?join(root,"ui.db"):":memory:"),writer=openSqliteWriter(db),writes=createGovernanceWrites(db,writer),controller=new AbortController();
+ holdSafetyRecovery(db);
  const requests:string[]=[],events:string[]=[];let executed=0,notices=0,finalBeforeRequest=false,manager:SessionManager|undefined;
  const sessions:AgentSession[]=[];
  const origin=Bun.serve({hostname:"127.0.0.1",port:0,async fetch(request){
@@ -142,7 +144,12 @@ for(const mode of ["normal","error","blocked","writer-loss"] as const)test(`inst
   expect(f.executed,"SAFETY_PI_REAL_INSTALLED_TOOL_EXECUTED").toBe(mode==="blocked"?0:1);
   if(mode==="writer-loss"){
    expect(f.requests,"SAFETY_PI_RECORDING_LOSS_STOPS_NEXT_PROVIDER_REQUEST").toHaveLength(1);
-   expect(f.writes.recordingAvailable("voyage","ithaca")).toBe(false);return;
+   expect(f.controller.signal.aborted,"SAFETY_PI_RECORDING_LOSS_STOPS_THE_TURN").toBe(true);
+   // The tool already ran. The host cannot tell a runtime that drops a
+   // refused result from one that keeps it in its session, so the loss
+   // stays with its chat, never treated as before delivery (#3812).
+   expect(f.writes.recordingAvailable("voyage","ithaca"),"SAFETY_PI_REFUSED_RESULT_KEEPS_ITS_LOSS").toBe(false);
+   expect(f.writes.safety(null,"ithaca").coverage.state,"SAFETY_PI_REFUSED_RESULT_NEVER_LOOKS_COMPLETE").toBe("incomplete");return;
   }
   expect(f.requests).toHaveLength(2);
   if(mode!=="blocked")expect(f.events.indexOf("permission")).toBeLessThan(f.events.indexOf("execute"));
@@ -223,7 +230,7 @@ test("Pi initialization refusal waits for host loss retention before acquisition
 for(const point of ["startup","during-tool"] as const)test(`installed Pi ${point} refusal survives a real loss-notice COMMIT failure`,async()=>{
  const f=await fixture("normal",true,true),ran={value:false};
  try{
-  f.db.exec("CREATE TABLE pi_loss_probe(id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_pi_loss AFTER UPDATE OF failed ON safety_meta WHEN NEW.failed=1 BEGIN INSERT INTO pi_loss_probe VALUES('missing-raft'); END");
+  f.db.exec("CREATE TABLE pi_loss_probe(id TEXT REFERENCES safety_records(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_pi_loss AFTER UPDATE OF failed ON safety_meta WHEN NEW.failed=1 BEGIN INSERT INTO pi_loss_probe VALUES('missing-raft'); END; CREATE TRIGGER fail_pi_loss_chat AFTER UPDATE OF failure ON safety_collections WHEN NEW.failure IS NOT NULL AND EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='fail_pi_loss') BEGIN INSERT INTO pi_loss_probe VALUES('missing-raft'); END");
   if(point==="startup")await f.configure([attack("custom-message",ran)]);
   else f.duringTool(()=>f.configure([attack("custom-message",ran)]));
   try{const session=await f.open();await session.prompt("Inspect the raft.");}catch{}

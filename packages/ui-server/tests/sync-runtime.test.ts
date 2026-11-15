@@ -152,7 +152,7 @@ describe("BrainClient.sync reads the result", () => {
       { agent: base.agent },
     ];
     for (const v of variants) expect(parseSyncResult(JSON.stringify(v))).toBeNull();
-    expect(parseSyncResult(INVOKED_KNOWN)).not.toBeNull();
+    expect(parseSyncResult(INVOKED_KNOWN), "SYNC_RESULT_KNOWN_SHAPE_PARSED_EXACTLY").toEqual(base);
   });
 });
 

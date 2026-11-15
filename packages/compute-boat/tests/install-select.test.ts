@@ -58,7 +58,7 @@ describe("installing and selecting Boat", () => {
     const fake = fakeBoat({ apiKey: KEY });
     expect((await computeProvider.health(contextFor(fake, { secret: "boat_wrong_key_000" }))).kind).toBe("unavailable");
     expect((await computeProvider.health({ ...contextFor(fake), secret: undefined })).kind).toBe("unavailable");
-    expect(fake.requests.every((r) => r.method === "GET")).toBe(true);
+    expect(fake.requests.filter((r) => r.method !== "GET")).toEqual([]);
   });
 
   test("the package imports @schlessera/brain for types only, and ships no install hook or vendor SDK", () => {

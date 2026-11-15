@@ -117,7 +117,7 @@ test("a transcript is attributed by its header, and links stay untouched", async
   expect(existsSync(join(replay.dir, replay.name)), "HARD_LINK_NOT_UNLINKED").toBe(true);
   expect(lstatSync(join(replay.dir, replay.name)).nlink).toBe(2);
   // The tree its header attributes to the target is gone; the control chat is intact.
-  expect(readdirSync(sessionDir).some(name => name.endsWith(`_${target}.jsonl`))).toBe(false);
+  expect(readdirSync(sessionDir).filter(name => name.endsWith(`_${target}.jsonl`))).toEqual([]);
   expect(readFileSync(join(sessionDir, controlFile), "utf8")).toContain(CONTROL);
   expect(text(await backend.getHistory(control))).toContain(CONTROL);
   await expect(backend.removeSessionHistory!({ operationId: "retire-voyage", sessionId: "../penelope-letters" })).rejects.toBeInstanceOf(BackendRequestError);

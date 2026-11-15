@@ -9,7 +9,8 @@ import { TurnTiming } from "../../src/components/activity/turn-timing.js";
 let renderer: Root | undefined;
 let host: HTMLDivElement | undefined;
 let style: HTMLStyleElement | undefined;
-afterEach(()=>{if(renderer)flushSync(()=>renderer!.unmount());host?.remove();style?.remove();renderer=undefined;});
+const viewport={width:innerWidth,height:innerHeight};
+afterEach(async()=>{if(renderer)flushSync(()=>renderer!.unmount());host?.remove();style?.remove();renderer=undefined;await page.viewport(viewport.width,viewport.height);});
 const fixture = (over: Partial<ActivityTurnLifecycle>): ActivityTurnLifecycle => ({
   hostEvents: [], skippedPhases: [],lifecycleId:"lifecycle:turn-ithaca",turnId:"turn-ithaca",sessionId:"ithaca",backendRunId:"turn-ithaca",acceptedAt:1000,dequeuedAt:null,
   governedStartedAt:1000,governedAcquiredAt:2000,budgetStartedAt:2000,budgetAdmittedAt:3000,

@@ -60,6 +60,28 @@ A backend that never calls it, and every call it reports nothing for, keeps
 the observation after each result. This is first-party implementation sharing
 under the internal-entry classification below and requires a patch changeset.
 
+## Workspace paths in turn observation facts (additive, 0.45.0, #3793)
+
+The `onObservation` observer of `createTurnJournal`'s journal, tagged
+`@internal` but recorded in `api-report/` because the journal's type is
+inferred, receives one more fact: `workspacePaths`, how many of the
+observation's `changedPaths` lie below `workspaces/` by path containment.
+`changedPaths` still counts every changed path. The host scope monitor caps
+`files_changed` at `changedPaths - workspacePaths`; `turn_bytes`, the
+free-space floor and the scope summary's `changedPaths` are unchanged. No wire,
+HTTP or policy shape changes.
+
+## Managed GitHub acquisition wire (internal #3613)
+
+The internal turn proxy has a first-party `managedReference(target,
+signal)` operation for fixed GitHub HTTPS acquisition and a `remainingBytes()`
+counter. It retains ordinary G6 recipient narrowing, final admission fences
+and byte accounting; it cannot grant a contacted-host allowance. No worker
+header selects it. The internal entry also exports the existing
+`egressAddressRefusal` validator so the fixed acquisition wire validates every
+DNS address before connecting to a checked IP. These are implementation
+sharing, with no supported public transport extension seam (#3613).
+
 ## Prepared ordinary inference transport (internal #1665)
 
 The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
@@ -97,7 +119,8 @@ that has a turn proxy, and one per credentialed maintenance run where the host
 has managed native storage. A relay sends a key only to that key's built-in
 first-party origin (`GEMINI_API_KEY` to `https://generativelanguage.googleapis.com`,
 `ANTHROPIC_API_KEY` to `https://api.anthropic.com`, `OPENAI_API_KEY` to
-`https://api.openai.com`) or to an exact origin the server's
+`https://api.openai.com`, `TYPESAFE_API_KEY` to `https://api.typesafe.ai`
+since #3792) or to an exact origin the server's
 `BRAIN_UI_CLI_PROVIDER_ORIGINS` (`KEY=origin[,origin];...`) lists for that key.
 A custom endpoint or a custom key variable is refused unless listed. The
 public protocol adds the `TurnBudgetCoverage` type ([wire](wire.md#completed-inference-usage-and-budgets-additive-1669)).
@@ -335,12 +358,29 @@ schemas `WEB_SEARCH_INPUT_SCHEMA`, `FETCH_CONTENT_INPUT_SCHEMA`,
 helper `handleWebTool(name, input, bridge, toolCallId)`, and `BackendBridge`
 the optional `webAccess(call)`. No existing export changes.
 
+Since #3688 `WebToolCall` has an optional `model: WebModelAccess`, the turn's
+admitted model as its backend lends it on the host, and `handleWebTool` takes
+it as an optional fifth argument, `model`. `WebModelAccess` is
+`{ provider, model, open(egress, signal?) }`; `open` starts a host relay for
+exactly that model into a web executor's egress route (`WebModelEgress`:
+`{ dir, inference }`) and resolves to `{ grant, stop() }`. `WebModelGrant`
+(`{ provider, model, credential: "api_key" | "oauth", basePath, socket }`) is
+everything the executor is told, and never holds a credential. A backend that
+does not set `model` behaves as before.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated
 full-size viewer. It draws lucide's `Expand`, the glyph the chat Mermaid block
 already uses for Open diagram. The framed diagram renderer's header uses it.
 No existing key, glyph or component changes.
+
+## UI-kit backspace icon (additive, 0.45.0, #3762)
+
+The semantic `IconName` gains `backspace`: discard what is held, as a
+keyboard's backspace key does. It draws lucide's `Delete`, the backspace-key
+glyph. The voice field's Discard draft control uses it. No existing key, glyph
+or component changes. This ships in a minor.
 
 ## UI-kit Button reach (additive #3252)
 
@@ -700,6 +740,32 @@ shape changes. The cron runner adds a `[cron-run]` line and prefixes the
 recorded error with the same explanation when a worker job exits nonzero with
 an unexplained `EROFS` or "read-only file system" in its stderr.
 
+<a id="module-repositories"></a>
+
+**Additive module repositories (0.45.0, #3380).** A module's config block
+accepts an optional core-owned `repositories: string[]`, removed before the
+module's `configSchema` sees the block, like `enabled`. Each entry must be an
+`https://` URL (or a loopback `http://` URL) with no credential, query,
+fragment or dot segment; at most 16 are allowed, and duplicates collapse. An
+invalid list is a load error for that module. `LoadedModule` gains the optional
+`repositories` field, and `brain module list --json` reports it on every
+configured module (see the [CLI component](cli.md)). The list is a request:
+`@schlessera/brain-ui-server`'s cron runner fetches a repository for a module
+job only when the operator's `BRAIN_UI_MODULE_REPOSITORIES` names it too. That
+allow-list is read from the runner's host environment, is never forwarded to a
+job, and compares repositories by origin and path, ignoring a trailing `/` or
+`.git`. The runner maps a job named `<module>-<entry>` to its module through a
+credential-free `brain module list --json`, matching both the name and the
+entry's `brain …` command. A job whose module asks for a repository the list
+does not allow, or whose fetch fails, is refused before it starts: it exits 1,
+its `cron_runs` error names the repository and the setting, and nothing is
+fetched for it. A granted repository is fetched into a host-private bare mirror
+beside the sync mirror by the sync transport, with `BRAIN_UI_SYNC_GITHUB_TOKEN`
+(else `GITHUB_TOKEN`) sent only to `https://github.com`. The job's worker gets
+the mirror read-only and `url.file://<mirror>.insteadOf` rewrites for the
+URL's plain, `/`, `.git` and `.git/` spellings. It never receives a Git
+credential. The crontab layout is unchanged.
+
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
 `options.protectedPaths: readonly string[]`. These brain-relative or absolute
@@ -806,6 +872,13 @@ receipts; pi counts completed assistant `message_end` receipts, excluding aborte
 and error answers. Server checkpoint settlement uses these receipts as described
 in the [budget guide](../inbox-budget.md). Backends without this optional reporting
 retain conservative missing-receipt settlement.
+
+The additive server-only `BackendActivityEvent` variant `worker_cleanup`
+(#3815) contains `{ state: "retrying" | "resolved", bytes, turnTempBytes,
+errorClass?, message? }`. Both backends report retained cleanup allowances and
+their confirmation, including after a turn ends. The host records these as
+`worker_cleanup` Activity events on the original run without changing its
+terminal outcome. They never enter provider history and add no client frame.
 
 The additive server-only `BackendActivityEvent` variant `resource_limit`
 (#1660) contains `{ limits, fatal }`: each new host resource-limit hit of the
@@ -1554,6 +1627,36 @@ retention, cost and the error table) is specified in the
 [package README](../../packages/compute-boat/README.md); its conformance is
 the two suites above. Boat's environment variable for its own CLI is never
 read.
+
+<a id="live-service-registration-additive-3616"></a>
+
+### Live-service registration (additive, #3616)
+
+`CreateAppOptions` (`@schlessera/brain-ui-server`) adds
+`conversationProviders?: LiveConversationProvider[]`, fixed at construction in
+registration order, and `defaultConversationProviderId?: string`, the host's
+default while nothing is saved. `conversationProvider` still registers one and
+means a list of one. Construction fails when both are given, on duplicate ids,
+on an invalid provider, or when `defaultConversationProviderId` names no
+registered provider. The saved brain-wide default lives in the ui-server
+settings store under `voice.live.defaultProvider` as
+`{ value: string | null, revision: number }`; corrupt rows read as nothing
+saved, revision 0. It is persisted server state, not part of the disposable
+content index. How a Start resolves the service is in
+[the wire contract](wire.md#live-service-selection-additive-3616).
+
+`@schlessera/brain-ui-sdk/protocol` exports `LiveDefault`, `LiveProviderSource`,
+`ServerLiveSettings`, `VoiceLiveSettings` and `VoiceLiveSettingsUpdate`;
+`ServerHello` adds `conversationProfiles?` and `liveDefault?`,
+`ClientConversationStart` adds `providerId?` and `ServerConversationOpened` adds
+`providerSource?`. `VoiceSettingsResponse` (the shared `/api/settings/voice`
+body, #3617) extends `VoiceLiveSettings`, and `VoiceSettingsUpdateRequest` adds
+optional `defaultProvider` and `revision`. `@schlessera/brain-ui-sdk/schemas` exports
+`conversationProfilesSchema`, `liveDefaultSchema`, `serverLiveSettingsSchema`
+and `voiceLiveSettingsSchema`; a malformed roster or `liveDefault` is dropped
+from a hello without losing the frame. `@schlessera/brain-ui-kit` exports the
+presentational `LiveServiceSettings` group (`LiveServiceOption`,
+`LiveServiceSettingsProps`, `LiveServiceStatus`), which opens nothing itself.
 
 <a id="dictation-speech-integration-and-conformance"></a>
 
@@ -4861,6 +4964,35 @@ retires the reviewed input identities; late recognition cannot restore them.
 These actions and Mute cancel pending automatic review timers, while output recovery
 remains independent of microphone consent.
 
+### Conversation capture intent and meter readings (#3699)
+
+Additive. The conversation client's state carries `capture`, the intent behind
+`micOn`: `idle` before Start in an entry, `listening` while consent stands
+(recoverable transitions restore capture on their own), `muted` after a manual
+Mute until Unmute, and `stopped` when a genuine failure withdrew consent and only
+a new Start resumes capture. Manual Mute stays `muted` across teardown and
+reconnects. `levels()` returns display-only 0–1 readings, `{ input, output }`:
+the newest microphone block while capture is open, and the 10 ms window of the
+reply sounding now. Neither value gates capture, endpointing, output recovery or
+permission routing.
+
+<a id="start-card-persona-choice-3698"></a>
+
+### Start-card persona choice (#3698)
+
+Additive. The conversation client's state carries `personaChoice`, the
+`ConversationPersonaRef` this entry's Start sends instead of the saved persona's
+`personaRef`; `null` sends the saved one. `choosePersona(ref | null)` sets it
+before Start: a persona picked on the Start card, `{ id: "standard", revision:
+"builtin" }` for "Use Standard this time", or a ref with `voice: "default"` for
+"Use the default voice this time". It is ignored once Start was agreed, saves
+nothing, and is cleared on Enter and Leave. The host still refuses a revision
+that is no longer current. When the host refuses a first Start that opened
+nothing, the entry may choose its service (`chooseService`) or persona again
+before the next explicit Start; a `CONVERSATION_PERSONA_CHANGED` refusal also
+clears `personaChoice`. Neither call opens a microphone, reads history or
+contacts a provider.
+
 ### Retained dialogue data (#3177)
 
 The SDK protocol exports `DialogueEvidence`, `DialogueRecord`, `DialoguePage`,
@@ -4930,7 +5062,11 @@ recency is unknown. Partial coverage uses “may be missing” copy rather than 
 claim about the exact newest item. These bounds never delete the display archive.
 
 `LiveConversationSession.historyCoverage?` exposes the adapter's actual bounded
-historical selection as `{state, tailOmitted}`. Third-party providers may ignore
+historical selection as `{state, tailOmitted, includedMessages?}`. The optional
+`includedMessages` (additive, #3699) is the number of prior chat and spoken
+messages the startup context actually carried; completed results and gap markers
+are not counted, and it is 0 when no history block was sent. It is host-only
+display data: it is never part of any provider-facing text. Third-party providers may ignore
 the additive history input but cannot thereby claim existing-chat continuity.
 The frozen provider prefix/tools/instructions are never rewritten within an epoch.
 
@@ -5114,6 +5250,37 @@ acknowledgement promise. Reviewed-only tasks keep their existing admission and
 result behavior. The [wire/disclosure amendment](wire.md#live-orientation-disclosure-and-progress-additive-3623)
 adds no frame, revision or client permission grant.
 
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+`LiveConversationProvider` (`@schlessera/brain-ui-sdk/server`) gains three
+optional fields, all present or all absent: `voices: readonly
+ConversationVoice[]` (one to 128 unique `{ id, label }`), `defaultVoice` (one
+of them) and `personaInstructionBytes` (1 to 6,000). `assertLiveConversationProvider`
+refuses a partial or inconsistent set. A provider without them supports only
+Standard, and the host refuses any other persona for it.
+
+`LiveConversationOpenOptions.persona?: ConversationPersona` (`{ voice?: string;
+instructions: string }`) is the persona the host froze at Start. Absent means
+Standard and must reproduce the provider's behaviour before personas exactly.
+`voice` is one of the provider's `voices`; absent means `defaultVoice`.
+`instructions` is normalized plain text (line endings to LF, trimmed) within
+`personaInstructionBytes`. A provider frames it after its own fixed rules and
+never lets it reach tool declarations, permissions or history; the first-party
+adapters refuse an unoffered voice or an over-cap text rather than substitute
+or truncate. This adds fields to the existing live-conversation seam; it is not
+a new extension point.
+
+`@schlessera/brain-ui-sdk/protocol` exports `ConversationVoice`,
+`ConversationPersonaRef`, `LivePersona`, `LivePersonaSummary`,
+`LivePersonaInvalidReason`, `LivePersonaListResponse`,
+`LivePersonaCreateRequest`, `LivePersonaUpdateRequest`,
+`LivePersonaProviderStatus`, `LivePersonaStatus`, `VoiceSettingsResponse`,
+`VoiceSettingsUpdateRequest`, `ServerLivePersona`, `STANDARD_PERSONA_ID`,
+`STANDARD_PERSONA_REVISION` and `LIVE_PERSONA_LIMITS`; the schemas entry point
+exports their zod schemas. In `@schlessera/brain-ui-react`, the conversation
+client's state gains `livePersona: LivePersonaStatus | null` and its Start
+echoes `livePersona.personaRef`; Settings › Voice gains the Persona group.
+
 ## Observed live content map (additive, 0.45.0, #3630)
 
 `ConversationOrientation.knowledge[].topic` gains `content_map`. It carries
@@ -5223,3 +5390,70 @@ model tool or publication seam. Historical receipt projections and fresh
 its read-only reason additionally accepts `owner_required` or null; optional
 literal review lifetime/body bounds describe a supporting host. Absent or
 unsupported capability remains unavailable and grants no mutation authority.
+
+## Chat safety review controls (additive, #3605)
+
+`createBrainApi` adds `safetyPrepare(body, signal)` and
+`safetyCommit(requestId, body, signal)` for the existing two-phase owner HTTP
+review. Both parse the bounded SDK response, including refusal receipts.
+There is no retry queue or persisted mutation authority. A lost commit response
+remains unknown until a new read; reconnect and reload never send a verdict.
+
+The React transcript renders host-owned sidecars independently of chat message
+objects. An explicit turn/tool correlation places a 44px safety indicator on
+that entry and on its collapsed run. Uncorrelated input has a named turn event.
+Persistent details expose source, observation time, provenance, finalization and
+individual human verdicts. The narrow review is **Only this trigger**; a safe
+shield means **Marked safe by you**, never objective verification or removal of
+provider context. Standing-rule choices remain absent. Receipt projections
+never replace newer live evidence; only complete, zero-unresolved, healthy
+coverage can display **Normal policy restored**. Auth loss, selection changes
+and retirement discard pending authority. Any retained detail during a same-chat
+refresh is read-only until the new snapshot completes.
+
+
+Transport loss retains already read evidence as **last read**, with review
+capability, pending request authority and normal-policy claims removed. The
+notice and entry indicators keep their geometry while the same owner obtains
+a fresh snapshot. This display cache is partitioned by the host's opaque
+principal key, active session and auth epoch; a missing principal key creates
+a new partition at every hello. It grants no authority. New principals, auth
+loss, explicit unavailable/retired reads and deletion purge retained details.
+Late updates from a disconnected socket cannot loosen the retained facts, and
+recovery never resumes a prepared decision.
+
+## Native recovery quarantine status (#3816)
+
+`NativeManagerReady` gains optional `recovery` with `quarantinedIntents`,
+`stagingChargedBytes` (null when no safe stage bound is known) and
+`diagnosticsPath`. It is present when historical native
+intents cannot be read. Those identities remain fenced; staging capacity and
+unknown checkpoint dependencies remain charged. The manager serves readiness
+and unrelated checkpoint operations. A recovery page containing a quarantined
+identity refuses explicitly rather than reporting an incomplete inventory as
+complete. Causes remain in the host-private diagnostics directory. Authenticated
+`GET /api/status` exposes the boot report as optional `nativeRecovery`, also
+added to `SystemStatus`. A null staging charge makes `healthy` false and new
+staging returns a recovery refusal, not a retryable capacity error. A confirmed
+absent stage directory or invalid UUID charges zero; a surviving stage retains
+its independently persisted historical tmpfs cap. Public `/api/health` remains
+unchanged.
+
+## Journal cleanup diagnostics (additive, #3815)
+
+The journal host's additive `cleanupStatus()` method (#3815) returns
+`{ retained: { pending, failed, retainedBytes }, lastFailure }`, the same
+current accounting and historical diagnostic record exposed as
+[`journalCleanup` on authenticated status](http.md#checkpoint-cleanup-diagnostics-additive-3815).
+
+
+### Unresolved recovery summaries (#3826)
+
+`NativeManagerReady.recovery` and `SystemStatus.nativeRecovery` add optional
+`stagingRefusal`, a recovery explanation when quarantine prevents admission of
+the configured allowance. The manager tests each stage's actual allowance
+before classifying its refusal. `JournalRecoveryStatus` and optional
+`SystemStatus.journalRecovery` expose the count and first cause of unresolved
+object reservations from boot. The journal host adds `recoveryStatus()` returning
+that summary. Fields and recovery semantics are in the
+[HTTP contract](http.md#staging-refusal-and-unresolved-journal-recovery-additive-3826).

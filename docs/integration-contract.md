@@ -31,6 +31,33 @@ measured bytes only. See
 [the package API](integration-contract/package-api.md#reference-pool-growth-status-additive-0450-3515).
 This ships in a minor; no breaking ruling is required.
 
+## JeV reranking through the provider relay (additive, 0.45.0, #3792)
+
+The CLI provider relay gains the `typesafe` family, `x-brain-provider:
+typesafe`, whose only route is `POST /v1/systemone`. A governed or strict turn
+worker whose `TYPESAFE_API_KEY` the host withholds sends the `jev` reranker's
+request there; the host adds its key for `https://api.typesafe.ai` and meters
+the attempt as operation `reranking`, with an unknown cost rather than zero.
+Such a worker's `brain search` and `brain_search` are reranked instead of
+reporting `provider_unavailable` and falling back to lifecycle order; a host
+without the relay keeps that notice. Credentialed maintenance workers keep the
+key as before. See [the CLI component](integration-contract/cli.md#provider-relay-additive-0440-1673).
+This ships in a minor; no breaking ruling is required.
+
+## The Start card's persona choice (additive, 0.45.0, #3698)
+
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`personaChoice: ConversationPersonaRef | null`, and the client adds
+`choosePersona(ref | null)`: the persona this entry's Start sends as
+`personaRef` instead of the saved one, including the one-time
+`{ id: "standard", revision: "builtin" }` and `voice: "default"` choices.
+It saves nothing and is cleared on Enter and Leave. A first Start the host
+refused, which opened nothing, may choose a service or persona again; a
+`CONVERSATION_PERSONA_CHANGED` refusal clears the choice. No wire or HTTP
+shape changes. See
+[the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
+This ships in a minor.
+
 ## Host-owned web tools for Pi (additive, 0.45.0, #3685)
 
 Pi's ordinary governed and strict interactive sessions gain four
@@ -49,6 +76,34 @@ SDK gains the tool contracts, `WebToolEnvelope`, `parseWebToolInput`,
 and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
 This ships in a minor.
 
+## Subscription and current-model web search for Pi (additive, 0.45.0, #3688)
+
+A Pi turn whose inference runs on the host relay lends its admitted model to
+the web tools: `web_search` can use that turn's ChatGPT/Codex login, or the
+current model, for OpenAI search. The host resolves and refreshes the
+credential; the executor holds a placeholder, and a request for any other
+model is refused. Tool names, inputs and envelopes are unchanged. In the SDK,
+`WebToolCall` gains the optional `model: WebModelAccess`, with the new types
+`WebModelAccess`, `WebModelEgress` and `WebModelGrant`, and `handleWebTool`
+an optional fifth argument that sets it. See
+[the MCP component](integration-contract/mcp.md#host-owned-web-tools-additive-0450-3685)
+and [the package component](integration-contract/package-api.md#host-owned-web-tools-additive-0450-3685).
+This ships in a minor.
+
+## Host web executor for Pi (additive, 0.45.0, #3686)
+
+The four web tools now run on a host executor: the pinned upstream
+`pi-web-access` 0.41.0 in a trusted Pi session, one child process per
+principal's session, with provider configuration and keys on the host only.
+Their names, inputs and envelopes are unchanged. `GET /api/web-search` gains
+two fields. `unavailable` lists the features the host web tools do not
+offer, each `{ id, label, kind }` with `kind` either `deferred` or
+`excluded`. Each provider gains `keyIsCommand`, true when its stored key is a
+`!command` credential, which the host never runs. Such a key no longer counts
+as a credential, so it cannot enable a provider. `buildSystemPromptAppend`
+accepts `webTools: true`, which adds the brief's line on what the web tools
+do not offer. This ships in a minor.
+
 ## Retained barge-in and conversation end (additive, 0.45.0, #3729)
 
 `DialogueEvidence` gains `voice_interruption`, written when the host forwards
@@ -63,6 +118,27 @@ client refuses a page that carries the new kinds. See
 and [the package API](integration-contract/package-api.md#retained-dialogue-data-3177).
 This ships in a minor; no breaking ruling is required.
 
+## Live-conversation personas (additive, 0.45.0, #3617)
+
+A persona is authored Markdown at `_voice/personas/<id>.md` in the brain: a
+name, one voice per live service and plain-text speaking-style instructions.
+Core excludes `_voice` from the content index by default
+([configuration](configuration.md#exclude)). New owner-only routes read and
+write personas with sha-256 revisions, and `GET/PUT /api/settings/voice`
+carries the selection (`voice.live.persona`, its own revision) in the server
+settings store, never in `brain.db`. `LiveConversationProvider` gains optional
+`voices`, `defaultVoice` and `personaInstructionBytes`, mirrored on
+`ConversationProfile` outside the disclosure a Start must echo;
+`LiveConversationOpenOptions.persona` carries the persona frozen at Start.
+`server_hello.livePersona` and the new `live_persona` frame describe the
+selected persona to human sessions; `conversation_start.personaRef` echoes it,
+with `voice: "default"` as the explicit one-time stale-voice override. A
+conversation that sends no persona keeps exact current behaviour. See
+[wire](integration-contract/wire.md#live-conversation-personas-additive-0450-3617),
+[HTTP](integration-contract/http.md#live-conversation-personas-additive-0450-3617)
+and [the package API](integration-contract/package-api.md#live-conversation-personas-additive-0450-3617).
+This ships in a minor; no breaking ruling is required.
+
 ## Choosing the dictation provider in the app (additive, 0.45.0, #3709)
 
 `openSettings("voice")` opens a new Settings › Voice pane, which holds the
@@ -73,6 +149,31 @@ carries the server's code as `code`. The kit `Composer` adds
 `micTip?: boolean` and `micUnavailable?: string`. Existing calls behave as before, and no HTTP or protocol
 shape changes. See
 [the package API](integration-contract/package-api.md#dictation-speech-integration-and-conformance).
+This ships in a minor.
+
+## Choosing the live-conversation service (additive, 0.45.0, #3616)
+
+`CreateAppOptions` adds `conversationProviders?: LiveConversationProvider[]` and
+`defaultConversationProviderId?: string`; `conversationProvider` keeps meaning a
+list of one, and both together, duplicate ids or an unregistered default fail
+startup. `server_hello` adds `conversationProfiles` and `liveDefault`, and keeps
+`conversationProfile` only while a service is effective (R1). A new
+`live_settings` frame follows a save, `conversation_start` accepts an optional
+`providerId` that must equal the disclosed one, and `conversation_opened` adds
+`providerSource`. `GET`/`PUT /api/settings/voice`, shared with the persona
+selection (#3617), add the top-level `defaultProvider`/`revision` pair for the
+brain-wide default, each group with its own revision, and the route's writes
+gain a new owner-only guard. The SDK exports `LiveDefault`,
+`LiveProviderSource`, `ServerLiveSettings`, `VoiceLiveSettings`,
+`VoiceLiveSettingsUpdate` and their schemas; the kit adds `LiveServiceSettings`.
+In `@schlessera/brain-ui-react`, the conversation client's state adds
+`conversationProfiles`, `liveDefault` and `serviceChoice`, the client adds
+`chooseService(providerId | null)` for a one-time pick before Start, and the
+REST client adds `liveSettings()` and `saveLiveSettings()`.
+Single-provider hosts and existing clients keep their behaviour. See
+[wire](integration-contract/wire.md#live-service-selection-additive-3616),
+[HTTP](integration-contract/http.md#live-conversation-service-default-additive-3616)
+and [the package API](integration-contract/package-api.md#live-service-registration-additive-3616).
 This ships in a minor.
 
 ## Bounded multi-read (additive, 0.45.0, #3642)
@@ -171,6 +272,9 @@ directs. The new environment input is `BRAIN_UI_ATTACHMENT_POOL_BYTES`. See
 [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153),
 [the HTTP API](http-api.md#composer-file-attachments-additive-0450-3153) and
 [package API](integration-contract/package-api.md#composer-file-attachments-additive-0450-3153).
+On such a host the React package uploads images as originals too and sends
+each frame with `ChatImageAttachment.fileId` naming its original (#3155); a
+legacy draft image and a host without the flag keep the inline-only path.
 
 ## Outgoing snapshot list (additive, 0.45.0, #3588)
 
@@ -384,6 +488,18 @@ an `allowlist` egress mode, or the exact origins in
 `BRAIN_UI_CLI_PROVIDER_ORIGINS`. There is no new opt-out field. See
 [the G6 ruling](decisions/governed-writable-workers.md#untrusted-input-g6) and
 [supported inputs](supported-inputs.md).
+
+## Module repositories (additive, 0.45.0, #3380)
+
+A module's config block accepts an optional core-owned `repositories` list of
+repository URLs its cron jobs may read, and `brain module list --json` adds
+`repositories: string[]` to each configured module. The cron runner fetches a
+listed repository only when the operator's new `BRAIN_UI_MODULE_REPOSITORIES`
+host setting names it too; otherwise the job is refused before it starts. The
+host fetches with its sync credential into a private mirror, and the job's
+worker reads the mirror through a Git URL rewrite without any credential. See
+[the package API component](integration-contract/package-api.md#module-repositories).
+This ships in a minor; no breaking ruling is required.
 
 ## Module state area (additive, 0.45.0, #3380)
 
@@ -671,7 +787,8 @@ carry an optional authorized, frozen chat snapshot, separately from native
 same-conversation resync. `LiveConversationSession.historyCoverage` and
 `conversation_opened.historyCoverage` optionally report the actual startup
 selection's `state` (`complete`, `bounded`, `partial`, `unavailable`) and
-`tailOmitted`. This is data receipt/selection evidence, never a guarantee of
+`tailOmitted`, plus, additively (#3699), `includedMessages`: the number of
+prior chat and spoken messages actually sent. This is data receipt/selection evidence, never a guarantee of
 semantic recall. See the [package API](integration-contract/package-api.md#existing-chat-live-context-3178)
 and [wire behavior](integration-contract/wire.md#existing-chat-live-context-3178).
 
@@ -1153,6 +1270,10 @@ Original fragment identities remain available at this entry point.
 <a id="ui-server-http-routes"></a>
 
 - [ui-server HTTP routes](integration-contract/http.md#ui-server-http-routes) (original line 1943).
+
+<a id="degraded-backend-availability-and-unknown-expiry-additive-3817"></a>
+
+- [Degraded backend availability and unknown expiry (additive, #3817)](integration-contract/http.md#degraded-backend-availability-and-unknown-expiry-additive-3817).
 
 <a id="published-react-health-and-sync-helpers-breaking-health-correction"></a>
 

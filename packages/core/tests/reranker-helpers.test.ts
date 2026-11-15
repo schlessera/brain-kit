@@ -46,8 +46,8 @@ describe("buildPathMatcher", () => {
 
   test("glob patterns match the whole path", () => {
     const m = buildPathMatcher(["clients/**/ledger.md", "*.pdf"])!;
-    expect(m("clients/acme/ledger.md")).toBe(true);
-    expect(m("clients/acme/profile.md")).toBe(false);
+    expect(m("clients/ithaca/ledger.md")).toBe(true);
+    expect(m("clients/ithaca/profile.md")).toBe(false);
     expect(m("cv.pdf")).toBe(true);
     expect(m("me/cv.pdf")).toBe(false);
   });

@@ -144,7 +144,7 @@ The first six live in core. The self-hosted chat UI adds six in
   session per conversation epoch and reports normalized, evidence-qualified
   events. The host commits input, runs work through the ordinary backend and
   permission bridge, and returns bounded results; the provider never executes
-  tools or settles permissions. Pass one to `createApp({ conversationProvider })`.
+  tools or settles permissions. Pass one to `createApp({ conversationProvider })`, or several to `createApp({ conversationProviders, defaultConversationProviderId })` (#3616).
   Contract: `packages/ui-sdk/src/server/conversation.ts`.
 - **`ToolRenderer`** (client) — per-tool rendering for the chat timeline
   (icon, summary, input/output React components), registered at build time in

@@ -92,6 +92,9 @@ export const Tapped = meta.story({
 export const Static = meta.story({
   args: { onClick: undefined },
   play: async ({ canvas, canvasElement }) => {
+    // The result is there, path and highlight; only the pressable part is gone.
+    await expect(await canvas.findByText("knowledge/scylla.md")).toBeVisible();
+    await expect(await canvas.findByText("six heads, six men, one pass")).toBeVisible();
     await expect(canvas.queryByRole("button")).toBeNull();
     await expect(canvasElement.querySelector(".bk-row")).toBeNull();
     await expect(canvasElement.querySelector("[tabindex]")).toBeNull();

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Keep brain-kit's tests healthy"
+  short_description: "Audit one batch of tests in depth, fix and prove the worst, land ripe batches"
+  default_prompt: "Use $test-health to do one test-health run: plan, audit each cluster through every lens, record the worksheets, land a ripe batch if there is one, and record the run."

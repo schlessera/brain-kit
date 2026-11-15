@@ -4,6 +4,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { safetyReviewBodySchema as bodySchema } from "@schlessera/brain-ui-sdk/schemas";
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { assertLive, ChatRetiredError } from "../ws/chat-lifecycle.js";
 import { advance as advanceSafetyRevision, safetyProjection, safetyScopeTurns, SafetyUnavailable, type SafetyProjection } from "./safety-store.js";
 
@@ -57,16 +58,17 @@ function receipt(body: SafetyReviewBody, requestId: string | null, operationId: 
     stage: committed ? "verdict_committed" : reason ? "refused" : "prepared",
     verdict: committed ? "committed" : "unresolved", projection, reason };
 }
-/** Unknown/foreign identity never creates a session or reveals its projection. */
+/** Unknown/foreign identity never creates a session or reveals its projection.
+ * A chat belongs to its account: any owner login reviews it (#3952). */
 export function safetyReviewTarget(db: Database, body: SafetyReviewBody, principalId: string): "retired" | "unavailable" | null {
   const s = db.query(`SELECT principal_id FROM safety_sessions WHERE session_id=? AND history_owner_id=? AND generation=?`)
     .get(body.session.sessionId, body.session.historyOwnerId, body.session.historyGeneration) as { principal_id: string | null } | null;
-  if (!s || s.principal_id !== principalId) return "unavailable";
+  if (!s || !sameAccount(db, s.principal_id, principalId)) return "unavailable";
   const canonical = (db.query("SELECT owner_id FROM dialogue_aliases WHERE id=?").get(body.session.historyOwnerId) as {owner_id:string}|null)?.owner_id ?? body.session.historyOwnerId;
   try { assertLive(db, [["session", body.session.sessionId], ["dialogue_owner", body.session.historyOwnerId], ["dialogue_owner",canonical]]); }
   catch (error) { if (error instanceof ChatRetiredError) return "retired"; throw error; }
   const owner = db.query("SELECT generation,principal_id FROM dialogue_owners WHERE id=?").get(canonical) as { generation: number; principal_id: string } | null;
-  if (owner && (String(owner.generation) !== body.session.historyGeneration || owner.principal_id !== principalId)) return "unavailable";
+  if (owner && (String(owner.generation) !== body.session.historyGeneration || !sameAccount(db, owner.principal_id, principalId))) return "unavailable";
   return null;
 }
 function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): string | null {
@@ -77,7 +79,7 @@ function eligible(db: Database, body: SafetyReviewBody, actor: SafetyReviewer): 
     .get(body.occurrenceId) as { turn_id: string; principal_id: string | null; generation: string; final_state: string } | null;
   // The aggregate also includes adopted provisional collections. Use its
   // canonical membership; a direct session_id filter strands those events.
-  if (!r || r.principal_id !== actor.principalId || r.generation !== body.session.historyGeneration || !safetyScopeTurns(db, null, body.session.sessionId).has(r.turn_id)
+  if (!r || !sameAccount(db, r.principal_id, actor.principalId) || r.generation !== body.session.historyGeneration || !safetyScopeTurns(db, null, body.session.sessionId).has(r.turn_id)
     || db.query("SELECT 1 FROM safety_retired_turns WHERE turn_id=?").get(r.turn_id)) return "unavailable";
   if (db.query("SELECT 1 FROM safety_decisions WHERE occurrence_id=?").get(body.occurrenceId)) return "already_resolved";
   return r.final_state === "finalized" ? null : "not_finalized";

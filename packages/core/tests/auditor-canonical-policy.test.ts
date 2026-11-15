@@ -237,7 +237,7 @@ describe("brain audit --json on a copy of the fixture corpus", () => {
     growFocus(root);
     const past = (await auditJson(root)).filter((i) => i.category === "past-date" && i.message.includes("2020-01-01"));
     expect(past).toHaveLength(1);
-    expect(past[0].message.startsWith("Line ")).toBe(true);
+    expect(past[0].message).toStartWith("Line ");
   });
 
   test("with the root and a pinned clock, the line is the file's", async () => {

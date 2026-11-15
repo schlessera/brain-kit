@@ -58,3 +58,21 @@ test("the gate auto-allows a web tool only when the host can run it", async () =
     expect(cards, `PI_WEB_NO_CARD_${name}`).toBe(0);
   }
 });
+
+test("a web tool lends the host its turn's admitted model, and only the turn's (#3688)", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const turn = createTurnContext();
+  turn.bridge = { emit() {}, requestPermission: async () => ({ behavior: "allow" }),
+    webAccess: async (call: Record<string, unknown>) => { calls.push(call); return { ok: true, tool: "web_search", text: "The raft reaches Ithaca." }; } } as never;
+  const search = (input: Record<string, unknown> = { query: "Ithaca" }) => createPiBridgeTools({ brainPath: "/tmp/odysseus", turn, capabilities: { web: true } as never })
+    .find(tool => tool.name === "web_search")!.execute("mast", input, new AbortController().signal, undefined, undefined as never);
+  await search();
+  expect(calls[0], "PI_WEB_UNRELAYED_TURN_LENDS_NO_MODEL").not.toHaveProperty("model");
+  const model = { provider: "openai-codex", model: "gpt-6-luna", open: async () => { throw new Error("not opened here"); } };
+  turn.webModel = model;
+  await search();
+  expect(calls[1]!.model, "PI_WEB_RELAYED_TURN_LENDS_ITS_MODEL").toBe(model);
+  // The model's own input cannot name one: the contract refuses the key before the host sees it.
+  await expect(search({ query: "Ithaca", model: "gpt-6-sol" }), "PI_WEB_INPUT_NAMES_NO_MODEL").rejects.toThrow("Unrecognized key");
+  expect(calls).toHaveLength(2);
+});

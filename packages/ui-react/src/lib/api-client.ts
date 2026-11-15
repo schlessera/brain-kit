@@ -3,6 +3,8 @@ import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contr
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
+import { safetyReviewResponseSchema } from "@schlessera/brain-ui-sdk/schemas";
+import type { SafetyReviewBody } from "@schlessera/brain-ui-sdk/protocol";
 import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygienePreviewResponse, HygieneWorktreeDetailsRead, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
@@ -19,6 +21,13 @@ import type {
   VoiceSessionRequest,
   VoiceProvidersResponse,
   DictationSettings,
+  VoiceLiveSettings,
+  VoiceLiveSettingsUpdate,
+  LivePersona,
+  LivePersonaCreateRequest,
+  LivePersonaListResponse,
+  LivePersonaUpdateRequest,
+  VoiceSettingsResponse,
   PronunciationOverride,
   ProviderInfo,
   UnavailableProfileInfo,
@@ -285,6 +294,8 @@ export interface WebSearchProvider {
   keyConfigured: boolean;
   /** Its key comes from the environment instead — not editable here. */
   keyFromEnv: boolean;
+  /** The stored key is a credential command, which the host never runs (#3686). */
+  keyIsCommand?: boolean;
   /** True when the provider works without any credential. */
   keyless: boolean;
   /** Qualitative cost note, e.g. "Free tier, rate-limited". */
@@ -311,6 +322,8 @@ export interface WebSearchConfig {
    */
   appliesTo: string[];
   providers: WebSearchProvider[];
+  /** What the host's web tools do not offer, whatever the config says (#3686). */
+  unavailable?: Array<{ id: string; label: string; kind: "deferred" | "excluded" }>;
 }
 
 /**
@@ -342,7 +355,17 @@ export function createBrainApi(
     return (await fetchResponse(path, init)).json();
   }
 
+  async function safetyReview(body:SafetyReviewBody,requestId:string|null,signal:AbortSignal) {
+    const path=`/sessions/${encodeURIComponent(body.session.sessionId)}/safety/reviews/${requestId===null?"prepare":`${encodeURIComponent(requestId)}/commit`}`;
+    const res=await request(`${getBase()}${path}`,{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal});
+    const value=await res.json(),parsed=safetyReviewResponseSchema.safeParse(value);
+    if(!parsed.success)throw new ApiRequestError(typeof value?.reason==="string"?value.reason:"Safety review unavailable",res.status);
+    return parsed.data;
+  }
+
   return {
+    safetyPrepare: (body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,null,signal),
+    safetyCommit: (requestId:string,body:SafetyReviewBody,signal:AbortSignal)=>safetyReview(body,requestId,signal),
     turnJournal: (sessionId: string, turnId: string, signal?: AbortSignal) => fetchJson<import("@schlessera/brain-ui-sdk/protocol").TurnJournalDetails>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal`, { signal }),
     turnJournalPreview: (sessionId: string, turnId: string, sequence: number, signal?: AbortSignal) => fetchJson<{ inline: boolean; before?: string; after?: string; reason?: string; beforeBytes?: number; afterBytes?: number }>(`/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/journal/${sequence}/preview`, { signal }),
     agentPolicy: (signal?: AbortSignal) => fetchJson<AgentPolicyRead>("/agent-policy", { cache: "no-store", ...(signal ? { signal } : {}) }),
@@ -516,6 +539,27 @@ export function createBrainApi(
     saveDictationSettings: (settings: DictationSettings) =>
       fetchJson<DictationSettings>("/voice/dictation/settings", { method: "PUT", headers: { "If-Match": `"${settings.revision}"` },
         body: JSON.stringify({ defaultProvider: settings.defaultProvider, smart: settings.smart }) }),
+
+    /** The saved default live-conversation service and its revision (#3616). Never opens a provider. */
+    liveSettings: () => fetchJson<VoiceLiveSettings>("/settings/voice", { cache: "no-store" }),
+    saveLiveSettings: (update: VoiceLiveSettingsUpdate) =>
+      fetchJson<VoiceLiveSettings>("/settings/voice", { method: "PUT", body: JSON.stringify({ defaultProvider: update.defaultProvider, revision: update.revision }) }),
+    /** Live-conversation personas (#3617): Standard first, then by name. Never instruction text. */
+    livePersonas: () => fetchJson<LivePersonaListResponse>("/voice/personas", { cache: "no-store" }),
+    /** One persona with its plain-text instructions. */
+    livePersona: (id: string) => fetchJson<LivePersona>(`/voice/personas/${encodeURIComponent(id)}`, { cache: "no-store" }),
+    createLivePersona: (request: LivePersonaCreateRequest) =>
+      fetchJson<LivePersona>("/voice/personas", { method: "POST", body: JSON.stringify(request) }),
+    /** 409 `PERSONA_CHANGED` when `baseRevision` is no longer the file's revision. */
+    updateLivePersona: (id: string, request: LivePersonaUpdateRequest) =>
+      fetchJson<LivePersona>(`/voice/personas/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(request) }),
+    deleteLivePersona: async (id: string, baseRevision: string) => {
+      await fetchResponse(`/voice/personas/${encodeURIComponent(id)}?baseRevision=${encodeURIComponent(baseRevision)}`, { method: "DELETE" });
+    },
+    voiceSettings: () => fetchJson<VoiceSettingsResponse>("/settings/voice", { cache: "no-store" }),
+    /** 409 `LIVE_PERSONA_CHANGED` when the selection's revision moved on. */
+    saveLivePersonaSelection: (value: string, revision: number) =>
+      fetchJson<VoiceSettingsResponse>("/settings/voice", { method: "PUT", body: JSON.stringify({ persona: { value, revision } }) }),
 
     /** @deprecated use voiceSession(); kept during client transition. */
     voiceToken: () =>

@@ -17,7 +17,7 @@ export interface NativeDiagramDiagnostic {
 // Candidate qualification is exact: all source/installation drift requires fresh
 // execution and requalification. The separate Docker mount boundary closes
 // active initialization/shared-library reads; byte hashes alone do not.
-const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b",installation:"47e78ac9977d948dd35bfcb1d916aa3e2f6ddab976bb047eebc2a531cdf8403d"};
+const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b",installation:"ea866695f2a83f9da2fcf18e75e95e936668ecb28e1449845a2584aa1025b728"};
 // The installation identity includes file modes, which the installer's umask
 // narrows: the qualified install was made under umask 022, and any other umask
 // (such as 0077) can never match. Recovery replaces only this owned install.

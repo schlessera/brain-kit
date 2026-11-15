@@ -11,7 +11,7 @@ test("Pi captures three real resumed interactive turns and a tool result through
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
-    expect(main(capture).every(e => e.path === "/v1/responses")).toBe(true);
+    expect(main(capture).map(e => e.path).filter(path => path !== "/v1/responses")).toEqual([]);
     expect(main(capture)[1]!.raw).toContain('"function_call_output"');
     if (name !== "promotion") expect(main(capture)[1]!.raw).toContain("Odysseus repairs the raft.");
   }

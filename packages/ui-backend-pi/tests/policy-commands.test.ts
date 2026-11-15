@@ -29,6 +29,6 @@ for (const binding of ["rpc", "gate"] as const) {
     const result = await probe(binding, { deny: [force], confirm: [{ ...force, pattern: "^git status" }], command: "git status",
       decision: { behavior: "allow", updatedInput: { command: "git push --force" } } });
     expect(result.executed, "PI_POLICY_EDIT_DENY_BEFORE_EXECUTION").toBe(false);
-    expect(result.events.some(e => e.kind === "policy_block")).toBe(true);
+    expect(result.events.map(e => e.kind)).toContain("policy_block");
   });
 }

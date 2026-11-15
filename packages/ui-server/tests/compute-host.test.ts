@@ -458,7 +458,7 @@ describe("ledger settlement", () => {
     } } as never } });
     await f.begin("t-1");
     const started = ok(await f.host.forTurn(f.turn("t-1"))(run()));
-    for (let i = 0; i < 3; i++) await f.host.drive();
+    for (let i = 0; i < 8; i++) await f.host.drive();
     expect({ released: f.fake.liveSandboxes(), reservation: reservation(f, started.job.id), row: hostRow(f, started.job.id), outcome: f.store.getSpan(`compute:${started.job.id}`)!.outcome },
       "FAILED_SETTLE_KEEPS_JOB_OPEN").toEqual({ released: 0, reservation: { status: "active", actual_usd: null }, row: null, outcome: null });
     failing = false;
@@ -526,4 +526,88 @@ describe("boot", () => {
     await f.host.recover();
     expect(warnings).toEqual([expect.stringContaining("hosted external compute is off: the host compute state directory is not masked from workers")]);
   });
+});
+
+test("failed compute visits reconcile beyond maxFailures without a restart or new turn", async () => {
+  let failing = false, visits = 0;
+  const f = fixture({ config: summary({ "boat-small": { hourlyCeilingUsd: 0.6 } }), host: {
+    driver: { initialDelayMs: 2, maxDelayMs: 10, maxFailures: 2 },
+    credential() { if (failing) { visits++; throw new Error("Odysseus credential store unavailable"); } return SENTINEL; },
+  } });
+  await f.begin("t-1");
+  const started = ok(await f.host.forTurn(f.turn("t-1"))(run()));
+  failing = true;
+  try {
+    await until(() => visits >= 8, "COMPUTE_RETRIES_BEYOND_FOREGROUND_LIMIT", 1000);
+    expect(f.db.query("SELECT status FROM compute_budget_reservations WHERE job_id=?").get(started.job.id), "COMPUTE_UNCERTAIN_RESERVATION_HELD").toEqual({ status: "active" });
+    expect(f.budgets.receipt("t-1").scopes[0]!.costUsd, "COMPUTE_UNCERTAIN_CHARGE_RETAINED").toBeCloseTo(0.6);
+    const span = f.store.getSpan(`compute:${started.job.id}`)!;
+    expect(span.attrs["brain.compute.stuck"]).toBe(true);
+    expect(span.attrs["brain.compute.uncertain"]).toContain("Odysseus credential store unavailable");
+    failing = false;
+    await until(() => f.store.getSpan(`compute:${started.job.id}`)!.outcome === "success", "COMPUTE_AUTOMATIC_LATE_SETTLEMENT");
+    expect(f.db.query("SELECT status FROM compute_budget_reservations WHERE job_id=?").get(started.job.id)).toEqual({ status: "settled" });
+    expect(f.store.getSpan(`compute:${started.job.id}`)!.attrs["brain.compute.stuck"]).toBe(false);
+  } finally { failing = false; }
+});
+
+test("failed compute visits keep their slow cadence while other jobs make progress", async () => {
+  let hostNow = Date.UTC(2026, 6, 12, 9), failing = false, visits = 0;
+  const f = fixture({ config: summary({ "boat-small": { hourlyCeilingUsd: 0.6 }, "boat-heavy": { apiKeyEnv: "BOAT_HEAVY_KEY" } }),
+    keys: { boat: ["BOAT_CI_KEY", "BOAT_HEAVY_KEY"] }, host: {
+      clock: () => hostNow,
+      driver: { initialDelayMs: 60_000, maxDelayMs: 120_000, maxFailures: 2 },
+      credential(name) { if (failing && name === "BOAT_CI_KEY") { visits++; throw new Error("Odysseus credential store unavailable"); } return SENTINEL; },
+    } });
+  await f.begin("t-1");
+  const stuck = ok(await f.host.forTurn(f.turn("t-1"))(run()));
+  failing = true;
+  try {
+    await f.host.drive(); await f.host.drive();
+    expect(visits).toBe(2);
+    failing = false;
+    await f.begin("t-2");
+    const healthy = ok(await f.host.forTurn(f.turn("t-2"))(run({ provider: "boat-heavy" })));
+    failing = true;
+    for (let pass = 0; pass < 4; pass++) { hostNow += 2_000; await f.host.drive(); }
+    expect(visits, "COMPUTE_SLOW_RETRY_SKIPS_BUSY_PASSES").toBe(2);
+    expect(f.store.getSpan(`compute:${healthy.job.id}`)!.outcome, "COMPUTE_SLOW_JOB_LEAVES_OTHER_JOB_USABLE").toBe("success");
+    expect(f.db.query("SELECT status FROM compute_budget_reservations WHERE job_id=?").get(stuck.job.id)).toEqual({ status: "active" });
+    hostNow += 112_000;
+    await f.host.drive();
+    expect(visits, "COMPUTE_SLOW_RETRY_RESUMES_AT_DEADLINE").toBe(3);
+    failing = false;
+    hostNow += 120_000;
+    await f.host.drive();
+    expect(f.store.getSpan(`compute:${stuck.job.id}`)!.outcome).toBe("success");
+  } finally { failing = false; }
+});
+
+test("concurrent compute driver passes join the active pass without overlapping visits", async () => {
+  const core = await import("@schlessera/brain/internal");
+  const entered = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>();
+  const visits: string[] = [];
+  let active = 0, maximum = 0;
+  const f = fixture({ host: {
+    driver: { initialDelayMs: 60_000, maxDelayMs: 120_000 },
+    core: async () => ({ ...core, createComputeOps(...args: Parameters<typeof core.createComputeOps>) {
+      const ops = core.createComputeOps(...args);
+      return { ...ops, async status(input: Parameters<typeof ops.status>[0]) {
+        visits.push(input.job); maximum = Math.max(maximum, ++active); entered.resolve();
+        try { await resume.promise; return await ops.status(input); } finally { active--; }
+      } };
+    } }),
+  } });
+  await f.begin("t-1");
+  const first = ok(await f.host.forTurn(f.turn("t-1"))(run()));
+  const second = ok(await f.host.forTurn(f.turn("t-1"))(run()));
+  // Both drive calls pass their initial await before either pass has started.
+  const one = f.host.drive(), two = f.host.drive();
+  try {
+    await entered.promise;
+    resume.resolve();
+    await Promise.all([one, two]);
+    expect(maximum, "COMPUTE_DRIVER_REENTRY_NEVER_OVERLAPS_VISITS").toBe(1);
+    expect(visits, "COMPUTE_DRIVER_REENTRY_VISITS_EACH_JOB_ONCE").toEqual([first.job.id, second.job.id]);
+  } finally { resume.resolve(); await Promise.allSettled([one, two]); }
 });

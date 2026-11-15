@@ -76,8 +76,12 @@ const KIND_LABEL: Record<AttachmentFile["kind"], string> = { pdf: "PDF", text: "
 /** A stored original's kind, as the chip and the sent row name it. */
 export const fileKindLabel = (file: Pick<AttachmentFile, "kind">): string => KIND_LABEL[file.kind] ?? "File";
 
-/** What a stored original's chip says, and why (design §8.4). Stored is never read. */
-export function storedFileCopy(file: AttachmentFile): { status: string; detail?: string } {
+/**
+ * What a stored original's chip says, and why (design §8.4). Stored is never
+ * read. `frame` places an image original: inline with the message, past the
+ * frame budget (or with no frame to show), or with its frame still being made.
+ */
+export function storedFileCopy(file: AttachmentFile, frame?: "inline" | "not_inline" | "pending"): { status: string; detail?: string } {
   const size = trackBytes(file.bytes);
   if (file.trackRejected) return { status: "Text · not a usable track", detail: "Stored as text. Track tools won't use it." };
   if (file.kind === "track" && file.track) {
@@ -86,7 +90,11 @@ export function storedFileCopy(file: AttachmentFile): { status: string; detail?:
   if (file.reader === "pdf" || file.reader === "text") {
     return { status: `${fileKindLabel(file)} · ${size} · not read yet`, detail: "Your agent opens it when it needs the contents." };
   }
-  if (file.reader === "image") return { status: `${fileKindLabel(file)} · ${size}` };
+  if (file.reader === "image") {
+    if (frame === "not_inline") return { status: `${fileKindLabel(file)} · ${size} · not shown inline`, detail: "Your agent gets the file but not a preview." };
+    if (frame === "pending") return { status: `${fileKindLabel(file)} · ${size} · preparing preview…` };
+    return { status: `${fileKindLabel(file)} · ${size}` };
+  }
   return { status: `${size} · no reader here`, detail: "Your agent has the file and can refer to it, but can't read this kind of file here." };
 }
 

@@ -289,6 +289,8 @@ if (import.meta.main) {
         if (current && current.id === values.get("--lease") && current.actor === actor && holds(current, token) && current.candidate.pr === Number(target) && current.candidate.repository === `https://github.com/${repository}`) own = current;
       }
       const desired = await candidate(Number(target));
+      // Refuse an undeliverable confirmation before any write, lease or candidate CI (#3850); merge checks again.
+      if (command === "confirm") await milestones(desired.pr, issues);
       if (fixesRun !== undefined) {
         // Refuse a run that is not the open record's, or category-only failures, before any write.
         expeditedTests(store.read().redMain, fixesRun);

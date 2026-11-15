@@ -13,7 +13,9 @@ import type { AttachmentFile, ClientMessage, Draft, DraftSnapshot, DraftSnapshot
  *   returned; a held one may change its files; only a returned one may be
  *   left out.
  * - Originals: one per upload, minted for one draft (lineage), the same
- *   `fileId` for a repeated `Idempotency-Key`. References are kept per file
+ *   `fileId` for a repeated `Idempotency-Key`. PNG and JPEG signatures make
+ *   an `image` (the bytes decide, as the host's detection), and
+ *   `GET /api/attachments/:fileId` serves a referenced original's exact bytes. References are kept per file
  *   (`draft`, `outgoing`, `message`), and a file whose last reference goes
  *   is stamped `unreferencedSince`; nothing here ever unlinks a file.
  * - A save repeated under its `Idempotency-Key` gets the first answer
@@ -54,7 +56,10 @@ export function snapshotHost(options: { limit?: number } = {}) {
   const now = () => ++clock;
   let uploadGate: Promise<void> | null = null;
   let saveGate: Promise<void> | null = null;
-  let failNext: "refuse" | null = null;
+  let failNext: "refuse" | "fail" | null = null;
+  /** Each stored original's exact bytes, as `GET /api/attachments/:fileId` serves them. */
+  const stored = new Map<string, Uint8Array>();
+  const isImage = (b: Uint8Array) => (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) ? "image/png" : (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) ? "image/jpeg" : null;
   const json = (body: unknown, status = 200) => Response.json(body, { status });
 
   function setRefs(kind: "draft" | "outgoing", draftId: string, ids: readonly string[]) {
@@ -112,6 +117,14 @@ export function snapshotHost(options: { limit?: number } = {}) {
       return json({ sessionId, backendId: "claude", revision: recovery.revision,
         latest: { requestId: recovery.latestRequestId, turnId: recovery.latestRequestId ? "turn-ithaca" : null, state: recovery.latestRequestId ? "running" : "unknown", outcome: null, startedAt: null, endedAt: null }, pending: [] });
     }
+    const original = /\/attachments\/([^/]+)$/.exec(path);
+    if (original && method === "GET") {
+      const fileId = decodeURIComponent(original[1]!);
+      const bytes = stored.get(fileId);
+      // Any live reference authorizes a read; an unreferenced file reads as absent.
+      if (!bytes || !(refs.get(fileId)?.size)) return json({ error: "ATTACHMENT_NOT_FOUND", message: "" }, 404);
+      return new Response(bytes as Uint8Array<ArrayBuffer>, { status: 200, headers: { "Content-Type": files.get(fileId)!.mediaType } });
+    }
     const upload = /\/drafts\/([^/]+)\/files$/.exec(path);
     if (upload) {
       const draftId = decodeURIComponent(upload[1]!);
@@ -121,15 +134,20 @@ export function snapshotHost(options: { limit?: number } = {}) {
       uploads.push({ draftId, key, name });
       if (uploadGate) await uploadGate;
       if (failNext === "refuse") { failNext = null; return json({ error: "ATTACHMENT_CAPACITY", message: "", limit: 1, bound: "pool" }, 507); }
+      if (failNext === "fail") { failNext = null; return json({ error: "INTERNAL", message: "" }, 500); }
       let fileId = keys.get(`${draftId}:${key}`);
       if (!fileId) {
         fileId = `00000000-0000-4000-8000-${String(++seq).padStart(12, "0")}`;
         keys.set(`${draftId}:${key}`, fileId);
         const sha256 = fileId.replace(/-/g, "").padEnd(64, "0");
         const p = `.brain-ui/attachments/${fileId}/${name}`;
-        files.set(fileId, name.endsWith(".pdf")
+        const image = isImage(bytes);
+        files.set(fileId, image
+          ? { fileId, name, path: p, bytes: bytes.byteLength, sha256, draftId, mediaType: image, kind: "image", reader: "image" }
+          : name.endsWith(".pdf")
           ? { fileId, name, path: p, bytes: bytes.byteLength, sha256, draftId, mediaType: "application/pdf", kind: "pdf", reader: "pdf" }
           : { fileId, name, path: p, bytes: bytes.byteLength, sha256, draftId, mediaType: "text/plain", kind: "text", reader: "text" });
+        stored.set(fileId, bytes);
         // An upload not yet bound: the 1-hour clock, from the host's own refs.
         unreferencedSince.set(fileId, now());
       }
@@ -238,6 +256,10 @@ export function snapshotHost(options: { limit?: number } = {}) {
       return release;
     },
     refuseNextUpload() { failNext = "refuse"; },
+    /** The next upload is answered 500: not stored, and retrying is safe. */
+    failNextUpload() { failNext = "fail"; },
+    /** The exact bytes stored for an original. */
+    storedBytes: (fileId: string) => stored.get(fileId),
     /** Store every save, then drop its answer, until set back. */
     loseSaveAnswers(value = true) { loseSaves = value; },
     /**

@@ -1,43 +1,52 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createUiDb } from "../src/db/client.js";
 import { createActivityStore } from "../src/activity/store.js";
 
 describe("activity store: sweepers", () => {
   test("boot sweep closes session-origin orphans as interrupted, children included", () => {
-    const path = `/tmp/activity-sweep-${process.pid}-${Date.now()}.db`;
-    const dbBefore = createUiDb(path);
-    const before = createActivityStore(dbBefore, { writer: "server-old" });
-    before.startSpan({
-      spanId: "root",
-      runId: "run-1",
-      name: "invoke_agent",
-      kind: "turn",
-      origin: "session",
-      sessionId: "s1",
-    });
-    before.startSpan({
-      spanId: "tool",
-      runId: "run-1",
-      parentSpanId: "root",
-      name: "execute_tool Bash",
-      kind: "tool",
-      origin: "session",
-    });
-    dbBefore.close(); // process died mid-turn
+    const dir = mkdtempSync(join(tmpdir(), "activity-sweep-"));
+    const path = join(dir, "ui.db");
+    let dbAfter: ReturnType<typeof createUiDb> | undefined;
+    try {
+      const dbBefore = createUiDb(path);
+      const before = createActivityStore(dbBefore, { writer: "server-old" });
+      before.startSpan({
+        spanId: "root",
+        runId: "run-1",
+        name: "invoke_agent",
+        kind: "turn",
+        origin: "session",
+        sessionId: "s1",
+      });
+      before.startSpan({
+        spanId: "tool",
+        runId: "run-1",
+        parentSpanId: "root",
+        name: "execute_tool Bash",
+        kind: "tool",
+        origin: "session",
+      });
+      dbBefore.close(); // process died mid-turn
 
-    const dbAfter = createUiDb(path);
-    const after = createActivityStore(dbAfter, { writer: "server-new" });
-    const closed = after.sweepOwnOrphans();
-    expect(closed).toBe(2);
-    expect(after.getSpan("root")!.outcome).toBe("interrupted");
-    expect(after.getSpan("tool")!.outcome).toBe("interrupted");
-    // Rollup exists so the run stays resolvable.
-    const rollup = dbAfter
-      .query("SELECT outcome FROM activity_run_rollups WHERE run_id = 'run-1'")
-      .get() as any;
-    expect(rollup.outcome).toBe("interrupted");
-    dbAfter.close();
+      dbAfter = createUiDb(path);
+      const after = createActivityStore(dbAfter, { writer: "server-new" });
+      const closed = after.sweepOwnOrphans();
+      expect(closed).toBe(2);
+      expect(after.getSpan("root")!.outcome).toBe("interrupted");
+      expect(after.getSpan("tool")!.outcome).toBe("interrupted");
+      // Rollup exists so the run stays resolvable.
+      const rollup = dbAfter
+        .query("SELECT outcome FROM activity_run_rollups WHERE run_id = 'run-1'")
+        .get() as any;
+      expect(rollup.outcome).toBe("interrupted");
+    } finally {
+      dbAfter?.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("boot sweep leaves cron-origin spans alone", () => {

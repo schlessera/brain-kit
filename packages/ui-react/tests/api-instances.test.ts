@@ -54,7 +54,7 @@ describe("independent UI clients", () => {
     expect(upload.body).toBeInstanceOf(FormData);
     expect((upload.body as FormData).get("overwrite")).toBe("false");
     // The browser must add the multipart boundary, including on an instance.
-    expect(new Headers(upload.headers).has("Content-Type")).toBe(false);
+    expect(new Headers(upload.headers).get("Content-Type")).toBeNull();
   });
 
   test("configuration supplied after construction reaches JSON and multipart calls", async () => {

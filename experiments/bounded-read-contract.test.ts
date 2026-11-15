@@ -385,7 +385,7 @@ describe("real keyless stdio MCP exercise", () => {
       const results = await Promise.all(SMALL_PATHS.map(p =>
         fresh.callTool({ name: "brain_read", arguments: { path: p } }) as Promise<{ content: Array<{ type: string; text: string }> }>));
       const warnings = results.map(r => r.content.slice(1).map(p => p.text).join(""));
-      expect(warnings.every(w => w.startsWith("warning: "))).toBe(true);
+      expect(warnings.map(w => w.slice(0, "warning: ".length))).toEqual(SMALL_PATHS.map(() => "warning: "));
       evidence.mcpRepeatedWarnings = { calls: results.length, warningCharsPerCall: warnings.map(w => w.length), totalWarningChars: warnings.join("").length,
         note: "one batch result would carry the warning once" };
     } finally {
@@ -399,6 +399,7 @@ describe("real keyless stdio MCP exercise", () => {
     const { tools } = await client.listTools();
     const listed = tools.find(t => t.name === "brain_read")!;
     const many = tools.find(t => t.name === "brain_read_many")!;
+    expect([listed?.name, many?.name]).toEqual(["brain_read", "brain_read_many"]);
     evidence.rosterChars = { brain_read: JSON.stringify(listed).length, brain_read_many: JSON.stringify(many).length,
       note: "Present on every provider request of a session that has the tool, cached or not; provider tokens unavailable" };
   });

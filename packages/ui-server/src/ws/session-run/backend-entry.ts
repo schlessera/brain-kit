@@ -91,6 +91,8 @@ export async function openTurnBridge(
         },
     // A terminal failure is recorded against the session it ended.
     onTerminalFailure: failureRecording.observe,
+    // History read after the result waits for the turn's boundary (#3155).
+    onTurnResult: failureRecording.resulted,
     // A follow-up's pill label is its turn's request label (#1004).
     promptLabel: () => current.label,
     applicationPolicy: backend.brainApplicationPolicy?.({ profileId,
