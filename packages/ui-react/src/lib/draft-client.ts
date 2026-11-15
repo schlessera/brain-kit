@@ -107,8 +107,8 @@ export function createDraftClient(root: BrainUiServices, options: DraftClientOpt
     if (d.deviceOnly || d.conflict) return false;
     if (d.failure && d.failure.kind !== "unsaved") return false;
     if (d.bind) return true;
-    // A snapshot's send is out: acceptance releases it without a revision,
-    // so a save made meanwhile could list it again (#3733). It waits.
+    // A snapshot's send is out: a save made meanwhile would list it again,
+    // and the host would refuse it once the acceptance releases it (#3733). It waits.
     if (sendingSnapshot(d.draftId)) return false;
     if (!hasContent(d) && !holdsSnapshots(d)) return (d.host !== null || d.uncertain) && !held(d.draftId);
     return d.host === null || d.host.edit !== d.edit;

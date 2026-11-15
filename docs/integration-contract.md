@@ -276,6 +276,9 @@ when the chat is full; a delete that would drop a held or unconfirmed one is
 the new 409 `DRAFT_OUTGOING_PENDING`. `Draft.outgoing` and the single-slot
 write keep their shape and meaning for one held or unconfirmed send. The save
 body bound rises from 512 KiB to 4,390,912 bytes to carry ten snapshot texts.
+An acceptance that releases a snapshot moves the draft to a new revision even
+when it keeps the draft, so a save that still lists the sent snapshot is 409
+`DRAFT_CONFLICT` with `current` rather than recreating it (#3733).
 See [the wire component](integration-contract/wire.md#composer-file-attachments-additive-0450-3153)
 and [the HTTP API](http-api.md#outgoing-snapshot-list-additive-0450-3588).
 

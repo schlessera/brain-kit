@@ -216,11 +216,12 @@ test("saved file bindings and the outgoing snapshot survive a restart; acceptanc
   expect(store.list(owner).drafts[0]).toMatchObject({ fileCount: 1 });
 
   // The held send is accepted against revision 1: the snapshot's file moves to
-  // the conversation, the snapshot clears, and the newer revision stays.
+  // the conversation, the snapshot clears, and the newer edits stay, at the
+  // next revision so no save of revision 2 lists the snapshot again (#3733).
   clock += 1_000;
   expect(store.accept({ draftRef: { draftId: "draft-ithaca", revision: 1 }, sessionId: "voyage-1", resumed: false, requestId: "request-fees", principalId: owner, fileIds: [sent.fileId] })).toBe("kept");
   const after = store.get(owner, "draft-ithaca");
-  expect(after).toMatchObject({ revision: 2, text: "And the crew?" });
+  expect(after).toMatchObject({ revision: 3, text: "And the crew?" });
   expect(after).not.toHaveProperty("outgoing");
   expect(store.attachmentRef(sent.fileId, "message", "voyage-1")).toBe(true);
   expect(store.attachmentRef(sent.fileId, "outgoing", "draft-ithaca")).toBe(false);
