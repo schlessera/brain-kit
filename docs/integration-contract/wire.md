@@ -3204,7 +3204,8 @@ host record ID, original sequence/time, turn, binding and occurrence ID.
 Occurrences retain their exact host operation/signal/exposure IDs where
 available, source, detector, exposure state and allowlisted transport provenance.
 The source inventory includes every durable taint source, including
-`apify_result` from supported host discovery, inspection and Actor results.
+`apify_result` from supported host discovery, inspection and Actor results,
+and `github_result` from the host GitHub read tools (#3797).
 Opaque connections have null operation/provenance, never inferred Git/tool
 attribution. Pruned details explicitly use null unavailable correlation fields;
 independent occurrence IDs and aggregate counts survive. Text is display data,

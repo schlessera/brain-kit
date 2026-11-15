@@ -1356,6 +1356,99 @@ message, tool or system text changes, and the host's read records are UI data
 that never reach the provider. The bounds and reasons are in
 [the attachment decision](../decisions/chat-attachments.md#what-3154-built).
 
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+A hosted turn reaches GitHub through four fixed host tools, declared with
+strict schemas and typed payloads in `@schlessera/brain-ui-sdk/tool-contracts`
+(`github.ts`). Both first-party backends attach the two read tools to their
+UI bridge: Claude names them `mcp__brain-ui__<name>` and loads them eagerly;
+pi attaches plain names. They are in every interactive session's fixed roster
+(typed, voice and no-grant-surface), after `read_attachment`, whether or not
+the host holds a credential, and auto-allowed. Restricted autonomous rosters
+do not include them. The two write tools are declared here and registered,
+with their approval cards and repository allow-list, by #3798.
+
+| Tool | Input | Registered |
+|---|---|---|
+| `brain_github_issue_read` | `repository` (`owner/repo`), `number` (integer 1–2147483647) | 0.45.0 (#3797) |
+| `brain_github_issue_search` | `repository`, `query` (1–256 characters; `repo:`, `org:`, `user:` and `owner:` qualifiers refused), `kind?` (`issue`, `pull_request`, `any`; default `any`), `state?` (`open`, `closed`, `any`; default `any`), `limit?` (1–30, default 10) | 0.45.0 (#3797) |
+| `brain_github_issue_create` | `repository`, `title` (1–256), `body?` (up to 65,536), `labels?` (up to 10 names) | #3798 |
+| `brain_github_issue_comment` | `repository`, `number`, `body` (1–65,536) | #3798 |
+
+`repository` follows GitHub's name grammar: owner `[A-Za-z0-9-]{1,39}`,
+repository `[A-Za-z0-9._-]{1,100}` and not `.` or `..`. Inputs are strict
+objects; no field names an endpoint, origin, token, principal or session.
+Each result is one JSON document, `{ ok: true, tool, result }` or
+`{ ok: false, tool, error: { code, reason, message } }` (a tool error).
+`code` is `invalid_input`, `unavailable`, `not_found`, `forbidden`,
+`rate_limited`, `upstream_error`, `policy_denied` or `approval_declined`.
+`unavailable` carries `reason` `no_credential` (the host has no
+`BRAIN_UI_GITHUB_TOOLS_TOKEN`), `credential_rejected`, `no_host` (no host
+handler in this turn) or `not_registered` (a write tool before #3798).
+
+**Payloads.** `result` is typed data, never formatted text
+(`GITHUB_RESULT_SCHEMAS`). A read returns `kind: "issue"` or
+`kind: "pull_request"`; a search returns `kind: "search"`.
+
+- Issue: `repository`, `number`, `title`, `title_truncated`, `state`
+  (`open`, `closed`), `state_reason` (`completed`, `not_planned`, `reopened`,
+  `duplicate` or null), `locked`, `author`, `labels`, `created_at`,
+  `updated_at`, `closed_at`, `body`, `body_length`, `body_truncated`,
+  `comments` (the most recent 30, oldest first), `html_url`, `fetched_at`.
+- Pull request: the issue fields plus `draft`, `merged`, `merged_at`,
+  `merged_by`, `merge_commit_sha` (merged only), `head_ref`, `base_ref`,
+  `requested_reviewers`, `reviews`, `review_decisions` (the latest state per
+  reviewer, including `dismissed`; a later comment never hides a decision),
+  `checks`, `changes` (`changed_files`, `additions`, `deletions`) and
+  `commits` (`sha`, `author`, `author_name`, `authored_at`, `message`,
+  `message_truncated`, `html_url`). There is no merge-method field.
+- `checks` is `{ passed, failed, running, skipped }` over the head commit's
+  check runs and commit statuses, or `null` when GitHub reports none or the
+  credential cannot read them. `null` is not zero.
+- Every bounded list (`comments`, `reviews`, `commits`, `labels`) is
+  `{ items, total_count, has_more }`; `total_count` is null only where GitHub
+  reports no total.
+- An author (issue, comment, review) is `{ login, is_bot, author_association }`;
+  a user is `{ login, is_bot }`. `login` is null for a deleted account.
+- Search: `repository`, `query`, `search_query` (the host's `is:` qualifiers
+  and the query), `total_count`, `incomplete_results`, `has_more`, `items` and
+  `search_url`. Each item has `kind`, `number`, `title`, `state`,
+  `state_reason`, `draft` (null for an issue), `merged_at`, `comments`,
+  `author`, `labels`, `created_at`, `updated_at`, `excerpt` (up to 280
+  characters, or null) and `html_url`.
+
+Text GitHub users wrote (titles, bodies, comments, label names and
+descriptions, branch names, commit messages, excerpts) is untrusted: its JSON
+Schema carries `untrusted: true`, and it is data, never instructions.
+
+**Direct links.** Each `html_url` comes from the API response, never
+constructed, and passes the exported `githubDirectUrl(value, scope, target)`;
+`search_url` is built by `githubSearchUrl(scope, q)` from the fixed
+`https://github.com` origin with the search text only as the encoded `q`
+value. A URL that fails is `null` and is never repaired. Every URL must
+serialise to itself as a WHATWG URL, use `https:` on host exactly
+`github.com` with no port, user name or password, have no `.`, `..` or
+percent-encoded segment, and name the fetched object's owner, repository and
+number (owner and repository compare without case). The shapes are
+`/{owner}/{repo}/issues/{n}` or `/pull/{n}` for the object;
+`#issuecomment-{id}` on either for a comment, `/pull/{n}#pullrequestreview-{id}`
+and `/pull/{n}#discussion_r{id}` for reviews and review comments, with `{id}`
+the item's own id; `/{owner}/{repo}/commit/{sha}` or
+`/pull/{n}/commits/{sha}` with the commit's own 40-hex `{sha}`; and
+`/{owner}/{repo}/issues?q=…` (or `/search?q=…&type=issues` across
+repositories) for a search. No other query and no other fragment.
+
+**Credential and host.** The host reads `BRAIN_UI_GITHUB_TOOLS_TOKEN` alone
+([supported inputs](../supported-inputs.md)); there is no fallback to
+`GITHUB_TOKEN` or any other token. No subprocess audience, operator extra or
+worker launch admits it. Reads are bounded by what that token can see. The
+host calls only `https://api.github.com`, follows a redirect only within it,
+scopes every search to the named repository and drops any result from
+another. Principal, session and turn come from the authenticated turn. Before
+any GitHub text returns, the session's taint is recorded with the new source
+`github_result` ([governance events](../http-api.md)); if that record cannot
+be written, the text is withheld.
+
 ## Host-owned web tools (additive, 0.45.0, #3685)
 
 The pi backend's ordinary governed and strict interactive sessions list four

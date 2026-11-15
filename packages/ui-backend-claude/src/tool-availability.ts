@@ -1,4 +1,4 @@
-import { APIFY_TOOL_NAMES, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, GITHUB_READ_TOOL_NAMES, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 
 const handlers: Record<string, string> = {
   ask_user: "askUser", ask_user_list: "askUserList", ask_user_rank: "askUserRank",
@@ -11,6 +11,7 @@ const handlers: Record<string, string> = {
   brain_compute_status: "compute", brain_compute_cancel: "compute", brain_compute_collect: "compute",
   ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
   read_attachment: "readAttachment",
+  ...Object.fromEntries(GITHUB_READ_TOOL_NAMES.map(name => [name, "github"])),
   brain_add: "applyBrain", brain_update: "applyBrain", brain_archive: "applyBrain",
   write_file: "applyBrain", edit_file: "applyBrain", apply_staged_changes: "applyBrain",
 };

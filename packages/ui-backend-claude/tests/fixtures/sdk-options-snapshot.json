@@ -93,6 +93,8 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -102,7 +104,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "e670ae8927b85bc0127216096790b15cf924c9057e2ac5043a21877bcd819e77",
     "mcpServers": [
       "brain-ui"
     ],
@@ -289,6 +291,8 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -298,7 +302,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "e670ae8927b85bc0127216096790b15cf924c9057e2ac5043a21877bcd819e77",
     "mcpServers": [
       "brain-ui"
     ],
@@ -472,6 +476,8 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -481,7 +487,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "e670ae8927b85bc0127216096790b15cf924c9057e2ac5043a21877bcd819e77",
     "mcpServers": [
       "brain-ui"
     ],
@@ -677,6 +683,8 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -686,7 +694,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "e670ae8927b85bc0127216096790b15cf924c9057e2ac5043a21877bcd819e77",
     "mcpServers": [
       "brain-ui"
     ],
