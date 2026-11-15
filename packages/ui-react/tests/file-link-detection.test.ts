@@ -176,12 +176,12 @@ describe("entity-tag + bare-path interaction", () => {
   });
 
   test("entity content without a path stays as plain text", () => {
-    const md = renderEntityTags("Met <co>Acme</co> today.");
+    const md = renderEntityTags("Met <co>Ithaca Fleet</co> today.");
     const tokens = tokenize(md, true, true);
     const entity = tokens.find((t) => t.type === "entity");
     if (entity?.type !== "entity") throw new Error("not entity");
     expect(entity.tag).toBe("co");
-    expect(entity.inner).toEqual([{ type: "text", value: "Acme" }]);
+    expect(entity.inner).toEqual([{ type: "text", value: "Ithaca Fleet" }]);
   });
 
   test("entity content with mixed text and path", () => {
@@ -198,7 +198,7 @@ describe("entity-tag + bare-path interaction", () => {
   });
 
   test("top-level text outside entity tags is still linkified", () => {
-    const md = renderEntityTags("From notes/a.md to <co>Acme</co>.");
+    const md = renderEntityTags("From notes/a.md to <co>Ithaca Fleet</co>.");
     const tokens = tokenize(md, true, true);
     expect(tokens[0]).toEqual({ type: "text", value: "From " });
     expect(tokens[1]).toEqual({ type: "path", value: "notes/a.md" });

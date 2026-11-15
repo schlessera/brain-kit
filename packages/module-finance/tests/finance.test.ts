@@ -39,13 +39,13 @@ function reportFor(slug: string) {
 describe("ledger computation", () => {
   test("loads all fixture ledgers", () => {
     const ledgers = loadLedgers(OPTS);
-    expect(ledgers.map((l) => l.slug).sort()).toEqual(["acme-corp", "globex", "initech"]);
+    expect(ledgers.map((l) => l.slug).sort()).toEqual(["ithaca-fleet", "ithaca-shipwrights", "phaeacian-fleet"]);
   });
 
   test("partial payment leaves the invoice partial with the right open balance", () => {
-    const c = reportFor("acme-corp");
-    const inv01 = c.invoices.find((i) => i.number === "2026-acme-corp-01")!;
-    const inv02 = c.invoices.find((i) => i.number === "2026-acme-corp-02")!;
+    const c = reportFor("ithaca-fleet");
+    const inv01 = c.invoices.find((i) => i.number === "2026-ithaca-fleet-01")!;
+    const inv02 = c.invoices.find((i) => i.number === "2026-ithaca-fleet-02")!;
     expect(inv01.status).toBe("paid");
     expect(inv01.open).toBe(0);
     expect(inv02.status).toBe("partial");
@@ -55,7 +55,7 @@ describe("ledger computation", () => {
   });
 
   test("a shortfall within fee tolerance settles the invoice as paid", () => {
-    const c = reportFor("globex");
+    const c = reportFor("phaeacian-fleet");
     const inv = c.invoices[0];
     expect(inv.paid).toBe(975);
     expect(inv.open).toBe(0);
@@ -64,14 +64,14 @@ describe("ledger computation", () => {
   });
 
   test("a shortfall above fee tolerance stays open", () => {
-    const ledger = loadLedgers(OPTS, "globex")[0];
+    const ledger = loadLedgers(OPTS, "phaeacian-fleet")[0];
     const strict = computeClient(ledger, 10, AS_OF); // tolerance below the 25 shortfall
     expect(strict.invoices[0].open).toBe(25);
     expect(strict.invoices[0].status).toBe("partial");
   });
 
   test("a written_off invoice carries the written_off status", () => {
-    const c = reportFor("initech");
+    const c = reportFor("ithaca-shipwrights");
     expect(c.invoices[0].status).toBe("written_off");
   });
 });
@@ -129,20 +129,20 @@ describe("the generated region (#403)", () => {
   test("a ledger carrying the old markers is rewritten to core's region, with today's tables", () => {
     const root = copyFixtures();
     try {
-      const path = join(root, "clients/acme-corp/ledger.md");
+      const path = join(root, "clients/ithaca-fleet/ledger.md");
       const prose = "Hand-written notes that must survive.";
       writeFileSync(path, `${readFileSync(path, "utf8").trimEnd()}\n\n${prose}\n\n${LEGACY_BEGIN}\n\nold table\n\n${LEGACY_END}\n\nClosing words.\n`);
       const opts = { ...OPTS, root };
 
       const { files } = syncFiles(opts, AS_OF);
-      expect(files).toContain("clients/acme-corp/ledger.md");
+      expect(files).toContain("clients/ithaca-fleet/ledger.md");
       const body = readFileSync(path, "utf8");
       expect(body).not.toContain("BEGIN GENERATED");
       expect(body).not.toContain("old table");
       expect(body).toContain(`${prose}\n\n<!-- brain:generated:finance -->`);
       expect(body).toContain("<!-- /brain:generated:finance -->\n\nClosing words.\n");
 
-      const ledger = loadLedgers(opts, "acme-corp")[0];
+      const ledger = loadLedgers(opts, "ithaca-fleet")[0];
       const expected = renderLedgerTables(computeClient(ledger, opts.feeTolerance, AS_OF), ledger.payments);
       expect(expected.length).toBeGreaterThan(0);
       expect(readGeneratedRegion(body, "finance")).toBe(expected);
@@ -161,22 +161,22 @@ describe("the generated region (#403)", () => {
   test("frontmatter text that looks like a marker, a pipe or a line break stays inside its cell, on the ledger and the dashboard", () => {
     const root = copyFixtures();
     try {
-      const ledger = join(root, "clients/acme-corp/ledger.md");
+      const ledger = join(root, "clients/ithaca-fleet/ledger.md");
       const CLOSE = "<!-- /brain:generated:finance -->";
       writeFileSync(
         ledger,
         readFileSync(ledger, "utf8")
-          .replace("display_name: Acme Corporation", `display_name: "Acme | Corp\\n${CLOSE}"`)
-          .replace("client: acme-corp", `client: "acme-corp\\n${CLOSE}\\n(x)"`)
-          .replace("number: 2026-acme-corp-01", 'number: "2026-acme|01"')
-          .replace("invoice: 2026-acme-corp-01", 'invoice: "2026-acme|01"')
+          .replace("display_name: Ithaca Fleet", `display_name: "Ithaca | Fleet\\n${CLOSE}"`)
+          .replace("client: ithaca-fleet", `client: "ithaca-fleet\\n${CLOSE}\\n(x)"`)
+          .replace("number: 2026-ithaca-fleet-01", 'number: "2026-ithaca|01"')
+          .replace("invoice: 2026-ithaca-fleet-01", 'invoice: "2026-ithaca|01"')
           .replace("method: wire", `method: "wire\\n${CLOSE}\\nrest"`)
       );
       const dashboard = join(root, "clients/_index.md");
       writeFileSync(dashboard, "---\ntype: index\ntitle: Clients\nupdated: 2026-01-01\n---\n\n# Clients\n");
       const opts = { ...OPTS, root };
 
-      expect(syncFiles(opts, AS_OF).files.sort()).toContain("clients/acme-corp/ledger.md");
+      expect(syncFiles(opts, AS_OF).files.sort()).toContain("clients/ithaca-fleet/ledger.md");
       for (const path of [ledger, dashboard]) {
         const text = readFileSync(path, "utf8");
         const markerLines = text.split("\n").filter((line) => line.trim().startsWith("<!--") && line.includes("brain:generated:finance"));
@@ -188,10 +188,10 @@ describe("the generated region (#403)", () => {
         expect({ path, unclosedRows: rows.filter((row) => !row.endsWith("|")) }).toEqual({ path, unclosedRows: [] });
       }
       expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("wire &lt;!-- /brain:generated:finance --> rest");
-      expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("| 2026-acme\\|01 |");
-      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("Acme \\| Corp &lt;!--");
+      expect(readGeneratedRegion(readFileSync(ledger, "utf8"), "finance")).toContain("| 2026-ithaca\\|01 |");
+      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("Ithaca \\| Fleet &lt;!--");
       // The client directory is a link destination: percent-encoded, not escaped.
-      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("](acme-corp%0A%3C!--%20%2Fbrain%3Agenerated%3Afinance%20--%3E%0A(x)/)");
+      expect(readGeneratedRegion(readFileSync(dashboard, "utf8"), "finance")).toContain("](ithaca-fleet%0A%3C!--%20%2Fbrain%3Agenerated%3Afinance%20--%3E%0A(x)/)");
       // A second sync reads its own output back and writes nothing.
       expect(syncFiles(opts, AS_OF).files).toEqual([]);
     } finally {

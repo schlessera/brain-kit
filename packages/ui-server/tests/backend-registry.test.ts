@@ -583,10 +583,10 @@ describe("static registry (test/embedder seam)", () => {
   test("keeps a by-value descriptor resolution's hooks and model source", async () => {
     const backend = makeFakeBackend({
       id: "custom",
-      profiles: [{ id: "custom-pro", label: "Custom Pro", vendor: "acme" }],
+      profiles: [{ id: "custom-pro", label: "Custom Pro", vendor: "ithaca" }],
     });
     const modelSource: BackendModelSource = {
-      list: () => [{ id: "custom-pro", label: "Custom Pro", vendor: "acme" }],
+      list: () => [{ id: "custom-pro", label: "Custom Pro", vendor: "ithaca" }],
       state: () => ({ enabled: true, refreshedAt: 1, stale: false }),
       ensureFresh: async () => {},
       refresh: async () => {},
@@ -598,7 +598,7 @@ describe("static registry (test/embedder seam)", () => {
         parse() {
           return {
             ok: true,
-            profiles: [{ id: "custom-pro", label: "Custom Pro", vendor: "acme" }],
+            profiles: [{ id: "custom-pro", label: "Custom Pro", vendor: "ithaca" }],
           };
         },
       },
