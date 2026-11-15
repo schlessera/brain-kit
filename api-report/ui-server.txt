@@ -2580,6 +2580,7 @@ signatures (every public export and the types it is made of)
             changedPaths: number;
             observedBytes: number;
             partial: boolean;
+            workspacePaths: number;
         }) => void, periodic?: {
             after(completed: boolean): void;
             before(): void;

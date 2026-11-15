@@ -19,6 +19,8 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * those four modes; provider tools, prompts and autonomous modes stay unchanged.
  * #3624 re-records only the tool-description digest for approved Actor reuse
  * and the user-selected shortlist; tool names, allowlists and prompts stay fixed.
+ * #3788 adds the ten in-worker `mcp__brain__brain_apify_*` names to every mode's
+ * `disallowedTools`; nothing else moves.
  * #3797 adds the two host GitHub read tools to the four interactive modes'
  * stable roster (names and the schema digest); allowlists, prompts and
  * autonomous modes stay byte-identical.

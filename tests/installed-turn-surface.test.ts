@@ -19,6 +19,8 @@ test("actual installed CLI request preserves shipped deferred core tools, eager 
     "mcp__brain__brain_add",
     // The core server's fixed Apify tools (#3162): deferred like every core tool, and refused in a worker,
     // which holds neither the token nor the ledger; the turn's own Apify tools are the eager bridge ones.
+    // Every session disallows them, like the in-worker compute tools (#3788). This capture serves core
+    // in-process, where the CLI still lists a disallowed tool; over the `.mcp.json` stdio server it drops them.
     "mcp__brain__brain_apify_abort", "mcp__brain__brain_apify_approvals", "mcp__brain__brain_apify_availability", "mcp__brain__brain_apify_discover", "mcp__brain__brain_apify_inspect", "mcp__brain__brain_apify_prepare",
     "mcp__brain__brain_apify_results", "mcp__brain__brain_apify_revoke", "mcp__brain__brain_apify_run", "mcp__brain__brain_apify_status",
     "mcp__brain__brain_archive",
