@@ -64,6 +64,8 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"],
     runtime_host: ["native managed hosted admission", "native separate-UID worker identity", "native reference pool allocation"],
   };
+  // TEMPORARY #2819 draft-feedback receipt; reverted before the PR is ready.
+  if (category === "runtime_host") return [{ name: "native reference pool allocation", argv: [process.execPath, join(root, "scripts/native-proof/receipt-2819.ts")] }];
   const selected = inventory.filter(command => names[category].includes(command.name));
   if (selected.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);
   if (category === "captures") selected.unshift({ name: "pinned capture fonts and original notices", argv: [process.execPath, "run", "capture:fonts"] });
