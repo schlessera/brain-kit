@@ -367,3 +367,17 @@ text-part index and exact original text before folding the transcript into UI
 messages. Cold archival and resume continue to copy the runtime transcript as
 written; display metadata never becomes provider input. Older transcripts keep
 their existing bytes.
+
+## Archived history and activity time
+
+History reads and worker resumes restore cold transcripts with the archive's
+recorded `lastActiveAt` on their files and subordinate directories. Reading an
+old conversation therefore preserves its list position and idle eligibility;
+the resumed CLI's next write advances activity normally. The next daily sweep
+can archive a restored conversation again if it has received no new writes.
+
+The server's scratch-pin refresh reads retained conversation histories before
+pruning scratch artifacts, including archived conversations. Those reads need
+the transcript to discover links and preserve referenced files. The archive
+sweep itself restores only an interrupted restore marked `restoring`; a fresh
+archive is otherwise left cold.
