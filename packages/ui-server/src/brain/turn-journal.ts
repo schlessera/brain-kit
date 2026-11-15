@@ -101,7 +101,19 @@ export interface TurnJournalOptions {
   idleObservationMs?: number;
   /** Structured log for cleanup retries; absent, they are recorded durably only. */
   log?: Logger;
+  /**
+   * @internal Diagnostic timing of one held observation (#2915): admission,
+   * finish, a call's result or the periodic pass. Every step reports to the
+   * returned timer, `hold` last, spanning the whole worker hold.
+   */
+  observationTrace?: (kind: JournalTraceKind, turnId: string | null, toolUseId?: string) => PhaseTimer | undefined;
 }
+export type JournalTraceKind = "begin" | "finish" | "tool" | "periodic";
+/** Both timers see every step; either may be absent. */
+const bothTimers = (a?: PhaseTimer, b?: PhaseTimer): PhaseTimer | undefined => !a ? b : !b ? a : name => {
+  const first = a(name), second = b(name);
+  return () => { first(); second(); };
+};
 
 export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const now = options.now ?? Date.now;
@@ -276,7 +288,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const callKey = (turnId: string, toolUseId: string) => JSON.stringify([turnId, toolUseId]);
   let holds = 0;
   let observationFailures = 0;
-  function held<T>(operation: () => Promise<T>, admission = false): Promise<T> {
+  /** `trace` also times the hold itself; `lifecycle` sees every step but that one. */
+  function held<T>(operation: (timing?: PhaseTimer) => Promise<T>, admission = false, trace?: PhaseTimer, lifecycle?: PhaseTimer): Promise<T> {
+    const hold = trace?.("hold"), timing = bothTimers(lifecycle, trace), waited = timing?.("hold_wait");
     // Backend event emission is synchronous: establish the hold before yielding
     // or queueing so a provider cannot launch another tool past this boundary.
     const holders = [...periodicObservers];
@@ -285,15 +299,17 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     try { for (const holder of holders) { acquired++; holder.before(); } }
     catch (error) { holds--; for (const holder of holders.slice(0, acquired)) holder.after(false); return Promise.reject(error); }
     return serialize(async () => {
+      waited?.();
       let completed = false;
       const failedBefore = observationFailures;
-      try { const result = await operation(); completed = true; return result; }
+      try { const result = await operation(timing); completed = true; return result; }
       finally {
         // A cancelled/refused new admission made no worker writes. Existing
         // participants resume when their shared observation itself succeeded,
         // even if reclaiming a superseded checkpoint failed.
         const safe = (completed || admission && observationFailures === failedBefore);
         holds--; for (const holder of holders) holder.after(safe);
+        hold?.();
       }
     });
   }
@@ -411,7 +427,9 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     entry?.hash ? [statement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)", turnId, entry.hash)] : [];
 
   async function observe(userPolicy: boolean = false, timing?: PhaseTimer, signal?: AbortSignal): Promise<void> {
+    const released = pendingReadReleases.size ? timing?.("observe_release_reads") : undefined;
     await releaseReads();
+    released?.();
     const overlaps = [...active.keys()];
     const changed = new Map<string, { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }>();
     const stopActive = async (error: unknown) => {
@@ -429,6 +447,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     catch (error) { observationFailures++; const failure = storageError(error); await stopActive(failure); throw failure; }
     // Each managed worktree is observed through its own checkpoints, for the one turn that holds it.
     const separate: { worktreeId: string; turnId: string; observation: Awaited<ReturnType<typeof capture.observe>> }[] = [];
+    const separated = worktrees.size ? timing?.("observe_worktrees") : undefined;
     for (const [worktreeId, root] of [...worktrees]) {
       const holder = active.get(root.turnId);
       if (!holder) continue;
@@ -442,6 +461,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         await recorded;
       }
     }
+    separated?.();
     try {
       for (const changes of observation.changes.values()) for (const item of changes) {
         if (identity(item.before) === identity(item.after)) continue;
@@ -449,18 +469,20 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         changed.set(JSON.stringify(value), value);
       }
       const steering = observation.steering;
-      const recorded = timing?.("observe_record");
       for (const [turnId, turn] of active) {
         const worktree = separate.filter(root => root.turnId === turnId).flatMap(root => (root.observation.changes.get(turnId) ?? [])
           .filter(change => identity(change.before) !== identity(change.after))
           .map(change => ({ path: referenceWorktreeJournalPath(root.worktreeId, change.path), scope: REFERENCE_WORKTREE_JOURNAL_SCOPE, before: version(change.before), after: version(change.after) })));
         const unreadable = [...observation.unreadable, ...separate.filter(root => root.turnId === turnId).flatMap(root => root.observation.unreadable
           .map(item => ({ ...item, path: referenceWorktreeJournalPath(root.worktreeId, item.path === "." ? "" : item.path) })))];
+        let step = timing?.("observe_record");
         turn.sequence = await retain(() => call<number>("recordObservation", {
           turnId, sequence: turn.sequence, at: now(), userPolicy, changed: [...changed.values()], steeringPaths: [...steering.paths],
           overlaps, worktree, steeringUnavailable: [...steering.unavailable], steeringInventoried: steering.inventoried === true, unreadable,
         }));
+        step?.(); step = timing?.("observe_publish");
         publish(turnId);
+        step?.(); step = timing?.("observe_facts");
         // Ignored and metadata-only versions have no content hash: count their
         // largest observed size once per path, independently of hashed changed
         // versions. The disposable index is counted the same way, ignored or not,
@@ -477,8 +499,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
               AND path=change.path ORDER BY sequence DESC LIMIT 1) IS NULL)) GROUP BY path
         )`).get(DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number };
         for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
+        step?.();
       }
-      recorded?.();
       const committed = timing?.("observe_commit");
       await observation.commit();
       for (const root of separate) await root.observation.commit();
@@ -500,34 +522,32 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     begin(turnId: string, metadata: { sessionId: string | null; actor: "interactive" | "voice" | "user"; model: string | null; profile: "strict" | "governed"; policyHash: string | null; coveredPaths?: readonly string[] }, stop: (error: Error) => void, signal?: AbortSignal,
       /** Each step of the admission (#3355); a failed step is left unended. */ timing?: PhaseTimer) {
-      const waited = timing?.("hold_wait");
-      return held(async () => {
-      waited?.();
+      return held(async steps => {
       signal?.throwIfAborted();
-      let end = timing?.("initialize");
+      let end = steps?.("initialize");
       try { await capture.initialize(signal); }
       catch (error) { if (signal?.aborted) throw error; throw storageError(error); }
       end?.();
-      if (failedAdmissions.size) { end = timing?.("refused_admissions"); for (const refused of failedAdmissions) await finalizeRefusedAdmission(refused); end?.(); }
-      end = timing?.("observe");
-      await observe(false, timing);
+      if (failedAdmissions.size) { end = steps?.("refused_admissions"); for (const refused of failedAdmissions) await finalizeRefusedAdmission(refused); end?.(); }
+      end = steps?.("observe");
+      await observe(false, steps);
       end?.();
       signal?.throwIfAborted();
-      end = timing?.("expiry");
+      end = steps?.("expiry");
       await expireBacklog();
-      end?.(); end = timing?.("turn_insert");
+      end?.(); end = steps?.("turn_insert");
       await retain(() => write([statement("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording') ON CONFLICT(turn_id) DO UPDATE SET started_at=excluded.started_at WHERE turn_journal_turns.kind='revert' AND turn_journal_turns.ended_at IS NULL",
         turnId, metadata.sessionId, metadata.actor, metadata.model, metadata.profile, metadata.policyHash, SELF.pid, SELF.start, now())]));
       end?.();
       try {
-      end = timing?.("policy");
+      end = steps?.("policy");
       const policy = await capture.policy(metadata.coveredPaths);
       end?.();
       signal?.throwIfAborted();
       active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
-          void held(() => observe()).catch(error => {
+          void held(timing => observe(false, timing), false, options.observationTrace?.("periodic", null)).catch(error => {
             for (const [id, turn] of active) { void fail(id, error).catch(() => {}); turn.stop(error instanceof Error ? error : new Error(String(error))); }
           });
         }, 15_000);
@@ -541,7 +561,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         throw error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
           ? error : new JournalStorageUnavailable("native journal admission could not be prepared");
       }
-    }, true); },
+    }, true, options.observationTrace?.("begin", turnId), timing); },
     async bindSession(turnId: string, sessionId: string): Promise<void> {
       const turn = active.get(turnId);
       if (!turn) return;
@@ -587,7 +607,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const effect = call ? toolObservation(call.name, call.path) : "unproven";
       if (effect === "unproven" && active.has(turnId)) lasting.add(turnId);
       if (effect === "read" && !lasting.size && !calls.size) return Promise.resolve();
-      return held(() => observe());
+      return held(timing => observe(false, timing), false, options.observationTrace?.("tool", turnId, toolUseId));
     },
     /**
      * Cover one managed worktree (#2430) for an active turn before any of its
@@ -649,23 +669,30 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (summary(turnId).state !== "recording") throw new JournalStorageUnavailable("policy observation became incomplete before the approved write");
       try { await approvedWrite(); } finally { await observe(true); }
     }); },
-    finish(turnId: string) { return held(async () => {
+    finish(turnId: string) { return held(async timing => {
       if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
-      try { await observe(); }
+      try { await observe(false, timing); }
       finally {
         active.delete(turnId); lasting.delete(turnId);
         for (const [key, call] of calls) if (call.turnId === turnId) calls.delete(key);
+        let step = worktrees.size ? timing?.("finish_worktrees") : undefined;
         await dropWorktrees(turnId);
+        step?.();
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
+        step = timing?.("finish_record");
         await write([
           ...(failures.has(turnId) ? [statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", failures.get(turnId)!.padEnd(64), turnId)] : []),
           statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' OR missing!='[]' THEN 'partial' ELSE 'complete' END WHERE turn_id=?", now(), turnId),
           statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
           statement("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash)) AND NOT EXISTS (SELECT 1 FROM turn_journal_claude_memory m WHERE m.turn_id=? AND m.state!='saved' AND (json_extract(m.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(m.after_json,'$.hash')=turn_journal_object_refs.hash))", turnId, turnId, turnId),
         ]);
-        await collectObjects(); publish(turnId);
+        step?.(); step = timing?.("finish_collect");
+        await collectObjects();
+        step?.(); step = timing?.("finish_publish");
+        publish(turnId);
+        step?.();
       }
-    }); },
+    }, false, options.observationTrace?.("finish", turnId)); },
     /** Ordinary current coverage only; never adds selected paths to ignored content. */
     removalCoverage(paths: readonly string[], signal?: AbortSignal, absent = false): Promise<boolean[]> { return held(async () => {
       if (paths.length > 32) throw new JournalStorageUnavailable("Too many selected attachments.");

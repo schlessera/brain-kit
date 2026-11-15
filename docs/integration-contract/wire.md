@@ -599,8 +599,13 @@ not apply to a turn is absent. The current names are:
   `type_translation_refresh`, `peer_folder_plans`, `private_index`, `data_tree`,
   `record_policy`, `startup_view_cleanup`, `exposure_records`, `manifest_begin`.
 - `journal`: `hold_wait`, `initialize`, `refused_admissions`, `observe` (with
-  `observe_checkpoint`, `observe_delta`, `observe_metadata`, `observe_capture`,
-  `observe_record`, `observe_commit`), `expiry`, `turn_insert`, `policy`.
+  `observe_release_reads`, `observe_reserve`, `observe_checkpoint`,
+  `observe_delta`, `observe_metadata`, `observe_capture`, `observe_worktrees`,
+  `observe_record`, `observe_publish`, `observe_facts`, `observe_commit`),
+  `expiry`, `turn_insert`, `policy`. `observe_reserve` waits for room behind
+  earlier checkpoint releases; `observe_record`, `observe_publish` and
+  `observe_facts` repeat once per other active turn the observation records,
+  and are absent when there is none (#2915).
 
 Records written before this field have no `subPhases`; nothing is backfilled.
 
