@@ -19,6 +19,9 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * those four modes; provider tools, prompts and autonomous modes stay unchanged.
  * #3624 re-records only the tool-description digest for approved Actor reuse
  * and the user-selected shortlist; tool names, allowlists and prompts stay fixed.
+ * #3797 adds the two host GitHub read tools to the four interactive modes'
+ * stable roster (names and the schema digest); allowlists, prompts and
+ * autonomous modes stay byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

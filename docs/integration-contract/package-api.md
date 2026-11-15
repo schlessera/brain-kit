@@ -511,6 +511,29 @@ approvals; a backend sends the parsed input only. Names, schemas and the
 envelope are documented in [the MCP component](mcp.md#apify-tools-additive-0450-3162).
 Both first-party backends register the tools in every interactive session.
 
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the four GitHub tool contracts (`GITHUB_TOOL_CONTRACTS`,
+`GITHUB_READ_TOOL_CONTRACTS` and each `GITHUB_ISSUE_*_CONTRACT`), their names
+(`GITHUB_TOOL_NAMES`, `GITHUB_TOOL_NAME_LIST`, `GITHUB_READ_TOOL_NAMES`,
+`isGithubToolName`), the four strict input schemas, the payload schemas
+(`GITHUB_ISSUE_READ_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA`,
+`GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA`
+and their parts), `GITHUB_RESULT_SCHEMAS`, `GITHUB_ERROR_CODES`,
+`GITHUB_LIMITS`, the origins `GITHUB_WEB_ORIGIN` and `GITHUB_API_ORIGIN`, the
+name helpers `isGithubRepositoryName` and `parseGithubRepository`, the
+direct-link validators `githubDirectUrl(value, scope, target)`,
+`githubSearchUrl(scope, q)` and `isGithubSearchUrl(value, scope, q)`, and the
+matching types (`GithubToolCall`, `GithubToolResult`, each payload, input and
+part). `@schlessera/brain-ui-sdk/server` adds the experimental backend toolkit
+helper `handleGithubTool(name, input, bridge)`, which validates the strict
+input and forwards `{ tool, input }` to the optional new
+`BackendBridge.github(call)`; without it the tool refuses `unavailable`
+(`no_host`). Shapes are documented in
+[the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
+export changes.
+
 ## Package entry points
 
 **Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each

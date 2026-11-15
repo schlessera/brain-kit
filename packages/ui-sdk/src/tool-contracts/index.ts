@@ -125,3 +125,5 @@ export * from "./attachment.js";
 export * from "./web.js";
 
 export * from "./policy.js";
+
+export * from "./github.js";
