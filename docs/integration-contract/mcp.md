@@ -1365,15 +1365,16 @@ UI bridge: Claude names them `mcp__brain-ui__<name>` and loads them eagerly;
 pi attaches plain names. They are in every interactive session's fixed roster
 (typed, voice and no-grant-surface), after `read_attachment`, whether or not
 the host holds a credential, and auto-allowed. Restricted autonomous rosters
-do not include them. The two write tools are declared here and registered,
-with their approval cards and repository allow-list, by #3798.
+do not include them. Since #3798 (additive) both backends also attach the two
+write tools, after the reads, in the same roster and order and under the same
+conditions; see [Writes](#github-writes-additive-0450-3798).
 
 | Tool | Input | Registered |
 |---|---|---|
 | `brain_github_issue_read` | `repository` (`owner/repo`), `number` (integer 1–2147483647) | 0.45.0 (#3797) |
 | `brain_github_issue_search` | `repository`, `query` (1–256 characters; `repo:`, `org:`, `user:` and `owner:` qualifiers refused), `kind?` (`issue`, `pull_request`, `any`; default `any`), `state?` (`open`, `closed`, `any`; default `any`), `limit?` (1–30, default 10) | 0.45.0 (#3797) |
-| `brain_github_issue_create` | `repository`, `title` (1–256), `body?` (up to 65,536), `labels?` (up to 10 names) | #3798 |
-| `brain_github_issue_comment` | `repository`, `number`, `body` (1–65,536) | #3798 |
+| `brain_github_issue_create` | `repository`, `title` (1–256), `body?` (up to 65,536), `labels?` (up to 10 names) | 0.45.0 (#3798) |
+| `brain_github_issue_comment` | `repository`, `number`, `body` (1–65,536) | 0.45.0 (#3798) |
 
 `repository` follows GitHub's name grammar: owner `[A-Za-z0-9-]{1,39}`,
 repository `[A-Za-z0-9._-]{1,100}` and not `.` or `..`. Inputs are strict
@@ -1384,7 +1385,9 @@ Each result is one JSON document, `{ ok: true, tool, result }` or
 `rate_limited`, `upstream_error`, `policy_denied` or `approval_declined`.
 `unavailable` carries `reason` `no_credential` (the host has no
 `BRAIN_UI_GITHUB_TOOLS_TOKEN`), `credential_rejected`, `no_host` (no host
-handler in this turn) or `not_registered` (a write tool before #3798).
+handler in this turn), `recording_unavailable` (a write's approval could not
+be recorded) or, before #3798 only, `not_registered`. The write reasons are
+listed under [Writes](#github-writes-additive-0450-3798).
 
 **Payloads.** `result` is typed data, never formatted text
 (`GITHUB_RESULT_SCHEMAS`). A read returns `kind: "issue"` or
@@ -1448,6 +1451,60 @@ another. Principal, session and turn come from the authenticated turn. Before
 any GitHub text returns, the session's taint is recorded with the new source
 `github_result` ([governance events](../http-api.md)); if that record cannot
 be written, the text is withheld.
+
+### GitHub writes (additive, 0.45.0, #3798)
+
+`brain_github_issue_create` files one issue and `brain_github_issue_comment`
+posts one comment, through the same credential and API origin. A write goes
+only to a repository the turn's admitted governance policy lists under
+[`outward.github.repositories`](../supported-inputs.md#governance-policy).
+The host decides each call in this order, and nothing reaches GitHub before
+the last step:
+
+1. **Allow-list.** A repository the list does not open is refused with
+   `policy_denied`, `reason: "repository_not_allowed"`, and a message naming
+   `outward.github.repositories`. No card is shown. An absent or empty list,
+   or a turn under no governance policy, refuses every write.
+2. **Posture.** A voice turn is refused with `approval_declined`,
+   `reason: "voice_posture"`, before any card: voice can refuse a write but
+   never approve one. A turn with no write surface, such as any autonomous
+   turn, is refused with `policy_denied`, `reason: "no_write_surface"`.
+3. **Credential.** Without `BRAIN_UI_GITHUB_TOOLS_TOKEN`, `unavailable`
+   (`no_credential`), before any card.
+4. **Card.** One per-use command card on the turn's own approval surface,
+   named with the backend's visible tool name. Its input is exactly what is
+   sent: `{ repository, title, body?, labels? }` for an issue and
+   `{ repository, number, body }` for a comment, after the schema's trimming,
+   with an absent field neither shown nor sent. Its description says the
+   write is sent once, in the user's name, and cannot be undone, and notes a
+   session that has read untrusted input. The card is never remembered.
+5. **Answer.** A denial is `approval_declined`, `reason: "declined"`. An
+   approval that comes back with a changed input is `approval_declined`,
+   `reason: "edited"`, and sends nothing; the model must make the call again,
+   which runs every step for the new input. A turn that ended or lost its
+   authority while the card was open sends nothing (`upstream_error`,
+   `reason: "cancelled"`).
+6. **Send.** One `POST` to the fixed API origin, never retried and never
+   redirected. A failure that GitHub answered says nothing was written; a
+   timeout or network failure says the write may still have been made.
+
+Both backends auto-allow the write tools in a typed turn with a grant surface
+and a host handler, so the host's card is the only one. In a voice or
+no-grant turn the runtime's own permission boundary refuses them before the
+host is reached, and the roster is unchanged.
+
+A success returns `kind: "issue_created"` (`repository`, `number`, `title`,
+`labels`, `created_at`, `html_url`) or `kind: "comment_created"`
+(`repository`, `number`, `comment_id`, `created_at`, `html_url`); `html_url`
+passes `githubDirectUrl` for the created issue or comment, or is null. A
+write's own result does not taint the session.
+
+Each refusal at steps 1, 2 and 5, each answer and each approval is recorded as an `outward_action` governance
+event with `action: "gh_write"`, `target` `owner/repo` (an issue) or
+`owner/repo#n` (a comment), the card's input, `tainted`, `historyRewrite:
+false`, `rule: null` and `decision` `refused`, `declined` or `approved`. The
+approval is recorded before the request is sent; if it cannot be recorded,
+nothing is sent. The turn journal lists every one as irreversible.
 
 ## Host-owned web tools (additive, 0.45.0, #3685)
 
