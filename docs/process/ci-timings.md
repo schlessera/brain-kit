@@ -51,6 +51,12 @@ proof of a successful candidate.
 
 ## Automatic archival
 
+The [evidence archive and delivery decision](../decisions/ci-evidence.md)
+records the permanent measurement ref, monthly schema rules, retention split,
+publication permissions and daily/weekly delivery cadence. That ruling is
+separate from the hourly artifact collection described here; this guide does
+not imply that durable compaction or scheduled report delivery is enabled.
+
 `.github/workflows/ci-timings.yml` collects an overlapping two-day creation
 window hourly, with job/step timings, PR lifecycle and reservation history,
 and supports manual dispatch. Each invocation seeds from the preceding
