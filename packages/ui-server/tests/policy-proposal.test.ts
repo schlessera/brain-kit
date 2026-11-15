@@ -72,6 +72,10 @@ for (const [name, content] of [
   expect(review.frontmatterDiff).toContain("+   interactive: strict");
   expect(review.bodyDiff).not.toContain("interactive");
   expect(review.frontmatterDiff).not.toContain("Odysseus approves");
+  if (name === "trailing spaces and tabs") {
+    expect(review.frontmatterDiff).toContain("+ --- \t\n+ ");
+    expect(review.bodyDiff).toBe("- Odysseus reviews the policy.\n- \n+ Odysseus approves the policy.\n+ ");
+  }
   if (content.includes("Odysseus approves")) expect(review.bodyDiff).toContain("+ Odysseus approves the policy.");
   await f.answer(true); expect((await pending).state).toBe("updated");
   expect(readFileSync(f.path, "utf8")).toBe(content); expect(f.edits).toEqual([original, content]); expect(f.events).toHaveLength(1);
