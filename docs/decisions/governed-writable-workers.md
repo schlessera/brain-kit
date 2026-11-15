@@ -1594,7 +1594,7 @@ from Markdown, and restoring an old copy over a newer one only makes it stale.
 below), and a `.brain-index/.maintenance-<uuid>` publication copy,
 by journal-relative path in the brain root's own capture, named from the shared
 index location constants (`export function journalMetadataOnlyPath`,
-`packages/ui-server/src/brain/native-journal-policy.ts:31-33`). Another name
+`packages/ui-server/src/brain/native-journal-policy.ts:32-34`). Another name
 inside `.brain-index/`, another root's `.brain-index/` (a workspace or a
 managed worktree) and a similarly named file elsewhere stay ordinary content
 with retained bytes.
@@ -1667,7 +1667,7 @@ keeps beside the index; it carries no authoritative content either.
 the sidecars SQLite may create beside it, and the journal's family is
 `INDEX_FAMILY` plus that list under `.brain-index/`
 (`export const INDEX_FAMILY_PATHS`,
-`packages/ui-server/src/brain/native-journal-policy.ts:9`). Observation,
+`packages/ui-server/src/brain/native-journal-policy.ts:10`). Observation,
 before-version capture, removal coverage, history, preview, download and
 revert therefore treat it exactly as the index. A similarly named file,
 `.brain-index/brain.db.embedding-lock.db.bak` or `notes/brain.db.embedding-lock.db`,
@@ -1723,6 +1723,38 @@ after every turn on a large journal (#2913).
 **2026-10-26 implementation context:** the paragraph above describes collection
 before the admitted index below. The purge-only enforcement exception remains
 scoped to its second commit; ordinary collection keeps enforcement enabled.
+
+### The index's wal-index at native publication — 2026-11-15 (#2878)
+
+Native publication compares each changed output's live entry with the one
+its worker started from and refuses a difference (`stale maintenance
+output`). For `.brain-index/brain.db-shm` that comparison was wrong. The
+file is SQLite's wal-index: shared memory, not data. A read-only
+`brain_search` connection on the live index writes its read mark into the
+file, or creates it when it is missing. So the live bytes differed from the
+checkpoint's while nothing indexed had changed, and the whole refresh was
+refused. Search then served the old index until a later refresh happened to
+succeed.
+
+**The ruling.** The wal-index follows its database. It is never hashed,
+compared or copied. Whenever `brain.db` or `brain.db-wal` publishes, a fresh
+empty file replaces it, or it is removed when the refresh removed its own. A
+fresh inode is required, not just allowed: a reader that is still open keeps
+its wal-index mapped. A new connection that paired the published WAL with
+that file would follow frames that file still describes, and fail with
+`SQLITE_IOERR_SHORT_READ`. The first connection to open an inode nobody
+holds discards its contents and rebuilds it from the WAL, so the empty file
+loses nothing. Publication still refuses a wal-index that is a link or a
+directory. Every write to the index changes the database or its WAL, and
+those two keep the full stale-input refusal, so a concurrent writer is still
+refused (`const WAL_INDEX`,
+`packages/ui-sdk/src/server/worker-native-output.ts:231-240`). A refusal of a
+changed stage file before or during its copy now names the inspected and the
+found stamp, so a recurrence identifies what changed.
+
+**Not covered.** Copy-staged publication (`worker-output.ts`), used without
+native storage, has the same comparison and is tracked separately.
+Publishing the family is still a sequence of renames, not one atomic step.
 
 ### Admitted object-pin index and near-cap recovery — 2026-10-26 (#2913)
 
@@ -2338,9 +2370,9 @@ owner prepares each concrete command; the synchronous launcher consumes its
 private plan once, bound to the stage/checkpoint, keeper identity, command and
 stage generation. Stale, foreign, closed or unprepared protected inputs refuse
 before payload (`prepareNativeMaintenanceMasks`,
-`packages/ui-sdk/src/server/worker-native-output.ts:101-120`),
+`packages/ui-sdk/src/server/worker-native-output.ts:103-122`),
 (`consumeNativeMaintenanceMasks`,
-`packages/ui-sdk/src/server/worker-native-output.ts:133-138`).
+`packages/ui-sdk/src/server/worker-native-output.ts:135-140`).
 
 Configured-helper credential-free maintenance uses the same verified launcher
 as agent workers. It retains one execution view and binds the owned stage drain
@@ -2365,7 +2397,7 @@ publication also checks live absence and excludes only those exact validated
 empty directories. Protected descendants and unregistered changes still refuse.
 Partial installation poisons the disposable stage; cleanup retains the existing
 owned drain (`validateGitScaffolds`,
-`packages/ui-sdk/src/server/worker-native-output.ts:310-322`).
+`packages/ui-sdk/src/server/worker-native-output.ts:347-363`).
 
 ### Owned runtime placement beneath `/tmp` — 2026-10-14
 
