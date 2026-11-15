@@ -10,6 +10,7 @@
  * account, prices and origins are fictional.
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as crypto from "node:crypto";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -219,6 +220,36 @@ describe("one implementation behind every front door", () => {
     expect(fake.searches(), "APIFY_APPROVED_REUSE_WITHOUT_CATALOG_SEARCH").toBe(0);
     expect(stdout.join("\n")).not.toContain(APIFY_SENTINEL);
     expect(fake.seen.every(entry => !entry.path.includes(APIFY_SENTINEL))).toBe(true);
+  });
+
+  test("references and run handles that start with -- work in the direct positional form (#3689)", async () => {
+    // Every 32-byte draw encodes to a distinct base64url value with a leading `--`, as one in 4,096
+    // real references and handles does: the consent reference and the ledger's run handle alike.
+    const real = crypto.randomBytes;
+    let draws = 0;
+    const forced = spyOn(crypto, "randomBytes").mockImplementation(((size: number, ...rest: unknown[]) => size === 32
+      ? Buffer.from(`--odysseus${(++draws).toString(36)}`.padEnd(43, "A"), "base64url")
+      : (real as (...args: unknown[]) => Buffer)(size, ...rest)) as typeof crypto.randomBytes);
+    try {
+      apifyPolicy(brain, { enabled: true, discovery: "allow", actors: "allow", actor_grants: [apifyGrant()], limits: APIFY_LIMITS });
+      const approvals = openApifyLedger(ledgerPath);
+      approvals.setActorApproval({ brain_id: (await import("@schlessera/brain-common/internal/apify")).apifyBrainId(brain), principal_id: "local", account_id: "IthacaHousehold01" },
+        { actor_id: "SeaCharts01", actor: "odysseus/sea-charts", approved_at: Date.now() }, true);
+      approvals.close();
+      const candidate = data<Array<{ candidate: string }>>((await cli(["approvals"])).envelope)[0]!.candidate;
+      expect(candidate, "APIFY_FORCED_DASHED_REFERENCE").toMatch(/^--[A-Za-z0-9_-]{41}$/u);
+      expect((await cli(["inspect", candidate])).envelope, "APIFY_DASHED_INSPECT").toMatchObject({ ok: true, operation: "inspect" });
+      // An existing stored value still resolves through the separator form, options before it.
+      expect((await cli(["inspect", "--", candidate])).envelope, "APIFY_DASHED_SEPARATOR").toMatchObject({ ok: true, operation: "inspect" });
+      const prepared = data<{ proposal: string }>((await cli(["prepare", candidate, "--input", JSON.stringify(APIFY_INPUT), "--max-charge-usd", "2"])).envelope);
+      expect(prepared.proposal, "APIFY_FORCED_DASHED_PROPOSAL").toMatch(/^--/u);
+      const started = data<{ run: string; state: string }>((await cli(["run", prepared.proposal])).envelope);
+      expect(started.run, "APIFY_FORCED_DASHED_HANDLE").toMatch(/^--[A-Za-z0-9_-]{41}$/u);
+      expect(code((await cli(["status", started.run])).envelope), "APIFY_DASHED_STATUS").toBe("ok");
+      expect(data<{ items: unknown[] }>((await cli(["results", started.run, "--limit", "2"])).envelope).items, "APIFY_DASHED_RESULTS").toHaveLength(2);
+      expect(data<{ outcome: string }>((await cli(["abort", started.run])).envelope).outcome, "APIFY_DASHED_ABORT").toBe("not_needed");
+      expect(fake.starts()).toBe(1);
+    } finally { forced.mockRestore(); }
   });
 
   test("the MCP wrappers keep a fixed roster and return discovered schemas as data", async () => {
