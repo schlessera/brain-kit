@@ -190,7 +190,7 @@ for the lock ahead of the submitting tab, and a unit test caught that.
 
 Browser WebSocket ping/pong is not exposed to scripts, so the host answers an
 application-level `ping` (`private sendProbe`,
-`packages/ui-sdk/src/client/ws-client.ts:458`). A replaced socket is retired,
+`packages/ui-sdk/src/client/ws-client.ts:459`). A replaced socket is retired,
 and every one of its callbacks checks that before it touches the client, so
 a late close from a dead socket cannot reset its replacement.
 
@@ -200,7 +200,7 @@ runs on a socket that never opened, and `reconnectNow()` does nothing while
 one is connecting, so the client waited forever. A connection that has
 delivered nothing after 10 seconds, whether still connecting or open, is now
 abandoned and retried through the normal backoff (`private abandon`,
-`ws-client.ts:492`). This adds no new timeout to a question. The host's turn
+`ws-client.ts:493`). This adds no new timeout to a question. The host's turn
 deadline stays the only limit on an ask.
 
 ## A question whose turn ended (#3356)

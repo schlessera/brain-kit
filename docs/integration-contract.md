@@ -20,6 +20,22 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Consumer frames without `pong` (breaking before 1.0, 0.45.0, #3389)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ConsumerServerMessage`: every `ServerMessage` except
+`ServerPong`. `ServerFrameHandlers` from `./client` is keyed on it, and its
+`onAny` receives one, so a `pong` handler no longer type-checks.
+`BrainUiClient` consumes `pong` for liveness and never called such a handler.
+This removes a member from a public type and needs the
+[recorded ruling](https://github.com/schlessera/brain-kit/issues/3389#issuecomment-6601349605);
+it ships in a minor with the `breaking` label. The wire is unchanged: the host
+still answers `ping` with `pong`, and `ServerMessage`, `ServerPong` and
+`parseServerMessage` keep it. In `@schlessera/brain-ui-react`, the
+conversation client gains `receive(frame)` for the eight frames it owns, which
+reach it through the handler map instead of its `frame()` prefilter. See
+[the package component](integration-contract/package-api.md#consumer-frames-without-pong-breaking-3389).
+
 ## JeV reranking through the provider relay (additive, 0.45.0, #3792)
 
 The CLI provider relay gains the `typesafe` family, `x-brain-provider:

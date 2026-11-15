@@ -147,6 +147,7 @@ export "." (./src/index.ts)
   type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
+  type ConsumerServerMessage
   type ContentRendererDeclaration
   type ConversationAudioFormat
   type ConversationCapabilities
@@ -742,6 +743,7 @@ export "./client" (./src/client/index.ts)
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConnectionStatus
+  type ConsumerServerMessage
   type ContentRenderer
   type ContentRendererPack
   type ContentRendererProps
@@ -1677,6 +1679,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientToolDenial
   type ConfigurationCoverageRead
   type ConflictVersionSelection
+  type ConsumerServerMessage
   type ConversationAudioFormat
   type ConversationCapabilities
   type ConversationCloseReason
@@ -2510,6 +2513,7 @@ export "./server" (./src/server/index.ts)
   type ConfirmPattern
   type ConfirmPatternSource
   type ConflictVersionSelection
+  type ConsumerServerMessage
   type ConversationAudioFormat
   type ConversationCapabilities
   type ConversationCloseReason
@@ -7192,6 +7196,8 @@ signatures (every public export and the types it is made of)
     }
   ConnectionStatus (packages/ui-sdk/src/client/ws-client.ts)
     export type ConnectionStatus = "connecting" | "connected" | "disconnected";
+  ConsumerServerMessage (packages/ui-sdk/src/protocol.ts)
+    export type ConsumerServerMessage = Exclude<ServerMessage, ServerPong>;
   ContentRenderer (packages/ui-sdk/src/client/content-renderers.ts)
     export interface ContentRenderer extends StaticRenderer {
         Component: ComponentType<ContentRendererProps>;
@@ -11371,11 +11377,11 @@ signatures (every public export and the types it is made of)
     }
   ServerFrameHandlers (packages/ui-sdk/src/client/ws-client.ts)
     export type ServerFrameHandlers = {
-        [K in ServerMessage["type"]]?: (frame: Extract<ServerMessage, {
+        [K in ConsumerServerMessage["type"]]?: (frame: Extract<ConsumerServerMessage, {
             type: K;
         }>) => void;
     } & {
-        onAny?: (frame: ServerMessage) => void;
+        onAny?: (frame: ConsumerServerMessage) => void;
     };
   ServerHandoffDraft (packages/ui-sdk/src/protocol.ts)
     export interface ServerHandoffDraft {

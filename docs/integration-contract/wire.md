@@ -1889,7 +1889,9 @@ seconds is abandoned the same way and retried with the normal backoff, which
 resets only once a connection delivers a valid frame.
 `checkLiveness()` probes at once, for a return to the page, a resume or going
 online. `setForeground(false)` pauses the periodic probe. These are targets:
-a frozen page runs no timers.
+a frozen page runs no timers. The client consumes every `pong` itself: none reaches a
+consumer handler or `onAny`, and `ServerFrameHandlers` has no `pong` key
+([#3389](package-api.md#consumer-frames-without-pong-breaking-3389)).
 
 **principalKey** is a one-way digest of the principal id, stable per
 principal. A client files queued answers under it and never replays an
