@@ -61,6 +61,15 @@ function split(text: string) {
   const end = rest ? block.innerEnd + 3 + rest[0].length : block.end;
   return { frontmatter: text.slice(0, end), body: text.slice(end) };
 }
+/** Proposal-only strictness (#3666); existing policy bytes keep the parser's broader rule. */
+function proposalBoundaryError(text: string): string | null {
+  const block = frontmatterBlock(text);
+  if (!block || !block.closed) return "Proposed policy frontmatter must have closed, standalone --- delimiter lines (optional trailing spaces/tabs).";
+  // Inspect only the delimiter positions found by the shared parser, never search for a later fence.
+  const standalone = (offset: number) => /^[ \t]*(?:\r?\n|$)/.test(text.slice(offset + 3));
+  return standalone(block.start) && standalone(block.innerEnd) ? null
+    : "Proposed policy frontmatter delimiters must be standalone --- lines (optional trailing spaces/tabs); suffixes and annotations are not accepted.";
+}
 function sections(before: string, after: string) {
   let a: Record<string, unknown> = {};
   try { a = parseFrontmatter(before, { dataOnly: true }).data; } catch { /* Invalid current bytes are still reviewed exactly. */ }
@@ -172,7 +181,13 @@ export function createPolicyProposals(options: {
         if (row.input_hash !== inputHash || !readReview(turn.principalId, turn.turnId, requestId)) throw new Error("Policy proposal id already belongs to another request.");
         return active.get(key) ?? readReview(turn.principalId, turn.turnId, requestId)!;
       }
-      const bytes = Buffer.from(input.content, "utf8"), validate = options.validate ?? parseGovernancePolicy;
+      const bytes = Buffer.from(input.content, "utf8");
+      const validate = (value: Buffer) => {
+        const checked = (options.validate ?? parseGovernancePolicy)(value);
+        if (!checked.ok || checked.status !== "valid") return checked;
+        const error = proposalBoundaryError(value.toString("utf8"));
+        return error ? { ...checked, ok: false as const, errors: [error] } : checked;
+      };
       const checked = validate(bytes);
       if (!checked.ok || checked.status !== "valid") throw new Error(`Invalid policy: ${checked.errors.join("; ")}`);
       const root = resolvedRoot ??= realpathSync(options.root);

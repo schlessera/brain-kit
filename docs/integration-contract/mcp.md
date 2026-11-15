@@ -1461,6 +1461,18 @@ checkpoint delegates to this validation/write route; the eventual tool handler
 reconciles the same tool-use identity rather than executing a second write.
 A remembered tool grant cannot authorize a policy change. Speech never grants.
 
+**Breaking input narrowing for 0.45.0 (#3666, maintainer-approved pre-1.0
+break):** proposed frontmatter must have closed, standalone `---` delimiter
+lines, with optional trailing spaces/tabs. Unclosed blocks, annotated/suffixed
+openings such as `---yaml` or `---x`, and parser-recognized closing prefixes
+such as `---x`, `---yaml` or `----` are refused before approval or any pending
+actionable card. Refusal publishes no file bytes, journal edit or policy-change
+event. Migration: submit standalone, closed `---` fences. BOM, LF/CRLF and an
+EOF closing fence remain supported; accepted content is published byte for
+byte without normalization. The same validation runs again at publication.
+This rule applies only to proposed bytes: a valid replacement can repair an
+old ambiguous policy, whose review retains the shared parser's boundaries.
+
 A valid card names the exact base hash (null for no file), frontmatter diff,
 changed section names, body-change indicator/body diff and quoted agent
 rationale. Decline writes nothing. Approve and write revalidates under
