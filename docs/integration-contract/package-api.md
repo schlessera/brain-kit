@@ -60,6 +60,17 @@ A backend that never calls it, and every call it reports nothing for, keeps
 the observation after each result. This is first-party implementation sharing
 under the internal-entry classification below and requires a patch changeset.
 
+## Workspace paths in turn observation facts (additive, 0.45.0, #3793)
+
+The `onObservation` observer of `createTurnJournal`'s journal, tagged
+`@internal` but recorded in `api-report/` because the journal's type is
+inferred, receives one more fact: `workspacePaths`, how many of the
+observation's `changedPaths` lie below `workspaces/` by path containment.
+`changedPaths` still counts every changed path. The host scope monitor caps
+`files_changed` at `changedPaths - workspacePaths`; `turn_bytes`, the
+free-space floor and the scope summary's `changedPaths` are unchanged. No wire,
+HTTP or policy shape changes.
+
 ## Managed GitHub acquisition wire (internal #3613)
 
 The internal turn proxy has a first-party `managedReference(target,
