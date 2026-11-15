@@ -7,6 +7,29 @@ import type { SkillEntry, SurfaceTool } from "./turn-surface-routing";
 
 export const ROUTING_MODEL = "jev-1.13.0";
 export const ROUTING_THRESHOLD = 0.6;
+/** Tool plus skill entries one wide choice question may carry. The 2026-10-07
+ * #587 run completed under it, and nothing measured a wider question, so a
+ * larger catalogue is refused rather than truncated. */
+export const ROUTING_CATALOGUE_BOUND = 64;
+/** The `brain-ui` bridge tools `createBrainUiMcpServer` registered at the
+ * measured #587 source (380ad6eaf), the same eight the archived native
+ * catalogue lists as loaded. The retained live collector routes over these and
+ * no later bridge registration, so it keeps the catalogue #587 measured (the
+ * #3886 ruling, option 3). Later bridge tools stay on the native surface but
+ * outside the routed choice. Core `brain` tools are not filtered. */
+export const MEASURED_BRIDGE_ROUTING_TOOLS = [
+  "ask_user", "ask_user_form", "ask_user_list", "ask_user_rank",
+  "get_current_location", "query_activity", "request_image_mask", "show_block",
+] as const;
+/** Keep every non-bridge tool and only the measured bridge tools, by name and
+ * in listed order. A measured bridge tool that is no longer listed fails, since
+ * the control would then route over a catalogue #587 never saw. */
+export function measuredRoutingTools(tools: readonly SurfaceTool[]): SurfaceTool[] {
+  const measured: readonly string[] = MEASURED_BRIDGE_ROUTING_TOOLS;
+  const missing = measured.filter(name => !tools.some(tool => tool.serverName === "brain-ui" && tool.name === name));
+  if (missing.length) throw Error(`Measured bridge routing tools missing: ${missing.join(", ")}`);
+  return tools.filter(tool => tool.serverName !== "brain-ui" || measured.includes(tool.name));
+}
 export interface RoutingCatalogue { tools: readonly SurfaceTool[]; skills: readonly SkillEntry[] }
 export interface LiveSelection { outcome: string; tools: string[]; skills: string[]; durationMs: number; passes: number }
 type Kind = "tool" | "skill";
@@ -15,7 +38,9 @@ function entries(catalogue: RoutingCatalogue, kind: Kind): SkillEntry[] {
 }
 function state(prompt: string, previousTail: string) { return { request: prompt, previous_assistant_tail: previousTail.slice(-1000) }; }
 export function wideRoutingRequest(prompt: string, previousTail: string, catalogue: RoutingCatalogue): ClassificationRequest {
-  if (!catalogue.tools.length || !catalogue.skills.length || catalogue.tools.length + catalogue.skills.length > 64) throw Error("Invalid routing catalogue");
+  if (!catalogue.tools.length || !catalogue.skills.length) throw Error("Invalid routing catalogue: tools and skills must both be nonempty");
+  const size = catalogue.tools.length + catalogue.skills.length;
+  if (size > ROUTING_CATALOGUE_BOUND) throw Error(`Invalid routing catalogue: ${size} tool and skill entries exceed the ${ROUTING_CATALOGUE_BOUND}-entry bound`);
   const request: ClassificationRequest = { model: ROUTING_MODEL, state: state(prompt, previousTail), questions: {} };
   for (const kind of ["tool", "skill"] as const) {
     request.questions[kind] = { type: "choice", instructions: `Which ${kind} best fits satisfying the current request?`,
