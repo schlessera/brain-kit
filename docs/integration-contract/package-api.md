@@ -4325,19 +4325,22 @@ and returns `NativePoolGrowth`:
 - `worktrees` (writable or sealed) and `refreshes` (sealed sources with a
   `from`) are `NativePoolGrowthComparison`s:
   - `id`, `from`, and `cold`, the cold acquisition at the root of the chain;
-  - `ownerBytes`;
+  - `ownerBytes`, null when the accounting has no charge for the root;
   - `basisBytes`, that acquisition's charge when it was sealed;
   - `thresholdBytes`, `basisBytes` times the ratio, rounded down;
   - `state`, and `flagged`, true when `ownerBytes` is strictly above
     `thresholdBytes`.
 
-  A basis that cannot be read gives `state: "unavailable"` and null bytes,
-  never zero, and is never flagged.
+  A basis or charge that cannot be read gives `state: "unavailable"` and null
+  bytes, never zero, and is never flagged.
 - `sources` are `NativePoolGrowthSources`, one per published name: `name`,
   `roots` (`id`, `view`, `ownerBytes`), their summed `ownerBytes`, and
-  `flagged` when more than `retainedSources` views publish the name.
+  `flagged` when more than `retainedSources` views publish the name. A root
+  with no recorded charge has `ownerBytes: null`, and so does the sum: never
+  zero. The count flag still applies.
 - `flags` are `NativePoolGrowthFlag`s: `kind` (`worktree`, `refresh` or
-  `retained-sources`), `subject` (root id or name), `observedBytes`,
+  `retained-sources`), `subject` (root id or name), `observedBytes` (null only
+  for a retained-sources sum that includes an unknown charge),
   `thresholdBytes` (null for the count), `threshold`, and `observedCount`
   (null for a ratio).
 - `omitted` counts comparisons, groups or flags left out to keep one reply

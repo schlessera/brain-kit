@@ -305,7 +305,8 @@ its threshold:
 
 A basis that cannot be read reads as `unavailable`, never as zero. That covers
 a broken chain and a released cold acquisition sealed before the seal-time
-charge was recorded. Evidence that admission would refuse, other than
+charge was recorded. A root with no recorded owner charge reports null bytes,
+and so does any retained-source sum that includes it. Evidence that admission would refuse, other than
 capacity, makes the whole status unavailable. So does a published name that
 does not resolve to a recorded sealed source in its own view. The status
 reports measured bytes and thresholds only, never forecast savings or freed

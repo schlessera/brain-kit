@@ -296,7 +296,7 @@ export function referencePoolGrowth(input: {
     const cold = coldOf(intent.from!), basis = basisOf(cold), charge = owner.get(intent.id);
     const thresholdBytes = basis === null ? null : Math.floor(basis * ratio);
     const available = thresholdBytes !== null && charge !== undefined;
-    return { id: intent.id, from: intent.from!, cold: cold?.id ?? null, ownerBytes: charge ?? 0, basisBytes: available ? basis : null, thresholdBytes: available ? thresholdBytes : null,
+    return { id: intent.id, from: intent.from!, cold: cold?.id ?? null, ownerBytes: charge ?? null, basisBytes: available ? basis : null, thresholdBytes: available ? thresholdBytes : null,
       state: available ? "available" : "unavailable", flagged: available && charge! > thresholdBytes! };
   };
   const worktrees = input.intents.filter(intent => intent.purpose === "worktree" && intent.from !== null && (intent.state === "writable" || intent.state === "sealed"))
@@ -309,15 +309,17 @@ export function referencePoolGrowth(input: {
     if (!UUID.test(publication.target) || !target || target.purpose !== "source" || target.state !== "sealed" || target.view !== publication.view)
       return empty(`Reference view ${publication.view} name ${publication.name} does not resolve to a recorded sealed source in that view.`);
     const group = groups.get(publication.name) ?? { name: publication.name, roots: [], ownerBytes: 0, flagged: false };
-    const charge = owner.get(target.id) ?? 0;
-    group.roots.push({ id: target.id, view: publication.view, ownerBytes: charge }); group.ownerBytes += charge;
+    // A root without a recorded charge is unknown, and so is any sum that includes it: never zero.
+    const charge = owner.get(target.id) ?? null;
+    group.roots.push({ id: target.id, view: publication.view, ownerBytes: charge });
+    group.ownerBytes = charge === null || group.ownerBytes === null ? null : group.ownerBytes + charge;
     groups.set(publication.name, group);
   }
   const sources = [...groups.values()].map(group => ({ ...group, flagged: group.roots.length > thresholds.retainedSources }));
   const flags: NativePoolGrowthFlag[] = [
-    ...worktrees.filter(item => item.flagged).map(item => ({ kind: "worktree" as const, subject: item.id, observedBytes: item.ownerBytes, thresholdBytes: item.thresholdBytes,
+    ...worktrees.filter(item => item.flagged).map(item => ({ kind: "worktree" as const, subject: item.id, observedBytes: item.ownerBytes!, thresholdBytes: item.thresholdBytes,
       threshold: thresholds.worktreeRatio, observedCount: null })),
-    ...refreshes.filter(item => item.flagged).map(item => ({ kind: "refresh" as const, subject: item.id, observedBytes: item.ownerBytes, thresholdBytes: item.thresholdBytes,
+    ...refreshes.filter(item => item.flagged).map(item => ({ kind: "refresh" as const, subject: item.id, observedBytes: item.ownerBytes!, thresholdBytes: item.thresholdBytes,
       threshold: thresholds.refreshRatio, observedCount: null })),
     ...sources.filter(item => item.flagged).map(item => ({ kind: "retained-sources" as const, subject: item.name, observedBytes: item.ownerBytes, thresholdBytes: null,
       threshold: thresholds.retainedSources, observedCount: item.roots.length })),

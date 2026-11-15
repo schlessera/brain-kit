@@ -1648,7 +1648,7 @@ signatures (every public export and the types it is made of)
         id: string;
         from: string;
         cold: string | null;
-        ownerBytes: number;
+        ownerBytes: number | null;
         basisBytes: number | null;
         thresholdBytes: number | null;
         state: "available" | "unavailable";
@@ -1658,7 +1658,7 @@ signatures (every public export and the types it is made of)
     export interface NativePoolGrowthFlag {
         kind: "worktree" | "refresh" | "retained-sources";
         subject: string;
-        observedBytes: number;
+        observedBytes: number | null;
         thresholdBytes: number | null;
         threshold: number;
         observedCount: number | null;
@@ -1669,9 +1669,9 @@ signatures (every public export and the types it is made of)
         roots: {
             id: string;
             view: string;
-            ownerBytes: number;
+            ownerBytes: number | null;
         }[];
-        ownerBytes: number;
+        ownerBytes: number | null;
         flagged: boolean;
     }
   NativePoolRecord (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)

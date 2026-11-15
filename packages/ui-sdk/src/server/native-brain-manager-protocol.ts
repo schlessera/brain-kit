@@ -206,7 +206,8 @@ export interface NativePoolGrowthComparison {
   from: string;
   /** Cold acquisition at the root of `from`'s chain: the one with no source. */
   cold: string | null;
-  ownerBytes: number;
+  /** The root's owner charge; null when the accounting has no charge for it, never zero. */
+  ownerBytes: number | null;
   basisBytes: number | null;
   /** `basisBytes` times the ratio threshold; null when the basis is unavailable. */
   thresholdBytes: number | null;
@@ -216,15 +217,18 @@ export interface NativePoolGrowthComparison {
 /** Retained sources published under one name (one repository and revision) across views. */
 export interface NativePoolGrowthSources {
   name: string;
-  roots: { id: string; view: string; ownerBytes: number }[];
-  ownerBytes: number;
+  /** `ownerBytes` is null when the accounting has no charge for that root, never zero. */
+  roots: { id: string; view: string; ownerBytes: number | null }[];
+  /** Summed charge; null when any root's charge is missing. */
+  ownerBytes: number | null;
   flagged: boolean;
 }
 export interface NativePoolGrowthFlag {
   kind: "worktree" | "refresh" | "retained-sources";
   /** Root identity, or the publication name for retained sources. */
   subject: string;
-  observedBytes: number;
+  /** Measured charge; null only for a retained-sources count whose summed charge is unknown. */
+  observedBytes: number | null;
   /** Byte threshold for a ratio flag; null for the count flag. */
   thresholdBytes: number | null;
   /** The ruled threshold: a ratio, or the retained-source count. */

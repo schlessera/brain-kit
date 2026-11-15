@@ -280,6 +280,13 @@ test("missing or unreadable accounting reads as unavailable, never as zero", () 
     expect(refused, `REFERENCE_POOL_GROWTH_REFUSED ${label}`).toMatchObject({ state: "unavailable", worktrees: [], refreshes: [], sources: [], flags: [] });
     expect(refused.reason).toBeTruthy();
   }
+  // A root the owner accounting has no charge for reads as unknown, never as zero bytes.
+  const uncharged = growthPool();
+  uncharged.owner.delete(TREE); uncharged.owner.delete(REFRESH);
+  const missing = referencePoolGrowth(uncharged);
+  expect(missing.worktrees[0], "REFERENCE_POOL_GROWTH_MISSING_CHARGE_NOT_ZERO").toMatchObject({ ownerBytes: null, state: "unavailable", flagged: false });
+  expect(missing.sources[0], "REFERENCE_POOL_GROWTH_MISSING_SOURCE_CHARGE_NOT_ZERO").toMatchObject({ ownerBytes: null,
+    roots: [{ id: COLD, ownerBytes: 40 * MIB }, { id: REFRESH, ownerBytes: null }] });
   // Admission refusal for capacity leaves the measured charges trustworthy.
   expect(referencePoolGrowth({ ...growthPool(), refusal: { code: "capacity", message: "full" } }).state, "REFERENCE_POOL_GROWTH_CAPACITY_STILL_MEASURES").toBe("available");
 });
