@@ -1753,7 +1753,8 @@ changed stage file before or during its copy now names the inspected and the
 found stamp, so a recurrence identifies what changed.
 
 **Not covered.** Copy-staged publication (`worker-output.ts`), used without
-native storage, has the same comparison and is tracked separately.
+native storage, has the same comparison (#4009). Which stage writer
+changed `brain.db` before its copy in the earlier timing runs is #4010.
 Publishing the family is still a sequence of renames, not one atomic step.
 
 ### Admitted object-pin index and near-cap recovery — 2026-10-26 (#2913)
