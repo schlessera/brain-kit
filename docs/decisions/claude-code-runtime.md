@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:584-584`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1200`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:606-606`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1250`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:532`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
@@ -66,7 +66,7 @@ next to it.
   `packages/ui-server/src/brain/client.ts:180-248`, called at
   `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:478`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
-  `packages/core/src/cli/commands/doctor.ts:505-509`) — the user's own Claude
+  `packages/core/src/cli/commands/doctor.ts:507-511`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
   binary.
 - **Two moving parts.** The SDK is a runtime dependency of
