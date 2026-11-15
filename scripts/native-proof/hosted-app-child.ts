@@ -66,8 +66,17 @@ if (OBSERVATION_TIMING) {
   // clock reads 31 days earlier, so the turns it records end past retention.
   const journals = await import(join(source!, "packages/ui-server/src/brain/turn-journal.ts"));
   const createTurnJournal = journals.createTurnJournal, backdated = join(dir!, "journal-backdated");
+  // #2915: every step of every held observation, on the clock the fixture's manager stamps its spans with.
+  const clock = () => performance.timeOrigin + performance.now();
+  const observationTrace = (traceKind: string, turnId: string | null, toolUseId?: string) => {
+    const steps: { name: string; startedAt: number; endedAt: number | null }[] = [];
+    return (name: string) => {
+      const step = { name, startedAt: clock(), endedAt: null as number | null }; steps.push(step);
+      return () => { step.endedAt = clock(); if (name === "hold") event("observation_trace", { traceKind, turnId, toolUseId: toolUseId ?? null, steps }); };
+    };
+  };
   spyOn(journals, "createTurnJournal").mockImplementation((...args: Parameters<typeof createTurnJournal>) =>
-    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0) }));
+    createTurnJournal(args[0], { ...(args[1] as object), now: () => Date.now() - (existsSync(backdated) ? 31 * 24 * 60 * 60 * 1000 : 0), observationTrace }));
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
   const makeBridge = bridges.makeBridge;
   spyOn(bridges, "makeBridge").mockImplementation(async (...args: Parameters<typeof makeBridge>) => {

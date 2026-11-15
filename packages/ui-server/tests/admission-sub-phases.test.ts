@@ -87,8 +87,9 @@ test("real journal begin records each step inside journalBeginMs", async () => {
       error => { throw error; }, undefined, lifecycle.timer("journal"));
     lifecycle.mark("journalBeganAt");
     const record = store.lifecycle("turn-ithaca")!;
-    expect(names(record.subPhases!, "journal"), "JOURNAL_BEGIN_STEPS").toEqual(["hold_wait", "initialize", "observe", "observe_checkpoint", "observe_delta",
-      "observe_metadata", "observe_capture", "observe_record", "observe_commit", "expiry", "turn_insert", "policy"]);
+    // The first admission has no active turn to record, so no record steps apply (#2915).
+    expect(names(record.subPhases!, "journal"), "JOURNAL_BEGIN_STEPS").toEqual(["hold_wait", "initialize", "observe", "observe_reserve", "observe_checkpoint", "observe_delta",
+      "observe_metadata", "observe_capture", "observe_commit", "expiry", "turn_insert", "policy"]);
     expectWithin(record.subPhases!, "journal", record.journalStartedAt!, record.journalBeganAt!);
     const observe = record.subPhases!.find(step => step.name === "observe")!;
     expectWithin(record.subPhases!.filter(step => step.name.startsWith("observe_")), "journal", observe.startedAt, observe.endedAt!);
