@@ -22,7 +22,7 @@ owner for typed chats created after it.)
 **Built (#3229):** first-party native removal behind the optional
 `historyRemoval` backend capability
 ([package contract](../integration-contract/package-api.md#native-history-removal-additive-3229)).
-Claude (`removeClaudeSession`, `packages/ui-backend-claude/src/transcript-archive.ts:331-357`)
+Claude (`removeClaudeSession`, `packages/ui-backend-claude/src/transcript-archive.ts:337-363`)
 and Pi (`removePiSession`, `packages/ui-backend-pi/src/session-storage.ts:101-117`)
 name their owned artifacts; the shared fence
 (`createSessionRetirement`, `packages/ui-sdk/src/server/native-history-removal.ts:117-224`)
@@ -167,11 +167,11 @@ must be tested through their installed runtime, not inferred from directory name
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
   (`createHistory`, `packages/ui-backend-claude/src/history.ts:45-103`;
-  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:179-207`).
+  `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:180-213`).
   The live/archive roots are resolved by the backend
   (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
   Archive movement and crash recovery must join the same lifecycle fence
-  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:261-321`).
+  (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:267-327`).
   Delete all owned branches/subagents/copies, not just the displayed branch.
   Unknown/unattributable archive remnants mean removal is incomplete.
 - **Native Pi history.** SessionManager JSONL trees retain inactive branches and

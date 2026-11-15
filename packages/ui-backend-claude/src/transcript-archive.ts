@@ -196,12 +196,17 @@ export function restoreArchivedSession(id: string, options: ArchiveOptions): voi
     archivedBytes(archive, id, file);
   }
   atomic(join(source, "restoring"), "1");
+  const activity = new Date(record.session.lastActiveAt);
+  const parents = new Set<string>();
   for (const file of record.files) {
     const target = join(live, file.path);
     atomic(target, archivedBytes(archive, id, file));
-    const now = new Date(options.now?.() ?? Date.now());
-    utimesSync(target, now, now);
+    utimesSync(target, activity, activity);
+    for (let parent = dirname(target); parent !== live; parent = dirname(parent)) parents.add(parent);
   }
+  // Publishing children changes their parents' mtimes too. The idle scan
+  // includes directories, so reset them after every file has been restored.
+  for (const parent of parents) utimesSync(parent, activity, activity);
   options.checkpoint?.("restore");
   index(archive, manifests(archive, options.log).filter(m => m.session.id !== id).map(m => m.session));
   rmSync(source, { recursive: true }); syncDirectory(archive);
