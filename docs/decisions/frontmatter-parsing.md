@@ -134,7 +134,7 @@ write:
 | `brain tags --apply` and the key editor | two `frontmatterBounds`/`readScalar` pairs; the tags copy searched back from the block's end and took the closing fence into the block when a `---` rule followed it | one pair, in `frontmatter-edit.ts`; an unclosed block has no bounds |
 | hygiene log files | BOM (frontmatter read as body and rewritten) | the parser's opening; **stricter closing**: a block not closed by a `---` line with only whitespace after it is refused, including `----`, `---x` and `...` closers the parser would end at or run past, because hygiene rewrites the body |
 | ui-react `splitFrontmatter` | BOM; a closing fence at the end of the file | the parser's, except that an unclosed block is shown as body rather than swallowed, so the viewer never hides text |
-| ui-server policy review `split` | accepts a `...` closer | unchanged for now; open on #2507 |
+| ui-server policy review `split` | accepted a `...` closer | the parser's boundary for existing bytes; proposed bytes require strict standalone fences (#3666) |
 
 Rule 3 of the gate (`scanFences`, `scripts/check-frontmatter-parse.ts:222-252`)
 refuses a hand-written detector in package source: a non-multiline regex
@@ -142,6 +142,31 @@ anchored at a leading `---` (a BOM before it included), `startsWith("---…")`
 and `indexOf`/`lastIndexOf("\n---…")`. Files that emit or post-process a fence
 they wrote, and the pending policy splitter, are listed in `FENCE_ALLOWED`
 with a reason each.
+
+## Hosted policy proposals (#3666, maintainer decision 2026-11-08)
+
+New `propose_policy_change` content must use closed, standalone `---`
+delimiter lines, allowing trailing spaces/tabs. The proposal service locates
+boundaries with `frontmatterBlock` and inspects those delimiter lines; it
+rejects unclosed blocks, opening annotations/suffixes (`---yaml`, `---x`)
+and closing prefixes (`---x`, `---yaml`, `----`) before requesting approval,
+and reapplies the rule at publication. It never searches for a later,
+cleaner closing fence or repairs submitted bytes.
+
+The maintainer selected this proposal-specific narrowing as a pre-1.0
+breaking change for 0.45.0. An approval review should not ask an owner to
+resolve ambiguous policy delimiters. A rejected proposal returns a validation
+error, with no actionable card, policy publication, journal edit or policy
+change event. Correcting the proposal clears the refusal automatically; it
+does not disable other requests or require a host restart.
+
+The shared data-only parser intentionally remains broader, including its
+support for annotated YAML elsewhere. Existing policy bytes retain its
+parser-aligned frontmatter/body split, even when malformed, so a valid new
+proposal can repair them. Valid BOM, LF/CRLF, trailing delimiter whitespace
+and EOF closing fences retain exact-byte publication. Normalizing either side,
+globally tightening the parser, or refusing repairs because old fences are
+ambiguous would exceed the selected policy.
 
 ## Rejected alternatives
 
