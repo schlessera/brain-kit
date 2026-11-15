@@ -58,8 +58,9 @@ export async function prepareJobRepositories(input: {
   /** @internal Test seams for the transport and the credential's fixture origin. */
   run?: RepositoryTransportRun; credentialOrigin?: string;
 }): Promise<JobRepositories> {
-  // Module jobs are always `<module>-<entry>`; a core job never asks.
-  if (!input.jobName.includes("-")) return { ok: true, repositories: [], notes: [] };
+  // Module jobs are always `<module>-<entry>` running `brain <command>`; a
+  // core job or another scheduled command never asks, and never reads the list.
+  if (!input.jobName.includes("-") || input.command[0] !== "brain" || input.command.length < 2) return { ok: true, repositories: [], notes: [] };
   const listed = await input.listModules();
   const payload = listed && "modules" in listed ? listed.modules : listed;
   if (!payload) {

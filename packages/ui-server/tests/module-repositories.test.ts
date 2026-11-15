@@ -145,6 +145,10 @@ describe("the host fetch (loopback Git fixture, synthetic credential)", () => {
     expect(listed, "CORE_JOB_SKIPS_MODULE_LIST").toBe(0);
     expect(await prepareJobRepositories({ jobName: "ithaca-hand", command: ["brain", "hand"], brainPath: brain, env, allowList: [watchtower()], listModules, run: hostRun }))
       .toEqual({ ok: true, repositories: [], notes: [] });
+    // A scheduled command that is not `brain …` is no module's job, whatever its name.
+    expect(await prepareJobRepositories({ jobName: "extra-env", command: ["bun", "-e", "0"], brainPath: brain, env, allowList: [watchtower()], listModules, run: hostRun }))
+      .toEqual({ ok: true, repositories: [], notes: [] });
+    expect(listed, "NON_BRAIN_COMMAND_SKIPS_MODULE_LIST").toBe(1);
   });
 
   test("a module list that cannot be read names its cause and fetches nothing", async () => {
