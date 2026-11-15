@@ -168,7 +168,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
   produces `mcp__brain__jobs_review`, so 64 leaves headroom under 128.
 - **Collisions are impossible by construction and still checked.** Module
   names are unique at load (`if (seenNames.has(manifest.name))`,
-  `packages/core/src/lib/module-loader.ts:108-111`), local names are keys of
+  `packages/core/src/lib/module-loader.ts:127-130`), local names are keys of
   one record, and `brain` is reserved. Registration nevertheless checks
   every composed name against the names already registered, core's first,
   then modules in config order. On a duplicate it fails with
@@ -315,7 +315,7 @@ A module that stops shipping a documented tool is making a breaking change.
 ### 9. Lint and documentation checks
 
 `brain module lint <name>` gains these checks
-(`function moduleLint`, `packages/core/src/cli/commands/module.ts:107-158`):
+(`function moduleLint`, `packages/core/src/cli/commands/module.ts:108-159`):
 
 - `tool-load`: every declared tool imports, and its definition passes §1
   and §3.
