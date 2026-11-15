@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeHomeSnapshot, installTestHome } from "../scripts/test-home";
+import { claudeHomeSnapshot, createInvokingTestHome, installTestHome } from "../scripts/test-home";
 
 for (const configPresent of [false, true]) {
   test(`test home restores environment descriptors with config ${configPresent ? "set" : "absent"} and snapshots detect host overwrites`, () => {
@@ -38,3 +39,38 @@ for (const configPresent of [false, true]) {
     }
   });
 }
+
+test("the invoking-home guard detects a same-size overwrite without adding paths", () => {
+  const invoking = createInvokingTestHome();
+  try {
+    const sentinel = join(invoking.config, "sentinel");
+    const bytes = readFileSync(sentinel);
+    expect(bytes.toString()).toBe("Odysseus: invoking storage stays untouched.\n");
+    invoking.assertUnchanged();
+    writeFileSync(sentinel, Buffer.alloc(bytes.length, 120));
+    expect(readFileSync(sentinel).length).toBe(bytes.length);
+    expect(() => invoking.assertUnchanged()).toThrow("TEST_WROTE_INVOKING_CLAUDE_HOME");
+  } finally { invoking.dispose(); }
+  expect(existsSync(invoking.root)).toBe(false);
+});
+
+test("home isolation leaves filesystem originals and descriptors available to fixture spies", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(fs, "mkdtempSync")!;
+  const original = fs.mkdtempSync;
+  const created: string[] = [];
+  const observe = ((...args: Parameters<typeof original>) => {
+    const path = Reflect.apply(original, fs, args);
+    created.push(String(path));
+    return path;
+  }) as typeof original;
+  const spy = spyOn(fs, "mkdtempSync").mockImplementation(observe);
+  try {
+    const path = fs.mkdtempSync(join(tmpdir(), "odysseus-home-spy-"));
+    expect(existsSync(path)).toBe(true);
+    expect(created).toEqual([path]);
+  } finally {
+    spy.mockRestore();
+    Object.defineProperty(fs, "mkdtempSync", descriptor);
+    for (const path of created) rmSync(path, { recursive: true, force: true });
+  }
+});

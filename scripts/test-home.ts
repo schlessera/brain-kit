@@ -1,5 +1,5 @@
 /** Test-owned host storage; production's HOME fallback remains untouched. */
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,5 +38,25 @@ export function installTestHome() {
       }
       rmSync(root, { recursive: true, force: true });
     },
+  };
+}
+
+/** A disposable invoking home lets the launcher guard every child filesystem API
+ * without patching the functions that race/refusal tests must spy on themselves.
+ * The preload creates a separate working home; this sentinel must stay untouched.
+ */
+export function createInvokingTestHome() {
+  const root = mkdtempSync(join(tmpdir(), "brain-test-invoking-home-"));
+  const home = join(root, "home"), config = join(home, ".claude");
+  mkdirSync(config, { recursive: true });
+  writeFileSync(join(config, "sentinel"), "Odysseus: invoking storage stays untouched.\n");
+  const baseline = claudeHomeSnapshot(home);
+  return {
+    root, home, config,
+    assertUnchanged() {
+      if (claudeHomeSnapshot(home) !== baseline)
+        throw new Error("TEST_WROTE_INVOKING_CLAUDE_HOME: a test changed the invoking Claude storage");
+    },
+    dispose() { rmSync(root, { recursive: true, force: true }); },
   };
 }
