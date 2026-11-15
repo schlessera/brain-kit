@@ -27,7 +27,8 @@ its append-only history without changing it. Actor IDs and revocation prose
 are omitted. Protocol expiry establishes authorized lease time, not actual
 worker activity or caller waiting.
 
-Hourly incremental collection includes PR lifecycle and reservation history,
+Hourly incremental collection includes PR lifecycle, reservation and
+[red-main](#red-main-incidents-flakes-and-proof-stopped-while-red) history,
 within the [shared API budget](ci-timings.md#api-cost-and-expected-coverage-gaps). Explicit
 `--since`/`--until` choose the half-open throughput analysis interval. Without
 them, collection manifests supply a bounding interval whose gaps need review.
@@ -142,6 +143,43 @@ records it after an expedited squash
 diagnoses. No incident surveillance means unknown overall incident rate.
 Arbitrary fields such as prompts, names, hosts and prose are refused. Keep event
 files with normalized snapshots under ignored `tmp/`, not in the public tree.
+
+## Red-main incidents, flakes and proof stopped while red
+
+`--red-main --since ...` reads the [red-main record](../decisions/ci-utility.md#red-main-record-and-coordinator)
+from the same public coordination ref, walking only the commits that changed
+`red-main.json`, back to the last green state before the window. It writes
+`red-main.json` with one observation per record, keyed by its opening run, and
+one per suspected flake. During `collect`, it also reads the coordinator's
+`BRAIN_RED_MAIN` lines from the `red-main` workflow runs created while main was
+red, as `coordinator-<run>-attempt-<n>.json`. A window in which main stayed green
+costs no API request. Each archived attempt is seeded forward and never fetched
+twice.
+
+`summary.json` carries a `redMain` section; `summary.md` renders it.
+
+| Field | Definition and boundary |
+| --- | --- |
+| `incidents` | Each record's opening run, first bad SHA and its bisect refinements, failing tests and categories with their estimator reasons, incident issue, declared and expedited fixes, and when it was cleared. |
+| `timeToGreenSeconds` | Record opened to record cleared, on GitHub server time. An open record has none; `openIncidents` counts them. |
+| `flakes` | Per test: suspicions, triage probe outcomes, flake issues, and `escalations` where a second suspicion within the window, or a reproducing probe, made it real. |
+| `cancellations` | PR runs the coordinator cancelled, with observed runner seconds consumed and an estimated saving. |
+| `refusals` | PR attempts the hosted gate refused (the failed gate step in `changeset`), with the same accounting. |
+| `savingReference` | The median observed runner time of successful PR CI attempts in the archive. Saving is that reference minus the time consumed. It is an estimate, not a measured counterfactual. |
+| `mergesDuringRed` | Non-fix squashes the coordinator reported landing while red, with their PR from the exact squash identity. |
+| `acquisition` | History scopes and their errors, scopes whose red hours lack coordinator logs, and coordinator attempts whose cancellations are unknown. |
+
+Unknowns never read as zero. A cancelled or refused run without a complete
+timing snapshot has unknown consumption and saving. With no reference attempt,
+saving is unknown. Each is counted separately (`unknownConsumed`,
+`unknownSaved`). A run that finished before its cancellation took effect saved
+nothing. A coordinator attempt that failed before printing its line has
+unknown cancellations. Probe-triggered cancellations print the same line from
+the change that added this collector. Earlier probe attempts that succeeded
+without it read as none. A squash without an exact PR identity is counted in
+`unknownPR`. No `red-main.json` makes the whole section `null`: unknown, not a
+quiet main. Overlapping archives join per record; contradicting opening times,
+clearings or incident numbers are refused.
 
 ## Scenario estimates and formal proof
 
