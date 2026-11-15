@@ -458,7 +458,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const abort = () => op.finish("cancelled", "client_disconnected");
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
-    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal,
+    return { charge: op.charge, signal: op.signal, outcome: op.outcome, refusal: op.refusal, reason: op.reason,
       admit: async () => !op.signal.aborted && await op.admit() && op.commit(),
       /** The concrete relay calls this again after its own final async waits. */
       commit: op.commit,

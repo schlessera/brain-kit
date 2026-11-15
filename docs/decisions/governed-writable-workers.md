@@ -3279,7 +3279,7 @@ recipient only when it can record what the turn is shown (`const recipient = opt
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
-(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:81-83`),
 pi refuses a changed endpoint before its credential is read, and a turn that
 has a recipient but no relay refuses to start. A model change inside a turn
 cannot leave the one relay socket the worker has.
@@ -3409,7 +3409,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:71`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:73`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 

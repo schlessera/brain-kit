@@ -9,6 +9,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { request } from "node:http";
+import { startEgressProxy } from "../../ui-sdk/src/server/egress-proxy";
 import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BackendActivityEvent, ServerMessage, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { WorkerHostError, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
@@ -199,6 +201,38 @@ describe("turn reporting", () => {
 });
 
 describe("TurnInferenceRelay", () => {
+  test("the concrete host safety denial reaches the live failure without changing the relay body", async () => {
+    let epoch = "initial";
+    const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 10000,
+      admissionSafety: { read: () => ({ evidenceRevision: "1", trustRevision: "1", authorityEpoch: epoch,
+        scope: "turn", policyHash: null, restricted: false, recordingAvailable: true, authorityCurrent: true }),
+        subscribe: () => () => {} },
+      admitted: () => { epoch = "changed"; }, observe: () => {} });
+    const relay = new TurnInferenceRelay({ req: { workerSandbox: { egress } } as unknown as StartTurnRequest,
+      profile: DEFAULT_PROFILES[0]!, turnEnvironment: { CLAUDE_CONFIG_DIR: tempDir() }, brainPath: tempDir() });
+    try {
+      relay.start();
+      const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = request({ socketPath: join(egress.dir, "inference.sock"), path: "/v1/messages", method: "POST" }, res => {
+          let body = "";
+          res.on("data", chunk => { body += chunk; });
+          res.on("end", () => resolve({ status: res.statusCode!, body }));
+          res.on("error", reject);
+        });
+        req.on("error", reject); req.end("{}");
+      });
+      expect(response.status).toBe(403);
+      expect(JSON.parse(response.body)).toEqual({ type: "error", error: { type: "brain_inference_refused",
+        message: "Inference network admission refused" } });
+      expect(relay.refusalReason).toBe("safety_changed");
+      const adapter = new StreamAdapter(undefined, { subscriptionAuth: true, hostRefusalReason: () => relay.refusalReason });
+      adapter.adapt({ type: "assistant", error: "authentication_failed", message: { content: [{ type: "text",
+        text: `Failed to authenticate. API Error: ${response.status} Inference network admission refused` }] } } as SDKMessage);
+      expect(adapter.pendingFailure()).toEqual({ errorClass: "host_refused", status: 403,
+        message: "The host refused this model request (safety changed during admission)." });
+    } finally { relay.stop(); relay.unlink(); egress.stop(); }
+  });
+
   function relayFor(env: Record<string, string | undefined> = {}) {
     const config = tempDir();
     const req = { workerSandbox: { egress: { dir: tempDir() } } } as unknown as StartTurnRequest;

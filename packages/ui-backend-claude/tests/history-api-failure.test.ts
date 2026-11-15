@@ -24,6 +24,13 @@ const read = (entries: SessionMessage[]) =>
   buildSessionHistory(SESSION, (async () => entries) as unknown as typeof getSessionMessages, import.meta.dir);
 
 describe("an API error replays as the turn's failure", () => {
+  test.each([403, 499])("a relay %i replays as host refusal without a login instruction", async status => {
+    const [, answer] = await read([userTurn("Continue"), syntheticEntry(
+      `${status === 403 ? "Failed to authenticate. " : ""}API Error: ${status} Inference network admission refused`)]);
+    expect(answer!.failure).toEqual({ errorClass: "host_refused", status,
+      message: "The host refused this model request." });
+    expect(answer!.content).toBe("");
+  });
   test("the unsupported-model turn: an empty answer that failed, with the status its text states", async () => {
     const history = await read([userTurn("Test"), syntheticEntry(UNSUPPORTED_MODEL_TEXT)]);
     expect(history).toEqual([
@@ -143,7 +150,7 @@ describe("an API error replays as the turn's failure", () => {
   test("a 499 cancelled request stays a classified failure, not a notice", async () => {
     const text = "API Error: 499 Inference request cancelled";
     const [, message] = await read([userTurn("hi"), syntheticEntry(text)]);
-    expect(message!.failure).toEqual({ errorClass: "unknown", status: 499, message: text });
+    expect(message!.failure).toEqual({ errorClass: "host_refused", status: 499, message: "The host refused this model request." });
     expect(message!.runtimeNotice).toBeUndefined();
     expect(message!.content).toBe("");
   });
