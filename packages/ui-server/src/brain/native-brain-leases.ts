@@ -196,9 +196,17 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       return opened;
     }); },
     poolCheckpoint(id, from, signal) { return operation(async () => {
-      signal?.throwIfAborted();
-      // A worktree whose release never committed is assessable again (#2431).
-      await settleRelease(from, signal);
+      // A concurrent release of this identity must not acknowledge it while this call can still record a lease.
+      unleased.delete(id);
+      try {
+        signal?.throwIfAborted();
+        // A worktree whose release never committed is assessable again (#2431).
+        await settleRelease(from, signal);
+      } catch (error) {
+        // Refused before any lease of this identity was recorded (#3528).
+        if (!poolRow(id)) unleased.set(id, from);
+        throw error;
+      }
       await leases.call("poolCheckpointIntent", id, from, REFERENCE_POOL_CHECKPOINT_BYTES);
       const record = await raw.poolCheckpoint(id, from, signal);
       if (record.id !== id || record.purpose !== "checkpoint" || record.from !== from || record.state !== "sealed" || record.readOnly !== true)
@@ -229,7 +237,15 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
     }); },
     poolRelease(id, signal) { return operation(async () => {
       const lease = poolRow(id);
-      if (!lease) throw new NativeBrainManagerError("unknown", "This reference pool identity has no recorded app lease; arbitrary pool roots cannot be deleted.");
+      if (!lease) {
+        // Nothing was created for a checkpoint this owner refused before its
+        // lease: the caller's cleanup ends without asking the pool to delete anything.
+        const from = unleased.get(id);
+        if (from !== undefined && unleased.delete(id))
+          return { id, purpose: "checkpoint", from, allowanceBytes: REFERENCE_POOL_CHECKPOINT_BYTES, state: "deleted", root: null, path: null, ownerBytes: null,
+            reason: "The checkpoint was refused before its lease was recorded; no root was created.", view: null, access: null };
+        throw new NativeBrainManagerError("unknown", "This reference pool identity has no recorded app lease; arbitrary pool roots cannot be deleted.");
+      }
       if (db.query("SELECT 1 FROM native_pool_leases WHERE from_id=? AND state='creating' LIMIT 1").get(id))
         throw new NativeBrainManagerError("unavailable", "A reference snapshot is still being created from this root.");
       // Survives a lost reply; a retry continues the same identity's release.
@@ -250,6 +266,13 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       return releaseOwned(lease, signal);
     }); },
   };
+  /**
+   * Checkpoint identities, and their worktree, that this owner refused before
+   * recording any lease (#3528). Their caller still holds the identity, and
+   * one release of each acknowledges that no root exists. Any other identity
+   * without a lease stays undeletable.
+   */
+  const unleased = new Map<string, string>();
   /** Releases in flight per pool identity in this owner; a settled intent never overrides a newer one. */
   const releases = new Map<string, number>();
   async function poolRecord(id: string, signal?: AbortSignal): Promise<NativePoolRecord | null> {
