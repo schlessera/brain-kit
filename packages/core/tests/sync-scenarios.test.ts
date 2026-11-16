@@ -6,6 +6,7 @@
  * `scripts/measure-sync-run.ts` times the same states.
  */
 
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   brainWithRemote,
@@ -20,6 +21,8 @@ import {
   THEIRS_RIDGE,
   type Brain,
 } from "./sync-fixture";
+
+withoutSigningForEach();
 
 afterEach(cleanupFixtures);
 

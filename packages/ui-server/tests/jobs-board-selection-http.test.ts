@@ -1,9 +1,12 @@
+import { withoutSigningForEach } from "../../core/tests/git-fixture";
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BRAIN_BIN, keylessEnv, runCli } from "../../core/tests/cli-harness";
 import { RETIRED_SOURCES } from "../../module-jobs/src/types";
 import { httpContractApp } from "./helpers/http-contract-app";
+
+withoutSigningForEach();
 
 function git(root: string, args: string[]) {
   const result = Bun.spawnSync(["git", "-C", root, ...args]);

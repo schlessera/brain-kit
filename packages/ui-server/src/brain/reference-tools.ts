@@ -15,7 +15,7 @@
  */
 import { ZodError } from "zod";
 import type { Logger } from "@opentelemetry/api-logs";
-import { WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
+import { MaintenanceTempBusyError, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import {
   REFERENCE_SOURCE_INPUT_SCHEMA, REFERENCE_WORKTREE_INPUT_SCHEMA, REFERENCE_WORKTREE_LIST_LIMIT,
   type ReferenceSourceView, type ReferenceToolCall, type ReferenceToolRefusalCode, type ReferenceToolResult, type ReferenceWorktreeView,
@@ -38,6 +38,7 @@ const PUBLIC_MESSAGES: Record<ReferenceToolRefusalCode, string> = {
   cancelled: "The request was cancelled.",
 };
 
+const MAINTENANCE_BUSY = "Host maintenance is busy, so nothing ran. Retry this request in a minute.";
 const SOURCE_GUIDANCE = "Read only under path. Shared source is read-only and moves: a later read may see a newer commit. To edit it, or to read one fixed commit across several steps, request a managed worktree.";
 const WORKTREE_GUIDANCE: Record<"request" | "access" | "renew" | "release", string> = {
   request: "Work only under path. The starting commit never moves. Edits are journaled and count toward this turn's scope limits. Only access or renewal resets the inactivity clock; release the worktree when you are done.",
@@ -67,6 +68,11 @@ export function createReferenceTools(options: {
     if (error instanceof ZodError) return { ok: false, code: "invalid", message: scrub(error.issues.map(issue => issue.message).join("; "), "invalid") };
     if (error instanceof ReferenceSourceError || error instanceof ReferenceWorktreeError)
       return { ok: false, code: error.code as ReferenceToolRefusalCode, message: scrub(error.message, error.code as ReferenceToolRefusalCode) };
+    // Nothing ran: busy host maintenance is a retry, never an outage (#4079).
+    if (error instanceof MaintenanceTempBusyError) {
+      options.log?.emit({ severityText: "INFO", body: `reference tool refusal (busy): ${error.message}` });
+      return { ok: false, code: "busy", message: MAINTENANCE_BUSY };
+    }
     options.log?.emit({ severityText: "WARN", body: `reference tool failed: ${error instanceof Error ? error.message : String(error)}` });
     return { ok: false, code: "unavailable", message: "The reference service could not complete this request." };
   }

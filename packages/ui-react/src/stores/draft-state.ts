@@ -838,9 +838,8 @@ export function createDraftStore(options: { now?: () => number; revoke?: (url: s
         // that session's now, whatever view the reader has moved on to.
         const session = d.deviceConflict && send.sessionId !== null ? d.sessionId : d.sessionId ?? acceptedSessionId ?? null;
         if (send.snapshotId || draftSnapshots(d).some((x) => x.requestId === requestId)) {
-          // The host released this snapshot with the acceptance, in place and
-          // without a revision: it leaves both lists now, so no later save
-          // names it again (#3733).
+          // The host released this snapshot with the acceptance, in place: it
+          // leaves both lists now, so no later save names it again (#3733).
           const release = <T extends { requestId: string }>(list: T[] | undefined) => list?.filter((x) => x.requestId !== requestId);
           const host = d.host ? { ...d.host, ...(d.host.snapshots ? { snapshots: release(d.host.snapshots)! } : {}) } : null;
           const consumedHere = send.draftRef !== null && send.draftRef.draftId === d.draftId && d.host?.revision === send.draftRef.revision;
