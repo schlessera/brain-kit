@@ -23,15 +23,16 @@ const SUBPROCESS_ENV_EXTRA_NAME = "BRAIN_UI_SUBPROCESS_ENV_EXTRA";
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
- * Host-only secrets no subprocess may receive (#3159), and the shared Apify
- * ledger's location (#3162): a worker's own `brain apify` must find neither
+ * Host-only secrets no subprocess may receive (#3159; the host GitHub tools'
+ * credential, #3797), and the shared Apify ledger's location (#3162): a
+ * worker's own `brain apify` must find neither
  * the credential nor the accounting it would spend against. Unlike a server-only
  * descriptor entry, neither the operator escape hatch nor a per-spawn
  * addition can admit one: the host makes every request that needs it.
  *
  * @internal First-party implementation; no compatibility guarantee.
  */
-export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze(["APIFY_TOKEN", "BRAIN_APIFY_LEDGER"]);
+export const HOST_ONLY_SECRET_ENV: readonly string[] = Object.freeze(["APIFY_TOKEN", "BRAIN_APIFY_LEDGER", "BRAIN_UI_GITHUB_TOOLS_TOKEN"]);
 const admissible = (name: string) =>
   ENV_NAME.test(name) && name !== SUBPROCESS_ENV_EXTRA_NAME && !HOST_ONLY_SECRET_ENV.includes(name);
 
@@ -109,6 +110,9 @@ export const SUBPROCESS_ENV = Object.freeze({
   APIFY_TOKEN: NONE,
   // Host-only: the shared Apify ledger (#3162). The host opens it; a worker's CLI refuses without it.
   BRAIN_APIFY_LEDGER: NONE,
+  // Host-only: the host GitHub tools' own credential (#3797). The host makes
+  // every GitHub tool request; no audience or operator extra admits it.
+  BRAIN_UI_GITHUB_TOOLS_TOKEN: NONE,
 
   // Claude profile overrides built by the backend.
   ANTHROPIC_BASE_URL: AGENT,
@@ -244,4 +248,7 @@ export const HOST_GIT_CREDENTIAL_ENV: readonly string[] = Object.freeze([
   "GITHUB_TOKEN",
   "BRAIN_UI_SYNC_GITHUB_TOKEN",
   "BRAIN_UI_SKILLS_GITHUB_TOKEN",
+  // The host GitHub tools' credential (#3797): stripped from every worker,
+  // including credentialed maintenance.
+  "BRAIN_UI_GITHUB_TOOLS_TOKEN",
 ]);

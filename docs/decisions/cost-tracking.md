@@ -228,10 +228,10 @@ feed the inference budgets, not Activity rollups: they never change a run's
 recorded or effective cost. Units are what the provider reported in the raw
 response, before an SDK converts it. Completion tokens are priced through the
 same `RollupPricing` as the agent's own inference, on the direct route
-(`priceProviderAttempt`, `packages/ui-server/src/pricing/provider-pricing.ts:36-75`).
+(`priceProviderAttempt`, `packages/ui-server/src/pricing/provider-pricing.ts:38-77`).
 Embeddings are in neither remote catalog, so the built-in model has one dated
 row per input modality, from Google's published list price, and it counts as
-an estimate (`GEMINI_EMBEDDING_PRICES`, `packages/ui-server/src/pricing/provider-pricing.ts:23-25`).
+an estimate (`GEMINI_EMBEDDING_PRICES`, `packages/ui-server/src/pricing/provider-pricing.ts:25-27`).
 A modality without a row, inline media without a modality split, and every
 image request stay unpriced. The CLI's own per-image estimate is not a provider
 receipt and is never booked. Unknown is never zero here either: an attempt

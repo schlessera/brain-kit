@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery and live-persona routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 187 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, composer-file, session-recovery, attachment-read, interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant, Apify-state, Apify-policy, retained-journal/user-revert, untrusted-mark, chat-deletion, individual safety-review, safety-recording recovery, GitHub detail-page and live-persona routes (whose `/api/settings/voice` also carries the live-service default) mounted by `createApp`: 189 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -159,6 +159,8 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/sessions/:id/safety` | S | Read bounded revisioned host safety evidence | Authenticated principal of the history owner's account (#3952); immutable records, snapshot aggregate/high-water, scoped cursor, explicit coverage/unavailable, no mutation (#3604). |
 | POST | `/api/sessions/:id/safety/reviews/prepare` | S | Prepare review of one finalized safety occurrence | Live password-mode human owner, exact Origin and bounded JSON; host-issued body/brain/principal/generation-bound handle (#3603). |
 | POST | `/api/sessions/:id/safety/reviews/:requestId/commit` | S | Commit or read back one individual safe verdict | Live owner rechecked on the acquired FULL transaction and final response; immutable receipt plus fresh aggregate, no bulk clear or standing rule (#3603). |
+| GET | `/api/sessions/:id/github/:owner/:repo/:number/:part` | I | Page one part of a GitHub object a session's GitHub tool result returned | Chat GitHub components (#3796, #3795); owner account only, display data never provider context, no compatibility guarantee. |
+| GET | `/api/sessions/:id/github/avatars/:login` | I | Serve the avatar of a login in a session's GitHub results from this origin | Chat GitHub components (#3796, #3795); owner account only, magic-byte image check, bounded in-memory cache, every failure 404. |
 | GET | `/api/sessions/:id/attachment-reads` | S | Read a session's recorded attachment reads, outcome and scope only | Sent-row read states (#3589, #3155); preserve the session and message-reference filters, no text and no provider path. |
 | GET | `/api/sessions/:id/recovery` | S | Read a session's latest accepted work and pending interactions | Trackers and independent session clients (#964, D52); preserve the revision ordering, Activity terminal proof, honest unknown and the no-execution boundary. |
 | POST | `/api/queue` | S | Queue authenticated CLI intake without filing content | CLI and independent intake clients; preserve explicit key, provenance and queue receipt. |
@@ -220,7 +222,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 187 declared endpoints are mounted regardless of backend, renderer or
+All 189 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1381,6 +1383,78 @@ asserts the isolation and both accepted behaviours. In a split topology, where
 the client is served from another origin, `frame-ancestors 'self'` refuses the
 preview frame; the new-tab link is not subject to framing rules.
 
+<a id="github-detail-pages-internal-0450-3796"></a>
+
+## GitHub detail pages and avatars (internal, 0.45.0, #3796)
+
+Two internal routes let the chat's GitHub components load what a
+[host GitHub tool](integration-contract/mcp.md#host-github-tools-additive-0450-3797)
+result left out, without putting it in the model's context. Their raw paths
+and payloads carry no compatibility guarantee; their authority and disclosure
+rules are security properties pinned by
+`packages/ui-server/tests/github-details.test.ts` and
+`packages/ui-server/tests/ws-github-details.test.ts`. The paired client is
+`fetchGithubDetailPage` and `githubAvatarUrl` in `ui-react`
+(`packages/ui-react/src/lib/github-details.ts`).
+
+**Authority.** The caller must be the chat's owner account: any login of the
+principal the chat's ownership records name, by the safety route's
+same-account rule (#3952). A delegated agent, another account or a chat whose
+ownership is unknown gets 403 (`forbidden`, `not_owner`). The route then reads
+the session's recorded history from its owning backend and serves only an
+object (`owner/repo#number`, compared without case) that a successful
+`brain_github_*` result in it returned: an issue or pull request read, a search
+item, or a write's created object. Anything else, a retired chat included, is
+404 (`not_found`, `not_in_session`) and sends nothing to GitHub. It is not a
+GitHub proxy: each part maps to one fixed path under `https://api.github.com`,
+called with `BRAIN_UI_GITHUB_TOOLS_TOKEN` and never `GITHUB_TOKEN`.
+
+**Display data only.** A response is never added to the session's provider
+conversation, not journaled as turn input, and records no taint or other
+governance event. Reading details changes nothing the next turn sends.
+
+### `GET /api/sessions/:id/github/:owner/:repo/:number/:part?cursor=`
+
+`part` is one of `comments`, `reviews`, `review-comments`, `commits`, `files`
+or `checks`; anything else is 400 (`invalid_input`, `part`). Every part but
+`comments` belongs to a pull request; asked of an issue it is 404
+(`not_found`, `not_pull_request`). `cursor` is the previous page's
+`next_cursor`, opaque; a cursor this host did not issue is 400
+(`invalid_input`, `cursor`). `200` returns `GITHUB_DETAIL_PAGE_SCHEMA`
+`{ kind: "detail_page", repository, number, part, items, total_count,
+next_cursor, fetched_at }` with `Cache-Control: no-store`. A page holds at
+most `GITHUB_DETAIL_PAGE_SIZE` (30) items, oldest first, in the tools'
+contract types: `GithubComment`, `GithubReview`, `GithubReviewComment`,
+`GithubCommit`, `GithubChangedFile` (a summary, never a diff or content) and
+`GithubCheckRun` (check runs, then the head commit's statuses). Untrusted text
+is marked as in the tools' payloads. Every `html_url` is taken from GitHub and
+passes `githubDirectUrl` for its kind, the session's object and the item's own
+id or sha, or is `null`; the route never builds one.
+
+Failures are `{ error: { code, reason, message, reset_at } }`
+(`GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA`), with the tools' codes: 503
+`unavailable` (`no_credential` or `credential_rejected`), 429 `rate_limited`
+with `reset_at` and `Retry-After` when GitHub names the reset, 404 or 403
+`not_found` / `forbidden` with reason `github` when GitHub no longer shows the
+object to the credential, and 502 `upstream_error`. A revoked or expired
+login gets the guard's 401.
+
+### `GET /api/sessions/:id/github/avatars/:login?size=`
+
+Serves the avatar of a login that appears in the session's GitHub results, or
+in a detail page served for that session, so the browser never contacts
+GitHub. The host fetches `https://avatars.githubusercontent.com/<login>` at the
+smallest of 32, 64, 128 or 256 pixels covering `size`, with no credential or
+cookie, following redirects only within that host. It accepts only PNG, JPEG,
+GIF or WebP judged by the bytes, not the upstream content type, up to 512 KiB
+and 1024 pixels a side, and answers them with their sniffed type,
+`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
+'none'; sandbox` and `Cache-Control: private, max-age=3600`. Images are kept
+in a bounded in-memory cache (256 entries, 8 MiB, six hours) that evicts its
+least recently used entry and never writes to disk, `brain.db` or the brain.
+Every failure, including a login not in the session and a caller who does not
+own it, is an empty 404, and the component shows initials.
+
 ## Untrusted file marks (internal, #2673)
 
 The four `/api/files/untrusted` operations are protected, internal UI
@@ -1747,7 +1821,7 @@ read by any authenticated principal.
 | `strict_fallback` | 1 | `path`, `reason` | A turn ran under `strict` instead of `governed` because a protected path is a `symlink`, a `hardlink` or a `mount_point`. |
 | `revert_conflict` | 1 | `conflicts`, `restored` | A revert skipped paths that changed after the reverted turn. Each conflict is `{ path, state }`, with `state` one of `changed`, `deleted`, `created` or `type_changed`; `restored` counts the paths it did restore. |
 | `outward_action` | 1 | `tool`, `input`, `inputTruncated`, `action`, `target`, `historyRewrite`, `tainted`, `decision`, `rule` | An action outside the brain in the user's name, allowed or not. `action` is `git_push`, `gh_write`, `mcp_tool`, `http_write`, `outward_host_connect` or `compute_run` (a hosted external compute job start, #3108, its `target` the instance id); `decision` is `policy_allowed`, `approved`, `declined` or `refused`; `rule` is the matching `outward.allow` rule or `null`. |
-| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), or `compute_output` (a collected external compute job's output, #3108). Additively since #3685, Pi's host-owned `get_search_content` records `web_fetch` and `source_check` records `web_search`. |
+| `taint` | 1 | `source`, `tool`, `detail`, `occurrence` (optional) | Each independent observed untrusted-input signal, including later signals while already restricted. A host identity deduplicates only exact delivery retries; changed-body reuse refuses. `legacy_unknown` denotes unknown search-result provenance. `source` is `web_fetch`, `web_search`, `staged_share`, `chat_attachment`, `workspace_read`, `mcp_document`, `user_marked`, `egress_connection`, `fetching_command`, `unclassified_command`, additively since #3162 `apify_result` (Apify catalog text or Actor results returned to a turn; `tool` names the `brain_apify_*` operation), additively since #3797 `github_result` (issue, pull request or search text a host GitHub tool returned; `tool` names the `brain_github_*` tool), or `compute_output` (a collected external compute job's output, #3108). Additively since #3685, Pi's host-owned `get_search_content` records `web_fetch` and `source_check` records `web_search`. |
 | `taint_exposure` | 1 | `occurrenceId`, `state` | A separate terminal observation for an open occurrence: `finalized` only after a completed bounded HTTP response, otherwise `interrupted_unknown`. Opaque CONNECT closure never establishes source finalization. This observation authorizes no safe verdict. |
 | `provider_unavailable` | 1 | `provider`, `capability`, `command`, `degradedTo` | A worker command needed a provider whose key the host withheld from the worker. Recorded from the token the CLI prints ([CLI contract](integration-contract/cli.md#withheld-provider-keys-additive-0440-1666)), one event per distinct token in a tool result and at most 20 per turn. `capability` is `embeddings`, `completions`, `reranking` or `image`; `command` is the shell command, or the tool's name for any other tool; `degradedTo` names the fallback used (`keyword_search`, `keyword_index`, `lifecycle_order`) or is `null`. The token is text in tool output, so the event is a diagnostic, not proof. |
 | `resource_limit` | 1 | `limits`, `fatal` | A worker hit a resource limit. Each limit is `{ limit, source, value, events }`: `limit` is `processes`, `memory`, `pids`, `file_size`, `data`, `cpu` or `open_files`; `source` is `rlimit` or `cgroup`; `value` is the configured limit; `events` counts the hits the source reported, or is `null`. `fatal` says whether the worker died of it. |

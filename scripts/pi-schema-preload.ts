@@ -22,23 +22,27 @@ const workerPreload = new URL("./pi-schema-worker-preload.ts", import.meta.url).
 plugin({
   name: "measure-pi-schema-and-native-auth",
   setup(build) {
-    build.onLoad({ filter: /\/(ui-backend-pi\/src\/(bridge-tools|worker-session)|ui-server\/src\/ws\/run-session)\.ts$/ }, ({ path }) => {
+    build.onLoad({ filter: /\/(ui-backend-pi\/src\/(bridge-tools|worker-session|worker-launch|worker-reader)|ui-server\/src\/ws\/session-run\/backend-entry)\.ts$/ }, ({ path }) => {
       let source = readFileSync(path, "utf8");
-      if (path.endsWith("run-session.ts")) {
+      if (path.endsWith("backend-entry.ts")) {
         source = `import { measurementHostedPrompt } from ${helper};\n` + source;
-        source = replaceExactly(source, '\n          prompt,\n',
-          '\n          prompt: measurementHostedPrompt(prompt, host.budgets && governedHold ? host.budgets.receipt(turn.turnId) : undefined),\n');
+        source = replaceExactly(source, '\n    prompt,\n',
+          '\n    prompt: measurementHostedPrompt(prompt, host.budgets && governedHold ? host.budgets.receipt(turn.turnId) : undefined),\n');
       } else if (path.endsWith("bridge-tools.ts")) {
         source = `import { measurementSchema } from ${helper};\nconst __measurementSchema = measurementSchema(process.env.BRAIN_MEASURE_PI_SCHEMA_FORM);\n` + source;
         source = replaceExactly(source, "parameters: toPiParameters(SHOW_BLOCK_INPUT_SCHEMA)", "parameters: toPiParameters(__measurementSchema)");
         source = replaceExactly(source, "handleShowBlock(SHOW_BLOCK_INPUT_SCHEMA.parse(input))", "handleShowBlock(__measurementSchema.parse(input))");
-      } else {
-        source = `import { acceptMeasurementFiles, measurementWorkerEnv } from ${receipts};\nimport { measurementPreparedPrompt } from ${helper};\n` + source;
-        source = replaceExactly(source, 'send({ type: "prompt", text: ownedPrompt?.text ?? text, options })',
-          'send({ type: "prompt", text: ownedPrompt?.text ?? text, options, __measurementPrompt: measurementPreparedPrompt(text, preparedPrompt) })');
+      } else if (path.endsWith("worker-session.ts")) {
+        source = `import { measurementPreparedPrompt } from ${helper};\n` + source;
+        source = replaceExactly(source, 'send({ type: "prompt", text: state.ownedPrompt?.text ?? text, options })',
+          'send({ type: "prompt", text: state.ownedPrompt?.text ?? text, options, __measurementPrompt: measurementPreparedPrompt(text, preparedPrompt) })');
+      } else if (path.endsWith("worker-launch.ts")) {
+        source = `import { measurementWorkerEnv } from ${receipts};\n` + source;
         source = replaceExactly(source, 'command: [process.execPath,', `command: [process.execPath, "--preload", ${JSON.stringify(workerPreload)},`);
         source = replaceExactly(source, 'env: workerEnv, credentialEnv, sandbox,', 'env: { ...workerEnv, ...measurementWorkerEnv() }, credentialEnv, sandbox,');
-        source = replaceExactly(source, 'if (msg.event.type === "tool_execution_end") {', 'if (acceptMeasurementFiles(msg.event)) continue;\n        if (msg.event.type === "tool_execution_end") {');
+      } else if (path.endsWith("worker-reader.ts")) {
+        source = `import { acceptMeasurementFiles } from ${receipts};\n` + source;
+        source = replaceExactly(source, 'if (msg.event.type === "tool_execution_end") {', 'if (acceptMeasurementFiles(msg.event)) continue;\n      if (msg.event.type === "tool_execution_end") {');
       }
       return { contents: source, loader: "ts" };
     });

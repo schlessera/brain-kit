@@ -17,6 +17,7 @@ import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
 import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { listArchivedSessions, restoreArchivedSession, transcriptPaths } from "./transcript-archive.js";
 import { isSessionId } from "./worker-state.js";
+import { hostRefusal } from "./host-refusal.js";
 import { usageLimitText } from "./usage-limit.js";
 import { statusFromText } from "./stream-adapter.js";
 import { taskNotificationMessages } from "./task-notification-history.js";
@@ -367,6 +368,8 @@ export function apiErrorFailure(message: unknown, content: unknown[]): TurnFailu
   if (ABORTED_TEXT.test(text)) return null;
   const limitText = usageLimitText(message, content);
   if (limitText) return { errorClass: FIRST_PARTY_FAILURE_CLASSES.rate_limit, message: limitText };
+  const refused = hostRefusal(text, statusFromText(text));
+  if (refused) return refused;
   const known = API_ERROR_TEXTS.find(({ pattern }) => pattern.test(text));
   if (!known) return null;
   const status = statusFromText(text);

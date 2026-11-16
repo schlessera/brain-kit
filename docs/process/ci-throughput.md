@@ -6,6 +6,9 @@ pipeline proxy for reliable delivery, not a guarantee of defect-free behavior.
 PR counts can reward smaller slices; compare size, workload, runner and policy
 cohorts before attributing an improvement to parallelism.
 
+The [integration evidence inventory](ci-evidence.md) maps each metric to its
+producer, normalized schema, cadence, retention and collection gaps.
+
 ## Collect the operational evidence
 
 The [timing collector](ci-timings.md) joins job/step durations to PR lifecycle,
