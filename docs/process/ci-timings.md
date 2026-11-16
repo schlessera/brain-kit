@@ -8,6 +8,9 @@ The [throughput measurement guide](ci-throughput.md) extends these observations
 with delivery latency, main-push outcomes, concurrency, reservation history,
 explicit worker/incident records and configurable scenario assumptions.
 
+The [integration evidence inventory](ci-evidence.md) maps each metric to its
+producer, normalized schema, cadence, retention and collection gaps.
+
 ## Collect and report
 
 Use authenticated `gh` with Actions, contents and pull-request read access:

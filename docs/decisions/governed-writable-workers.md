@@ -952,6 +952,25 @@ configuration still loads from the frozen view at the brain path.
   readers that require one link (`checkGovernancePolicy`, the embedding
   policy, storage-attachment facts) and cannot cross subvolumes. The tree
   still holds one copy per concurrent turn on the temporary directory.
+- **On managed storage the tree shares the checkpoint's extents (#2911).**
+  The maintainer's ruling of 2026-10-25 on
+  [#2911](https://github.com/schlessera/brain-kit/issues/2911) supplies the
+  manager-provisioned location the bullet above lacked. A view the native
+  manager acquired gets its tree from that manager: an app-owned directory in
+  the manager's private `trees/` area on the same volume, outside the live
+  brain and every checkpoint, with the documents in `data/` and an unmasked
+  turn's index in `index/`. Admission still plans and pools the copy, but
+  requires a reflink (`COPYFILE_FICLONE_FORCE`): a file that cannot share the
+  checkpoint's extents fails the turn instead of being copied in full. The
+  worker still receives only its own tree, read-only at the fixed path; the
+  manager's area is masked in every worker, so it cannot reach a peer's tree.
+  The tree's committed effects are bounded (`TURN_TREE_EFFECT_BYTES`, 64 MiB):
+  past it the tree stops recording and the turn's index reads refuse. At the
+  turn's end the server asks the manager to remove the tree, which it does
+  only once no process mounts it. A masked turn's private index stays on the
+  server's temporary directory, as do trees for views no manager acquired.
+  Ownership, capacity and recovery are in the
+  [native storage decision](native-brain-storage.md#turn-data-trees-on-the-managed-volume-2911).
 - **Committed bytes enter the tree inside the commit boundary.** Each
   application hands the tree its committed effects with the live base each
   one replaced, partial staged failures included; an archive writes the
