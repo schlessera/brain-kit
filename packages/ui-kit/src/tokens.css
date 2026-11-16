@@ -2634,6 +2634,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   .bk-overlay-surface { animation: bk-overlay-sheet 200ms ease-out; }
   .bk-overlay[data-bk-overlay="panel"] .bk-overlay-surface { animation: bk-overlay-panel 300ms ease-out; }
   .bk-overlay[data-bk-overlay="fullscreen"] .bk-overlay-surface { animation: bk-overlay-fade 120ms ease-out; }
+  /* The markup editor (#3983): a zoom from a control (+, −, Fit, arrow-key
+   * pan) eases; a pinch, a wheel and a drag follow the pointer directly. */
+  .bk-markup-view[data-ease] { transition: transform 160ms ease-out; }
   .bk-overlay[data-bk-overlay="dialog"][data-placement="top"] .bk-overlay-surface { animation: bk-overlay-fade 150ms ease-out; }
   @media (min-width: 900px) {
     .bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface { animation: bk-overlay-card 150ms ease-out; }
@@ -3066,11 +3069,7 @@ label.bk-live-service-row {
 }
 
 /* ── Markup editor (#3983) ───────────────────────────────────────────────
- * A zoom from a control (+, −, Fit, arrow-key pan) eases; a pinch, a wheel
- * and a drag follow the pointer directly. Under reduced motion nothing eases. */
-@media (prefers-reduced-motion: no-preference) {
-  .bk-markup-view[data-ease] { transition: transform 160ms ease-out; }
-}
+ * Its easing lives in the overlays' no-preference block above. */
 .bk-markup-stage:focus-visible { outline: 2px solid var(--bk-focus-ring); }
 /* Markup tools and swatches rest on their own background through a class, so
  * `.bk-control:hover` (two selectors' weight) still wins on hover. */
