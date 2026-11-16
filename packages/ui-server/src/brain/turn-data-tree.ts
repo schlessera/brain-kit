@@ -15,6 +15,13 @@
  * so the server cannot write through it. Only the view's own bytes and this
  * turn's effects ever enter the tree.
  *
+ * A view the native manager acquired gets its tree from that manager, on the
+ * same volume and outside the live brain and every checkpoint (#2911). There
+ * each file and the index seed is a reflink of the checkpoint's, required
+ * rather than requested: a copy that cannot share extents fails the turn
+ * instead of allocating a full copy. The manager charges the tree's allowance
+ * against the volume and removes the tree once no worker mounts it.
+ *
  * A turn under provider rules keeps the masked folders, the generated-text
  * caches (#2725) and the operational-state folders out of the tree, and its index is
  * the turn's private one. An effect enters the tree only if its path is
@@ -30,11 +37,12 @@ import { chmodSync, chownSync, closeSync, constants, fstatSync, lstatSync, mkdir
 import { chmod, copyFile, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize, relative } from "node:path";
+import { randomUUID } from "node:crypto";
 import { Database, constants as sqlite } from "bun:sqlite";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { isEnvName } from "@schlessera/brain-common/internal/protected-paths";
-import { envMaskedPaths, launchAgentWorker, prepareWorkerSandbox, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, retainWorkerStartupView, workerIdentityHelper, WORKER_DATA_ROOT,
+import { envMaskedPaths, launchAgentWorker, nativeTurnTreeManager, prepareWorkerSandbox, PROVIDER_CACHE_DIR, PROVIDER_CACHE_FILES, retainWorkerStartupView, workerIdentityHelper, WORKER_DATA_ROOT,
   type WorkerDataTree, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { createIndexBatch, type IndexBatch } from "./index-batch.js";
 import { isProviderMasked } from "./provider-mask-refusal.js";
@@ -99,6 +107,30 @@ const errno = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
  */
 const COPY_WIDTH = 16;
 const COPY_FLAGS = constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE;
+/** On the managed volume a file that cannot share the checkpoint's extents is an error, not a full copy (#2911). */
+const SHARED_FLAGS = constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE_FORCE;
+
+/**
+ * Bytes this turn's committed effects may write into its tree. A turn that
+ * writes more keeps its committed Markdown, but the tree stops recording it and
+ * the turn's index reads refuse, as for any other failed tree write.
+ */
+export const TURN_TREE_EFFECT_BYTES = 64 * 1024 * 1024;
+const PAGE = 4096;
+/** Filesystem metadata charged per copied entry: its inode, names and extent references, kept twice. */
+const ENTRY_OVERHEAD_BYTES = PAGE;
+const page = (bytes: number) => Math.ceil(bytes / PAGE) * PAGE;
+
+/**
+ * A managed tree's admission charge (#2911): what it can newly allocate on the
+ * volume. The documents share the checkpoint's extents and cost only their
+ * metadata; the seeded index can be rewritten page by page, with its log, up
+ * to twice its size; the turn's effects are bounded by `TURN_TREE_EFFECT_BYTES`.
+ * Shared extents are not charged as copies, and are not assumed to stay free.
+ */
+export function turnTreeAllowance(entries: number, indexBytes: number): number {
+  return page(2 * indexBytes + TURN_TREE_EFFECT_BYTES + entries * ENTRY_OVERHEAD_BYTES + 1024 * 1024);
+}
 
 /**
  * Run `jobs` at most `COPY_WIDTH` at a time. The first failure, or an abort,
@@ -125,10 +157,9 @@ async function pooled(jobs: readonly (() => Promise<void>)[], signal?: AbortSign
  * are made here; the returned jobs copy the files, and `finish` then gives
  * each directory its mode and times, deepest first.
  */
-function planCopy(view: string, target: string, skip: (rel: string) => boolean): { files: (() => Promise<void>)[]; finish(): void } {
-  let entries = 0;
+function planCopy(view: string, skip: (rel: string) => boolean): { entries: number; apply(target: string, flags: number): { files: (() => Promise<void>)[]; finish(): void } } {
   const unreadable = (error: unknown) => errno(error) === "EACCES";
-  const files: (() => Promise<void>)[] = [], directories: { to: string; info: import("node:fs").Stats }[] = [];
+  const planned: { path: string; info: import("node:fs").Stats }[] = [];
   const walk = (rel: string, depth: number) => {
     if (depth > COPY_DEPTH) throw new Error("The startup view exceeds the data tree's directory depth bound.");
     let listed: import("node:fs").Dirent[];
@@ -136,29 +167,44 @@ function planCopy(view: string, target: string, skip: (rel: string) => boolean):
     for (const entry of listed) {
       const path = rel ? `${rel}/${entry.name}` : entry.name;
       if (skip(path)) continue;
-      if (++entries > COPY_ENTRIES) throw new Error(`The startup view exceeds the data tree's ${COPY_ENTRIES} entry bound.`);
-      const from = join(view, path), to = join(target, path), info = lstatSync(from);
-      if (info.isSymbolicLink()) symlinkSync(readlinkSync(from), to);
-      else if (info.isDirectory()) { mkdirSync(to, { mode: 0o700 }); directories.push({ to, info }); walk(path, depth + 1); }
-      else if (info.isFile()) files.push(async () => {
-        try { await copyFile(from, to, COPY_FLAGS); } catch (error) { if (unreadable(error)) return; throw error; }
-        await chmod(to, info.mode & 0o7777); await utimes(to, info.atime, info.mtime);
-      });
+      if (planned.length >= COPY_ENTRIES) throw new Error(`The startup view exceeds the data tree's ${COPY_ENTRIES} entry bound.`);
+      const info = lstatSync(join(view, path));
+      planned.push({ path, info });
+      if (info.isDirectory()) walk(path, depth + 1);
     }
   };
   walk("", 0);
-  // A directory is planned before everything in it, so the reverse order
-  // closes each one after its contents.
-  return { files, finish() { for (const { to, info } of directories.reverse()) { chmodSync(to, info.mode & 0o7777); utimesSync(to, info.atime, info.mtime); } } };
+  return { entries: planned.length, apply(target, flags) {
+    const files: (() => Promise<void>)[] = [], directories: { to: string; info: import("node:fs").Stats }[] = [];
+    // A directory is walked before everything in it, so it exists first.
+    for (const { path, info } of planned) {
+      const from = join(view, path), to = join(target, path);
+      if (info.isSymbolicLink()) symlinkSync(readlinkSync(from), to);
+      else if (info.isDirectory()) {
+        // A directory the server could not list stays empty, as it was left out before.
+        mkdirSync(to, { mode: 0o700 }); directories.push({ to, info });
+      } else if (info.isFile()) files.push(async () => {
+        try { await copyFile(from, to, flags); } catch (error) { if (unreadable(error)) return; throw error; }
+        await chmod(to, info.mode & 0o7777); await utimes(to, info.atime, info.mtime);
+      });
+    }
+    // The reverse order closes each directory after its contents.
+    return { files, finish() { for (const { to, info } of directories.reverse()) { chmodSync(to, info.mode & 0o7777); utimesSync(to, info.atime, info.mtime); } } };
+  } };
 }
 
 /** Jobs that seed `index` with the view's index files. The updater runs as the worker identity, which shares the server's group. */
-function seedIndex(view: string, index: string, separateIdentity: boolean): (() => Promise<void>)[] {
+function indexSeed(view: string): { names: string[]; bytes: number } {
   const source = join(view, INDEX_DIR);
-  const names = (() => { try { return readdirSync(source, { withFileTypes: true }); } catch (error) { if (errno(error) === "ENOENT") return []; throw error; } })();
-  return names.filter(entry => entry.isFile()).map(entry => async () => {
-    const to = join(index, entry.name);
-    await copyFile(join(source, entry.name), to, COPY_FLAGS);
+  const listed = (() => { try { return readdirSync(source, { withFileTypes: true }); } catch (error) { if (errno(error) === "ENOENT") return []; throw error; } })();
+  const names = listed.filter(entry => entry.isFile()).map(entry => entry.name);
+  return { names, bytes: names.reduce((sum, name) => sum + lstatSync(join(source, name)).size, 0) };
+}
+function seedIndex(view: string, names: readonly string[], index: string, separateIdentity: boolean, flags: number): (() => Promise<void>)[] {
+  const source = join(view, INDEX_DIR);
+  return names.map(name => async () => {
+    const to = join(index, name);
+    await copyFile(join(source, name), to, flags);
     await chmod(to, separateIdentity ? 0o660 : 0o600);
   });
 }
@@ -305,6 +351,54 @@ async function runOnTree(options: {
 }
 
 /**
+ * Where a new tree goes. A managed view's manager admits a directory on its
+ * volume (#2911), holding `data/` and, unless the turn brought its private
+ * index, `index/`; the copy then requires reflinks, and only the manager
+ * removes the tree. Any other view's tree is a host temporary directory, copied
+ * with a reflink where the filesystem offers one.
+ */
+async function placeTree(view: WorkerStartupView, allowanceBytes: number, separateIdentity: boolean, privateIndex: string | undefined,
+  signal?: AbortSignal): Promise<{ root: string; index: string; flags: number; remove(): Promise<void> }> {
+  const manager = nativeTurnTreeManager(view);
+  if (!manager) {
+    const root = mkdtempSync(join(tmpdir(), "brain-turn-data-"));
+    let index: string | undefined;
+    try {
+      if (separateIdentity) { chownSync(root, process.getuid!(), process.getgid!()); chmodSync(root, 0o750); }
+      index = privateIndex ?? createPrivateIndexDirectory();
+    } catch (error) { removeCopy(root); throw error; }
+    const created = index;
+    return { root, index: created, flags: COPY_FLAGS, async remove() {
+      try { removeCopy(root); } finally { if (!privateIndex) removePrivateIndexDirectory(created); }
+    } };
+  }
+  const id = randomUUID(), expected = join(dirname(view.brain), ".brain-native", "trees", id);
+  // Neither a lost reply nor the removal of a tree that failed to fill may be
+  // cancelled by the admission's abort: the same identity is released.
+  const release = async () => { await manager.releaseTurnTree(id); };
+  try {
+    const tree = await manager.prepareTurnTree(id, allowanceBytes, signal);
+    const info = lstatSync(expected, { throwIfNoEntry: false });
+    if (tree.id !== id || tree.path !== expected || tree.allowanceBytes !== allowanceBytes || !info?.isDirectory() || info.uid !== process.getuid?.())
+      throw new Error("The native manager did not return this turn's own data-tree directory.");
+    const root = join(expected, "data"), index = privateIndex ?? join(expected, "index");
+    mkdirSync(root, { mode: 0o700 });
+    if (separateIdentity) chmodSync(root, 0o750);
+    if (!privateIndex) {
+      mkdirSync(index, { mode: 0o700 });
+      // The worker identity shares the server's primary group; setgid keeps
+      // what its index update creates in that group.
+      if (separateIdentity) chmodSync(index, 0o2770);
+    }
+    return { root, index, flags: SHARED_FLAGS, remove: release };
+  } catch (error) {
+    try { await release(); }
+    catch (releaseError) { throw new AggregateError([error, releaseError], `Native turn tree ${id} has an unknown outcome; its lease is reconciled by owner recovery.`); }
+    throw error;
+  }
+}
+
+/**
  * Copy the view into a new tree, before the worker launches. `index` is the
  * masked turn's private index, already built; an unmasked turn's is seeded
  * from the view. `pending` names paths the view's index may lag its documents
@@ -331,29 +425,34 @@ export async function createTurnDataTree(options: {
   signal?: AbortSignal;
 }): Promise<TurnDataTree> {
   const separateIdentity = Boolean(workerIdentityHelper());
-  const root = mkdtempSync(join(tmpdir(), "brain-turn-data-"));
-  let index: string | undefined;
+  // The legacy root-level caches stay out under any provider rule;
+  // `.brain-cache/` only while a folder is masked (#2725).
+  const masks = options.masks, caches = Boolean(masks || options.providerRules);
+  // The `.env*` masks cover link targets at the brain path only, so the tree
+  // leaves those targets out as well.
+  const hidden = [...(masks?.buildFolders ?? []), ...envMaskedPaths(options.view.root, options.brainPath)];
+  const copyPlan = planCopy(options.view.root, rel => {
+    const top = !rel.includes("/");
+    if (top && (OMITTED.has(rel) || isEnvName(rel) || (caches && PROVIDER_CACHE_FILES.includes(rel)) || (masks && rel === PROVIDER_CACHE_DIR))) return true;
+    return hidden.some(folder => isWithin(folder, rel));
+  });
+  const seed = options.index ? { names: [], bytes: 0 } : indexSeed(options.view.root);
+  const placed = await placeTree(options.view, turnTreeAllowance(copyPlan.entries + seed.names.length, seed.bytes), separateIdentity, options.index, options.signal);
+  const { root, index, flags } = placed;
   try {
-    if (separateIdentity) { chownSync(root, process.getuid!(), process.getgid!()); chmodSync(root, 0o750); }
-    // The legacy root-level caches stay out under any provider rule;
-    // `.brain-cache/` only while a folder is masked (#2725).
-    const masks = options.masks, caches = Boolean(masks || options.providerRules);
-    // The `.env*` masks cover link targets at the brain path only, so the tree
-    // leaves those targets out as well.
-    const hidden = [...(masks?.buildFolders ?? []), ...envMaskedPaths(options.view.root, options.brainPath)];
-    const copy = planCopy(options.view.root, root, rel => {
-      const top = !rel.includes("/");
-      if (top && (OMITTED.has(rel) || isEnvName(rel) || (caches && PROVIDER_CACHE_FILES.includes(rel)) || (masks && rel === PROVIDER_CACHE_DIR))) return true;
-      return hidden.some(folder => isWithin(folder, rel));
-    });
     mkdirSync(join(root, INDEX_DIR), { mode: 0o755 });
-    index = options.index ?? createPrivateIndexDirectory();
+    const copy = copyPlan.apply(root, flags);
     // The index files are the largest; they start first.
-    await pooled([...options.index ? [] : seedIndex(options.view.root, index, separateIdentity), ...copy.files], options.signal);
+    try { await pooled([...seedIndex(options.view.root, seed.names, index, separateIdentity, flags), ...copy.files], options.signal); }
+    catch (error) {
+      if (flags === SHARED_FLAGS && ["EXDEV", "EOPNOTSUPP", "ENOTSUP", "EINVAL"].includes(errno(error) ?? ""))
+        throw new Error(`The turn's data tree cannot share the startup view's extents on the managed volume (${errno(error)}); no full copy is made in their place.`, { cause: error });
+      throw error;
+    }
     copy.finish();
     settleIndex(index, separateIdentity);
   } catch (error) {
-    try { removeCopy(root); } finally { if (index && !options.index) removePrivateIndexDirectory(index); }
+    await placed.remove();
     throw error;
   }
   const tree: WorkerDataTree = Object.freeze({ root, index, ...(options.masks || options.providerRules
@@ -380,7 +479,7 @@ export async function createTurnDataTree(options: {
     if (seen === null || effect.base === null) return seen === effect.base;
     return typeof effect.base === "string" ? seen.toString("utf8") === effect.base : seen.equals(effect.base);
   };
-  let closed: Promise<void> | undefined;
+  let closed: Promise<void> | undefined, written = 0;
   return {
     ...(options.mount ? { mount: tree } : {}),
     index,
@@ -389,7 +488,10 @@ export async function createTurnDataTree(options: {
       try {
         for (const effect of effects) {
           applied.add(effect.path);
-          writeTree(root, effect.path, admitted(effect) ? effect.content : null);
+          const content = admitted(effect) ? effect.content : null;
+          written += content === null ? 0 : typeof content === "string" ? Buffer.byteLength(content) : content.byteLength;
+          if (written > TURN_TREE_EFFECT_BYTES) throw new Error(`this turn's changes exceed its data tree's ${TURN_TREE_EFFECT_BYTES / 1024 / 1024} MiB allowance`);
+          writeTree(root, effect.path, content);
         }
       } catch (error) {
         // The Markdown is committed; the index cannot vouch for it any more.
@@ -406,7 +508,7 @@ export async function createTurnDataTree(options: {
     close() {
       return closed ??= (async () => {
         await batch.idle();
-        try { removeCopy(root); } finally { if (!options.index) removePrivateIndexDirectory(index!); }
+        await placed.remove();
       })();
     },
   };

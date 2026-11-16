@@ -5,7 +5,8 @@
  * that brings the spectrum back under reduced motion fails here.
  */
 import { commands } from "vitest/browser";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import { FIRST_FRAME_MS, HANDOFF_MS } from "../../src/internal/GhostText.js";
 import * as placeholder from "../../stories/states/Placeholder.stories.js";
 
 interface Story { run: (context?: { globals?: Record<string, unknown> }) => Promise<void> }
@@ -55,8 +56,11 @@ test("without reduced motion the frame sweep runs through three masked windows",
   }
 });
 
-test("reduced motion: the handoff is instant", async () => {
-  await commands.ghostMedia("reduce", "screen");
+/**
+ * Reload and arrive Placeholder's `Arrived` story once more, recording every
+ * timer delay registered from the arrival on (#3425). Real timers still run.
+ */
+async function arrive(check: () => void, before?: () => void) {
   // The story's own play has already arrived once; load again, then arrive.
   await run(placeholder.Arrived);
   const button = (label: string) => [...document.querySelectorAll("button")].find((b) => b.textContent === label)!;
@@ -64,10 +68,49 @@ test("reduced motion: the handoff is instant", async () => {
   button("Reload").click();
   await frames();
   expect(document.querySelector("[aria-busy]")).not.toBeNull();
-  button("Arrive").click();
-  await frames();
-  expect(Number(getComputedStyle(document.querySelector(".bk-ghost-out")!).opacity)).toBe(0);
-  expect(Number(getComputedStyle(document.querySelector(".bk-ghost-in")!).opacity)).toBe(1);
+  before?.();
+  const delays: number[] = [];
+  const native = globalThis.setTimeout;
+  const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((...args: unknown[]) => {
+    delays.push(Number(args[1] ?? 0));
+    return Reflect.apply(native, globalThis, args);
+  }) as typeof native);
+  try {
+    button("Arrive").click();
+    await frames();
+    expect(document.querySelector(".bk-ghost-out"), "the outgoing ghost stays until HANDOFF_MS").not.toBeNull();
+    check();
+    // Never waiting for an animation end that does not come: the ghost goes.
+    await vi.waitFor(() => expect(document.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0), { timeout: FIRST_FRAME_MS - HANDOFF_MS, interval: 20 });
+  } finally {
+    timer.mockRestore();
+  }
+  // With no fade to wait for, the handoff ends on its 600ms timer, not on the
+  // fallback for a document that renders no frames.
+  expect(delays, "the handoff's 600ms timer").toContain(HANDOFF_MS);
+  expect(delays, "no wait for a first frame").not.toContain(FIRST_FRAME_MS);
+}
+
+test("reduced motion: the handoff is instant, and ends after HANDOFF_MS", async () => {
+  await commands.ghostMedia("reduce", "screen");
+  await arrive(() => {
+    expect(Number(getComputedStyle(document.querySelector(".bk-ghost-out")!).opacity)).toBe(0);
+    expect(Number(getComputedStyle(document.querySelector(".bk-ghost-in")!).opacity)).toBe(1);
+  });
+});
+
+test("animation: none: no fade runs, and the handoff still ends after HANDOFF_MS", async () => {
+  const none = document.createElement("style");
+  none.textContent = ".bk-ghost-in, .bk-ghost-out { animation: none !important; }";
+  try {
+    // After the story's own play, which checks the fades it normally has.
+    await arrive(() => {
+      expect(getComputedStyle(document.querySelector(".bk-ghost-out")!).animationName).toBe("none");
+      expect(document.querySelector(".bk-ghost-out")!.getAnimations()).toHaveLength(0);
+    }, () => document.head.append(none));
+  } finally {
+    none.remove();
+  }
 });
 
 test("print: every ghost is hidden and keeps its box", async () => {

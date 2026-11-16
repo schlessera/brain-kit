@@ -13,11 +13,11 @@ const auditedProducer: Record<string,string> = {
   "scripts/bin-modes.ts": "5e412f4743b388558a00d1068881ff6d6a0916e852e9ed2e973bc0a97a83c8ce",
   "scripts/publishable-packages.ts": "c43a3fbea72217fc42c3514313dcb16d1b337242fc251b61d7f1a3c83ca25740",
   "scripts/workspace-lease.mjs": "d1e427171a70f906f219b43ea6e47f69c628e60c126a2bb7ac30ff5e2c9a81ad",
-  "scripts/ci-proof.ts": "094977e01d5549bc518a6aa74ef6ba6ee9267d79fcb841f4fd439c84de202931",
-  "scripts/check-pr.ts": "44edfa9c7da42c301988fda62e9f2bf9e72eb56d9eedfb2bf1b4c77af9764bd0",
-  "scripts/ci-runner.ts": "e6b9da9fdf92cb7ade402c620a8f58727bf5a09725bed03000a862866a6f9262",
-  ".github/workflows/ci.yml": "ba93d519013905c8bbd943bf8887733a45911e5309a622f34827f70fdef94427",
-  "package.json": "0d2ba2667eed49f4b686e57e54578d5f51e6c1b93605de0e1f5c8d08f8d0b188"
+  "scripts/ci-proof.ts": "17e0c248792ebe7abc22bd93eb4bd402356cc395c6cab548b8cf65810238eae7",
+  "scripts/check-pr.ts": "a5ef505c320306ecfef9cb2d9452ad78898c09be6567201649913d01636a27a0",
+  "scripts/ci-runner.ts": "1f65e665afa202c2e8a72938fb193dcee7cebeb7c6d4e97456520e461e52609f",
+  ".github/workflows/ci.yml": "a5b3f82fa11111ed9bff29a5423873b6fc91bc4187370754e16e85ad06f11d56",
+  "package.json": "fb862fa1374a2e31a4d4eb317fabb1453e5325a9cd154ede1ecc8c91e9acc16c"
 };
 export function generatedCssInputs(root: string, artifact: string): { entry: string; producer: string[] } | undefined {
   const normalized=relative(root,resolve(root,artifact)).replaceAll("\\","/");
@@ -35,9 +35,9 @@ export function generatedCssInputs(root: string, artifact: string): { entry: str
 
 // These commands run with the audited browser runner's packages/ui-kit cwd.
 const auditedReaders: Record<string,string> = {
-  "packages/ui-kit/tests/visual/form-browser.ts": "3ccf67a71fa64af195bbf8cf6d173064dc9d2d4fc6abc699fa0a638c352ca62e",
-  "packages/ui-react/tests/browser/offline/cold-capture/commands.ts": "f0d6d9512b1de67f1804d808dded17e29ee344be22283a734e07f3233fc340ee",
-  "packages/ui-react/tests/browser/share-review/commands.ts": "a5f25033f06d388d2e0c83446f5cb7340d22626ea9afe1f7b6c3af92cc86f8ad"
+  "packages/ui-kit/tests/visual/form-browser.ts": "5def3875a8e16e41b22bf1ff2a25b045a3adc59bdc2df2e0c7754126f3c8e27b",
+  "packages/ui-react/tests/browser/offline/cold-capture/commands.ts": "1b9063232ed794ed206cb09520641ff25897a3133e6168ceff10f18cca746ef0",
+  "packages/ui-react/tests/browser/share-review/commands.ts": "49dc3fd14d370ddf087986fc135343b2419efd0f1924096edd669b6e0d0f6e33"
 };
 export function generatedCssReadInputs(root:string,owner:string,literal:string) {
   const expected=auditedReaders[owner],path=resolve(root,owner);

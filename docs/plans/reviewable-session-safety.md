@@ -36,7 +36,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   never prove finalized delivery or complete coverage.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:84-272`). Relay admissions join
+  `packages/ui-server/src/brain/turn-egress.ts:86-295`). Relay admissions join
   this proxy's submitted terminal observations and its own announced session
   binding before reading fresh safety (`settleTurnSessionBinding`,
   `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
@@ -56,7 +56,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   ([reference-source grants](../decisions/reference-source-grants.md)). Its
   fixed Git transport separates network acquisition from credential-free,
   network-free checkout (`createReferenceTransport`,
-  `packages/ui-server/src/brain/reference-transport.ts:106-203`).
+  `packages/ui-server/src/brain/reference-transport.ts:116-213`).
 - The Security and Devices & agents surfaces already exist; policy facts are
   currently read-only (`AgentPolicyGroup`,
   `packages/ui-react/src/components/settings/agent-policy-group.tsx:8-51`).

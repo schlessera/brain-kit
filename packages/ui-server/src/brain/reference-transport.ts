@@ -8,7 +8,7 @@
 import { chmodSync, constants, closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
+import { MaintenanceTempBusyError, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { ReferenceRepository } from "../db/reference-grants.js";
 import { githubReferenceRepository } from "./github-reference-identity.js";
 import type { GitHubReferenceWire } from "./github-reference-wire.js";
@@ -38,13 +38,23 @@ export type ReferenceCheck =
   | { ok: false; reason: "missing" | "denied" | "unavailable"; detail: string };
 
 export class ReferenceTransportError extends Error {
-  constructor(readonly reason: "denied" | "unavailable" | "capacity" | "invalid", message: string) { super(message); this.name = "ReferenceTransportError"; }
+  constructor(readonly reason: "denied" | "unavailable" | "capacity" | "invalid" | "busy", message: string) { super(message); this.name = "ReferenceTransportError"; }
 }
+
+/**
+ * How long one reference Git command waits for the shared maintenance budget
+ * (#4079). The turn that asked holds its own short maintenance commands at the
+ * same moment, such as its scratch check; they finish well inside this. A
+ * longer holder, such as an index, makes the request answer `busy`.
+ */
+export const REFERENCE_ADMISSION_WAIT_MS = 30_000;
 
 /** The concrete operations acquisition needs; tests substitute this one host-only owner. */
 export interface ReferenceTransport {
   /** Resolve a branch or tag through the transport, with the grant's credential value or anonymously. */
-  resolve(input: { repository: ReferenceRepository; revision: string; token: string | null; signal?: AbortSignal; wire?: GitHubReferenceWire }): Promise<ReferenceCheck>;
+  resolve(input: { repository: ReferenceRepository; revision: string; token: string | null; signal?: AbortSignal; wire?: GitHubReferenceWire;
+    /** Overrides the transport's admission wait for this call; 0 refuses at once (#4079). */
+    admissionWaitMs?: number }): Promise<ReferenceCheck>;
   /** Fetch exactly one resolved ref into `<root>/.git` and report the fetched commit. */
   fetch(input: { repository: ReferenceRepository; ref: string; token: string | null; root: string; signal?: AbortSignal; wire?: GitHubReferenceWire }): Promise<{ commit: string }>;
   /** Check out `commit` into `root` without any credential or network. */
@@ -107,8 +117,27 @@ export function createReferenceTransport(options: {
   brainPath: string; timeoutMs?: number; tempLimits?: MaintenanceCommand["tempLimits"]; tempDomain?: MaintenanceCommand["tempDomain"];
   /** Test seam for the exact launched commands; production uses the maintenance worker. */
   run?: typeof runMaintenanceWorker;
+  /** How long each command waits for a busy maintenance budget; default `REFERENCE_ADMISSION_WAIT_MS`. */
+  admissionWaitMs?: number;
 }): ReferenceTransport {
-  const run = options.run ?? runMaintenanceWorker;
+  const launch = options.run ?? runMaintenanceWorker;
+  const admissionWaitMs = options.admissionWaitMs ?? REFERENCE_ADMISSION_WAIT_MS;
+  /**
+   * One command, admitted within the bound. A busy refusal ran nothing, so the
+   * command waits for the budget to free and tries again; past the bound it is
+   * a `busy` refusal the caller can retry, never an outage.
+   */
+  async function run(input: Parameters<typeof runMaintenanceWorker>[0], waitMs = admissionWaitMs) {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      try { return await launch(input); }
+      catch (error) {
+        if (!(error instanceof MaintenanceTempBusyError)) throw error;
+        if (Date.now() >= deadline || !(await error.freedWithin(deadline - Date.now(), input.signal)))
+          throw new ReferenceTransportError("busy", `Host maintenance stayed busy for ${Math.ceil(waitMs / 1000)} s, so nothing ran. Retry this request in a minute.`);
+      }
+    }
+  }
   const timeoutMs = options.timeoutMs ?? 120_000;
   function command(input: { argv: string[]; mirror: string; token: string | null; repository?: ReferenceRepository; network: boolean; signal?: AbortSignal; wire?: GitHubReferenceWire })
     : MaintenanceCommand & { signal?: AbortSignal; timeoutMs: number } {
@@ -129,21 +158,21 @@ export function createReferenceTransport(options: {
       ...(input.wire ? { signal: input.signal ? AbortSignal.any([input.signal, input.wire.signal]) : input.wire.signal }
         : input.signal ? { signal: input.signal } : {}), timeoutMs };
   }
-  async function network(input: Parameters<typeof command>[0]) {
-    const result = await run(command(input));
+  async function network(input: Parameters<typeof command>[0], waitMs?: number) {
+    const result = await run(command(input), waitMs);
     const failure = input.wire?.failure(); if (failure) throw failure;
     if (input.wire && input.repository) assertWireRepository(input.repository, input.wire);
     return result;
   }
   return {
-    async resolve({ repository, revision, token, signal, wire }) {
+    async resolve({ repository, revision, token, signal, wire, admissionWaitMs: waitMs }) {
       revision = referenceRevision(revision);
       assertWireRepository(repository, wire);
       const scratch = mkdtempSync(join(tmpdir(), "brain-reference-resolve-"));
       try {
         const result = await network({ repository, token, network: true, mirror: scratch, signal, wire,
           argv: [git(), ...networkArgs(repository, token), "ls-remote", "--exit-code", "--", repository.url,
-            `refs/heads/${revision}`, `refs/tags/${revision}`, `refs/tags/${revision}^{}`] });
+            `refs/heads/${revision}`, `refs/tags/${revision}`, `refs/tags/${revision}^{}`] }, waitMs);
         if (result.killed) return { ok: false, reason: "unavailable", detail: "reference resolution timed out or was cancelled" };
         if (result.exitCode === 2) return { ok: false, reason: "missing", detail: `no branch or tag named ${revision}` };
         if (result.exitCode !== 0) return { ok: false, reason: classify(result.stderr), detail: result.stderr.trim().slice(-500) || `exit ${result.exitCode}` };
