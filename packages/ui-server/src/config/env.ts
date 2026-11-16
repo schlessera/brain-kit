@@ -20,6 +20,7 @@ import { join, resolve } from "path";
 import { ATTACHMENT_POOL_DEFAULT_BYTES, isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
+import { parseRepositoryAllowList } from "../brain/module-repositories.js";
 import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
@@ -191,6 +192,18 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_MODULE_REPOSITORIES",
+    description:
+      "Operator allow-list of repository URLs (comma or whitespace separated, HTTPS) " +
+      "a module cron job may read. The host fetches a repository a module's " +
+      "`repositories` config asks for only when this list names it too, using the " +
+      "sync transport's credential (BRAIN_UI_SYNC_GITHUB_TOKEN, else GITHUB_TOKEN); " +
+      "the job's worker reads a host mirror and never holds the credential. Read by " +
+      "the cron runner only, never forwarded to a job. Empty refuses every request.",
+    default: "(empty — no module repository is fetched)",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_SYNC_GITHUB_TOKEN",
     description:
       "GitHub HTTPS credential for the host-owned sync mirror transport. " +
@@ -250,7 +263,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     description:
       "Extra recipients for the brain CLI's relayed provider keys: KEY=origin[,origin], separated by semicolons. " +
       "Each origin is an exact https origin (http only for a loopback host). By default the relay sends GEMINI_API_KEY, " +
-      "ANTHROPIC_API_KEY and OPENAI_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
+      "ANTHROPIC_API_KEY, OPENAI_API_KEY and TYPESAFE_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
       "variable is refused unless listed here. A malformed value stops the server.",
     default: "(unset; first-party origins only)",
     required: false,
@@ -718,6 +731,17 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     default: "DB_PATH.apify-ledger.sqlite (server); unset, which refuses Apify as accounting_unavailable (standalone CLI and MCP)",
     required: false,
   },
+  // Host GitHub tools (#3797)
+  {
+    name: "BRAIN_UI_GITHUB_TOOLS_TOKEN",
+    description:
+      "GitHub token for the host GitHub tools (brain_github_issue_read, brain_github_issue_search), read only by the host. " +
+      "Reads are bounded by what the token can see, so give it read access to the repositories a turn may read. " +
+      "No fallback: GITHUB_TOKEN and the other GitHub tokens are never used for these tools, and without this one they answer unavailable. " +
+      "Never passed to any subprocess, worker, prompt, log or response.",
+    default: null,
+    required: false,
+  },
   // voice
   {
     name: "DEEPGRAM_API_KEY",
@@ -999,6 +1023,8 @@ export interface CronConfig {
   exec: ExecWrapperConfig;
   /** BRAIN_UI_CLI_PROVIDER_ORIGINS, for the provider relay of a credentialed job (#1673). */
   cliProviderOrigins: ReadonlyMap<string, readonly string[]>;
+  /** BRAIN_UI_MODULE_REPOSITORIES: the operator's allow-list of repositories a module job may read (#3380). */
+  moduleRepositories: { allowed: string[]; invalid: string[] };
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1362,6 +1388,7 @@ export function resolveCronConfig(
     ),
     exec: execConfig(env),
     cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
+    moduleRepositories: parseRepositoryAllowList(env.BRAIN_UI_MODULE_REPOSITORIES),
   };
 }
 
@@ -1442,6 +1469,16 @@ export function apifyLedgerPath(dbPath: string, env: NodeJS.ProcessEnv = process
 
 export function apifyTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
   const token = env.APIFY_TOKEN?.trim() || undefined;
+  return () => token;
+}
+
+/**
+ * The host GitHub tools' credential (#3797), read once at the edge into a
+ * closure: `BRAIN_UI_GITHUB_TOOLS_TOKEN` and nothing else. There is no
+ * fallback to `GITHUB_TOKEN` or any other token.
+ */
+export function githubToolsTokenSource(env: NodeJS.ProcessEnv = process.env): () => string | undefined {
+  const token = env.BRAIN_UI_GITHUB_TOOLS_TOKEN?.trim() || undefined;
   return () => token;
 }
 

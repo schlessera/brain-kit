@@ -29,6 +29,7 @@ const hostEnv = {
   GITHUB_TOKEN: "odysseus-generic-git-token",
   BRAIN_UI_SYNC_GITHUB_TOKEN: "odysseus-sync-git-token",
   BRAIN_UI_SKILLS_GITHUB_TOKEN: "odysseus-skills-git-token",
+  BRAIN_UI_GITHUB_TOOLS_TOKEN: "odysseus-github-tools-token",
   OPENAI_API_KEY: "odysseus-provider-key",
   TZ: "UTC",
 };
@@ -44,6 +45,7 @@ for (const method of ["run", "launch"] as const) {
       skills: process.env.BRAIN_UI_SKILLS_GITHUB_TOKEN ?? null,
       generic: process.env.GITHUB_TOKEN ?? null,
       sync: process.env.BRAIN_UI_SYNC_GITHUB_TOKEN ?? null,
+      tools: process.env.BRAIN_UI_GITHUB_TOOLS_TOKEN ?? null,
       provider: process.env.OPENAI_API_KEY, tz: process.env.TZ,
       mount: require("node:fs").readlinkSync("/proc/self/ns/mnt")
     }));`;
@@ -60,6 +62,7 @@ for (const method of ["run", "launch"] as const) {
     expect(observed.skills, "SKILLS_TOKEN_ABSENT_FROM_CREDENTIALED_MAINTENANCE").toBeNull();
     expect(observed.generic).toBeNull();
     expect(observed.sync).toBeNull();
+    expect(observed.tools, "GITHUB_TOOLS_TOKEN_ABSENT_FROM_CREDENTIALED_MAINTENANCE").toBeNull();
     expect(observed.provider, "PROVIDER_CREDENTIAL_STILL_REACHES_MAINTENANCE").toBe(hostEnv.OPENAI_API_KEY);
     expect(observed.tz).toBe("UTC");
     expect(observed.mount, "ACTUAL_MAINTENANCE_NAMESPACE").not.toBe(readlinkSync("/proc/self/ns/mnt"));
@@ -81,6 +84,7 @@ for (const dedicated of [true, false]) {
     expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stdout).toContain(`password=${dedicated ? hostEnv.BRAIN_UI_SYNC_GITHUB_TOKEN : hostEnv.GITHUB_TOKEN}\n`);
     expect(result.stdout).not.toContain(hostEnv.BRAIN_UI_SKILLS_GITHUB_TOKEN);
+    expect(result.stdout, "GITHUB_TOOLS_TOKEN_NEVER_A_TRANSPORT_CREDENTIAL").not.toContain(hostEnv.BRAIN_UI_GITHUB_TOOLS_TOKEN);
     expect(result.stdout).not.toContain(hostEnv.OPENAI_API_KEY);
   });
 

@@ -109,7 +109,7 @@ describe("experiment tier discovery", () => {
       writeFileSync(join(dir, "cache.js"), "");
       linkSync(join(dir, "cache.js"), join(dir, "node_modules/a/cached.js"));
       expect(externallyHardlinked(dir)).toBe("node_modules/a/cached.js");
-      expect(COPY_INSTALL).toBe("rm -rf node_modules && bun install --frozen-lockfile --backend=copyfile");
+      expect(COPY_INSTALL).toBe("sh scripts/prepare-diagnostic-install.sh");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 

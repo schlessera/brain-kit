@@ -119,7 +119,8 @@ that has a turn proxy, and one per credentialed maintenance run where the host
 has managed native storage. A relay sends a key only to that key's built-in
 first-party origin (`GEMINI_API_KEY` to `https://generativelanguage.googleapis.com`,
 `ANTHROPIC_API_KEY` to `https://api.anthropic.com`, `OPENAI_API_KEY` to
-`https://api.openai.com`) or to an exact origin the server's
+`https://api.openai.com`, `TYPESAFE_API_KEY` to `https://api.typesafe.ai`
+since #3792) or to an exact origin the server's
 `BRAIN_UI_CLI_PROVIDER_ORIGINS` (`KEY=origin[,origin];...`) lists for that key.
 A custom endpoint or a custom key variable is refused unless listed. The
 public protocol adds the `TurnBudgetCoverage` type ([wire](wire.md#completed-inference-usage-and-budgets-additive-1669)).
@@ -522,6 +523,48 @@ approvals; a backend sends the parsed input only. Names, schemas and the
 envelope are documented in [the MCP component](mcp.md#apify-tools-additive-0450-3162).
 Both first-party backends register the tools in every interactive session.
 
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the four GitHub tool contracts (`GITHUB_TOOL_CONTRACTS`,
+`GITHUB_READ_TOOL_CONTRACTS` and each `GITHUB_ISSUE_*_CONTRACT`), their names
+(`GITHUB_TOOL_NAMES`, `GITHUB_TOOL_NAME_LIST`, `GITHUB_READ_TOOL_NAMES`,
+`isGithubToolName`), the four strict input schemas, the payload schemas
+(`GITHUB_ISSUE_READ_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA`,
+`GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA`
+and their parts), `GITHUB_RESULT_SCHEMAS`, `GITHUB_ERROR_CODES`,
+`GITHUB_LIMITS`, the origins `GITHUB_WEB_ORIGIN` and `GITHUB_API_ORIGIN`, the
+name helpers `isGithubRepositoryName` and `parseGithubRepository`, the
+direct-link validators `githubDirectUrl(value, scope, target)`,
+`githubSearchUrl(scope, q)` and `isGithubSearchUrl(value, scope, q)`, and the
+matching types (`GithubToolCall`, `GithubToolResult`, each payload, input and
+part). `@schlessera/brain-ui-sdk/server` adds the experimental backend toolkit
+helper `handleGithubTool(name, input, bridge)`, which validates the strict
+input and forwards `{ tool, input }` to the optional new
+`BackendBridge.github(call)`; without it the tool refuses `unavailable`
+(`no_host`). Shapes are documented in
+[the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
+export changes.
+
+## GitHub detail-page types (additive, 0.45.0, #3796)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the item and page types the internal
+[GitHub detail route](../http-api.md#github-detail-pages-internal-0450-3796)
+returns: `GITHUB_DETAIL_PARTS` with `isGithubDetailPart` and the
+`GithubDetailPart` type, `GITHUB_DETAIL_PAGE_SIZE` (30),
+`GITHUB_REVIEW_COMMENT_SCHEMA`, `GITHUB_CHANGED_FILE_SCHEMA` with
+`GITHUB_CHANGED_FILE_STATUSES`, `GITHUB_CHECK_RUN_SCHEMA` with
+`GITHUB_CHECK_CONCLUSIONS`, `GITHUB_DETAIL_PAGE_SCHEMA` (one page per part, in
+the existing comment, review and commit types and the three new ones),
+`GITHUB_DETAIL_ERROR_SCHEMA` (the tools' error plus a nullable `reset_at`) and
+`GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA`, and the matching types
+`GithubReviewComment`, `GithubChangedFile`, `GithubCheckRun`,
+`GithubDetailPage` and `GithubDetailError`. Text GitHub users wrote is marked
+untrusted as in the tool payloads. The route's raw path and payload stay
+internal; these exports are the types a client binds to. No existing export
+changes.
+
 ## Package entry points
 
 **Breaking pre-1.0 export curation (#534, ruled on #343 question 1).** Each
@@ -738,6 +781,32 @@ inside the brain root keeps the existing `read_only_brain` refusal. No JSON
 shape changes. The cron runner adds a `[cron-run]` line and prefixes the
 recorded error with the same explanation when a worker job exits nonzero with
 an unexplained `EROFS` or "read-only file system" in its stderr.
+
+<a id="module-repositories"></a>
+
+**Additive module repositories (0.45.0, #3380).** A module's config block
+accepts an optional core-owned `repositories: string[]`, removed before the
+module's `configSchema` sees the block, like `enabled`. Each entry must be an
+`https://` URL (or a loopback `http://` URL) with no credential, query,
+fragment or dot segment; at most 16 are allowed, and duplicates collapse. An
+invalid list is a load error for that module. `LoadedModule` gains the optional
+`repositories` field, and `brain module list --json` reports it on every
+configured module (see the [CLI component](cli.md)). The list is a request:
+`@schlessera/brain-ui-server`'s cron runner fetches a repository for a module
+job only when the operator's `BRAIN_UI_MODULE_REPOSITORIES` names it too. That
+allow-list is read from the runner's host environment, is never forwarded to a
+job, and compares repositories by origin and path, ignoring a trailing `/` or
+`.git`. The runner maps a job named `<module>-<entry>` to its module through a
+credential-free `brain module list --json`, matching both the name and the
+entry's `brain …` command. A job whose module asks for a repository the list
+does not allow, or whose fetch fails, is refused before it starts: it exits 1,
+its `cron_runs` error names the repository and the setting, and nothing is
+fetched for it. A granted repository is fetched into a host-private bare mirror
+beside the sync mirror by the sync transport, with `BRAIN_UI_SYNC_GITHUB_TOKEN`
+(else `GITHUB_TOKEN`) sent only to `https://github.com`. The job's worker gets
+the mirror read-only and `url.file://<mirror>.insteadOf` rewrites for the
+URL's plain, `/`, `.git` and `.git/` spellings. It never receives a Git
+credential. The crontab layout is unchanged.
 
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional

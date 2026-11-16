@@ -225,7 +225,9 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
       "egress_connection", "fetching_command", "unclassified_command",
       // Additive (#3108): a collected external compute job's output, text from a remote machine.
       "compute_output",
-      "apify_result", "legacy_unknown"]),
+      "apify_result",
+      // Additive (#3797): issue and pull request text a host GitHub tool returned.
+      "github_result", "legacy_unknown"]),
     tool: z.string().min(1).max(200).nullable(),
     detail: text.nullable(),
     occurrence: OccurrenceSchema.optional(),
