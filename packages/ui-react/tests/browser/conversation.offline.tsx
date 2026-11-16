@@ -3,7 +3,7 @@ import { afterAll, beforeAll, expect, test, type TestContext } from "vitest";
 import { commands, userEvent, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
-import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import { CONVERSATION_LIMITS, type ConversationCapabilities, type ConversationWireEvent, type ConsumerServerMessage, type ServerConversationOpened, type ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -1259,7 +1259,7 @@ test("root refresh: dispose releases physical capture and a fresh root requires 
   expect(fresh.client.state.getState().micOn).toBe(false);
   expect(mic.opens()).toBe(1);
   old.client.enter(); old.client.resume();
-  old.client.frame({ ...PROFILE, epoch: 2, requestId: String(old.socket.frames("conversation_start")[0]?.requestId) });
+  old.client.receive({ ...PROFILE, epoch: 2, requestId: String(old.socket.frames("conversation_start")[0]?.requestId) });
   expect(mic.opens()).toBe(1);
   await userEvent.click(fresh.button("Start"));
   await expect.poll(() => fresh.client.state.getState().micOn).toBe(true);
@@ -1367,7 +1367,7 @@ for (const ending of ["leave", "logout", "dispose"] as const) test(`close diagno
   else if (ending === "logout") await s.ui.authLock.expire("signed out", true);
   else s.dispose();
   expect(s.client.state.getState().notice, "LIFECYCLE_CLEARS_CLOSE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.provider_error);
-  s.client.frame(closed);
+  s.client.receive(closed);
   expect(s.client.state.getState().notice, "LATE_CLOSE_CANNOT_RESTORE_DIAGNOSTIC").not.toContain(CLOSE_DIAGNOSTICS.provider_error);
   expect(s.client.state.getState().active).toBe(false);
 });
@@ -1897,8 +1897,8 @@ test("late contextual correlation is bounded, exact and cleared with its princip
   expect(s.client.state.getState().unassignedWork, "BOUND_CONTEXTUAL_NOTICE_CANNOT_RETARGET").toBe(0);
   flushSync(() => s.ui.stores.chat.getState().setActiveSession("odysseus-bounded-native"));
   await s.ui.authLock.expire("signed out", true);
-  s.client.frame({ ...retained, state: "running", turnId: "odysseus-retained-turn" });
-  s.client.frame({ type: "session_info", sessionId: "odysseus-bounded-native", requestId: retained.requestId, turnId: "odysseus-retained-turn", isNew: true } as ServerMessage & { turnId: string });
+  s.client.receive({ ...retained, state: "running", turnId: "odysseus-retained-turn" });
+  s.client.frame({ type: "session_info", sessionId: "odysseus-bounded-native", requestId: retained.requestId, turnId: "odysseus-retained-turn", isNew: true } as ConsumerServerMessage & { turnId: string });
   expect(s.client.state.getState().unassignedWork, "LATE_CONTEXTUAL_IDENTITY_CANNOT_SURVIVE_AUTH_CLEAR").toBe(0);
   expect(s.socket.frames("conversation_commit")).toHaveLength(0);
   expect(s.socket.frames("chat_message")).toHaveLength(0);

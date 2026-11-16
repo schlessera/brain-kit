@@ -213,6 +213,7 @@ export const Arrived = meta.story({
     await userEvent.click(await canvas.findByRole("button", { name: "Arrive" }));
     await expect(box()).toBeNull();
     const out = canvasElement.querySelector<HTMLElement>(".bk-ghost-out")!;
+    await expect(out, "the outgoing ghost is laid over the arriving content").not.toBeNull();
     await expect(getComputedStyle(out).position).toBe("absolute");
     await expect(getComputedStyle(out).animationName).toBe("ghost-out");
     await expect(getComputedStyle(canvasElement.querySelector(".bk-ghost-in")!).animationName).toBe("ghost-in");

@@ -30,6 +30,7 @@ for (const mode of ["subscriber", "queued"]) test(`worker snapshot overflow send
       .toEqual(["worker_started", "session", "initialize"]);
     const frames = received.filter(frame => frame.type !== "startup_timing");
     expect(frames[0].type).toBe("ready");
+    expect(frames[0].loadedExtensions, "PI_READY_REPORTS_RUNTIME_LOADED_EXTENSIONS").toBe(3);
     expect(frames.filter(f => ["error", "done", "snapshot"].includes(f.type))).toEqual([
       { type: "error", errorClass: "session_too_large",
         message: "This conversation exceeds the pi worker session size limit. Continue in a new conversation." },

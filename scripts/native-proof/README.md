@@ -32,7 +32,11 @@ barrier is timed at the bridge, and the copy and seed of the turn's data tree
 at admission, with the host load before and after, in `apply-timing.json`. The
 run fails unless both medians are at most 300 ms, the in-worker search sees all
 20 edited notes, Claude's MCP server reads the data tree and pi's reader and
-shell see the edits. It is a measurement, not part of the default
+shell see the edits. Each mounted tree's Btrfs allocation (`btrfs filesystem
+du`: total, exclusive and shared bytes) is recorded once seeded and again when
+the turn closes it (#2911). The run fails unless every seeded tree's exclusive
+bytes are below a tenth of its total, the proof that it shares the
+checkpoint's extents. It is a measurement, not part of the default
 qualification.
 
 `--observation-timing` measures the turn journal's per-call cost (#2834). For
@@ -80,7 +84,10 @@ for the short helper's entry into the authenticated manager stage mount
 namespace; dropping it makes the actual managed-stage launch refuse. The same
 cell reuses the owned 4 GiB Btrfs fixture for sealed stage authority and private
 checkpoint capture, and runs the fixed reader's descriptor/bounds/cancellation
-controls. Its outer container permits the
+controls. Its strict provider-index turn places its data tree on the managed
+volume (#2911): the separate-UID worker reads its own tree, gets `EROFS`
+writing it, and can neither read a peer turn's tree nor list the manager's
+`trees/` area, and the manager has removed the tree once the turn ends. Its outer container permits the
 fixture helper's UID transition; the actual worker must still prove
 `NoNewPrivs=1` and zero effective capabilities. The other native cells retain
 their existing outer `no-new-privileges` setting. No helper is installed on the
@@ -340,6 +347,15 @@ edits a writable snapshot of sealed source, diffs two of its read-only
 checkpoints and grants it to a running non-root bubblewrap worker through an
 access generation, then parks it, adopts an interrupted grant on restart and
 closes the generation.
+A growth case ([#3515](https://github.com/schlessera/brain-kit/issues/3515))
+acquires a generated Odysseus repository cold into two views. It adds a
+worktree and a changed refresh, both within the ruled thresholds, and expects
+`poolGrowth` to report no flag. Then it grows the worktree past 25 % of its
+cold acquisition, refreshes with new data past 0.75x, and publishes a third
+copy. It expects exactly those three flags, unchanged recovery records and the
+same result from `brain-native-store pool growth`. Names planted in a view
+that escape it or resolve to an unpublished root or a worktree make the status
+unavailable.
 
 Case 18's S7 allocations use `createFixtureWorktrees`: at most three allocation
 attempts (the initial allocation plus two fresh identities). Only an
@@ -383,7 +399,12 @@ are sealed, so their comparisons use the census's exclusive extents.
 `pendingBytes` and `availableBytes` are the admission reservations. A
 `btrfs filesystem du` census reports total, exclusive and shared extents per
 path. Git's `count-objects` is recorded as logical object size only; no
-logical size or sum of `st_blocks` is reported as unique usage. The run checks:
+logical size or sum of `st_blocks` is reported as unique usage. Every row also
+carries `io`: the pool loop device's block reads and writes from
+`/proc/diskstats`, and this process's own I/O with its reaped transport
+workers from `/proc/self/io`, both since the previous row and after a `sync`.
+Cold, warm and refresh rows add `peak`, the highest combined charge and
+reservation sampled every 50 ms while the step ran. The run checks:
 
 - **Reuse.** A repeat read inside the refresh window, and an unchanged
   refresh after it, reuse the one source root and allocate at most 256 KiB.
@@ -403,6 +424,22 @@ logical size or sum of `st_blocks` is reported as unique usage. The run checks:
 - **Sharing loss.** `git repack -a -d -f` in a worktree, or a linked
   `git worktree add` inside one, allocates its objects or checkout as new
   extents charged to that worktree alone.
+- **Write-time EDQUOT.** A worktree writing past its allowance is refused by
+  `write()` with `EDQUOT`, charging neither its sibling nor its source. A
+  commit larger than one operation's allowance is refused inside the refresh
+  fetch, with Git's quota error. Past the refresh window the previous commit's
+  validation has also lapsed, so no stale copy may be served: the request
+  rejects as `capacity`, the previous root is neither served nor withdrawn,
+  and the staging root is released and reclaimed.
+- **Cancellation.** A refresh whose only requester leaves once its staging
+  root is writable rejects as `cancelled`, publishes nothing, and its staging
+  root is released and reclaimed.
+- **Crash and restart.** A second app instance on the same database
+  (`reference-efficiency-crash-child.ts`) is killed with `SIGKILL` while its
+  staging root is writable. The manager keeps that root writable and charged.
+  The next instance's startup `recover()` releases it, retains nothing and
+  keeps the previous source, and the space is observed reclaimed. The changed
+  refresh then runs on that restarted instance.
 
 Repository features, as the transport handles them:
 

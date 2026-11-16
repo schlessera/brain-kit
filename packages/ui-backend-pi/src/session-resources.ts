@@ -73,6 +73,7 @@ export function createSessionResources(options: {
         apify: caps.apify,
         attachments: caps.attachments,
         web: caps.web,
+        github: caps.github,
       },
     });
     return { tools, turnContext };

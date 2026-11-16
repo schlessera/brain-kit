@@ -16,22 +16,29 @@ const helperConsumers:Record<string,string>={
   // Re-audited for #3812: inbound.ts gained refusalReason from lib/turn-failure.ts,
   // which imports only protocol types and constants; still only runStateForFrame
   // from the chat handlers.
-  "packages/ui-react/src/ws-client/inbound.ts":"513ef019608371d41da3d15c3f48fdc2a8bcbb49882975b6f8099e2cd0a2d64c",
+  // Re-audited for #3389: inbound.ts now dispatches the voice-owned frames
+  // connection-wide through dispatchServerMessage and hands the conversation
+  // client's receive to the context; from chat.ts it still imports only
+  // runStateForFrame and never acquires or mutates chatFrameHandlers.
+  "packages/ui-react/src/ws-client/inbound.ts":"4de90794456038a9e424c034c36c95a7c20651b529adb7a5a20d18c0490051c1",
   "packages/ui-react/src/hooks/use-websocket.ts":"6edd8b289fa4dcf7f0a512ce1275bd9e9c70661ce5630e22503b4b1d888cf557"
 };
 // Re-audited for #3155: chat.ts only gained `attachmentFiles` in its history
 // message mapping; chatFrameHandlers and its dispatch are unchanged.
+// Re-audited for #3389: index.ts only retyped dispatchServerMessage's frame
+// as ConsumerServerMessage, and chat.ts only lost its `pong` no-op entry and
+// union member; the registry, its spreads and its one call site are unchanged.
 const declarations=[
   {
     "owner": "packages/ui-react/src/hooks/websocket-handlers/index.ts",
-    "source": "21bf20fc8dad6e8a985f1d8686b559627b46824048f1021ad422c5c002f123b8",
+    "source": "72b7747cf4704cd16718919610d71b3aa74d17c6d5adbece3426eb5ed4da823d",
     "registry": "serverMessageHandlers",
     "expression": "serverMessageHandlers[msg.type](msg as never, context)",
     "maps": [
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "7293732dfe85e43815c013e86af467a6d57c33d0eb8232310938ed3a6d5e3048"
+        "source": "e1728b598b8c187f5776e092de4be685e29912949af24171890e6a9c81130a51"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
@@ -55,10 +62,14 @@ const declarations=[
       // reads no runtime input; the conversation client takes the frame.
       // Re-audited for #3616: the added live_settings handler is a no-op that
       // reads no runtime input; the root conversation client reads the frame.
+      // Re-audited for #3389: the eight voice-owned entries (dialogue_history,
+      // tool_resolution, conversation_*) now only pass their frame to
+      // context.conversation, the conversation client's receive, which read
+      // the same frames from its prefilter before; they read nothing else.
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "f4d7125dd5212dab15eea102c7e45f4ed5139f5dddc2a48f6a77fc3bd9838b70"
+        "source": "76b9ca482cc1cf0d2cc990fd25bbdc4862e5e3c78b0231ead36184edb06b6f8e"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

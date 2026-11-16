@@ -75,8 +75,10 @@ export const piWorkerMessage = z.discriminatedUnion("type", [
     gitStatusIncluded: z.boolean().nullable(), coverage: z.literal("assembled_inputs"),
   }).strict() }).strict(),
   z.object({ type: z.literal("startup_timing"), phase: z.enum(["worker_started", "resources", "session", "initialize"]), durationMs: usageNumber }).strict(),
+  // `loadedExtensions`: what the worker's own loader loaded, extensions and
+  // load errors, counted before the prompt (#2874). Absent is no evidence.
   z.object({ type: z.literal("ready"), sessionId: z.string().uuid(), append: z.string().optional(), model: input.optional(),
-    thinkingLevel: text.optional(), levels: z.array(text), cost: usageNumber }).strict(),
+    thinkingLevel: text.optional(), levels: z.array(text), cost: usageNumber, loadedExtensions: z.number().int().nonnegative().optional() }).strict(),
   z.object({ type: z.literal("event"), event: piWorkerEvent }).strict(),
   z.object({ type: z.literal("rpc"), id, method: z.enum(["permission", "admission", "bridge", "apply", "readBase", "syncAuth", "lock", "unlock", "fileObservation", "safetyResult", "safetyUnavailable"]),
     toolCallId: text, toolName: text, input }).strict(),

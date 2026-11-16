@@ -143,6 +143,23 @@ so ellipsis does not cut off blurred ends. Reduced motion hides the entire
 band and disables every translation; print hides ghosts and the band. The
 existing instant reduced-motion handoff and stream tail rules remain.
 
+### D53 addendum — the handoff ends on its fades' end (#3425, 2026-11-15)
+
+The handoff now ends when the item's own fades end, not on a 600ms timer
+started at the arrival commit (`useArrival`,
+`packages/ui-kit/src/internal/GhostText.tsx:216-248`). The fades start on the
+first frame the browser renders after the commit. On a loaded browser that
+frame can come hundreds of ms late, and the commit timer then removed the
+ghost from partial opacity, part-way through its fade. Even unloaded, the timer
+ended the fade a frame early. Each consumer hands its root element to the hook,
+which waits on that frame's running `ghost-in` and `ghost-out` animations.
+
+Where no fade runs, the handoff still ends after `HANDOFF_MS`. That covers
+reduced motion's 0s fades, `animation: none` and a DOM without Web Animations.
+A fade that has not started `FIRST_FRAME_MS` (3s) after the commit means the
+document renders no frames, and the handoff ends then rather than hold the
+ghost forever. The 600ms fade, its easing and its keyframes are unchanged.
+
 
 <a id="2026-10-07--streaminganswer-is-the-turns-waiting-status-1144"></a>
 

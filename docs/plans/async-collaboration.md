@@ -153,7 +153,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:102-154`) and
   (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:218-286`) are run-bound and do not
   maintain an Actions aggregate count.
-- **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:101`) assigns the source in server code.
+- **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:174`) assigns the source in server code.
   (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2701`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
 - **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1346-1358`) gates WS starts;
@@ -751,7 +751,7 @@ recovered tick after killing the interval
 
 **Approach:**
 - One arrival → one thread (trust class from the source record, hardcoded server-side per the
-  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:101`) precedent) + one `triage` Queue item; bytes stay in the staging
+  (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:174`) precedent) + one `triage` Queue item; bytes stay in the staging
   directory
 - `dedup_key` from a content hash for shares; from an explicit key for authenticated CLI adds
 - Trust class is written by the server and is not a parameter of any request body

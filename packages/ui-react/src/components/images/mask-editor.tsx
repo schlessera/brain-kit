@@ -1,6 +1,6 @@
-import { Button, Overlay } from "@schlessera/brain-ui-kit";
+import { Button, ImageEditorFrame } from "@schlessera/brain-ui-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eraser, RotateCcw, X } from "lucide-react";
+import { Eraser, RotateCcw } from "lucide-react";
 
 import { useBrainUiRoot } from "../../root-context.js";
 import { useMaskStore } from "../../stores/mask-store.js";
@@ -13,6 +13,9 @@ import { useMaskStore } from "../../stores/mask-store.js";
  * **painted pixels are fully transparent** and everything else is opaque —
  * the convention OpenAI's edit endpoint reads, so the bytes go through to the
  * API unmodified.
+ *
+ * The frame (header, stage, error line, toolbar slot) is the kit's shared
+ * `ImageEditorFrame`, which the markup editor also uses (#3983).
  *
  * Painting happens on a display-sized canvas and is scaled to the image's true
  * pixel dimensions on export, so a mask drawn on a phone still lines up with a
@@ -147,106 +150,91 @@ export function MaskEditor({
   };
 
   return (
-    <Overlay open variant="fullscreen" theme="dark" labelledBy="mask-editor-title" onClose={cancel}>
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 p-3 text-sm text-foreground">
-        <div className="min-w-0">
-          <h2 id="mask-editor-title" className="font-medium">Mark the area to change</h2>
-          <div className="truncate text-muted-foreground">
-            {request.instruction ?? request.imagePath}
-          </div>
+    <ImageEditorFrame
+      open
+      title="Mark the area to change"
+      subtitle={request.instruction ?? request.imagePath}
+      closeLabel="Cancel"
+      onClose={cancel}
+      error={error}
+      toolbar={
+        <div className="flex items-center gap-3">
+          <label className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
+            Brush
+            <input
+              type="range"
+              min={8}
+              max={160}
+              value={brush}
+              onChange={(e) => setBrush(Number(e.target.value))}
+              className="flex-1"
+            />
+          </label>
+          <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
+            type="button"
+            onClick={() => setStrokes((prev) => prev.slice(0, -1))}
+            disabled={strokes.length === 0}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-foreground hover:bg-surface-raised disabled:opacity-40"
+            aria-label="Undo"
+          >
+            <RotateCcw className="h-5 w-5" />
+          </button>
+          <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
+            type="button"
+            onClick={() => setStrokes([])}
+            disabled={strokes.length === 0}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-foreground hover:bg-surface-raised disabled:opacity-40"
+            aria-label="Clear"
+          >
+            <Eraser className="h-5 w-5" />
+          </button>
+          <Button label="Use this area" onClick={submit} disabled={!loaded} block={false} />
         </div>
-        <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
-          type="button"
-          onClick={cancel}
-          aria-label="Cancel"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded hover:bg-surface-raised"
-        >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-
-      <div className="flex min-h-0 flex-1 items-center justify-center p-3">
-        {rawUrl && (
-          <img
-            key={rawUrl}
-            ref={imageRef}
-            src={rawUrl}
-            alt=""
-            className="hidden"
-            onLoad={(e) => {
-              const img = e.currentTarget;
-              const canvas = canvasRef.current;
-              if (canvas) {
-                // Cap the working canvas so a 4K source stays responsive to draw on.
-                const maxEdge = 1400;
-                const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
-                canvas.width = Math.round(img.naturalWidth * scale);
-                canvas.height = Math.round(img.naturalHeight * scale);
-              }
-              setLoaded(true);
-            }}
-            onError={() => setError(`Could not load ${request.imagePath}`)}
-          />
-        )}
-        <canvas
-          ref={canvasRef}
-          className="max-h-full max-w-full touch-none rounded shadow-lg"
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId);
-            setDrawing(true);
-            setStrokes((prev) => [...prev, { points: [pointFrom(e)], width: brush }]);
+      }
+    >
+      {rawUrl && (
+        <img
+          key={rawUrl}
+          ref={imageRef}
+          src={rawUrl}
+          alt=""
+          className="hidden"
+          onLoad={(e) => {
+            const img = e.currentTarget;
+            const canvas = canvasRef.current;
+            if (canvas) {
+              // Cap the working canvas so a 4K source stays responsive to draw on.
+              const maxEdge = 1400;
+              const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+              canvas.width = Math.round(img.naturalWidth * scale);
+              canvas.height = Math.round(img.naturalHeight * scale);
+            }
+            setLoaded(true);
           }}
-          onPointerMove={(e) => {
-            if (!drawing) return;
-            const p = pointFrom(e);
-            setStrokes((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last) next[next.length - 1] = { ...last, points: [...last.points, p] };
-              return next;
-            });
-          }}
-          onPointerUp={() => setDrawing(false)}
-          onPointerCancel={() => setDrawing(false)}
+          onError={() => setError(`Could not load ${request.imagePath}`)}
         />
-      </div>
-
-      {error && <div className="px-3 pb-1 text-center text-sm text-destructive-fill">{error}</div>}
-
-      <div className="flex items-center gap-3 p-3">
-        <label className="flex flex-1 items-center gap-2 text-xs text-muted-foreground">
-          Brush
-          <input
-            type="range"
-            min={8}
-            max={160}
-            value={brush}
-            onChange={(e) => setBrush(Number(e.target.value))}
-            className="flex-1"
-          />
-        </label>
-        <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
-          type="button"
-          onClick={() => setStrokes((prev) => prev.slice(0, -1))}
-          disabled={strokes.length === 0}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-foreground hover:bg-surface-raised disabled:opacity-40"
-          aria-label="Undo"
-        >
-          <RotateCcw className="h-5 w-5" />
-        </button>
-        <button /* raw-button: canvas — White-on-black editor chrome uses its media palette. */
-          type="button"
-          onClick={() => setStrokes([])}
-          disabled={strokes.length === 0}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-foreground hover:bg-surface-raised disabled:opacity-40"
-          aria-label="Clear"
-        >
-          <Eraser className="h-5 w-5" />
-        </button>
-        <Button label="Use this area" onClick={submit} disabled={!loaded} block={false} />
-      </div>
-    </div>
-    </Overlay>
+      )}
+      <canvas
+        ref={canvasRef}
+        className="max-h-full max-w-full touch-none rounded shadow-lg"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setDrawing(true);
+          setStrokes((prev) => [...prev, { points: [pointFrom(e)], width: brush }]);
+        }}
+        onPointerMove={(e) => {
+          if (!drawing) return;
+          const p = pointFrom(e);
+          setStrokes((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last) next[next.length - 1] = { ...last, points: [...last.points, p] };
+            return next;
+          });
+        }}
+        onPointerUp={() => setDrawing(false)}
+        onPointerCancel={() => setDrawing(false)}
+      />
+    </ImageEditorFrame>
   );
 }
