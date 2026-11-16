@@ -18,6 +18,11 @@ export interface NativeJournalManager {
   delta(from: string, to: string, signal?: AbortSignal): Promise<{
     stream: ReadableStream<Uint8Array>; completed: Promise<{ exitCode: 0; bytes: number }>;
   }>;
+  /**
+   * Also called for an identity whose `checkpoint` was refused. A manager
+   * that refused it before recording any lease acknowledges that nothing
+   * remains to release (#3528); otherwise the observer keeps the identity.
+   */
   release(id: string, signal?: AbortSignal): Promise<unknown>;
   readCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["readCheckpoint"];
   statCheckpoint?: ReturnType<typeof createNativeBrainManagerClient>["statCheckpoint"];
