@@ -16,9 +16,29 @@ type InboxSlice = ReturnType<NonNullable<NonNullable<BridgeContext["host"]["inbo
  * called on its own ahead of the bridge's other capabilities.
  */
 export function openInbox(ctx: BridgeContext, protectedPaths: readonly string[] | undefined): InboxSlice | undefined {
-  const { host, turn, turnId, principalId, signal, work, isAuthorized } = ctx;
+  const { host, turn, turnId, principalId, signal, work, isAuthorized, hold, scopePaused, maskGuard } = ctx;
+  // Compensation waits only for a hold on brain writes: it runs after
+  // revocation or cancellation too, and never during an observation (#2869).
+  const writes = { waitMs: hold.waitMs, active: () => !!host.journal?.isHeld() || scopePaused(), settled: () => hold.settled() };
   return host.inboxTools?.forTurn({ principalId, turnId, isCurrent: () => !signal.aborted && isAuthorized(), sessionId: () => turn.sessionId ?? undefined,
-    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}) });
+    origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive", ...(protectedPaths ? { protectedPaths } : {}),
+    holds: { hold, writes, signal }, ...(maskGuard ? { requalify: () => assertStagingUnmasked(ctx, maskGuard) } : {}) });
+}
+
+/**
+ * Intake stages the submitted item under the share staging directory and
+ * reconciles what is already staged there, so a mask at, above or inside
+ * that directory, or one it resolves into, refuses the whole addition.
+ */
+function assertStagingUnmasked(ctx: BridgeContext, maskGuard: NonNullable<BridgeContext["maskGuard"]>): void {
+  const { host, toolName } = ctx;
+  const tool = toolName("inbox_add");
+  maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => isWithin(SHARE_STAGING_DIR, folder, { includeRoot: false }))]);
+  if (host.brainPath) {
+    let resolved: string | undefined;
+    try { resolved = relative(realpathSync(host.brainPath), realpathSync(join(host.brainPath, SHARE_STAGING_DIR))); } catch { /* not staged yet */ }
+    if (resolved !== undefined) maskGuard.assert(tool, [`${resolved}/new`]);
+  }
 }
 
 /** Activity events, usage and promotions the backend reports, and the activity query tool. */
@@ -99,24 +119,17 @@ export function createActivity(ctx: BridgeContext, transcript: TurnTranscript,
 
 /**
  * Masks the server's own records on a bridge whose turn has masked folders.
- * Intake stages the submitted item under the share staging directory and
- * reconciles what is already staged there, so a mask at, above or inside
- * that directory, or one it resolves into, refuses the whole addition.
+ * `inbox_add` refuses a masked staging directory at entry, and again before
+ * each intake write, since the staging directory may move during a hold.
  * The activity record and inbox items are the server's own text, kept from
  * earlier runs, and may quote a masked document. They are refused whole,
  * before any record is read; the tools stay registered (#2698, option A).
  */
 export function guardMaskedRecords(ctx: BridgeContext, bridge: BackendBridge): void {
-  const { host, maskGuard, toolName } = ctx;
+  const { maskGuard, toolName } = ctx;
   const inboxAdd = bridge.inboxAdd;
   if (maskGuard && inboxAdd) bridge.inboxAdd = async input => {
-    const tool = toolName("inbox_add");
-    maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => isWithin(SHARE_STAGING_DIR, folder, { includeRoot: false }))]);
-    if (host.brainPath) {
-      let resolved: string | undefined;
-      try { resolved = relative(realpathSync(host.brainPath), realpathSync(join(host.brainPath, SHARE_STAGING_DIR))); } catch { /* not staged yet */ }
-      if (resolved !== undefined) maskGuard.assert(tool, [`${resolved}/new`]);
-    }
+    assertStagingUnmasked(ctx, maskGuard);
     return inboxAdd(input);
   };
   if (maskGuard) for (const [name, tool, what] of [["queryActivity", "query_activity", "The activity record"],

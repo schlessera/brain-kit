@@ -16,7 +16,7 @@ import {
 } from "../scripts/test-experiments";
 
 const ROOT = join(import.meta.dir, "..");
-const SCRIPTS = ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-experiments.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts",
+const SCRIPTS = ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-experiments.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-home.ts",
   "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs", "host-admission.mjs"];
 
 const passing = (name: string) => `import { expect, test } from "bun:test";\ntest(${JSON.stringify(name)}, () => expect(1).toBe(1));\n`;
@@ -109,7 +109,7 @@ describe("experiment tier discovery", () => {
       writeFileSync(join(dir, "cache.js"), "");
       linkSync(join(dir, "cache.js"), join(dir, "node_modules/a/cached.js"));
       expect(externallyHardlinked(dir)).toBe("node_modules/a/cached.js");
-      expect(COPY_INSTALL).toBe("rm -rf node_modules && bun install --frozen-lockfile --backend=copyfile");
+      expect(COPY_INSTALL).toBe("sh scripts/prepare-diagnostic-install.sh");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
