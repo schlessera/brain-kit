@@ -154,6 +154,36 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="consumer-frames-without-pong-breaking-3389"></a>
+
+## Consumer frames without `pong` (breaking before 1.0, #3389)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ConsumerServerMessage`, defined as
+`Exclude<ServerMessage, ServerPong>`: the frames `BrainUiClient` hands its
+consumer. `ServerFrameHandlers` is keyed on `ConsumerServerMessage["type"]`
+and its `onAny` takes a `ConsumerServerMessage`. Before, both were keyed on
+`ServerMessage`, so a consumer could register a `pong` handler that the client
+never called, because it answers its own probes and returns first. That
+handler is now a type error; delete it. Code typed against `ServerMessage`
+still accepts every frame the client delivers.
+
+`ServerMessage`, `ServerPong`, `serverPongSchema` and `parseServerMessage` are
+unchanged, as is the [liveness exchange](wire.md#interactive-answer-receipts-breaking-910) on the wire.
+
+In `@schlessera/brain-ui-react`, `root.connection.conversation` gains
+`receive(frame)` for the frames the conversation client owns:
+`dialogue_history`, `tool_resolution`, `conversation_opened`,
+`conversation_closed`, `conversation_event`, `conversation_work`,
+`conversation_output` and `conversation_permission`. The server-frame handler
+map routes them there, and `frame()`, which still sees every inbound frame
+first, now returns them unchanged instead of consuming them. `frame()` takes
+and returns a `ConsumerServerMessage`. `root.connection.handleServerMessage`
+still takes a `ServerMessage` and ignores a `pong` fed to it. The client's
+`permissions` likewise gains `resolution(frame)` for `tool_resolution`, which
+`permissions.frame()` no longer reads. What voice does with each frame is
+unchanged.
+
 <a id="reading-a-chat-deletions-outcome-additive-3455"></a>
 
 ## Reading a chat deletion's outcome (additive, #3455)
