@@ -1322,6 +1322,10 @@ signatures (every public export and the types it is made of)
             max_tool_calls: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strict>>;
         taint: z.ZodOptional<z.ZodObject<{
+            classifier: z.ZodOptional<z.ZodEnum<{
+                heuristics: "heuristics";
+                off: "off";
+            }>>;
             egress: z.ZodOptional<z.ZodObject<{
                 allow: z.ZodArray<z.ZodString>;
             }, z.core.$strict>>;
@@ -2767,6 +2771,7 @@ signatures (every public export and the types it is made of)
             max_tool_calls: number;
         };
         taint: {
+            classifier: "heuristics" | "off";
             egress: {
                 allow: string[];
             };

@@ -20,6 +20,15 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Extraction classifier setting (additive, 0.45.0, #4088)
+
+The governance policy gains optional `taint.classifier`, `off` (the default) or
+`heuristics`, and `brain policy check --json` reports it in `effective.taint`.
+See [the supported input](supported-inputs.md#governance-policy),
+[the CLI component](integration-contract/cli.md) and
+[the package API](integration-contract/package-api.md#extraction-classifier-setting-additive-0450-4088).
+This ships in a minor; no breaking ruling is required.
+
 ## Reference pool growth status (additive, 0.45.0, #3515)
 
 The host-only `brain-native-store pool` projection gains a read-only `growth`
