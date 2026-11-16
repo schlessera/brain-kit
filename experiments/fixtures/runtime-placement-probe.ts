@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { captureSurface } from "../../scripts/capture-turn-surface.js";
 import { observedSkills } from "../../scripts/turn-surface-skills.js";
+import { requireWorkerHostAsync } from "../../packages/ui-sdk/src/server/worker-launcher.js";
 
 const networkInterfaces = readFileSync("/proc/net/dev", "utf8").trim().split("\n").slice(2).map(line => line.split(":")[0]!.trim());
 assert.deepEqual(networkInterfaces, ["lo"], "OWNED_CLAUDE_REQUIRES_OFFLINE_NAMESPACE");
@@ -18,6 +19,15 @@ const sdkRequire = createRequire(Bun.resolveSync("@anthropic-ai/claude-agent-sdk
 const installed = sdkRequire.resolve(`@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`);
 const manifest = JSON.parse(readFileSync(sdkRequire.resolve("./manifest.json"), "utf8"));
 try {
+  // The outer offline namespace can inherit an AppArmor label that forbids
+  // the real worker's nested namespaces, before either copied CLI starts.
+  try { await requireWorkerHostAsync(outside); }
+  catch (cause) {
+    let label = "unavailable";
+    try { label = readFileSync("/proc/self/attr/current", "utf8").replace(/\0/g, "").trim(); } catch { /* AppArmor is optional. */ }
+    throw new Error("OWNED_CLAUDE_NESTED_WORKER_HOST_REQUIRED: the outer offline namespace must permit the inner worker boundary. " +
+      "AppArmor label: " + JSON.stringify(label) + ". " + (cause instanceof Error ? cause.message : String(cause)), { cause });
+  }
   const paths = [outside, inside].map(root => {
     writeFileSync(join(root, "package.json"), '{"name":"odysseus-owned-cli-control"}\n');
     const path = join(root, "claude"); copyFileSync(installed, path); return path;
