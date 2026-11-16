@@ -3,7 +3,10 @@
  * `odysseus/ithaca`, with an issue (#7) and a pull request (#8), shaped like
  * the real responses (issue, pull, comments, reviews, commits, check runs,
  * combined status and issue search). It records every request with the
- * authorization it carried. Keyless: the token is a synthetic sentinel.
+ * authorization it carried, and a write's body. Writes (#3798): an issue
+ * filed in any repository, and a comment on any issue, answer 201 like
+ * GitHub, so a refusal proves itself by what never arrived. Keyless: the
+ * token is a synthetic sentinel.
  */
 export const GITHUB_TOOLS_SENTINEL = "odysseus-github-tools-sentinel-token";
 export const GENERIC_GITHUB_SENTINEL = "odysseus-generic-github-sentinel-token";
@@ -29,7 +32,7 @@ export interface FakeGithubOptions {
 
 export interface FakeGithub {
   origin: string;
-  seen: Array<{ method: string; path: string; search: string; authorization: string | null }>;
+  seen: Array<{ method: string; path: string; search: string; authorization: string | null; body: string | null }>;
   stop(): void;
 }
 
@@ -61,18 +64,38 @@ export function fakeGithub(options: FakeGithubOptions = {}): FakeGithub {
   const commits = COMMIT_SHAS.map((sha, index) => ({ sha, html_url: `${WEB}/commit/${sha}`, author: index ? null : telemachus,
     commit: { message: `Wax the string ${index + 1}`, author: { name: "Telemachus", date: at(2 + index) } } }));
   const json = (body: unknown, init?: ResponseInit) => Response.json(body, init);
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+  let filed = 41, commented = 77_000;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
-    seen.push({ method: request.method, path: url.pathname, search: url.search, authorization: request.headers.get("authorization") });
+    const body = request.method === "GET" ? null : await request.text();
+    seen.push({ method: request.method, path: url.pathname, search: url.search, authorization: request.headers.get("authorization"), body });
     const overridden = options.override?.(url.pathname, url.searchParams);
     if (overridden) return overridden;
+    if (request.method === "POST") {
+      const sent = JSON.parse(body ?? "{}") as { title?: string; body?: string; labels?: string[] };
+      const created = /^\/repos\/([^/]+)\/([^/]+)\/issues$/.exec(url.pathname);
+      if (created) {
+        const number = ++filed;
+        return json({ number, title: sent.title, state: "open", user: penelope, body: sent.body ?? null, labels: (sent.labels ?? []).map(label),
+          created_at: at(12), updated_at: at(12), html_url: `https://github.com/${created[1]}/${created[2]}/issues/${number}` }, { status: 201 });
+      }
+      const comment = /^\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)\/comments$/.exec(url.pathname);
+      if (comment) {
+        const id = ++commented;
+        return json({ id, user: penelope, body: sent.body, created_at: at(12), updated_at: at(12),
+          html_url: `https://github.com/${comment[1]}/${comment[2]}/issues/${comment[3]}#issuecomment-${id}` }, { status: 201 });
+      }
+      return json({ message: "Not Found" }, { status: 404 });
+    }
     const page = Number(url.searchParams.get("page") ?? "1"), perPage = Number(url.searchParams.get("per_page") ?? "30");
     switch (url.pathname) {
       case "/repos/odysseus/ithaca/issues/7": return json(issue);
       case "/repos/odysseus/ithaca/issues/8": return json(pullIssue);
       case "/repos/odysseus/ithaca/issues/7/comments": {
         const all = Array.from({ length: commentCount }, (_, index) => issueComment(7, 9000 + index, "issues"));
-        return json(all.slice((page - 1) * perPage, page * perPage));
+        // GitHub names the next page in a Link header.
+        return json(all.slice((page - 1) * perPage, page * perPage), page * perPage < commentCount
+          ? { headers: { link: `<${API}/issues/7/comments?per_page=${perPage}&page=${page + 1}>; rel="next"` } } : undefined);
       }
       case "/repos/odysseus/ithaca/issues/8/comments": return json([issueComment(8, 9101, "pull")]);
       case "/repos/odysseus/ithaca/pulls/8": return json(pull);

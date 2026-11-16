@@ -46,6 +46,10 @@ import { APIFY_AUTHORITY_SETTING, apifyBrainId, createApifyAuthority, governance
 import { createApifyRoutes } from "./routes/apify.js";
 import { createApifyHost } from "./apify/host.js";
 import { createGithubToolsHost } from "./github/host.js";
+import { createGithubDetails } from "./github/details.js";
+import { resolveChat } from "./ws/chat-lifecycle.js";
+import { createGithubDetailRoutes } from "./routes/github-details.js";
+import { sameAccount } from "./middleware/account-partition.js";
 import { createApifyPolicyEdits } from "./apify/settings.js";
 import { apifyBudgetSource } from "./apify/budget-liability.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
@@ -1175,6 +1179,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages),
     settled: () => host.historySettled(), retired: target => host.catalog.chatRetired?.(target) === true }));
+  // GitHub detail pages and avatars for the chat components (#3796): display
+  // data under the tools' dedicated credential, never provider context.
+  app.route("/api", createGithubDetailRoutes({ details: createGithubDetails({ token: githubToolsTokenSource() }),
+    principalValid: principal => host.isPrincipalValid(principal),
+    owns: (principal, sessionId) => { const chat = resolveChat(db, { sessionId }); return !("refused" in chat) && sameAccount(db, chat.principalId, principal.id); },
+    retired: sessionId => host.catalog.chatRetired?.({ sessionId }) === true,
+    history: async sessionId => {
+      const stored = db.query("SELECT backend_id AS backendId FROM sessions WHERE id = ?").get(sessionId) as { backendId: string | null } | null;
+      return (await registry.getBackendForSession(stored?.backendId ?? null)).getHistory(sessionId);
+    },
+    settled: () => host.historySettled() }));
   // Explicit local chat deletion (#3230), on a catalog that can retire chats.
   if (host.catalog.retireChat && host.catalog.cleanChatStore) {
     const chatDeletion = host.chatDeletion = createChatDeletion({ catalog: host.catalog, backends: () => registry.getBackends(),

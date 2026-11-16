@@ -119,13 +119,15 @@ and play function as StreamingAnswer's `LoadingToReady` story;
 Both count the handoff on the page's own clock (`watchHandoff`,
 `stories/_handoff-clock.ts`, #3417): from the committed text/outgoing-ghost
 layers to actual ghost removal, observed through native DOM mutations, the
-outgoing fade must last at most the approved 600ms of animation time and the
-ghost must be gone within three rendered frames of that fade's `animationend`.
-No wall-clock cap remains: a stalled runner delays the removal timer, the fade's
-end and every frame alike. Both transition observations are required.
+outgoing fade must last at most the approved 600ms of animation time, must
+reach its `animationend` before the ghost is removed (#3425), and the ghost
+must be gone within three rendered frames of that end. No wall-clock cap
+remains: a stalled runner delays the fade's end and every frame alike. Both
+transition observations are required.
 The controls delay first-token dispatch, delay final observation after removal,
-and block the main thread for 150ms across the fade's end; all pass. A ghost
-retained 200ms past its fade and a fade slowed to 900ms still fail. Both themes
+block the main thread for 150ms across the fade's end, and block it for 300ms
+right after the arrival commit, so the fades start late; all pass. A ghost
+retained 400ms past its fade and a fade slowed to 900ms still fail. Both themes
 retain the story's layout, geometry, nonempty token/tail and rendered-opacity
 assertions; the approved fade stays 600ms.
 

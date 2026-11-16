@@ -52,6 +52,7 @@ export async function playStreamingHandoff({canvas, canvasElement, userEvent}: {
     await expect(handoff.fadeMs, "the outgoing ghost's fade, in animation time").toBeLessThanOrEqual(FADE_MS);
     await expect(handoff.framesAfterFade, "frames rendered with the ghost after its fade ended").toBeLessThanOrEqual(FRAMES_AFTER_FADE);
     await expect(handoff.removed, "the outgoing ghost was removed").toBe(true);
+    await expect(handoff.fadeEnded, "the outgoing ghost's fade ended before its removal").toBe(true);
     await expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
 
     for (let i = 1; i < TOKENS.length; i++) await userEvent.click(token);

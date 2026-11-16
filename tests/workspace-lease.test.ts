@@ -281,7 +281,7 @@ test("the real pinned container wrapper waits for host ownership of its mounted 
 test("direct Bun test preserves its selector, timeout and offline preload while waiting", async () => {
   const root = fixture();
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "packages/core/tests"), { recursive: true });
-  for (const name of ["test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
+  for (const name of ["test-network-preload.ts", "test-home.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
     copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   }
   copyFileSync(join(project, "packages/core/tests/cli-harness.ts"), join(root, "packages/core/tests/cli-harness.ts"));

@@ -1,5 +1,5 @@
 import { PROPOSE_POLICY_CHANGE_CONTRACT, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, GITHUB_READ_TOOL_CONTRACTS, handleGithubTool, INBOX_TOOL_CONTRACTS, READ_ATTACHMENT_CONTRACT, REFERENCE_TOOL_CONTRACTS, WEB_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReadAttachment, handleReferenceTool, handleWebTool } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_CONTRACTS, COMPUTE_TOOL_CONTRACTS, GITHUB_TOOL_CONTRACTS, handleGithubTool, INBOX_TOOL_CONTRACTS, READ_ATTACHMENT_CONTRACT, REFERENCE_TOOL_CONTRACTS, WEB_TOOL_CONTRACTS, handleApifyTool, handleComputeTool, handleInboxTool, handleReadAttachment, handleReferenceTool, handleWebTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION,
@@ -382,9 +382,11 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
       return textResult(result.text);
     },
   });
-  // GitHub reads (#3797) run on the host, which binds the turn and holds the
-  // dedicated credential; a refusal, `unavailable` included, is a tool error.
-  if (capabilities?.github) for (const contract of GITHUB_READ_TOOL_CONTRACTS) tools.push({
+  // GitHub reads (#3797) and writes (#3798) run on the host, which binds the
+  // turn, holds the dedicated credential, checks a write against the policy
+  // allow-list and asks for it on its own card; a refusal, `unavailable`
+  // included, is a tool error. All four, in the contract's fixed order.
+  if (capabilities?.github) for (const contract of GITHUB_TOOL_CONTRACTS) tools.push({
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
     async execute(_id: string, input: unknown) {
       const result = await handleGithubTool(contract.name, input, turn.bridge ?? {});
