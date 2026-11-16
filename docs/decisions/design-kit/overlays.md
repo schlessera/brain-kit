@@ -21,9 +21,28 @@ one `no-preference` guard; reduced-motion overrides share the existing
 |---|---|---|---|---|
 | `sheet` | Docked to the bottom at every width. Full width below 480. From 480, `min(560px, 100vw − 32px)` wide and centred horizontally. | yes (top layer) | `dim` | Short pick-lists and live tools that belong at the thumb: More, Attach (phone), Graph options. (Dictation until #3694, which draws it in the voice field.) |
 | `dialog` | **Below 900 it has the sheet's shape.** From 900 it is a centred card, `radius-panel` (18px), at most `85dvh` tall, with the body scrolling. `placement="top"` puts the card 110px from the top and never docks it to the bottom (palette). | yes (top layer) | `dim` | A single decision or a single reading: handoff, the one-time credential (`alertdialog`), the command palette (`placement="top"`). |
-| `fullscreen` | Covers the viewport at every width, `--bk-color-canvas` opaque. The children draw the toolbar. | yes (top layer) | `opaque` | Tools that need the whole screen: the zoom viewer, the mask editor, the subagent drill-in. |
+| `fullscreen` | Covers the viewport at every width, `--bk-color-canvas` opaque. The children draw the toolbar. | yes (top layer) | `opaque` | Tools that need the whole screen: the zoom viewer, the image editors (mask and markup), the subagent drill-in. |
 | `panel` | Right-anchored. Full width below 768. From 768 (`md`), `size` sets the width: 320, 480 or 560. Full height, with a left `edge` hairline and the shadow. | `modal` prop. `true` (default) for act panels, which use the top layer and cover the bar and rail. `false` for destination panels: z-index `panel`, inert only over the content area, bar and rail stay live. | `veil` | The slide-over panels: Sessions, Settings and Files (destination, `modal={false}`); Search, Add, Sync and Whatsup (act, modal). |
 
+
+### The image-editor shell (#3983)
+
+The mask editor and the markup editor share one `fullscreen` shell,
+`ImageEditorFrame`: a header with the title, one context line and the close
+control; a stage taking the remaining height; an error line; and a toolbar
+slot. Both pin the dark theme, because the ground is a photograph, not the
+page. The shell is shared so the two editors cannot drift apart in title
+placement, dismissal or chrome, while each keeps the toolbar its own job
+needs: the mask editor a brush, the markup editor five tools, three colours
+and three widths. The mask editor moved into it without a visible change.
+The markup editor's context line clamps to two lines and expands in place;
+the mask editor keeps its single truncated line.
+
+A confirmation over an editor (the markup editor's "Discard N marks?" and
+"Clear N marks?") is a sibling `dialog` in the dark theme, never a child of
+the fullscreen surface: nested inside it, the child would inherit the
+fullscreen surface's full-bleed geometry. It opens on Keep drawing, the safe
+choice, which comes first.
 
 The document layer scale is fenced separately from the colour-token pipeline;
 `LAYERS` exports its numbers and `z` exports its CSS references. Kit and app
