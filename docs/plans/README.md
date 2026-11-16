@@ -23,6 +23,7 @@ because the code has become the better answer to "what does this do".
 | [reviewable-session-safety.md](reviewable-session-safety.md) | Proposed occurrence/coverage/review DTOs, finite limits, human authority and prospective trust publication; no runtime APIs implied. | [#3596](https://github.com/schlessera/brain-kit/issues/3596), [#3597](https://github.com/schlessera/brain-kit/issues/3597), [#3598](https://github.com/schlessera/brain-kit/issues/3598) |
 | [selectable-dictation.md](selectable-dictation.md) | Dictation provider registration, discovery, precedence and per-take/upload binding; the Gemini 3.5 Transcribe Live provider/client transport; Voice-pane dictation states and the #3707–#3710 proof split. | [#3705](https://github.com/schlessera/brain-kit/issues/3705) |
 | [repository-storage-dedupe.md](repository-storage-dedupe.md) | Measured evaluation of duperemove, bees and preventive sharing for the reference pool and brain store; compatibility matrix, options and the proposed growth safeguard. | [#3515](https://github.com/schlessera/brain-kit/issues/3515) |
+| [extraction-classifier.md](extraction-classifier.md) | Request schema, deterministic signals, labelled Odysseus set and measured heuristics and Jev tables for classifying a tainted session's outgoing calls, the recommendation, and the evasions the card must still catch. | [#4088](https://github.com/schlessera/brain-kit/issues/4088), [#4089](https://github.com/schlessera/brain-kit/issues/4089), [#4090](https://github.com/schlessera/brain-kit/issues/4090) |
 
 ## What does not live here
 
