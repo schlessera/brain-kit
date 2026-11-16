@@ -29,20 +29,27 @@ import { INTEGRATION_STEPS, INTEGRATION_TURNS, stepKey } from "./reference-integ
 import { poolIo, poolIoDelta, type PoolIo } from "./pool-io.js";
 
 /**
- * Latency and elapsed bounds of the integrated cell (#3513). PROVISIONAL until
- * the first hosted baseline: each is replaced by its measured value with
- * headroom, recorded beside it. Health and WebSocket samples cover every turn
- * from its message to its settled idle status.
+ * Latency, elapsed and allocation bounds of the integrated cell (#3513), set from the hosted
+ * `runtime_host` baseline: draft heavy feedback run 43969834503 at `ea71984c3`, two cells per
+ * backend (kernel 7.0.0-1017-azure, btrfs-progs v6.6.3, Git 2.43.0, Bun 1.4.2). Each bound
+ * names the worst of the four measurements beside it. Health and WebSocket samples cover every
+ * turn from its message to its settled idle status.
  */
 export const INTEGRATED_TOLERANCES = Object.freeze({
-  healthP95Ms: 500, healthMaxMs: 2_000,
-  wsP95Ms: 500, wsMaxMs: 2_000,
-  /** The first reference_source call of a backend: a cold acquisition of the 1,203-file repository with its charts. */
-  coldSourceMs: 30_000,
-  /** The last call of the first turn: the same source again, reused or validated in place. */
-  warmSourceMs: 5_000,
-  /** Peak pool charge above the turn's start during the first turn: one source and two worktree snapshots. */
-  inspectsPeakBytes: 64 * 1024 ** 2,
+  /** Measured p95 2.3–6.1 ms, max 9.7–86.4 ms. */
+  healthP95Ms: 50, healthMaxMs: 500,
+  /** Measured p95 2.9–6.3 ms, max 12.2–14.7 ms. */
+  wsP95Ms: 50, wsMaxMs: 250,
+  /** The first reference_source call of a backend: a cold acquisition of the 1,203-file repository with its charts. Measured 1,183–1,264 ms. */
+  coldSourceMs: 4_000,
+  /**
+   * The last call of the first turn: the same source again, reused or validated in place. Claude's
+   * time is the MCP call alone (measured 2 ms); Pi's spans its agent loop's round trip through the
+   * offline provider, about 0.7 s on any step (measured 735–744 ms).
+   */
+  warmSourceMs: Object.freeze({ claude: 250, pi: 2_000 }),
+  /** Peak pool allocation above the turn's start during the first turn: one source and two worktree snapshots. Measured 14.7 MiB. */
+  inspectsPeakBytes: 20 * 1024 ** 2,
 });
 const IT = INTEGRATED_TOLERANCES;
 /** Three incompressible 2 MiB charts beside the books: Git objects and checkout both hold them. */
@@ -282,7 +289,7 @@ async function run(backend: "claude" | "pi") {
     expect(inspectsSourceRoots, `INTEGRATED_${tag}_WARM_READ_ADDS_NO_ROOT`).toBe(1);
     expect({ cold: typeof elapsed["inspects#0"], warm: typeof elapsed["inspects#6"] }, `INTEGRATED_${tag}_SOURCE_ELAPSED_RECORDED`).toEqual({ cold: "number", warm: "number" });
     expect(elapsed["inspects#0"]!, `INTEGRATED_${tag}_COLD_SOURCE_ELAPSED`).toBeLessThanOrEqual(IT.coldSourceMs);
-    expect(elapsed["inspects#6"]!, `INTEGRATED_${tag}_WARM_SOURCE_ELAPSED`).toBeLessThanOrEqual(IT.warmSourceMs);
+    expect(elapsed["inspects#6"]!, `INTEGRATED_${tag}_WARM_SOURCE_ELAPSED`).toBeLessThanOrEqual(IT.warmSourceMs[backend]);
     expect(elapsed["inspects#6"]! < elapsed["inspects#0"]!, `INTEGRATED_${tag}_WARM_FASTER_THAN_COLD`).toBe(true);
     expect({ health: measured.health.count > 0, ws: measured.ws.count > 0, healthFailures: measured.healthFailures, lostPongs: measured.lostPongs },
       `INTEGRATED_${tag}_HEALTH_AND_LIVENESS_ANSWERED`).toEqual({ health: true, ws: true, healthFailures: 0, lostPongs: 0 });

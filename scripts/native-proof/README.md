@@ -502,7 +502,11 @@ the elapsed times and the kernel, btrfs-progs, Git, Bun and candidate
 identities. Every health probe must answer and every ping must return its
 pong. The warm read must add no source root and be faster than the cold one.
 Latencies, elapsed times and the first turn's peak are held to
-`INTEGRATED_TOLERANCES` in `reference-integration.native.ts`.
+`INTEGRATED_TOLERANCES` in `reference-integration.native.ts`. Those bounds
+come from a hosted `runtime_host` baseline of two cells per backend, and the
+worst measured value is recorded beside each bound. Pi's warm-read bound is
+wider than Claude's. Pi's time includes its agent loop's round trip through
+the offline provider, while Claude's is the MCP call alone.
 
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and
