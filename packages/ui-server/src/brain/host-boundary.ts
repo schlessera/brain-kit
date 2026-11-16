@@ -31,7 +31,7 @@ import {
   type MaintenanceTempKind, runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
-  startProviderRelay, relayedProviderKeys, hostProviderCredential, type ProviderRelay, type ProviderRelayReceipt,
+  startProviderRelay, relayedProviderKeys, hostProviderCredential, FIRST_PARTY_PROVIDER_RECIPIENTS, type ProviderRelay, type ProviderRelayReceipt,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
@@ -181,8 +181,17 @@ export const hostExecution = {
 const TURN_EGRESS_ACTIVE = "Governed and strict Claude and pi turns run on their own turn egress proxy and the host inference relay. A pi turn whose credential runs a command, or whose provider and credential type the relay does not carry, is refused.";
 const TURN_EGRESS_INACTIVE = "This brain is not on managed native storage, which the server requires at boot, so the turn egress relay cannot run and every governed and strict turn is refused.";
 /** Whether the brain CLI's paid providers are relayed (#1673): where provider keys live on this host. */
-const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike: the host holds their keys, records each request's usage and counts it toward the budgets.";
+const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike, and so does its JeV reranker in turn workers: the host holds their keys, records each request's usage and counts it toward the budgets.";
 const PROVIDERS_NOT_RELAYED = "The brain CLI's providers are not relayed here: governed and strict turn workers report them unavailable, and maintenance workers still receive the provider keys, so their spend is unmetered.";
+/**
+ * The keys a credentialed maintenance run reaches only through its relay. The
+ * JeV key is not one of them unless the operator lists it: such a run's sync
+ * judge and propagation review call TypeSafe directly (`createJevClient`,
+ * `packages/core/src/lib/jev.ts`), outside the relay, so the run keeps the key
+ * as before. Only turn workers relay JeV reranking (#3792).
+ */
+const maintenanceRelayedKeys = (origins?: ReadonlyMap<string, readonly string[]>): string[] =>
+  relayedProviderKeys(origins).filter(name => name !== FIRST_PARTY_PROVIDER_RECIPIENTS.typesafe.key || Boolean(origins?.has(name)));
 /** Deny direction (#3422): whether `path` is `dir` or below it; a `dir` of `/` holds every absolute path. */
 export const within = (dir: string, path: string) => isWithin(dir, path, { trailingSeparator: "boundary" });
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
@@ -455,8 +464,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     // A relayed run holds no relayed key: it learns their names and reaches
     // them through the relay. Keys the relay does not carry stay (#1673).
     if (relay) {
-      for (const name of relayedProviderKeys(options.providerRelay?.origins)) delete env[name];
-      const held = relayedProviderKeys(options.providerRelay?.origins).filter(name => Boolean(runCredential(execution, name)));
+      for (const name of maintenanceRelayedKeys(options.providerRelay?.origins)) delete env[name];
+      const held = maintenanceRelayedKeys(options.providerRelay?.origins).filter(name => Boolean(runCredential(execution, name)));
       if (held.length) env.BRAIN_WITHHELD_KEYS = held.join(",");
       else delete env.BRAIN_WITHHELD_KEYS;
     }

@@ -179,6 +179,7 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   type ApifyLimits
   BUILTIN_GOVERNANCE_POLICY
   type EffectiveGovernancePolicy
+  GITHUB_WRITE_REPOSITORIES_MAX
   GOVERNANCE_POLICY_MAX_BYTES
   GOVERNANCE_POLICY_PATH
   type GovernanceCommandRuleIndices
@@ -202,6 +203,7 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   TrustedSourcesSchema
   canonicalTrustHost
   checkGovernancePolicy
+  githubWriteAllowance
   matchTrustRules
   openGovernancePolicyAnchored
   parseGovernancePolicy

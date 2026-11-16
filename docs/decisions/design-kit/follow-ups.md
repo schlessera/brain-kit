@@ -150,6 +150,10 @@ keyless listing on 2026-10-02 adds **866** flat-schema characters and **709**
 after the definitions transform; the description remains **336** characters.
 These updated counts do not supply the live measurements reserved for #550.
 
+Rechecked on 2026-11-15: after #3525 (2026-11-03) moved the suggestions call
+before the answer's final sentence, the shipped description line adds **426
+JSON characters**; the earlier **336** counts above describe the historical rule.
+
 The maintainer's 2026-10-07 ruling pins new comparisons to
 `claude-sonnet-5-5`. Earlier observations on `claude-sonnet-5` keep their
 original model identity and are not pooled with the new comparison.

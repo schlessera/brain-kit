@@ -12,7 +12,7 @@
  * the boundary inbox cleanup and the TTL prune already enforced by pathname.
  */
 import {
-  closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmdirSync, unlinkSync,
+  closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
@@ -123,6 +123,15 @@ export function verifyEntry(parent: StagingDirectory, name: string, dir: Staging
 export async function writeExclusive(dir: StagingDirectory, name: string, bytes: Uint8Array | string): Promise<void> {
   const file = await open(at(dir, validName(name)), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
   try { await file.writeFile(bytes); } finally { await file.close(); }
+}
+
+/**
+ * `writeExclusive` in one synchronous step, for a write that must not yield
+ * between the check that admits it and the change itself (#2869).
+ */
+export function writeExclusiveSync(dir: StagingDirectory, name: string, bytes: Uint8Array | string): void {
+  const fd = openSync(at(dir, validName(name)), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  try { writeFileSync(fd, bytes); } finally { closeSync(fd); }
 }
 
 /**
