@@ -335,6 +335,9 @@ If any path matches, use `integrate.ts confirm` as above. Otherwise:
 3. Take the lease, so the merge cannot race another session's confirmation:
    `bun scripts/integrate.ts acquire <pr>` (it prints a lease id and a holder
    token). If another session holds it, wait. Never merge past a live lease.
+   `acquire` needs the PR's recorded base to be main's current tip. If main has
+   moved, merge `origin/main` into the branch, push, and repeat step 2 on the
+   new head ("An open ordinary exact-main candidate is required" means this).
 4. `gh pr ready <pr>`, then
    `gh pr merge <pr> --squash --match-head-commit <verified-head>`, then
    `bun scripts/integrate.ts release <lease-id> --token <holder-token>`.
