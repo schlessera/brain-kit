@@ -256,7 +256,7 @@ whose turn was interrupted, it writes a reply of its own under its
 aborted.` for an aborted request. These replayed as the agent's words. They
 now replay as `SessionHistoryMessage.runtimeNotice` on the message they
 ended, after any partial answer (`export function runtimeNotice`,
-`packages/ui-backend-claude/src/history.ts:339-350`). Recognition needs
+`packages/ui-backend-claude/src/history.ts:340-351`). Recognition needs
 both the runtime's provenance and one of its two constant texts, read from
 the installed CLI, so the same words from the model or the user stay theirs.
 Only an aborted request names a cause, and neither notice says who stopped

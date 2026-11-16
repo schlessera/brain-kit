@@ -166,10 +166,10 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native Claude history.** Live JSONL, per-session subordinate files, titles,
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
-  (`createHistory`, `packages/ui-backend-claude/src/history.ts:45-103`;
+  (`createHistory`, `packages/ui-backend-claude/src/history.ts:46-104`;
   `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:180-213`).
   The live/archive roots are resolved by the backend
-  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
+  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:32-41`).
   Archive movement and crash recovery must join the same lifecycle fence
   (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:267-327`).
   Delete all owned branches/subagents/copies, not just the displayed branch.

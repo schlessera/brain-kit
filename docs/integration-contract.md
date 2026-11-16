@@ -20,6 +20,15 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## Turn data trees on the managed volume (additive, 0.45.0, #2911)
+
+The native manager client and the lease owner gain `prepareTurnTree(id,
+allowanceBytes)`, returning `NativeTurnTree` (`{ id, path, allowanceBytes }`),
+and `releaseTurnTree(id)`. `NativeRecoveryRecord.kind` gains `tree`, with an
+optional `treeRequest`. A strict, voice or autonomous turn on managed storage
+now keeps its data tree there, filled by reflinks. Described in
+[the package API](integration-contract/package-api.md#managed-turn-data-trees-additive-0450-2911).
+
 ## Consumer frames without `pong` (breaking before 1.0, 0.45.0, #3389)
 
 `@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
@@ -61,6 +70,59 @@ refused, which opened nothing, may choose a service or persona again; a
 `CONVERSATION_PERSONA_CHANGED` refusal clears the choice. No wire or HTTP
 shape changes. See
 [the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
+This ships in a minor.
+
+## Host GitHub writes and their repository allow-list (additive, 0.45.0, #3798)
+
+Both first-party backends register `brain_github_issue_create` and
+`brain_github_issue_comment` in every interactive session's fixed roster,
+after the two reads, whatever the host's configuration or the turn's
+posture; no autonomous roster lists them. A write goes only to a repository
+the new governance policy key `outward.github.repositories` lists, exactly as
+`owner/repo` or as `owner/*`, compared without case; anything else is
+refused with `policy_denied` (`repository_not_allowed`) before any card, and
+an absent or empty list refuses every write. Inside the list, the host shows
+one per-use card with exactly what will be sent and sends it once on an
+unedited approval; a denial, an edited approval or a voice turn
+(`approval_declined`) sends nothing. Each decision is an `outward_action`
+governance event (`gh_write`) that the turn journal lists as irreversible.
+`brain policy check --json` reports `effective.outward.github.repositories`
+(default `[]`). Claude's SDK-options roster gains the two names. See
+[the MCP component](integration-contract/mcp.md#github-writes-additive-0450-3798)
+and [supported inputs](supported-inputs.md#governance-policy).
+This ships in a minor.
+
+## GitHub detail-page types (additive, 0.45.0, #3796)
+
+`@schlessera/brain-ui-sdk/tool-contracts` adds the detail-page part list,
+the page-size bound, the review-comment, changed-file and check-run item
+schemas, the page schema and the detail error schema with `reset_at`, which
+the two new internal ui-server routes return to the chat's GitHub components:
+`GET /api/sessions/:id/github/:owner/:repo/:number/:part` and
+`GET /api/sessions/:id/github/avatars/:login`. The routes are internal (`I`)
+with no compatibility guarantee; nothing they serve enters the
+provider-facing conversation. See
+[the package API](integration-contract/package-api.md#github-detail-page-types-additive-0450-3796)
+and [the HTTP API](http-api.md#github-detail-pages-internal-0450-3796).
+This ships in a minor.
+
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+Both first-party backends' interactive sessions gain two host-executed read
+tools in their fixed roster: `brain_github_issue_read` and
+`brain_github_issue_search` (`mcp__brain-ui__*` on Claude, plain on pi). Two
+write tools, `brain_github_issue_create` and `brain_github_issue_comment`, are
+declared with their schemas and payloads, and registered since #3798. Results are
+typed payloads for an issue, a pull request and a search, with bounded lists
+carrying `total_count` and `has_more`, untrusted text marked in the schema,
+and direct links that pass the exported `githubDirectUrl` and
+`githubSearchUrl` validators or are `null`. The host reads only the new
+`BRAIN_UI_GITHUB_TOOLS_TOKEN`, with no fallback to `GITHUB_TOKEN`; no worker
+or maintenance environment receives it, and without it the tools answer
+`unavailable`. A read taints the session with the new governance taint source
+`github_result`. No autonomous roster lists the tools. The SDK gains the
+contracts, payload schemas, `handleGithubTool` and `BackendBridge.github`. See
+[the MCP component](integration-contract/mcp.md#host-github-tools-additive-0450-3797).
 This ships in a minor.
 
 ## Host-owned web tools for Pi (additive, 0.45.0, #3685)

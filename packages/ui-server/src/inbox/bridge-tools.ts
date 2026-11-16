@@ -4,7 +4,8 @@ import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 import { INBOX_ADD_INPUT_SCHEMA, INBOX_GET_INPUT_SCHEMA, INBOX_LIST_INPUT_SCHEMA, RESOLVE_ACTION_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { V1ResolutionEffect } from "@schlessera/brain-ui-sdk/protocol";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
-import type { InboxIntake } from "./intake.js";
+import type { InboxIntake, IntakeHolds } from "./intake.js";
+import { AuthorityHeld } from "../brain/authority-hold.js";
 import { createInboxStore } from "./store.js";
 import { createInteractiveShares } from "./interactive-share.js";
 import type { createInboxResolver } from "./resolve.js";
@@ -29,6 +30,16 @@ export interface InboxBridgeContext {
    * compensation refuse a protected target, as the turn's application does.
    */
   protectedPaths?: readonly string[];
+  /**
+   * The turn's write boundary (#2869): a journal observation or a scope pause
+   * that begins during an `inbox_add` holds its writes rather than revoking it.
+   */
+  holds?: IntakeHolds;
+  /**
+   * Checks again, before each `inbox_add` write, what the turn admitted the
+   * call under, such as its provider masks; throws to refuse.
+   */
+  requalify?: () => void;
   /** Server-held exact approval only. V1 never creates a discuss binding. */
   approvedAction?: { sessionId: string; itemId: string; optionId: string; expectedVersion: number; effect: V1ResolutionEffect };
 }
@@ -42,10 +53,15 @@ export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolv
       const threadId = context.origin === "interactive" ? undefined : context.origin.threadId;
       // A caller cannot mutate an approved effect after this bridge is constructed.
       const approved = context.approvedAction ? structuredClone(context.approvedAction) : undefined;
-      function authorize() {
+      /** `write` marks an `inbox_add` write's check: a hold, not revocation, reports `AuthorityHeld` so intake waits it out. */
+      function authorize(write = false) {
         const principal = resolvePrincipal(db, principalId);
-        if (!isCurrent() || !principal || !isUsablePrincipal(principal, Date.now())) throw new Error("Inbox principal or turn is no longer authorized");
+        if (!isCurrent() || !principal || !isUsablePrincipal(principal, Date.now())) {
+          if (write && principal && isUsablePrincipal(principal, Date.now()) && context.holds?.hold.active()) throw new AuthorityHeld();
+          throw new Error("Inbox principal or turn is no longer authorized");
+        }
         if (threadId && store.getThread(threadId)?.status !== "open") throw new Error("Inbox origin thread is unavailable");
+        if (write) context.requalify?.();
         return principal;
       }
       const reads = [...(context.allowedReads ?? [])];
@@ -88,7 +104,7 @@ export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolv
           // Reuse compensated, principal-checked intake; never accept a model
           // source/trust field. The turn is this bridge's own: its host lineage
           // alone decides what the item can qualify for (#2816).
-          const result = await intake.conversation({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, turnId, () => { authorize(); return true; }, context.protectedPaths);
+          const result = await intake.conversation({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, turnId, () => { authorize(true); return true; }, context.protectedPaths, context.holds);
           return { created: result.created, threadId: result.threadId, itemId: result.itemId };
         },
         resolveAction: async input => {
