@@ -1,9 +1,10 @@
 /** Preserve contribution routing, scheduling and hostile-metadata proof on GitHub Actions. */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CI_WORKFLOWS, checkCIWorkflows, publicationWorkflowProblems, workflowProblems } from "../scripts/check-ci-workflows.ts";
+import { ACTION_PINS, actionPinProblems, annotateActionPins, pinned } from "../scripts/action-pins.ts";
 const ROOT = resolve(import.meta.dir, "..");
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Obj = { [key: string]: Json };
@@ -117,7 +118,7 @@ describe("GitHub is the sole provider for every contribution", () => {
     expect(publicationWorkflowProblems(Bun.YAML.stringify(elevated))).toContain("publish-pages.yml: artifact job must inherit read-only permissions");
     const premature = Bun.YAML.parse(pages) as Workflow;
     const steps = premature.jobs.artifact!.steps;
-    const upload = steps.findIndex(step => step.uses === "actions/upload-pages-artifact@v4");
+    const upload = steps.findIndex(step => step.uses === pinned("actions/upload-pages-artifact@v4"));
     expect(upload).toBeGreaterThan(0);
     steps.unshift(...steps.splice(upload, 1));
     expect(publicationWorkflowProblems(Bun.YAML.stringify(premature))).toContain("publish-pages.yml: browser and identity checks must precede Pages artifact upload");
@@ -138,7 +139,7 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(metadata).toContain("bun scripts/env-docs.ts --check"); expect(metadata).toContain("bun scripts/check-changeset-packages.ts");
     expect(ci.jobs.verify!.steps.filter(s => s.run).map(s => s.run)).toContain("bun scripts/ci-runner.ts");
     for (const [name,job] of Object.entries(ci.jobs)) {
-      const bun = job.steps.find(s => s.uses === "oven-sh/setup-bun@v2");
+      const bun = job.steps.find(s => s.uses === pinned("oven-sh/setup-bun@v2"));
       expect(bun?.with?.["bun-version"]).toBe("1.4.2");
       const install=name==="unit"?"bun install --frozen-lockfile --backend=copyfile":"bun install --frozen-lockfile";
       expect(job.steps.some(s => s.run === install)).toBe(true);
@@ -153,7 +154,7 @@ describe("the authoritative jobs retain their important phases", () => {
     const contract = workflows.find(w => w.file === "contract.yml")!.workflow;
     expect(contract.on.pull_request).toEqual({ types: ["opened", "edited", "synchronize", "reopened", "labeled", "unlabeled"] });
     const job = contract.jobs.contract!;
-    const checkout = job.steps.find(s => s.uses === "actions/checkout@v7");
+    const checkout = job.steps.find(s => s.uses === pinned("actions/checkout@v7"));
     expect(checkout?.with?.ref).toBe("${{ github.event.pull_request.head.sha }}");
     expect(checkout?.with?.["fetch-depth"]).toBe(0);
     const command = job.steps.find(s => s.run)!;
@@ -553,7 +554,7 @@ test("small exact inventories wire bounded planner partitions into actual unit e
 });
 
 test("all unit partitions upload incremental memory diagnostics even after proof failure", () => {
-  const upload = ci.jobs.unit!.steps.find(s => s.uses === "actions/upload-artifact@v7")!;
+  const upload = ci.jobs.unit!.steps.find(s => s.uses === pinned("actions/upload-artifact@v7"))!;
   expect(upload.if).toBe("always()");
   expect(String(upload.with!.path).split("\n"), "UNIT_MEMORY_DIAGNOSTICS_RETAINED").toContain("tmp/unit-memory.jsonl");
 });
@@ -676,4 +677,44 @@ test("a main push whose metadata job fails still runs its selected proof (#2942)
   // Every output-producing step precedes every metadata gate that can fail.
   for (const gateStep of ["Lint, leakage and contribution workflow guards", "Env documentation matches its descriptors", "Validate all pending changeset package names", "Require a changeset for shipped package changes"])
     expect(steps.indexOf(gateStep), `OUTPUTS_BEFORE_${gateStep}`).toBeGreaterThan(reuse);
+});
+
+describe("workflow actions are pinned by commit (#4111)", () => {
+  const sha = ACTION_PINS["actions/checkout@v7"];
+  const workflow = (uses: string) => `name: fixture\non: push\njobs:\n  one:\n    runs-on: ubuntu-24.04\n    steps:\n      - ${uses}\n      - run: echo done\n`;
+  test("every workflow in the repository names reviewed commits with their tag comment", () => {
+    for (const file of readdirSync(join(ROOT, ".github/workflows")).sort()) expect({ file, problems: actionPinProblems(read(file), file) }).toEqual({ file, problems: [] });
+  });
+  test("a tag, a branch, an unreviewed commit and a missing or wrong tag comment are refused", () => {
+    expect(actionPinProblems(workflow(`uses: actions/checkout@${sha} # v7`), "fixture.yml")).toEqual([]);
+    for (const [uses, reason] of [
+      ["uses: actions/checkout@v7", "ACTION_BY_TAG"],
+      ["uses: actions/checkout@main", "ACTION_BY_BRANCH"],
+      [`uses: actions/checkout@${"0".repeat(40)} # v7`, "UNREVIEWED_COMMIT"],
+      [`uses: actions/checkout@${sha}`, "MISSING_TAG_COMMENT"],
+      [`uses: actions/checkout@${sha} # v6`, "WRONG_TAG_COMMENT"],
+      [`uses: "actions/checkout@${sha}" # v7`, "QUOTED_REFERENCE"],
+      ["uses: ./local-action", "LOCAL_ACTION"],
+    ] as const) expect(actionPinProblems(workflow(uses), "fixture.yml").length, reason).toBeGreaterThan(0);
+  });
+  test("a reusable workflow call and a flow-style step cannot carry an unpinned action past the line check", () => {
+    expect(actionPinProblems("name: fixture\non: push\njobs:\n  call:\n    uses: odysseus/ithaca/.github/workflows/sail.yml@v1\n", "fixture.yml").length).toBeGreaterThan(0);
+    expect(actionPinProblems("name: fixture\non: push\njobs:\n  one:\n    runs-on: ubuntu-24.04\n    steps: [{ uses: actions/checkout@v7 }]\n", "fixture.yml").length).toBeGreaterThan(0);
+  });
+  test("the repository lint reports an unpinned action in any workflow file", () => {
+    const root = mkdtempSync(join(tmpdir(), "action-pins-"));
+    try {
+      mkdirSync(join(root, ".github/workflows"), { recursive: true });
+      for (const file of readdirSync(join(ROOT, ".github/workflows"))) writeFileSync(join(root, ".github/workflows", file), read(file));
+      expect(checkCIWorkflows(root)).toEqual([]);
+      const target = join(root, ".github/workflows/project-sync.yml");
+      writeFileSync(target, readFileSync(target, "utf8").replace(`${pinned("actions/checkout@v7")} # v7`, "actions/checkout@v7"));
+      expect(checkCIWorkflows(root).some(problem => problem.startsWith("project-sync.yml:") && problem.includes("actions/checkout@v7"))).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  test("the generated heavy-feedback workflow keeps the tag comments its YAML rendering drops", () => {
+    const bare = `      - uses: ${pinned("oven-sh/setup-bun@v2")}\n      - uses: "${pinned("actions/checkout@v7")}"\n`;
+    expect(annotateActionPins(bare)).toBe(`      - uses: ${pinned("oven-sh/setup-bun@v2")} # v2\n      - uses: ${pinned("actions/checkout@v7")} # v7\n`);
+    expect(actionPinProblems(read("heavy-feedback.yml"), "heavy-feedback.yml")).toEqual([]);
+  });
 });

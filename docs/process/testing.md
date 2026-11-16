@@ -718,6 +718,29 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+### Bumping an action pin
+
+Workflows reference each action by commit, with its release tag as a comment:
+`uses: actions/checkout@<40-hex commit> # v7`
+([why](../decisions/github-actions-ci.md#actions-pinned-by-commit)).
+`bun run lint` refuses a tag, a branch, a commit that is not in
+`scripts/action-pins.ts`, or a missing or wrong tag comment. To move a pin:
+
+1. Resolve the tag from the action's own repository, and dereference an
+   annotated tag to its commit:
+
+   ```sh
+   gh api repos/actions/checkout/git/ref/tags/v7 --jq '.object.type + " " + .object.sha'
+   # "tag <sha>" is an annotated tag: read its commit
+   gh api repos/actions/checkout/git/tags/<sha> --jq .object.sha
+   ```
+
+2. Read what changed between the old and new commits before trusting it.
+3. Change the commit in `ACTION_PINS`, replace it in every workflow, and run
+   `bun scripts/heavy-feedback-workflow.ts` to regenerate `heavy-feedback.yml`.
+4. A new action or a new major tag is a new table row. The PR lists action,
+   tag and commit.
+
 Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
 step limit in `unit`, `runtime` and `runtime_host`. Proof retains a separate
 30-minute unit allowance or 15-minute runtime allowance. The job caps are
