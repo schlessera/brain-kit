@@ -20,7 +20,8 @@ import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, open
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
 import { brainGitSteps } from "./maintenance-worker.js";
-import { runWorkerStepsSync, type WorkerSteps } from "./worker-steps.js";
+import { MaintenanceTempBusyError } from "./maintenance-temp-budget.js";
+import { runWorkerStepsSync, workerStep, type WorkerSteps } from "./worker-steps.js";
 import { WORKER_XDG_HOME } from "./worker-xdg.js";
 
 /**
@@ -410,18 +411,45 @@ function unlinkScanned(dir: string, alias: ScannedAlias): void {
 function* scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<true | { refused: string }> {
   const git = Bun.which("git");
   const own = Boolean(lstatSync(join(brain, ".git"), { throwIfNoEntry: false }));
+  const deadline = Date.now() + (maintenance?.admissionWaitMs ?? SCRATCH_ADMISSION_WAIT_MS);
   if (!own) {
     if (!git) return true;
-    const inRepo = yield* brainGitSteps(brain, ["rev-parse", "--git-dir"], { ...maintenance, tempKind: "scratch_query" });
+    const inRepo = yield* admittedGitSteps(brain, ["rev-parse", "--git-dir"], deadline, maintenance);
     if (inRepo === 127) return { refused: "git could not run to confirm .brain/scratch/ is gitignored" };
     if (inRepo !== 0) return true;
   }
   if (!git) return { refused: "git is not available to confirm .brain/scratch/ is gitignored" };
-  const exitCode = yield* brainGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], { ...maintenance, tempKind: "scratch_query" });
+  const exitCode = yield* admittedGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], deadline, maintenance);
   if (exitCode === 0) return true;
   return { refused: exitCode === 1
     ? ".brain/scratch/ is not gitignored, so a file written there could be committed; run `brain doctor --fix` outside a hosted turn"
     : "git could not confirm .brain/scratch/ is gitignored" };
+}
+
+/**
+ * How long an awaited scratch check waits for a busy maintenance budget
+ * (#4079). A turn's own short maintenance commands, such as a reference
+ * resolution or another turn's check, finish well inside it; a long holder,
+ * such as an index, still leaves scratch read-only after it rather than
+ * holding the turn's start.
+ */
+export const SCRATCH_ADMISSION_WAIT_MS = 3_000;
+
+/**
+ * One scratch-check Git query, admitted by `deadline`. An awaited runner
+ * waits for the budget to free and tries again; a synchronous one refuses
+ * at once, as before.
+ */
+function* admittedGitSteps(brain: string, args: readonly string[], deadline: number, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<number> {
+  const { admissionWaitMs: _wait, ...host } = maintenance ?? {};
+  for (;;) {
+    try { return yield* brainGitSteps(brain, args, { ...host, tempKind: "scratch_query" }); }
+    catch (error) {
+      if (!(error instanceof MaintenanceTempBusyError) || Date.now() >= deadline) throw error;
+      const freed = yield* workerStep<boolean>(() => { throw error; }, () => error.freedWithin(deadline - Date.now()));
+      if (!freed) throw error;
+    }
+  }
 }
 
 /** Repo-relative path for a server log line or the note; never an absolute host path. */

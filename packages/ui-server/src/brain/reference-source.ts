@@ -300,7 +300,7 @@ export function createReferenceSources(options: {
     const credential = token(grant);
     const existing = row(domain, repository.canonical, revision);
     const check = await transport.resolve({ repository, revision, token: credential, signal }).catch((error: unknown) => {
-      if (error instanceof ReferenceTransportError && error.reason === "invalid") throw new ReferenceSourceError("invalid", error.message);
+      if (error instanceof ReferenceTransportError && (error.reason === "invalid" || error.reason === "busy")) throw new ReferenceSourceError(error.reason, error.message);
       throw error;
     });
     signal.throwIfAborted();
@@ -337,7 +337,8 @@ export function createReferenceSources(options: {
       }
       // The previous revision stays usable only inside its own still-valid authority.
       if (existing && usable(existing) && validationLive(existing)) return failed(existing, detail);
-      throw error instanceof ReferenceSourceError ? error : new ReferenceSourceError(error instanceof ReferenceTransportError && error.reason === "capacity" ? "capacity" : "unavailable", detail);
+      throw error instanceof ReferenceSourceError ? error
+        : new ReferenceSourceError(error instanceof ReferenceTransportError && (error.reason === "capacity" || error.reason === "busy") ? error.reason : "unavailable", detail);
     }
   }
   /** Record a failed refresh without advancing its successful refresh time. */
@@ -531,7 +532,8 @@ export function createReferenceSources(options: {
         const grant = principalId === null ? null : coveringReferenceGrant(db, { brain: options.brain, principalId, repository, now: now() });
         if (principalId !== null && !grant) return false;
         // Shared by every bind waiting on it, so no one binder's cancellation decides it.
-        const check = await transport.resolve({ repository, revision: source.revision, token: token(grant) });
+        // A bind never waits for busy maintenance (#4079): the source is withheld from it instead.
+        const check = await transport.resolve({ repository, revision: source.revision, token: token(grant), admissionWaitMs: 0 });
         if (!check.ok) {
           if (check.reason !== "unavailable") {
             if (source.domain === PUBLIC) notPublic.set(`${repository.canonical}\u0000${source.revision}`, now() + limits.validationMs);

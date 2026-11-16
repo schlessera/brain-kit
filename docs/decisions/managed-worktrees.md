@@ -193,7 +193,7 @@ source and worktrees to agents through two bridge tools, `reference_source` and
 once in the SDK and registered identically by both backends
 ([MCP contract](../integration-contract/mcp.md#reference-source-and-managed-worktree-tools-additive-0440-2432)).
 The host side is `createReferenceTools`
-(`createReferenceTools`, `packages/ui-server/src/brain/reference-tools.ts:59-194`).
+(`createReferenceTools`, `packages/ui-server/src/brain/reference-tools.ts:60-200`).
 
 **The turn is the authority.** Before a governed or strict turn's workers
 start, the host records its principal and what those workers bind: the public
@@ -203,7 +203,7 @@ opened
 A call carries only a repository, a revision or a worktree identity. The bridge
 adds the turn's own principal, and a call for a turn the host did not prepare,
 or under another principal, refuses
-(`async call(turnId: string`, `packages/ui-server/src/brain/reference-tools.ts:141-190`).
+(`async call(turnId: string`, `packages/ui-server/src/brain/reference-tools.ts:147-196`).
 Every operation then runs through the acquisition and worktree services, which
 check grants, validation and ownership again; a tool never repeats or skips
 their rules. Once the turn ends, its record is gone and its bridge holds
@@ -215,7 +215,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:898-909`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:745-776`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:747-778`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -255,7 +255,7 @@ check before a new mount) applies to the bind itself. The maintainer ruled on
 before a turn's workers bind a view, every source in it whose validation lapsed
 is validated again, including sources a running turn reads; one that fails is
 withheld from the new bind, and a running reader keeps its existing mount
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:569-607`):
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:571-609`):
 
 - a source with less than the bind margin of validation left counts as
   lapsed: a minute, or half of a shorter configured lifetime, so it does not
@@ -269,7 +269,7 @@ withheld from the new bind, and a running reader keeps its existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:505-516`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:506-517`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
@@ -288,7 +288,7 @@ withheld rather than checked again; withholding takes only short pool calls,
 so the bind converges whatever the cache size. A bind that still cannot be
 admitted, because a pool change stays unconfirmed, refuses, and the turn runs
 without shared source views
-(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:613-622`).
+(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:615-624`).
 The margin covers the moments between admission and the workers' mounts.
 
 Suspension, restoration, withdrawal and publication of one source run one at a

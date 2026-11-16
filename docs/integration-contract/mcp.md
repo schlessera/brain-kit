@@ -1244,7 +1244,9 @@ authenticated turn, and another principal's worktree identity reads as
 backends, with `code` one of `unavailable`, `unauthorized`, `missing`,
 `invalid`, `capacity`, `busy`, `released` or `cancelled`. Messages are at most
 500 bytes; one that could name a host path is replaced by a fixed message for
-its code, as is a stale source's `error`.
+its code, as is a stale source's `error`. Each Git command of a request waits
+up to 30 seconds for the host's maintenance budget; a request still refused
+then is `busy` with retry guidance, and nothing ran (additive, 0.45.0, #4079).
 
 `source` is `{ repository, revision, domain, commit, path, freshness,
 refreshedAt, validatedAt, error }`. `freshness` is `fresh` or `stale`; a stale

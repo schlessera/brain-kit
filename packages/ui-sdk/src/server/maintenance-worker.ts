@@ -83,6 +83,8 @@ export interface MaintenanceHost {
   tempLimits?: WorkerStateLimits;
   tempDomain?: MaintenanceTempDomain;
   maskPaths?: readonly string[];
+  /** @internal How long an awaited scratch check waits for a busy budget; default `SCRATCH_ADMISSION_WAIT_MS` (#4079). */
+  admissionWaitMs?: number;
 }
 
 export interface MaintenanceResult {
