@@ -49,3 +49,5 @@ export { handleApifyTool } from "./apify.js";
 export { formatAttachmentRead, handleReadAttachment } from "./attachment.js";
 
 export { handleWebTool } from "./web.js";
+
+export { handleGithubTool } from "./github.js";

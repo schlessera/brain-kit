@@ -4,8 +4,8 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 export interface LockedBrowserAsset { package: string; version: string; asset: string; sha256: string; mode: number; }
 const readers: Record<string,string> = {
-  "packages/ui-react/tests/browser/offline/cold-capture/commands.ts": "f0d6d9512b1de67f1804d808dded17e29ee344be22283a734e07f3233fc340ee",
-  "packages/ui-react/tests/browser/share-review/commands.ts": "a5f25033f06d388d2e0c83446f5cb7340d22626ea9afe1f7b6c3af92cc86f8ad"
+  "packages/ui-react/tests/browser/offline/cold-capture/commands.ts": "1b9063232ed794ed206cb09520641ff25897a3133e6168ceff10f18cca746ef0",
+  "packages/ui-react/tests/browser/share-review/commands.ts": "49dc3fd14d370ddf087986fc135343b2419efd0f1924096edd669b6e0d0f6e33"
 };
 /** The audited digest pinned for `owner`, if it is an audited reader. A reader
  * whose bytes drift from it reads an unknown asset (fresh proof) until a

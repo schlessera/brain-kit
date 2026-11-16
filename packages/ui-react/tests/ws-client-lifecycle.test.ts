@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { BrainUiClient, BrainUiClientOptions } from "@schlessera/brain-ui-sdk/client";
-import type { ClientMessage, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ConsumerServerMessage, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 import { createDeltaBuffer } from "../src/ws-client/delta-buffer.js";
 import { createReconnectHealing } from "../src/ws-client/reconnect.js";
@@ -266,7 +266,7 @@ describe("socket lease", () => {
   test("a closed socket's frames and pinned replies never reach the page", () => {
     const { sockets, opened, messages } = lease();
     sockets.acquire(() => {});
-    const hello = { type: "pong" } as ServerMessage;
+    const hello: ConsumerServerMessage = { type: "server_hello", protocolRev: 2 };
     opened[0].handlers?.onAny?.(hello);
     const replies: ClientMessage[] = [];
     const client = sockets.client()! as unknown as { send: (message: ClientMessage) => boolean };
@@ -276,7 +276,7 @@ describe("socket lease", () => {
     sockets.acquire(() => {});
     opened[0].handlers?.onAny?.(hello);
     reply({ type: "location_error", requestId: "r1", code: 0, message: "gone" });
-    expect(messages).toEqual(["pong"]);
+    expect(messages).toEqual(["server_hello"]);
     expect(replies).toEqual([]);
     expect(opened).toHaveLength(2);
   });
@@ -308,14 +308,65 @@ describe("the handler map is the single routing table", () => {
       retryReceipt: (msg) => calls.push(`retry:${msg.requestId}`),
       answerReceipt: (msg) => calls.push(`answer:${msg.type}`),
       queueReport: (msg) => calls.push(`queue:${msg.sessionId}`),
+      conversation: (msg) => calls.push(`conversation:${msg.type}`),
     } as Partial<DispatchContext> as DispatchContext;
   }
 
+  // The voice conversation client's own frames (#3389), one minimal instance each.
+  const VOICE_FRAMES = [
+    { type: "dialogue_history", ownerId: "mast", sessionId: "ithaca", generation: 1, coverage: "partial", through: 0, records: [] },
+    { type: "tool_resolution", toolUseId: "oar-1", outcome: "denied", sessionId: "ithaca", turnId: "t1" },
+    { type: "conversation_opened", conversationId: "sirens", epoch: 1 },
+    { type: "conversation_closed", conversationId: "sirens", epoch: 1, reason: "stopped" },
+    { type: "conversation_event", conversationId: "sirens", epoch: 1, event: { kind: "ready" } },
+    { type: "conversation_work", conversationId: "sirens", epoch: 1, requestId: "w1", sessionId: "ithaca", state: "running" },
+    { type: "conversation_output", conversationId: "sirens", epoch: 1, outputId: "o1" },
+    { type: "conversation_permission", conversationId: "sirens", epoch: 1 },
+  ] as unknown as ConsumerServerMessage[];
+
+  for (const frame of VOICE_FRAMES) {
+    test(`a ${frame.type} frame is the conversation client's, through its own map entry`, () => {
+      const calls: string[] = [];
+      dispatchServerMessage(frame, context(calls));
+      expect(calls, "VOICE_FRAME_MAP_ENTRY").toEqual([`conversation:${frame.type}`]);
+    });
+
+    test(`a ${frame.type} frame reaches the conversation client once from the socket, outside the demux`, () => {
+      const root = makeRoot();
+      const conversation = root.connection.conversation;
+      const received: string[] = [];
+      const receive = conversation.receive;
+      conversation.receive = (msg) => { received.push(msg.type); receive(msg); };
+      // The prefilter passes the frame on unchanged: only the map routes it.
+      expect(conversation.frame(frame), "VOICE_PREFILTER_PASSES_THROUGH").toBe(frame);
+      expect(received).toEqual([]);
+      root.connection.handleServerMessage(frame);
+      expect(received, "VOICE_FRAME_REACHES_CONVERSATION").toEqual([frame.type]);
+      // A conversation frame names a session without being chat progress.
+      if (frame.type !== "tool_resolution") expect(root.stores.chat.getState().runStates, "VOICE_FRAME_SKIPS_DEMUX").toEqual({});
+    });
+  }
+
+  test("durable voice history lands in the conversation client through the map", () => {
+    const root = makeRoot();
+    root.connection.handleServerMessage(VOICE_FRAMES[0]!);
+    expect(root.connection.conversation.state.getState().dialogue.ithaca).toMatchObject({ ownerId: "mast", generation: 1 });
+  });
+
+  test("a permission outcome reaches voice for a session with no buffer here, and still marks its run", () => {
+    const root = makeRoot();
+    root.connection.handleServerMessage(VOICE_FRAMES[1]!);
+    expect(root.connection.conversation.permissions.state.getState().records).toMatchObject([
+      { sessionId: "ithaca", turnId: "t1", toolUseId: "oar-1", phase: "denied", word: "Denied on screen" },
+    ]);
+    expect(root.stores.chat.getState().runStates.ithaca).toBe("streaming");
+  });
+
   test("each frame the connection owns is handled by its own map entry", () => {
     const calls: string[] = [];
-    dispatchServerMessage({ type: "retry_receipt", sessionId: "s1", requestId: "r1", state: "unknown" } as ServerMessage, context(calls));
-    dispatchServerMessage({ type: "ask_answer_receipt", answerId: "a1", state: "accepted" } as unknown as ServerMessage, context(calls));
-    dispatchServerMessage({ type: "session_queue", sessionId: "s1", followUps: [] } as unknown as ServerMessage, context(calls));
+    dispatchServerMessage({ type: "retry_receipt", sessionId: "s1", requestId: "r1", state: "unknown" } as ConsumerServerMessage, context(calls));
+    dispatchServerMessage({ type: "ask_answer_receipt", answerId: "a1", state: "accepted" } as unknown as ConsumerServerMessage, context(calls));
+    dispatchServerMessage({ type: "session_queue", sessionId: "s1", followUps: [] } as unknown as ConsumerServerMessage, context(calls));
     expect(calls).toEqual(["retry:r1", "answer:ask_answer_receipt", "queue:s1"]);
   });
 
