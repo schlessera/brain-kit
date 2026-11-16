@@ -1,5 +1,5 @@
 import { claudePromptContext } from "./prompt-context.js";
-import { sessionReplay } from "@schlessera/brain-ui-sdk/internal";
+import { sessionReplay, stripHostContextFromTitle } from "@schlessera/brain-ui-sdk/internal";
 import { dirname } from "node:path";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import {
@@ -17,6 +17,7 @@ import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
 import type { SessionRetirement } from "@schlessera/brain-ui-sdk/internal";
 import { listArchivedSessions, restoreArchivedSession, transcriptPaths } from "./transcript-archive.js";
 import { isSessionId } from "./worker-state.js";
+import { hostRefusal } from "./host-refusal.js";
 import { usageLimitText } from "./usage-limit.js";
 import { statusFromText } from "./stream-adapter.js";
 import { taskNotificationMessages } from "./task-notification-history.js";
@@ -66,7 +67,7 @@ export function createHistory(deps: HistoryDeps): History {
 
     const live = humanSessions.map((s) => ({
       id: s.sessionId,
-      title: s.customTitle || s.summary || s.firstPrompt || null,
+      title: s.customTitle || s.summary || (s.firstPrompt ? stripHostContextFromTitle(s.firstPrompt) : null) || null,
       createdAt: s.createdAt || s.lastModified,
       lastActiveAt: s.lastModified,
       totalCostUsd: 0,
@@ -367,6 +368,8 @@ export function apiErrorFailure(message: unknown, content: unknown[]): TurnFailu
   if (ABORTED_TEXT.test(text)) return null;
   const limitText = usageLimitText(message, content);
   if (limitText) return { errorClass: FIRST_PARTY_FAILURE_CLASSES.rate_limit, message: limitText };
+  const refused = hostRefusal(text, statusFromText(text));
+  if (refused) return refused;
   const known = API_ERROR_TEXTS.find(({ pattern }) => pattern.test(text));
   if (!known) return null;
   const status = statusFromText(text);

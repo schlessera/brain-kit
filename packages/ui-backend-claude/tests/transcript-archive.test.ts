@@ -1,3 +1,4 @@
+import { sessionPromptContext } from "@schlessera/brain-ui-sdk/internal";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { open } from "node:fs/promises";
@@ -245,4 +246,24 @@ test("worker resume restores archived bytes before copying its session", async (
     expect(readFileSync(join(tmpfs, "projects", project, `${ID}.jsonl`))).toEqual(bytes);
     expect(savedIndex()).toEqual([]); expect(existsSync(join(archive, ID))).toBe(false);
   } finally { snapshot.release(); }
+});
+
+test("new archive manifests clean first-prompt titles and old manifests clean only on listing", async () => {
+  session();
+  const wire = sessionPromptContext(join(root, "host"), brain, ID).prepare("Continue", { sandbox: "Use the voyage scratch area." }).text;
+  metadata[0] = { ...metadata[0]!, customTitle: undefined, summary: "", firstPrompt: wire };
+  await archiveIdleSessions(options);
+  expect(savedIndex()[0].title).toBe("Continue");
+  const path = join(archive, ID, "manifest.json");
+  const old = JSON.parse(readFileSync(path, "utf8"));
+  expect(old.session.title).toBe("Continue");
+  old.session.title = wire;
+  const bytes = JSON.stringify(old);
+  writeFileSync(path, bytes);
+  expect(listArchivedSessions(options)[0]!.title).toBe("Continue");
+  expect(readFileSync(path, "utf8")).toBe(bytes);
+  // Index-only recovery entries also receive display cleanup.
+  rmSync(path);
+  writeFileSync(join(archive, "index.json"), JSON.stringify([old.session]));
+  expect(listArchivedSessions(options)[0]!.title).toBe("Continue");
 });

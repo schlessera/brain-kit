@@ -6,7 +6,7 @@ import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readd
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { WorkerHostError, combineRemovalOutcomes, nativeObservationIdentity, ownedNames, removeMetadataFile, removeOwnedArtifact, sessionPromptContextLocation, sessionReplayLocation } from "@schlessera/brain-ui-sdk/internal";
+import { WorkerHostError, combineRemovalOutcomes, nativeObservationIdentity, ownedNames, removeMetadataFile, removeOwnedArtifact, sessionPromptContextLocation, sessionReplayLocation, stripHostContextFromTitle } from "@schlessera/brain-ui-sdk/internal";
 import type { SessionHistoryRemovalOutcome } from "@schlessera/brain-ui-sdk/server";
 import { envSnapshot } from "./config/env.js";
 import { directory, files, isSessionId, regular, validateSessionId } from "./worker-state.js";
@@ -170,7 +170,7 @@ export function listArchivedSessions(options: ArchiveOptions): ArchivedSession[]
   const entries: ArchivedSession[] = existsSync(indexPath) ? JSON.parse(regular(indexPath, METADATA_BYTES).toString()) : [];
   if (!Array.isArray(entries) || !entries.every(s => typeof s.id === "string" && isSessionId(s.id)))
     throw new Error("Invalid transcript archive index");
-  return [...new Map([...entries, ...committed].map(s => [s.id, s])).values()];
+  return [...new Map([...entries, ...committed].map(s => [s.id, s])).values()].map(s => ({ ...s, title: s.title === null ? null : stripHostContextFromTitle(s.title) }));
 }
 
 /** Restore before history reads or worker snapshots. Synchronous: no turn can
@@ -296,7 +296,7 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
       const roots = [join(live, `${id}.jsonl`), join(live, id)].filter(existsSync);
       if (Math.max(...roots.map(newestMtime)) >= now - 30 * DAY) continue;
       const record: Manifest = {
-        session: { id, title: session.customTitle || session.summary || session.firstPrompt || null,
+        session: { id, title: session.customTitle || session.summary || (session.firstPrompt ? stripHostContextFromTitle(session.firstPrompt) : null) || null,
           createdAt: session.createdAt || session.lastModified, lastActiveAt: session.lastModified },
         files: [],
       };

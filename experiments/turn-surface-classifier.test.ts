@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { classifySurface, chooseNarrow, narrowRoutingRequest, ROUTING_MODEL, shortlist, wideRoutingRequest, type RoutingCatalogue } from "../scripts/turn-surface-classifier";
+import { classifySurface, chooseNarrow, MEASURED_BRIDGE_ROUTING_TOOLS, measuredRoutingTools, narrowRoutingRequest, ROUTING_MODEL, shortlist, wideRoutingRequest, type RoutingCatalogue } from "../scripts/turn-surface-classifier";
 import { createJevClient } from "../packages/ui-server/src/classification/jev-client";
 import type { ClassificationAnswers } from "@schlessera/brain-ui-sdk/internal";
 
@@ -73,4 +73,27 @@ test("one deadline prevents the second HTTP pass and off/no-key/circuit make no 
   for (let i = 0; i < 3; i++) await failing.classify(wideRoutingRequest("Read", "", catalogue));
   expect(await classifySurface({ client: failing, prompt: "Read", previousTail: "", catalogue, enabled: true, deadline: deadline.signal }))
     .toMatchObject({ outcome: "circuit_open", passes: 0 });
+});
+
+test("a catalogue over the 64-entry bound is refused by name, never truncated", () => {
+  const tools = (count: number) => Array.from({ length: count }, (_, index) => ({ name: `tool_${index}`, id: `mcp__brain__tool_${index}`,
+    serverName: "brain", inputSchema: { type: "object" as const }, description: `Tool ${index}` }));
+  const atBound = wideRoutingRequest("Read", "", { tools: tools(61), skills: catalogue.skills });
+  expect(Object.keys((atBound.questions.tool as { criteria: Record<string, string> }).criteria)).toHaveLength(61);
+  expect(() => wideRoutingRequest("Read", "", { tools: tools(62), skills: catalogue.skills }))
+    .toThrow("Invalid routing catalogue: 65 tool and skill entries exceed the 64-entry bound");
+  expect(() => wideRoutingRequest("Read", "", { tools: [], skills: catalogue.skills })).toThrow("Invalid routing catalogue: tools and skills must both be nonempty");
+});
+
+test("the live collector routes over the measured bridge tools only, excluded by name", () => {
+  const tool = (serverName: string, name: string) => ({ name, id: `mcp__${serverName}__${name}`, serverName, inputSchema: { type: "object" as const }, description: name });
+  // Later registrations sit before, between and after the measured eight, so a
+  // prefix or truncation could not produce the expected list.
+  const later = ["brain_apify_run", "read_attachment", "brain_compute_plan", "write_file", "inbox_add", "turn_temp", "edit_file", "brain_add", "resolve_action"];
+  const bridge = MEASURED_BRIDGE_ROUTING_TOOLS.flatMap((name, index) => [tool("brain-ui", later[index]!), tool("brain-ui", name)]).concat(tool("brain-ui", later[8]!));
+  const core = ["brain_read", "brain_apify_run", "brain_compute_plan"].map(name => tool("brain", name));
+  expect(measuredRoutingTools([...core, ...bridge]).map(entry => entry.id)).toEqual([...core.map(entry => entry.id),
+    ...MEASURED_BRIDGE_ROUTING_TOOLS.map(name => `mcp__brain-ui__${name}`)]);
+  expect(() => measuredRoutingTools([...core, ...bridge.filter(entry => entry.name !== "show_block")]))
+    .toThrow("Measured bridge routing tools missing: show_block");
 });

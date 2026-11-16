@@ -951,7 +951,13 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
 - **`errorClass`** uses the Claude Agent SDK's class names
   (`authentication_failed`, `rate_limit`, `overloaded`, `invalid_request`,
   `model_not_found`, `server_error`, …), plus `subscription_required` for a
-  turn the backend refused before sending it. `worker_host_unsupported` means
+  turn the backend refused before sending it. `host_refused` (additive in
+  0.45.0, #3787) means the host inference relay refused the model request,
+  including cancelled admission (HTTP 499). It carries no `authAction` and
+  does not update subscription authentication status. Its message names a
+  known, unambiguous host denial cause; conflicting observed causes and replay
+  with only relay text claim no finer cause.
+  `worker_host_unsupported` means
   the host refused before runtime initialization because its required worker
   boundary probe failed; the message names the requirement and the verified
   Linux/qualifying WSL2 route. It creates no backend session or transcript.
@@ -985,7 +991,8 @@ SessionHistoryMessage.failure?: TurnFailure   // on the assistant message the fa
   It is free-form, so a new value
   is not a breaking change. `unknown` means the backend could not tell, and is
   never a guess. **`status`** is the provider's HTTP status. Absent means
-  unknown, not "no status". **`message`** is the runtime's own text.
+  unknown, not "no status". **`message`** is the runtime's own text, except `host_refused`,
+  which uses the host's explanation of the relay refusal.
 - **First-party diagnostic classes (#1619).** `FIRST_PARTY_FAILURE_CLASSES`,
   exported from `@schlessera/brain-ui-sdk` and `/protocol`, is an immutable
   registry whose keys and values are the first-party class names. Emitters
@@ -3197,7 +3204,8 @@ host record ID, original sequence/time, turn, binding and occurrence ID.
 Occurrences retain their exact host operation/signal/exposure IDs where
 available, source, detector, exposure state and allowlisted transport provenance.
 The source inventory includes every durable taint source, including
-`apify_result` from supported host discovery, inspection and Actor results.
+`apify_result` from supported host discovery, inspection and Actor results,
+and `github_result` from the host GitHub read tools (#3797).
 Opaque connections have null operation/provenance, never inferred Git/tool
 attribution. Pruned details explicitly use null unavailable correlation fields;
 independent occurrence IDs and aggregate counts survive. Text is display data,

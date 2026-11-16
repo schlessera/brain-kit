@@ -56,6 +56,20 @@ inspecting CI on a PR live in the `work-issue` skill's
   commands and explicitly preloaded child probes. Production invocations keep
   their own policy. The startup-view copier still refuses concurrent changes.
 
+The shared test preload assigns a fresh disposable `HOME` and
+`CLAUDE_CONFIG_DIR`, including when a caller inherited a real Claude config
+path. Tests that supply their own profile paths must keep them in owned
+fixtures. The test launcher supplies a separate disposable invoking home before
+starting Bun, so even a native HOME fallback cannot select user storage. The
+preload then assigns the test's working home. After the test process and its
+children finish, the launcher compares the invoking home's sentinel tree with
+its original path membership and metadata, including nanosecond change times.
+This detects retained creations and same-size overwrites without patching
+filesystem functions or observing unrelated sessions' storage activity.
+The preload restores both environment descriptors and removes its storage
+after all test files finish. Turns must await owned observation saves before
+settling so teardown cannot race storage writes.
+
 ### Deliberate offline commands on Linux
 
 Use the repository launcher when a manual test command needs OS-level network

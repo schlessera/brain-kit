@@ -80,6 +80,9 @@ coordination, not protection against arbitrary filesystem edits.
 Direct Vitest diagnostics do not acquire whole-command ownership.
 Editorial captures retain their existing separate capture guard. Use the
 coordinated entry points or separate worktrees when overlapping those runs.
+Before instrumenting installed dependencies, follow
+[dependency diagnostic preparation](docs/process/diagnostic-installs.md):
+worktrees alone do not isolate Bun cache hardlinks.
 
 The frozen native diagram control also requires the independently qualified
 installation bytes and modes. An `installation-mismatch` with matching frozen
@@ -91,22 +94,20 @@ owned checkout through a fresh private cache and independent file copies,
 **under umask `022`**. The installation identity includes file modes, and the
 installer's umask narrows them. The qualified install was made under `022`, so
 an install under any other umask, such as `0077`, never matches, even though its
-package, file and byte counts are identical. Run the recovery in a subshell so
+package, file and byte counts are identical. The preparation script sets its own umask so
 your own umask is unchanged:
 
 ```sh
-(
-  umask 022
-  native_fixture_cache=$(mktemp -d)
-  bun install --force --frozen-lockfile --backend=copyfile --cache-dir "$native_fixture_cache"
-)
+# Preserve evidence and move aside this owned checkout's node_modules first.
+sh scripts/prepare-diagnostic-install.sh
 bun run test ./tests/native-diagram-inputs.test.ts
 ```
 
 Retain the failed and restored installation identities. Verify any suspected
 package edits against the lockfile's archive integrity; never normalize unknown
 bytes or modes to force qualification. Leave shared caches and other checkouts
-alone. This recovery does not prevent future diagnostic cache edits (#1980).
+alone. Use the same preparation before future dependency instrumentation; retain the
+original failure evidence as described in the diagnostic guide.
 
 The Linux backend nonpersistence tests require `bubblewrap` and permitted user
 namespaces. They launch the installed Claude and pi adapters with a loopback
