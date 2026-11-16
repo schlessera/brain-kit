@@ -1695,7 +1695,7 @@ worker does:
 - **Only interactive turns are journaled, and they load project
   configuration.** Evidence is wired only into the session-run turn request
   for a governed turn with a journal (`export function turnRequest`,
-  `packages/ui-server/src/ws/session-run/backend-entry.ts:203-218`). That turn
+  `packages/ui-server/src/ws/session-run/backend-entry.ts:217-232`). That turn
   is never a restricted autonomous one. It runs with `settingSources:
   ["project"]` and without `strictMcpConfig`
   (`const sdkOptions: Options`, `packages/ui-backend-claude/src/sdk-options.ts:406-422`).
