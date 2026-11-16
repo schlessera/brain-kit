@@ -489,6 +489,8 @@ by default, or the complete validated canonical trust entries from the
 [supported input](../supported-inputs.md#prospective-trust-policy-data-additive-3607),
 with explicit incoming/recipient defaults. This reports data, not a runtime
 trust exemption or new review capability; sticky taint enforcement is unchanged.
+Since #4088 (additive), `effective.taint` also includes `classifier`, `"off"`
+unless the file sets `"heuristics"`.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes

@@ -5350,6 +5350,16 @@ helpers remain on the existing brain-common internal governance-policy entry
 point and establish no new extension seam or runtime authority. No SDK safety
 capability, HTTP endpoint, history DTO or provider conversation changes here.
 
+## Extraction classifier setting (additive, 0.45.0, #4088)
+
+The governance policy types reachable through ui-server's public signatures
+accept optional `taint.classifier` (`"off" | "heuristics"`) and resolve it to
+`"off"` by default. The [supported input](../supported-inputs.md#governance-policy)
+describes what `heuristics` does. The same-commit API report records this
+additive type change. No SDK type, HTTP endpoint, card field or provider
+conversation changes: the classifier's card and refusal are existing
+permission requests and tool-result text.
+
 ## Live brain orientation and task status (additive, #3623)
 
 `LiveConversationOpenOptions.orientation?: ConversationOrientation` supplies an

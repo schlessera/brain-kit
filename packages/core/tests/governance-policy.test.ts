@@ -159,3 +159,14 @@ test("githubWriteAllowance matches exactly or by owner wildcard, without case, a
     expect(githubWriteAllowance(list, repository), `GITHUB_WRITES_NOT_ALLOWED: ${repository}`).toBeNull();
   expect(githubWriteAllowance([], "odysseus/ithaca"), "GITHUB_WRITES_EMPTY_LIST").toBeNull();
 });
+
+test("taint.classifier is off by default and accepts only off or heuristics (#4088)", () => {
+  expect(parse("").effective.taint.classifier, "CLASSIFIER_DEFAULT_OFF").toBe("off");
+  expect(parse("taint: { classifier: heuristics }").effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [], classifier: "heuristics" });
+  expect(parse("taint: { classifier: off, egress: { allow: [tides.example] } }").effective.taint.classifier).toBe("off");
+  for (const yaml of ["taint: { classifier: jev }", "taint: { classifier: true }", "taint: { classifier: HEURISTICS }"]) {
+    const invalid = parse(yaml);
+    expect(invalid.ok, `CLASSIFIER_STRICT_VALUE: ${yaml}`).toBe(false);
+    expect(invalid.effective.taint.classifier, "CLASSIFIER_INVALID_POLICY_FALLS_BACK_OFF").toBe("off");
+  }
+});
