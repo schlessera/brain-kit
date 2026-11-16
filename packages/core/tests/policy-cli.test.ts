@@ -59,5 +59,5 @@ test("policy check exposes bounded incoming-only trust data without legacy taint
   writeFileSync(join(root, "context/policies/governance.md"), `---\n${JSON.stringify({ schema_version: 1, taint: { trusted_sources: [rule] } })}\n---\n`);
   const result = await runCli(root, ["policy", "check", "--json"]);
   expect(result.code).toBe(0);
-  expect(JSON.parse(result.stdout).effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [{ ...rule, incomingContent: true, recipientWhileRestricted: false }], classifier: "off" });
+  expect(JSON.parse(result.stdout).effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [{ ...rule, incomingContent: true, recipientWhileRestricted: false }], classifier: "off", judge: { mode: "off", floor: 0.9 } });
 });

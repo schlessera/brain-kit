@@ -162,11 +162,23 @@ test("githubWriteAllowance matches exactly or by owner wildcard, without case, a
 
 test("taint.classifier is off by default and accepts only off or heuristics (#4088)", () => {
   expect(parse("").effective.taint.classifier, "CLASSIFIER_DEFAULT_OFF").toBe("off");
-  expect(parse("taint: { classifier: heuristics }").effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [], classifier: "heuristics" });
+  expect(parse("taint: { classifier: heuristics }").effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [], classifier: "heuristics", judge: { mode: "off", floor: 0.9 } });
   expect(parse("taint: { classifier: off, egress: { allow: [tides.example] } }").effective.taint.classifier).toBe("off");
   for (const yaml of ["taint: { classifier: jev }", "taint: { classifier: true }", "taint: { classifier: HEURISTICS }"]) {
     const invalid = parse(yaml);
     expect(invalid.ok, `CLASSIFIER_STRICT_VALUE: ${yaml}`).toBe(false);
     expect(invalid.effective.taint.classifier, "CLASSIFIER_INVALID_POLICY_FALLS_BACK_OFF").toBe("off");
+  }
+});
+
+test("taint.judge is off with a 0.9 floor by default, and takes only off or jev with a floor from 0.5 to 1 (#4089)", () => {
+  expect(parse("").effective.taint.judge, "JUDGE_DEFAULT_OFF").toEqual({ mode: "off", floor: 0.9 });
+  expect(parse("taint: { classifier: heuristics, judge: { mode: jev } }").effective.taint.judge, "JUDGE_JEV_KEEPS_DEFAULT_FLOOR").toEqual({ mode: "jev", floor: 0.9 });
+  expect(parse("taint: { judge: { mode: jev, floor: 0.95 } }").effective.taint.judge, "JUDGE_FLOOR_CONFIGURABLE").toEqual({ mode: "jev", floor: 0.95 });
+  for (const yaml of ["taint: { judge: { mode: on } }", "taint: { judge: jev }", "taint: { judge: { floor: 0.4 } }", "taint: { judge: { floor: 1.1 } }",
+    "taint: { judge: { mode: jev, model: jev-latest } }"]) {
+    const invalid = parse(yaml);
+    expect(invalid.ok, `JUDGE_STRICT_VALUE: ${yaml}`).toBe(false);
+    expect(invalid.effective.taint.judge, "JUDGE_INVALID_POLICY_FALLS_BACK_OFF").toEqual({ mode: "off", floor: 0.9 });
   }
 });

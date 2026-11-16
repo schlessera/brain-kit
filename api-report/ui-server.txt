@@ -1329,6 +1329,13 @@ signatures (every public export and the types it is made of)
             egress: z.ZodOptional<z.ZodObject<{
                 allow: z.ZodArray<z.ZodString>;
             }, z.core.$strict>>;
+            judge: z.ZodOptional<z.ZodObject<{
+                floor: z.ZodOptional<z.ZodNumber>;
+                mode: z.ZodOptional<z.ZodEnum<{
+                    jev: "jev";
+                    off: "off";
+                }>>;
+            }, z.core.$strict>>;
             trusted_sources: z.ZodOptional<z.ZodArray<z.ZodObject<{
                 id: z.ZodString;
                 incomingContent: z.ZodDefault<z.ZodBoolean>;
@@ -2774,6 +2781,10 @@ signatures (every public export and the types it is made of)
             classifier: "heuristics" | "off";
             egress: {
                 allow: string[];
+            };
+            judge: {
+                floor: number;
+                mode: "jev" | "off";
             };
             trusted_sources: {
                 id: string;

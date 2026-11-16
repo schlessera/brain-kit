@@ -4262,9 +4262,9 @@ anything sent to a host the session already reached. The policy setting
 heuristics #3434 measured ([the plan](../plans/extraction-classifier.md)) on
 each call a tainted session makes, at the per-call admission every backend
 awaits with the call's full input (`wrap`,
-`packages/ui-server/src/brain/turn-extraction.ts:137-158`). The signals and
+`packages/ui-server/src/brain/turn-extraction.ts:154-175`). The signals and
 bands are pure (`classify`,
-`packages/ui-server/src/governance/extraction-classifier.ts:583-590`); their
+`packages/ui-server/src/governance/extraction-classifier.ts:596-605`); their
 session state (shingle hashes of the files read, the hosts the tainting
 content named, each site's earlier payloads) is in-memory host state, never
 recorded or sent to a provider. `block` refuses the call with the reason as
@@ -4274,12 +4274,47 @@ voice refuses instead. `allow` relaxes only the #3430 card, only for the hosts
 a readable call (a WebFetch, a visible curl/wget or `gh` read) names, and only
 while that call is in progress; an opaque or unattributable call in progress
 withholds it, because the proxy cannot tell which process opened a connection
-(`relaxes`, `packages/ui-server/src/brain/turn-extraction.ts:193-197`). Deny,
+(`relaxes`, `packages/ui-server/src/brain/turn-extraction.ts:210-214`). Deny,
 `allowlist` mode, the byte ceiling, the outward-host card and the outward
 action cards never consult it. A session this process did not observe from
 its first turn, or whose state outgrew its bounds, never allows. The setting
 stays off by default until a maintainer ruling on #4088 after the band is
 requalified (#4090).
+
+<a id="extraction-judge"></a>
+
+**The Jev judge for the ambiguous band — 2026-11-16
+([#4089](https://github.com/schlessera/brain-kit/issues/4089)).** Most of the
+heuristics' remaining benign cards are links the tainting content named and
+pagination cursors, which score in a band from 0.2 to below 0.35. With
+`taint.judge.mode: jev` (default `off`, effective only beside
+`classifier: heuristics`), an interactive turn puts a call in that band to Jev
+instead of showing its card (`let band: Band`,
+`packages/ui-server/src/brain/turn-extraction.ts:131-133`). Jev is
+shown the outgoing request with its body cut at 2,000 characters, the wording
+of what tainted the session and the overlap score, never the conversation,
+the tainting content or a file the session read. The model is pinned to
+`jev-1.13.0`, the one #3434 measured, and an answer from any other model is no
+answer. `benign` admits the call and `extraction` refuses it only at or above
+the floor, 0.9 by default and configurable from 0.5 to 1 (`judgeBand`,
+`packages/ui-server/src/governance/extraction-judge.ts:74-77`). Every other
+outcome leaves the card (`createExtractionJudge`,
+`packages/ui-server/src/governance/extraction-judge.ts:116-148`). That covers
+`suspicious`, an answer below the floor, no answer, a timeout, the host
+client's open breaker and a missing key. The request is its own G2 data flow.
+TypeSafe is the recipient `typesafe` under the web providers' routing rule, so
+a conversation shown a folder the policy keeps from it, or one whose exposure
+cannot be judged yet, sends nothing. A blocked budget scope, or no ledger to
+charge, sends nothing either. Each request is recorded as a `typesafe`
+attempt with operation `extraction_judge` against the turn, its conversation
+and its UTC day, with the tokens TypeSafe reports. No rate is held for it, so
+its cost is unknown, never zero (`turnExtractionJudge`,
+`packages/ui-server/src/brain/turn-extraction-judge.ts:26-58`). Voice turns
+never call it and keep refusing; autonomous turns have no turn proxy and so
+no classifier. Answers stay host state: a judged call reaches the conversation
+only as its card or its refusal, whose text is the heuristics' reason. The
+setting stays off by default until the band is requalified (#4090) and a
+maintainer rules on it.
 
 <a id="refusals-say-why"></a>
 

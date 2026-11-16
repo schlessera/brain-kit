@@ -147,7 +147,15 @@ export const GovernancePolicySchema = z.strictObject({
      * outgoing calls. `heuristics` runs the deterministic #3434 heuristics at
      * admission; `off`, the default, keeps the #3430 behaviour.
      */
-    classifier: z.enum(["off", "heuristics"]).optional() }).optional(),
+    classifier: z.enum(["off", "heuristics"]).optional(),
+    /**
+     * Additive (#4089): a judge for the heuristics' ambiguous band. `jev`
+     * asks Jev about a call whose score falls in that band, and only while
+     * `classifier` is `heuristics`; `off`, the default, leaves the band on the
+     * card. `floor` is the confidence an answer needs before it allows or
+     * refuses, 0.9 as #3434 calibrated it.
+     */
+    judge: z.strictObject({ mode: z.enum(["off", "jev"]).optional(), floor: z.number().min(0.5).max(1).optional() }).optional() }).optional(),
   providers: z.array(z.strictObject({ paths: z.array(relativePath).optional(), types: strings.optional(), allow: strings })
     .refine(rule => rule.paths !== undefined || rule.types !== undefined, "A provider rule needs paths or types")
     .transform(rule => ({ ...rule, paths: rule.paths ?? [] }))).optional(),
@@ -183,7 +191,8 @@ export const BUILTIN_GOVERNANCE_POLICY = {
   commands: { deny: [] as Array<{ pattern: string; reason?: string }>, confirm: [] as Array<{ pattern: string; reason?: string }> },
   egress: { mode: "record" as "record" | "allowlist", allow: [] as string[], deny: [] as string[] },
   outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[], github: { repositories: [] as string[] } },
-  taint: { egress: { allow: [] as string[] }, trusted_sources: [] as TrustRule[], classifier: "off" as "off" | "heuristics" }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
+  taint: { egress: { allow: [] as string[] }, trusted_sources: [] as TrustRule[], classifier: "off" as "off" | "heuristics",
+    judge: { mode: "off" as "off" | "jev", floor: 0.9 } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
   apify: { enabled: false as boolean, discovery: "ask" as "deny" | "ask" | "allow", actors: "ask" as "deny" | "ask" | "allow",
     actor_grants: [] as Array<z.output<typeof apifyActorGrant>>, limits: null as ApifyLimits | null },
 };
@@ -197,7 +206,7 @@ export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
     scope: { ...defaults.scope, ...policy.scope }, commands: { ...defaults.commands, ...policy.commands },
     egress: { ...defaults.egress, ...policy.egress }, outward: { ...defaults.outward, ...policy.outward, github: { ...defaults.outward.github, ...policy.outward?.github } },
     taint: { egress: { ...defaults.taint.egress, ...policy.taint?.egress }, trusted_sources: TrustedSourcesSchema.parse(policy.taint?.trusted_sources ?? defaults.taint.trusted_sources),
-      classifier: policy.taint?.classifier ?? defaults.taint.classifier },
+      classifier: policy.taint?.classifier ?? defaults.taint.classifier, judge: { ...defaults.taint.judge, ...policy.taint?.judge } },
     // Callers pass parsed output, whose grant instants are already ISO strings.
     apify: { ...defaults.apify, ...(policy.apify as Partial<typeof defaults.apify> | undefined) },
   };
