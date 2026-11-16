@@ -36,7 +36,7 @@ export type GithubToolName = (typeof GITHUB_TOOL_NAMES)[keyof typeof GITHUB_TOOL
 export type GithubReadToolName = typeof GITHUB_TOOL_NAMES.read | typeof GITHUB_TOOL_NAMES.search;
 export type GithubWriteToolName = typeof GITHUB_TOOL_NAMES.create | typeof GITHUB_TOOL_NAMES.comment;
 export const GITHUB_TOOL_NAME_LIST: readonly GithubToolName[] = Object.freeze(Object.values(GITHUB_TOOL_NAMES));
-/** The tools registered today; the write tools join them with their approval cards (#3798). */
+/** The read tools (#3797); the write tools (#3798) follow them in the roster, behind the policy allow-list and a per-write card. */
 export const GITHUB_READ_TOOL_NAMES: readonly GithubReadToolName[] = Object.freeze([GITHUB_TOOL_NAMES.read, GITHUB_TOOL_NAMES.search]);
 export const isGithubToolName = (name: string): name is GithubToolName => (GITHUB_TOOL_NAME_LIST as readonly string[]).includes(name);
 
@@ -127,7 +127,7 @@ export const GITHUB_ISSUE_SEARCH_INPUT_SCHEMA = z.strictObject({
     .describe(`Results to return; default ${GITHUB_LIMITS.searchDefault}, at most ${GITHUB_LIMITS.searchMax}`),
 });
 
-/** Declared now and registered with its approval card in #3798. */
+/** One issue, sent only to an allow-listed repository after a per-use card (#3798). */
 export const GITHUB_ISSUE_CREATE_INPUT_SCHEMA = z.strictObject({
   repository,
   title: z.string().trim().min(1).max(GITHUB_LIMITS.writeTitleChars).describe("The issue title"),
@@ -136,7 +136,7 @@ export const GITHUB_ISSUE_CREATE_INPUT_SCHEMA = z.strictObject({
     .describe("Existing label names to apply"),
 });
 
-/** Declared now and registered with its approval card in #3798. */
+/** One comment, sent only to an allow-listed repository after a per-use card (#3798). */
 export const GITHUB_ISSUE_COMMENT_INPUT_SCHEMA = z.strictObject({
   repository,
   number: issueNumber,
@@ -313,7 +313,7 @@ export const GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA = z.strictObject({
   fetched_at: timestamp,
 });
 
-/** #3798 fills these; the shape is fixed here so the components bind once. */
+/** What a write returns (#3798); the shape is fixed here so the components bind once. */
 export const GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA = z.strictObject({
   kind: z.literal("issue_created"),
   repository: z.string().max(141),
@@ -351,8 +351,13 @@ export type GithubIssueCommentPayload = z.infer<typeof GITHUB_ISSUE_COMMENT_PAYL
 /**
  * Why a call did nothing. `unavailable` carries a reason: `no_credential`
  * (the host has no `BRAIN_UI_GITHUB_TOOLS_TOKEN`), `credential_rejected`,
- * `no_host` (no host handler in this turn) or `not_registered` (a write tool
- * before #3798).
+ * `no_host` (no host handler in this turn), `recording_unavailable` (a
+ * write's approval could not be recorded) or, before #3798 only,
+ * `not_registered`. A write (#3798) also refuses `policy_denied` with
+ * `repository_not_allowed` (outside `outward.github.repositories`) or
+ * `no_write_surface` (an autonomous turn), and `approval_declined` with
+ * `declined`, `edited` (the approval changed what would be sent) or
+ * `voice_posture`.
  */
 export const GITHUB_ERROR_CODES = ["invalid_input", "unavailable", "not_found", "forbidden", "rate_limited", "upstream_error",
   "policy_denied", "approval_declined"] as const;
@@ -541,3 +546,104 @@ export function isGithubSearchUrl(value: unknown, scope: { owner: string; repo: 
   if (!scope && url.searchParams.get("type") !== "issues") return false;
   return url.searchParams.get("q") === q;
 }
+
+// ------------------------------------------------- display detail pages
+
+/**
+ * The parts of one issue or pull request the chat components may page on
+ * demand through the host's display-only detail route (#3796). The route
+ * serves only an object a GitHub tool result in that session returned, and
+ * its pages never enter the provider-facing conversation.
+ */
+export const GITHUB_DETAIL_PARTS = ["comments", "reviews", "review-comments", "commits", "files", "checks"] as const;
+export type GithubDetailPart = (typeof GITHUB_DETAIL_PARTS)[number];
+export const isGithubDetailPart = (value: string): value is GithubDetailPart => (GITHUB_DETAIL_PARTS as readonly string[]).includes(value);
+
+/** Items in one detail page, at most: the page-size bound. */
+export const GITHUB_DETAIL_PAGE_SIZE = 30;
+
+/** A comment on a pull request's diff, with the line it was made on. */
+export const GITHUB_REVIEW_COMMENT_SCHEMA = z.strictObject({
+  id: z.number().int().positive(),
+  /** The review it belongs to, when GitHub names one. */
+  review_id: z.number().int().positive().nullable(),
+  /** The comment it answers, when it is a reply. */
+  in_reply_to_id: z.number().int().positive().nullable(),
+  author: GITHUB_AUTHOR_SCHEMA,
+  /** The file it was made on. */
+  path: untrusted(1024),
+  /** The line in the diff's new version, or null for an outdated or file-level comment. */
+  line: z.number().int().positive().nullable(),
+  created_at: timestamp,
+  updated_at: timestamp,
+  ...bodyFields(GITHUB_LIMITS.commentBodyChars),
+  html_url: directUrl,
+});
+
+export const GITHUB_CHANGED_FILE_STATUSES = ["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"] as const;
+/** One changed file of a pull request: a summary, never its diff or content. */
+export const GITHUB_CHANGED_FILE_SCHEMA = z.strictObject({
+  filename: untrusted(1024),
+  /** The name before a rename or copy. */
+  previous_filename: untrusted(1024).nullable(),
+  status: z.enum(GITHUB_CHANGED_FILE_STATUSES),
+  additions: count,
+  deletions: count,
+  changes: count,
+});
+
+export const GITHUB_CHECK_CONCLUSIONS = ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale",
+  "startup_failure", "error", "pending"] as const;
+/**
+ * One check run or commit status on the head commit. `state` is the bucket
+ * the payload's `checks` counts use; `conclusion` is GitHub's own word for a
+ * finished run or a status's state, or null while a run has none.
+ */
+export const GITHUB_CHECK_RUN_SCHEMA = z.strictObject({
+  source: z.enum(["check_run", "status"]),
+  /** The check run's name or the status's context. */
+  name: untrusted(256),
+  state: z.enum(["passed", "failed", "running", "skipped"]),
+  conclusion: z.enum(GITHUB_CHECK_CONCLUSIONS).nullable(),
+  started_at: timestamp.nullable(),
+  completed_at: timestamp.nullable(),
+});
+
+const detailPage = <Part extends GithubDetailPart, Item extends z.ZodType>(part: Part, item: Item) => z.strictObject({
+  kind: z.literal("detail_page"),
+  repository: z.string().max(141),
+  number: z.number().int().positive(),
+  part: z.literal(part),
+  items: z.array(item).max(GITHUB_DETAIL_PAGE_SIZE),
+  /** The total GitHub reports, or null where it reports none. */
+  total_count: count.nullable(),
+  /** Opaque: pass it back as `cursor` for the next page; null on the last one. */
+  next_cursor: z.string().max(256).nullable(),
+  fetched_at: timestamp,
+});
+
+/** One page of a part, oldest first, in the same item types the tool payloads use. */
+export const GITHUB_DETAIL_PAGE_SCHEMA = z.discriminatedUnion("part", [
+  detailPage("comments", GITHUB_COMMENT_SCHEMA),
+  detailPage("reviews", GITHUB_REVIEW_SCHEMA),
+  detailPage("review-comments", GITHUB_REVIEW_COMMENT_SCHEMA),
+  detailPage("commits", GITHUB_COMMIT_SCHEMA),
+  detailPage("files", GITHUB_CHANGED_FILE_SCHEMA),
+  detailPage("checks", GITHUB_CHECK_RUN_SCHEMA),
+]);
+
+/**
+ * Why a detail page was not served. The code is one of the tools' own;
+ * `reason` says more: `not_in_session` (no GitHub result in this session
+ * returned the object), `not_owner`, `part` or `cursor` (refused input),
+ * `no_credential`, `credential_rejected`. `reset_at` is when a spent rate
+ * limit resets, and null otherwise.
+ */
+export const GITHUB_DETAIL_ERROR_SCHEMA = GITHUB_ERROR_SCHEMA.extend({ reset_at: timestamp.nullable() });
+export const GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA = z.strictObject({ error: GITHUB_DETAIL_ERROR_SCHEMA });
+
+export type GithubReviewComment = z.infer<typeof GITHUB_REVIEW_COMMENT_SCHEMA>;
+export type GithubChangedFile = z.infer<typeof GITHUB_CHANGED_FILE_SCHEMA>;
+export type GithubCheckRun = z.infer<typeof GITHUB_CHECK_RUN_SCHEMA>;
+export type GithubDetailPage = z.infer<typeof GITHUB_DETAIL_PAGE_SCHEMA>;
+export type GithubDetailError = z.infer<typeof GITHUB_DETAIL_ERROR_SCHEMA>;

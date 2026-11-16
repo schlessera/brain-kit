@@ -53,12 +53,6 @@ describe("the dedicated credential", () => {
     for (const request of fake.seen) expect(request.authorization, `GITHUB_DEDICATED_BEARER ${request.path}`).toBe(`Bearer ${GITHUB_TOOLS_SENTINEL}`);
   });
 
-  test("the write tools are declared but answer unavailable until their approval cards exist", async () => {
-    const { fake, github } = host();
-    const result = await github.call(turn, { tool: "brain_github_issue_create", input: { repository: "odysseus/ithaca", title: "Bar the doors" } });
-    expect(result).toMatchObject({ ok: false, error: { code: "unavailable", reason: "not_registered" } });
-    expect(fake.seen).toEqual([]);
-  });
 });
 
 describe("issue and pull request reads", () => {
