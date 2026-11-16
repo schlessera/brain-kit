@@ -28,7 +28,7 @@ export const prBody = [
   "- Re-tension to 40 kg draw",
   "- Twelve axe heads, aligned",
   "",
-  "![bow on the wall](https://user-images.githubusercontent.com/412/bow.png)",
+  "![bow on the wall](https://images.ithaca.example/412/bow.png)",
   "",
   "The string was last waxed before the ships left. Eurycleia keeps the wax in the storeroom; the key is with the housekeeper. Philoetius checked the horn for cracks along both limbs and found the grip sound, though the nock on the upper limb is worn and may need re-cutting before the contest. Twelve axe heads are set in a line in the hall floor, each socket cleaned.",
 ].join("\n");
