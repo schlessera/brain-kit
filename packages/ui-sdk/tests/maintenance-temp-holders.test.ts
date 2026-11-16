@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceTempReservation } from "../src/server/maintenance-temp-budget";
 import { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "../src/server/worker-launcher";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../src/protocol";
+import { createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixture.js";
 
 // #3461: production limits (one 256 MiB allowance in a 256 MiB budget) on a
 // private shared-state domain, so no other test's ledger is involved.
@@ -112,19 +113,21 @@ test("freedWithin() reports a release inside its bound, false past it, and rejec
 });
 
 test("a turn's scratch check that starts while a reference Git command holds the budget waits for it, and scratch stays writable (#4079)", async () => {
-  // The worker's git query must see the brain: not under /tmp, which a
-  // maintenance worker replaces with its own, and inside the repository's
-  // gitignored tmp/, as the worker sandbox tests place theirs.
+  // As the writable-area tests run a real maintenance worker: the brain and
+  // its ledger state sit in the repository's gitignored tmp/, outside the
+  // worker's own /tmp, and the worker reads a prepared fixture input lease.
   const repo = resolve(import.meta.dir, "../../..");
   mkdirSync(join(repo, "tmp"), { recursive: true });
-  const brainRoot = mkdtempSync(join(repo, "tmp/odysseus-scratch-admission-"));
-  cleanups.push(() => rmSync(brainRoot, { recursive: true, force: true }));
-  const brain = join(brainRoot, "brain");
-  mkdirSync(brain);
+  const fixture = mkdtempSync(join(repo, "tmp/odysseus-scratch-admission-"));
+  cleanups.push(() => rmSync(fixture, { recursive: true, force: true }));
+  const brain = join(fixture, "brain"), state = join(fixture, "state");
+  mkdirSync(brain); mkdirSync(state);
+  const maintenance = createFixtureMaintenanceHost(brain, { tempLimits: LIMITS, tempDomain: { statePath: join(state, "ui.db") }, maskPaths: [state] });
+  cleanups.unshift(() => maintenance.cleanup());
   // The turn's first reference_source call is running its short ls-remote.
-  const reference = hold("git");
+  const reference = reserveMaintenanceTemp(LIMITS, maintenance.tempDomain, "git"); held.push(reference);
   setTimeout(() => reference.release(), 250);
-  const sandbox = await prepareWorkerSandboxAsync(brain, { areas: ["scratch"], maintenance: { tempLimits: LIMITS, tempDomain: domain } });
+  const sandbox = await prepareWorkerSandboxAsync(brain, { areas: ["scratch"], maintenance });
   const scratch = sandbox.areas.find(area => area.name === "scratch");
   const reason = scratch?.mount.writable === false ? scratch.mount.reason : "";
   expect(reason, "TURN_SCRATCH_CHECK_IS_NOT_REFUSED_BY_A_SHORT_REFERENCE_COMMAND").not.toContain("Maintenance temporary storage is busy");
