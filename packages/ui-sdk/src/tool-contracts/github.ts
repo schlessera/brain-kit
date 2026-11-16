@@ -546,3 +546,104 @@ export function isGithubSearchUrl(value: unknown, scope: { owner: string; repo: 
   if (!scope && url.searchParams.get("type") !== "issues") return false;
   return url.searchParams.get("q") === q;
 }
+
+// ------------------------------------------------- display detail pages
+
+/**
+ * The parts of one issue or pull request the chat components may page on
+ * demand through the host's display-only detail route (#3796). The route
+ * serves only an object a GitHub tool result in that session returned, and
+ * its pages never enter the provider-facing conversation.
+ */
+export const GITHUB_DETAIL_PARTS = ["comments", "reviews", "review-comments", "commits", "files", "checks"] as const;
+export type GithubDetailPart = (typeof GITHUB_DETAIL_PARTS)[number];
+export const isGithubDetailPart = (value: string): value is GithubDetailPart => (GITHUB_DETAIL_PARTS as readonly string[]).includes(value);
+
+/** Items in one detail page, at most: the page-size bound. */
+export const GITHUB_DETAIL_PAGE_SIZE = 30;
+
+/** A comment on a pull request's diff, with the line it was made on. */
+export const GITHUB_REVIEW_COMMENT_SCHEMA = z.strictObject({
+  id: z.number().int().positive(),
+  /** The review it belongs to, when GitHub names one. */
+  review_id: z.number().int().positive().nullable(),
+  /** The comment it answers, when it is a reply. */
+  in_reply_to_id: z.number().int().positive().nullable(),
+  author: GITHUB_AUTHOR_SCHEMA,
+  /** The file it was made on. */
+  path: untrusted(1024),
+  /** The line in the diff's new version, or null for an outdated or file-level comment. */
+  line: z.number().int().positive().nullable(),
+  created_at: timestamp,
+  updated_at: timestamp,
+  ...bodyFields(GITHUB_LIMITS.commentBodyChars),
+  html_url: directUrl,
+});
+
+export const GITHUB_CHANGED_FILE_STATUSES = ["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"] as const;
+/** One changed file of a pull request: a summary, never its diff or content. */
+export const GITHUB_CHANGED_FILE_SCHEMA = z.strictObject({
+  filename: untrusted(1024),
+  /** The name before a rename or copy. */
+  previous_filename: untrusted(1024).nullable(),
+  status: z.enum(GITHUB_CHANGED_FILE_STATUSES),
+  additions: count,
+  deletions: count,
+  changes: count,
+});
+
+export const GITHUB_CHECK_CONCLUSIONS = ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale",
+  "startup_failure", "error", "pending"] as const;
+/**
+ * One check run or commit status on the head commit. `state` is the bucket
+ * the payload's `checks` counts use; `conclusion` is GitHub's own word for a
+ * finished run or a status's state, or null while a run has none.
+ */
+export const GITHUB_CHECK_RUN_SCHEMA = z.strictObject({
+  source: z.enum(["check_run", "status"]),
+  /** The check run's name or the status's context. */
+  name: untrusted(256),
+  state: z.enum(["passed", "failed", "running", "skipped"]),
+  conclusion: z.enum(GITHUB_CHECK_CONCLUSIONS).nullable(),
+  started_at: timestamp.nullable(),
+  completed_at: timestamp.nullable(),
+});
+
+const detailPage = <Part extends GithubDetailPart, Item extends z.ZodType>(part: Part, item: Item) => z.strictObject({
+  kind: z.literal("detail_page"),
+  repository: z.string().max(141),
+  number: z.number().int().positive(),
+  part: z.literal(part),
+  items: z.array(item).max(GITHUB_DETAIL_PAGE_SIZE),
+  /** The total GitHub reports, or null where it reports none. */
+  total_count: count.nullable(),
+  /** Opaque: pass it back as `cursor` for the next page; null on the last one. */
+  next_cursor: z.string().max(256).nullable(),
+  fetched_at: timestamp,
+});
+
+/** One page of a part, oldest first, in the same item types the tool payloads use. */
+export const GITHUB_DETAIL_PAGE_SCHEMA = z.discriminatedUnion("part", [
+  detailPage("comments", GITHUB_COMMENT_SCHEMA),
+  detailPage("reviews", GITHUB_REVIEW_SCHEMA),
+  detailPage("review-comments", GITHUB_REVIEW_COMMENT_SCHEMA),
+  detailPage("commits", GITHUB_COMMIT_SCHEMA),
+  detailPage("files", GITHUB_CHANGED_FILE_SCHEMA),
+  detailPage("checks", GITHUB_CHECK_RUN_SCHEMA),
+]);
+
+/**
+ * Why a detail page was not served. The code is one of the tools' own;
+ * `reason` says more: `not_in_session` (no GitHub result in this session
+ * returned the object), `not_owner`, `part` or `cursor` (refused input),
+ * `no_credential`, `credential_rejected`. `reset_at` is when a spent rate
+ * limit resets, and null otherwise.
+ */
+export const GITHUB_DETAIL_ERROR_SCHEMA = GITHUB_ERROR_SCHEMA.extend({ reset_at: timestamp.nullable() });
+export const GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA = z.strictObject({ error: GITHUB_DETAIL_ERROR_SCHEMA });
+
+export type GithubReviewComment = z.infer<typeof GITHUB_REVIEW_COMMENT_SCHEMA>;
+export type GithubChangedFile = z.infer<typeof GITHUB_CHANGED_FILE_SCHEMA>;
+export type GithubCheckRun = z.infer<typeof GITHUB_CHECK_RUN_SCHEMA>;
+export type GithubDetailPage = z.infer<typeof GITHUB_DETAIL_PAGE_SCHEMA>;
+export type GithubDetailError = z.infer<typeof GITHUB_DETAIL_ERROR_SCHEMA>;
