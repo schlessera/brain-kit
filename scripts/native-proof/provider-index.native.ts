@@ -110,7 +110,9 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
           const root = hold.sandbox.dataTree?.root ?? "";
           expect(root.startsWith(join(brain, "..", ".brain-native", "trees") + "/"), `NATIVE_STRICT_TREE_ON_THE_MANAGED_VOLUME: ${root}`).toBe(true);
           const peer = await manager.prepareTurnTree(crypto.randomUUID(), 1024 * 1024);
-          peerTrees.push(peer.id); peerTree = peer.path;
+          // Only its identity goes to the worker: the launcher binds an
+          // existing absolute command argument back in as a read path.
+          peerTrees.push(peer.id); peerTree = `peer:${peer.id}`;
           mkdirSync(join(peer.path, "data")); writeFileSync(join(peer.path, "data/odysseus-peer.md"), document("Another turn's note", "Not this turn's."));
         }
         const launch = { brainPath: brain, sandbox: hold.sandbox,

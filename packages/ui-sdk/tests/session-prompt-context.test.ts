@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sessionPromptContext } from "../src/server/session-prompt-context.js";
+import { sessionPromptContext, stripHostContextFromTitle } from "../src/server/session-prompt-context.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -70,4 +70,16 @@ test("native image normalization records exact observed bytes without stripping 
   expect(store().userText("native-image-entry", native)).toBe(original);
   expect(store().userText("another-entry", native)).toBe(native);
   expect(store().prepare("Continue", { device: "phone" }).text).toBe("Continue");
+});
+
+test("title cleanup removes only a complete trailing block and preserves original bytes", () => {
+  const { store } = fixture();
+  const original = "Continue  ";
+  const wire = store().prepare(original, { sandbox: "Use the voyage scratch area." }).text;
+  expect(stripHostContextFromTitle(wire)).toBe(original);
+  expect(stripHostContextFromTitle(wire + "\nUser text")).toBe(wire + "\nUser text");
+  expect(stripHostContextFromTitle(wire.slice(0, wire.lastIndexOf("\n")))).toBe(wire.slice(0, wire.lastIndexOf("\n")));
+  expect(stripHostContextFromTitle(original)).toBe(original);
+  const nested = store().prepare(wire, { device: "phone" }).text;
+  expect(stripHostContextFromTitle(nested)).toBe(wire);
 });

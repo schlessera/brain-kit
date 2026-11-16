@@ -83,9 +83,10 @@ expect(search(sentinel), "NATIVE_CAPTURE_NEVER_EXPOSES_MASKED_DOCUMENT").toEqual
 expect(sentinelFiles(), "NATIVE_PRIVATE_INDEX_HOLDS_NO_SENTINEL_BYTE_AT_TURN_END").toEqual([]);
 // #2911: a strict worker's tree is on the managed volume. It reads its own
 // tree, cannot change it, and cannot reach the manager's area or a peer's tree.
-const peerTree = process.argv[5];
+const peerId = /^peer:([0-9a-f-]{36})$/.exec(process.argv[5] ?? "")?.[1];
 if (profile === "strict") {
-  if (!peerTree) throw Error("The strict proof names a peer turn tree");
+  if (!peerId) throw Error("The strict proof names a peer turn tree");
+  const peerTree = `/brain-fixture/.brain-native/trees/${peerId}`;
   const data = "/tmp/brain-worker-data";
   expect(readFileSync(join(data, "notes/provider-voyage.md"), "utf8"), "NATIVE_WORKER_READS_ITS_OWN_TREE").toContain(permitted);
   const write = (() => { try { writeFileSync(join(data, "notes/odysseus-tree-write.md"), "Not this worker's to write.\n"); return "written"; } catch (error) { return (error as NodeJS.ErrnoException).code; } })();

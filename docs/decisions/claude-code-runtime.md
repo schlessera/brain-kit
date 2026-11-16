@@ -66,7 +66,7 @@ next to it.
   `packages/ui-server/src/brain/client.ts:180-248`, called at
   `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:478`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
-  `packages/core/src/cli/commands/doctor.ts:505-509`) — the user's own Claude
+  `packages/core/src/cli/commands/doctor.ts:507-511`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
   binary.
 - **Two moving parts.** The SDK is a runtime dependency of
@@ -111,7 +111,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:289-294`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:290-295`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -544,7 +544,7 @@ subscription authenticates.
   successful turn with no text. That was #191's failure, and an auth failure is
   one of its cases. Since #575 the adapter reads `is_error` on either subtype
   (`msg.subtype === "success" && !msg.is_error`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:247`) and ends the turn on a
+  `packages/ui-backend-claude/src/stream-adapter.ts:248`) and ends the turn on a
   `failure` carrying the class, the status and this text.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
@@ -1318,7 +1318,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`qualify(settings`, `packages/ui-backend-claude/src/turn-inference-relay.ts:108-133`).
+(`qualify(settings`, `packages/ui-backend-claude/src/turn-inference-relay.ts:115-140`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a

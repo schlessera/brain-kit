@@ -80,7 +80,7 @@ export type { NativePoolRecord, NativePoolStatus, NativePoolState, NativePoolChe
 export { REFERENCE_POOL_CHECKPOINT_BYTES } from "./server/native-brain-manager-protocol.js";
 
 export { RTK_WORKER_ENV } from "./server/rtk.js";
-export { sessionPromptContext } from "./server/session-prompt-context.js";
+export { sessionPromptContext, stripHostContextFromTitle } from "./server/session-prompt-context.js";
 export type { SessionPromptFacts } from "./server/session-prompt-context.js";
 
 export { describeClient } from "./server/system-prompt.js";

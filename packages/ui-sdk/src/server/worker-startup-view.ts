@@ -46,8 +46,9 @@ export function isManagedWorkerStartupView(view: WorkerStartupView | undefined):
  * view whose manager cannot place one is refused, never given a full copy.
  */
 export function nativeTurnTreeManager(view: WorkerStartupView): Pick<NativeClient, "prepareTurnTree" | "releaseTurnTree"> | undefined {
-  if (!isManagedWorkerStartupView(view)) return undefined;
-  const manager = nativeInputs.get(view)!.manager;
+  // Read the acquisition itself: only a view the manager acquired has one.
+  const manager = releasedViews.has(view) ? undefined : nativeInputs.get(view)?.manager;
+  if (!manager?.prepareStage || !manager.inspectStage || !manager.releaseStage) return undefined;
   if (!manager.prepareTurnTree || !manager.releaseTurnTree)
     throw new Error("The native manager that acquired this startup view cannot place a turn data tree on the managed volume; no full-copy fallback runs.");
   return manager as Pick<NativeClient, "prepareTurnTree" | "releaseTurnTree">;

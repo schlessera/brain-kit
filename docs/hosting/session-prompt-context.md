@@ -30,6 +30,14 @@ provider text digest at that delivery boundary, including native hints; replay
 uses that exact ownership record and never infers a removable suffix. Retries
 therefore retain facts that never reached saved history.
 
+Claude session titles that fall back to the first prompt omit a complete trailing
+host-context block. New archive manifests use the same cleanup, and older
+archive titles are cleaned when listed without rewriting their manifests.
+Custom titles and SDK summaries keep precedence. This display-only rule leaves
+an unmatched opening delimiter intact and never changes provider transcripts
+or ownership-based history replay. Pi already derives its fallback title from
+the first line, before the appended block.
+
 Camera and microphone values remain unknown until enumeration settles.
 Unknown is withheld from absence claims; a settled probe can explicitly report
 absence. The welcome and message states both expose the same capped reading
