@@ -24,6 +24,8 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * #3797 adds the two host GitHub read tools to the four interactive modes'
  * stable roster (names and the schema digest); allowlists, prompts and
  * autonomous modes stay byte-identical.
+ * #3798 adds the two host GitHub write tools after them, in the same four
+ * modes (names and the schema digest); everything else stays byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

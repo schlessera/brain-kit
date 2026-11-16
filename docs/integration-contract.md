@@ -47,6 +47,26 @@ shape changes. See
 [the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
 This ships in a minor.
 
+## Host GitHub writes and their repository allow-list (additive, 0.45.0, #3798)
+
+Both first-party backends register `brain_github_issue_create` and
+`brain_github_issue_comment` in every interactive session's fixed roster,
+after the two reads, whatever the host's configuration or the turn's
+posture; no autonomous roster lists them. A write goes only to a repository
+the new governance policy key `outward.github.repositories` lists, exactly as
+`owner/repo` or as `owner/*`, compared without case; anything else is
+refused with `policy_denied` (`repository_not_allowed`) before any card, and
+an absent or empty list refuses every write. Inside the list, the host shows
+one per-use card with exactly what will be sent and sends it once on an
+unedited approval; a denial, an edited approval or a voice turn
+(`approval_declined`) sends nothing. Each decision is an `outward_action`
+governance event (`gh_write`) that the turn journal lists as irreversible.
+`brain policy check --json` reports `effective.outward.github.repositories`
+(default `[]`). Claude's SDK-options roster gains the two names. See
+[the MCP component](integration-contract/mcp.md#github-writes-additive-0450-3798)
+and [supported inputs](supported-inputs.md#governance-policy).
+This ships in a minor.
+
 ## GitHub detail-page types (additive, 0.45.0, #3796)
 
 `@schlessera/brain-ui-sdk/tool-contracts` adds the detail-page part list,
@@ -67,7 +87,7 @@ Both first-party backends' interactive sessions gain two host-executed read
 tools in their fixed roster: `brain_github_issue_read` and
 `brain_github_issue_search` (`mcp__brain-ui__*` on Claude, plain on pi). Two
 write tools, `brain_github_issue_create` and `brain_github_issue_comment`, are
-declared with their schemas and payloads and registered by #3798. Results are
+declared with their schemas and payloads, and registered since #3798. Results are
 typed payloads for an issue, a pull request and a search, with bounded lists
 carrying `total_count` and `has_more`, untrusted text marked in the schema,
 and direct links that pass the exported `githubDirectUrl` and

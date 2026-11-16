@@ -8,17 +8,55 @@
  *
  * Every direct link is taken from the API response and passes the contract's
  * validator, or is null. The search link is built by the contract's builder.
- * The write tools are declared in the contract and answer `unavailable` here
- * until #3798 registers them with their approval cards.
+ *
+ * Writes (#3798): an issue or a comment goes only to a repository the turn's
+ * admitted governance policy lists under `outward.github.repositories`. One
+ * outside the list is refused before any card, and nothing is sent. Inside
+ * it, the turn's own approval surface shows one per-use card with exactly
+ * what will be sent; only an unedited allow sends it, once. Voice refuses
+ * before the card. Each admission, refusal and answer is recorded as an
+ * `outward_action` (`gh_write`), which the turn journal lists as irreversible.
  */
+import { githubWriteAllowance } from "@schlessera/brain-common/internal/governance-policy";
+import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import {
-  GITHUB_API_ORIGIN, GITHUB_ISSUE_READ_INPUT_SCHEMA, GITHUB_ISSUE_SEARCH_INPUT_SCHEMA, GITHUB_LIMITS, GITHUB_TOOL_NAMES,
+  GITHUB_API_ORIGIN, GITHUB_ISSUE_COMMENT_INPUT_SCHEMA, GITHUB_ISSUE_CREATE_INPUT_SCHEMA, GITHUB_ISSUE_READ_INPUT_SCHEMA, GITHUB_ISSUE_SEARCH_INPUT_SCHEMA, GITHUB_LIMITS, GITHUB_TOOL_NAMES,
   GITHUB_AUTHOR_ASSOCIATIONS, githubDirectUrl, githubSearchUrl, parseGithubRepository,
   type GithubAuthor, type GithubChecks, type GithubComment, type GithubCommit, type GithubErrorCode, type GithubIssue,
   type GithubIssueReadInput, type GithubIssueSearchInput, type GithubIssueSearchPayload, type GithubLabel, type GithubLinkScope,
   type GithubPullRequest, type GithubReadToolName, type GithubReview, type GithubReviewDecision, type GithubSearchItem,
-  type GithubToolCall, type GithubToolName, type GithubToolResult, type GithubUser,
+  type GithubToolCall, type GithubToolName, type GithubToolResult, type GithubUser, type GithubWriteToolName,
+  type GithubIssueCreatePayload, type GithubIssueCommentPayload,
 } from "@schlessera/brain-ui-sdk/tool-contracts";
+
+/** The recorded `outward_action` of one GitHub write, as the governance writer takes it. */
+export interface GithubOutwardAction {
+  kind: "outward_action";
+  payload: {
+    tool: string; input: string; inputTruncated: boolean; action: "gh_write"; target: string;
+    historyRewrite: false; tainted: boolean; decision: "approved" | "declined" | "refused"; rule: null;
+  };
+}
+
+/**
+ * What a write needs from its turn. All of it is bound by the host from the
+ * turn, never from the call; without it, writes refuse.
+ */
+export interface GithubWriteTurn {
+  /** The admitted policy's `outward.github.repositories`; null when the turn runs under no governance policy. */
+  readonly repositories: () => readonly string[] | null;
+  readonly posture: "interactive" | "voice";
+  /** The turn's own approval surface. */
+  readonly requestPermission: (request: PermissionRequest) => Promise<PermissionDecision>;
+  /** The tool's name as this backend shows it on the card. */
+  readonly toolName: (name: GithubWriteToolName) => string;
+  /** Whether the session has ingested untrusted input; a failing read counts as tainted. */
+  readonly tainted: () => boolean;
+  /** Whether the turn still holds current authority, checked again after the card. */
+  readonly isCurrent: () => boolean;
+  /** Records the decision. A write is sent only after its approval's record settles without error. */
+  readonly govern: (event: GithubOutwardAction) => void | Promise<void>;
+}
 
 /** The turn a call belongs to, bound by the host, never by the call. */
 export interface GithubToolsTurn {
@@ -26,6 +64,8 @@ export interface GithubToolsTurn {
   readonly principalId: string;
   readonly sessionId: () => string | null;
   readonly signal?: AbortSignal;
+  /** Present only on a turn that may write (#3798); an autonomous turn has none. */
+  readonly write?: GithubWriteTurn;
 }
 
 export interface GithubToolsHostOptions {
@@ -206,6 +246,7 @@ export async function githubGet(transport: GithubTransport, token: string, path:
 
 export function createGithubToolsHost(options: GithubToolsHostOptions): GithubToolsHost {
   const now = options.now ?? Date.now;
+  const timeoutMs = options.timeoutMs ?? 20_000;
   const get = (token: string, path: string, signal: AbortSignal | undefined) => githubGet(options, token, path, signal);
 
   /** A path below the API origin from a `next` link, only when it stays there. */
@@ -340,14 +381,142 @@ export function createGithubToolsHost(options: GithubToolsHostOptions): GithubTo
 
   const refusal = (tool: GithubToolName, code: GithubErrorCode, reason: string | null, message: string): GithubToolResult =>
     ({ ok: false, tool, error: { code, reason, message } });
+  const noCredential = (tool: GithubToolName) =>
+    refusal(tool, "unavailable", "no_credential", "This host has no GitHub credential for its GitHub tools (BRAIN_UI_GITHUB_TOOLS_TOKEN). GITHUB_TOKEN is never used for them.");
+
+  /**
+   * One POST against the fixed API origin, sent once. A redirect is not
+   * followed: repeating a write could file it twice.
+   */
+  async function post(token: string, path: string, payload: Json, signal: AbortSignal | undefined): Promise<unknown> {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    let response: Response;
+    try {
+      response = await (options.fetch ?? fetch)(new URL(path, GITHUB_API_ORIGIN), { method: "POST", redirect: "manual",
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout, body: JSON.stringify(payload),
+        headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json",
+          "x-github-api-version": "2022-11-28", "user-agent": "brain-ui" } });
+    } catch {
+      // The request may have reached GitHub: say so rather than invite a duplicate.
+      throw new GithubRefusal("upstream_error", signal?.aborted ? "cancelled" : timeout.aborted ? "timeout" : "network",
+        "GitHub did not confirm the write. It may still have been made: read the issue before trying again.");
+    }
+    if (!response.ok) {
+      const limited = response.headers.get("x-ratelimit-remaining") === "0" || response.status === 429;
+      if (limited) throw new GithubRefusal("rate_limited", null, "GitHub's rate limit for the host credential is spent; nothing was written. Try again later.");
+      if (response.status === 401) throw new GithubRefusal("unavailable", "credential_rejected", "GitHub rejected the host's GitHub tools credential; nothing was written.");
+      if (response.status === 404 || response.status === 410) throw new GithubRefusal("not_found", null, "GitHub has no such issue or repository, or the host's credential cannot see it; nothing was written.");
+      if (response.status === 403) throw new GithubRefusal("forbidden", null, "The host's GitHub credential is not permitted to write here; nothing was written.");
+      if (response.status === 422) throw new GithubRefusal("invalid_input", "github_validation", "GitHub refused the write as invalid; nothing was written.");
+      throw new GithubRefusal("upstream_error", `http_${response.status}`, `GitHub answered ${response.status}; the write may not have been made.`);
+    }
+    try { return await response.json(); }
+    catch { throw new GithubRefusal("upstream_error", "malformed", "GitHub accepted the write but returned malformed JSON."); }
+  }
+
+  /** What one write sends: the card shows `card`, and `payload` is the request body, built from the same values. */
+  function prepareWrite(call: Extract<GithubToolCall, { tool: GithubWriteToolName }>) {
+    if (call.tool === GITHUB_TOOL_NAMES.create) {
+      const input = GITHUB_ISSUE_CREATE_INPUT_SCHEMA.parse(call.input);
+      const payload: Json = { title: input.title, ...(input.body !== undefined ? { body: input.body } : {}), ...(input.labels !== undefined ? { labels: input.labels } : {}) };
+      return { repository: input.repository, path: `/repos/${input.repository}/issues`, payload, card: { repository: input.repository, ...payload } as Json,
+        target: input.repository, describe: `File this issue in ${input.repository} on GitHub` };
+    }
+    const input = GITHUB_ISSUE_COMMENT_INPUT_SCHEMA.parse(call.input);
+    const payload: Json = { body: input.body };
+    return { repository: input.repository, path: `/repos/${input.repository}/issues/${input.number}/comments`, payload,
+      card: { repository: input.repository, number: input.number, ...payload } as Json, target: `${input.repository}#${input.number}`,
+      describe: `Post this comment on ${input.repository}#${input.number} on GitHub` };
+  }
+
+  /** Canonical JSON with sorted keys, so an echoed card compares equal to the one shown. */
+  const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) =>
+    item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.entries(item as Json).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : item);
+
+  async function write(turn: GithubToolsTurn, call: Extract<GithubToolCall, { tool: GithubWriteToolName }>): Promise<GithubToolResult> {
+    const { tool } = call;
+    const ctx = turn.write;
+    // An autonomous or otherwise unbound turn has no approval surface and no policy: it never writes.
+    if (!ctx) return refusal(tool, "policy_denied", "no_write_surface", "GitHub writes are not available in this turn. Unattended work never writes to GitHub.");
+    const prepared = prepareWrite(call);
+    const visible = ctx.toolName(tool);
+    let tainted = true;
+    try { tainted = ctx.tainted(); } catch { /* Unknown taint is tainted. */ }
+    /** Records the decision. Only an approval's record is load-bearing: unrecorded, nothing is sent. */
+    const decide = async (decision: "approved" | "declined" | "refused"): Promise<boolean> => {
+      const recorded = canonical(prepared.card);
+      try {
+        await ctx.govern({ kind: "outward_action", payload: { tool: visible, input: recorded.slice(0, 8192), inputTruncated: recorded.length > 8192,
+          action: "gh_write", target: prepared.target, historyRewrite: false, tainted, decision, rule: null } });
+        return true;
+      } catch (error) {
+        options.report?.(`GitHub write ${decision} not recorded: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+    };
+    // The allow-list first: a repository it does not open never reaches a card or GitHub.
+    const allowance = githubWriteAllowance(ctx.repositories() ?? [], prepared.repository);
+    if (!allowance) {
+      await decide("refused");
+      return refusal(tool, "policy_denied", "repository_not_allowed",
+        `${prepared.repository} is not open to GitHub writes. The governance policy's outward.github.repositories must list it (owner/repo or owner/*); nothing was sent.`);
+    }
+    if (ctx.posture !== "interactive") {
+      await decide("refused");
+      return refusal(tool, "approval_declined", "voice_posture", "Voice cannot approve a GitHub write. Nothing was sent; ask for it in a typed conversation.");
+    }
+    const token = options.token();
+    if (!token) return noCredential(tool);
+    const decision = await ctx.requestPermission({ toolUseId: `github-${crypto.randomUUID()}`, toolName: visible, kind: "command", input: prepared.card,
+      description: `${prepared.describe}, exactly as shown. It is sent once, in your name, through the host's GitHub credential, and cannot be undone from here.`
+        + (tainted ? " This conversation has read untrusted input; its content may have been shaped by it." : "") });
+    // An edited card is a different write: it is refused, and the call must be made again as wanted, which rechecks it.
+    const edited = decision.behavior === "allow" && decision.updatedInput !== undefined && canonical(decision.updatedInput) !== canonical(prepared.card);
+    if (decision.behavior !== "allow" || edited) {
+      await decide("declined");
+      return refusal(tool, "approval_declined", edited ? "edited" : "declined", edited
+        ? "The approval changed what would be sent, so nothing was sent. Make the call again with the content you want, to be approved as it is."
+        : "The user declined this GitHub write; nothing was sent.");
+    }
+    if (turn.signal?.aborted || !ctx.isCurrent()) {
+      await decide("refused");
+      return refusal(tool, "upstream_error", "cancelled", "The turn ended before the write was sent; nothing was sent.");
+    }
+    if (!await decide("approved")) return refusal(tool, "unavailable", "recording_unavailable", "The approval could not be recorded, so nothing was sent.");
+    const { owner, repo } = parseGithubRepository(prepared.repository)!;
+    const created = record(await post(token, prepared.path, prepared.payload, turn.signal));
+    if (tool === GITHUB_TOOL_NAMES.create) {
+      const number = integer(created?.number);
+      if (!created || !number) throw new GithubRefusal("upstream_error", "malformed", "GitHub accepted the issue but returned an unexpected answer.");
+      const result: GithubIssueCreatePayload = { kind: "issue_created", repository: `${owner}/${repo}`, number,
+        title: cut(text(created.title) ?? "", GITHUB_LIMITS.titleChars).text, labels: labels(created.labels).items.map(label => label.name),
+        created_at: requiredTime(created.created_at, new Date(now()).toISOString()),
+        html_url: githubDirectUrl(created.html_url, { owner, repo, number }, { kind: "issue" }) };
+      return { ok: true, tool, result };
+    }
+    const number = (call.input as { number: number }).number;
+    const id = integer(created?.id);
+    if (!created || !id) throw new GithubRefusal("upstream_error", "malformed", "GitHub accepted the comment but returned an unexpected answer.");
+    const result: GithubIssueCommentPayload = { kind: "comment_created", repository: `${owner}/${repo}`, number, comment_id: id,
+      created_at: requiredTime(created.created_at, new Date(now()).toISOString()),
+      html_url: githubDirectUrl(created.html_url, { owner, repo, number }, { kind: "comment", id }) };
+    return { ok: true, tool, result };
+  }
 
   return {
     async call(turn, call) {
       const { tool } = call;
-      if (tool === GITHUB_TOOL_NAMES.create || tool === GITHUB_TOOL_NAMES.comment)
-        return refusal(tool, "unavailable", "not_registered", "GitHub writes are not available on this host yet.");
+      if (tool === GITHUB_TOOL_NAMES.create || tool === GITHUB_TOOL_NAMES.comment) {
+        try { return await write(turn, call); }
+        catch (error) {
+          if (error instanceof GithubRefusal) return refusal(tool, error.code, error.reason, error.message);
+          if (error instanceof Error && error.name === "ZodError") return refusal(tool, "invalid_input", null, "The input does not match the tool's schema; nothing was sent.");
+          options.report?.(`GitHub tool ${tool} failed: ${error instanceof Error ? error.message : String(error)}`);
+          return refusal(tool, "upstream_error", null, "The GitHub write failed; it may not have been made.");
+        }
+      }
       const token = options.token();
-      if (!token) return refusal(tool, "unavailable", "no_credential", "This host has no GitHub credential for its GitHub tools (BRAIN_UI_GITHUB_TOOLS_TOKEN). GITHUB_TOKEN is never used for them.");
+      if (!token) return noCredential(tool);
       try {
         if (tool === GITHUB_TOOL_NAMES.read) {
           const input = GITHUB_ISSUE_READ_INPUT_SCHEMA.parse(call.input);

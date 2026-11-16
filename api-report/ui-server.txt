@@ -1284,6 +1284,9 @@ signatures (every public export and the types it is made of)
                 command: string;
                 remotes: string[];
             }[]>>>;
+            github: z.ZodOptional<z.ZodObject<{
+                repositories: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            }, z.core.$strict>>;
             hosts: z.ZodOptional<z.ZodArray<z.ZodString>>;
         }, z.core.$strict>>;
         profiles: z.ZodOptional<z.ZodObject<{
@@ -2677,6 +2680,9 @@ signatures (every public export and the types it is made of)
                 command: string;
                 remotes: string[];
             }>;
+            github: {
+                repositories: string[];
+            };
             hosts: string[];
         };
         profiles: {
