@@ -12,7 +12,9 @@ import * as fsp from "node:fs/promises";
 import { Database } from "bun:sqlite";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import * as startup from "../../ui-sdk/src/server/worker-startup-view";
 import { prepareNativeWorkerStartupView } from "../../ui-sdk/src/server/worker-startup-view";
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { createTurnDataTree, TURN_TREE_EFFECT_BYTES, turnTreeAllowance } from "../src/brain/turn-data-tree";
 
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -115,4 +117,19 @@ test("a turn's effects past the tree's allowance stop entering it and its index 
     expect(fs.existsSync(join(tree.mount!.root, "notes/epic.md")), "EFFECT_PAST_ALLOWANCE_NOT_WRITTEN").toBe(false);
     await expect(tree.barrier(), "EFFECT_PAST_ALLOWANCE_REFUSES_INDEX_READS").rejects.toThrow("allowance");
   } finally { await tree.close(); }
+});
+
+test("a view no manager acquired keeps the temporary copy, even where another check treats it as managed", async () => {
+  const store = fs.mkdtempSync(join(tmpdir(), "odysseus-tree-unmanaged-")), brain = join(store, "brain");
+  cleanups.push(() => fs.rmSync(store, { recursive: true, force: true }));
+  fs.mkdirSync(join(brain, "notes"), { recursive: true }); fs.writeFileSync(join(brain, "notes/voyage.md"), NOTE);
+  const view = createFixtureWorkerStartupView(brain);
+  cleanups.push(() => view.cleanup());
+  // Policy suites stand a copied view in for a managed one this way.
+  const managed = spyOn(startup, "isManagedWorkerStartupView").mockReturnValue(true);
+  cleanups.push(() => managed.mockRestore());
+  expect(startup.nativeTurnTreeManager(view), "UNACQUIRED_VIEW_HAS_NO_TREE_MANAGER").toBeUndefined();
+  const tree = await createTurnDataTree({ brainPath: brain, view, maskPaths: [], mount: true, update: async () => {}, plan: async () => ({}) });
+  try { expect(tree.mount!.root.startsWith(join(tmpdir(), "brain-turn-data-")), "UNACQUIRED_VIEW_TREE_IS_TEMPORARY").toBe(true); }
+  finally { await tree.close(); }
 });
