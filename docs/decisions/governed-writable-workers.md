@@ -355,7 +355,7 @@ the same places, where links lead included. Inbox staging is judged at each dire
 it publishes, and before every compensation removes anything: its own
 partial or published arrival, and an earlier arrival that the call
 reconciles (`conversation: (input`,
-`packages/ui-server/src/inbox/intake.ts:137-140`). A call refused before
+`packages/ui-server/src/inbox/intake.ts:212-216`). A call refused before
 staging leaves no receipt and no item. Links are read at each change, so a
 link a governed worker swaps in between two changes stops the next one; one
 swapped in between a check and its own system call is not covered, because
@@ -1222,6 +1222,25 @@ with nothing written, as `application_failed` for an application or a mask,
 since a long hold is not revocation. A principal that really lost authority
 refuses `authority_revoked` at once, waiting or not (`export async function retryHeld`,
 `packages/ui-server/src/brain/authority-hold.ts:92-102`).
+
+**Conversation intake waits out a hold at every write (#2869, maintainer,
+2026-10-25).** A turn's `inbox_add` stages its arrival, publishes it, commits
+its receipt and compensates what it abandoned, and each of those writes is
+coordinated with the same hold rather than checked once at entry. Each change
+runs through one write gate: it waits for a hold outside any transaction or
+lock, sharing one 60-second deadline across the whole intake, then makes its
+final check and its change in the same tick, so a hold that begins after that
+check cannot overlap it. Staging writes are synchronous under the gate for that
+reason. The final check renews the turn, the principal, the origin thread and
+the turn's provider masks over the staging directory, and the receipt
+transaction still refuses a receipt that reconciliation took meanwhile.
+Revocation, turn replacement and cancellation refuse at once; a hold past the
+bound refuses; none of them leaves a queue claim. Compensation is the host's
+own effect: it waits for a hold on brain writes whatever the turn's authority,
+and when it cannot run within the bound or after cancellation it removes
+nothing and leaves its `cleanup` receipt for reconciliation. A committed
+receipt is never compensated (`function writeBoundary`,
+`packages/ui-server/src/inbox/intake.ts:113-127`).
 
 **A pause the policy observation raises is a no-publication outcome (#2870,
 maintainer, 2026-10-25).** Policy publication runs inside its own journal
@@ -3081,7 +3100,7 @@ every turn without a proven recipient:
     roadblock signatures (`scope=roadblocks`). `running` and `rollups`
     return labels and counts that may also name documents.
   - `inbox_list` and `inbox_get` (`inboxList`,
-    `packages/ui-server/src/inbox/bridge-tools.ts:62-83`): each item's stored
+    `packages/ui-server/src/inbox/bridge-tools.ts:78-99`): each item's stored
     payload, titles, details and option labels, and its thread.
 
   None of these fields records which documents its text came from. A run from
@@ -3100,7 +3119,7 @@ every turn without a proven recipient:
   #2741 option C).** #2698 left autonomous turns out. Their bridge still
   serves `inbox_list` and `inbox_get` when the exact roster allows them,
   scoped to the turn's origin thread (`inboxList: async`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:62-83`), and the dispatcher
+  `packages/ui-server/src/inbox/bridge-tools.ts:78-99`), and the dispatcher
   embeds the thread's text in the first message (`async function context`,
   `packages/ui-server/src/inbox/dispatcher.ts:163-185`). Source inspection
   finds these retained thread inputs:
@@ -3121,14 +3140,14 @@ every turn without a proven recipient:
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:52-56`). Host code records
+  `packages/ui-server/src/inbox/bridge-tools.ts:68-72`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
   recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-117`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
   digest of the staged bytes intake read (`const evidence = author`,
-  `packages/ui-server/src/inbox/intake.ts:105`); text the server composed
+  `packages/ui-server/src/inbox/intake.ts:178`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
   lifecycle notices); text an autonomous run wrote (escalations, yields)
   whose admitted masks hid every folder now masked; and, since #2816, an
