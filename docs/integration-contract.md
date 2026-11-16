@@ -20,6 +20,19 @@ same-commit update of the index or relevant authoritative component. How they ar
 
 The reasoning is in [decisions/contract-versioning.md](decisions/contract-versioning.md).
 
+## JeV reranking through the provider relay (additive, 0.45.0, #3792)
+
+The CLI provider relay gains the `typesafe` family, `x-brain-provider:
+typesafe`, whose only route is `POST /v1/systemone`. A governed or strict turn
+worker whose `TYPESAFE_API_KEY` the host withholds sends the `jev` reranker's
+request there; the host adds its key for `https://api.typesafe.ai` and meters
+the attempt as operation `reranking`, with an unknown cost rather than zero.
+Such a worker's `brain search` and `brain_search` are reranked instead of
+reporting `provider_unavailable` and falling back to lifecycle order; a host
+without the relay keeps that notice. Credentialed maintenance workers keep the
+key as before. See [the CLI component](integration-contract/cli.md#provider-relay-additive-0440-1673).
+This ships in a minor; no breaking ruling is required.
+
 ## The Start card's persona choice (additive, 0.45.0, #3698)
 
 In `@schlessera/brain-ui-react`, the conversation client's state adds
@@ -32,6 +45,45 @@ refused, which opened nothing, may choose a service or persona again; a
 `CONVERSATION_PERSONA_CHANGED` refusal clears the choice. No wire or HTTP
 shape changes. See
 [the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
+This ships in a minor.
+
+## Host GitHub writes and their repository allow-list (additive, 0.45.0, #3798)
+
+Both first-party backends register `brain_github_issue_create` and
+`brain_github_issue_comment` in every interactive session's fixed roster,
+after the two reads, whatever the host's configuration or the turn's
+posture; no autonomous roster lists them. A write goes only to a repository
+the new governance policy key `outward.github.repositories` lists, exactly as
+`owner/repo` or as `owner/*`, compared without case; anything else is
+refused with `policy_denied` (`repository_not_allowed`) before any card, and
+an absent or empty list refuses every write. Inside the list, the host shows
+one per-use card with exactly what will be sent and sends it once on an
+unedited approval; a denial, an edited approval or a voice turn
+(`approval_declined`) sends nothing. Each decision is an `outward_action`
+governance event (`gh_write`) that the turn journal lists as irreversible.
+`brain policy check --json` reports `effective.outward.github.repositories`
+(default `[]`). Claude's SDK-options roster gains the two names. See
+[the MCP component](integration-contract/mcp.md#github-writes-additive-0450-3798)
+and [supported inputs](supported-inputs.md#governance-policy).
+This ships in a minor.
+
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+Both first-party backends' interactive sessions gain two host-executed read
+tools in their fixed roster: `brain_github_issue_read` and
+`brain_github_issue_search` (`mcp__brain-ui__*` on Claude, plain on pi). Two
+write tools, `brain_github_issue_create` and `brain_github_issue_comment`, are
+declared with their schemas and payloads, and registered since #3798. Results are
+typed payloads for an issue, a pull request and a search, with bounded lists
+carrying `total_count` and `has_more`, untrusted text marked in the schema,
+and direct links that pass the exported `githubDirectUrl` and
+`githubSearchUrl` validators or are `null`. The host reads only the new
+`BRAIN_UI_GITHUB_TOOLS_TOKEN`, with no fallback to `GITHUB_TOKEN`; no worker
+or maintenance environment receives it, and without it the tools answer
+`unavailable`. A read taints the session with the new governance taint source
+`github_result`. No autonomous roster lists the tools. The SDK gains the
+contracts, payload schemas, `handleGithubTool` and `BackendBridge.github`. See
+[the MCP component](integration-contract/mcp.md#host-github-tools-additive-0450-3797).
 This ships in a minor.
 
 ## Host-owned web tools for Pi (additive, 0.45.0, #3685)
@@ -464,6 +516,18 @@ an `allowlist` egress mode, or the exact origins in
 `BRAIN_UI_CLI_PROVIDER_ORIGINS`. There is no new opt-out field. See
 [the G6 ruling](decisions/governed-writable-workers.md#untrusted-input-g6) and
 [supported inputs](supported-inputs.md).
+
+## Module repositories (additive, 0.45.0, #3380)
+
+A module's config block accepts an optional core-owned `repositories` list of
+repository URLs its cron jobs may read, and `brain module list --json` adds
+`repositories: string[]` to each configured module. The cron runner fetches a
+listed repository only when the operator's new `BRAIN_UI_MODULE_REPOSITORIES`
+host setting names it too; otherwise the job is refused before it starts. The
+host fetches with its sync credential into a private mirror, and the job's
+worker reads the mirror through a Git URL rewrite without any credential. See
+[the package API component](integration-contract/package-api.md#module-repositories).
+This ships in a minor; no breaking ruling is required.
 
 ## Module state area (additive, 0.45.0, #3380)
 

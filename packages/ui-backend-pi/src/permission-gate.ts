@@ -36,6 +36,8 @@
 import type { InlineExtension, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import {
   APIFY_TOOL_NAMES,
+  GITHUB_TOOL_NAMES,
+  GITHUB_TOOL_NAME_LIST,
   WEB_TOOL_NAME_LIST,
   checkEditedApproval,
   createToolPermissionRequest,
@@ -62,8 +64,9 @@ export interface PermissionGateOptions {
 export function piToolAvailabilityRefusal(turn: TurnContext, name: string): string | undefined {
   if (turn.autonomous) return undefined;
   const visual = ["ask_user_list", "ask_user_rank", "ask_user_form", "request_image_mask"];
-  // Apify stays inside interactive typed turns (#3162): voice and no-grant turns keep their memberships.
-  const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share", ...Object.values(APIFY_TOOL_NAMES)];
+  // Apify (#3162) and GitHub writes (#3798) stay inside interactive typed turns: voice and no-grant turns keep their memberships.
+  const interactive = ["propose_policy_change", "inbox_add", "resolve_action", "complete_share", ...Object.values(APIFY_TOOL_NAMES),
+    GITHUB_TOOL_NAMES.create, GITHUB_TOOL_NAMES.comment];
   if ([...visual, ...interactive].includes(name) && (turn.noGrantSurface || turn.posture === "voice"))
     return `Tool "${name}" requires an interactive typed grant surface.`;
   const handlers: Record<string, string> = {
@@ -77,6 +80,7 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     ...Object.fromEntries(Object.values(APIFY_TOOL_NAMES).map(name => [name, "apify"])),
     read_attachment: "readAttachment",
     ...Object.fromEntries(WEB_TOOL_NAME_LIST.map(name => [name, "webAccess"])),
+    ...Object.fromEntries(GITHUB_TOOL_NAME_LIST.map(name => [name, "github"])),
   };
   const handler = handlers[name];
   if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")

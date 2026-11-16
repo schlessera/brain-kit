@@ -563,12 +563,23 @@ const shapes = await create("staging", 32 * MIB);
   expect((await status()).refusal, "REFERENCE_ACCESS_ACCOUNTED").toBeNull();
   // #2729: the pool's own release refuses a granted worktree, atomically with grants, so no
   // second process can delete what a generation holds; nothing is deleted and the charge stays.
-  const heldBefore = await charged();
+  // The charge compared is the held worktree's own simple-quota owner charge, which an idempotent
+  // retry of its create reports from the manager's live measurement. The pool aggregate is not
+  // evidence here: earlier releases still reclaim in the background and lower it meanwhile (#2819).
+  // Both readings precede the worker's read, whose atime update would dirty the worktree's metadata.
+  // A released worktree refuses the retry; its code reaches the named assertion instead of a throw.
+  const heldCharge = async (): Promise<number | string | null> => {
+    await charged();
+    try { return (await call<NativePoolRecord>({ operation: "poolCreate", id: tree.id, purpose: "worktree", from: base.id, allowanceBytes: 16 * MIB })).ownerBytes; } catch (error) { return `refused: ${(error as { code?: string }).code}`; }
+  };
+  const heldBefore = await heldCharge();
+  expect(heldBefore as number, "REFERENCE_ACCESS_HELD_CHARGED").toBeGreaterThan(0);
   const heldRefusal = await refusal({ operation: "poolRelease", id: tree.id });
   const heldRecord = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === tree.id);
-  note("access-held-release", { refusal: heldRefusal, record: heldRecord });
-  expect({ code: heldRefusal.code, state: heldRecord?.state, access: heldRecord?.access, read: await ask("read"), charged: (await charged()).chargedBytes },
-    "REFERENCE_ACCESS_HELD_NOT_RELEASED").toEqual({ code: "invalid", state: "writable", access: ACCESS, read: "Telemachus returns", charged: heldBefore.chargedBytes });
+  note("access-held-release", { refusal: heldRefusal, record: heldRecord, ownerBytes: heldBefore });
+  const heldAfter = await heldCharge();
+  expect({ code: heldRefusal.code, state: heldRecord?.state, access: heldRecord?.access, read: await ask("read"), charged: heldAfter },
+    "REFERENCE_ACCESS_HELD_NOT_RELEASED").toEqual({ code: "invalid", state: "writable", access: ACCESS, read: "Telemachus returns", charged: heldBefore });
   // Parking returns the worktree to the masked roots: the next lookup misses it.
   expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
   expect(await ask("read"), "REFERENCE_ACCESS_PARKED_GONE").toBe("MISSING");

@@ -290,6 +290,32 @@ describe("a failed model call ends the turn as a failure", () => {
   });
 });
 
+describe("host inference refusals", () => {
+  test("a known host cause is included, and an unknown cause is not invented", () => {
+    for (const [reason, detail] of [["safety_changed", " (safety changed during admission)"], ["unrecognized", ""]]) {
+      const adapter = new StreamAdapter(undefined, { subscriptionAuth: true, hostRefusalReason: () => reason });
+      adapter.adapt({ ...(unsupportedModelError as object), error: "authentication_failed", message: {
+        content: [{ type: "text", text: 'API Error: 403 {"type":"error","error":{"type":"brain_inference_refused","message":"Inference request refused"}}' }],
+      } } as SDKMessage);
+      expect(adapter.pendingFailure()).toEqual({ errorClass: "host_refused", status: 403,
+        message: `The host refused this model request${detail}.` });
+    }
+  });
+
+  test.each([403, 499])("relay %i overrides the runtime auth class without auth activity", status => {
+    const activity: unknown[] = [];
+    const adapter = new StreamAdapter(event => activity.push(event), { subscriptionAuth: true });
+    adapter.adapt({ ...(unsupportedModelError as object), error: "authentication_failed",
+      message: { model: "<synthetic>", content: [{ type: "text", text: `Failed to authenticate. API Error: ${status} Inference network admission refused` }] },
+    } as SDKMessage);
+    expect(adapter.pendingFailure()).toEqual({ errorClass: "host_refused", status,
+      message: "The host refused this model request." });
+    expect(activity).toEqual([]);
+    const result = terminal(adapter.adapt({ ...answered.at(-1)!, is_error: true } as SDKMessage));
+    expect(result.failure).toEqual(adapter.pendingFailure()!);
+  });
+});
+
 describe("StreamAdapter failure detection", () => {
   const result = (fields: Record<string, unknown>) =>
     ({ type: "result", session_id: SESSION, duration_ms: 1, num_turns: 1, modelUsage: {}, ...fields }) as unknown as SDKMessage;

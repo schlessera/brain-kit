@@ -28,7 +28,7 @@ const TAINT_SOURCE_WORDING: Readonly<Record<TaintSource, string>> = {
   workspace_read: "read a file under workspaces/", mcp_document: "read a document from an external MCP server",
   user_marked: "read a file marked untrusted", egress_connection: "received data from another site",
   fetching_command: "ran a command that fetches content", unclassified_command: "ran a command that may have fetched content",
-  chat_attachment: "opened a chat attachment", apify_result: "received Apify results", compute_output: "collected an external compute job's output",
+  chat_attachment: "opened a chat attachment", apify_result: "received Apify results", github_result: "read GitHub issues or pull requests", compute_output: "collected an external compute job's output",
 };
 
 /**

@@ -133,6 +133,26 @@ test("a Gemini Files lifecycle attempt is known to cost nothing, so a relayed vi
   } finally { f.close(); }
 });
 
+test("a relayed jev reranking attempt is metered with its reported tokens, and its unknown price never reads as $0 (#3792)", async () => {
+  const reranking = (overrides: Partial<ProviderRelayReceipt> = {}) => attempt({ family: "typesafe", operation: "reranking",
+    origin: "https://api.typesafe.ai", key: "TYPESAFE_API_KEY", model: "jev-1.13.0", usage: { inputTokens: 700, outputTokens: 4 }, ...overrides });
+  expect(priceProviderAttempt(reranking(), pricing), "JEV_RERANKING_UNPRICED").toEqual({ costUsd: null, estimate: null, tokens: 704 });
+  const f = fixture();
+  try {
+    await f.budgets.begin("athena", "ithaca", policy());
+    const before = f.budgets.receipt("athena").scopes;
+    const result = (await f.budgets.observeProvider("athena", reranking()))!;
+    expect(result.receipt.scopes.map(scope => (scope.tokens ?? 0) - (before.find(prior => prior.scope === scope.scope)!.tokens ?? 0)),
+      "JEV_RERANKING_TOKENS_IN_EVERY_SCOPE").toEqual([704, 704, 704]);
+    expect(result.receipt.scopes.map(scope => scope.unknownRuns - before.find(prior => prior.scope === scope.scope)!.unknownRuns),
+      "JEV_RERANKING_UNKNOWN_SPEND_DISCLOSED").toEqual([1, 1, 1]);
+    expect(result.receipt.scopes.map(scope => scope.costUsd), "JEV_RERANKING_NEVER_ZERO").toEqual([null, null, null]);
+    // Without reported usage it is still disclosed, never counted as free.
+    await f.budgets.observeProvider("athena", reranking({ usage: null, outcome: "failed", status: 502 }));
+    expect(f.budgets.receipt("athena").scopes[0]!.unknownRuns - before[0]!.unknownRuns).toBe(2);
+  } finally { f.close(); }
+});
+
 test("a dispatched attempt is unknown spend until it settles, then counts once", async () => {
   const f = fixture();
   try {
