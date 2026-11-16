@@ -27,6 +27,10 @@ test("only a proven read skips its result's observation; unknown, bash and write
     // A name or risk label alone is never evidence.
     ["read_file", undefined, "unproven"], ["brain_search", undefined, "unproven"], ["query_activity", undefined, "unproven"],
     ["bash", undefined, "unproven"], ["Read", undefined, "unproven"], ["mcp__brain-ui__query_activity", undefined, "unproven"], [null, "host_bridge", "unproven"],
+    // #2875: Claude calls have no proven path, so even reported evidence proves nothing for a Claude name.
+    ["Read", "worker_read", "unproven"], ["Grep", "worker_read", "unproven"], ["Glob", "worker_read", "unproven"], ["Write", "worker_write", "unproven"],
+    ["mcp__brain-ui__brain_read_base", "host_bridge", "unproven"], ["mcp__brain-ui__query_activity", "host_bridge", "unproven"],
+    ["mcp__brain__brain_search", "host_bridge", "unproven"], ["mcp__brain__brain_read", "worker_read", "unproven"],
   ];
   for (const [name, path, expected] of cases) expect([name, path, toolObservation(name, path)], "TOOL_OBSERVATION_CLASS").toEqual([name, path, expected]);
 });
