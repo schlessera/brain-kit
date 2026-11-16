@@ -5360,6 +5360,18 @@ additive type change. No SDK type, HTTP endpoint, card field or provider
 conversation changes: the classifier's card and refusal are existing
 permission requests and tool-result text.
 
+## Extraction judge setting (additive, 0.45.0, #4089)
+
+The governance policy types reachable through ui-server's public signatures
+accept optional `taint.judge` (`{ mode?: "off" | "jev"; floor?: number }`, a
+floor from 0.5 to 1) and resolve it to `{ mode: "off", floor: 0.9 }`. The
+internal `ProviderOperation` gains `"extraction_judge"`, the operation each
+judge call is recorded under in the turn budgets. The same-commit API report
+records these additive type changes. No SDK type, HTTP endpoint, card field or
+provider conversation changes: the judge's answers stay host state, and a call
+it leaves on the card or refuses uses the existing permission request and
+tool-result text.
+
 ## Live brain orientation and task status (additive, #3623)
 
 `LiveConversationOpenOptions.orientation?: ConversationOrientation` supplies an

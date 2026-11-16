@@ -877,6 +877,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
       hygieneReview.resolver),
     classifier,
+    // The extraction judge's own client (#4089): one request per call, no
+    // retry, its usage and answering model read for the meter and the pin.
+    extractionJudge: createJevClient({ apiKey: config.classification.apiKey, log: observability.logger("extraction-judge"), production: true }),
     labeller: createLabeller({
       options: options.labeller ?? null,
       log: observability.logger("labels"),

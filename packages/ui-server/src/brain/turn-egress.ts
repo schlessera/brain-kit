@@ -11,6 +11,7 @@ import { safetyProjection } from "../governance/safety-store.js";
 import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
 import { isMarkedUntrusted } from "../files/untrusted-marks.js";
 import { createTurnExtraction } from "./turn-extraction.js";
+import type { ExtractionJudge } from "../governance/extraction-judge.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -103,6 +104,12 @@ export async function prepareTurnEgress(options: {
   governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint"> & Partial<Pick<GovernanceWrites,"recordingAvailable" | "safety">>;
   /** The brain's host path, for the extraction classifier's read files and named paths (#4088). */
   brainPath?: string;
+  /**
+   * The judge for the classifier's ambiguous band (#4089), routed, metered
+   * and budgeted by the caller. Used only while the policy sets
+   * `taint.judge.mode: jev` beside `taint.classifier: heuristics`.
+   */
+  extractionJudge?: ExtractionJudge;
 }) {
   const calls = createOutwardCalls();
   let recordingFailure: Error | undefined;
@@ -186,7 +193,8 @@ export async function prepareTurnEgress(options: {
   const extraction = db && options.policy.taint.classifier === "heuristics" ? createTurnExtraction({ bridge: options.bridge, origin: options.origin,
     sessionId: options.sessionId, tainted: () => firstTaint() !== null, contacted, brainPath: options.brainPath,
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
-    marked: path => isMarkedUntrusted(db, path) }) : null;
+    marked: path => isMarkedUntrusted(db, path),
+    ...(options.policy.taint.judge.mode === "jev" && options.extractionJudge ? { judge: options.extractionJudge } : {}) }) : null;
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
     tainted: (connectionId?: string) => {

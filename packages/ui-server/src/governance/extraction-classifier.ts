@@ -20,7 +20,7 @@ type Surface = "web_fetch" | "bash" | "mcp" | "brain_cli" | "provider_relay" | "
  * the host cannot read, such as a script file.
  */
 export type ToolClass = "read" | "outward" | "opaque";
-type Band = "allow" | "ask" | "block";
+export type Band = "allow" | "ask" | "block";
 
 /** One outgoing call as the admission point receives it. */
 export interface CallInput {
@@ -39,7 +39,7 @@ export interface CallInput {
 }
 
 /** The normalized request the classifier scores (the plan's request schema). */
-interface OutgoingRequest {
+export interface OutgoingRequest {
   surface: Surface;
   tool: string;
   toolClass: ToolClass;
@@ -365,7 +365,7 @@ interface Overlap {
   files: string[];
 }
 
-interface Signals {
+export interface Signals {
   overlap: Overlap;
   taintHost: boolean;
   /** Any encoded blob in path, query, subdomain or body. */
@@ -499,6 +499,13 @@ const WEIGHTS = {
 } as const;
 /** Below this score a call is allowed; at or above it, it asks. Calibrated on the #3434 tuning sessions. */
 const ALLOW_BELOW = 0.2;
+/**
+ * The top of the ambiguous band: a score from `ALLOW_BELOW` up to this asks
+ * on the heuristics alone, and is the band a judge may be asked about (#4089).
+ * Calibrated with the judge on the #3434 tuning sessions; in practice it holds
+ * links the tainting content named and pagination cursors.
+ */
+const ASK_FROM = 0.35;
 
 const strongOverlap = (s: Signals): boolean =>
   s.overlap.pathRef || s.overlap.matched >= STRONG_SHINGLES || (s.overlap.matched >= 2 && s.overlap.containment >= 0.5);
@@ -553,6 +560,12 @@ export function decide(policy: Policy, verdict: Band | null, origin: "interactiv
 
 export interface Verdict {
   band: Band;
+  /**
+   * The call's score is in the ambiguous band (`ALLOW_BELOW` to `ASK_FROM`),
+   * with no strong overlap, on the network: its band is `ask`, and it is the
+   * only kind of call a judge may answer instead (#4089).
+   */
+  ambiguous: boolean;
   request: OutgoingRequest;
   signals: Signals;
   score: number;
@@ -586,7 +599,9 @@ export function classify(call: CallInput, view: SessionView): Verdict {
   const s = signals(request, p, view);
   const verdict = band(request, s);
   view.session.record(request, p);
-  return { band: verdict, request, signals: s, score: Number(score(s).toFixed(3)), reason: verdict === "allow" ? null : reasonFor(s) };
+  const value = score(s);
+  const ambiguous = request.route === "network" && !strongOverlap(s) && value >= ALLOW_BELOW && value < ASK_FROM;
+  return { band: verdict, ambiguous, request, signals: s, score: Number(value.toFixed(3)), reason: verdict === "allow" ? null : reasonFor(s) };
 }
 
 // ---- Ingestion -------------------------------------------------------------

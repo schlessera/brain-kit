@@ -16,8 +16,11 @@ The heuristics now ship behind `taint.classifier: heuristics`, off by default
 admission is [the decision record](../decisions/governed-writable-workers.md#extraction-heuristics)).
 `packages/ui-server/tests/extraction-classifier-labelled.test.ts` runs the
 labelled set through the production classifier and compares every call with
-the recorded offline run. The Jev band is not built
-([#4089](https://github.com/schlessera/brain-kit/issues/4089)).
+the recorded offline run. The Jev band ships behind `taint.judge.mode: jev`,
+off by default ([#4089](https://github.com/schlessera/brain-kit/issues/4089);
+[the decision record](../decisions/governed-writable-workers.md#extraction-judge)),
+and the same test replays the recorded Jev answers through the production
+judge.
 
 ## Where it runs and what it may change
 

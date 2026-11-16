@@ -91,6 +91,12 @@ export interface WsHostOptions {
   policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   /**
+   * @internal The host's Jev client for the extraction judge (#4089), shared by
+   * every turn so its breaker is. Absent: a turn whose policy turns the judge
+   * on leaves the ambiguous band on the card.
+   */
+  extractionJudge?: import("../classification/jev-client.js").JevClient;
+  /**
    * @internal Managed reference worktrees (#2430). Each governed or strict turn
    * gets its own worker generation only when `referenceWorktreeAccess` is set,
    * which the app sets with the supported worktree tools (#2432).
@@ -286,6 +292,8 @@ export class WsHost {
   /** @internal Hosted worker admission/reconciliation. */
   readonly policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
+  /** @internal The extraction judge's Jev client (#4089). */
+  readonly extractionJudge?: import("../classification/jev-client.js").JevClient;
   /** @internal Managed worktree lifecycle and the open worker generation of each running turn (#2430). */
   readonly referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
   /** @internal Whether governed and strict turns open worker generations (#2432 enables it). */
@@ -410,6 +418,7 @@ export class WsHost {
     this.applicationPlanner = options.applicationPlanner;
     this.indexBatch = options.indexBatch;
     this.governedTurns = options.governedTurns;
+    this.extractionJudge = options.extractionJudge;
     this.referenceWorktrees = options.referenceWorktrees;
     this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);
     if (this.referenceWorktreeAccess) this.referenceTools = options.referenceTools;

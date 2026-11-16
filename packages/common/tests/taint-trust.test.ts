@@ -144,7 +144,7 @@ test("frontmatter parser reports trust defaults and invalid-policy fallback with
   const bytes = (data: unknown) => new TextEncoder().encode(`---\n${JSON.stringify(data)}\n---\nOdysseus policy.\n`);
   const valid = parseGovernancePolicy(bytes({ schema_version: 1, taint: { trusted_sources: [source] } }));
   expect(valid.ok).toBe(true);
-  expect(valid.effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [source], classifier: "off" });
+  expect(valid.effective.taint).toEqual({ egress: { allow: [] }, trusted_sources: [source], classifier: "off", judge: { mode: "off", floor: 0.9 } });
   const invalid = parseGovernancePolicy(bytes({ schema_version: 1, taint: { trusted_sources: [source, source] } }));
   expect(invalid.ok).toBe(false);
   expect(invalid.errors.join(" ")).toContain("Duplicate trust");
