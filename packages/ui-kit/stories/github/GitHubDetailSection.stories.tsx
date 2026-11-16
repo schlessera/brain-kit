@@ -114,3 +114,23 @@ export const NoCredentialNarrow = NoCredential.extend({ ...narrow });
 /** S7: GitHub no longer shows the object to this brain. */
 export const Gone = meta.story({ ...state("gone"), ...desktop });
 export const GoneNarrow = Gone.extend({ ...narrow });
+
+/** S0 to S7 together, for one capture of every state. */
+export const EveryState = meta.story({
+  ...state("idle"),
+  ...narrow,
+  render: (args) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, width: "100%" }}>
+      <GitHubDetailSection {...args} state="idle" />
+      <GitHubDetailSection {...args} state="loading" />
+      <GitHubDetailSection {...args} state="loaded" moreLabel="Load 30 more · 2 of 112 shown">
+        {rows(2)}
+      </GitHubDetailSection>
+      <GitHubDetailSection {...args} state="empty" />
+      <GitHubDetailSection {...args} state="error" errorStatus={502} />
+      <GitHubDetailSection {...args} state="rate-limited" resetAt="14:32" resetIn="12 min" />
+      <GitHubDetailSection {...args} state="no-credential" />
+      <GitHubDetailSection {...args} state="gone" />
+    </div>
+  ),
+});
