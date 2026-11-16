@@ -818,8 +818,9 @@ export function createDraftStore(
         // Only the accepted request's snapshot is released; the others stay.
         const settled = readDraft(draftId);
         const kept = settled && input.requestId ? snapshotsOf(settled).filter((s) => s.requestId !== input.requestId) : null;
-        if (settled && kept && kept.length !== snapshotsOf(settled).length) {
-          setRefs(db, "outgoing", draftId, snapshotFiles(kept), at);
+        const released = Boolean(settled && kept && kept.length !== snapshotsOf(settled).length);
+        if (released) {
+          setRefs(db, "outgoing", draftId, snapshotFiles(kept!), at);
           db.prepare("UPDATE session_drafts SET outgoing_snapshots = ? WHERE draft_id = ?").run(JSON.stringify(kept), draftId);
         }
         if (!input.resumed && input.requestId) {
@@ -834,16 +835,28 @@ export function createDraftStore(
           ).run(draftId);
         }
         const row = readDraft(draftId);
-        if (!row || row.deleted_at !== null || retired(row.session_id) || retired(input.sessionId)) return "kept";
+        // A released snapshot changes the stored list, so a kept draft moves
+        // to the next revision with it: a tab that still lists the sent
+        // snapshot gets 409 DRAFT_CONFLICT with this list, and cannot save it
+        // back as a new dispatched one (#3733).
+        const keep = (): "kept" => {
+          if (released && row && row.deleted_at === null)
+            db.prepare("UPDATE session_drafts SET revision = ?, updated_at = ?, updated_by = ? WHERE draft_id = ?")
+              .run(row.revision + 1, at, input.principalId, draftId);
+          return "kept";
+        };
+        if (!row || row.deleted_at !== null || retired(row.session_id) || retired(input.sessionId)) return keep();
         const source = input.resumed ? input.sessionId : input.sourceSessionId ?? null;
-        if (row.session_id !== source) return "kept";
+        if (row.session_id !== source) return keep();
         if (row.revision !== revision) {
           // Edits made after submission stay with the same chat when its first
           // real task names it. Version the ownership move for concurrent saves.
-          if (input.sourceSessionId && !input.resumed && input.requestId)
+          if (input.sourceSessionId && !input.resumed && input.requestId) {
             db.prepare("UPDATE session_drafts SET session_id=?,revision=?,updated_at=?,updated_by=? WHERE draft_id=?")
               .run(input.sessionId,row.revision+1,at,input.principalId,draftId);
-          return "kept";
+            return "kept";
+          }
+          return keep();
         }
         const remaining = snapshotsOf(row);
         if (remaining.length > 0) {
