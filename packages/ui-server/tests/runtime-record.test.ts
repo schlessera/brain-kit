@@ -15,12 +15,12 @@ import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { createActivityStore, rowToRunRollup } from "../src/activity/store";
 import { createUiDb } from "../src/db/client";
 
-function scripted(init: Record<string, unknown>, account: AccountInfo, more: unknown[] = []): typeof query {
+function scripted(init: Record<string, unknown>, account: AccountInfo, more: unknown[] = [], isError = false): typeof query {
   return (() => {
     const stream = (async function* () {
       yield { type: "system", subtype: "init", session_id: "sess-1", ...init };
       yield* more;
-      yield { type: "result", subtype: "success", session_id: "sess-1", total_cost_usd: 0, duration_ms: 1, num_turns: 1 };
+      yield { type: "result", subtype: "success", is_error: isError, session_id: "sess-1", total_cost_usd: 0, duration_ms: 1, num_turns: 1 };
     })();
     return Object.assign(stream, { initializationResult: async () => ({ account }) });
   }) as unknown as typeof query;
@@ -173,4 +173,36 @@ describe("the run record", () => {
     expect(root.attrs["brain.billing_policy"]).toBe("subscription");
     expect(String(root.attrs["brain.billing_policy_violation"])).toContain("API credential");
   });
+});
+
+
+test("a host refusal leaves subscription auth history and re-login warnings untouched", async () => {
+  const logs: unknown[] = [];
+  const runtime = createRuntimeStatus(() => new Date("2026-07-12T12:00:00Z"),
+    { emit: event => { logs.push(event); }, enabled: () => true });
+  runtime.authFailure({ kind: "auth_failure", errorClass: "authentication_failed", message: "Not logged in" }, "earlier");
+  const before = runtime.snapshot().lastAuthFailure;
+  const subscriptionBefore = runtime.subscriptionAuthFailure();
+  logs.length = 0;
+  const db = createUiDb(":memory:");
+  try {
+    const store = createActivityStore(db, { writer: "test" });
+    const recorder = createTurnRecorder({ store, runtime }, { turnId: "relay-refusal", sessionId: null });
+    const frames: import("@schlessera/brain-ui-sdk").ServerMessage[] = [];
+    const backend = createClaudeBackend({ brainPath: "/brain", log: () => {}, queryFn: scripted({},
+      { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" }, [{ type: "assistant",
+        error: "authentication_failed", parent_tool_use_id: null, message: { model: "<synthetic>",
+          content: [{ type: "text", text: "Failed to authenticate. API Error: 403 Inference network admission refused" }] } }], true) });
+    await backend.startTurn({ prompt: "Continue", signal: new AbortController().signal, bridge: {
+      emit: frame => { frames.push(frame); recorder.observeFrame(frame); }, activity: event => recorder.observeActivity(event),
+      requestPermission: async () => ({ behavior: "allow" }),
+    } });
+    recorder.finish("success");
+    expect(runtime.snapshot().lastAuthFailure).toEqual(before);
+    expect(runtime.subscriptionAuthFailure()).toEqual(subscriptionBefore);
+    expect(logs).toEqual([]);
+    const result = frames.find(frame => frame.type === "result");
+    expect(result?.type === "result" && result.failure?.errorClass).toBe("host_refused");
+    expect(store.getSpan("relay-refusal:turn")!.outcome).toBe("error");
+  } finally { db.close(); }
 });

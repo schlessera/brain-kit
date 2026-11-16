@@ -48,6 +48,11 @@ export class TurnInferenceRelay {
   readonly selectedUpstream: string;
   /** The worker's base URL: the relay's socket, at the selected route's path. */
   baseUrl = "http://localhost";
+  /** Distinct causes cannot be associated with one runtime error's identical relay text. */
+  #refusalReasons = new Set<string | undefined>();
+  get refusalReason(): string | undefined {
+    return this.#refusalReasons.size === 1 ? this.#refusalReasons.values().next().value : undefined;
+  }
   routeInputs: Awaited<ReturnType<typeof retainNativeRouteInputs>> | undefined;
   #relay: InferenceRelay | undefined;
   #link: string | undefined;
@@ -86,6 +91,7 @@ export class TurnInferenceRelay {
     if (!egress) return;
     this.#relay = startInferenceRelay({ upstream: this.selectedUpstream, routes: ANTHROPIC_INFERENCE_ROUTES, egress,
       ...(this.#recipient ? { recipientOrigin: this.#recipient.origin } : {}),
+      observe: event => { if (event.outcome === "refused") this.#refusalReasons.add(event.denialReason); },
       credentials: async (signal, target) => {
         if (!this.#authorized) throw new Error("Native inference has not passed its prompt gate");
         this.routeInputs?.assertUnchanged();
