@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { consumeNativeStageAuthority, consumeNativeCheckpointRead, nativeCheckpointReaderPath, type NativeCheckpointReadTicket } from "./native-checkpoint-reader.js";
 import { nativeCheckpointId } from "./native-brain-manager-protocol.js";
 import { NativeBrainManagerError, nativeManagerRequest, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
-  type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange,
+  type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange, type NativeTurnTree,
   type NativePoolAccess, type NativePoolCheckpoint, type NativePoolCreatePurpose, type NativePoolGrowth, type NativePoolRecord, type NativePoolStatus } from "./native-brain-manager-protocol.js";
 
 export interface NativeDeltaStream {
@@ -254,6 +254,10 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     release: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "release", id }, signal),
     prepareStage: async (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal): Promise<NativeStage> => control({ operation: "prepareStage", id, checkpointId, allowanceBytes }, signal),
     releaseStage: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "releaseStage", id }, signal),
+    /** A turn data tree's directory on the managed volume (#2911); `allowanceBytes` is whole pages. */
+    prepareTurnTree: async (id: string, allowanceBytes: number, signal?: AbortSignal): Promise<NativeTurnTree> => control({ operation: "prepareTurnTree", id, allowanceBytes }, signal),
+    /** Remove it once no worker mounts it; its charge is credited after observed reclamation. */
+    releaseTurnTree: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "releaseTurnTree", id }, signal),
     inspectStage: async (id: string, signal?: AbortSignal): Promise<NativeStageInspection> => {
       const response = await call({ operation: "inspectStage", id }, signal);
       const checkpointId = response.headers.get("x-brain-stage-checkpoint"), checkpointUuid = response.headers.get("x-brain-stage-lower");

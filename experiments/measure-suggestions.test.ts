@@ -141,7 +141,8 @@ describe("the arms that the two backends actually load", () => {
     expect(noRule.piResult).toEqual(rule.piResult);
     expect(rule.piResult.details.block.kind).toBe("suggestions");
     const cost = suggestionSchemaCost(rule.claude.inputSchema as JsonObject);
-    expect(cost.descriptionChars).toBe(336);
+    // Pin the shipped SHOW_BLOCK_DESCRIPTION, rather than the historical #550 rule.
+    expect(cost.descriptionChars).toBe(426);
     expect(cost.flatChars).toBe(648);
     expect(cost.sharedChars).toBe(648);
   });

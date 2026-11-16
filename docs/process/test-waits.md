@@ -176,8 +176,8 @@ each complete delay and awaiting each actual failed native handshake before
 advancing again. One original 20-second failure cap covers the whole drop.
 The clock observes the client's `onclose` callback and owns only its final
 registered timer: that callback ends with `scheduleReconnect`
-(`ws.onclose`, `packages/ui-sdk/src/client/ws-client.ts:267-285`;
-`scheduleReconnect`, `packages/ui-sdk/src/client/ws-client.ts:544-551`).
+(`ws.onclose`, `packages/ui-sdk/src/client/ws-client.ts:268-286`;
+`scheduleReconnect`, `packages/ui-sdk/src/client/ws-client.ts:545-552`).
 The test independently checks the three registered delays and the native
 connection-attempt/failure counts. A changed registration order or callback
 must satisfy those controls; it cannot silently become a shorter policy.
@@ -231,8 +231,8 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:444-464`;
-`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:442-462`;
+`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:463-488`), while
 queue adoption updates the follow-up/draft stores synchronously
 (`function queueReport(`, `packages/ui-react/src/ws-client/follow-ups.ts:85-94`). Native protocol
 completion, committed store state and the retained observation window serve

@@ -302,6 +302,12 @@ export interface BackendBridge {
    */
   apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
   /**
+   * One host GitHub tool (#3797). The host binds principal, session and turn
+   * and holds the dedicated credential; the call carries the tool's parsed
+   * input only. Every refusal resolves as `{ ok: false, tool, error }`.
+   */
+  github?(call: import("../tool-contracts/github.js").GithubToolCall): Promise<import("../tool-contracts/github.js").GithubToolResult>;
+  /**
    * Read one composer original the calling session was sent (#3154). The
    * host binds session, principal and turn, re-checks the reference and the
    * digest, and enforces every bound; the call carries the parsed input only.

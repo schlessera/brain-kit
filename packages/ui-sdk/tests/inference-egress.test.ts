@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { request } from "node:http";
-import { startEgressProxy, type EgressRecord } from "../src/server/egress-proxy";
+import { startEgressProxy, EgressAdmissionRefused, type EgressRecord } from "../src/server/egress-proxy";
 import { startInferenceRelay } from "../src/server/inference-relay";
 
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }
@@ -152,4 +152,24 @@ test("parallel inference responses share the turn ceiling rather than independen
     expect(f.proxy.usedBytes()).toBeLessThanOrEqual(7000);
     expect(f.proxy.usedBytes()).toBe(f.records.reduce((sum, record) => sum + record.bytes, 0));
   } finally { release.resolve(); for (const client of clients) client.destroy(); f.stop(); }
+});
+
+
+test("a relay denial keeps its host admission reason out of the unchanged wire body", async () => {
+  const records: EgressRecord[] = [];
+  const events: import("../src/server/inference-relay").InferenceRelayEvent[] = [];
+  const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 10000,
+    admitted: () => { throw new EgressAdmissionRefused(); }, observe: event => records.push(event) });
+  const relay = startInferenceRelay({ upstream: "https://api.anthropic.com", routes: ["/v1/messages"],
+    egress: proxy, credentials: {}, observe: event => events.push(event) });
+  try {
+    const response = await send(relay.socketPath, "/v1/messages");
+    expect(response.status).toBe(403);
+    expect(JSON.parse(response.body)).toEqual({ type: "error", error: {
+      type: "brain_inference_refused", message: "Inference network admission refused" } });
+    expect(records).toHaveLength(1);
+    expect(records[0]!.reason).toBe("call_not_admitted");
+    expect(events).toEqual([{ method: "POST", path: "/v1/messages", outcome: "refused", status: 403,
+      reason: "Inference network admission refused", denialReason: "call_not_admitted" }]);
+  } finally { relay.stop(); proxy.stop(); }
 });

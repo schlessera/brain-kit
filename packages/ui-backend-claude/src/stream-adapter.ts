@@ -9,6 +9,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
 import { usageLimitText } from "./usage-limit.js";
+import { hostRefusal } from "./host-refusal.js";
 import { AUTH_ERROR_CLASSES } from "./subscription.js";
 import { usageFromResult, CompletedResponseUsage } from "./usage.js";
 
@@ -148,7 +149,7 @@ export class StreamAdapter {
             .map((block) => (block.type === "text" ? block.text : ""))
             .join("")
             .trim();
-          if (AUTH_ERROR_CLASSES.has(msg.error)) {
+          if (!hostRefusal(text, statusFromText(text)) && AUTH_ERROR_CLASSES.has(msg.error)) {
             this.report({ kind: "auth_failure", errorClass: msg.error, ...(text ? { message: text } : {}) });
           }
           // The runtime's API-error message: its text arrives here and never
@@ -410,6 +411,8 @@ export class StreamAdapter {
   }
 
   private failure(errorClass: string, message: string, status: number | undefined): TurnFailure {
+    const refused = hostRefusal(message, status, this.options.hostRefusalReason?.());
+    if (refused) return refused;
     return {
       errorClass,
       ...(status !== undefined ? { status } : {}),
@@ -424,6 +427,8 @@ export class StreamAdapter {
 }
 
 export interface StreamAdapterOptions {
+  /** Host-only denial cause; never added to provider history. */
+  hostRefusalReason?: () => string | undefined;
   /** A fresh nonpersistent helper has no resumed history in its terminal totals. */
   freshRuntimeUsage?: boolean;
   /** Restricted autonomous accounting; no additional client frames. */
