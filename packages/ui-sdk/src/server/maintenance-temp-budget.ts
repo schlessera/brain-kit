@@ -188,6 +188,17 @@ export class MaintenanceTempBusyError extends WorkerStateError {
   }
   /** Resolves when the budget can take this allowance again; rejects with the signal's reason. */
   freed(signal?: AbortSignal): Promise<void> { return waitFor(this.capacity, signal); }
+  /**
+   * A bounded `freed()` (#4079): true once the allowance would fit again,
+   * false when `ms` passes first. Rejects with the signal's reason.
+   */
+  async freedWithin(ms: number, signal?: AbortSignal): Promise<boolean> {
+    const bound = new AbortController();
+    const timer = setTimeout(() => bound.abort(), Math.max(0, ms));
+    try { await this.freed(signal ? AbortSignal.any([signal, bound.signal]) : bound.signal); return true; }
+    catch (error) { if (bound.signal.aborted && !signal?.aborted) return false; throw error; }
+    finally { clearTimeout(timer); }
+  }
 }
 
 /** In-process releases wake waiters at once; another process's release is found by the bounded recheck. */
