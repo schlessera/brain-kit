@@ -27,6 +27,9 @@ only through the isolated child's environment and public Pi memory-store API.
 No credential file is copied; no login, refresh, models discovery, Claude OAuth,
 alternate API key or paid API fallback is admitted. Catalogue presence and auth
 selectors establish readiness, not account entitlement or invoice evidence.
+The keyless offline fixture alone writes its fictional credential into a fresh
+Pi agent directory, because the host inference relay reads the turn's
+credential from that store before the worker launches.
 Every physical request must use the protected token/account, Pi identity, ruled
 model and exact non-strict `show_block` parameters. Only the Codex Responses
 endpoint is admitted. Compressed request bytes are forwarded unchanged; the
@@ -43,8 +46,9 @@ cache/reasoning and total counters; provisional/default SDK values are insuffici
 The same empty HOME, Pi settings and freshly copied corpus apply to every arm.
 Compaction, retry, cache warming, external extensions, skills, prompt templates
 and telemetry are disabled. The model-visible tool roster is retained; a real
-inline execution hook admits fixture reads/searches and block calls, refusing
-shell, writes, delegation and external capabilities. Path resolution refuses
+execution hook on the worker's tool-safety path, not a Pi extension, admits
+fixture reads/searches and block calls, refusing shell, writes, delegation and
+external capabilities. Path resolution refuses
 external symlink targets. Source/runtime are mounted read-only by bwrap; actual
 personal home is absent. Public source and system runtime remain admitted for
 execution, so this is private-data isolation, not proof of no public-source

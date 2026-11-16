@@ -4,7 +4,7 @@ import { showBlockInputSchema } from "../packages/ui-sdk/src/tool-contracts/bloc
 import type { SchemaArm } from "./show-block-schema-forms.ts";
 import { appendFileSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import type { InlineExtension } from "@earendil-works/pi-coding-agent";
+import type { PermissionDecision } from "../packages/ui-sdk/src/server/backend.ts";
 
 // Synchronous counterpart of #336's frozen options: its MCP-listing module
 // has top-level await and cannot be loaded through the server descriptor's
@@ -59,22 +59,35 @@ export function measurementPromptReceipt(): MeasurementPromptReceipt {
 export const PI_SCHEMA_REQUEST_LIMIT = 5;
 export const PI_SCHEMA_MODEL = "gpt-6.1-sol";
 
-/** Same read-only execution policy in every form; model-visible roster unchanged. */
-export function measurementFixtureGuard(brain: string): InlineExtension {
+/** Same read-only execution policy in every form; model-visible roster unchanged.
+ * Wraps the worker's host tool-safety hook rather than loading a Pi extension:
+ * the managed worker refuses any loaded extension as uncollected input. A
+ * denied call records its reason as the host result, as Pi's blocked path does. */
+export function measurementToolSafety<T extends {
+  permission(name: string, id: string, input: Record<string, unknown>): Promise<PermissionDecision>;
+  result(name: string, id: string, content: Array<{ type: "text"; text: string }>): Promise<void>;
+}>(safety: T, brain: string): T {
   const root = realpathSync(brain), allowed = new Set(["read_file", "grep", "brain_search", "brain_context", "brain_read", "brain_list", "brain_graph", "show_block"]);
-  return { name: "measurement-fixture-only", factory(pi) {
-    pi.on("tool_call", async event => {
-      let reason: string | null = allowed.has(event.toolName) ? null : "Measurement denies writes, shell, delegation and external capabilities.";
-      const input = event.input as Record<string, unknown>;
-      if (!reason && typeof input?.path === "string") {
-        try { const path = realpathSync(resolve(root, input.path)); if (path !== root && !path.startsWith(root + sep)) reason = "Measurement path is outside fixture corpus."; }
-        catch { reason = "Measurement path cannot be resolved inside fixture corpus."; }
-      }
-      const out = process.env.BRAIN_MEASURE_PI_RECEIPTS;
-      if (out) appendFileSync(resolve(out, "tool-admission.jsonl"), JSON.stringify({toolName:event.toolName, input:event.input, allowed:!reason, reason}) + "\n", {mode:0o600});
-      return reason ? {block:true,reason} : undefined;
-    });
-  }};
+  const admit = (toolName: string, input: Record<string, unknown>): string | null => {
+    let reason: string | null = allowed.has(toolName) ? null : "Measurement denies writes, shell, delegation and external capabilities.";
+    if (!reason && typeof input?.path === "string") {
+      try { const path = realpathSync(resolve(root, input.path)); if (path !== root && !path.startsWith(root + sep)) reason = "Measurement path is outside fixture corpus."; }
+      catch { reason = "Measurement path cannot be resolved inside fixture corpus."; }
+    }
+    const out = process.env.BRAIN_MEASURE_PI_RECEIPTS;
+    if (out) appendFileSync(resolve(out, "tool-admission.jsonl"), JSON.stringify({toolName, input, allowed:!reason, reason}) + "\n", {mode:0o600});
+    return reason;
+  };
+  return Object.assign(Object.create(safety) as T, {
+    async permission(name: string, id: string, input: Record<string, unknown>): Promise<PermissionDecision> {
+      const decision = await safety.permission(name, id, input);
+      if (decision.behavior === "deny") return decision;
+      const reason = admit(name, decision.updatedInput ?? input);
+      if (!reason) return decision;
+      await safety.result(name, id, [{ type: "text", text: reason }]);
+      return { behavior: "deny", message: reason };
+    },
+  });
 }
 
 /** Fresh fixture plumbing only: immutable source runtime, no dependency sharing. */
