@@ -11,14 +11,16 @@ import { createPiBackend } from "../src/backend";
  * #2834: the host's own record of each call's RPCs, not its name, decides
  * the evidence a governed turn reports before the call's result.
  */
-async function evidence(loadExtensions: boolean | undefined, modes: string[]) {
+async function evidence(loadExtensions: boolean | undefined, modes: string[], loadedExtensions?: number) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-pi-evidence-")), brain = join(root, "brain");
   mkdirSync(brain); writeFileSync(join(brain, "loom.md"), "Penelope weaves.\n");
   const previous = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = join(root, "agent");
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
   const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async () => {
-    const child = spawn(process.execPath, [join(import.meta.dir, "fixtures/tool-execution-worker.ts")], { stdio: ["pipe", "pipe", "pipe"] });
+    const env = { ...process.env };
+    if (loadedExtensions === undefined) delete env.ODYSSEUS_LOADED_EXTENSIONS; else env.ODYSSEUS_LOADED_EXTENSIONS = String(loadedExtensions);
+    const child = spawn(process.execPath, [join(import.meta.dir, "fixtures/tool-execution-worker.ts")], { stdio: ["pipe", "pipe", "pipe"], env });
     const exited = new Promise<number>((resolve, reject) => { child.once("exit", code => resolve(code ?? 0)); child.once("error", reject); });
     return { stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, exited, kill: () => child.kill(),
       observeFile: worker.createWorkerFileObserver({ brain, configurationRoot: brain, areas: [] }),
@@ -86,3 +88,28 @@ test("the default worker is extension-free and proves its curated calls (#3658)"
   const { reported } = await evidence(undefined, ["read", "base"]);
   expect(reported, "PI_DEFAULT_WORKER_IS_EXTENSION_FREE").toEqual({ read: { "0_read": ["worker_read"] }, base: { "0_base": ["host_bridge"] } });
 }, 30_000);
+
+/**
+ * #2874: with discovery on, a worker whose own loader loaded no extension,
+ * reported before its prompt, proves what a curated worker proves. The set
+ * cannot change afterwards: only `AgentSession.reload()` reloads it, and a
+ * managed worker reaches that only through a loaded extension's `ctx.reload()`.
+ */
+test("a discovering worker that reports no loaded extension proves what a curated worker proves", async () => {
+  const modes = ["read", "edit", "write", "base", "grep", "locked-read", "silent-read", "half-read", "read,grep,read", "forged,base", "read,dup-read,base"];
+  const curated = await evidence(false, modes), reported = await evidence(true, modes, 0);
+  expect(reported.reported, "PI_REPORTED_EXTENSION_FREE_MATCHES_CURATED").toEqual(curated.reported);
+  expect(reported.reported.read, "PI_REPORTED_EXTENSION_FREE_PROVES_READS").toEqual({ "0_read": ["worker_read"] });
+}, 60_000);
+
+test("a worker that reports a loaded extension, or reports nothing, proves no call", async () => {
+  // One loaded extension can reload the set mid-turn and runs on every tool event.
+  const loaded = await evidence(true, ["read", "base"], 1);
+  expect(loaded.reported, "PI_LOADED_EXTENSION_PROVES_NOTHING").toEqual({ read: { "0_read": [null] }, base: { "0_base": [null] } });
+  // A curated configuration contradicted by its worker's own loader proves nothing either.
+  const contradicted = await evidence(false, ["read"], 1);
+  expect(contradicted.reported, "PI_CONTRADICTED_CURATED_PROVES_NOTHING").toEqual({ read: { "0_read": [null] } });
+  // Discovery on with no report is unproven, as before.
+  const silent = await evidence(true, ["read"]);
+  expect(silent.reported, "PI_UNREPORTED_DISCOVERY_PROVES_NOTHING").toEqual({ read: { "0_read": [null] } });
+}, 60_000);

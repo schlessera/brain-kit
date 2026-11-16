@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import {resolve} from "node:path";
 
-// Delivered main 736a3445e owns these audited producer bytes (#2279 re-audit after #2458). Read raw Git
+// Delivered main a9bcdbd67 owns the audited producers and readers (#3548 re-audit). Read raw Git
 // blobs offline: neither HEAD, worktree files nor archive substitution owns a
 // frozen positive. CI checks out full history; absent history is a hard failure.
-const owner = "736a3445e82aee509e10f3c8d00b95fc77749202";
+const owner = "a9bcdbd6734c1733390570e2a68c10afde3b00a9";
 export function frozenGeneratedSource(file: string): string {
   const child = Bun.spawnSync(["git", "show", `${owner}:${file}`], {
     cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe",

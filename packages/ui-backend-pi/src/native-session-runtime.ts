@@ -17,15 +17,12 @@ import { resolveModelSpec, toModel } from "./profiles.js";
 import type { TurnContext } from "./turn-context.js";
 import type { createSessionResources } from "./session-resources.js";
 
+/** An opened session, and what its loader loaded (`loadedPiExtensions`, #2874). */
+export interface OpenedNativeSession { session: PiSessionLike; turnContext: TurnContext; loadedExtensions: number }
+
 export interface SessionRuntime {
-  newSession(
-    profileId: string | undefined,
-    env: SessionEnv
-  ): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
-  openSession(
-    sessionId: string,
-    env: SessionEnv
-  ): Promise<{ session: PiSessionLike; turnContext: TurnContext }>;
+  newSession(profileId: string | undefined, env: SessionEnv): Promise<OpenedNativeSession>;
+  openSession(sessionId: string, env: SessionEnv): Promise<OpenedNativeSession>;
 }
 
 export function createSessionRuntime(options: {
@@ -86,7 +83,7 @@ export function createSessionRuntime(options: {
         ...(spec?.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
       });
       installPiToolSafety(session.agent,options.toolSafety,()=>unqualifiedResources(loaded.loader,session));
-      return { session, turnContext: toolkit.turnContext };
+      return { session, turnContext: toolkit.turnContext, loadedExtensions: loadedPiExtensions(loaded.loader, session) };
     },
 
     async openSession(sessionId, env) {
@@ -124,14 +121,25 @@ export function createSessionRuntime(options: {
         );
       }
       installPiToolSafety(session.agent,options.toolSafety,()=>unqualifiedResources(loaded.loader,session));
-      return { session, turnContext: toolkit.turnContext };
+      return { session, turnContext: toolkit.turnContext, loadedExtensions: loadedPiExtensions(loaded.loader, session) };
     },
   };
+}
+
+/**
+ * What a session's loader loaded: every extension, every extension load error
+ * and every path its extension runner holds (#2874). The worker reports this
+ * count before its prompt. Pi changes the set only in `AgentSession.reload()`,
+ * which a managed worker reaches only through a loaded extension's
+ * `ctx.reload()`, so zero stays zero for the worker's lifetime.
+ */
+export function loadedPiExtensions(loader: ResourceLoader, session?: AgentSession): number {
+  const result = loader.getExtensions();
+  return result.extensions.length + result.errors.length + (session?.extensionRunner.getExtensionPaths().length ?? 0);
 }
 
 /** No extension identity/name/path is exempt: all extension code can add input
  * outside the collector. Failed extension loading is unknown coverage too. */
 function unqualifiedResources(loader: ResourceLoader,session?:AgentSession):boolean {
- const result=loader.getExtensions();
- return result.extensions.length>0||result.errors.length>0||(session?.extensionRunner.getExtensionPaths().length??0)>0;
+ return loadedPiExtensions(loader, session) > 0;
 }
