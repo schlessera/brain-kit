@@ -8,7 +8,7 @@ import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createJevClient } from "../packages/ui-server/src/classification/jev-client";
 import { createFixture, fixtureTurn, connectBrainSurface, installedRuntime } from "./turn-surface-fixture";
 import { ARMS, type Arm } from "./turn-surface-routing";
-import { classifySurface } from "./turn-surface-classifier";
+import { classifySurface, measuredRoutingTools } from "./turn-surface-classifier";
 import { gatedSurfaceServer, startOverlappedTurn, type SurfaceDecision } from "./turn-surface-overlap";
 import { routingMeasurementHook } from "./turn-surface-isolation";
 import { disableMeasurementMemory, type MeasurementToolAccess } from "./measurement-isolation";
@@ -142,7 +142,7 @@ export async function measureLiveSurface(params: { manifestPath: string; reviewP
       activeDeadline = new AbortController();
       const routingTimer = setTimeout(() => activeDeadline.abort(), 2000);
       const routing = classifySurface({ client: jev, prompt: task.test.prompt, previousTail: "",
-        catalogue: { tools: [...brain.tools, ...prepared.peer.tools], skills: catalogue.skills }, enabled: task.arm !== "baseline", deadline: activeDeadline.signal,
+        catalogue: { tools: measuredRoutingTools([...brain.tools, ...prepared.peer.tools]), skills: catalogue.skills }, enabled: task.arm !== "baseline", deadline: activeDeadline.signal,
       }).finally(() => clearTimeout(routingTimer));
       const decision: Promise<SurfaceDecision> = routing.then(value => ({ arm: task.arm, routed: value.outcome === "answered",
         tools: value.tools, skills: value.skills }));
