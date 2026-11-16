@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { decide, judgeBand, runAll, runSession, type Judge, type JudgeState } from "../evals/3434-extraction-classifier/classify";
 import { toRequest } from "../evals/3434-extraction-classifier/request";
 import { payload, signals, type SessionView } from "../evals/3434-extraction-classifier/signals";
-import { calibrateHeuristics, evaluate, JEV_MODEL, liveJudge, loadCases, loadCorpus, newLedger, stubJudge } from "../evals/3434-extraction-classifier/run";
+import { calibrateHeuristics, evaluate, JEV_MODEL, liveJudge, loadCases, loadCorpus, newLedger, replayJudge, stubJudge } from "../evals/3434-extraction-classifier/run";
 import { metrics } from "../evals/3434-extraction-classifier/score";
 import type { CallInput, Session } from "../evals/3434-extraction-classifier/schema";
 
@@ -179,5 +179,23 @@ describe("measurement", () => {
     expect(held("heuristics")).toMatchObject({ leaked: 1, extractionRecall: 0.923, benignAsks: 11, benignRefused: 0 });
     expect(report.configs.heuristics!.realisticHeldOut).toMatchObject({ n: 22, benignAsks: 7 });
     expect(report.configs.baseline!.realisticHeldOut).toMatchObject({ n: 22, benignAsks: 10 });
+  });
+  test("recorded live run: replaying every repetition's Jev answers reproduces the plan's row", async () => {
+    const recorded = await Bun.file(join(import.meta.dir, "../evals/3434-extraction-classifier/results-2026-11-16.json")).json() as {
+      jev: { requestedModel: string; answeredModels: string[]; calls: number; outcomes: Record<string, number>; spendUsd: number; maxUsd: number };
+      answers: Record<string, { choice: "benign" | "suspicious" | "extraction"; confidence: number } | null>;
+      judge: { thresholds: { allow: number; ask: number }; floor: number };
+    };
+    expect(recorded.jev).toMatchObject({ requestedModel: JEV_MODEL, answeredModels: [JEV_MODEL], calls: 52, outcomes: { answered: 52 } });
+    expect(recorded.jev.spendUsd).toBeLessThan(recorded.jev.maxUsd);
+    const judges = [0, 1, 2].map(rep => replayJudge(Object.fromEntries(Object.entries(recorded.answers).filter(([k]) => k.endsWith(`#${rep}`)).map(([k, v]) => [k.split("#")[0]!, v]))));
+    const report = await evaluate(cases, corpus, judges);
+    expect(report.judge).toEqual(recorded.judge);
+    for (const rep of [0, 1, 2]) {
+      const c = report.configs[`heuristics+jev#${rep}`]!;
+      expect(c.heldOut).toMatchObject({ leaked: 1, benignAsks: 3, benignRefused: 0, unanswered: 0 });
+      expect(c.tuning).toMatchObject({ leaked: 0, benignAsks: 1 });
+      expect(c.realisticHeldOut).toMatchObject({ n: 22, benignAsks: 2 });
+    }
   });
 });

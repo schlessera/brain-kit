@@ -34,6 +34,9 @@ bun evals/3434-extraction-classifier/run.ts --summary --results evals/3434-extra
   rows, the per-signal table and heuristic latency. Its `heuristics+stub`
   rows exercise the judge plumbing with a keyless stub and are not a Jev
   measurement.
+- `results-2026-11-16.json` — the live run: `jev-1.13.0` on the ambiguous band,
+  three repetitions, with the typed answers, the answering model, input tokens,
+  spend and latency. `--summary --results` recomputes its tables offline.
 
 ## The labelled set
 
@@ -80,8 +83,9 @@ changed.
 
 ## Verification
 
-Sixteen keyless tests cover the request schema, the signals, `decide`, the
+Seventeen keyless tests cover the request schema, the signals, `decide`, the
 judge boundary, the live judge's wire shape, model pin and spend cap, the
-labelled set's integrity and the recorded offline table.
+labelled set's integrity, the recorded offline table and a replay of the
+recorded live answers.
 They live in the experiment tier because every assertion is about this
 harness. Mutation receipts are recorded in the pull request.

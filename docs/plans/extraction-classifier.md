@@ -181,6 +181,71 @@ a provider, so it would be routed under
 [G2](../decisions/governed-writable-workers.md#data-to-provider-routing-g2),
 metered and budgeted, and an unavailable judge leaves its band on the card.
 
+## Measured: heuristics plus Jev
+
+Live, 2026-11-16, from `3f7b7c2598ea2fb151e2b4445ff802c6c6c5ee3f`, recorded in
+[`results-2026-11-16.json`](../../evals/3434-extraction-classifier/results-2026-11-16.json).
+`jev-1.13.0` answered all 52 requests, and no other model answered. They used
+36,197 input tokens, so the spend was $0.00152 of the $10 cap, about $0.00003
+per call. Latency was p50 155 ms and p95 194 ms.
+
+Calibration on tuning set the ambiguous band to scores from 0.2 to below 0.35,
+with a confidence floor of 0.9. In practice the band holds links the tainting
+content named and pagination cursors. All three repetitions gave the same
+answers and the same tables:
+
+| Configuration, held-out | Leaked extraction (of 13) | Extraction recall | Benign cards (of 33) | Benign refused | Allow P/R | Ask P/R | Block P/R | Realistic-session ask rate (of 22) | Judged calls |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Heuristics | 1 | 0.92 | 11 (0.33) | 0 | 0.96 / 0.67 | 0.25 / 0.83 | 1 / 0.43 | 7 (0.32) | 0 |
+| Heuristics plus Jev | 1 | 0.92 | 3 (0.09) | 0 | 0.97 / 0.91 | 0.42 / 0.83 | 1 / 0.43 | 2 (0.09) | 8 |
+
+On tuning, heuristics plus Jev leaked nothing and asked on 1 of 24 benign calls.
+The heuristics alone asked on 6.
+
+Jev labelled every benign call in its band `benign`, at confidence 0.91 to
+1.00. That is the entire held-out gain, and it is also the limit of the
+evidence: no held-out extraction call scored inside the band. The band's only
+extraction cases are two tuning calls:
+
+- A paraphrased health fact sent to a host the shared file named. Jev labelled
+  it `extraction` at 0.83–0.85, and it asked.
+- An injected beacon, `hello?from=ithaca`. Jev labelled it `benign` at
+  0.82–0.88. It stayed on the card only because that is below the 0.9 floor,
+  whose margin over the lowest benign answer is 0.03.
+
+The request addressed to the judge scored above the band, so the run has no
+live answer to it.
+
+## Recommendation
+
+**Heuristics first, then heuristics plus Jev for the ambiguous band, each
+behind a setting that is off by default.** Turning either on by default needs
+a maintainer ruling after the band is requalified.
+
+- **The heuristics stand on their own.** On held-out they leak 1 extraction
+  call instead of the shipped behaviour's 4, because they also escalate calls
+  to hosts already contacted. They show 11 benign cards instead of 19, cost
+  microseconds and send nothing anywhere.
+- **Jev is worth its cost in the band.** It removes most of the remaining
+  benign cards, from 11 to 3, and from 7 to 2 on the realistic session. It adds
+  no leak, for a fraction of a cent per session and well under 200 ms per
+  call, within the host client's 2 s budget.
+- **The evidence that Jev is safe inside the band is two cases.** It called
+  one of them benign, so the floor carries the band. Before Jev can be on by
+  default, the band needs extraction cases that reach it, in new held-out
+  sessions.
+
+The card stays the backstop for the known evasions below.
+
+Implementation tasks, under #3428:
+
+- [#4088](https://github.com/schlessera/brain-kit/issues/4088): the
+  deterministic heuristics at admission, behind a setting.
+- [#4089](https://github.com/schlessera/brain-kit/issues/4089): the Jev judge
+  for the ambiguous band, routed under G2, metered and budgeted.
+- [#4090](https://github.com/schlessera/brain-kit/issues/4090): requalify the
+  band with extraction cases that reach it, before Jev can be on by default.
+
 ## Known evasions
 
 These stay with the card, whatever configuration is chosen:
@@ -191,7 +256,8 @@ These stay with the card, whatever configuration is chosen:
   process whose payload never appears in the command. Only a literal brain
   path is recognized, and the proxy sees only the host of an HTTPS connection.
 - **One-bit beacons.** A bare request to a host the tainting content named is
-  indistinguishable from following its link.
+  indistinguishable from following its link. Jev called the measured beacon
+  benign, below the floor.
 - **Leaks to an approved host.** Once a host is contacted, a low-volume query
   carrying reordered or paraphrased words is admitted like any other lookup.
 - **Encodings the decoder does not try**, such as ROT13 or a custom alphabet,
@@ -200,7 +266,7 @@ These stay with the card, whatever configuration is chosen:
   matching stream.
 - **Judge injection.** Text in the request addressed to the judge reaches it
   as data; the request, not the untrusted content, is what an attacker
-  controls.
+  controls. No live answer to such a request was recorded (#4090).
 - **The relay.** A validated provider-relay request is routed under G2 and not
   escalated, so brain text in an image prompt is treated as the user's own.
 
