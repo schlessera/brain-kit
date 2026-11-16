@@ -5,7 +5,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { MarkupEditor, type MarkupEditorProps } from "../../src/images/MarkupEditor.js";
 import { atWidth } from "../_viewports.js";
 import { consumerViewport } from "../conversation/_consumer-parity.js";
-import { RAFT_MARKS, RAFT_PATH, RAFT_SIZE, RAFT_SRC } from "./_raft.js";
+import { RAFT_MARKS, RAFT_PATH, RAFT_QUARTER_MARKS, RAFT_QUARTER_SIZE, RAFT_SIZE, RAFT_SRC } from "./_raft.js";
 
 type SceneProps = Omit<MarkupEditorProps, "open" | "onDismiss"> & { width: number; onDismiss: () => void };
 
@@ -46,6 +46,13 @@ const at = (width: 320 | 390 | 1280, args: Partial<Omit<SceneProps, "onSubmit" |
   const base = atWidth(width);
   return { ...base, args: { ...base.args, ...args } };
 };
+
+/**
+ * Encoding is real work, and a hosted runner took over Testing Library's
+ * one-second default on the 3024 × 4032 raft (#4098). The encoding stories use
+ * the quarter-size scene and wait up to 4 s, inside Vitest's 5 s test limit.
+ */
+const ENCODE = { timeout: 4_000 };
 
 const dialog = () => within(document.body).findByRole("dialog", { name: "Mark up the image" });
 
@@ -129,11 +136,11 @@ export const DiscardConfirmation = meta.story({
 });
 
 export const OverTheCap = meta.story({
-  ...at(320, { initialMarks: RAFT_MARKS, maxBytes: 1024 }),
+  ...at(320, { initialMarks: RAFT_QUARTER_MARKS, size: RAFT_QUARTER_SIZE, maxBytes: 1024 }),
   play: async ({ args }) => {
     const editor = await dialog();
     await userEvent.click(within(editor).getByRole("button", { name: "Send markup" }));
-    const alert = await within(editor).findByRole("alert");
+    const alert = await within(editor).findByRole("alert", {}, ENCODE);
     await expect(alert.textContent).toMatch(/^This markup is \d+ KB; the limit is 1 KB\. Remove some freehand marks\.$/);
     await expect(args.onSubmit).not.toHaveBeenCalled();
     // The editor stays open with the drawing intact.
@@ -142,13 +149,13 @@ export const OverTheCap = meta.story({
 });
 
 export const Submitted = meta.story({
-  ...at(390, { initialMarks: RAFT_MARKS }),
+  ...at(390, { initialMarks: RAFT_QUARTER_MARKS, size: RAFT_QUARTER_SIZE }),
   play: async ({ args }) => {
     const editor = await dialog();
     await userEvent.click(within(editor).getByRole("button", { name: "Send markup" }));
-    await waitFor(() => expect(args.onSubmit).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(args.onSubmit).toHaveBeenCalledTimes(1), ENCODE);
     const layer = (args.onSubmit as ReturnType<typeof fn>).mock.calls[0][0];
-    await expect([layer.width, layer.height]).toEqual([3024, 4032]);
+    await expect([layer.width, layer.height]).toEqual([756, 1008]);
     await expect(layer.counts).toEqual({ pen: 1, arrow: 2, ellipse: 1, text: 2 });
     await expect(layer.notes).toEqual(["make the sail red", "move the raft here"]);
     await expect(layer.bytes).toBe(layer.png.size);
