@@ -39,9 +39,9 @@ function premise() {
 // and its 6px neighbour, the two places a horizontal reach would fail.
 const LABELS = ["In", "Out", "Both"];
 
-type Item = { label: string; onClick?: ReturnType<typeof vi.fn> };
+type Item = { label: string; onClick?: ReturnType<typeof vi.fn<() => void>> };
 
-async function mount(items: Item[] = LABELS.map(label => ({ label, onClick: vi.fn() }))) {
+async function mount(items: Item[] = LABELS.map(label => ({ label, onClick: vi.fn<() => void>() }))) {
   await page.viewport(320, 400);
   host = document.createElement("div");
   // Padding keeps the vertical reach inside the stage, so a probe that misses
