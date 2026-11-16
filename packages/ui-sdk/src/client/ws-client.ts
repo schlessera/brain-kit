@@ -27,7 +27,7 @@
  * socket.
  */
 import { ACTIVITY_COMPUTE_CAPABILITY, ASK_RECEIPTS_CAPABILITY, ATTACHMENT_READS_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, SESSION_SAFETY_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV } from "../protocol.js";
-import type { ClientMessage, ServerMessage } from "../protocol.js";
+import type { ClientMessage, ConsumerServerMessage } from "../protocol.js";
 import { parseServerMessage } from "../schemas.js";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -69,17 +69,18 @@ export type LivenessEvent =
 export type HelloState = "pending" | "received" | "absent";
 
 /**
- * One optional handler per frame type.
+ * One optional handler per frame type the consumer receives.
  *
  * Optional individually so a consumer implements only what it renders, and an
  * unhandled frame is a no-op rather than an error — the same additive posture
- * the parser takes.
+ * the parser takes. `pong` has no handler: the client consumes it for
+ * liveness, so it is not part of {@link ConsumerServerMessage} (#3389).
  */
 export type ServerFrameHandlers = {
-  [K in ServerMessage["type"]]?: (frame: Extract<ServerMessage, { type: K }>) => void;
+  [K in ConsumerServerMessage["type"]]?: (frame: Extract<ConsumerServerMessage, { type: K }>) => void;
 } & {
   /** Called for every valid frame, before the per-type handler. */
-  onAny?: (frame: ServerMessage) => void;
+  onAny?: (frame: ConsumerServerMessage) => void;
 };
 
 /** Why a frame was discarded. A bounded token, never the payload. */
@@ -346,7 +347,7 @@ export class BrainUiClient {
     }
 
     const handlers = this.options.handlers;
-    const handler = handlers?.[frame.type] as ((f: ServerMessage) => void) | undefined;
+    const handler = handlers?.[frame.type] as ((f: ConsumerServerMessage) => void) | undefined;
 
     // `onAny` counts as handling. A consumer whose dispatch shares a preamble
     // across every frame type — resolving which session buffer a frame belongs

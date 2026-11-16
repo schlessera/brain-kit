@@ -220,6 +220,16 @@ a date.
 - **SHA-256:** `e614e2887bbc470df39830d8432414ffced2d8559ad9b21b781be799b8b48bdf` (storage-accounting-experiment.py), `409624b52f10098f110f8d8e047679099dc9cfe2c9e4effa3cb1abe0007e0050` (storage-growth-experiment.ts).
 - **Files:** [storage-accounting-experiment.py](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/plans/storage-accounting-experiment.py), [storage-growth-experiment.ts](https://github.com/schlessera/brain-kit/blob/c24a848238724b797386fdd9e9dbdbf2bb254d59/docs/plans/storage-growth-experiment.ts)
 
+#### Historical storage and parallel-recovery load receipts (#3398)
+
+- **Path:** `docs/process/evidence/storage-history-load-2805.json`, `docs/process/evidence/parallel-recovery-load-2806.json`
+- **Role:** historical output (2026-10-24 fixture-load profiles, mutations and replay qualifications for #2805 and #2806).
+- **Consumers before removal:** none. No test, script or CI step reads either file, and neither is an independent regression golden. Nearby issue references do not consume their bytes.
+- **Disposition:** archived byte for byte in commit [`753b38eb787b460859857cc95951ca0b2bb296c1`](https://github.com/schlessera/brain-kit/tree/753b38eb787b460859857cc95951ca0b2bb296c1/scripts/measurements/load-evidence-3398-2026-11-15), copied from main commit `a9bcdbd6734c1733390570e2a68c10afde3b00a9`. The bundle carries its own manifest, checksums and evidence limits.
+- **Measured source:** `c636aacceb60779a92f23bf99d66815466d2822c` (both receipts' baseSha). **Introduced by:** `147f1d923` (#2818), `12250861f` (#2817).
+- **SHA-256:** `c4f25c8787ce4ae099795a85ecbfb0bec83adc77a67e53b8c8057b8e49a00dc3` (storage-history-load-2805.json), `1dde979f7c6dde122561df93c83917cda4fb5befbe294c2ad014d1fb648b64aa` (parallel-recovery-load-2806.json).
+- **Files:** [storage-history-load-2805.json](https://github.com/schlessera/brain-kit/blob/753b38eb787b460859857cc95951ca0b2bb296c1/docs/process/evidence/storage-history-load-2805.json), [parallel-recovery-load-2806.json](https://github.com/schlessera/brain-kit/blob/753b38eb787b460859857cc95951ca0b2bb296c1/docs/process/evidence/parallel-recovery-load-2806.json)
+
 ### Retained in place (241 files)
 
 > **2026-10-10 — #838 spike harnesses removed.** The maintainer ruled the

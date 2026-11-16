@@ -5,7 +5,9 @@
  * inference. Embeddings are not in either remote catalog, so the built-in
  * embedding model carries one dated row here. Image usage stays unpriced: its
  * token classes have per-modality rates no table here holds, and the CLI's own
- * per-image estimate is not a provider receipt. An unpriced attempt with
+ * per-image estimate is not a provider receipt. JeV reranking (#3792) stays
+ * unpriced too: this table holds no TypeSafe rate, so its reported tokens
+ * count toward the unpriced-token stops. An unpriced attempt with
  * reported tokens counts toward the unpriced-token stops; an attempt without
  * reported usage is unknown spend, never zero, and never blocks by itself.
  * The one exception is a Gemini Files lifecycle attempt, which the provider
