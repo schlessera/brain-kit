@@ -84,18 +84,18 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:415-468`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:416-469`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
 2. The **network transport** fetches one ref into it. It is the only worker
    that may hold a credential: the granted host variable, delivered through a
    fixed credential helper, with one allowed protocol and no redirects
-   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:182-203`).
+   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:211-232`).
 3. A separate **checkout worker** has no credential and no network. It checks
    out the commit and evaluates the repository's attributes. No filter or
    hook is configured, so none runs
-   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:204-213`).
+   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:233-242`).
 4. The live grant is read again, the root is sealed, the grant is read
    again, and only then is the root published.
 
@@ -156,6 +156,10 @@ access, owns its own authority check and budget; it never joins a foreign
 turn. The operation limit is 64 MiB or the remaining turn allowance, whichever
 is smaller. Lapsed GitHub source found during pre-proxy bind preparation is
 withheld without network, then restored only by an explicit admitted request.
+Maintenance admission may wait up to 30 seconds for each Git command, then
+returns `busy`. Cancellation stops that wait; the wire still checks the live
+turn and selected grant before dispatch, and the source service checks them
+again before publication. Waiting grants no new authority.
 Private GitHub acquisition requires the separately approved API credential
 recipient even if an older Git-only grant exists; host credential availability
 does not silently widen that grant. Other legacy transports retain their
@@ -203,7 +207,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:374-390`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:375-391`).
 There is no idle expiry.
 
 ## Revocation and recovery
@@ -216,14 +220,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:775-795`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:777-797`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:798-842`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:800-844`).
 
 ## Evidence
 

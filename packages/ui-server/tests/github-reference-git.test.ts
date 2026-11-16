@@ -7,13 +7,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { invocationChild } from "../../../scripts/test-invocation-child";
 import { startEgressProxy } from "../../ui-sdk/src/server/egress-proxy";
+import { reserveMaintenanceTemp } from "@schlessera/brain-ui-sdk/internal";
 import { createGitHubReferenceAccess } from "../src/brain/github-reference-access";
 import { createReferenceSources } from "../src/brain/reference-source";
 import { referencePoolDouble } from "./helpers/reference-pool-double";
 import { createReferenceTransport } from "../src/brain/reference-transport";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
-import { createReferenceGrant } from "../src/db/reference-grants";
+import { createReferenceGrant, revokeReferenceGrant } from "../src/db/reference-grants";
 import { fixtureTls } from "./fixtures/fixture-tls";
 
 const ROOT = resolve(import.meta.dir, "../../.."), OFFLINE = "BRAIN_TEST_REFERENCE_GIT_PARENT_NET";
@@ -115,18 +116,28 @@ test(NAME, async () => {
     const launched: { network: boolean; proxy: boolean; credential: boolean }[] = [];
     // Execute exactly the transport's fixed argv/environment. This proves real
     // Git and TLS composition, separately from production maintenance/native isolation.
-    const transport = createReferenceTransport({ brainPath: root, run: async input => {
-      launched.push({ network: input.transport?.network !== false, proxy: !!input.env.HTTPS_PROXY, credential: !!input.env.BRAIN_REFERENCE_TOKEN });
-      const child = Bun.spawn([...input.command], { cwd: root, env: { ...input.env, GIT_SSL_CAINFO: tls.ca },
-        stdout: "pipe", stderr: "pipe", signal: input.signal });
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-      return { stdout, stderr, exitCode, killed: child.signalCode !== null };
+    const tempLimits = { allowanceBytes: 268435456, budgetBytes: 268435456 };
+    mkdirSync(join(root, "maintenance"));
+    const tempDomain = { statePath: join(root, "maintenance", "ui.db") };
+    let onAdmissionRefused: (() => void) | undefined;
+    const transport = createReferenceTransport({ brainPath: root, tempLimits, tempDomain, admissionWaitMs: 300, run: async input => {
+      let reservation: ReturnType<typeof reserveMaintenanceTemp>;
+      try { reservation = reserveMaintenanceTemp(input.tempLimits!, input.tempDomain, input.tempKind); }
+      catch (error) { onAdmissionRefused?.(); throw error; }
+      try {
+        launched.push({ network: input.transport?.network !== false, proxy: !!input.env.HTTPS_PROXY, credential: !!input.env.BRAIN_REFERENCE_TOKEN });
+        const child = Bun.spawn([...input.command], { cwd: root, env: { ...input.env, GIT_SSL_CAINFO: tls.ca },
+          stdout: "pipe", stderr: "pipe", signal: input.signal });
+        const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        return { stdout, stderr, exitCode, killed: child.signalCode !== null };
+      } finally { reservation.release(); }
     } });
     const principal = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
-    const access = createGitHubReferenceAccess({ db, brain: "ithaca", credentials: { GITHUB_TOKEN: token }, transport, wireTransport: {
+    const wireTransport = {
       ca: readFileSync(tls.ca, "utf8"), lookup: async () => [{ address: "93.184.216.34", family: 4 }],
       connect: (() => connect({ host: "127.0.0.1", port: server!.port! })) as typeof connect,
-    } });
+    };
+    const access = createGitHubReferenceAccess({ db, brain: "ithaca", credentials: { GITHUB_TOKEN: token }, transport, wireTransport });
     for (const mode of ["public", "private", "capacity", "movement"] as const) {
       privateSource = mode === "private"; requests.length = 0; launched.length = 0;
       if (privateSource) createReferenceGrant(db, { brain: "ithaca", principalId: principal.id, createdBy: principal.id,
@@ -186,5 +197,52 @@ test(NAME, async () => {
         expect(requests.every(value => value.authorization === null)).toBe(true);
       } finally { lease.release(); }
     } finally { await sources.close(); }
+    // Compose the real private Git/TLS path with an actual shared maintenance
+    // ledger. Metadata may precede admission; no Git request or publication may
+    // cross a lost turn, cancelled request or revoked grant during the wait.
+    for (const mode of ["release", "busy", "cancel", "turn-ended", "grant-revoked"] as const) {
+      privateSource = true; requests.length = 0; launched.length = 0;
+      const waitingDb = createUiDb(":memory:");
+      const reader = createPrincipal(waitingDb, { authMethod: "password", label: "Penelope", ttlSeconds: 3600 });
+      const grant = createReferenceGrant(waitingDb, { brain: "ithaca", principalId: reader.id, createdBy: reader.id,
+        repositoryPrefix: "https://github.com/odysseus/ithaca", credential: "GITHUB_TOKEN", metadataCredentialRecipient: "https://api.github.com", now: Date.now() });
+      const waitingSources = createReferenceSources({ db: waitingDb, brain: "ithaca", pool: referencePoolDouble(join(root, `waiting-${mode}`)), transport,
+        credentials: { GITHUB_TOKEN: token }, github: createGitHubReferenceAccess({ db: waitingDb, brain: "ithaca", credentials: { GITHUB_TOKEN: token }, transport, wireTransport }) });
+      const controller = new AbortController(); let current = true;
+      const held = reserveMaintenanceTemp(tempLimits, tempDomain, "scratch_query");
+      const refused = Promise.withResolvers<void>(); onAdmissionRefused = refused.resolve;
+      const pending = waitingSources.request({ principalId: reader.id, repository: "https://github.com/odysseus/ithaca", revision: "main", signal: controller.signal,
+        acquisition: { turnId: `odysseus-wait-${mode}`, egress, current: () => current } })
+        .then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+      try {
+        await Promise.race([refused.promise, pending.then(() => { throw new Error("REFERENCE_MANAGED_REQUEST_MUST_REACH_MAINTENANCE_WAIT"); })]);
+        expect(launched, "REFERENCE_MANAGED_WAIT_HAS_NOT_LAUNCHED_GIT").toEqual([]);
+        expect(requests.some(request => request.host === "api.github.com" && request.authorization === `Bearer ${token}`),
+          "REFERENCE_MANAGED_WAIT_HAS_VALIDATED_PRIVATE_METADATA").toBe(true);
+        if (mode === "cancel") controller.abort();
+        if (mode === "turn-ended") current = false;
+        if (mode === "grant-revoked") expect(revokeReferenceGrant(waitingDb, { brain: "ithaca", principalId: reader.id, id: grant.id, now: Date.now() })).not.toBeNull();
+        if (mode !== "busy" && mode !== "cancel") held.release();
+        const result = await pending;
+        if (mode === "release") {
+          expect(result.error, "REFERENCE_MANAGED_WAIT_RELEASE_SUCCEEDS").toBeUndefined();
+          expect(result.lease, "REFERENCE_MANAGED_WAIT_RELEASE_PUBLISHES").toBeDefined();
+          try {
+            expect(readFileSync(join(result.lease!.viewPath, result.lease!.name, "README.md"), "utf8"))
+              .toBe("Odysseus revises the Ithaca chart on 2026-07-12.\n");
+          } finally { result.lease?.release(); }
+        } else {
+          expect(result.lease, "REFERENCE_MANAGED_WAIT_REFUSAL_RETURNS_NO_SOURCE").toBeUndefined();
+          expect(result.error, "REFERENCE_MANAGED_WAIT_REFUSAL_IS_EXPLICIT").toBeDefined();
+          if (mode === "busy") expect(result.error, "REFERENCE_MANAGED_WAIT_PRESERVES_BUSY").toMatchObject({ code: "busy" });
+          expect(requests.filter(request => request.host === "github.com"), "REFERENCE_MANAGED_WAIT_LOST_AUTHORITY_SENDS_NO_GIT").toEqual([]);
+          expect(waitingDb.query("SELECT COUNT(*) AS count FROM reference_acquisitions").get(), "REFERENCE_MANAGED_WAIT_REFUSAL_NEVER_PUBLISHES").toEqual({ count: 0 });
+          if (mode === "cancel") expect(launched, "REFERENCE_MANAGED_CANCELLED_WAIT_NEVER_LAUNCHES").toEqual([]);
+        }
+      } finally {
+        onAdmissionRefused = undefined; held.release(); controller.abort();
+        const result = await pending; result.lease?.release(); await waitingSources.close(); waitingDb.close();
+      }
+    }
   } finally { egress.stop(); server?.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
 }, 90000);
