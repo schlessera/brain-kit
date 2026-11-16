@@ -8,14 +8,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Window } from "happy-dom";
-import { StrictMode, act, useEffect, useState, type ReactElement } from "react";
+import { StrictMode, act, useEffect, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { StreamingAnswer } from "../src/conversation/StreamingAnswer.js";
 import { ActionCard } from "../src/decisions/ActionCard.js";
 import { SearchResultCard } from "../src/evidence/SearchResultCard.js";
-import { GhostText, HANDOFF_MS, ghostBlur, ghostString, useArrival } from "../src/internal/GhostText.js";
+import { FIRST_FRAME_MS, GhostText, HANDOFF_MS, ghostBlur, ghostString, useArrival } from "../src/internal/GhostText.js";
 import { FileRow } from "../src/rows/FileRow.js";
 import { QueueItemRow } from "../src/rows/QueueItemRow.js";
 import { Placeholder } from "../src/states/Placeholder.js";
@@ -476,11 +476,12 @@ describe("arrival clock lifecycle", () => {
   test("StrictMode effect replay cancels its first callback and unmount cancels the second", async () => {
     function ArrivingOnMount() {
       const [loading, setLoading] = useState(true);
-      const arriving = useArrival(loading);
+      const frame = useRef<HTMLParagraphElement>(null);
+      const arriving = useArrival(loading, frame);
       // A render-phase loading transition makes the actual arrival effect live
       // on its first commit, so StrictMode replays that effect's cleanup/setup.
       if (loading) setLoading(false);
-      return <p data-arriving={String(arriving)}>Odysseus arrives</p>;
+      return <p ref={frame} data-arriving={String(arriving)}>Odysseus arrives</p>;
     }
     const m = await mount(() => <ArrivingOnMount />);
     expect(m.clock.registered.map(timer => timer.delay), "STRICT_EFFECT_SETUP_TWICE").toEqual([600, 600]);
@@ -494,6 +495,66 @@ describe("arrival clock lifecycle", () => {
     expect(m.clock.delivered, "NO_STRICT_OR_UNMOUNTED_CALLBACK").toEqual([]);
     expect(m.clock.pending).toEqual([]);
     expect(m.host.childNodes).toHaveLength(0);
+  });
+
+  // #3425: where a fade runs, the handoff ends on the fade's own end. happy-dom
+  // computes no CSS animations, so these give the frame stand-in fades; the
+  // native timing proof is Chromium's (`tests/visual/ghost-handoff.visual.tsx`).
+  function fade(duration = HANDOFF_MS) {
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => { finish = resolve; });
+    const animation = {
+      animationName: "ghost-out", playState: "running", startTime: null as number | null, finished,
+      effect: { getComputedTiming: () => ({ duration }) },
+    };
+    return { animation, finish };
+  }
+  async function mountFrame(animations: unknown[]) {
+    function Frame({ loading }: { loading: boolean }) {
+      const frame = useRef<HTMLDivElement>(null);
+      const arriving = useArrival(loading, frame);
+      return <div ref={frame} data-frame="" data-arriving={String(arriving)} />;
+    }
+    const m = await mount((loading) => <Frame loading={loading} />);
+    const node = m.host.querySelector<HTMLElement>("[data-frame]")!;
+    Object.defineProperty(node, "getAnimations", { configurable: true, value: () => animations });
+    return { ...m, arriving: () => node.dataset.arriving };
+  }
+
+  test("a running fade ends the handoff on its own end, not 600ms after the commit", async () => {
+    const out = fade();
+    const m = await mountFrame([out.animation]);
+    await m.land();
+    expect(m.clock.registered.map((timer) => timer.delay), "NO_600MS_TIMER_WITH_A_FADE").toEqual([FIRST_FRAME_MS]);
+    await m.clock.advance(HANDOFF_MS);
+    expect(m.arriving(), "FADE_STARTED_LATE_STILL_RUNS").toBe("true");
+    out.animation.startTime = 400; // Its first frame came, late.
+    await m.clock.advance(FIRST_FRAME_MS - HANDOFF_MS);
+    expect(m.arriving(), "A_STARTED_FADE_IS_NOT_FRAMELESS").toBe("true");
+    await act(async () => out.finish());
+    expect(m.arriving(), "ENDS_ON_THE_FADE").toBe("false");
+    await m.unmount();
+  });
+
+  test("a fade that never starts — no rendered frames — ends the handoff after FIRST_FRAME_MS", async () => {
+    const m = await mountFrame([fade().animation]);
+    await m.land();
+    await m.clock.advance(FIRST_FRAME_MS - 1);
+    expect(m.arriving()).toBe("true");
+    await m.clock.advance(1);
+    expect(m.arriving(), "FRAMELESS_DOCUMENT_ENDS").toBe("false");
+    await m.unmount();
+  });
+
+  test("a zero-length fade (reduced motion) ends the handoff after HANDOFF_MS", async () => {
+    const m = await mountFrame([fade(0).animation]);
+    await m.land();
+    expect(m.clock.registered.map((timer) => timer.delay)).toEqual([HANDOFF_MS]);
+    await m.clock.advance(HANDOFF_MS - 1);
+    expect(m.arriving()).toBe("true");
+    await m.clock.advance(1);
+    expect(m.arriving(), "NO_FADE_ENDS_ON_THE_TIMER").toBe("false");
+    await m.unmount();
   });
 
   test("failed assertion cleanup restores every descriptor and the successor starts clean", async () => {

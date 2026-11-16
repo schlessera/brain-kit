@@ -587,7 +587,9 @@ The nine former 640 ms settlements in `packages/ui-kit/tests/ghost-text.test.tsx
 retain their assertions. The test captures every global timeout registered by
 these mounted components, including a wrongly configured delay. Its independent
 600 ms oracle checks the actual `useArrival` effect (`useArrival`,
-`packages/ui-kit/src/internal/GhostText.tsx:181-194`). At 599 ms the same outgoing
+`packages/ui-kit/src/internal/GhostText.tsx:216-248`). happy-dom computes no CSS
+animations, so no fade runs and the hook ends the handoff on its 600 ms
+fallback timer. Stand-in fades cover the path where a fade runs (#3425). At 599 ms the same outgoing
 and incoming nodes must remain; at 600 ms the real callback runs inside React
 `act`, whose committed result must remove both handoff classes. Neither an
 arbitrary microtask nor immediate absence proves completion.
@@ -614,13 +616,15 @@ in the successor. The original glyph, role, style, accessibility, inertness,
 interaction, ordering and loaded-state assertions stay in this file.
 
 Native proof remains unchanged and required: `playHandoff` in
-`packages/ui-kit/stories/_ghost.tsx` observes 300 ms mid-handoff opacity,
-320/720 px geometry, a 600 ms fade in animation time and removal within three
-rendered frames of that fade's end (#3417). LoadingToReady
+`packages/ui-kit/stories/_ghost.tsx` observes mid-handoff opacity,
+320/720 px geometry, a 600 ms fade in animation time, a fade that ends before
+removal (#3425) and removal within three rendered frames of that fade's end
+(#3417). LoadingToReady
 stories run in both Storybook theme projects. Chromium's
 `packages/ui-kit/tests/visual/ghost-handoff.visual.tsx` retains both themes,
-input-orchestration and main-thread-stall exclusion, and the mutation holding
-one width's ghost 200 ms past its fade that still fails.
+input-orchestration and main-thread-stall exclusion, a long task right after
+the commit that delays the fades' start (#3425), and the mutation holding one
+width's ghost 400 ms past its fade that still fails.
 Logical component time proves none of CSS rasterization, native elapsed
 animation budgets or geometry. Production JavaScript and CSS remain 600 ms.
 

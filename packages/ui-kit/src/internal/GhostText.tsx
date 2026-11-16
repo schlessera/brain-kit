@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 import { color, font } from "../tokens.js";
 
@@ -170,15 +170,50 @@ export function GhostText(p: GhostTextProps) {
 /* ── The handoff ───────────────────────────────────────────────────────── */
 
 /**
- * True for the 600ms after `loading` turns false, so the item can draw its
- * ghost under the arriving text. Per item: each list row calls it with its
- * own flag, so each one hands off when ITS data lands.
+ * How long an arrival waits for its first rendered frame before it stops
+ * waiting for its fades. A fade starts on the first frame after the commit, so
+ * a document that renders none — a hidden tab, a frozen embedding — would hold
+ * the ghost forever. A loaded runner starts the fade a few hundred ms late,
+ * never seconds.
+ */
+export const FIRST_FRAME_MS = 3000;
+
+/** The handoff's two fades, by keyframe name (`tokens.css`). */
+const HANDOFF_FADES = new Set(["ghost-in", "ghost-out"]);
+
+/** The frame's running handoff fades, with a duration to run. Empty where no
+ * fade runs: `animation: none`, reduced motion's 0s, no Web Animations. */
+function handoffFades(frame: Element | null): Animation[] {
+  if (!frame || typeof frame.getAnimations !== "function") return [];
+  return frame.getAnimations({ subtree: true }).filter((a) => {
+    const name = (a as CSSAnimation).animationName;
+    const duration = Number(a.effect?.getComputedTiming().duration ?? 0);
+    return name !== undefined && HANDOFF_FADES.has(name) && duration > 0;
+  });
+}
+
+/**
+ * True from the commit where `loading` turns false until that item's handoff
+ * fades have ended, so the item can draw its ghost under the arriving text.
+ * Per item: each list row calls it with its own flag and its own frame, so
+ * each one hands off when ITS data lands.
  *
  * Derived during render rather than in an effect, so the first ready frame
  * already carries the outgoing ghost — an effect would paint one frame of bare
  * text first, and the ghost would blink back over it.
+ *
+ * The handoff ends on the fades' own end (#3425), not on a timer from the
+ * commit: the fades start on the first frame the browser renders after the
+ * commit, and on a loaded browser that frame can be hundreds of ms late. A
+ * timer would then remove the ghost part-way through its fade. `frame` is the
+ * item's root element, holding its `.bk-ghost-out` and `.bk-ghost-in` layers.
+ *
+ * Where no fade runs — reduced motion, `animation: none`, a document without
+ * Web Animations — the handoff ends after `HANDOFF_MS`, the fade's length. A
+ * fade that has not started `FIRST_FRAME_MS` after the commit means the
+ * document renders no frames, and the handoff ends then.
  */
-export function useArrival(loading: boolean): boolean {
+export function useArrival(loading: boolean, frame: RefObject<Element | null>): boolean {
   const [prev, setPrev] = useState(loading);
   const [arriving, setArriving] = useState(false);
   if (prev !== loading) {
@@ -187,9 +222,28 @@ export function useArrival(loading: boolean): boolean {
   }
   useEffect(() => {
     if (!arriving) return;
-    const timer = setTimeout(() => setArriving(false), HANDOFF_MS);
-    return () => clearTimeout(timer);
-  }, [arriving]);
+    let live = true;
+    const end = () => {
+      if (live) setArriving(false);
+    };
+    const fades = handoffFades(frame.current);
+    if (!fades.length) {
+      const timer = setTimeout(end, HANDOFF_MS);
+      return () => {
+        live = false;
+        clearTimeout(timer);
+      };
+    }
+    // A fade that is cancelled (its layer removed or restyled) has ended too.
+    void Promise.allSettled(fades.map((fade) => fade.finished)).then(end);
+    const frameless = setTimeout(() => {
+      if (fades.every((fade) => fade.startTime === null)) end();
+    }, FIRST_FRAME_MS);
+    return () => {
+      live = false;
+      clearTimeout(frameless);
+    };
+  }, [arriving, frame]);
   return arriving;
 }
 
