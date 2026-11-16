@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
-import { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceCommand, type MaintenanceTempReservation } from "@schlessera/brain-ui-sdk/internal";
+import { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { ReferenceToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
@@ -22,6 +22,7 @@ const LIMITS = { allowanceBytes: 268435456, budgetBytes: 268435456 };
 const BOUND_MS = 30_000;
 const BRAIN = "ithaca-brain", PUBLIC = "https://github.com/odysseus/ithaca", TIP = "1".repeat(40);
 let root: string, db: Database, domain: { statePath: string };
+type MaintenanceTempReservation = ReturnType<typeof reserveMaintenanceTemp>;
 const held: MaintenanceTempReservation[] = [];
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "odysseus-reference-admission-")));

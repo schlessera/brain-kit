@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceTempReservation } from "../src/server/maintenance-temp-budget";
 import { prepareWorkerSandbox, prepareWorkerSandboxAsync } from "../src/server/worker-launcher";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../src/protocol";
@@ -14,6 +14,7 @@ const LIMITS = { allowanceBytes: 268435456, budgetBytes: 268435456 };
 let root: string;
 let domain: { statePath: string };
 const held: MaintenanceTempReservation[] = [];
+const cleanups: (() => void)[] = [];
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "odysseus-maintenance-holders-")));
   mkdirSync(join(root, "state"));
@@ -21,6 +22,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const reservation of held.splice(0)) reservation.release();
+  for (const cleanup of cleanups.splice(0)) cleanup();
   rmSync(root, { recursive: true, force: true });
 });
 const hold = (kind: Parameters<typeof reserveMaintenanceTemp>[2]) => {
@@ -110,7 +112,14 @@ test("freedWithin() reports a release inside its bound, false past it, and rejec
 });
 
 test("a turn's scratch check that starts while a reference Git command holds the budget waits for it, and scratch stays writable (#4079)", async () => {
-  const brain = join(root, "brain");
+  // The worker's git query must see the brain: not under /tmp, which a
+  // maintenance worker replaces with its own, and inside the repository's
+  // gitignored tmp/, as the worker sandbox tests place theirs.
+  const repo = resolve(import.meta.dir, "../../..");
+  mkdirSync(join(repo, "tmp"), { recursive: true });
+  const brainRoot = mkdtempSync(join(repo, "tmp/odysseus-scratch-admission-"));
+  cleanups.push(() => rmSync(brainRoot, { recursive: true, force: true }));
+  const brain = join(brainRoot, "brain");
   mkdirSync(brain);
   // The turn's first reference_source call is running its short ls-remote.
   const reference = hold("git");
@@ -119,7 +128,7 @@ test("a turn's scratch check that starts while a reference Git command holds the
   const scratch = sandbox.areas.find(area => area.name === "scratch");
   const reason = scratch?.mount.writable === false ? scratch.mount.reason : "";
   expect(reason, "TURN_SCRATCH_CHECK_IS_NOT_REFUSED_BY_A_SHORT_REFERENCE_COMMAND").not.toContain("Maintenance temporary storage is busy");
-  expect(scratch?.mount.writable, "TURN_SCRATCH_STAYS_WRITABLE_AFTER_A_SHORT_REFERENCE_COMMAND").toBe(true);
+  expect(scratch?.mount, "TURN_SCRATCH_STAYS_WRITABLE_AFTER_A_SHORT_REFERENCE_COMMAND").toMatchObject({ writable: true });
 });
 
 test("a synchronous scratch check still refuses at once while maintenance holds the budget (#4079)", () => {
