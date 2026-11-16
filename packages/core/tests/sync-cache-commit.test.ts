@@ -8,6 +8,7 @@
  * A pull that cannot merge says whether git refused or stopped on conflicts.
  */
 
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -17,6 +18,8 @@ import { commitDerivedCaches } from "../src/cli/commands/sync.js";
 import { chunkContextKey } from "../src/lib/indexer.js";
 import { saveContextCache } from "../src/lib/indexer/caches.js";
 import { makeTempBrain, runCli } from "./cli-harness";
+
+withoutSigningForEach();
 
 const CACHE = ".brain-cache/contexts.jsonl";
 const dirs: string[] = [];

@@ -100,7 +100,7 @@ test("bounded maintenance kills and reaps an actual output-flooding worker", asy
 test("hosted packing publishes real Git packs while preserving refs and history", async () => {
   const f = fixture();
   const git = (...args: string[]) => {
-    const p = Bun.spawnSync(["git", "-C", f.brain, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+    const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", "-C", f.brain, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
     expect(p.exitCode, p.stderr.toString()).toBe(0); return p.stdout.toString();
   };
   try {
