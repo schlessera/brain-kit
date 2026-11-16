@@ -37,19 +37,29 @@ if (import.meta.main) {
     const security = Bun.spawnSync(["docker", "info", "--format", "{{json .SecurityOptions}}"], { stdout: "pipe", stderr: "pipe" });
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker runtime security prerequisites.");
     const apparmor = (JSON.parse(new TextDecoder().decode(security.stdout)) as string[]).some(value => value.startsWith("name=apparmor"));
-    const root = resolve(import.meta.dir, ".."), output = join(root, "tmp", "reference-pool-proof");
-    mkdirSync(output, { recursive: true });
-    const artifact = mkdtempSync(join(output, integrated ? "run-integrated-" : "run-pool-")); chmodSync(artifact, 0o755);
-    console.log(`Reference pool proof artifacts: ${artifact}`);
-    const head = Bun.spawnSync(["git", "-C", root, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
-    const dirty = Bun.spawnSync(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() !== "";
-    const candidate = /^[0-9a-f]{40}$/.test(head) ? `${head}${dirty ? "+dirty" : ""}` : undefined;
-    const child = Bun.spawn(referencePoolDockerArgs(root, artifact, apparmor, realpathSync(process.execPath), integrated, candidate), { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
-    const forward = (signal: NodeJS.Signals) => child.kill(signal);
-    for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
-    const code = await child.exited;
-    for (const signal of ["SIGINT", "SIGTERM"] as const) process.off(signal, forward);
-    if (code !== 0) throw Error(`Reference pool proof failed with exit ${code}; inspect ${artifact}.`);
-    console.log(integrated ? `Integrated reference proof passed (${integrated.backends.join(", ")}).` : "Reference pool proof passed.");
+    // TEMPORARY (#3513) hosted feedback probe, reverted before the PR is ready: the hosted runtime_host cell runs this
+    // script without arguments, and the integrated cell has no hosted cell of its own. Run each backend's integrated
+    // cell twice, each in its own container, so one backend's failure does not hide the other's measurements.
+    const cells = selected.length ? [integrated] : [{ backends: ["claude"] }, { backends: ["pi"] }, { backends: ["claude"] }, { backends: ["pi"] }];
+    const failures: string[] = [];
+    for (const integrated of cells) {
+      try {
+        const root = resolve(import.meta.dir, ".."), output = join(root, "tmp", "reference-pool-proof");
+        mkdirSync(output, { recursive: true });
+        const artifact = mkdtempSync(join(output, integrated ? "run-integrated-" : "run-pool-")); chmodSync(artifact, 0o755);
+        console.log(`Reference pool proof artifacts: ${artifact}`);
+        const head = Bun.spawnSync(["git", "-C", root, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim();
+        const dirty = Bun.spawnSync(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"], { stdout: "pipe", stderr: "ignore" }).stdout.toString().trim() !== "";
+        const candidate = /^[0-9a-f]{40}$/.test(head) ? `${head}${dirty ? "+dirty" : ""}` : undefined;
+        const child = Bun.spawn(referencePoolDockerArgs(root, artifact, apparmor, realpathSync(process.execPath), integrated, candidate), { stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+        const forward = (signal: NodeJS.Signals) => child.kill(signal);
+        for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
+        const code = await child.exited;
+        for (const signal of ["SIGINT", "SIGTERM"] as const) process.off(signal, forward);
+        if (code !== 0) throw Error(`Reference pool proof failed with exit ${code}; inspect ${artifact}.`);
+        console.log(integrated ? `Integrated reference proof passed (${integrated.backends.join(", ")}).` : "Reference pool proof passed.");
+      } catch (error) { failures.push(String(error instanceof Error ? error.message : error)); }
+    }
+    if (failures.length) throw Error(failures.join("\n"));
   } catch (error) { console.error(String(error instanceof Error ? error.message : error)); process.exitCode = 1; }
 }

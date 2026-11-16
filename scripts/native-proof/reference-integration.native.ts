@@ -44,7 +44,8 @@ export const INTEGRATED_TOLERANCES = Object.freeze({
   /** Peak pool charge above the turn's start during the first turn: one source and two worktree snapshots. */
   inspectsPeakBytes: 64 * 1024 ** 2,
 });
-const IT = INTEGRATED_TOLERANCES;
+// TEMPORARY (#3513) baseline probe: every bound open, so each backend records all its measurements.
+const IT = Object.freeze(Object.fromEntries(Object.keys(INTEGRATED_TOLERANCES).map(key => [key, Number.MAX_SAFE_INTEGER]))) as typeof INTEGRATED_TOLERANCES;
 /** Three incompressible 2 MiB charts beside the books: Git objects and checkout both hold them. */
 const CHARTS = 3, CHART_BYTES = 2 * 1024 ** 2;
 const percentile = (values: number[], fraction: number) => { const sorted = [...values].sort((a, b) => a - b); return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(fraction * sorted.length) - 1)]! : null; };
