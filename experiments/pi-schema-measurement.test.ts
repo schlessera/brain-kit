@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { measurementSchema, measurementForm, nativeCredential, replaceExactly, PI_SCHEMA_ARMS, PI_SCHEMA_PROMPT, measurementToolSafety, measurementHostedPrompt, measurementPreparedPrompt, adoptMeasurementPreparedPrompt, measurementPromptReceipt } from "../scripts/pi-schema-measurement.ts";
 import { SCHEMA_ARMS } from "../scripts/show-block-schema-forms.ts";
 import { showBlockInputSchema } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
-import { toolInputJsonSchema, SHOW_BLOCK_DESCRIPTION } from "@schlessera/brain-ui-sdk/server";
+import { toolInputJsonSchema, SHOW_BLOCK_DESCRIPTION, type PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { validatePiSchemaRequest, validateTerminalUsage, observeCodexBilling } from "../scripts/pi-schema-capture.ts";
 import { acceptMeasurementFiles } from "../scripts/pi-schema-worker-receipts.ts";
 
@@ -103,7 +103,7 @@ test("actual tool-safety admission refuses shell/writes and outside symlink read
     writeFileSync(join(scratch,"inside.md"),"Odysseus");
     symlinkSync("/etc/hostname",join(scratch,"outside.md"));
     const results:string[]=[];
-    const host={async permission(){return {behavior:"allow" as const};},async result(_name:string,id:string){results.push(id);},stop(){results.push("stopped");}};
+    const host={async permission(_name:string,_id:string,_input:Record<string,unknown>):Promise<PermissionDecision>{return {behavior:"allow"};},async result(_name:string,id:string){results.push(id);},stop(){results.push("stopped");}};
     const safety=measurementToolSafety(host,scratch);
     const handler=async(toolName:string,input:Record<string,unknown>)=>safety.permission(toolName,toolName,input);
     expect((await handler("show_block",{})).behavior).toBe("allow");
