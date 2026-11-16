@@ -1,6 +1,6 @@
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
 import { runtimePackageBuild } from "./fixtures/runtime-package-build";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -168,6 +168,9 @@ function scriptedBackend(): AgentBackend {
         answers.set(prompt, decision);
         bridge.emit({ type: "tool_result", sessionId, toolUseId, output: "Actor decision recorded.", isError: decision.behavior !== "allow" });
         finish(`Actor answered: ${title}.`, "success");
+        // Keep the last Actor turn registered after its result. The fixture
+        // must drain this real predecessor window before the next case connects.
+        if (prompt.includes("Deny")) await new Promise<"ok" | "fail">(release => gates.set(prompt, release));
         return;
       }
       if (kind === "Approve" || kind === "Subapprove" || kind === "Remember") {
@@ -259,6 +262,11 @@ beforeAll(async () => {
   await startHost();
   browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
 }, 240_000);
+
+// A result is visible before the host releases its turn. Closing a page does
+// not drain that turn, and a following page can receive its connect snapshot.
+// Await the real host's cancellation and close before another case connects.
+afterEach(async () => { if (app) await restartHost(); });
 
 afterAll(async () => {
   app?.cancelActiveTurns();
@@ -677,7 +685,8 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await until(a.page, "p.activeSessionId() !== null && p.streaming(p.activeSessionId())");
         const A = (await probe(a.page, (p) => p.activeSessionId()))!;
         await a.page.getByText("Setting out: Sail past the Sirens").first().waitFor();
-        expect(await probe(a.page, (p) => p.views().length), "a watched session is not tracked").toBe(0);
+        const watched = await probe(a.page, p => ({ active: p.activeSessionId(), views: p.views() }));
+        expect(watched.views, "a watched session is not tracked: " + JSON.stringify(watched)).toEqual([]);
 
         // A's own unsent words and image, typed while it streams, saved on the host.
         await composer(a.page).fill(draftA);

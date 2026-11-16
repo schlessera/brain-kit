@@ -383,6 +383,13 @@ boundary, the reasons and the file- and assertion-level inventory are in
   `python3`, `bwrap`, `unshare`, `setpriv` and `ip`, permitted namespaces and a
   built workspace (`bun run build`), and refuses to start without them. `bun run test experiments/<file>` runs one
   file while debugging.
+- **Nested worker namespaces.** The installed-runtime placement control also
+  needs the real worker host probe to pass inside its outer offline namespace.
+  An AppArmor profile on the outer `bwrap` can deny the inner worker's namespace
+  creation even when a direct host probe succeeds. The control fails early
+  with `OWNED_CLAUDE_NESTED_WORKER_HOST_REQUIRED`, the probe's cause and the
+  current AppArmor label when available. Use a qualified isolated proof host;
+  neither a skipped placement nor disabling either boundary supplies proof.
 - **The release gate.** Release preparation runs the tier after
   `bun run version` and before `bun run release` (the
   [release skill](../../.agents/skills/release/SKILL.md) has the sequence).
