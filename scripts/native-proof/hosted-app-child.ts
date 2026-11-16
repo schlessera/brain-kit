@@ -37,9 +37,29 @@ if (APPLY_TIMING) {
   // #2848: how long admission takes to copy the turn's data tree and seed its index.
   const trees = await import(join(source!, "packages/ui-server/src/brain/turn-data-tree.ts"));
   const createTurnDataTree = trees.createTurnDataTree;
+  // #2911: the tree's actual allocation on the managed volume, as Btrfs counts
+  // it, once seeded and again when the turn closes it: total (a plain copy's
+  // bytes), exclusive (allocated for this tree alone) and shared within it.
+  const allocation = async (stage: string, tree: { mount?: { root: string }; index: string }, masked: boolean) => {
+    if (!tree.mount) return;
+    // A masked turn's private index is outside the volume.
+    const paths = masked ? [tree.mount.root] : [tree.mount.root, tree.index];
+    await Bun.spawn(["sync", "-f", tree.mount.root], { stdout: "ignore", stderr: "ignore" }).exited;
+    const run = Bun.spawn(["/usr/bin/btrfs", "filesystem", "du", "-s", "--raw", ...paths], { stdout: "pipe", stderr: "pipe" });
+    const [out, errors, code] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
+    const rows = out.trim().split("\n").slice(1).map(line => {
+      const [total, exclusive, shared, ...name] = line.trim().split(/\s+/);
+      return { path: name.join(" "), total: Number(total), exclusive: Number(exclusive), shared: Number(shared) };
+    });
+    event("turn_tree_allocation", { stage, masked, code, errors: errors.slice(-400), rows });
+  };
   spyOn(trees, "createTurnDataTree").mockImplementation(async (...args: Parameters<typeof createTurnDataTree>) => {
     const start = performance.now(); const tree = await createTurnDataTree(...args);
-    event("turn_tree_seed", { ms: performance.now() - start, masked: Boolean((args[0] as { masks?: unknown }).masks), mounted: Boolean(tree.mount) });
+    const masked = Boolean((args[0] as { masks?: unknown }).masks);
+    event("turn_tree_seed", { ms: performance.now() - start, masked, mounted: Boolean(tree.mount) });
+    await allocation("seed", tree, masked);
+    const close = tree.close;
+    tree.close = async () => { await allocation("close", tree, masked); return close.call(tree); };
     return tree;
   });
   const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));

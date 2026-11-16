@@ -13,11 +13,18 @@ import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
  * alone. A pattern set that fires on `git status` would be turned off within a
  * day, and then it protects nothing.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Options, query } from "@anthropic-ai/claude-agent-sdk";
 
 import { createClaudeBackend, DEFAULT_CONFIRM_BASH_PATTERNS } from "../src/backend.js";
 import { MUTATING_TOOL_MATCHER } from "../src/tool-policy.js";
+
+let brainPath: string;
+beforeEach(() => { brainPath = mkdtempSync(join(tmpdir(), "odysseus-confirm-bash-")); });
+afterEach(() => { rmSync(brainPath, { recursive: true, force: true }); });
 
 const patterns = DEFAULT_CONFIRM_BASH_PATTERNS.map((p) => new RegExp(p.pattern, "i"));
 const confirms = (command: string) => patterns.some((re) => re.test(command));
@@ -134,7 +141,7 @@ describe("unparseable patterns", () => {
     let constructionError: unknown;
     try {
       backend = createClaudeBackend({
-        brainPath: "/tmp", confirmBashPatterns: ["("], queryFn, log: () => {},
+        brainPath, confirmBashPatterns: ["("], queryFn, log: () => {},
       });
     } catch (error) {
       constructionError = error;
@@ -156,7 +163,7 @@ describe("unparseable patterns", () => {
     const calls: Array<{ level: string; message: string; attrs?: Record<string, unknown> }> = [];
 
     createClaudeBackend({
-      brainPath: "/tmp",
+      brainPath,
       confirmBashPatterns: ["(unclosed", String.raw`\brm\s`],
       log: (level, message, attrs) => calls.push({ level, message, attrs }),
     });
@@ -208,7 +215,7 @@ describe("what the card says (#112)", () => {
       })();
     }) as unknown as typeof query;
     const backend = createClaudeBackend({
-      brainPath: "/tmp",
+      brainPath,
       queryFn,
       log: () => {},
       ...(confirmBashPatterns ? { confirmBashPatterns } : {}),

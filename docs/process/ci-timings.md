@@ -8,6 +8,9 @@ The [throughput measurement guide](ci-throughput.md) extends these observations
 with delivery latency, main-push outcomes, concurrency, reservation history,
 explicit worker/incident records and configurable scenario assumptions.
 
+The [integration evidence inventory](ci-evidence.md) maps each metric to its
+producer, normalized schema, cadence, retention and collection gaps.
+
 ## Collect and report
 
 Use authenticated `gh` with Actions, contents and pull-request read access:
@@ -194,6 +197,9 @@ The report distinguishes three quantities:
   Initial queue is separately request-to-first-observed-job for first attempts.
   A rerun's original `created_at` is not its request time. Dependent-job queue
   eligibility, reservations, human review and ready-to-merge time are unknown.
+- **Runner-slot wait:** job creation to observed execution start, with explicit
+  unknown counts and a known-job denominator for waits over five minutes. See
+  [cohorts and schema versions](ci-throughput.md#runner-slot-wait).
 - **Check duration:** mean, median, nearest-rank p90 and sample count per
   event/category, named step and successful resource-command phase. Job/step
   samples include observed failed and cancelled execution. Means across

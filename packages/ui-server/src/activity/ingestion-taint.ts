@@ -131,7 +131,7 @@ export interface IngestionSignal {
 export const INGESTION_DETECTOR_MANIFEST = {
   version: 1,
   web: WEB_TOOLS, webInputKeys: { WebFetch:["url"],WebSearch:["query"],fetch_content:["url","urls"],web_search:["query","queries"],get_search_content:["url"],source_check:["claim","queries"] }, files: FILE_TOOLS, search: [...SEARCH_TOOLS], attachments: [...ATTACHMENT_READ_TOOLS],
-  compute: [...COMPUTE_OUTPUT_TOOLS], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
+  compute: [...COMPUTE_OUTPUT_TOOLS], hostRemotePages:["brain_apify_discover","brain_apify_inspect","brain_apify_results","brain_github_issue_read","brain_github_issue_search"], externalMcp: "mcp__<server>__<tool> except brain and brain-ui",
   shell: ["Bash", "bash"],
   exclusions: ["proxied_shell_local_read", "opaque_tunnel_inner_protocol", "uninstrumented_backend_input", "missing_historical_signals"],
 } as const;

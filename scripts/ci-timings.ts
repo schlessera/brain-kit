@@ -2,7 +2,7 @@
 import { publishEvents } from "./ci-event-publish";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { seconds, stats } from "./ci-timing-stats";
+import { percentage, seconds, stats } from "./ci-timing-stats";
 export { seconds, stats } from "./ci-timing-stats";
 import { collectPullObservation, summarizeThroughput, throughputMarkdown, validateWorkEvent,
   type PullObservation, type WorkEvent, type Scenario } from "./ci-throughput";
@@ -23,12 +23,12 @@ interface RawRun {
 interface RawStep { name: string; number: number; status: string; conclusion: string | null; started_at?: string; completed_at?: string; }
 interface RawJob {
   id: number; run_id: number; run_attempt?: number; name: string; status: string;
-  conclusion: string | null; started_at?: string; completed_at?: string; labels?: string[]; steps?: RawStep[];
+  conclusion: string | null; created_at?: string; started_at?: string; completed_at?: string; labels?: string[]; steps?: RawStep[];
 }
 export interface TimingJob {
   id: number; name: string; category: string; conclusion: string | null; labels: string[];
   execution: "observed" | "excluded" | "retained" | "unobserved";
-  startedAt: string | null; completedAt: string | null; seconds: number | null;
+  createdAt?: string | null; startedAt: string | null; completedAt: string | null; seconds: number | null;
   steps: { number: number; name: string; conclusion: string | null; seconds: number | null }[];
   resource: Resource | null; resourceProblem: string | null;
 }
@@ -38,7 +38,7 @@ interface Resource {
   machine: { logicalCpus: number; totalBytes: number; activeCpuSeconds: number; sampledPeakUsedBytes: number };
 }
 export interface TimingSnapshot {
-  version: 1; repository: string; collectedAt: string;
+  version: 1 | 2; repository: string; collectedAt: string;
   run: { id: number; attempt: number; workflow: string; path: string; event: string; head: string;
     branch?: string; headRepository?: string;
     createdAt: string; startedAt: string | null; status: string; conclusion: string | null;
@@ -64,7 +64,7 @@ export function normalizeJob(job: RawJob): TimingJob {
     step.conclusion !== "skipped" && Number.isFinite(Date.parse(step.started_at ?? "")));
   const execution = job.conclusion === "skipped" ? "excluded" : observed ? "observed" : "unobserved";
   return { id: job.id, name: job.name, category: category(job.name), conclusion: job.conclusion,
-    labels: job.labels ?? [], execution, startedAt: job.started_at ?? null, completedAt: job.completed_at ?? null,
+    labels: job.labels ?? [], execution, createdAt: job.created_at ?? null, startedAt: job.started_at ?? null, completedAt: job.completed_at ?? null,
     seconds: execution === "observed" ? seconds(job.started_at, job.completed_at) : null,
     steps: (job.steps ?? []).map(step => ({ number: step.number, name: step.name, conclusion: step.conclusion,
       seconds: step.conclusion === "skipped" ? null : seconds(step.started_at, step.completed_at) })),
@@ -120,7 +120,7 @@ export async function collectAttempt(api: TimingAPI, repository: string, raw: Ra
   const run: RawRun = attempt === raw.run_attempt ? raw : await api.json(`actions/runs/${raw.id}/attempts/${attempt}`);
   if (run.id !== raw.id || run.run_attempt !== attempt || !SHA.test(run.head_sha) ||
     !WORKFLOWS.some(w => run.path === `.github/workflows/${w}`)) throw new Error("Run attempt identity mismatch");
-  const snapshot: TimingSnapshot = { version: 1, repository, collectedAt: now,
+  const snapshot: TimingSnapshot = { version: 2, repository, collectedAt: now,
     run: { id: run.id, attempt, workflow: run.name, path: run.path, event: run.event, head: run.head_sha,
       branch: run.head_branch, headRepository: run.head_repository?.full_name,
       createdAt: run.created_at, startedAt: run.run_started_at ?? null, status: run.status, conclusion: run.conclusion,
@@ -202,7 +202,7 @@ function end(snapshot: TimingSnapshot): string | null {
 export function deduplicate(snapshots: TimingSnapshot[]): TimingSnapshot[] {
   const result = new Map<string, TimingSnapshot>();
   for (const snapshot of snapshots) {
-    if (snapshot.version !== 1 || !/^[\w.-]+\/[\w.-]+$/.test(snapshot.repository) || !Number.isSafeInteger(snapshot.run?.id) || !Number.isSafeInteger(snapshot.run.attempt) || !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.problems)) throw new Error("Invalid timing snapshot");
+    if (![1, 2].includes(snapshot.version) || !/^[\w.-]+\/[\w.-]+$/.test(snapshot.repository) || !Number.isSafeInteger(snapshot.run?.id) || !Number.isSafeInteger(snapshot.run.attempt) || !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.problems)) throw new Error("Invalid timing snapshot");
     const key = `${snapshot.repository}/${snapshot.run.id}/${snapshot.run.attempt}`;
     const old = result.get(key);
     if (!old) { result.set(key, structuredClone(snapshot)); continue; }
@@ -218,12 +218,32 @@ export function deduplicate(snapshots: TimingSnapshot[]): TimingSnapshot[] {
     if (!merged.candidate && older.candidate) merged.candidate = older.candidate;
     for (const job of merged.jobs) {
       const previous = older.jobs.find(j => j.id === job.id);
+      if (!job.createdAt && previous?.createdAt) { job.createdAt = previous.createdAt; merged.version = 2; }
       if (!job.resource && previous?.resource) { job.resource = previous.resource; job.resourceProblem = null; }
       if (job.execution === "excluded" && merged.selection?.retained.includes(job.category)) job.execution = "retained";
     }
     result.set(key, merged);
   }
   return [...result.values()].sort((a, b) => a.run.id - b.run.id || a.run.attempt - b.run.attempt);
+}
+
+/** Creation-to-start is an observation, not a diagnosis of capacity pressure. */
+function runnerSlotWait(snapshots: TimingSnapshot[]) {
+  const rows = snapshots.flatMap(s => s.jobs.map(j => ({
+    workflow: s.run.path, category: j.category,
+    event: s.run.event === "pull_request" ? s.context?.cadence === "draft" ? "pull_request_draft" :
+      ["feedback", "confirmation"].includes(s.context?.cadence ?? "") ? "pull_request_ready" : "pull_request_unknown" :
+      s.run.event === "push" && s.run.branch === "main" ? "push_main" : s.run.event,
+    wait: j.execution === "observed" ? seconds(j.createdAt, j.startedAt) : null,
+  })));
+  const aggregate = (items: typeof rows) => {
+    const values = items.flatMap(r => r.wait === null ? [] : [r.wait]);
+    return { ...stats(values), max: values.length ? values.reduce((max, n) => Math.max(max, n), 0) : null,
+      unknown: items.length - values.length, overFiveMinutes: percentage(values.filter(n => n > 300).length, values.length) };
+  };
+  const group = (key: "workflow" | "category" | "event") => Object.fromEntries(
+    [...new Set(rows.map(r => r[key]))].sort().map(value => [value, aggregate(rows.filter(r => r[key] === value))]));
+  return { overall: aggregate(rows), byWorkflow: group("workflow"), byCategory: group("category"), byEvent: group("event") };
 }
 
 export function summarize(input: TimingSnapshot[]) {
@@ -257,7 +277,7 @@ export function summarize(input: TimingSnapshot[]) {
   const baselineStats = stats(baseline.map(executionSeconds));
   const baselineElapsed = stats(baseline.flatMap(s => { const n = seconds(s.run.startedAt, end(s)); return n === null ? [] : [n]; }));
   const paired = prs.filter(pr => pr.pairedInWindow);
-  return { version: 1, coverage: { runAttempts: snapshots.length, runs: new Set(snapshots.map(s => `${s.repository}/${s.run.id}`)).size,
+  return { version: 2, runnerSlotWait: runnerSlotWait(snapshots), coverage: { runAttempts: snapshots.length, runs: new Set(snapshots.map(s => `${s.repository}/${s.run.id}`)).size,
       prs: prs.length, pairedPRs: paired.length, incompleteAttempts: snapshots.filter(s => s.problems.length || s.run.status !== "completed").length,
       jobs: snapshots.reduce((n, s) => n + s.jobs.length, 0),
       unobservedJobs: snapshots.flatMap(s => s.jobs).filter(j => j.execution === "unobserved").length,
@@ -312,6 +332,14 @@ export function markdown(report: ReturnType<typeof summarize>): string {
     `Observed runner minutes: ${minutes(report.observedRunnerSeconds)}; cancelled attempts: ${minutes(report.cancelledAttemptRunnerSeconds)}; failed attempts: ${minutes(report.failedAttemptRunnerSeconds)}.`, "",
     "| Event / category | Jobs | Mean min | Median min | p90 min |", "| --- | ---: | ---: | ---: | ---: |",
     ...Object.entries(report.categories).map(([key, value]) => `| ${key.replaceAll("|", "\\|")} | ${value.n} | ${minutes(value.mean)} | ${minutes(value.median)} | ${minutes(value.p90)} |`), "",
+    "## Runner-slot wait", "", "Creation to observed execution start; absent, invalid and unexecuted intervals are unknown. Shares use known jobs only.", "",
+    "| Cohort | Known jobs | Unknown jobs | Median min | p90 min | Max min | >5 min / known | Share % |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...[["overall", report.runnerSlotWait.overall] as const,
+      ...Object.entries(report.runnerSlotWait.byWorkflow).map(([k, v]) => [`workflow/${k}`, v] as const),
+      ...Object.entries(report.runnerSlotWait.byCategory).map(([k, v]) => [`category/${k}`, v] as const),
+      ...Object.entries(report.runnerSlotWait.byEvent).map(([k, v]) => [`event/${k}`, v] as const)].map(([key, v]) =>
+      `| ${key.replaceAll("|", "\\|")} | ${v.n} | ${v.unknown} | ${minutes(v.median)} | ${minutes(v.p90)} | ${minutes(v.max)} | ${v.overFiveMinutes.numerator}/${v.overFiveMinutes.denominator} | ${v.overFiveMinutes.percent ?? "unknown"} |`), "",
     "## Approximate full-proof comparison", "", report.baseline.label + ".",
     "The two-run reference assumes a clean first pass; every-attempt costing is the opposite extreme. Use the explicit throughput scenario for a failure/rework assumption.",
     `Successful exhaustive samples: ${report.baseline.samples.length}; median runner minutes per full run: ${minutes(report.baseline.runnerSeconds.median)}.`,
