@@ -5,6 +5,7 @@
  * and leaves anything else staged where it was.
  */
 
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,6 +21,8 @@ import {
   serializePlan,
   type GroupedFile,
 } from "../src/lib/sync/commit.js";
+
+withoutSigningForEach();
 
 const TODAY = "2026-09-28";
 const dirs: string[] = [];

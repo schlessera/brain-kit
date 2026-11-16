@@ -1,10 +1,13 @@
 /** Rebase-first pulls against real clones; conflicts must return to merge semantics. */
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { brainConfigSchema } from "../src/lib/config";
 import { runCli } from "./cli-harness";
 import { brainWithRemote, cleanupFixtures, commitAndPush, git, gitMayFail, otherClone, write, type Brain } from "./sync-fixture";
+
+withoutSigningForEach();
 
 afterEach(cleanupFixtures);
 const CACHE = ".brain-cache/contexts.jsonl";
