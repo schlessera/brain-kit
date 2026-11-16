@@ -398,6 +398,50 @@ exactly that model into a web executor's egress route (`WebModelEgress`:
 everything the executor is told, and never holds a credential. A backend that
 does not set `model` behaves as before.
 
+## UI-kit image editors and markup (additive, 0.45.0, #3983)
+
+`@schlessera/brain-ui-kit` exports the shared image-editor shell and the
+markup editor's parts. `request_image_markup` integration (#3975) consumes
+them; no tool, wire or mask contract changes here.
+
+- `ImageEditorFrame`: the fullscreen dark editor shell. Props `open`, `title`,
+  optional `subtitle` (plain text), `subtitlePrefix` and `subtitleMode`
+  (`"truncate"`, one line, or `"expand"`, two lines that expand with
+  `aria-expanded`), `closeLabel`, `onClose(reason)`, `error`, `toolbar`,
+  `children` (the stage), `initialFocus`, `stageRef`, `stagePadding` and
+  `data-*`. The mask editor in `@schlessera/brain-ui-react` now renders inside
+  it with unchanged visible behaviour.
+- `MarkupEditor`: the composed editor. Props `open`, `src`, `imagePath`,
+  optional `instruction`, `size` (the source's displayed `{ width, height }`
+  after EXIF orientation, which the layer is exported at), `maxBytes`
+  (default `MARKUP_MAX_BYTES`, 52,428,800), `onSubmit(layer)`, `onDismiss()`,
+  and `initialMarks`, `initialView`, `initialTool`, `exportLayer` and `layout`
+  for stories and tests. "Send markup" needs a committed mark; dismissal with
+  marks asks first; an encoded layer over `maxBytes` keeps the editor open
+  with `overCapMessage`. `MARKUP_EDITOR_TITLE` and `MARKUP_CLOSED` ("The user
+  closed the markup editor") are the strings the integration matches.
+- Parts: `MarkupCanvas` (controlled marks, own zoom/pan, `onCommit`,
+  `onNoteRequest`, `noteField`, `focusTarget`), `MarkupToolbar` (with
+  `MARKUP_TOOLS` and `MARKUP_EMPTY_HINT`), `MarkupNoteField`,
+  `MarkupResultCard` (`imagePath`, `markupPath`, `width`, `height`, `bytes`,
+  `marks`, `notes`, optional `markupSrc` and `matchesSource`; with
+  `markupReceiptRows`, `MARKUP_NOT_RENDERED`, `MARKUP_RECEIPT_NOTES`) and
+  `MarkupFallback` (`imagePath?`, `reason`).
+- The model: types `Mark` (`PenMark`, `ArrowMark`, `EllipseMark`, `TextMark`,
+  all in image coordinates), `MarkupTool`, `MarkupColor`, `MarkupWidth`,
+  `MarkupPoint`, `MarkupSize`, `MarkupCounts` and `MarkupExport`
+  (`{ png, bytes, width, height, counts, notes }`); constants
+  `MARKUP_COLORS`, `MARKUP_WIDTHS`, `MARKUP_MAX_BYTES`, `MARKUP_MAX_ZOOM`,
+  `MARKUP_NOTE_MAX` and `MARKUP_SECOND_TOUCH_MS`; and `exportMarkupPng(marks,
+  size)`, `countMarks`, `markupNotes`, `describeCounts`, `markupSummary`,
+  `markupBytesLabel` and `overCapMessage`. `counts` uses the result keys
+  `pen`, `arrow`, `ellipse` and `text`.
+
+The semantic `IconName` gains `pen`, `arrow`, `ellipse`, `text`, `undo`,
+`redo`, `erase`, `zoom-in`, `zoom-out` and `fit` for the markup toolbar and
+zoom controls. No existing key, glyph or component changes. This ships in a
+minor.
+
 ## UI-kit enlarge icon (additive #3397)
 
 The semantic `IconName` gains `enlarge`: open content in its dedicated

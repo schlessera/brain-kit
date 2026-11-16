@@ -39,6 +39,13 @@ Acts that focus background content belong in that callback. `CommandPalette` no
 longer carries dialog semantics; wrap it in `Overlay`. Load the mandatory kit stylesheet for geometry,
 scrims, scroll lock and motion. `z` and `LAYERS` name the six document layers.
 
+`ImageEditorFrame` is the shared fullscreen shell of the image editors.
+`MarkupEditor` composes it with `MarkupCanvas`, `MarkupToolbar` and
+`MarkupNoteField`: marks are stored in image coordinates, exported by
+`exportMarkupPng` as a transparent PNG at the source's displayed size, and
+checked against `MARKUP_MAX_BYTES` (52,428,800) before `onSubmit`.
+`MarkupResultCard` and `MarkupFallback` state the result afterwards.
+
 Printed keyboard hints follow `(any-pointer: fine)` in the mandatory stylesheet,
 including command-picker fallbacks, the rail palette cap, composer instructions
 and answer-field Enter glyph. Touch-only All commands keeps its labelled icon
