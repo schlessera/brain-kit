@@ -173,6 +173,9 @@ write one, and which kind of test proves which claim:
   affected fast proof (types, packaging, unit/integration); heavy runtime, browser, layout,
   capture and endurance proof runs on the squash's own main run
   ([hybrid ruling](docs/decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
+  A PR touching none of `packages/{ui-react,ui-kit,ui-server,core}/` may take
+  the [fast lane](docs/decisions/ci-utility.md#fast-lane-outside-the-core-packages)
+  instead of ready confirmation.
   Subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and

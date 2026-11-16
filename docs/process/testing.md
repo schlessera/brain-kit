@@ -518,7 +518,11 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   native host, pinned browser, layout, capture and endurance proof runs on
   every main squash
   ([hybrid ruling](../decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
-  Agents keep focused local behavioral proof.
+  Agents keep focused local behavioral proof. A PR that touches none of
+  `packages/{ui-react,ui-kit,ui-server,core}/` may instead take the
+  [fast lane](../decisions/ci-utility.md#fast-lane-outside-the-core-packages):
+  it skips ready-candidate confirmation and is proved by its `check:pr`
+  receipt and its squash's main run.
 - Run `bun run check:pr --base origin/main` before opening or marking ready,
   and paste the receipt block it prints into the PR body. Record a check you
   cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`

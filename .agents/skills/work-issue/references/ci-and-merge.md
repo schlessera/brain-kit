@@ -315,6 +315,32 @@ and resume when `main-status` reports green. A fix or targeted revert PR for
 the incident is declared with `bun scripts/integrate.ts declare-fix <pr>` and
 then uses this same reservation and merge procedure.
 
+## Fast lane
+
+A PR whose diff touches nothing under `packages/ui-react/`, `packages/ui-kit/`,
+`packages/ui-server/` or `packages/core/` may skip ready-candidate confirmation
+([ruling](../../../../docs/decisions/ci-utility.md#fast-lane-outside-the-core-packages)).
+Check the paths against the PR's actual base, not your local branch:
+
+```sh
+gh pr diff <pr> --name-only | grep -E '^packages/(ui-react|ui-kit|ui-server|core)/' && echo "full lane"
+```
+
+If any path matches, use `integrate.ts confirm` as above. Otherwise:
+
+1. Paste the `check:pr` receipt and set the milestones, exactly as for any
+   other merge.
+2. Wait until the newest CI run on the exact head has no failed or cancelled
+   job apart from the feedback `proof` job, and until main is not red.
+3. Take the lease, so the merge cannot race another session's confirmation:
+   `bun scripts/integrate.ts acquire <pr>` (it prints a lease id and a holder
+   token). If another session holds it, wait. Never merge past a live lease.
+4. `gh pr ready <pr>`, then
+   `gh pr merge <pr> --squash --match-head-commit <verified-head>`, then
+   `bun scripts/integrate.ts release <lease-id> --token <holder-token>`.
+5. Verify the merge as in **Merge and verify** below, and watch the squash's
+   main run until it is green. A red run is an ordinary red-main incident.
+
 ## Merge and verify
 
 Before every merge, assign the PR and each completed/advanced issue a release
@@ -362,7 +388,8 @@ The shared command independently verifies selected jobs, actual checkout
 identities, milestones and final live ownership before its matching-head
 squash. A successful squash returns exit 2: reconcile automatic main jobs and
 checkout evidence separately even if a workflow summary is already green.
-Direct `gh pr merge` is not the cooperative merge procedure. Preserve branches
+Direct `gh pr merge` is not the cooperative merge procedure, except under a
+held lease on the [fast lane](#fast-lane). Preserve branches
 while a worktree/worker needs them. Follow a
 required merge queue's accepted strategy and monitor queue checks and
 **actual merge**: enqueued does not mean merged. For a queue, inspect the
