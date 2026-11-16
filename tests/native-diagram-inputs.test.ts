@@ -101,7 +101,7 @@ test("an install under umask 0077 is refused with the umask 022 recovery, and th
  const refused=restrictive.diagnostic();assert(refused,"RESTRICTIVE_UMASK_REFUSAL_MUST_REPORT_DIAGNOSTIC");
  expect(refused.status).toBe("installation-mismatch");expect(refused.actual?.source).toBe(qualifiedSource);
  expect(refused.recovery,"INSTALLATION_REFUSAL_NAMES_THE_REQUIRED_UMASK").toContain("umask 022");
- expect(refused.recovery,"INSTALLATION_REFUSAL_NAMES_THE_INSTALL_COMMAND").toContain("bun install --force --frozen-lockfile --backend=copyfile --cache-dir");
+ expect(refused.recovery,"INSTALLATION_REFUSAL_NAMES_THE_INSTALL_COMMAND").toContain("sh scripts/prepare-diagnostic-install.sh");
  expect(JSON.stringify(refused)).not.toContain(restrictive.root);
  reference.bind();const expected=reference.diagnostic();assert(expected?.actual?.installation,"REFERENCE_INSTALL_MUST_REPORT_IDENTITY");
  // Same packages, files and bytes: only the modes differ.

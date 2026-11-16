@@ -4,10 +4,10 @@ import {createPiSchemaReplay} from "../scripts/pi-schema-replay.ts";
 import { mkdtempSync, cpSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { measurementSchema, measurementForm, nativeCredential, replaceExactly, PI_SCHEMA_ARMS, PI_SCHEMA_PROMPT, measurementFixtureGuard, measurementHostedPrompt, measurementPreparedPrompt, adoptMeasurementPreparedPrompt, measurementPromptReceipt } from "../scripts/pi-schema-measurement.ts";
+import { measurementSchema, measurementForm, nativeCredential, replaceExactly, PI_SCHEMA_ARMS, PI_SCHEMA_PROMPT, measurementToolSafety, measurementHostedPrompt, measurementPreparedPrompt, adoptMeasurementPreparedPrompt, measurementPromptReceipt } from "../scripts/pi-schema-measurement.ts";
 import { SCHEMA_ARMS } from "../scripts/show-block-schema-forms.ts";
 import { showBlockInputSchema } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
-import { toolInputJsonSchema, SHOW_BLOCK_DESCRIPTION } from "@schlessera/brain-ui-sdk/server";
+import { toolInputJsonSchema, SHOW_BLOCK_DESCRIPTION, type PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { validatePiSchemaRequest, validateTerminalUsage, observeCodexBilling } from "../scripts/pi-schema-capture.ts";
 import { acceptMeasurementFiles } from "../scripts/pi-schema-worker-receipts.ts";
 
@@ -97,19 +97,22 @@ test("prepared host receipt preserves the reviewed original and rejects changed 
   }
 });
 
-test("actual inline tool admission refuses shell/writes and outside symlink reads", async () => {
+test("actual tool-safety admission refuses shell/writes and outside symlink reads", async () => {
   const scratch=mkdtempSync(join(tmpdir(),"pi-schema-guard-"));
   try {
     writeFileSync(join(scratch,"inside.md"),"Odysseus");
     symlinkSync("/etc/hostname",join(scratch,"outside.md"));
-    let handler:any;const extension=measurementFixtureGuard(scratch);
-    if (typeof extension === "function") throw new Error("Named inline measurement extension expected.");
-    extension.factory({on(_name:string,fn:any){handler=fn;}} as any);
-    expect(await handler({toolName:"show_block",input:{}})).toBeUndefined();
-    expect(await handler({toolName:"read_file",input:{path:"inside.md"}})).toBeUndefined();
-    expect((await handler({toolName:"bash",input:{command:"printf unsafe"}})).block).toBe(true);
-    expect((await handler({toolName:"write_file",input:{path:"inside.md"}})).block).toBe(true);
-    expect((await handler({toolName:"read_file",input:{path:"outside.md"}})).block).toBe(true);
+    const results:string[]=[];
+    const host={async permission(_name:string,_id:string,_input:Record<string,unknown>):Promise<PermissionDecision>{return {behavior:"allow"};},async result(_name:string,id:string){results.push(id);},stop(){results.push("stopped");}};
+    const safety=measurementToolSafety(host,scratch);
+    const handler=async(toolName:string,input:Record<string,unknown>)=>safety.permission(toolName,toolName,input);
+    expect((await handler("show_block",{})).behavior).toBe("allow");
+    expect((await handler("read_file",{path:"inside.md"})).behavior).toBe("allow");
+    expect((await handler("bash",{command:"printf unsafe"})).behavior).toBe("deny");
+    expect((await handler("write_file",{path:"inside.md"})).behavior).toBe("deny");
+    expect((await handler("read_file",{path:"outside.md"})).behavior).toBe("deny");
+    expect(results,"each denied call records its reason as the host result").toEqual(["bash","write_file","read_file"]);
+    safety.stop();expect(results.at(-1)).toBe("stopped");
     expect(readFileSync(join(scratch,"inside.md"),"utf8")).toBe("Odysseus");
   } finally {rmSync(scratch,{recursive:true,force:true});}
 });

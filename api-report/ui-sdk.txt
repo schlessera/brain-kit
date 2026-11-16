@@ -805,9 +805,18 @@ export "./client" (./src/client/index.ts)
   GITHUB_API_ORIGIN
   GITHUB_AUTHOR_ASSOCIATIONS
   GITHUB_AUTHOR_SCHEMA
+  GITHUB_CHANGED_FILE_SCHEMA
+  GITHUB_CHANGED_FILE_STATUSES
   GITHUB_CHECKS_SCHEMA
+  GITHUB_CHECK_CONCLUSIONS
+  GITHUB_CHECK_RUN_SCHEMA
   GITHUB_COMMENT_SCHEMA
   GITHUB_COMMIT_SCHEMA
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA
+  GITHUB_DETAIL_ERROR_SCHEMA
+  GITHUB_DETAIL_PAGE_SCHEMA
+  GITHUB_DETAIL_PAGE_SIZE
+  GITHUB_DETAIL_PARTS
   GITHUB_ERROR_CODES
   GITHUB_ERROR_SCHEMA
   GITHUB_ISSUE_COMMENT_CONTRACT
@@ -831,6 +840,7 @@ export "./client" (./src/client/index.ts)
   GITHUB_READ_TOOL_NAMES
   GITHUB_REPO_PATTERN
   GITHUB_RESULT_SCHEMAS
+  GITHUB_REVIEW_COMMENT_SCHEMA
   GITHUB_REVIEW_DECISION_SCHEMA
   GITHUB_REVIEW_SCHEMA
   GITHUB_REVIEW_STATES
@@ -845,9 +855,14 @@ export "./client" (./src/client/index.ts)
   type GetCurrentLocationInput
   type GetSearchContentInput
   type GithubAuthor
+  type GithubChangedFile
+  type GithubCheckRun
   type GithubChecks
   type GithubComment
   type GithubCommit
+  type GithubDetailError
+  type GithubDetailPage
+  type GithubDetailPart
   type GithubError
   type GithubErrorCode
   type GithubIssue
@@ -865,6 +880,7 @@ export "./client" (./src/client/index.ts)
   type GithubPullRequest
   type GithubReadToolName
   type GithubReview
+  type GithubReviewComment
   type GithubReviewDecision
   type GithubSearchItem
   type GithubToolCall
@@ -1296,6 +1312,7 @@ export "./client" (./src/client/index.ts)
   githubSearchUrl
   isBillingMode
   isFailureOutcome
+  isGithubDetailPart
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
@@ -1373,6 +1390,7 @@ export "./internal" (./src/internal.ts)
   type NativePoolRecord
   type NativePoolState
   type NativePoolStatus
+  type NativeTurnTree
   ORIENTATION_MAX_BYTES
   OUTWARD_VOICE_REFUSAL
   type ObservedWorkerFile
@@ -1500,6 +1518,7 @@ export "./internal" (./src/internal.ts)
   mountPointsUnder
   nativeFileVersion
   nativeObservationIdentity
+  nativeTurnTreeManager
   nativeWorkerStartupInput
   observeClassification
   observeOutwardPlan
@@ -2660,9 +2679,18 @@ export "./server" (./src/server/index.ts)
   GITHUB_API_ORIGIN
   GITHUB_AUTHOR_ASSOCIATIONS
   GITHUB_AUTHOR_SCHEMA
+  GITHUB_CHANGED_FILE_SCHEMA
+  GITHUB_CHANGED_FILE_STATUSES
   GITHUB_CHECKS_SCHEMA
+  GITHUB_CHECK_CONCLUSIONS
+  GITHUB_CHECK_RUN_SCHEMA
   GITHUB_COMMENT_SCHEMA
   GITHUB_COMMIT_SCHEMA
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA
+  GITHUB_DETAIL_ERROR_SCHEMA
+  GITHUB_DETAIL_PAGE_SCHEMA
+  GITHUB_DETAIL_PAGE_SIZE
+  GITHUB_DETAIL_PARTS
   GITHUB_ERROR_CODES
   GITHUB_ERROR_SCHEMA
   GITHUB_ISSUE_COMMENT_CONTRACT
@@ -2686,6 +2714,7 @@ export "./server" (./src/server/index.ts)
   GITHUB_READ_TOOL_NAMES
   GITHUB_REPO_PATTERN
   GITHUB_RESULT_SCHEMAS
+  GITHUB_REVIEW_COMMENT_SCHEMA
   GITHUB_REVIEW_DECISION_SCHEMA
   GITHUB_REVIEW_SCHEMA
   GITHUB_REVIEW_STATES
@@ -2702,9 +2731,14 @@ export "./server" (./src/server/index.ts)
   type GetCurrentLocationInput
   type GetSearchContentInput
   type GithubAuthor
+  type GithubChangedFile
+  type GithubCheckRun
   type GithubChecks
   type GithubComment
   type GithubCommit
+  type GithubDetailError
+  type GithubDetailPage
+  type GithubDetailPart
   type GithubError
   type GithubErrorCode
   type GithubIssue
@@ -2722,6 +2756,7 @@ export "./server" (./src/server/index.ts)
   type GithubPullRequest
   type GithubReadToolName
   type GithubReview
+  type GithubReviewComment
   type GithubReviewDecision
   type GithubSearchItem
   type GithubToolCall
@@ -3234,6 +3269,7 @@ export "./server" (./src/server/index.ts)
   isBillingMode
   isCompletedAutonomousToolCall
   isFailureOutcome
+  isGithubDetailPart
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
@@ -3423,9 +3459,18 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   GITHUB_API_ORIGIN
   GITHUB_AUTHOR_ASSOCIATIONS
   GITHUB_AUTHOR_SCHEMA
+  GITHUB_CHANGED_FILE_SCHEMA
+  GITHUB_CHANGED_FILE_STATUSES
   GITHUB_CHECKS_SCHEMA
+  GITHUB_CHECK_CONCLUSIONS
+  GITHUB_CHECK_RUN_SCHEMA
   GITHUB_COMMENT_SCHEMA
   GITHUB_COMMIT_SCHEMA
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA
+  GITHUB_DETAIL_ERROR_SCHEMA
+  GITHUB_DETAIL_PAGE_SCHEMA
+  GITHUB_DETAIL_PAGE_SIZE
+  GITHUB_DETAIL_PARTS
   GITHUB_ERROR_CODES
   GITHUB_ERROR_SCHEMA
   GITHUB_ISSUE_COMMENT_CONTRACT
@@ -3449,6 +3494,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   GITHUB_READ_TOOL_NAMES
   GITHUB_REPO_PATTERN
   GITHUB_RESULT_SCHEMAS
+  GITHUB_REVIEW_COMMENT_SCHEMA
   GITHUB_REVIEW_DECISION_SCHEMA
   GITHUB_REVIEW_SCHEMA
   GITHUB_REVIEW_STATES
@@ -3461,9 +3507,14 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type GetCurrentLocationInput
   type GetSearchContentInput
   type GithubAuthor
+  type GithubChangedFile
+  type GithubCheckRun
   type GithubChecks
   type GithubComment
   type GithubCommit
+  type GithubDetailError
+  type GithubDetailPage
+  type GithubDetailPart
   type GithubError
   type GithubErrorCode
   type GithubIssue
@@ -3481,6 +3532,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type GithubPullRequest
   type GithubReadToolName
   type GithubReview
+  type GithubReviewComment
   type GithubReviewDecision
   type GithubSearchItem
   type GithubToolCall
@@ -3588,6 +3640,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   githubBoundedList
   githubDirectUrl
   githubSearchUrl
+  isGithubDetailPart
   isGithubRepositoryName
   isGithubSearchUrl
   isGithubToolName
@@ -8042,7 +8095,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -8113,6 +8166,25 @@ signatures (every public export and the types it is made of)
         is_bot: z.ZodBoolean;
         login: z.ZodNullable<z.ZodString>;
     }, z.core.$strict>;
+  GITHUB_CHANGED_FILE_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHANGED_FILE_SCHEMA: z.ZodObject<{
+        additions: z.ZodNumber;
+        changes: z.ZodNumber;
+        deletions: z.ZodNumber;
+        filename: z.ZodString;
+        previous_filename: z.ZodNullable<z.ZodString>;
+        status: z.ZodEnum<{
+            added: "added";
+            changed: "changed";
+            copied: "copied";
+            modified: "modified";
+            removed: "removed";
+            renamed: "renamed";
+            unchanged: "unchanged";
+        }>;
+    }, z.core.$strict>;
+  GITHUB_CHANGED_FILE_STATUSES (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHANGED_FILE_STATUSES: readonly ["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"];
   GITHUB_CHECKS_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
     const GITHUB_CHECKS_SCHEMA: z.ZodNullable<z.ZodObject<{
         failed: z.ZodNumber;
@@ -8120,6 +8192,37 @@ signatures (every public export and the types it is made of)
         running: z.ZodNumber;
         skipped: z.ZodNumber;
     }, z.core.$strict>>;
+  GITHUB_CHECK_CONCLUSIONS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHECK_CONCLUSIONS: readonly ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale", "startup_failure", "error", "pending"];
+  GITHUB_CHECK_RUN_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHECK_RUN_SCHEMA: z.ZodObject<{
+        completed_at: z.ZodNullable<z.ZodISODateTime>;
+        conclusion: z.ZodNullable<z.ZodEnum<{
+            action_required: "action_required";
+            cancelled: "cancelled";
+            error: "error";
+            failure: "failure";
+            neutral: "neutral";
+            pending: "pending";
+            skipped: "skipped";
+            stale: "stale";
+            startup_failure: "startup_failure";
+            success: "success";
+            timed_out: "timed_out";
+        }>>;
+        name: z.ZodString;
+        source: z.ZodEnum<{
+            check_run: "check_run";
+            status: "status";
+        }>;
+        started_at: z.ZodNullable<z.ZodISODateTime>;
+        state: z.ZodEnum<{
+            failed: "failed";
+            passed: "passed";
+            running: "running";
+            skipped: "skipped";
+        }>;
+    }, z.core.$strict>;
   GITHUB_COMMENT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
     const GITHUB_COMMENT_SCHEMA: z.ZodObject<{
         author: z.ZodObject<{
@@ -8157,6 +8260,229 @@ signatures (every public export and the types it is made of)
         message_truncated: z.ZodBoolean;
         sha: z.ZodString;
     }, z.core.$strict>;
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA: z.ZodObject<{
+        error: z.ZodObject<{
+            code: z.ZodEnum<{
+                approval_declined: "approval_declined";
+                forbidden: "forbidden";
+                invalid_input: "invalid_input";
+                not_found: "not_found";
+                policy_denied: "policy_denied";
+                rate_limited: "rate_limited";
+                unavailable: "unavailable";
+                upstream_error: "upstream_error";
+            }>;
+            message: z.ZodString;
+            reason: z.ZodNullable<z.ZodString>;
+            reset_at: z.ZodNullable<z.ZodISODateTime>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
+  GITHUB_DETAIL_ERROR_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_ERROR_SCHEMA: z.ZodObject<{
+        code: z.ZodEnum<{
+            approval_declined: "approval_declined";
+            forbidden: "forbidden";
+            invalid_input: "invalid_input";
+            not_found: "not_found";
+            policy_denied: "policy_denied";
+            rate_limited: "rate_limited";
+            unavailable: "unavailable";
+            upstream_error: "upstream_error";
+        }>;
+        message: z.ZodString;
+        reason: z.ZodNullable<z.ZodString>;
+        reset_at: z.ZodNullable<z.ZodISODateTime>;
+    }, z.core.$strict>;
+  GITHUB_DETAIL_PAGE_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_PAGE_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodObject<{
+                author_association: z.ZodNullable<z.ZodEnum<{
+                    COLLABORATOR: "COLLABORATOR";
+                    CONTRIBUTOR: "CONTRIBUTOR";
+                    FIRST_TIMER: "FIRST_TIMER";
+                    FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                    MANNEQUIN: "MANNEQUIN";
+                    MEMBER: "MEMBER";
+                    NONE: "NONE";
+                    OWNER: "OWNER";
+                }>>;
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            body: z.ZodNullable<z.ZodString>;
+            body_length: z.ZodNumber;
+            body_truncated: z.ZodBoolean;
+            created_at: z.ZodISODateTime;
+            html_url: z.ZodNullable<z.ZodURL>;
+            id: z.ZodNumber;
+            updated_at: z.ZodISODateTime;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"comments">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodObject<{
+                author_association: z.ZodNullable<z.ZodEnum<{
+                    COLLABORATOR: "COLLABORATOR";
+                    CONTRIBUTOR: "CONTRIBUTOR";
+                    FIRST_TIMER: "FIRST_TIMER";
+                    FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                    MANNEQUIN: "MANNEQUIN";
+                    MEMBER: "MEMBER";
+                    NONE: "NONE";
+                    OWNER: "OWNER";
+                }>>;
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            body: z.ZodNullable<z.ZodString>;
+            body_length: z.ZodNumber;
+            body_truncated: z.ZodBoolean;
+            html_url: z.ZodNullable<z.ZodURL>;
+            id: z.ZodNumber;
+            state: z.ZodEnum<{
+                approved: "approved";
+                changes_requested: "changes_requested";
+                commented: "commented";
+                dismissed: "dismissed";
+                pending: "pending";
+            }>;
+            submitted_at: z.ZodNullable<z.ZodISODateTime>;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"reviews">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodObject<{
+                author_association: z.ZodNullable<z.ZodEnum<{
+                    COLLABORATOR: "COLLABORATOR";
+                    CONTRIBUTOR: "CONTRIBUTOR";
+                    FIRST_TIMER: "FIRST_TIMER";
+                    FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                    MANNEQUIN: "MANNEQUIN";
+                    MEMBER: "MEMBER";
+                    NONE: "NONE";
+                    OWNER: "OWNER";
+                }>>;
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            body: z.ZodNullable<z.ZodString>;
+            body_length: z.ZodNumber;
+            body_truncated: z.ZodBoolean;
+            created_at: z.ZodISODateTime;
+            html_url: z.ZodNullable<z.ZodURL>;
+            id: z.ZodNumber;
+            in_reply_to_id: z.ZodNullable<z.ZodNumber>;
+            line: z.ZodNullable<z.ZodNumber>;
+            path: z.ZodString;
+            review_id: z.ZodNullable<z.ZodNumber>;
+            updated_at: z.ZodISODateTime;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"review-comments">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodNullable<z.ZodObject<{
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            author_name: z.ZodNullable<z.ZodString>;
+            authored_at: z.ZodNullable<z.ZodISODateTime>;
+            html_url: z.ZodNullable<z.ZodURL>;
+            message: z.ZodString;
+            message_truncated: z.ZodBoolean;
+            sha: z.ZodString;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"commits">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            additions: z.ZodNumber;
+            changes: z.ZodNumber;
+            deletions: z.ZodNumber;
+            filename: z.ZodString;
+            previous_filename: z.ZodNullable<z.ZodString>;
+            status: z.ZodEnum<{
+                added: "added";
+                changed: "changed";
+                copied: "copied";
+                modified: "modified";
+                removed: "removed";
+                renamed: "renamed";
+                unchanged: "unchanged";
+            }>;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"files">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            completed_at: z.ZodNullable<z.ZodISODateTime>;
+            conclusion: z.ZodNullable<z.ZodEnum<{
+                action_required: "action_required";
+                cancelled: "cancelled";
+                error: "error";
+                failure: "failure";
+                neutral: "neutral";
+                pending: "pending";
+                skipped: "skipped";
+                stale: "stale";
+                startup_failure: "startup_failure";
+                success: "success";
+                timed_out: "timed_out";
+            }>>;
+            name: z.ZodString;
+            source: z.ZodEnum<{
+                check_run: "check_run";
+                status: "status";
+            }>;
+            started_at: z.ZodNullable<z.ZodISODateTime>;
+            state: z.ZodEnum<{
+                failed: "failed";
+                passed: "passed";
+                running: "running";
+                skipped: "skipped";
+            }>;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"checks">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>], "part">;
+  GITHUB_DETAIL_PAGE_SIZE (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_PAGE_SIZE: 30;
+  GITHUB_DETAIL_PARTS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_PARTS: readonly ["comments", "reviews", "review-comments", "commits", "files", "checks"];
   GITHUB_ERROR_CODES (packages/ui-sdk/src/tool-contracts/github.ts)
     const GITHUB_ERROR_CODES: readonly ["invalid_input", "unavailable", "not_found", "forbidden", "rate_limited", "upstream_error", "policy_denied", "approval_declined"];
   GITHUB_ERROR_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
@@ -9261,6 +9587,34 @@ signatures (every public export and the types it is made of)
             }>;
         }, z.core.$strict>]>;
     };
+  GITHUB_REVIEW_COMMENT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_REVIEW_COMMENT_SCHEMA: z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        created_at: z.ZodISODateTime;
+        html_url: z.ZodNullable<z.ZodURL>;
+        id: z.ZodNumber;
+        in_reply_to_id: z.ZodNullable<z.ZodNumber>;
+        line: z.ZodNullable<z.ZodNumber>;
+        path: z.ZodString;
+        review_id: z.ZodNullable<z.ZodNumber>;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>;
   GITHUB_REVIEW_DECISION_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
     const GITHUB_REVIEW_DECISION_SCHEMA: z.ZodObject<{
         reviewer: z.ZodObject<{
@@ -9425,12 +9779,22 @@ signatures (every public export and the types it is made of)
     export type GetSearchContentInput = z.infer<typeof GET_SEARCH_CONTENT_INPUT_SCHEMA>;
   GithubAuthor (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubAuthor = z.infer<typeof GITHUB_AUTHOR_SCHEMA>;
+  GithubChangedFile (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubChangedFile = z.infer<typeof GITHUB_CHANGED_FILE_SCHEMA>;
+  GithubCheckRun (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubCheckRun = z.infer<typeof GITHUB_CHECK_RUN_SCHEMA>;
   GithubChecks (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubChecks = z.infer<typeof GITHUB_CHECKS_SCHEMA>;
   GithubComment (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubComment = z.infer<typeof GITHUB_COMMENT_SCHEMA>;
   GithubCommit (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubCommit = z.infer<typeof GITHUB_COMMIT_SCHEMA>;
+  GithubDetailError (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubDetailError = z.infer<typeof GITHUB_DETAIL_ERROR_SCHEMA>;
+  GithubDetailPage (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubDetailPage = z.infer<typeof GITHUB_DETAIL_PAGE_SCHEMA>;
+  GithubDetailPart (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubDetailPart = (typeof GITHUB_DETAIL_PARTS)[number];
   GithubError (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubError = z.infer<typeof GITHUB_ERROR_SCHEMA>;
   GithubErrorCode (packages/ui-sdk/src/tool-contracts/github.ts)
@@ -9477,6 +9841,8 @@ signatures (every public export and the types it is made of)
     export type GithubReadToolName = typeof GITHUB_TOOL_NAMES.read | typeof GITHUB_TOOL_NAMES.search;
   GithubReview (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubReview = z.infer<typeof GITHUB_REVIEW_SCHEMA>;
+  GithubReviewComment (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubReviewComment = z.infer<typeof GITHUB_REVIEW_COMMENT_SCHEMA>;
   GithubReviewDecision (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubReviewDecision = z.infer<typeof GITHUB_REVIEW_DECISION_SCHEMA>;
   GithubSearchItem (packages/ui-sdk/src/tool-contracts/github.ts)
@@ -19866,6 +20232,8 @@ signatures (every public export and the types it is made of)
     export function isCompletedAutonomousToolCall(mode: AutonomousTurnOptions | undefined, toolName: string, input: unknown): boolean;
   isFailureOutcome (packages/ui-sdk/src/protocol.ts)
     export function isFailureOutcome(outcome: ActivitySpanOutcome | string | null | undefined): boolean;
+  isGithubDetailPart (packages/ui-sdk/src/tool-contracts/github.ts)
+    const isGithubDetailPart: (value: string) => value is GithubDetailPart;
   isGithubRepositoryName (packages/ui-sdk/src/tool-contracts/github.ts)
     export function isGithubRepositoryName(owner: string, repo: string): boolean;
   isGithubSearchUrl (packages/ui-sdk/src/tool-contracts/github.ts)

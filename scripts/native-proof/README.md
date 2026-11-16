@@ -32,7 +32,11 @@ barrier is timed at the bridge, and the copy and seed of the turn's data tree
 at admission, with the host load before and after, in `apply-timing.json`. The
 run fails unless both medians are at most 300 ms, the in-worker search sees all
 20 edited notes, Claude's MCP server reads the data tree and pi's reader and
-shell see the edits. It is a measurement, not part of the default
+shell see the edits. Each mounted tree's Btrfs allocation (`btrfs filesystem
+du`: total, exclusive and shared bytes) is recorded once seeded and again when
+the turn closes it (#2911). The run fails unless every seeded tree's exclusive
+bytes are below a tenth of its total, the proof that it shares the
+checkpoint's extents. It is a measurement, not part of the default
 qualification.
 
 `--observation-timing` measures the turn journal's per-call cost (#2834). For
@@ -80,7 +84,10 @@ for the short helper's entry into the authenticated manager stage mount
 namespace; dropping it makes the actual managed-stage launch refuse. The same
 cell reuses the owned 4 GiB Btrfs fixture for sealed stage authority and private
 checkpoint capture, and runs the fixed reader's descriptor/bounds/cancellation
-controls. Its outer container permits the
+controls. Its strict provider-index turn places its data tree on the managed
+volume (#2911): the separate-UID worker reads its own tree, gets `EROFS`
+writing it, and can neither read a peer turn's tree nor list the manager's
+`trees/` area, and the manager has removed the tree once the turn ends. Its outer container permits the
 fixture helper's UID transition; the actual worker must still prove
 `NoNewPrivs=1` and zero effective capabilities. The other native cells retain
 their existing outer `no-new-privileges` setting. No helper is installed on the

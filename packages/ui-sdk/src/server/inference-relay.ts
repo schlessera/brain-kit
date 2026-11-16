@@ -50,6 +50,8 @@ export interface InferenceRelayEvent {
   outcome: "forwarded" | "refused";
   status: number;
   reason?: string;
+  /** Host-only admission cause; the HTTP body remains unchanged. */
+  denialReason?: string;
 }
 
 export interface InferenceRelay {
@@ -92,8 +94,8 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   const separateIdentity = Boolean(workerIdentityHelper());
   chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   const socketPath = join(dir, "relay.sock");
-  const refuse = (method: string, path: string, status: number, reason: string): Response => {
-    options.observe?.({ method, path, outcome: "refused", status, reason });
+  const refuse = (method: string, path: string, status: number, reason: string, denialReason?: string): Response => {
+    options.observe?.({ method, path, outcome: "refused", status, reason, ...(denialReason ? { denialReason } : {}) });
     return Response.json({ type: "error", error: { type: "brain_inference_refused", message: reason } }, { status });
   };
   let server: ReturnType<typeof Bun.serve>;
@@ -118,12 +120,12 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
         const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
         const denied = (reason: string, status = 403): Response => {
           operation?.finish("denied", reason);
-          return refuse(request.method, path, status, reason === "max_bytes_per_turn" ? "Inference egress limit exceeded" : "Inference request refused");
+          return refuse(request.method, path, status, reason === "max_bytes_per_turn" ? "Inference egress limit exceeded" : "Inference request refused", operation?.reason?.() ?? reason);
         };
         if (operation && !await operation.admit()) {
           const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
           operation.finish(cancelled ? "cancelled" : "denied", "inference_admission_refused");
-          return refuse(request.method, path, cancelled ? 499 : 403, "Inference network admission refused");
+          return refuse(request.method, path, cancelled ? 499 : 403, "Inference network admission refused", operation.reason?.());
         }
         const declared = Number(request.headers.get("content-length") ?? "0");
         if (declared > MAX_INFERENCE_REQUEST_BYTES) return denied("inference_request_too_large", 413);
