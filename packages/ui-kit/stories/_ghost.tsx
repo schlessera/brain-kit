@@ -40,8 +40,9 @@ const opacity = (el: Element | null) => (el ? Number(getComputedStyle(el).opacit
  *   - the ghost's lines are the ready lines: the frame is the same height
  *     loading and ready, at 320px and at 720px, so nothing below it moves;
  *   - on arrival the outgoing ghost is laid over the content, not beside it;
- *   - each outgoing ghost fades over the approved 600ms and is gone within
- *     three rendered frames of its fade's end (#3417).
+ *   - each outgoing ghost fades over the approved 600ms, stays until that
+ *     fade has ended (#3425) and is gone within three rendered frames of its
+ *     end (#3417).
  */
 export async function playHandoff({
   canvasElement,
@@ -85,10 +86,9 @@ export async function playHandoff({
     // click resolves up to ~375ms after the frame commits its arriving layers
     // (sometimes after the whole fade), so a fixed 300ms wait from there landed
     // 370-770ms into the 600ms fade, after the ghost was gone. The harness
-    // controls' height only shifted that by luck. A later point in the fade is
-    // no safer: the ghost is removed on a timer started at the commit, and a
-    // saturated browser can start the CSS animation 300ms late, so the window
-    // both clocks agree on opens with the fade itself.
+    // controls' height only shifted that by luck. A saturated browser can
+    // start the CSS animation 300ms late, so the window opens with the fade
+    // itself, not with the commit.
     const sampledFrame = handoffs[0]!;
     // React commits the arrival inside the click, so it is observable now;
     // without an outgoing layer there is no handoff to wait for.
@@ -199,6 +199,7 @@ export async function playHandoff({
       await expect(clock.fadeMs, `${width}px: the outgoing ghost's fade, in animation time`).toBeLessThanOrEqual(FADE_MS);
       await expect(clock.framesAfterFade, `${width}px: frames rendered with the ghost after its fade ended`).toBeLessThanOrEqual(FRAMES_AFTER_FADE);
       await expect(clock.removed, `${width}px: the outgoing ghost was removed`).toBe(true);
+      await expect(clock.fadeEnded, `${width}px: the outgoing ghost's fade ended before its removal`).toBe(true);
     }
     await expect(canvasElement.querySelectorAll(".bk-ghost, .bk-ghost-out")).toHaveLength(0);
   } finally {

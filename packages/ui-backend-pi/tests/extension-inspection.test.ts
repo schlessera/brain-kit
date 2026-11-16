@@ -8,6 +8,8 @@ import { createBrainAccess } from "../src/brain-access";
 import { discoversPiExtensions, gateUnsupportedConfiguration, inspectPiExtensions, type PiExtensionInspection } from "../src/extension-inspection";
 import { backendModule } from "../src/module";
 import { createSessionResources } from "../src/session-resources";
+import { createSessionRuntime, loadedPiExtensions } from "../src/native-session-runtime";
+import { PiInputSafetyUnavailableError } from "../src/worker-protocol";
 import { toolLockFromKeyed } from "../src/tools";
 
 /**
@@ -176,4 +178,52 @@ test("in the curated default only a missing package or an inspection failure blo
   const unknown = gateUnsupportedConfiguration(backend, brain, false, async () => ({ ok: false, error: "settings unreadable" }));
   await expect(unknown.startTurn(turn().req), "PI_CURATED_UNKNOWN_REFUSES").rejects.toBeInstanceOf(BackendRequestError);
   expect(started.length, "PI_CURATED_UNKNOWN_NEVER_RUNS").toBe(1);
+});
+
+/**
+ * #2874: a discovering worker reports what its own loader loaded. An
+ * installed (user) or repo-local extension is counted, so the host proves
+ * nothing for it; only an empty directory set reports zero.
+ */
+test("a discovering worker's loader counts each installed or repo-local extension it loaded", async () => {
+  const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false };
+  const count = async (loadExtensions: boolean) => {
+    const resources = createSessionResources({
+      backend: { brainPath: brain }, brain: createBrainAccess(brain), lock: toolLockFromKeyed(createKeyedLock()),
+      allowedTools: new Set(), confirmPatterns: [], loadExtensions, managedToolSafety: true,
+    });
+    return loadedPiExtensions((await resources.build(resources.buildToolkit(caps), { caps })).loader);
+  };
+  expect(await count(false), "PI_CURATED_REPORTS_NONE").toBe(0);
+  rmSync(join(agent, "extensions/aeolus.ts"));
+  expect(await count(true), "PI_REPO_LOCAL_EXTENSION_COUNTED").toBe(1);
+  rmSync(join(brain, ".pi/extensions/loom.ts"));
+  writeFileSync(join(agent, "extensions/aeolus.ts"), "export default function () {}\n");
+  expect(await count(true), "PI_INSTALLED_EXTENSION_COUNTED").toBe(1);
+  rmSync(join(agent, "extensions/aeolus.ts"));
+  expect(await count(true), "PI_DISCOVERY_WITH_NONE_REPORTS_NONE").toBe(0);
+});
+
+test("a discovering worker's session reports zero only when it loaded no extension, and refuses one", async () => {
+  const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false };
+  const open = () => {
+    const backend = { brainPath: brain, loadExtensions: true };
+    const resources = createSessionResources({ backend, brain: createBrainAccess(brain), lock: toolLockFromKeyed(createKeyedLock()),
+      allowedTools: new Set(), confirmPatterns: [], loadExtensions: true, managedToolSafety: true });
+    const stopped: string[] = [];
+    const runtime = createSessionRuntime({ backend, sessionDir: join(root, "sessions"), resources,
+      toolSafety: { permission: async () => { throw new Error("Construction-only fixture cannot execute tools"); },
+        result: async () => { throw new Error("Construction-only fixture cannot deliver results"); }, stop() { stopped.push("stop"); } },
+      sessionId: "11111111-1111-4111-8111-111111111111", observeManager: () => {},
+      modelRuntimeOptions: { authPath: join(root, "auth.json"), modelsPath: join(root, "models.json"), modelsStorePath: join(root, "models-cache.json") } });
+    return { opened: runtime.newSession(undefined, { caps }), stopped };
+  };
+  rmSync(join(agent, "extensions/aeolus.ts"));
+  const loaded = open();
+  expect(await loaded.opened.catch(error => error), "PI_LOADED_EXTENSION_REFUSED").toBeInstanceOf(PiInputSafetyUnavailableError);
+  expect(loaded.stopped, "PI_LOADED_EXTENSION_STOPPED").toEqual(["stop"]);
+  rmSync(join(brain, ".pi/extensions/loom.ts"));
+  const { session, loadedExtensions } = await open().opened;
+  try { expect(loadedExtensions, "PI_EXTENSION_FREE_SESSION_REPORTS_NONE").toBe(0); }
+  finally { session.dispose(); }
 });

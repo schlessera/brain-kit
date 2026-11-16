@@ -76,7 +76,12 @@ async function run(prompt: string) {
 }
 for await (const message of pipeMessages(process.stdin)) {
   const value = message as any;
-  if (value.type === "init") { init = value; send({ type: "ready", sessionId: value.sessionId, levels: [], cost: 0 }); }
+  if (value.type === "init") {
+    init = value;
+    // What this worker's loader loaded, as the real entry reports it (#2874); unset sends no report.
+    const loaded = process.env.ODYSSEUS_LOADED_EXTENSIONS;
+    send({ type: "ready", sessionId: value.sessionId, levels: [], cost: 0, ...(loaded === undefined ? {} : { loadedExtensions: Number(loaded) }) });
+  }
   else if (value.type === "prompt") void run(value.text.split("\n", 1)[0]).catch(error => { send({ type: "error", message: error.message }); });
   else if (value.type === "answer") {
     const waiter = pending.get(value.id); pending.delete(value.id);

@@ -2634,6 +2634,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   .bk-overlay-surface { animation: bk-overlay-sheet 200ms ease-out; }
   .bk-overlay[data-bk-overlay="panel"] .bk-overlay-surface { animation: bk-overlay-panel 300ms ease-out; }
   .bk-overlay[data-bk-overlay="fullscreen"] .bk-overlay-surface { animation: bk-overlay-fade 120ms ease-out; }
+  /* The markup editor (#3983): a zoom from a control (+, −, Fit, arrow-key
+   * pan) eases; a pinch, a wheel and a drag follow the pointer directly. */
+  .bk-markup-view[data-ease] { transition: transform 160ms ease-out; }
   .bk-overlay[data-bk-overlay="dialog"][data-placement="top"] .bk-overlay-surface { animation: bk-overlay-fade 150ms ease-out; }
   @media (min-width: 900px) {
     .bk-overlay[data-bk-overlay="dialog"][data-placement="center"] .bk-overlay-surface { animation: bk-overlay-card 150ms ease-out; }
@@ -3064,3 +3067,30 @@ label.bk-live-service-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ── Markup editor (#3983) ───────────────────────────────────────────────
+ * Its easing lives in the overlays' no-preference block above. */
+.bk-markup-stage:focus-visible { outline: 2px solid var(--bk-focus-ring); }
+/* Markup tools and swatches rest on their own background through a class, so
+ * `.bk-control:hover` (two selectors' weight) still wins on hover. */
+.bk-markup-control { background: var(--mk-bg, transparent); color: var(--mk-fg, var(--bk-color-ink)); }
+
+/* The image editors' close control: the mask editor's original 44px square,
+ * 4px radius, raised on hover, in the photograph chrome's ink. */
+.bk-editor-close {
+  appearance: none;
+  display: flex;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--bk-color-ink);
+  cursor: pointer;
+}
+.bk-editor-close:hover { background: var(--bk-color-raised); }

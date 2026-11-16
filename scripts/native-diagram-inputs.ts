@@ -21,7 +21,7 @@ const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"e8502b6ffb3c575f2
 // The installation identity includes file modes, which the installer's umask
 // narrows: the qualified install was made under umask 022, and any other umask
 // (such as 0077) can never match. Recovery replaces only this owned install.
-const installationRecovery="Reinstall this owned checkout under umask 022 from a fresh private cache: umask 022 && bun install --force --frozen-lockfile --backend=copyfile --cache-dir \"$(mktemp -d)\". The installation identity includes file modes, so an install under any other umask (such as 0077) never matches. See CONTRIBUTING.md; never refresh qualification pins.";
+const installationRecovery="Preserve evidence and move aside this owned checkout's node_modules, then run sh scripts/prepare-diagnostic-install.sh. It sets umask 022 and installs the unchanged lock through a fresh private cache and copyfile. The installation identity includes file modes, so an install under any other umask (such as 0077) never matches. See CONTRIBUTING.md; never refresh qualification pins.";
 const caller="packages/ui-kit/vitest.config.ts",owner="packages/ui-react/tests/browser/diagram-export-command.ts";
 const sourcePins:Record<string,string>={
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",

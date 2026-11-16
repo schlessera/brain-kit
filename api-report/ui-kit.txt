@@ -15,6 +15,7 @@ export "." (./src/index.ts)
   type AgentRunTool
   ApprovalCard
   type ApprovalCardProps
+  type ArrowMark
   AskUserCard
   type AskUserCardProps
   AskUserFormCard
@@ -103,6 +104,7 @@ export "." (./src/index.ts)
   type DispositionControl
   EffectPreview
   type EffectPreviewProps
+  type EllipseMark
   type Emphasis
   EmptyState
   type EmptyStateProps
@@ -140,6 +142,8 @@ export "." (./src/index.ts)
   type IconButtonProps
   type IconName
   type IconProps
+  ImageEditorFrame
+  type ImageEditorFrameProps
   type InkTone
   InlineToast
   type InlineToastProps
@@ -164,12 +168,45 @@ export "." (./src/index.ts)
   LiveServiceSettings
   type LiveServiceSettingsProps
   type LiveServiceStatus
+  MARKUP_CLOSED
+  MARKUP_COLORS
+  MARKUP_EDITOR_TITLE
+  MARKUP_EMPTY_HINT
+  MARKUP_MAX_BYTES
+  MARKUP_MAX_ZOOM
+  MARKUP_NOTE_MAX
+  MARKUP_NOT_RENDERED
+  MARKUP_RECEIPT_NOTES
+  MARKUP_SECOND_TOUCH_MS
+  MARKUP_TOOLS
+  MARKUP_WIDTHS
   type MapCluster
   type MapLand
   type MapPath
   type MapPin
   MapView
   type MapViewProps
+  type Mark
+  MarkupCanvas
+  type MarkupCanvasProps
+  type MarkupColor
+  type MarkupCounts
+  MarkupEditor
+  type MarkupEditorProps
+  type MarkupExport
+  MarkupFallback
+  type MarkupFallbackProps
+  MarkupNoteField
+  type MarkupNoteFieldProps
+  type MarkupPoint
+  MarkupResultCard
+  type MarkupResultCardProps
+  type MarkupSize
+  type MarkupTool
+  MarkupToolbar
+  type MarkupToolbarProps
+  type MarkupView
+  type MarkupWidth
   MessageBubble
   type MessageBubbleProps
   type MessageRole
@@ -192,6 +229,7 @@ export "." (./src/index.ts)
   type PaletteItem
   PathRef
   type PathRefProps
+  type PenMark
   type PendingFollowUp
   PendingFollowUps
   type PendingFollowUpsProps
@@ -284,6 +322,7 @@ export "." (./src/index.ts)
   type TabItem
   TextButton
   type TextButtonProps
+  type TextMark
   type TimelineItem
   TimelineList
   type TimelineListProps
@@ -341,10 +380,18 @@ export "." (./src/index.ts)
   type WorkingSessionView
   type WorkingState
   color
+  countMarks
+  describeCounts
   describeWorkingSession
   effectLineCount
+  exportMarkupPng
   followUpLabel
   font
+  markupBytesLabel
+  markupNotes
+  markupReceiptRows
+  markupSummary
+  overCapMessage
   z
 
 export "./brand" (./src/brand.ts)
@@ -487,6 +534,13 @@ signatures (every public export and the types it is made of)
             allow: string;
             deny: string;
         };
+    }
+  ArrowMark (packages/ui-kit/src/images/markup.ts)
+    export interface ArrowMark extends MarkBase {
+        kind: "arrow";
+        width: MarkupWidth;
+        from: MarkupPoint;
+        to: MarkupPoint;
     }
   AskUserCard (packages/ui-kit/src/decisions/AskUserCard.tsx)
     export function AskUserCard(p: AskUserCardProps): import("react").JSX.Element;
@@ -1092,6 +1146,15 @@ signatures (every public export and the types it is made of)
         revealed?: boolean;
         onReveal?: () => void;
     }
+  EllipseMark (packages/ui-kit/src/images/markup.ts)
+    export interface EllipseMark extends MarkBase {
+        kind: "ellipse";
+        width: MarkupWidth;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+    }
   Emphasis (packages/ui-kit/src/types.ts)
     export type Emphasis = "hairline" | "strong" | "bold" | "dashed" | "none";
   EmptyState (packages/ui-kit/src/conversation/EmptyState.tsx)
@@ -1335,10 +1398,13 @@ signatures (every public export and the types it is made of)
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "folder-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "mic-off": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "zoom-in": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "zoom-out": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly activity: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly add: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly agent: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly approval: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly arrow: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ask: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly attach: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly attention: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1364,7 +1430,9 @@ signatures (every public export and the types it is made of)
         readonly dismiss: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly down: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly edit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly ellipse: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly enlarge: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly erase: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly expand: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly failed: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly file: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1372,6 +1440,7 @@ signatures (every public export and the types it is made of)
         readonly files: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly filter: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly finished: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly fit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly folder: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly fyi: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly graph: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1393,8 +1462,10 @@ signatures (every public export and the types it is made of)
         readonly next: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly passkey: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly pause: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly pen: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly policy: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly quarantined: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly redo: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly reorder: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly repeat: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly researcher: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1413,8 +1484,10 @@ signatures (every public export and the types it is made of)
         readonly stopped: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly suggestion: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly sunrise: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly text: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly thread: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly trust: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly undo: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unheard: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unproven: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly unreachable: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1454,6 +1527,25 @@ signatures (every public export and the types it is made of)
         size?: number;
         color?: string;
         strokeWidth?: number;
+    }
+  ImageEditorFrame (packages/ui-kit/src/images/ImageEditorFrame.tsx)
+    export function ImageEditorFrame(p: ImageEditorFrameProps): import("react").JSX.Element;
+  ImageEditorFrameProps (packages/ui-kit/src/images/ImageEditorFrame.tsx)
+    export interface ImageEditorFrameProps {
+        open: boolean;
+        title: string;
+        subtitle?: string;
+        subtitlePrefix?: string;
+        subtitleMode?: "truncate" | "expand";
+        closeLabel: string;
+        onClose: (reason: OverlayCloseReason | "close-button") => void;
+        error?: string | null;
+        toolbar: ReactNode;
+        children: ReactNode;
+        initialFocus?: RefObject<HTMLElement | null>;
+        stageRef?: Ref<HTMLDivElement>;
+        stagePadding?: number;
+        [data: `data-${string}`]: string | undefined;
     }
   InkTone (packages/ui-kit/src/types.ts)
     export type InkTone = "ink" | "dim";
@@ -1629,6 +1721,42 @@ signatures (every public export and the types it is made of)
         text: string;
     };
   MAILTO_ADDRESSES_MAX (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  MARKUP_CLOSED (packages/ui-kit/src/images/MarkupEditor.tsx)
+    const MARKUP_CLOSED: "The user closed the markup editor";
+  MARKUP_COLORS (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_COLORS: Record<MarkupColor, {
+        hex: string;
+        name: string;
+    }>;
+  MARKUP_EDITOR_TITLE (packages/ui-kit/src/images/MarkupEditor.tsx)
+    const MARKUP_EDITOR_TITLE: "Mark up the image";
+  MARKUP_EMPTY_HINT (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    const MARKUP_EMPTY_HINT: "Draw at least one mark.";
+  MARKUP_MAX_BYTES (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_MAX_BYTES: 52428800;
+  MARKUP_MAX_ZOOM (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_MAX_ZOOM: 8;
+  MARKUP_NOTE_MAX (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_NOTE_MAX: 80;
+  MARKUP_NOT_RENDERED (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    const MARKUP_NOT_RENDERED: "markup not rendered";
+  MARKUP_RECEIPT_NOTES (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    const MARKUP_RECEIPT_NOTES: 3;
+  MARKUP_SECOND_TOUCH_MS (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_SECOND_TOUCH_MS: 120;
+  MARKUP_TOOLS (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    const MARKUP_TOOLS: {
+        tool: MarkupTool;
+        icon: IconName;
+        label: string;
+        name: string;
+        key: string;
+    }[];
+  MARKUP_WIDTHS (packages/ui-kit/src/images/markup.ts)
+    const MARKUP_WIDTHS: Record<MarkupWidth, {
+        fraction: number;
+        name: string;
+    }>;
   MailVerdict (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   MapCluster (packages/ui-kit/src/blocks/MapView.tsx)
     export interface MapCluster {
@@ -1697,6 +1825,149 @@ signatures (every public export and the types it is made of)
         };
         framed?: boolean;
     }
+  Mark (packages/ui-kit/src/images/markup.ts)
+    export type Mark = PenMark | ArrowMark | EllipseMark | TextMark;
+  MarkBase (packages/ui-kit/src/images/markup.ts)
+    interface MarkBase {
+        id: string;
+        color: MarkupColor;
+    }
+  MarkupCanvas (packages/ui-kit/src/images/MarkupCanvas.tsx)
+    export function MarkupCanvas(p: MarkupCanvasProps): import("react").JSX.Element;
+  MarkupCanvasProps (packages/ui-kit/src/images/MarkupCanvas.tsx)
+    export interface MarkupCanvasProps {
+        src: string;
+        size?: MarkupSize;
+        marks: readonly Mark[];
+        tool: MarkupTool;
+        color: MarkupColor;
+        width: MarkupWidth;
+        onCommit: (mark: Mark) => void;
+        onNoteRequest: (at: MarkupPoint, note: TextMark | null) => void;
+        noteField?: {
+            at: MarkupPoint;
+            editing?: string;
+            node: ReactNode;
+        };
+        onLoad?: (natural: MarkupSize) => void;
+        onError?: () => void;
+        onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+        initialView?: MarkupView;
+        measureText?: (text: string, font: string) => number;
+        newId?: () => string;
+        focusTarget?: {
+            current: HTMLElement | null;
+        };
+        style?: CSSProperties;
+    }
+  MarkupColor (packages/ui-kit/src/images/markup.ts)
+    export type MarkupColor = "red" | "yellow" | "cyan";
+  MarkupCounts (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupCounts {
+        pen: number;
+        arrow: number;
+        ellipse: number;
+        text: number;
+    }
+  MarkupEditor (packages/ui-kit/src/images/MarkupEditor.tsx)
+    export function MarkupEditor(p: MarkupEditorProps): import("react").JSX.Element;
+  MarkupEditorProps (packages/ui-kit/src/images/MarkupEditor.tsx)
+    export interface MarkupEditorProps {
+        open: boolean;
+        src: string;
+        imagePath: string;
+        instruction?: string;
+        size?: MarkupSize;
+        maxBytes?: number;
+        onSubmit: (layer: MarkupExport) => void | Promise<void>;
+        onDismiss: () => void;
+        initialMarks?: Mark[];
+        initialView?: MarkupView;
+        initialTool?: MarkupTool;
+        exportLayer?: (marks: readonly Mark[], size: MarkupSize) => Promise<MarkupExport>;
+        layout?: "compact" | "wide";
+    }
+  MarkupExport (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupExport {
+        png: Blob;
+        bytes: number;
+        width: number;
+        height: number;
+        counts: MarkupCounts;
+        notes: string[];
+    }
+  MarkupFallback (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export function MarkupFallback(p: MarkupFallbackProps): import("react").JSX.Element;
+  MarkupFallbackProps (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export interface MarkupFallbackProps {
+        imagePath?: string;
+        reason: string;
+    }
+  MarkupNoteField (packages/ui-kit/src/images/MarkupNoteField.tsx)
+    export function MarkupNoteField(p: MarkupNoteFieldProps): import("react").JSX.Element;
+  MarkupNoteFieldProps (packages/ui-kit/src/images/MarkupNoteField.tsx)
+    export interface MarkupNoteFieldProps {
+        value: string;
+        onChange: (value: string) => void;
+        onPlace: () => void;
+        onCancel: () => void;
+        onDelete?: () => void;
+        autoFocus?: boolean;
+    }
+  MarkupPoint (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupPoint {
+        x: number;
+        y: number;
+    }
+  MarkupResultCard (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export function MarkupResultCard(p: MarkupResultCardProps): import("react").JSX.Element;
+  MarkupResultCardProps (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export interface MarkupResultCardProps {
+        imagePath: string;
+        markupPath: string;
+        width: number;
+        height: number;
+        bytes: number;
+        marks: MarkupCounts;
+        notes: readonly string[];
+        markupSrc?: string;
+        matchesSource?: boolean;
+    }
+  MarkupSize (packages/ui-kit/src/images/markup.ts)
+    export interface MarkupSize {
+        width: number;
+        height: number;
+    }
+  MarkupTool (packages/ui-kit/src/images/markup.ts)
+    export type MarkupTool = "pen" | "arrow" | "ellipse" | "text" | "hand";
+  MarkupToolbar (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    export function MarkupToolbar(p: MarkupToolbarProps): import("react").JSX.Element;
+  MarkupToolbarProps (packages/ui-kit/src/images/MarkupToolbar.tsx)
+    export interface MarkupToolbarProps {
+        layout: "compact" | "wide";
+        tool: MarkupTool;
+        onTool: (tool: MarkupTool) => void;
+        color: MarkupColor;
+        onColor: (color: MarkupColor) => void;
+        width: MarkupWidth;
+        onWidth: (width: MarkupWidth) => void;
+        canUndo: boolean;
+        canRedo: boolean;
+        canClear: boolean;
+        onUndo: () => void;
+        onRedo: () => void;
+        onClear: () => void;
+        canSubmit: boolean;
+        submitting?: boolean;
+        onSubmit: () => void;
+    }
+  MarkupView (packages/ui-kit/src/images/MarkupCanvas.tsx)
+    export interface MarkupView {
+        zoom: number;
+        center?: MarkupPoint;
+    }
+  MarkupWidth (packages/ui-kit/src/images/markup.ts)
+    export type MarkupWidth = "thin" | "medium" | "thick";
   MessageBubble (packages/ui-kit/src/chrome/MessageBubble.tsx)
     export function MessageBubble(p: MessageBubbleProps): import("react").JSX.Element;
   MessageBubbleProps (packages/ui-kit/src/chrome/MessageBubble.tsx)
@@ -1881,6 +2152,12 @@ signatures (every public export and the types it is made of)
         icon?: IconName;
         meta?: string;
         fontSize?: number;
+    }
+  PenMark (packages/ui-kit/src/images/markup.ts)
+    export interface PenMark extends MarkBase {
+        kind: "pen";
+        width: MarkupWidth;
+        points: MarkupPoint[];
     }
   PendingFollowUp (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
     export interface PendingFollowUp {
@@ -2441,6 +2718,12 @@ signatures (every public export and the types it is made of)
         style?: CSSProperties;
         [data: `data-${string}`]: string | undefined;
     }
+  TextMark (packages/ui-kit/src/images/markup.ts)
+    export interface TextMark extends MarkBase {
+        kind: "text";
+        at: MarkupPoint;
+        text: string;
+    }
   TimelineItem (packages/ui-kit/src/blocks/TimelineList.tsx)
     export interface TimelineItem {
         time: string;
@@ -2782,11 +3065,17 @@ signatures (every public export and the types it is made of)
         readonly surface: string;
         readonly tealLift: string;
     };
+  countMarks (packages/ui-kit/src/images/markup.ts)
+    export function countMarks(marks: readonly Mark[]): MarkupCounts;
   decodePunycode (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  describeCounts (packages/ui-kit/src/images/markup.ts)
+    export function describeCounts(counts: MarkupCounts, separator?: string): string;
   describeWorkingSession (packages/ui-kit/src/chrome/SessionStrip.tsx)
     export function describeWorkingSession(s: WorkingSession, now: number, clock?: (ms: number) => string): WorkingSessionView;
   effectLineCount (packages/ui-kit/src/decisions/EffectPreview.tsx)
     export function effectLineCount(text: string | undefined): number;
+  exportMarkupPng (packages/ui-kit/src/images/markup.ts)
+    export function exportMarkupPng(marks: readonly Mark[], size: MarkupSize, doc?: Document | undefined): Promise<MarkupExport>;
   followUpLabel (packages/ui-kit/src/chrome/PendingFollowUps.tsx)
     export function followUpLabel(text: string, words?: number): string;
   font (packages/ui-kit/src/tokens.ts)
@@ -2796,6 +3085,16 @@ signatures (every public export and the types it is made of)
         readonly mono: "'JetBrains Mono',ui-monospace,monospace";
     };
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  markupBytesLabel (packages/ui-kit/src/images/markup.ts)
+    export function markupBytesLabel(bytes: number): string;
+  markupNotes (packages/ui-kit/src/images/markup.ts)
+    export function markupNotes(marks: readonly Mark[]): string[];
+  markupReceiptRows (packages/ui-kit/src/images/MarkupResultCard.tsx)
+    export function markupReceiptRows(p: MarkupResultCardProps): ReceiptRow[];
+  markupSummary (packages/ui-kit/src/images/markup.ts)
+    export function markupSummary(marks: readonly Mark[]): string;
+  overCapMessage (packages/ui-kit/src/images/markup.ts)
+    export function overCapMessage(bytes: number, maxBytes?: number): string;
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   z (packages/ui-kit/src/tokens.ts)
     const z: {

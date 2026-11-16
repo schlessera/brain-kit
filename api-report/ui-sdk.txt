@@ -147,6 +147,7 @@ export "." (./src/index.ts)
   type ConfigurationCoverageRead
   type ConfiguredModule
   type ConflictVersionSelection
+  type ConsumerServerMessage
   type ContentRendererDeclaration
   type ConversationAudioFormat
   type ConversationCapabilities
@@ -742,6 +743,7 @@ export "./client" (./src/client/index.ts)
   type ConfigurationCoverageRead
   type ConflictVersionSelection
   type ConnectionStatus
+  type ConsumerServerMessage
   type ContentRenderer
   type ContentRendererPack
   type ContentRendererProps
@@ -802,10 +804,92 @@ export "./client" (./src/client/index.ts)
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
   GET_SEARCH_CONTENT_INPUT_SCHEMA
+  GITHUB_API_ORIGIN
+  GITHUB_AUTHOR_ASSOCIATIONS
+  GITHUB_AUTHOR_SCHEMA
+  GITHUB_CHANGED_FILE_SCHEMA
+  GITHUB_CHANGED_FILE_STATUSES
+  GITHUB_CHECKS_SCHEMA
+  GITHUB_CHECK_CONCLUSIONS
+  GITHUB_CHECK_RUN_SCHEMA
+  GITHUB_COMMENT_SCHEMA
+  GITHUB_COMMIT_SCHEMA
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA
+  GITHUB_DETAIL_ERROR_SCHEMA
+  GITHUB_DETAIL_PAGE_SCHEMA
+  GITHUB_DETAIL_PAGE_SIZE
+  GITHUB_DETAIL_PARTS
+  GITHUB_ERROR_CODES
+  GITHUB_ERROR_SCHEMA
+  GITHUB_ISSUE_COMMENT_CONTRACT
+  GITHUB_ISSUE_COMMENT_INPUT_SCHEMA
+  GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_CREATE_CONTRACT
+  GITHUB_ISSUE_CREATE_INPUT_SCHEMA
+  GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_READ_CONTRACT
+  GITHUB_ISSUE_READ_INPUT_SCHEMA
+  GITHUB_ISSUE_READ_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_SCHEMA
+  GITHUB_ISSUE_SEARCH_CONTRACT
+  GITHUB_ISSUE_SEARCH_INPUT_SCHEMA
+  GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA
+  GITHUB_LABEL_SCHEMA
+  GITHUB_LIMITS
+  GITHUB_OWNER_PATTERN
+  GITHUB_PULL_REQUEST_SCHEMA
+  GITHUB_READ_TOOL_CONTRACTS
+  GITHUB_READ_TOOL_NAMES
+  GITHUB_REPO_PATTERN
+  GITHUB_RESULT_SCHEMAS
+  GITHUB_REVIEW_COMMENT_SCHEMA
+  GITHUB_REVIEW_DECISION_SCHEMA
+  GITHUB_REVIEW_SCHEMA
+  GITHUB_REVIEW_STATES
+  GITHUB_SEARCH_ITEM_SCHEMA
+  GITHUB_TOOL_CONTRACTS
+  GITHUB_TOOL_NAMES
+  GITHUB_TOOL_NAME_LIST
+  GITHUB_USER_SCHEMA
+  GITHUB_WEB_ORIGIN
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
   type GetSearchContentInput
+  type GithubAuthor
+  type GithubChangedFile
+  type GithubCheckRun
+  type GithubChecks
+  type GithubComment
+  type GithubCommit
+  type GithubDetailError
+  type GithubDetailPage
+  type GithubDetailPart
+  type GithubError
+  type GithubErrorCode
+  type GithubIssue
+  type GithubIssueCommentInput
+  type GithubIssueCommentPayload
+  type GithubIssueCreateInput
+  type GithubIssueCreatePayload
+  type GithubIssueReadInput
+  type GithubIssueReadPayload
+  type GithubIssueSearchInput
+  type GithubIssueSearchPayload
+  type GithubLabel
+  type GithubLinkScope
+  type GithubLinkTarget
+  type GithubPullRequest
+  type GithubReadToolName
+  type GithubReview
+  type GithubReviewComment
+  type GithubReviewDecision
+  type GithubSearchItem
+  type GithubToolCall
+  type GithubToolName
+  type GithubToolResult
+  type GithubUser
+  type GithubWriteToolName
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -1225,12 +1309,20 @@ export "./client" (./src/client/index.ts)
   defaultContentRendererRegistry
   defineToolComponentContract
   defineToolContract
+  githubBoundedList
+  githubDirectUrl
+  githubSearchUrl
   isBillingMode
   isFailureOutcome
+  isGithubDetailPart
+  isGithubRepositoryName
+  isGithubSearchUrl
+  isGithubToolName
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
   isWebToolName
+  parseGithubRepository
   parseHandoffText
   parseToolPayload
   parseWebToolInput
@@ -1283,7 +1375,6 @@ export "./internal" (./src/internal.ts)
   type InferenceRelayEvent
   type LaunchedWorker
   MAINTENANCE_HOME
-  MAX_PROVIDER_REQUEST_BYTES
   type MaintenanceCommand
   type MaintenanceHost
   type MaintenanceResult
@@ -1294,12 +1385,10 @@ export "./internal" (./src/internal.ts)
   type NativeBrainDeltaCandidate
   NativeBrainManagerError
   NativeFileVersions
-  type NativePoolAccess
   type NativePoolCheckpoint
-  type NativePoolCreatePurpose
   type NativePoolRecord
-  type NativePoolState
   type NativePoolStatus
+  type NativeTurnTree
   ORIENTATION_MAX_BYTES
   OUTWARD_VOICE_REFUSAL
   type ObservedWorkerFile
@@ -1312,12 +1401,10 @@ export "./internal" (./src/internal.ts)
   PROVIDER_RELAY_KEYS_NAME
   PROVIDER_RELAY_SOCKET_NAME
   type PreparedWorkerOutput
-  type ProviderOperation
   type ProviderRelay
   type ProviderRelayOptions
   type ProviderRelayReceipt
   type ProviderRelayRefusal
-  type ProviderUsage
   type QuestionObservation
   REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
@@ -1347,8 +1434,6 @@ export "./internal" (./src/internal.ts)
   WORKER_EMPTY_HOME
   WORKER_INFERENCE_SOCKET
   WORKER_PROVIDER_CREDENTIAL_ENV
-  WORKER_PROVIDER_RELAY_DIR
-  WORKER_PROVIDER_RELAY_SOCKET
   WORKER_REFERENCE_ROOT
   WORKER_SCRATCH
   WORKER_STATE
@@ -1379,7 +1464,6 @@ export "./internal" (./src/internal.ts)
   applyClassification
   archivesDocument
   assertManagedTurnStartupView
-  assertScratchMask
   assertScratchMaskAsync
   bashCommand
   canonicalModelId
@@ -1416,7 +1500,6 @@ export "./internal" (./src/internal.ts)
   launchAgentWorker
   launchAgentWorkerAsync
   launchLimits
-  launchMaintenanceWorker
   launchMaintenanceWorkerAsync
   limitFailureMessage
   loadedSdkIdentity
@@ -1427,6 +1510,7 @@ export "./internal" (./src/internal.ts)
   mountPointsUnder
   nativeFileVersion
   nativeObservationIdentity
+  nativeTurnTreeManager
   nativeWorkerStartupInput
   observeClassification
   observeOutwardPlan
@@ -1449,13 +1533,11 @@ export "./internal" (./src/internal.ts)
   prepareWorkerSandboxAsync
   probeNativeMaintenanceWorker
   probeWorkerHost
-  probeWorkerHostAsync
   processCleanupReconciler
   processStateLedger
   projectConversationGuidance
   promptPrefixFingerprint
   protectedPaths
-  providerUsage
   readWebSearchOverride
   readWebSearchRouting
   recoveredWorkerFile
@@ -1677,6 +1759,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientToolDenial
   type ConfigurationCoverageRead
   type ConflictVersionSelection
+  type ConsumerServerMessage
   type ConversationAudioFormat
   type ConversationCapabilities
   type ConversationCloseReason
@@ -2510,6 +2593,7 @@ export "./server" (./src/server/index.ts)
   type ConfirmPattern
   type ConfirmPatternSource
   type ConflictVersionSelection
+  type ConsumerServerMessage
   type ConversationAudioFormat
   type ConversationCapabilities
   type ConversationCloseReason
@@ -2584,12 +2668,94 @@ export "./server" (./src/server/index.ts)
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
   GET_SEARCH_CONTENT_INPUT_SCHEMA
+  GITHUB_API_ORIGIN
+  GITHUB_AUTHOR_ASSOCIATIONS
+  GITHUB_AUTHOR_SCHEMA
+  GITHUB_CHANGED_FILE_SCHEMA
+  GITHUB_CHANGED_FILE_STATUSES
+  GITHUB_CHECKS_SCHEMA
+  GITHUB_CHECK_CONCLUSIONS
+  GITHUB_CHECK_RUN_SCHEMA
+  GITHUB_COMMENT_SCHEMA
+  GITHUB_COMMIT_SCHEMA
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA
+  GITHUB_DETAIL_ERROR_SCHEMA
+  GITHUB_DETAIL_PAGE_SCHEMA
+  GITHUB_DETAIL_PAGE_SIZE
+  GITHUB_DETAIL_PARTS
+  GITHUB_ERROR_CODES
+  GITHUB_ERROR_SCHEMA
+  GITHUB_ISSUE_COMMENT_CONTRACT
+  GITHUB_ISSUE_COMMENT_INPUT_SCHEMA
+  GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_CREATE_CONTRACT
+  GITHUB_ISSUE_CREATE_INPUT_SCHEMA
+  GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_READ_CONTRACT
+  GITHUB_ISSUE_READ_INPUT_SCHEMA
+  GITHUB_ISSUE_READ_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_SCHEMA
+  GITHUB_ISSUE_SEARCH_CONTRACT
+  GITHUB_ISSUE_SEARCH_INPUT_SCHEMA
+  GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA
+  GITHUB_LABEL_SCHEMA
+  GITHUB_LIMITS
+  GITHUB_OWNER_PATTERN
+  GITHUB_PULL_REQUEST_SCHEMA
+  GITHUB_READ_TOOL_CONTRACTS
+  GITHUB_READ_TOOL_NAMES
+  GITHUB_REPO_PATTERN
+  GITHUB_RESULT_SCHEMAS
+  GITHUB_REVIEW_COMMENT_SCHEMA
+  GITHUB_REVIEW_DECISION_SCHEMA
+  GITHUB_REVIEW_SCHEMA
+  GITHUB_REVIEW_STATES
+  GITHUB_SEARCH_ITEM_SCHEMA
+  GITHUB_TOOL_CONTRACTS
+  GITHUB_TOOL_NAMES
+  GITHUB_TOOL_NAME_LIST
+  GITHUB_USER_SCHEMA
+  GITHUB_WEB_ORIGIN
   type GeoConfig
   type GeoConfigInput
   type GeoCoords
   type GeoRequestOptions
   type GetCurrentLocationInput
   type GetSearchContentInput
+  type GithubAuthor
+  type GithubChangedFile
+  type GithubCheckRun
+  type GithubChecks
+  type GithubComment
+  type GithubCommit
+  type GithubDetailError
+  type GithubDetailPage
+  type GithubDetailPart
+  type GithubError
+  type GithubErrorCode
+  type GithubIssue
+  type GithubIssueCommentInput
+  type GithubIssueCommentPayload
+  type GithubIssueCreateInput
+  type GithubIssueCreatePayload
+  type GithubIssueReadInput
+  type GithubIssueReadPayload
+  type GithubIssueSearchInput
+  type GithubIssueSearchPayload
+  type GithubLabel
+  type GithubLinkScope
+  type GithubLinkTarget
+  type GithubPullRequest
+  type GithubReadToolName
+  type GithubReview
+  type GithubReviewComment
+  type GithubReviewDecision
+  type GithubSearchItem
+  type GithubToolCall
+  type GithubToolName
+  type GithubToolResult
+  type GithubUser
+  type GithubWriteToolName
   type GovernedStatus
   type GovernedUnavailableReason
   type GraphBrokenLink
@@ -3073,6 +3239,9 @@ export "./server" (./src/server/index.ts)
   filterSubprocessEnv
   formatAttachmentRead
   geoConfigSchema
+  githubBoundedList
+  githubDirectUrl
+  githubSearchUrl
   handleApifyTool
   handleAskUser
   handleAskUserForm
@@ -3080,6 +3249,7 @@ export "./server" (./src/server/index.ts)
   handleAskUserRank
   handleComputeTool
   handleGetCurrentLocation
+  handleGithubTool
   handleInboxTool
   handleQueryActivity
   handleReadAttachment
@@ -3091,11 +3261,16 @@ export "./server" (./src/server/index.ts)
   isBillingMode
   isCompletedAutonomousToolCall
   isFailureOutcome
+  isGithubDetailPart
+  isGithubRepositoryName
+  isGithubSearchUrl
+  isGithubToolName
   isPricingRoute
   isProfileUnavailableReason
   isThinkingLevel
   isWebToolName
   killWrapped
+  parseGithubRepository
   parseHandoffText
   parseLiveConversationEvent
   parseSubprocessEnvExtra
@@ -3273,8 +3448,90 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   GET_CURRENT_LOCATION_INPUT_SCHEMA
   GET_CURRENT_LOCATION_TOOL_NAME
   GET_SEARCH_CONTENT_INPUT_SCHEMA
+  GITHUB_API_ORIGIN
+  GITHUB_AUTHOR_ASSOCIATIONS
+  GITHUB_AUTHOR_SCHEMA
+  GITHUB_CHANGED_FILE_SCHEMA
+  GITHUB_CHANGED_FILE_STATUSES
+  GITHUB_CHECKS_SCHEMA
+  GITHUB_CHECK_CONCLUSIONS
+  GITHUB_CHECK_RUN_SCHEMA
+  GITHUB_COMMENT_SCHEMA
+  GITHUB_COMMIT_SCHEMA
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA
+  GITHUB_DETAIL_ERROR_SCHEMA
+  GITHUB_DETAIL_PAGE_SCHEMA
+  GITHUB_DETAIL_PAGE_SIZE
+  GITHUB_DETAIL_PARTS
+  GITHUB_ERROR_CODES
+  GITHUB_ERROR_SCHEMA
+  GITHUB_ISSUE_COMMENT_CONTRACT
+  GITHUB_ISSUE_COMMENT_INPUT_SCHEMA
+  GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_CREATE_CONTRACT
+  GITHUB_ISSUE_CREATE_INPUT_SCHEMA
+  GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_READ_CONTRACT
+  GITHUB_ISSUE_READ_INPUT_SCHEMA
+  GITHUB_ISSUE_READ_PAYLOAD_SCHEMA
+  GITHUB_ISSUE_SCHEMA
+  GITHUB_ISSUE_SEARCH_CONTRACT
+  GITHUB_ISSUE_SEARCH_INPUT_SCHEMA
+  GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA
+  GITHUB_LABEL_SCHEMA
+  GITHUB_LIMITS
+  GITHUB_OWNER_PATTERN
+  GITHUB_PULL_REQUEST_SCHEMA
+  GITHUB_READ_TOOL_CONTRACTS
+  GITHUB_READ_TOOL_NAMES
+  GITHUB_REPO_PATTERN
+  GITHUB_RESULT_SCHEMAS
+  GITHUB_REVIEW_COMMENT_SCHEMA
+  GITHUB_REVIEW_DECISION_SCHEMA
+  GITHUB_REVIEW_SCHEMA
+  GITHUB_REVIEW_STATES
+  GITHUB_SEARCH_ITEM_SCHEMA
+  GITHUB_TOOL_CONTRACTS
+  GITHUB_TOOL_NAMES
+  GITHUB_TOOL_NAME_LIST
+  GITHUB_USER_SCHEMA
+  GITHUB_WEB_ORIGIN
   type GetCurrentLocationInput
   type GetSearchContentInput
+  type GithubAuthor
+  type GithubChangedFile
+  type GithubCheckRun
+  type GithubChecks
+  type GithubComment
+  type GithubCommit
+  type GithubDetailError
+  type GithubDetailPage
+  type GithubDetailPart
+  type GithubError
+  type GithubErrorCode
+  type GithubIssue
+  type GithubIssueCommentInput
+  type GithubIssueCommentPayload
+  type GithubIssueCreateInput
+  type GithubIssueCreatePayload
+  type GithubIssueReadInput
+  type GithubIssueReadPayload
+  type GithubIssueSearchInput
+  type GithubIssueSearchPayload
+  type GithubLabel
+  type GithubLinkScope
+  type GithubLinkTarget
+  type GithubPullRequest
+  type GithubReadToolName
+  type GithubReview
+  type GithubReviewComment
+  type GithubReviewDecision
+  type GithubSearchItem
+  type GithubToolCall
+  type GithubToolName
+  type GithubToolResult
+  type GithubUser
+  type GithubWriteToolName
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
   INBOX_ADD_INPUT_SCHEMA
@@ -3372,7 +3629,15 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   bridgeContractForToolName
   defineToolComponentContract
   defineToolContract
+  githubBoundedList
+  githubDirectUrl
+  githubSearchUrl
+  isGithubDetailPart
+  isGithubRepositoryName
+  isGithubSearchUrl
+  isGithubToolName
   isWebToolName
+  parseGithubRepository
   parseToolPayload
   parseWebToolInput
   toolBriefLines
@@ -6225,6 +6490,7 @@ signatures (every public export and the types it is made of)
         referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
         compute?(call: import("../tool-contracts/compute.js").ComputeToolCall): Promise<import("../tool-contracts/compute.js").ComputeToolResult>;
         apify?(call: import("../tool-contracts/apify.js").ApifyToolCall): Promise<import("../tool-contracts/apify.js").ApifyToolResult>;
+        github?(call: import("../tool-contracts/github.js").GithubToolCall): Promise<import("../tool-contracts/github.js").GithubToolResult>;
         readAttachment?(input: import("../tool-contracts/attachment.js").ReadAttachmentInput): Promise<import("../tool-contracts/attachment.js").AttachmentReadResult>;
         webAccess?(call: import("../tool-contracts/web.js").WebToolCall): Promise<import("../tool-contracts/web.js").WebToolEnvelope>;
     }
@@ -7192,6 +7458,8 @@ signatures (every public export and the types it is made of)
     }
   ConnectionStatus (packages/ui-sdk/src/client/ws-client.ts)
     export type ConnectionStatus = "connecting" | "connected" | "disconnected";
+  ConsumerServerMessage (packages/ui-sdk/src/protocol.ts)
+    export type ConsumerServerMessage = Exclude<ServerMessage, ServerPong>;
   ContentRenderer (packages/ui-sdk/src/client/content-renderers.ts)
     export interface ContentRenderer extends StaticRenderer {
         Component: ComponentType<ContentRendererProps>;
@@ -7821,7 +8089,7 @@ signatures (every public export and the types it is made of)
         entries: FileEntry[];
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
-    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
+    type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
   FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
     export interface FirstRequestCacheUsage {
         inputTokens: number | null;
@@ -7873,6 +8141,1614 @@ signatures (every public export and the types it is made of)
         url: z.ZodOptional<z.ZodString>;
         urlIndex: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strict>;
+  GITHUB_API_ORIGIN (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_API_ORIGIN: "https://api.github.com";
+  GITHUB_AUTHOR_ASSOCIATIONS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_AUTHOR_ASSOCIATIONS: readonly ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "MANNEQUIN", "NONE"];
+  GITHUB_AUTHOR_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_AUTHOR_SCHEMA: z.ZodObject<{
+        author_association: z.ZodNullable<z.ZodEnum<{
+            COLLABORATOR: "COLLABORATOR";
+            CONTRIBUTOR: "CONTRIBUTOR";
+            FIRST_TIMER: "FIRST_TIMER";
+            FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+            MANNEQUIN: "MANNEQUIN";
+            MEMBER: "MEMBER";
+            NONE: "NONE";
+            OWNER: "OWNER";
+        }>>;
+        is_bot: z.ZodBoolean;
+        login: z.ZodNullable<z.ZodString>;
+    }, z.core.$strict>;
+  GITHUB_CHANGED_FILE_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHANGED_FILE_SCHEMA: z.ZodObject<{
+        additions: z.ZodNumber;
+        changes: z.ZodNumber;
+        deletions: z.ZodNumber;
+        filename: z.ZodString;
+        previous_filename: z.ZodNullable<z.ZodString>;
+        status: z.ZodEnum<{
+            added: "added";
+            changed: "changed";
+            copied: "copied";
+            modified: "modified";
+            removed: "removed";
+            renamed: "renamed";
+            unchanged: "unchanged";
+        }>;
+    }, z.core.$strict>;
+  GITHUB_CHANGED_FILE_STATUSES (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHANGED_FILE_STATUSES: readonly ["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"];
+  GITHUB_CHECKS_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHECKS_SCHEMA: z.ZodNullable<z.ZodObject<{
+        failed: z.ZodNumber;
+        passed: z.ZodNumber;
+        running: z.ZodNumber;
+        skipped: z.ZodNumber;
+    }, z.core.$strict>>;
+  GITHUB_CHECK_CONCLUSIONS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHECK_CONCLUSIONS: readonly ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale", "startup_failure", "error", "pending"];
+  GITHUB_CHECK_RUN_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_CHECK_RUN_SCHEMA: z.ZodObject<{
+        completed_at: z.ZodNullable<z.ZodISODateTime>;
+        conclusion: z.ZodNullable<z.ZodEnum<{
+            action_required: "action_required";
+            cancelled: "cancelled";
+            error: "error";
+            failure: "failure";
+            neutral: "neutral";
+            pending: "pending";
+            skipped: "skipped";
+            stale: "stale";
+            startup_failure: "startup_failure";
+            success: "success";
+            timed_out: "timed_out";
+        }>>;
+        name: z.ZodString;
+        source: z.ZodEnum<{
+            check_run: "check_run";
+            status: "status";
+        }>;
+        started_at: z.ZodNullable<z.ZodISODateTime>;
+        state: z.ZodEnum<{
+            failed: "failed";
+            passed: "passed";
+            running: "running";
+            skipped: "skipped";
+        }>;
+    }, z.core.$strict>;
+  GITHUB_COMMENT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_COMMENT_SCHEMA: z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        created_at: z.ZodISODateTime;
+        html_url: z.ZodNullable<z.ZodURL>;
+        id: z.ZodNumber;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>;
+  GITHUB_COMMIT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_COMMIT_SCHEMA: z.ZodObject<{
+        author: z.ZodNullable<z.ZodObject<{
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        author_name: z.ZodNullable<z.ZodString>;
+        authored_at: z.ZodNullable<z.ZodISODateTime>;
+        html_url: z.ZodNullable<z.ZodURL>;
+        message: z.ZodString;
+        message_truncated: z.ZodBoolean;
+        sha: z.ZodString;
+    }, z.core.$strict>;
+  GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA: z.ZodObject<{
+        error: z.ZodObject<{
+            code: z.ZodEnum<{
+                approval_declined: "approval_declined";
+                forbidden: "forbidden";
+                invalid_input: "invalid_input";
+                not_found: "not_found";
+                policy_denied: "policy_denied";
+                rate_limited: "rate_limited";
+                unavailable: "unavailable";
+                upstream_error: "upstream_error";
+            }>;
+            message: z.ZodString;
+            reason: z.ZodNullable<z.ZodString>;
+            reset_at: z.ZodNullable<z.ZodISODateTime>;
+        }, z.core.$strict>;
+    }, z.core.$strict>;
+  GITHUB_DETAIL_ERROR_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_ERROR_SCHEMA: z.ZodObject<{
+        code: z.ZodEnum<{
+            approval_declined: "approval_declined";
+            forbidden: "forbidden";
+            invalid_input: "invalid_input";
+            not_found: "not_found";
+            policy_denied: "policy_denied";
+            rate_limited: "rate_limited";
+            unavailable: "unavailable";
+            upstream_error: "upstream_error";
+        }>;
+        message: z.ZodString;
+        reason: z.ZodNullable<z.ZodString>;
+        reset_at: z.ZodNullable<z.ZodISODateTime>;
+    }, z.core.$strict>;
+  GITHUB_DETAIL_PAGE_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_PAGE_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodObject<{
+                author_association: z.ZodNullable<z.ZodEnum<{
+                    COLLABORATOR: "COLLABORATOR";
+                    CONTRIBUTOR: "CONTRIBUTOR";
+                    FIRST_TIMER: "FIRST_TIMER";
+                    FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                    MANNEQUIN: "MANNEQUIN";
+                    MEMBER: "MEMBER";
+                    NONE: "NONE";
+                    OWNER: "OWNER";
+                }>>;
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            body: z.ZodNullable<z.ZodString>;
+            body_length: z.ZodNumber;
+            body_truncated: z.ZodBoolean;
+            created_at: z.ZodISODateTime;
+            html_url: z.ZodNullable<z.ZodURL>;
+            id: z.ZodNumber;
+            updated_at: z.ZodISODateTime;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"comments">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodObject<{
+                author_association: z.ZodNullable<z.ZodEnum<{
+                    COLLABORATOR: "COLLABORATOR";
+                    CONTRIBUTOR: "CONTRIBUTOR";
+                    FIRST_TIMER: "FIRST_TIMER";
+                    FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                    MANNEQUIN: "MANNEQUIN";
+                    MEMBER: "MEMBER";
+                    NONE: "NONE";
+                    OWNER: "OWNER";
+                }>>;
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            body: z.ZodNullable<z.ZodString>;
+            body_length: z.ZodNumber;
+            body_truncated: z.ZodBoolean;
+            html_url: z.ZodNullable<z.ZodURL>;
+            id: z.ZodNumber;
+            state: z.ZodEnum<{
+                approved: "approved";
+                changes_requested: "changes_requested";
+                commented: "commented";
+                dismissed: "dismissed";
+                pending: "pending";
+            }>;
+            submitted_at: z.ZodNullable<z.ZodISODateTime>;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"reviews">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodObject<{
+                author_association: z.ZodNullable<z.ZodEnum<{
+                    COLLABORATOR: "COLLABORATOR";
+                    CONTRIBUTOR: "CONTRIBUTOR";
+                    FIRST_TIMER: "FIRST_TIMER";
+                    FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                    MANNEQUIN: "MANNEQUIN";
+                    MEMBER: "MEMBER";
+                    NONE: "NONE";
+                    OWNER: "OWNER";
+                }>>;
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            body: z.ZodNullable<z.ZodString>;
+            body_length: z.ZodNumber;
+            body_truncated: z.ZodBoolean;
+            created_at: z.ZodISODateTime;
+            html_url: z.ZodNullable<z.ZodURL>;
+            id: z.ZodNumber;
+            in_reply_to_id: z.ZodNullable<z.ZodNumber>;
+            line: z.ZodNullable<z.ZodNumber>;
+            path: z.ZodString;
+            review_id: z.ZodNullable<z.ZodNumber>;
+            updated_at: z.ZodISODateTime;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"review-comments">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodNullable<z.ZodObject<{
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>>;
+            author_name: z.ZodNullable<z.ZodString>;
+            authored_at: z.ZodNullable<z.ZodISODateTime>;
+            html_url: z.ZodNullable<z.ZodURL>;
+            message: z.ZodString;
+            message_truncated: z.ZodBoolean;
+            sha: z.ZodString;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"commits">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            additions: z.ZodNumber;
+            changes: z.ZodNumber;
+            deletions: z.ZodNumber;
+            filename: z.ZodString;
+            previous_filename: z.ZodNullable<z.ZodString>;
+            status: z.ZodEnum<{
+                added: "added";
+                changed: "changed";
+                copied: "copied";
+                modified: "modified";
+                removed: "removed";
+                renamed: "renamed";
+                unchanged: "unchanged";
+            }>;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"files">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        items: z.ZodArray<z.ZodObject<{
+            completed_at: z.ZodNullable<z.ZodISODateTime>;
+            conclusion: z.ZodNullable<z.ZodEnum<{
+                action_required: "action_required";
+                cancelled: "cancelled";
+                error: "error";
+                failure: "failure";
+                neutral: "neutral";
+                pending: "pending";
+                skipped: "skipped";
+                stale: "stale";
+                startup_failure: "startup_failure";
+                success: "success";
+                timed_out: "timed_out";
+            }>>;
+            name: z.ZodString;
+            source: z.ZodEnum<{
+                check_run: "check_run";
+                status: "status";
+            }>;
+            started_at: z.ZodNullable<z.ZodISODateTime>;
+            state: z.ZodEnum<{
+                failed: "failed";
+                passed: "passed";
+                running: "running";
+                skipped: "skipped";
+            }>;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"detail_page">;
+        next_cursor: z.ZodNullable<z.ZodString>;
+        number: z.ZodNumber;
+        part: z.ZodLiteral<"checks">;
+        repository: z.ZodString;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>], "part">;
+  GITHUB_DETAIL_PAGE_SIZE (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_PAGE_SIZE: 30;
+  GITHUB_DETAIL_PARTS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_DETAIL_PARTS: readonly ["comments", "reviews", "review-comments", "commits", "files", "checks"];
+  GITHUB_ERROR_CODES (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ERROR_CODES: readonly ["invalid_input", "unavailable", "not_found", "forbidden", "rate_limited", "upstream_error", "policy_denied", "approval_declined"];
+  GITHUB_ERROR_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ERROR_SCHEMA: z.ZodObject<{
+        code: z.ZodEnum<{
+            approval_declined: "approval_declined";
+            forbidden: "forbidden";
+            invalid_input: "invalid_input";
+            not_found: "not_found";
+            policy_denied: "policy_denied";
+            rate_limited: "rate_limited";
+            unavailable: "unavailable";
+            upstream_error: "upstream_error";
+        }>;
+        message: z.ZodString;
+        reason: z.ZodNullable<z.ZodString>;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_COMMENT_CONTRACT (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_COMMENT_CONTRACT: ToolContract<"brain_github_issue_comment", z.ZodObject<{
+        body: z.ZodString;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+    }, z.core.$strict>>;
+  GITHUB_ISSUE_COMMENT_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_COMMENT_INPUT_SCHEMA: z.ZodObject<{
+        body: z.ZodString;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA: z.ZodObject<{
+        comment_id: z.ZodNumber;
+        created_at: z.ZodISODateTime;
+        html_url: z.ZodNullable<z.ZodURL>;
+        kind: z.ZodLiteral<"comment_created">;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_CREATE_CONTRACT (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_CREATE_CONTRACT: ToolContract<"brain_github_issue_create", z.ZodObject<{
+        body: z.ZodOptional<z.ZodString>;
+        labels: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        repository: z.ZodString;
+        title: z.ZodString;
+    }, z.core.$strict>>;
+  GITHUB_ISSUE_CREATE_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_CREATE_INPUT_SCHEMA: z.ZodObject<{
+        body: z.ZodOptional<z.ZodString>;
+        labels: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        repository: z.ZodString;
+        title: z.ZodString;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA: z.ZodObject<{
+        created_at: z.ZodISODateTime;
+        html_url: z.ZodNullable<z.ZodURL>;
+        kind: z.ZodLiteral<"issue_created">;
+        labels: z.ZodArray<z.ZodString>;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+        title: z.ZodString;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_READ_CONTRACT (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_READ_CONTRACT: ToolContract<"brain_github_issue_read", z.ZodObject<{
+        number: z.ZodNumber;
+        repository: z.ZodString;
+    }, z.core.$strict>>;
+  GITHUB_ISSUE_READ_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_READ_INPUT_SCHEMA: z.ZodObject<{
+        number: z.ZodNumber;
+        repository: z.ZodString;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_READ_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_READ_PAYLOAD_SCHEMA: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        closed_at: z.ZodNullable<z.ZodISODateTime>;
+        comments: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                created_at: z.ZodISODateTime;
+                html_url: z.ZodNullable<z.ZodURL>;
+                id: z.ZodNumber;
+                updated_at: z.ZodISODateTime;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        created_at: z.ZodISODateTime;
+        fetched_at: z.ZodISODateTime;
+        html_url: z.ZodNullable<z.ZodURL>;
+        kind: z.ZodLiteral<"issue">;
+        labels: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                color: z.ZodNullable<z.ZodString>;
+                description: z.ZodNullable<z.ZodString>;
+                name: z.ZodString;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        locked: z.ZodBoolean;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+        state: z.ZodEnum<{
+            closed: "closed";
+            open: "open";
+        }>;
+        state_reason: z.ZodNullable<z.ZodEnum<{
+            completed: "completed";
+            duplicate: "duplicate";
+            not_planned: "not_planned";
+            reopened: "reopened";
+        }>>;
+        title: z.ZodString;
+        title_truncated: z.ZodBoolean;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>, z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        base_ref: z.ZodString;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        changes: z.ZodObject<{
+            additions: z.ZodNumber;
+            changed_files: z.ZodNumber;
+            deletions: z.ZodNumber;
+        }, z.core.$strict>;
+        checks: z.ZodNullable<z.ZodObject<{
+            failed: z.ZodNumber;
+            passed: z.ZodNumber;
+            running: z.ZodNumber;
+            skipped: z.ZodNumber;
+        }, z.core.$strict>>;
+        closed_at: z.ZodNullable<z.ZodISODateTime>;
+        comments: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                created_at: z.ZodISODateTime;
+                html_url: z.ZodNullable<z.ZodURL>;
+                id: z.ZodNumber;
+                updated_at: z.ZodISODateTime;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        commits: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodNullable<z.ZodObject<{
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>>;
+                author_name: z.ZodNullable<z.ZodString>;
+                authored_at: z.ZodNullable<z.ZodISODateTime>;
+                html_url: z.ZodNullable<z.ZodURL>;
+                message: z.ZodString;
+                message_truncated: z.ZodBoolean;
+                sha: z.ZodString;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        created_at: z.ZodISODateTime;
+        draft: z.ZodBoolean;
+        fetched_at: z.ZodISODateTime;
+        head_ref: z.ZodString;
+        html_url: z.ZodNullable<z.ZodURL>;
+        kind: z.ZodLiteral<"pull_request">;
+        labels: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                color: z.ZodNullable<z.ZodString>;
+                description: z.ZodNullable<z.ZodString>;
+                name: z.ZodString;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        locked: z.ZodBoolean;
+        merge_commit_sha: z.ZodNullable<z.ZodString>;
+        merged: z.ZodBoolean;
+        merged_at: z.ZodNullable<z.ZodISODateTime>;
+        merged_by: z.ZodNullable<z.ZodObject<{
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+        requested_reviewers: z.ZodArray<z.ZodObject<{
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        review_decisions: z.ZodArray<z.ZodObject<{
+            reviewer: z.ZodObject<{
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            state: z.ZodEnum<{
+                approved: "approved";
+                changes_requested: "changes_requested";
+                commented: "commented";
+                dismissed: "dismissed";
+                pending: "pending";
+            }>;
+            submitted_at: z.ZodNullable<z.ZodISODateTime>;
+        }, z.core.$strict>>;
+        reviews: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                html_url: z.ZodNullable<z.ZodURL>;
+                id: z.ZodNumber;
+                state: z.ZodEnum<{
+                    approved: "approved";
+                    changes_requested: "changes_requested";
+                    commented: "commented";
+                    dismissed: "dismissed";
+                    pending: "pending";
+                }>;
+                submitted_at: z.ZodNullable<z.ZodISODateTime>;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        state: z.ZodEnum<{
+            closed: "closed";
+            open: "open";
+        }>;
+        state_reason: z.ZodNullable<z.ZodEnum<{
+            completed: "completed";
+            duplicate: "duplicate";
+            not_planned: "not_planned";
+            reopened: "reopened";
+        }>>;
+        title: z.ZodString;
+        title_truncated: z.ZodBoolean;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>], "kind">;
+  GITHUB_ISSUE_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_SCHEMA: z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        closed_at: z.ZodNullable<z.ZodISODateTime>;
+        comments: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                created_at: z.ZodISODateTime;
+                html_url: z.ZodNullable<z.ZodURL>;
+                id: z.ZodNumber;
+                updated_at: z.ZodISODateTime;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        created_at: z.ZodISODateTime;
+        fetched_at: z.ZodISODateTime;
+        html_url: z.ZodNullable<z.ZodURL>;
+        kind: z.ZodLiteral<"issue">;
+        labels: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                color: z.ZodNullable<z.ZodString>;
+                description: z.ZodNullable<z.ZodString>;
+                name: z.ZodString;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        locked: z.ZodBoolean;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+        state: z.ZodEnum<{
+            closed: "closed";
+            open: "open";
+        }>;
+        state_reason: z.ZodNullable<z.ZodEnum<{
+            completed: "completed";
+            duplicate: "duplicate";
+            not_planned: "not_planned";
+            reopened: "reopened";
+        }>>;
+        title: z.ZodString;
+        title_truncated: z.ZodBoolean;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_SEARCH_CONTRACT (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_SEARCH_CONTRACT: ToolContract<"brain_github_issue_search", z.ZodObject<{
+        kind: z.ZodDefault<z.ZodEnum<{
+            any: "any";
+            issue: "issue";
+            pull_request: "pull_request";
+        }>>;
+        limit: z.ZodDefault<z.ZodNumber>;
+        query: z.ZodString;
+        repository: z.ZodString;
+        state: z.ZodDefault<z.ZodEnum<{
+            any: "any";
+            closed: "closed";
+            open: "open";
+        }>>;
+    }, z.core.$strict>>;
+  GITHUB_ISSUE_SEARCH_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_SEARCH_INPUT_SCHEMA: z.ZodObject<{
+        kind: z.ZodDefault<z.ZodEnum<{
+            any: "any";
+            issue: "issue";
+            pull_request: "pull_request";
+        }>>;
+        limit: z.ZodDefault<z.ZodNumber>;
+        query: z.ZodString;
+        repository: z.ZodString;
+        state: z.ZodDefault<z.ZodEnum<{
+            any: "any";
+            closed: "closed";
+            open: "open";
+        }>>;
+    }, z.core.$strict>;
+  GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA: z.ZodObject<{
+        fetched_at: z.ZodISODateTime;
+        has_more: z.ZodBoolean;
+        incomplete_results: z.ZodBoolean;
+        items: z.ZodArray<z.ZodObject<{
+            author: z.ZodObject<{
+                author_association: z.ZodNullable<z.ZodEnum<{
+                    COLLABORATOR: "COLLABORATOR";
+                    CONTRIBUTOR: "CONTRIBUTOR";
+                    FIRST_TIMER: "FIRST_TIMER";
+                    FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                    MANNEQUIN: "MANNEQUIN";
+                    MEMBER: "MEMBER";
+                    NONE: "NONE";
+                    OWNER: "OWNER";
+                }>>;
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            comments: z.ZodNumber;
+            created_at: z.ZodISODateTime;
+            draft: z.ZodNullable<z.ZodBoolean>;
+            excerpt: z.ZodNullable<z.ZodString>;
+            html_url: z.ZodNullable<z.ZodURL>;
+            kind: z.ZodEnum<{
+                issue: "issue";
+                pull_request: "pull_request";
+            }>;
+            labels: z.ZodObject<{
+                has_more: z.ZodBoolean;
+                items: z.ZodArray<z.ZodObject<{
+                    color: z.ZodNullable<z.ZodString>;
+                    description: z.ZodNullable<z.ZodString>;
+                    name: z.ZodString;
+                }, z.core.$strict>>;
+                total_count: z.ZodNullable<z.ZodNumber>;
+            }, z.core.$strict>;
+            merged_at: z.ZodNullable<z.ZodISODateTime>;
+            number: z.ZodNumber;
+            state: z.ZodEnum<{
+                closed: "closed";
+                open: "open";
+            }>;
+            state_reason: z.ZodNullable<z.ZodEnum<{
+                completed: "completed";
+                duplicate: "duplicate";
+                not_planned: "not_planned";
+                reopened: "reopened";
+            }>>;
+            title: z.ZodString;
+            updated_at: z.ZodISODateTime;
+        }, z.core.$strict>>;
+        kind: z.ZodLiteral<"search">;
+        query: z.ZodString;
+        repository: z.ZodString;
+        search_query: z.ZodString;
+        search_url: z.ZodNullable<z.ZodURL>;
+        total_count: z.ZodNumber;
+    }, z.core.$strict>;
+  GITHUB_LABEL_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_LABEL_SCHEMA: z.ZodObject<{
+        color: z.ZodNullable<z.ZodString>;
+        description: z.ZodNullable<z.ZodString>;
+        name: z.ZodString;
+    }, z.core.$strict>;
+  GITHUB_LIMITS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_LIMITS: Readonly<{
+        bodyChars: 20000;
+        commentBodyChars: 4000;
+        comments: 30;
+        commitMessageChars: 1000;
+        commits: 30;
+        excerptChars: 280;
+        labelDescriptionChars: 300;
+        labelNameChars: 100;
+        labels: 30;
+        queryChars: 256;
+        refChars: 255;
+        requestedReviewers: 30;
+        reviews: 100;
+        searchDefault: 10;
+        searchMax: 30;
+        titleChars: 1000;
+        writeBodyChars: 65536;
+        writeLabels: 10;
+        writeTitleChars: 256;
+    }>;
+  GITHUB_OWNER_PATTERN (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_OWNER_PATTERN: RegExp;
+  GITHUB_PULL_REQUEST_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_PULL_REQUEST_SCHEMA: z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        base_ref: z.ZodString;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        changes: z.ZodObject<{
+            additions: z.ZodNumber;
+            changed_files: z.ZodNumber;
+            deletions: z.ZodNumber;
+        }, z.core.$strict>;
+        checks: z.ZodNullable<z.ZodObject<{
+            failed: z.ZodNumber;
+            passed: z.ZodNumber;
+            running: z.ZodNumber;
+            skipped: z.ZodNumber;
+        }, z.core.$strict>>;
+        closed_at: z.ZodNullable<z.ZodISODateTime>;
+        comments: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                created_at: z.ZodISODateTime;
+                html_url: z.ZodNullable<z.ZodURL>;
+                id: z.ZodNumber;
+                updated_at: z.ZodISODateTime;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        commits: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodNullable<z.ZodObject<{
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>>;
+                author_name: z.ZodNullable<z.ZodString>;
+                authored_at: z.ZodNullable<z.ZodISODateTime>;
+                html_url: z.ZodNullable<z.ZodURL>;
+                message: z.ZodString;
+                message_truncated: z.ZodBoolean;
+                sha: z.ZodString;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        created_at: z.ZodISODateTime;
+        draft: z.ZodBoolean;
+        fetched_at: z.ZodISODateTime;
+        head_ref: z.ZodString;
+        html_url: z.ZodNullable<z.ZodURL>;
+        kind: z.ZodLiteral<"pull_request">;
+        labels: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                color: z.ZodNullable<z.ZodString>;
+                description: z.ZodNullable<z.ZodString>;
+                name: z.ZodString;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        locked: z.ZodBoolean;
+        merge_commit_sha: z.ZodNullable<z.ZodString>;
+        merged: z.ZodBoolean;
+        merged_at: z.ZodNullable<z.ZodISODateTime>;
+        merged_by: z.ZodNullable<z.ZodObject<{
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+        requested_reviewers: z.ZodArray<z.ZodObject<{
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>>;
+        review_decisions: z.ZodArray<z.ZodObject<{
+            reviewer: z.ZodObject<{
+                is_bot: z.ZodBoolean;
+                login: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            state: z.ZodEnum<{
+                approved: "approved";
+                changes_requested: "changes_requested";
+                commented: "commented";
+                dismissed: "dismissed";
+                pending: "pending";
+            }>;
+            submitted_at: z.ZodNullable<z.ZodISODateTime>;
+        }, z.core.$strict>>;
+        reviews: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                html_url: z.ZodNullable<z.ZodURL>;
+                id: z.ZodNumber;
+                state: z.ZodEnum<{
+                    approved: "approved";
+                    changes_requested: "changes_requested";
+                    commented: "commented";
+                    dismissed: "dismissed";
+                    pending: "pending";
+                }>;
+                submitted_at: z.ZodNullable<z.ZodISODateTime>;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        state: z.ZodEnum<{
+            closed: "closed";
+            open: "open";
+        }>;
+        state_reason: z.ZodNullable<z.ZodEnum<{
+            completed: "completed";
+            duplicate: "duplicate";
+            not_planned: "not_planned";
+            reopened: "reopened";
+        }>>;
+        title: z.ZodString;
+        title_truncated: z.ZodBoolean;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>;
+  GITHUB_READ_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_READ_TOOL_CONTRACTS: readonly ToolContract<GithubReadToolName>[];
+  GITHUB_READ_TOOL_NAMES (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_READ_TOOL_NAMES: readonly GithubReadToolName[];
+  GITHUB_REPO_PATTERN (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_REPO_PATTERN: RegExp;
+  GITHUB_RESULT_SCHEMAS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_RESULT_SCHEMAS: {
+        readonly brain_github_issue_comment: z.ZodUnion<readonly [z.ZodObject<{
+            ok: z.ZodLiteral<true>;
+            result: z.ZodObject<{
+                comment_id: z.ZodNumber;
+                created_at: z.ZodISODateTime;
+                html_url: z.ZodNullable<z.ZodURL>;
+                kind: z.ZodLiteral<"comment_created">;
+                number: z.ZodNumber;
+                repository: z.ZodString;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_github_issue_comment">;
+        }, z.core.$strict>, z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_github_issue_comment: "brain_github_issue_comment";
+                brain_github_issue_create: "brain_github_issue_create";
+                brain_github_issue_read: "brain_github_issue_read";
+                brain_github_issue_search: "brain_github_issue_search";
+            }>;
+        }, z.core.$strict>]>;
+        readonly brain_github_issue_create: z.ZodUnion<readonly [z.ZodObject<{
+            ok: z.ZodLiteral<true>;
+            result: z.ZodObject<{
+                created_at: z.ZodISODateTime;
+                html_url: z.ZodNullable<z.ZodURL>;
+                kind: z.ZodLiteral<"issue_created">;
+                labels: z.ZodArray<z.ZodString>;
+                number: z.ZodNumber;
+                repository: z.ZodString;
+                title: z.ZodString;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_github_issue_create">;
+        }, z.core.$strict>, z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_github_issue_comment: "brain_github_issue_comment";
+                brain_github_issue_create: "brain_github_issue_create";
+                brain_github_issue_read: "brain_github_issue_read";
+                brain_github_issue_search: "brain_github_issue_search";
+            }>;
+        }, z.core.$strict>]>;
+        readonly brain_github_issue_read: z.ZodUnion<readonly [z.ZodObject<{
+            ok: z.ZodLiteral<true>;
+            result: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                closed_at: z.ZodNullable<z.ZodISODateTime>;
+                comments: z.ZodObject<{
+                    has_more: z.ZodBoolean;
+                    items: z.ZodArray<z.ZodObject<{
+                        author: z.ZodObject<{
+                            author_association: z.ZodNullable<z.ZodEnum<{
+                                COLLABORATOR: "COLLABORATOR";
+                                CONTRIBUTOR: "CONTRIBUTOR";
+                                FIRST_TIMER: "FIRST_TIMER";
+                                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                                MANNEQUIN: "MANNEQUIN";
+                                MEMBER: "MEMBER";
+                                NONE: "NONE";
+                                OWNER: "OWNER";
+                            }>>;
+                            is_bot: z.ZodBoolean;
+                            login: z.ZodNullable<z.ZodString>;
+                        }, z.core.$strict>;
+                        body: z.ZodNullable<z.ZodString>;
+                        body_length: z.ZodNumber;
+                        body_truncated: z.ZodBoolean;
+                        created_at: z.ZodISODateTime;
+                        html_url: z.ZodNullable<z.ZodURL>;
+                        id: z.ZodNumber;
+                        updated_at: z.ZodISODateTime;
+                    }, z.core.$strict>>;
+                    total_count: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>;
+                created_at: z.ZodISODateTime;
+                fetched_at: z.ZodISODateTime;
+                html_url: z.ZodNullable<z.ZodURL>;
+                kind: z.ZodLiteral<"issue">;
+                labels: z.ZodObject<{
+                    has_more: z.ZodBoolean;
+                    items: z.ZodArray<z.ZodObject<{
+                        color: z.ZodNullable<z.ZodString>;
+                        description: z.ZodNullable<z.ZodString>;
+                        name: z.ZodString;
+                    }, z.core.$strict>>;
+                    total_count: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>;
+                locked: z.ZodBoolean;
+                number: z.ZodNumber;
+                repository: z.ZodString;
+                state: z.ZodEnum<{
+                    closed: "closed";
+                    open: "open";
+                }>;
+                state_reason: z.ZodNullable<z.ZodEnum<{
+                    completed: "completed";
+                    duplicate: "duplicate";
+                    not_planned: "not_planned";
+                    reopened: "reopened";
+                }>>;
+                title: z.ZodString;
+                title_truncated: z.ZodBoolean;
+                updated_at: z.ZodISODateTime;
+            }, z.core.$strict>, z.ZodObject<{
+                author: z.ZodObject<{
+                    author_association: z.ZodNullable<z.ZodEnum<{
+                        COLLABORATOR: "COLLABORATOR";
+                        CONTRIBUTOR: "CONTRIBUTOR";
+                        FIRST_TIMER: "FIRST_TIMER";
+                        FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                        MANNEQUIN: "MANNEQUIN";
+                        MEMBER: "MEMBER";
+                        NONE: "NONE";
+                        OWNER: "OWNER";
+                    }>>;
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>;
+                base_ref: z.ZodString;
+                body: z.ZodNullable<z.ZodString>;
+                body_length: z.ZodNumber;
+                body_truncated: z.ZodBoolean;
+                changes: z.ZodObject<{
+                    additions: z.ZodNumber;
+                    changed_files: z.ZodNumber;
+                    deletions: z.ZodNumber;
+                }, z.core.$strict>;
+                checks: z.ZodNullable<z.ZodObject<{
+                    failed: z.ZodNumber;
+                    passed: z.ZodNumber;
+                    running: z.ZodNumber;
+                    skipped: z.ZodNumber;
+                }, z.core.$strict>>;
+                closed_at: z.ZodNullable<z.ZodISODateTime>;
+                comments: z.ZodObject<{
+                    has_more: z.ZodBoolean;
+                    items: z.ZodArray<z.ZodObject<{
+                        author: z.ZodObject<{
+                            author_association: z.ZodNullable<z.ZodEnum<{
+                                COLLABORATOR: "COLLABORATOR";
+                                CONTRIBUTOR: "CONTRIBUTOR";
+                                FIRST_TIMER: "FIRST_TIMER";
+                                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                                MANNEQUIN: "MANNEQUIN";
+                                MEMBER: "MEMBER";
+                                NONE: "NONE";
+                                OWNER: "OWNER";
+                            }>>;
+                            is_bot: z.ZodBoolean;
+                            login: z.ZodNullable<z.ZodString>;
+                        }, z.core.$strict>;
+                        body: z.ZodNullable<z.ZodString>;
+                        body_length: z.ZodNumber;
+                        body_truncated: z.ZodBoolean;
+                        created_at: z.ZodISODateTime;
+                        html_url: z.ZodNullable<z.ZodURL>;
+                        id: z.ZodNumber;
+                        updated_at: z.ZodISODateTime;
+                    }, z.core.$strict>>;
+                    total_count: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>;
+                commits: z.ZodObject<{
+                    has_more: z.ZodBoolean;
+                    items: z.ZodArray<z.ZodObject<{
+                        author: z.ZodNullable<z.ZodObject<{
+                            is_bot: z.ZodBoolean;
+                            login: z.ZodNullable<z.ZodString>;
+                        }, z.core.$strict>>;
+                        author_name: z.ZodNullable<z.ZodString>;
+                        authored_at: z.ZodNullable<z.ZodISODateTime>;
+                        html_url: z.ZodNullable<z.ZodURL>;
+                        message: z.ZodString;
+                        message_truncated: z.ZodBoolean;
+                        sha: z.ZodString;
+                    }, z.core.$strict>>;
+                    total_count: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>;
+                created_at: z.ZodISODateTime;
+                draft: z.ZodBoolean;
+                fetched_at: z.ZodISODateTime;
+                head_ref: z.ZodString;
+                html_url: z.ZodNullable<z.ZodURL>;
+                kind: z.ZodLiteral<"pull_request">;
+                labels: z.ZodObject<{
+                    has_more: z.ZodBoolean;
+                    items: z.ZodArray<z.ZodObject<{
+                        color: z.ZodNullable<z.ZodString>;
+                        description: z.ZodNullable<z.ZodString>;
+                        name: z.ZodString;
+                    }, z.core.$strict>>;
+                    total_count: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>;
+                locked: z.ZodBoolean;
+                merge_commit_sha: z.ZodNullable<z.ZodString>;
+                merged: z.ZodBoolean;
+                merged_at: z.ZodNullable<z.ZodISODateTime>;
+                merged_by: z.ZodNullable<z.ZodObject<{
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>>;
+                number: z.ZodNumber;
+                repository: z.ZodString;
+                requested_reviewers: z.ZodArray<z.ZodObject<{
+                    is_bot: z.ZodBoolean;
+                    login: z.ZodNullable<z.ZodString>;
+                }, z.core.$strict>>;
+                review_decisions: z.ZodArray<z.ZodObject<{
+                    reviewer: z.ZodObject<{
+                        is_bot: z.ZodBoolean;
+                        login: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>;
+                    state: z.ZodEnum<{
+                        approved: "approved";
+                        changes_requested: "changes_requested";
+                        commented: "commented";
+                        dismissed: "dismissed";
+                        pending: "pending";
+                    }>;
+                    submitted_at: z.ZodNullable<z.ZodISODateTime>;
+                }, z.core.$strict>>;
+                reviews: z.ZodObject<{
+                    has_more: z.ZodBoolean;
+                    items: z.ZodArray<z.ZodObject<{
+                        author: z.ZodObject<{
+                            author_association: z.ZodNullable<z.ZodEnum<{
+                                COLLABORATOR: "COLLABORATOR";
+                                CONTRIBUTOR: "CONTRIBUTOR";
+                                FIRST_TIMER: "FIRST_TIMER";
+                                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                                MANNEQUIN: "MANNEQUIN";
+                                MEMBER: "MEMBER";
+                                NONE: "NONE";
+                                OWNER: "OWNER";
+                            }>>;
+                            is_bot: z.ZodBoolean;
+                            login: z.ZodNullable<z.ZodString>;
+                        }, z.core.$strict>;
+                        body: z.ZodNullable<z.ZodString>;
+                        body_length: z.ZodNumber;
+                        body_truncated: z.ZodBoolean;
+                        html_url: z.ZodNullable<z.ZodURL>;
+                        id: z.ZodNumber;
+                        state: z.ZodEnum<{
+                            approved: "approved";
+                            changes_requested: "changes_requested";
+                            commented: "commented";
+                            dismissed: "dismissed";
+                            pending: "pending";
+                        }>;
+                        submitted_at: z.ZodNullable<z.ZodISODateTime>;
+                    }, z.core.$strict>>;
+                    total_count: z.ZodNullable<z.ZodNumber>;
+                }, z.core.$strict>;
+                state: z.ZodEnum<{
+                    closed: "closed";
+                    open: "open";
+                }>;
+                state_reason: z.ZodNullable<z.ZodEnum<{
+                    completed: "completed";
+                    duplicate: "duplicate";
+                    not_planned: "not_planned";
+                    reopened: "reopened";
+                }>>;
+                title: z.ZodString;
+                title_truncated: z.ZodBoolean;
+                updated_at: z.ZodISODateTime;
+            }, z.core.$strict>], "kind">;
+            tool: z.ZodLiteral<"brain_github_issue_read">;
+        }, z.core.$strict>, z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_github_issue_comment: "brain_github_issue_comment";
+                brain_github_issue_create: "brain_github_issue_create";
+                brain_github_issue_read: "brain_github_issue_read";
+                brain_github_issue_search: "brain_github_issue_search";
+            }>;
+        }, z.core.$strict>]>;
+        readonly brain_github_issue_search: z.ZodUnion<readonly [z.ZodObject<{
+            ok: z.ZodLiteral<true>;
+            result: z.ZodObject<{
+                fetched_at: z.ZodISODateTime;
+                has_more: z.ZodBoolean;
+                incomplete_results: z.ZodBoolean;
+                items: z.ZodArray<z.ZodObject<{
+                    author: z.ZodObject<{
+                        author_association: z.ZodNullable<z.ZodEnum<{
+                            COLLABORATOR: "COLLABORATOR";
+                            CONTRIBUTOR: "CONTRIBUTOR";
+                            FIRST_TIMER: "FIRST_TIMER";
+                            FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                            MANNEQUIN: "MANNEQUIN";
+                            MEMBER: "MEMBER";
+                            NONE: "NONE";
+                            OWNER: "OWNER";
+                        }>>;
+                        is_bot: z.ZodBoolean;
+                        login: z.ZodNullable<z.ZodString>;
+                    }, z.core.$strict>;
+                    comments: z.ZodNumber;
+                    created_at: z.ZodISODateTime;
+                    draft: z.ZodNullable<z.ZodBoolean>;
+                    excerpt: z.ZodNullable<z.ZodString>;
+                    html_url: z.ZodNullable<z.ZodURL>;
+                    kind: z.ZodEnum<{
+                        issue: "issue";
+                        pull_request: "pull_request";
+                    }>;
+                    labels: z.ZodObject<{
+                        has_more: z.ZodBoolean;
+                        items: z.ZodArray<z.ZodObject<{
+                            color: z.ZodNullable<z.ZodString>;
+                            description: z.ZodNullable<z.ZodString>;
+                            name: z.ZodString;
+                        }, z.core.$strict>>;
+                        total_count: z.ZodNullable<z.ZodNumber>;
+                    }, z.core.$strict>;
+                    merged_at: z.ZodNullable<z.ZodISODateTime>;
+                    number: z.ZodNumber;
+                    state: z.ZodEnum<{
+                        closed: "closed";
+                        open: "open";
+                    }>;
+                    state_reason: z.ZodNullable<z.ZodEnum<{
+                        completed: "completed";
+                        duplicate: "duplicate";
+                        not_planned: "not_planned";
+                        reopened: "reopened";
+                    }>>;
+                    title: z.ZodString;
+                    updated_at: z.ZodISODateTime;
+                }, z.core.$strict>>;
+                kind: z.ZodLiteral<"search">;
+                query: z.ZodString;
+                repository: z.ZodString;
+                search_query: z.ZodString;
+                search_url: z.ZodNullable<z.ZodURL>;
+                total_count: z.ZodNumber;
+            }, z.core.$strict>;
+            tool: z.ZodLiteral<"brain_github_issue_search">;
+        }, z.core.$strict>, z.ZodObject<{
+            error: z.ZodObject<{
+                code: z.ZodEnum<{
+                    approval_declined: "approval_declined";
+                    forbidden: "forbidden";
+                    invalid_input: "invalid_input";
+                    not_found: "not_found";
+                    policy_denied: "policy_denied";
+                    rate_limited: "rate_limited";
+                    unavailable: "unavailable";
+                    upstream_error: "upstream_error";
+                }>;
+                message: z.ZodString;
+                reason: z.ZodNullable<z.ZodString>;
+            }, z.core.$strict>;
+            ok: z.ZodLiteral<false>;
+            tool: z.ZodEnum<{
+                brain_github_issue_comment: "brain_github_issue_comment";
+                brain_github_issue_create: "brain_github_issue_create";
+                brain_github_issue_read: "brain_github_issue_read";
+                brain_github_issue_search: "brain_github_issue_search";
+            }>;
+        }, z.core.$strict>]>;
+    };
+  GITHUB_REVIEW_COMMENT_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_REVIEW_COMMENT_SCHEMA: z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        created_at: z.ZodISODateTime;
+        html_url: z.ZodNullable<z.ZodURL>;
+        id: z.ZodNumber;
+        in_reply_to_id: z.ZodNullable<z.ZodNumber>;
+        line: z.ZodNullable<z.ZodNumber>;
+        path: z.ZodString;
+        review_id: z.ZodNullable<z.ZodNumber>;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>;
+  GITHUB_REVIEW_DECISION_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_REVIEW_DECISION_SCHEMA: z.ZodObject<{
+        reviewer: z.ZodObject<{
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        state: z.ZodEnum<{
+            approved: "approved";
+            changes_requested: "changes_requested";
+            commented: "commented";
+            dismissed: "dismissed";
+            pending: "pending";
+        }>;
+        submitted_at: z.ZodNullable<z.ZodISODateTime>;
+    }, z.core.$strict>;
+  GITHUB_REVIEW_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_REVIEW_SCHEMA: z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        body: z.ZodNullable<z.ZodString>;
+        body_length: z.ZodNumber;
+        body_truncated: z.ZodBoolean;
+        html_url: z.ZodNullable<z.ZodURL>;
+        id: z.ZodNumber;
+        state: z.ZodEnum<{
+            approved: "approved";
+            changes_requested: "changes_requested";
+            commented: "commented";
+            dismissed: "dismissed";
+            pending: "pending";
+        }>;
+        submitted_at: z.ZodNullable<z.ZodISODateTime>;
+    }, z.core.$strict>;
+  GITHUB_REVIEW_STATES (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_REVIEW_STATES: readonly ["approved", "changes_requested", "commented", "dismissed", "pending"];
+  GITHUB_SEARCH_ITEM_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_SEARCH_ITEM_SCHEMA: z.ZodObject<{
+        author: z.ZodObject<{
+            author_association: z.ZodNullable<z.ZodEnum<{
+                COLLABORATOR: "COLLABORATOR";
+                CONTRIBUTOR: "CONTRIBUTOR";
+                FIRST_TIMER: "FIRST_TIMER";
+                FIRST_TIME_CONTRIBUTOR: "FIRST_TIME_CONTRIBUTOR";
+                MANNEQUIN: "MANNEQUIN";
+                MEMBER: "MEMBER";
+                NONE: "NONE";
+                OWNER: "OWNER";
+            }>>;
+            is_bot: z.ZodBoolean;
+            login: z.ZodNullable<z.ZodString>;
+        }, z.core.$strict>;
+        comments: z.ZodNumber;
+        created_at: z.ZodISODateTime;
+        draft: z.ZodNullable<z.ZodBoolean>;
+        excerpt: z.ZodNullable<z.ZodString>;
+        html_url: z.ZodNullable<z.ZodURL>;
+        kind: z.ZodEnum<{
+            issue: "issue";
+            pull_request: "pull_request";
+        }>;
+        labels: z.ZodObject<{
+            has_more: z.ZodBoolean;
+            items: z.ZodArray<z.ZodObject<{
+                color: z.ZodNullable<z.ZodString>;
+                description: z.ZodNullable<z.ZodString>;
+                name: z.ZodString;
+            }, z.core.$strict>>;
+            total_count: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        merged_at: z.ZodNullable<z.ZodISODateTime>;
+        number: z.ZodNumber;
+        state: z.ZodEnum<{
+            closed: "closed";
+            open: "open";
+        }>;
+        state_reason: z.ZodNullable<z.ZodEnum<{
+            completed: "completed";
+            duplicate: "duplicate";
+            not_planned: "not_planned";
+            reopened: "reopened";
+        }>>;
+        title: z.ZodString;
+        updated_at: z.ZodISODateTime;
+    }, z.core.$strict>;
+  GITHUB_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_TOOL_CONTRACTS: readonly [ToolContract<"brain_github_issue_read", z.ZodObject<{
+        number: z.ZodNumber;
+        repository: z.ZodString;
+    }, z.core.$strict>>, ToolContract<"brain_github_issue_search", z.ZodObject<{
+        kind: z.ZodDefault<z.ZodEnum<{
+            any: "any";
+            issue: "issue";
+            pull_request: "pull_request";
+        }>>;
+        limit: z.ZodDefault<z.ZodNumber>;
+        query: z.ZodString;
+        repository: z.ZodString;
+        state: z.ZodDefault<z.ZodEnum<{
+            any: "any";
+            closed: "closed";
+            open: "open";
+        }>>;
+    }, z.core.$strict>>, ToolContract<"brain_github_issue_create", z.ZodObject<{
+        body: z.ZodOptional<z.ZodString>;
+        labels: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        repository: z.ZodString;
+        title: z.ZodString;
+    }, z.core.$strict>>, ToolContract<"brain_github_issue_comment", z.ZodObject<{
+        body: z.ZodString;
+        number: z.ZodNumber;
+        repository: z.ZodString;
+    }, z.core.$strict>>];
+  GITHUB_TOOL_NAMES (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_TOOL_NAMES: {
+        readonly comment: "brain_github_issue_comment";
+        readonly create: "brain_github_issue_create";
+        readonly read: "brain_github_issue_read";
+        readonly search: "brain_github_issue_search";
+    };
+  GITHUB_TOOL_NAME_LIST (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_TOOL_NAME_LIST: readonly GithubToolName[];
+  GITHUB_USER_SCHEMA (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_USER_SCHEMA: z.ZodObject<{
+        is_bot: z.ZodBoolean;
+        login: z.ZodNullable<z.ZodString>;
+    }, z.core.$strict>;
+  GITHUB_WEB_ORIGIN (packages/ui-sdk/src/tool-contracts/github.ts)
+    const GITHUB_WEB_ORIGIN: "https://github.com";
   GeoConfig (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoConfigInput (packages/geo/src/config.ts) recorded in api-report/geo.txt
   GeoCoords (packages/ui-sdk/src/protocol.ts)
@@ -7895,6 +9771,118 @@ signatures (every public export and the types it is made of)
     export type GetCurrentLocationInput = z.infer<typeof GET_CURRENT_LOCATION_INPUT_SCHEMA>;
   GetSearchContentInput (packages/ui-sdk/src/tool-contracts/web.ts)
     export type GetSearchContentInput = z.infer<typeof GET_SEARCH_CONTENT_INPUT_SCHEMA>;
+  GithubAuthor (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubAuthor = z.infer<typeof GITHUB_AUTHOR_SCHEMA>;
+  GithubChangedFile (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubChangedFile = z.infer<typeof GITHUB_CHANGED_FILE_SCHEMA>;
+  GithubCheckRun (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubCheckRun = z.infer<typeof GITHUB_CHECK_RUN_SCHEMA>;
+  GithubChecks (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubChecks = z.infer<typeof GITHUB_CHECKS_SCHEMA>;
+  GithubComment (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubComment = z.infer<typeof GITHUB_COMMENT_SCHEMA>;
+  GithubCommit (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubCommit = z.infer<typeof GITHUB_COMMIT_SCHEMA>;
+  GithubDetailError (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubDetailError = z.infer<typeof GITHUB_DETAIL_ERROR_SCHEMA>;
+  GithubDetailPage (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubDetailPage = z.infer<typeof GITHUB_DETAIL_PAGE_SCHEMA>;
+  GithubDetailPart (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubDetailPart = (typeof GITHUB_DETAIL_PARTS)[number];
+  GithubError (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubError = z.infer<typeof GITHUB_ERROR_SCHEMA>;
+  GithubErrorCode (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubErrorCode = (typeof GITHUB_ERROR_CODES)[number];
+  GithubIssue (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssue = z.infer<typeof GITHUB_ISSUE_SCHEMA>;
+  GithubIssueCommentInput (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueCommentInput = z.infer<typeof GITHUB_ISSUE_COMMENT_INPUT_SCHEMA>;
+  GithubIssueCommentPayload (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueCommentPayload = z.infer<typeof GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA>;
+  GithubIssueCreateInput (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueCreateInput = z.infer<typeof GITHUB_ISSUE_CREATE_INPUT_SCHEMA>;
+  GithubIssueCreatePayload (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueCreatePayload = z.infer<typeof GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA>;
+  GithubIssueReadInput (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueReadInput = z.infer<typeof GITHUB_ISSUE_READ_INPUT_SCHEMA>;
+  GithubIssueReadPayload (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueReadPayload = z.infer<typeof GITHUB_ISSUE_READ_PAYLOAD_SCHEMA>;
+  GithubIssueSearchInput (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueSearchInput = z.infer<typeof GITHUB_ISSUE_SEARCH_INPUT_SCHEMA>;
+  GithubIssueSearchPayload (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubIssueSearchPayload = z.infer<typeof GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA>;
+  GithubLabel (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubLabel = z.infer<typeof GITHUB_LABEL_SCHEMA>;
+  GithubLinkScope (packages/ui-sdk/src/tool-contracts/github.ts)
+    export interface GithubLinkScope {
+        owner: string;
+        repo: string;
+        number: number;
+    }
+  GithubLinkTarget (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubLinkTarget = {
+        kind: "issue" | "pull_request";
+    } | {
+        kind: "comment" | "review" | "review_comment";
+        id: number;
+    } | {
+        kind: "commit";
+        sha: string;
+    };
+  GithubPullRequest (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubPullRequest = z.infer<typeof GITHUB_PULL_REQUEST_SCHEMA>;
+  GithubReadToolName (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubReadToolName = typeof GITHUB_TOOL_NAMES.read | typeof GITHUB_TOOL_NAMES.search;
+  GithubReview (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubReview = z.infer<typeof GITHUB_REVIEW_SCHEMA>;
+  GithubReviewComment (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubReviewComment = z.infer<typeof GITHUB_REVIEW_COMMENT_SCHEMA>;
+  GithubReviewDecision (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubReviewDecision = z.infer<typeof GITHUB_REVIEW_DECISION_SCHEMA>;
+  GithubSearchItem (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubSearchItem = z.infer<typeof GITHUB_SEARCH_ITEM_SCHEMA>;
+  GithubToolCall (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubToolCall = {
+        tool: typeof GITHUB_TOOL_NAMES.read;
+        input: GithubIssueReadInput;
+    } | {
+        tool: typeof GITHUB_TOOL_NAMES.search;
+        input: GithubIssueSearchInput;
+    } | {
+        tool: typeof GITHUB_TOOL_NAMES.create;
+        input: GithubIssueCreateInput;
+    } | {
+        tool: typeof GITHUB_TOOL_NAMES.comment;
+        input: GithubIssueCommentInput;
+    };
+  GithubToolName (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubToolName = (typeof GITHUB_TOOL_NAMES)[keyof typeof GITHUB_TOOL_NAMES];
+  GithubToolResult (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubToolResult = {
+        ok: true;
+        tool: typeof GITHUB_TOOL_NAMES.read;
+        result: GithubIssueReadPayload;
+    } | {
+        ok: true;
+        tool: typeof GITHUB_TOOL_NAMES.search;
+        result: GithubIssueSearchPayload;
+    } | {
+        ok: true;
+        tool: typeof GITHUB_TOOL_NAMES.create;
+        result: GithubIssueCreatePayload;
+    } | {
+        ok: true;
+        tool: typeof GITHUB_TOOL_NAMES.comment;
+        result: GithubIssueCommentPayload;
+    } | {
+        ok: false;
+        tool: GithubToolName;
+        error: GithubError;
+    };
+  GithubUser (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubUser = z.infer<typeof GITHUB_USER_SCHEMA>;
+  GithubWriteToolName (packages/ui-sdk/src/tool-contracts/github.ts)
+    export type GithubWriteToolName = typeof GITHUB_TOOL_NAMES.create | typeof GITHUB_TOOL_NAMES.comment;
   GovernedStatus (packages/ui-sdk/src/protocol.ts)
     export type GovernedStatus = {
         hostExecution: "worker" | "host";
@@ -11371,11 +13359,11 @@ signatures (every public export and the types it is made of)
     }
   ServerFrameHandlers (packages/ui-sdk/src/client/ws-client.ts)
     export type ServerFrameHandlers = {
-        [K in ServerMessage["type"]]?: (frame: Extract<ServerMessage, {
+        [K in ConsumerServerMessage["type"]]?: (frame: Extract<ConsumerServerMessage, {
             type: K;
         }>) => void;
     } & {
-        onAny?: (frame: ServerMessage) => void;
+        onAny?: (frame: ConsumerServerMessage) => void;
     };
   ServerHandoffDraft (packages/ui-sdk/src/protocol.ts)
     export interface ServerHandoffDraft {
@@ -14661,6 +16649,19 @@ signatures (every public export and the types it is made of)
   geoConfigSchema (packages/geo/src/config.ts) recorded in api-report/geo.txt
   getShareStore (packages/ui-sdk/src/client/share-store.ts)
     export function getShareStore(): ShareStore;
+  githubBoundedList (packages/ui-sdk/src/tool-contracts/github.ts)
+    export function githubBoundedList<Item extends z.ZodType>(item: Item): z.ZodObject<{
+        has_more: z.ZodBoolean;
+        items: z.ZodArray<Item>;
+        total_count: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>;
+  githubDirectUrl (packages/ui-sdk/src/tool-contracts/github.ts)
+    export function githubDirectUrl(value: unknown, scope: GithubLinkScope, target: GithubLinkTarget): string | null;
+  githubSearchUrl (packages/ui-sdk/src/tool-contracts/github.ts)
+    export function githubSearchUrl(scope: {
+        owner: string;
+        repo: string;
+    } | null, q: string): string | null;
   handleApifyTool (packages/ui-sdk/src/server/bridge-tools/apify.ts)
     export function handleApifyTool(name: ApifyToolName, input: unknown, bridge: Pick<BackendBridge, "apify">): Promise<{
         text: string;
@@ -14681,6 +16682,11 @@ signatures (every public export and the types it is made of)
     }>;
   handleGetCurrentLocation (packages/ui-sdk/src/server/bridge-tools/location.ts)
     export function handleGetCurrentLocation(input: GetCurrentLocationInput, bridge: BackendBridge, options: LocationHandlerOptions): Promise<LocationPayload>;
+  handleGithubTool (packages/ui-sdk/src/server/bridge-tools/github.ts)
+    export function handleGithubTool(name: GithubToolName, input: unknown, bridge: Pick<BackendBridge, "github">): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
   handleInboxTool (packages/ui-sdk/src/server/bridge-tools/inbox.ts)
     export function handleInboxTool(name: InboxToolName, input: unknown, bridge: BackendBridge): Promise<string>;
   handleQueryActivity (packages/ui-sdk/src/server/bridge-tools/activity.ts)
@@ -18220,6 +20226,17 @@ signatures (every public export and the types it is made of)
     export function isCompletedAutonomousToolCall(mode: AutonomousTurnOptions | undefined, toolName: string, input: unknown): boolean;
   isFailureOutcome (packages/ui-sdk/src/protocol.ts)
     export function isFailureOutcome(outcome: ActivitySpanOutcome | string | null | undefined): boolean;
+  isGithubDetailPart (packages/ui-sdk/src/tool-contracts/github.ts)
+    const isGithubDetailPart: (value: string) => value is GithubDetailPart;
+  isGithubRepositoryName (packages/ui-sdk/src/tool-contracts/github.ts)
+    export function isGithubRepositoryName(owner: string, repo: string): boolean;
+  isGithubSearchUrl (packages/ui-sdk/src/tool-contracts/github.ts)
+    export function isGithubSearchUrl(value: unknown, scope: {
+        owner: string;
+        repo: string;
+    } | null, q: string): boolean;
+  isGithubToolName (packages/ui-sdk/src/tool-contracts/github.ts)
+    const isGithubToolName: (name: string) => name is GithubToolName;
   isPricingRoute (packages/ui-sdk/src/protocol.ts)
     export function isPricingRoute(v: unknown): v is PricingRoute;
   isProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
@@ -18716,6 +20733,11 @@ signatures (every public export and the types it is made of)
     }>;
   parseClientMessage (packages/ui-sdk/src/schemas.ts)
     export function parseClientMessage(raw: string | ArrayBufferView | ArrayBuffer): ParseFrameResult<ClientMessage>;
+  parseGithubRepository (packages/ui-sdk/src/tool-contracts/github.ts)
+    export function parseGithubRepository(value: string): {
+        owner: string;
+        repo: string;
+    } | null;
   parseHandoffText (packages/ui-sdk/src/protocol.ts)
     export function parseHandoffText(text: string): {
         summary: string;
@@ -19009,6 +21031,7 @@ signatures (every public export and the types it is made of)
                 compute_output: "compute_output";
                 egress_connection: "egress_connection";
                 fetching_command: "fetching_command";
+                github_result: "github_result";
                 legacy_unknown: "legacy_unknown";
                 mcp_document: "mcp_document";
                 staged_share: "staged_share";
@@ -19154,6 +21177,7 @@ signatures (every public export and the types it is made of)
             compute_output: "compute_output";
             egress_connection: "egress_connection";
             fetching_command: "fetching_command";
+            github_result: "github_result";
             legacy_unknown: "legacy_unknown";
             mcp_document: "mcp_document";
             staged_share: "staged_share";
@@ -19650,6 +21674,7 @@ signatures (every public export and the types it is made of)
                 compute_output: "compute_output";
                 egress_connection: "egress_connection";
                 fetching_command: "fetching_command";
+                github_result: "github_result";
                 legacy_unknown: "legacy_unknown";
                 mcp_document: "mcp_document";
                 staged_share: "staged_share";
@@ -24519,6 +26544,7 @@ signatures (every public export and the types it is made of)
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    github_result: "github_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
@@ -24676,6 +26702,7 @@ signatures (every public export and the types it is made of)
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    github_result: "github_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
@@ -25354,6 +27381,7 @@ signatures (every public export and the types it is made of)
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    github_result: "github_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";
@@ -25527,6 +27555,7 @@ signatures (every public export and the types it is made of)
                     compute_output: "compute_output";
                     egress_connection: "egress_connection";
                     fetching_command: "fetching_command";
+                    github_result: "github_result";
                     legacy_unknown: "legacy_unknown";
                     mcp_document: "mcp_document";
                     staged_share: "staged_share";

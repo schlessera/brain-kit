@@ -52,7 +52,7 @@ export interface PiWorkerReader {
   resumedIds: ReadonlySet<unknown>;
   listeners: ReadonlySet<(event: AgentSessionEvent) => void>;
   /** Execution proof: a call's start, and the path its end proved, if any. */
-  proof: { started(toolCallId: string): void; ended(toolName: string, toolCallId: string): ReturnType<typeof provenToolExecution> };
+  proof: { loaded(count: number | undefined): void; started(toolCallId: string): void; ended(toolName: string, toolCallId: string): ReturnType<typeof provenToolExecution> };
   toolExecution: SessionEnv["toolExecution"];
   dispatch(msg: PiWorkerRpc): Promise<unknown>;
   send(value: unknown): void;
@@ -78,6 +78,7 @@ export async function readPiWorkerProtocol(reader: PiWorkerReader): Promise<void
       if (promptContext && msg.append !== undefined) promptContext.retainAppend(msg.append, sessionBudgetLimits ? { limits: sessionBudgetLimits } : {});
       state.model = msg.model as Model<any> | undefined;
       state.cost = msg.cost; state.thinkingLevel = msg.thinkingLevel as ThinkingLevel; state.levels = msg.levels as ThinkingLevel[];
+      proof.loaded(msg.loadedExtensions);
       ready.resolve();
     } else if (msg.type === "prompt_prefix") {
       if (!state.active) throw new Error("Pi worker emitted a prefix outside the turn");

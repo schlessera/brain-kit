@@ -93,6 +93,10 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
+      "brain_github_issue_create",
+      "brain_github_issue_comment",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -102,7 +106,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "8e6d30b6472a6003930e4411a2f6466ed1db23552ee35eaa4b3db52d5b104fda",
     "mcpServers": [
       "brain-ui"
     ],
@@ -289,6 +293,10 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
+      "brain_github_issue_create",
+      "brain_github_issue_comment",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -298,7 +306,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "8e6d30b6472a6003930e4411a2f6466ed1db23552ee35eaa4b3db52d5b104fda",
     "mcpServers": [
       "brain-ui"
     ],
@@ -472,6 +480,10 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
+      "brain_github_issue_create",
+      "brain_github_issue_comment",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -481,7 +493,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "8e6d30b6472a6003930e4411a2f6466ed1db23552ee35eaa4b3db52d5b104fda",
     "mcpServers": [
       "brain-ui"
     ],
@@ -677,6 +689,10 @@
       "brain_apify_availability",
       "brain_apify_approvals",
       "brain_apify_revoke",
+      "brain_github_issue_read",
+      "brain_github_issue_search",
+      "brain_github_issue_create",
+      "brain_github_issue_comment",
       "read_attachment",
       "write_file",
       "edit_file",
@@ -686,7 +702,7 @@
       "brain_archive",
       "brain_read_base"
     ],
-    "toolSchemasSha256": "7899cc3659660d25daa907a0856be46bb0dafe8cedc35387753eb113b1c4556b",
+    "toolSchemasSha256": "8e6d30b6472a6003930e4411a2f6466ed1db23552ee35eaa4b3db52d5b104fda",
     "mcpServers": [
       "brain-ui"
     ],

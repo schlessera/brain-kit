@@ -166,10 +166,10 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native Claude history.** Live JSONL, per-session subordinate files, titles,
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
-  (`createHistory`, `packages/ui-backend-claude/src/history.ts:45-103`;
+  (`createHistory`, `packages/ui-backend-claude/src/history.ts:46-104`;
   `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:180-213`).
   The live/archive roots are resolved by the backend
-  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
+  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:32-41`).
   Archive movement and crash recovery must join the same lifecycle fence
   (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:267-327`).
   Delete all owned branches/subagents/copies, not just the displayed branch.
@@ -337,7 +337,7 @@ until genuine settlement, rather than authorizing their replacement
 `close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1375-1425`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
-`packages/ui-server/src/brain/native-brain-leases.ts:274-287`). A caller deadline
+`packages/ui-server/src/brain/native-brain-leases.ts:319-332`). A caller deadline
 is not proof that native I/O stopped, cleanup succeeded or deletion completed.
 Keep the proposed partial/unknown outcome and identity fence while that cleanup
 remains owned; follow the existing [shutdown ownership contract](../decisions/sqlite-write-worker.md#bounded-caller-waits-retain-real-cleanup-ownership-3185).

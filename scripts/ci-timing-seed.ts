@@ -37,7 +37,7 @@ export async function seedTimings(api: TimingClient, repository: string, branch:
         const path = join(extracted, name);
         if (!(await lstat(path)).isFile()) throw new Error("Seed contains a non-file observation");
         const value = await Bun.file(path).json();
-        if (value.version !== 1 || value.repository !== repository) throw new Error("Seed repository/version mismatch");
+        if (!(name.startsWith("run-") ? [1, 2].includes(value.version) : value.version === 1) || value.repository !== repository) throw new Error("Seed repository/version mismatch");
         if (name.startsWith("run-")) {
           if (name !== `run-${value.run?.id}-attempt-${value.run?.attempt}.json` || !Array.isArray(value.jobs) ||
             !Array.isArray(value.problems) || !Number.isFinite(Date.parse(value.run.createdAt))) throw new Error("Invalid seed attempt identity");

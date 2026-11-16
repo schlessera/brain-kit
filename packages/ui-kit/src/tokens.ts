@@ -1369,6 +1369,19 @@ export const canvas = {
  */
 export const BRAND_ICON_GROUND = "#0c1417" as const;
 
+/**
+ * The markup layer's ink (#3983): three mark colours and the dark halo every
+ * mark is drawn with. Fixed colours rather than tokens, for the reason
+ * `BRAND_ICON_GROUND` is: they are rasterised into a PNG the image model
+ * reads, one file in every theme, so a theme must never respell them.
+ */
+export const MARKUP_INK = {
+  red: "#FF3B30",
+  yellow: "#FFD60A",
+  cyan: "#32D2F5",
+  halo: "rgba(0, 0, 0, 0.72)",
+} as const;
+
 /** Named document layers. Native modal dialogs use the browser top layer. */
 export const LAYERS = { raised: 10, popover: 20, nav: 30, panel: 40, banner: 50, modal: 60 } as const;
 export const z = {

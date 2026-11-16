@@ -194,6 +194,76 @@ workloads, complete path changes, worker restrictions, overlapping consumers,
 crashes, exhaustion and independent HTTP/WebSocket/cancellation measurements.
 Native runtime qualification precedes any production migration.
 
+## Turn data trees on the managed volume (#2911)
+
+A strict, voice or autonomous turn reads a data tree copied from its startup
+checkpoint ([the data-tree ruling](governed-writable-workers.md#a-turns-own-applications-reach-its-reads-maintainer-2026-10-25)).
+On a temporary directory every tree is a full copy of the view's documents and
+index. The maintainer's ruling on
+[#2911](https://github.com/schlessera/brain-kit/issues/2911) (2026-10-25,
+option A) places it on the managed volume instead, where it shares the
+checkpoint's extents.
+
+**Placement and ownership.** The manager keeps a root-owned `trees/`
+directory (`0710`, the app's group) beside `stages/` under its private root.
+`prepareTurnTree` creates one directory per caller-generated identity there,
+owned by the fixed app UID and group with mode `0710`; the app creates the
+tree's `data/` and `index/` inside it. The directory is outside the live
+subvolume, so governed peers cannot write it and no checkpoint snapshots it.
+The private root is already a mandatory worker mask, so a worker reaches only
+the tree the launcher binds read-only at its fixed path. The worker identity
+shares the app's group and can only traverse the directory to that bind. No
+request names a path, owner or mode.
+
+**Placement requires sharing.** The app copies with
+`COPYFILE_FICLONE_FORCE`. A file that cannot be reflinked fails the turn's
+admission and releases its tree; no full copy is made in its place. A managed
+view whose manager cannot place a tree is refused the same way. Trees for
+views no manager acquired keep the temporary-directory copy.
+
+**Allocation and admission.** Each tree carries a page-aligned allowance: its
+admission charge for what it can newly allocate. Shared document extents are
+not charged as copies. The charge counts the tree's metadata (4 KiB per
+entry), twice the seeded index (every page rewritten, with its log), the
+turn's bounded effects (`TURN_TREE_EFFECT_BYTES`, 64 MiB, enforced by the
+tree) and 1 MiB of overhead. Admission reads the volume's free space with
+`statfs`, which counts every allocation once, shared extents included. It
+admits a tree only while the live trees' allowances, this one and one
+emergency reserve's worth of headroom fit in that free space. It also needs
+an armed reserve. A tree's own growth therefore lowers free space while its
+allowance stays charged. That is conservative and never enlarges the
+configured capacity. The headroom keeps trees from driving checkpoint and
+intent writes onto the emergency reserve, which tree writes can never consume
+directly. Qgroups stay disabled; the allowance is an admission charge, not a
+kernel quota.
+
+**Durable records.** A tree is a `kind: "tree"` intent in the manager's
+existing intent store, with its allowance also recorded beside its directory,
+so an unreadable intent keeps its charge. A quarantined tree whose allowance
+is unknown refuses tree admission only. Checkpoints, stages and recovery keep
+working. Deleted intents fence delayed creation requests, as for stages. The
+app's lease owner records each tree as a `tree` root lease before the request,
+with the same owner identity as checkpoint and stage leases.
+
+**Release and recovery.** The owner releases a tree after its workers exit.
+The manager refuses while any process's mount namespace still holds a mount
+of the tree, read from every `/proc/<pid>/mountinfo`. An unreadable census
+refuses too. Otherwise it marks the intent `deleting`, removes the directory
+with a descriptor-relative walk that follows no link, and observes a
+filesystem commit. Only then does it credit the charge and record `deleted`.
+A refused or interrupted release keeps the charge and the lease's `deleting`
+intent. The lease owner's dead-owner recovery releases a dead owner's trees,
+and any tree whose release was already intended, by the same rule. It never
+removes a live owner's tree, an unrecorded directory or another identity.
+Removal runs in the manager, outside the app's event loop, bounded by its
+operation timeout.
+
+The receipts that qualify this placement are the native `--apply-timing` run
+and the separate-UID identity cell. The first records each strict tree's
+`btrfs filesystem du` total, exclusive and shared bytes at seed and at close
+in `apply-timing.json`. The second proves a worker reads its own tree, cannot
+write it, and cannot reach a peer tree or the manager's area.
+
 ## Alternatives
 
 Watchers can provide hints, but notifications alone neither preserve overwritten
