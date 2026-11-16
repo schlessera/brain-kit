@@ -459,3 +459,73 @@ test("a worktree checkpoint aborted after its lease is recorded keeps retryable 
     expect(w.checkpointLeases()).toEqual([]);
   } finally { await w.close(); }
 });
+
+/** A manager double that records turn-tree calls (#2911); `refuse` makes the next release fail, as a live reader does. */
+function treeManager(f: Awaited<ReturnType<typeof fixture>>) {
+  const calls: string[] = [], before: unknown[] = [];
+  let refuse: string | undefined;
+  f.native.client.prepareTurnTree = async (id, allowanceBytes) => {
+    before.push(f.state.query("SELECT state,kind,stage_allowance FROM native_root_leases WHERE id=?").get(id));
+    calls.push(`prepare ${id}`);
+    return { id, path: join(f.root, ".brain-native", "trees", id), allowanceBytes };
+  };
+  f.native.client.releaseTurnTree = async id => {
+    calls.push(`release ${id}`);
+    if (refuse) { const message = refuse; refuse = undefined; throw Error(message); }
+    return { id, state: "deleted" as const };
+  };
+  return { calls, before, refuseNextRelease(message: string) { refuse = message; } };
+}
+
+test("turn trees are durable leases before RPC; only their owner, or recovery after its death, releases them", async () => {
+  const f = await fixture(), trees = treeManager(f);
+  const second = await createNativeBrainLeaseManager(f.native.client, f.options);
+  try {
+    expect(await f.owner.client.prepareTurnTree(ID, 8192)).toMatchObject({ id: ID, allowanceBytes: 8192 });
+    expect(trees.before, "TREE_LEASE_DURABLE_BEFORE_CREATION_RPC").toEqual([{ state: "creating", kind: "tree", stage_allowance: 8192 }]);
+    expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "sealed" });
+    await expectRejection(second.client.releaseTurnTree(ID), "another live");
+    await expectRejection(second.client.prepareTurnTree(ID, 8192), "another owner");
+    expect(await second.recoverDeadOwners(), "LIVE_OWNER_KEEPS_ITS_TREE").toMatchObject({ released: [], retainedLive: 1 });
+    expect(trees.calls.filter(call => call.startsWith("release"))).toEqual([]);
+    // The owner's process is gone: its tree is abandoned and recovered once.
+    f.state.query("UPDATE native_root_leases SET owner_start=owner_start||'-reused' WHERE id=?").run(ID);
+    trees.refuseNextRelease("A worker still mounts this turn tree");
+    expect(await second.recoverDeadOwners(), "A_REFUSED_RELEASE_IS_RETAINED").toMatchObject({ released: [], unknown: [ID] });
+    expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "deleting" });
+    expect(await second.recoverDeadOwners(), "DEAD_OWNER_TREE_RECOVERED").toMatchObject({ released: [ID], unknown: [] });
+    expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
+    // A wrong path in the reply is never accepted as this lease's tree.
+    f.native.client.prepareTurnTree = async (id, allowanceBytes) => ({ id, path: join(f.root, "brain", id), allowanceBytes });
+    await expectRejection(f.owner.client.prepareTurnTree(OTHER, 8192), "does not match");
+    await expectRejection(f.owner.client.releaseTurnTree("33333333-3333-4333-8333-333333331790"), "no recorded lease");
+  } finally { await second.close(); await f.close(); }
+});
+
+test("close releases this owner's turn trees", async () => {
+  const f = await fixture(), trees = treeManager(f);
+  try {
+    await f.owner.client.prepareTurnTree(ID, 4096);
+    await f.owner.close();
+    expect(trees.calls, "CLOSE_RELEASES_OWNED_TREES").toEqual([`prepare ${ID}`, `release ${ID}`]);
+    expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
+  } finally { await f.close(); }
+});
+
+test("root leases recorded before turn trees migrate without losing a row", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-lease-migrate-")), brain = join(root, "brain"), statePath = join(root, "native-leases.sqlite"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, root), ready = await native.client.ready();
+  const old = new Database(statePath);
+  old.exec(`CREATE TABLE native_root_leases (id TEXT PRIMARY KEY,owner_pid INTEGER NOT NULL,owner_start TEXT NOT NULL,owner_generation TEXT NOT NULL,owner_boot TEXT NOT NULL,owner_pid_namespace TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('creating','sealed','deleting')),kind TEXT NOT NULL DEFAULT 'checkpoint' CHECK(kind IN ('checkpoint','stage')),checkpoint_uuid TEXT,stage_lower_id TEXT,stage_allowance INTEGER);
+    INSERT INTO native_root_leases VALUES ('${ID}',1,'1','old','previous-boot','1','sealed','stage','${"a".repeat(32)}','${OTHER}',4096);`);
+  old.close(); chmodSync(statePath, 0o600);
+  native.client.releaseStage = async id => ({ id, state: "deleted" as const });
+  const owner = await createNativeBrainLeaseManager(native.client, { statePath, brainPath: brain, fsid: ready.fsid, brainUuid: ready.brainUuid });
+  const state = new Database(statePath);
+  try {
+    expect(state.query("SELECT id,kind,stage_lower_id,stage_allowance FROM native_root_leases").all(), "ROOT_LEASES_SURVIVE_MIGRATION")
+      .toEqual([{ id: ID, kind: "stage", stage_lower_id: OTHER, stage_allowance: 4096 }]);
+    expect(() => state.query("INSERT INTO native_root_leases(id,owner_pid,owner_start,owner_generation,owner_boot,owner_pid_namespace,state,kind) VALUES (?,1,'1','g','b','1','creating','tree')").run(OTHER),
+      "ROOT_LEASES_ACCEPT_TREES").not.toThrow();
+  } finally { state.close(); await owner.close().catch(() => {}); await native.close(); rmSync(root, { recursive: true, force: true }); }
+});

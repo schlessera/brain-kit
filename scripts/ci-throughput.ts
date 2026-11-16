@@ -12,8 +12,8 @@ export interface PullObservation {
   mergeObject?: { sha: string; tree: string; parents: string[] };
 }
 export interface WorkEvent {
-  version: 1; id: string; repository: string; kind: "work-started" | "work-finished" | "wait-started" | "wait-finished" | "failure-classified" | "incident" | "revert" | "expedited-fix";
-  at: string; worker?: string; task?: string; reason?: "reservation" | "ci" | "review" | "conflict" | "other";
+  version: 1; id: string; repository: string; kind: "work-started" | "work-finished" | "wait-started" | "wait-finished" | "preempted" | "failure-classified" | "incident" | "revert" | "expedited-fix";
+  at: string; worker?: string; task?: string; orchestrator?: string; reason?: "reservation" | "ci" | "review" | "conflict" | "other";
   pr?: number; run?: number; attempt?: number; job?: number; relatedPR?: number;
   classification?: "product" | "test" | "infrastructure" | "stale-candidate" | "intentional-feedback";
   evidence?: string;
@@ -38,12 +38,13 @@ function green(s: TimingSnapshot): boolean {
 /** Only public operational references and opaque coordination IDs are retained. */
 export function validateWorkEvent(value: unknown): WorkEvent {
   const e = value as WorkEvent;
-  const allowed = new Set(["version", "id", "repository", "kind", "at", "worker", "task", "reason", "pr", "run", "attempt", "job", "relatedPR", "classification", "evidence"]);
+  const allowed = new Set(["version", "id", "repository", "kind", "at", "worker", "task", "orchestrator", "reason", "pr", "run", "attempt", "job", "relatedPR", "classification", "evidence"]);
   if (!e || typeof e !== "object" || Object.keys(e).some(k => !allowed.has(k)) || e.version !== 1 ||
     typeof e.id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(e.id) || !/^[\w.-]+\/[\w.-]+$/.test(e.repository) || !stamp(e.at) ||
-    !["work-started", "work-finished", "wait-started", "wait-finished", "failure-classified", "incident", "revert", "expedited-fix"].includes(e.kind)) throw new Error("Invalid coordination event");
+    !["work-started", "work-finished", "wait-started", "wait-finished", "preempted", "failure-classified", "incident", "revert", "expedited-fix"].includes(e.kind)) throw new Error("Invalid coordination event");
+  if (e.orchestrator !== undefined && (typeof e.orchestrator !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(e.orchestrator))) throw new Error("Opaque orchestrator ID required");
   for (const field of ["pr", "run", "attempt", "job", "relatedPR"] as const) if (e[field] !== undefined && !number(e[field])) throw new Error(`Invalid event ${field}`);
-  if (/^(work|wait)-/.test(e.kind)) {
+  if (/^(work|wait)-/.test(e.kind) || e.kind === "preempted") {
     if (![e.worker, e.task].every(x => typeof x === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(x))) throw new Error("Opaque worker/task IDs required");
     if (e.kind.startsWith("wait-") && !["reservation", "ci", "review", "conflict", "other"].includes(e.reason ?? "")) throw new Error("Wait reason required");
   } else {

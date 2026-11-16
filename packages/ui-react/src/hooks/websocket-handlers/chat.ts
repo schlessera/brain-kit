@@ -30,7 +30,6 @@ type ChatFrame =
   | "result"
   | "retry_receipt"
   | "ask_answer_receipt"
-  | "pong"
   | "message_blocks"
   | "message_links"
   | "turn_journal"
@@ -410,8 +409,6 @@ export const chatFrameHandlers = {
   // Receipts are connection-wide: they never reach a session's demux.
   retry_receipt: (msg, context) => context.retryReceipt(msg),
   ask_answer_receipt: (msg, context) => context.answerReceipt(msg),
-  // The SDK client answers its own probes; a pong never reaches a consumer.
-  pong: () => {},
   message_blocks: (msg, context) => {
     // Arrives after `result`, for the turn's own assistant message. An
     // answer never waits on it: the markdown is already on screen, and this

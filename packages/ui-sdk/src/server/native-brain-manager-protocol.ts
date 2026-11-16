@@ -25,6 +25,11 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
     maximum: z.number().int().nonnegative(),
   }).strict(),
   z.object({ operation: z.literal("cancelCheckpointRead"), id: nativeCheckpointId }).strict(),
+  // Turn data trees (#2911): one app-owned directory per turn on the managed
+  // volume, outside the live brain and every checkpoint. The manager alone
+  // chooses its path and removes it; the allowance is its admission charge.
+  z.object({ operation: z.literal("prepareTurnTree"), id: nativeCheckpointId, allowanceBytes: z.number().int().positive() }).strict(),
+  z.object({ operation: z.literal("releaseTurnTree"), id: nativeCheckpointId }).strict(),
   // Reference pool (#2428). Identities are caller-generated UUIDs; the manager
   // alone chooses paths, qgroups and limits within its configured allowance.
   z.object({ operation: z.literal("poolStatus") }).strict(),
@@ -93,9 +98,24 @@ export interface NativeRecoveryRecord {
   id: string;
   state: "creating" | "sealed" | "deleting" | "deleted";
   checkpoint?: NativeCheckpoint;
-  kind?: "stage";
+  kind?: "stage" | "tree";
   stage?: NativeStage;
   stageRequest?: { checkpointId: string; checkpointUuid: string; allowanceBytes: number };
+  /** A turn data tree's admission charge (#2911). */
+  treeRequest?: { allowanceBytes: number };
+}
+/**
+ * A turn's data-tree directory on the managed volume (#2911): created by the
+ * manager for the fixed app identity, outside the live brain and every
+ * checkpoint, so a copy from a checkpoint into it can share the checkpoint's
+ * extents. `allowanceBytes` stays charged against the volume until the
+ * manager has removed the directory and observed the filesystem commit.
+ */
+export interface NativeTurnTree {
+  id: string;
+  /** Host-created directory; never supplied by the requester. */
+  path: string;
+  allowanceBytes: number;
 }
 export interface NativeStage {
   id: string;

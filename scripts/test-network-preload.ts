@@ -1,6 +1,7 @@
 import { afterAll, afterEach } from "bun:test";
 import { cleanupCliUtilities } from "../packages/core/tests/cli-harness";
 import { installNetworkGuard } from "./test-network-guard";
+import { installTestHome } from "./test-home";
 import { join, resolve } from "node:path";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ import { ensureWorkspaceLease, processIdentity, workspaceTestAccess } from "./wo
 const guard = installNetworkGuard();
 const coordinated = await ensureWorkspaceLease(resolve(import.meta.dir, ".."), workspaceTestAccess(), "test");
 if (coordinated !== undefined) process.exit(coordinated);
+const testHome = installTestHome();
 // Commands a test spawns queue in a ledger private to this test process, never
 // behind the host's real heavy commands (#2943). The path is testLedgerFor's
 // convention in scripts/host-admission.mjs, so a descendant whose environment
@@ -29,5 +31,6 @@ afterAll(() => {
   } finally {
     cleanupCliUtilities();
     rmSync(privateAdmission, { recursive: true, force: true });
+    testHome.dispose();
   }
 });
