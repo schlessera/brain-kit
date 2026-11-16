@@ -1,4 +1,5 @@
-/** Read-only CI timing archive. Logs are data; no candidate code is executed. */
+/** CI timing collection and explicit local-event publication. Logs are data; no candidate code is executed. */
+import { publishEvents } from "./ci-event-publish";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { percentage, seconds, stats } from "./ci-timing-stats";
@@ -555,6 +556,7 @@ if (import.meta.main) {
       if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve", "--history"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
       options.set(flag, args.shift()!);
     }
+    if (mode === "publish" && (resources || reservations || redMain || [...options.keys()].some(flag => !["--repo", "--out"].includes(flag)))) throw new Error("Publish accepts only --repo and --out");
     const dir = resolve(options.get("--out") ?? "tmp/ci-timings");
     // Proof-policy epochs read this ref's first-parent history from the local checkout.
     const history = options.get("--history") ?? "origin/main";
@@ -580,7 +582,9 @@ if (import.meta.main) {
     }
     if (options.has("--scenario")) await Bun.write(join(dir, "scenario.json"), JSON.stringify(await Bun.file(options.get("--scenario")!).json(), null, 2));
     if (options.has("--since") && options.has("--until")) await Bun.write(join(dir, "analysis-window.json"), JSON.stringify({ since: options.get("--since"), until: options.get("--until"), source: "explicit analysis interval" }));
-    if (mode === "record") {
+    if (mode === "publish") {
+      console.log(JSON.stringify(await publishEvents({ root: process.cwd(), dir, repository })));
+    } else if (mode === "record") {
       if (!options.has("--event")) throw new Error("Record requires --event JSON-file");
       const input = await Bun.file(options.get("--event")!).json();
       if (input.repository && input.repository !== repository) throw new Error("Event repository differs from --repo");
@@ -697,6 +701,6 @@ if (import.meta.main) {
       if (errors.some(e => !budgetProblem(e.error)) || enrichmentErrors.some(e => !budgetProblem(e.problem)) ||
         (await readSnapshots(dir)).some(s => s.problems.some(p => !budgetProblem(p))) ||
         !api.budget.stopped && report.collectionCoverage.missingAttempts.length) process.exitCode = 1;
-    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--reservations] [--red-main] [--event JSON] [--scenario JSON] [--history REF] [--repo owner/repo] [--out DIR]");
+    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record|publish [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--reservations] [--red-main] [--event JSON] [--scenario JSON] [--history REF] [--repo owner/repo] [--out DIR]");
   } catch (error) { console.error(error); process.exitCode = 1; }
 }

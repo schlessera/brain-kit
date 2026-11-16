@@ -244,3 +244,50 @@ runner and runtime inputs, retaining the existing proof assertions and gates.
 See [testing](testing.md#required-proof-for-a-pr),
 [proof-domain reconciliation](proof-domains.md#resource-and-scheduling-reconciliation)
 and [the CI measurement policy](../decisions/ci-utility.md#measuring-the-critical-path).
+
+## Publish local coordination events
+
+From a trusted repository checkout with Git push access to `origin`, publish
+locally recorded work, wait and preemption events explicitly:
+
+```sh
+bun scripts/ci-timings.ts publish --repo odysseus/chronicle --out tmp/ci-events
+```
+
+Use the repository's own `owner/name` in place of the example. This internal
+measurement script prints JSON with `added`, `existing` and `head`; it is not
+the supported `brain --json` contract. Collection and report modes remain
+read-only. Publication grants no proof, selection or merge authority.
+
+The input directory holds `event-<id>.json` files from `record`. Each event
+uses schema version 1, an immutable ID, repository and UTC ISO timestamp.
+Allowed kinds are `work-started`, `work-finished`, `wait-started`,
+`wait-finished` and `preempted`. Worker/task IDs are required; `orchestrator`
+is optional. IDs contain only ASCII letters, digits, underscores and hyphens,
+up to 100 characters. Use opaque generated identifiers, never people's names
+or machine identifiers. Optional `pr` is a positive integer; optional `reason`
+is `reservation`, `ci`, `review`, `conflict` or `other` and is required for wait
+boundaries. Preemption remains neither pass nor failure. Event emission is the
+orchestrator's responsibility; this command does not read the host ledger.
+
+Each invocation accepts at most 100 events, 8 KiB per file and 256 KiB total.
+For a larger backlog, select smaller input directories while retaining each
+original event's ID and bytes. Non-event files are ignored; selected symlinks,
+unknown versions, arbitrary fields, hostname/path-like IDs and personal-string
+leakage are refused before contacting the remote. Incident/classification
+annotations are outside this publisher's local-event schema: select a directory
+containing only work, wait and preemption events.
+
+The publisher appends immutable `events/<id>.json` files to
+`refs/heads/brain-ci-metrics`, preserving the inspected tree's other files.
+These are the dedicated published-event inputs for daily compaction (#2955),
+which owns the monthly normalized archive. This command enables neither
+compaction nor scheduled report delivery. Repeating a batch is a no-op;
+an existing ID with different content is refused. Unknown event versions are
+refused rather than rewritten.
+
+Every commit is parented by the inspected remote head and pushed with exact
+`--force-with-lease`. A competing update causes a fresh read and merge, up to
+five attempts. Persistent contention or access failure exits nonzero, retaining
+all local inputs for a retry. Errors appear on stderr; preserve that diagnostic
+with the command exit status. No input is deleted, including after success.
