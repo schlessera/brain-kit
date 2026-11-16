@@ -317,3 +317,46 @@ export { IconButton, type IconButtonProps } from "./primitives/IconButton.js";
 export { TextButton, type TextButtonProps } from "./primitives/TextButton.js";
 
 export { StorageMap, type StorageMapItem, type StorageMapProps } from "./storage/StorageMap.js";
+
+/* The image editors (#3983): the shared frame, and the markup editor's parts. */
+export { ImageEditorFrame, type ImageEditorFrameProps } from "./images/ImageEditorFrame.js";
+export { MarkupEditor, MARKUP_CLOSED, MARKUP_EDITOR_TITLE, type MarkupEditorProps } from "./images/MarkupEditor.js";
+export { MarkupCanvas, type MarkupCanvasProps, type MarkupView } from "./images/MarkupCanvas.js";
+export { MarkupToolbar, MARKUP_EMPTY_HINT, MARKUP_TOOLS, type MarkupToolbarProps } from "./images/MarkupToolbar.js";
+export { MarkupNoteField, type MarkupNoteFieldProps } from "./images/MarkupNoteField.js";
+export {
+  MarkupResultCard,
+  MarkupFallback,
+  MARKUP_NOT_RENDERED,
+  MARKUP_RECEIPT_NOTES,
+  markupReceiptRows,
+  type MarkupResultCardProps,
+  type MarkupFallbackProps,
+} from "./images/MarkupResultCard.js";
+export {
+  MARKUP_COLORS,
+  MARKUP_MAX_BYTES,
+  MARKUP_MAX_ZOOM,
+  MARKUP_NOTE_MAX,
+  MARKUP_SECOND_TOUCH_MS,
+  MARKUP_WIDTHS,
+  countMarks,
+  describeCounts,
+  exportMarkupPng,
+  markupBytesLabel,
+  markupNotes,
+  markupSummary,
+  overCapMessage,
+  type ArrowMark,
+  type EllipseMark,
+  type Mark,
+  type MarkupColor,
+  type MarkupCounts,
+  type MarkupExport,
+  type MarkupPoint,
+  type MarkupSize,
+  type MarkupTool,
+  type MarkupWidth,
+  type PenMark,
+  type TextMark,
+} from "./images/markup.js";

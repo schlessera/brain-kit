@@ -36,7 +36,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   never prove finalized delivery or complete coverage.
 - The turn proxy records each admitted non-provider connection and terminal
   exposure observation (`prepareTurnEgress`,
-  `packages/ui-server/src/brain/turn-egress.ts:84-272`). Relay admissions join
+  `packages/ui-server/src/brain/turn-egress.ts:86-295`). Relay admissions join
   this proxy's submitted terminal observations and its own announced session
   binding before reading fresh safety (`settleTurnSessionBinding`,
   `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding

@@ -969,6 +969,15 @@ export type ServerMessage =
   | ServerLiveSettings;
 
 /**
+ * The frames `BrainUiClient` hands its consumer: every {@link ServerMessage}
+ * except `pong` (#3389). The client answers its own liveness probes and
+ * returns before any consumer handler runs, so a consumer never sees one and
+ * needs no case for it. `pong` stays on the wire and in `ServerMessage`, the
+ * union `parseServerMessage` validates.
+ */
+export type ConsumerServerMessage = Exclude<ServerMessage, ServerPong>;
+
+/**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
  * that don't know it ignore it; clients that do can gate behavior on
  * `protocolRev` and the coarse capability flags instead of sniffing.
