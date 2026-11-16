@@ -180,6 +180,19 @@ replacing #3153's single slot:
   draft still holding other snapshots keeps the row at the next revision with
   an empty composer instead of a tombstone. A `DELETE` that would drop a held
   or unconfirmed snapshot is `409 DRAFT_OUTGOING_PENDING`.
+- **A release is a revision (#3733).** An acceptance that releases a snapshot
+  moves the draft to a new revision even when it keeps the draft (a newer
+  revision exists, or the draft changed chats). Before this a tab that read
+  the draft earlier could still save under its `If-Match`, and the snapshot
+  it listed came back as a new `dispatched` one holding a slot. Now that save
+  is 409 `DRAFT_CONFLICT` with `current`. The other rule the issue offered,
+  refusing a new snapshot whose `requestId` is in `session_draft_sends`, was
+  not taken: that table records only first messages, not sends into an
+  existing chat (`resumed`), and keeps the last eight per draft, so it cannot
+  say which requests were accepted. The revision rule needs no new record,
+  covers every acceptance path and is the conflict the `If-Match` contract
+  already promises. A tab sending its own snapshot holds its saves until the
+  answer, so only a tab or device that was already behind sees the conflict.
 - **The composer keeps its envelope.** An upload's per-draft count now covers
   the current revision and unbound uploads only. A snapshot's files are
   checked against the per-message envelope when a save lists it, and stay in
@@ -326,7 +339,8 @@ originals, on a host that advertises `composerFiles`:
   without the limit, keeps the tab-local path, because a snapshot cannot hold
   an inline image.
   - **Acceptance drops it here at once.** The host releases an accepted
-    snapshot in place, without a revision (#3733). So the client removes it
+    snapshot in place, and a stale list saved over it is a conflict (#3733).
+    So the client removes it
     from both its list and its copy of the host's before the next save, and
     holds a draft's saves while one of its sends is pending. When other
     snapshots remain, the host keeps the row at the next revision with an

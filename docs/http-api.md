@@ -1178,7 +1178,13 @@ absent keeps it. Under the save's `If-Match` and `Idempotency-Key`:
   cannot be left out (400 `DRAFT_INVALID`); nothing is evicted, merged or
   overwritten. Accepting the message whose `requestId` a snapshot carries
   releases that snapshot alone, its files moving to the conversation in the
-  acceptance transaction.
+  acceptance transaction. An acceptance that releases a snapshot always moves
+  the draft to a new revision, whether it consumes the draft or keeps it
+  (#3733). A save from a tab or device that read the draft before the
+  acceptance still lists the sent snapshot, so it is 409 `DRAFT_CONFLICT`
+  with `current`, which no longer holds that snapshot. It never recreates the
+  snapshot as a new one, holds a slot again or gives its files back to
+  `outgoing`. The single-slot `outgoing` write follows the same rule.
 
 Every snapshot's files stay referenced, charged to the draft sub-limit and the
 pool, and each snapshot is checked against the per-message envelope. When an
