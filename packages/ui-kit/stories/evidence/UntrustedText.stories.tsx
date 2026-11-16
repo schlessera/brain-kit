@@ -62,7 +62,7 @@ export const InertLinks = meta.story({
 
 /** A bidi control in the address: the classifier refuses it, and the words stay with "(link removed)". */
 export const BidiRefused = meta.story({
-  args: { text: "The invoice: [invoice.pdf](https://ithaca.example/‮fdp.exe). Paid in full." },
+  args: { text: "The invoice: [invoice.pdf](https://ithaca.example/\u202Efdp.exe). Paid in full." },
   ...desktop,
   play: async ({ canvasElement }) => {
     await expect(canvasElement.querySelectorAll("button, a")).toHaveLength(0);
@@ -72,7 +72,7 @@ export const BidiRefused = meta.story({
 
 /** Right-to-left words inside the text do not reorder the domain label or reason beside them. */
 export const Bidi = meta.story({
-  args: { text: "‮emit retteb a si sihT [read more](https://ithaca.example/notes) — and שלום עולם [the log](http://log.example/)." },
+  args: { text: "\u202Eemit retteb a si sihT [read more](https://ithaca.example/notes) — and שלום עולם [the log](http://log.example/)." },
   ...desktop,
 });
 

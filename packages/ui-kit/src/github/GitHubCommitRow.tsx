@@ -24,8 +24,8 @@ export interface GitHubCommitRowProps {
   htmlUrl?: string | null;
 }
 
-export const COMMIT_SUBJECT_MAX = 120;
-export const COMMIT_MESSAGE_MAX = 2_000;
+const COMMIT_SUBJECT_MAX = 120;
+const COMMIT_MESSAGE_MAX = 2_000;
 
 function bound(text: string, max: number): string {
   const chars = Array.from(text);

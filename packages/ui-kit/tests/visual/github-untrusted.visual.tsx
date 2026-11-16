@@ -143,7 +143,7 @@ describe("UntrustedText: links ask first", () => {
     try {
       const el = mount(
         createElement(UntrustedText, {
-          text: "[the cellar sheet](http://cellar.ithaca.example/sheet) [click here](javascript:alert(1)) [bidi](https://ithaca.example/‮fdp.exe)",
+          text: "[the cellar sheet](http://cellar.ithaca.example/sheet) [click here](javascript:alert(1)) [bidi](https://ithaca.example/\u202Efdp.exe)",
           source: "GitHub",
         }),
       );
@@ -205,19 +205,19 @@ describe("bidi cannot reorder the chrome", () => {
       createElement("div", null, [
         createElement(UntrustedText, {
           key: "text",
-          text: "‮esrever [‮etis eht](https://ithaca.example/notes) and [‮kool](http://log.example/)",
+          text: "\u202Eesrever [\u202Eetis eht](https://ithaca.example/notes) and [\u202Ekool](http://log.example/)",
           source: "GitHub",
           caption: false,
           frame: "none",
         }),
-        createElement(GitHubRef, { key: "ref", kind: "issue", repo: "ithaca/hall", number: 9, state: "open", title: "‮draobpuc eht ni", htmlUrl: "https://github.com/ithaca/hall/issues/9" }),
+        createElement(GitHubRef, { key: "ref", kind: "issue", repo: "ithaca/hall", number: 9, state: "open", title: "\u202Edraobpuc eht ni", htmlUrl: "https://github.com/ithaca/hall/issues/9" }),
       ]),
     );
     const words = el.querySelector(".bk-ut-link-words")!.getBoundingClientRect();
     const domain = [...el.querySelectorAll("button[data-untrusted-link] span")].at(-1)!.getBoundingClientRect();
     expect(domain.left, "the domain label stays after the link words").toBeGreaterThanOrEqual(words.right - 1);
     const reason = el.querySelector("[data-untrusted-link-reason]")!.getBoundingClientRect();
-    const kool = [...el.querySelectorAll("bdi")].find((b) => b.textContent === "‮kool")!.getBoundingClientRect();
+    const kool = [...el.querySelectorAll("bdi")].find((b) => b.textContent === "\u202Ekool")!.getBoundingClientRect();
     expect(reason.left, "the reason stays after its words").toBeGreaterThanOrEqual(kool.right - 1);
     const title = [...el.querySelectorAll("[data-untrusted-field]")].find((b) => b.textContent?.includes("draob"))!.getBoundingClientRect();
     const github = el.querySelector("a[data-github-link]")!.getBoundingClientRect();
@@ -246,7 +246,7 @@ describe("direct links: only in their slots, only to github.com", () => {
       expect(document.querySelector("dialog"), "no interstitial for a direct link").toBeNull();
       await userEvent.click(el.querySelector<HTMLButtonElement>("button[data-untrusted-link]")!);
       expect(nav.seen, "the body's own github.com link never opens directly").toHaveLength(1);
-      expect(document.querySelector("dialog[data-untrusted-gate]")?.open).toBe(true);
+      expect(document.querySelector<HTMLDialogElement>("dialog[data-untrusted-gate]")?.open).toBe(true);
       await userEvent.keyboard("{Escape}");
     } finally {
       nav.stop();

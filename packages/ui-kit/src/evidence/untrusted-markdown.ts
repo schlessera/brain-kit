@@ -40,7 +40,7 @@ export type Block =
   | { type: "quote"; children: Block[] }
   | { type: "list"; ordered: boolean; items: ListItem[] };
 
-export interface ListItem {
+interface ListItem {
   /** `null` for an ordinary item, otherwise the task box's state. */
   task: boolean | null;
   /** Nesting level from the item's indent, 0 to 3. */
@@ -162,7 +162,7 @@ function opensWithTag(line: string): boolean {
 }
 
 /** Parses one run of inline markdown. */
-export function parseInline(source: string, depth: number): Inline[] {
+function parseInline(source: string, depth: number): Inline[] {
   const out: Inline[] = [];
   let text = "";
   const flush = () => {

@@ -25,7 +25,7 @@ export interface GitHubIdentityProps extends GitHubPerson {
 }
 
 /** The avatar's address when it is on this page's origin, else `null`. */
-export function brainOriginAvatar(src: string | null | undefined): string | null {
+function brainOriginAvatar(src: string | null | undefined): string | null {
   if (typeof src !== "string" || src === "" || typeof document === "undefined") return null;
   try {
     const base = new URL(document.baseURI);
@@ -37,7 +37,7 @@ export function brainOriginAvatar(src: string | null | undefined): string | null
   }
 }
 
-export function GitHubAvatar({ person, size = 22 }: { person: GitHubPerson; size?: number }) {
+function GitHubAvatar({ person, size = 22 }: { person: GitHubPerson; size?: number }) {
   const src = person.login === null ? null : brainOriginAvatar(person.avatarSrc);
   const [loaded, setLoaded] = useState<string | null>(null);
   const radius = person.bot ? 6 : 999;

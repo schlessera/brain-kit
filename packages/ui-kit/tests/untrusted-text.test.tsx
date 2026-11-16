@@ -32,7 +32,7 @@ const HOSTILE = [
   '<details><summary>Click</summary><a href="javascript:alert(1)">here</a></details>',
   '<img src="https://tracker.example/pixel.gif" onerror="alert(1)">',
   "Old notes: [the cellar sheet](http://cellar.example/sheet) and [click here](javascript:alert(1)).",
-  "Also [a bidi trick](https://ithaca.example/‮gpj.exe) and see https://notes.ithaca.example/a.",
+  "Also [a bidi trick](https://ithaca.example/\u202Egpj.exe) and see https://notes.ithaca.example/a.",
   "- [ ] restring",
   "- [x] align axes",
 ].join("\n");
@@ -142,7 +142,7 @@ describe("githubHref: direct links render only on https://github.com", () => {
     ["https://user:pass@github.com/ithaca/hall", null],
     ["https://github.com:8443/ithaca/hall", null],
     ["https://api.github.com/repos/ithaca/hall", null],
-    ["https://github.com/ithaca/‮hall", null],
+    ["https://github.com/ithaca/\u202Ehall", null],
     ["", null],
   ])("%s", (raw, expected) => {
     expect(githubHref(raw)).toBe(expected);

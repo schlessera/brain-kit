@@ -9,7 +9,7 @@ import { Field, GitHubLink, githubHref, type GitHubState } from "./shared.js";
 /** Internal pieces shared by `GitHubPullRequest` and `GitHubIssue`. */
 
 /** The body's hard bound, from the design's truncation table. */
-export const BODY_MAX_CHARS = 20_000;
+const BODY_MAX_CHARS = 20_000;
 
 /** "1,840": a count in the reader-facing format, the same in every locale the kit renders in. */
 export function count(n: number): string {
