@@ -1,5 +1,5 @@
 import { GhostBand } from "../internal/GhostBand.js";
-import { useId, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { Chip } from "../primitives/Chip.js";
 import {
@@ -171,7 +171,8 @@ export function ActionCard(p: ActionCardProps) {
   const em = p.emphasis || k.em;
   const st = p.state || "ready";
   const loading = st === "loading";
-  const arriving = useArrival(loading);
+  const frame = useRef<HTMLDivElement>(null);
+  const arriving = useArrival(loading, frame);
   // The ghost's seed is this instance — kept per item key, not per list
   // position — so re-ranking a row never regenerates its glyphs.
   const id = useId();
@@ -311,6 +312,7 @@ export function ActionCard(p: ActionCardProps) {
 
   return (
     <div
+      ref={frame}
       style={{ ...box, position: "relative" }}
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}

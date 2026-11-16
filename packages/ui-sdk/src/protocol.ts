@@ -969,6 +969,15 @@ export type ServerMessage =
   | ServerLiveSettings;
 
 /**
+ * The frames `BrainUiClient` hands its consumer: every {@link ServerMessage}
+ * except `pong` (#3389). The client answers its own liveness probes and
+ * returns before any consumer handler runs, so a consumer never sees one and
+ * needs no case for it. `pong` stays on the wire and in `ServerMessage`, the
+ * union `parseServerMessage` validates.
+ */
+export type ConsumerServerMessage = Exclude<ServerMessage, ServerPong>;
+
+/**
  * First frame a server sends after a socket opens (rev 2, additive). Clients
  * that don't know it ignore it; clients that do can gate behavior on
  * `protocolRev` and the coarse capability flags instead of sniffing.
@@ -1368,7 +1377,7 @@ export interface TurnFailure {
   resetsAt?: number;
   /** Host budget scope; only a conversation block offers the reviewed handoff. */
   budgetScope?: "turn" | "session" | "day";
-  /** The failure as the runtime worded it. */
+  /** Runtime failure text, or the host's explanation of its own refusal. */
   message: string;
   /**
    * For a Claude subscription's auth failure: what the operator does about it
@@ -1381,7 +1390,7 @@ export interface TurnFailure {
 type FirstPartyFailureClass =
   | "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold"
   | "verification_required" | "billing_error" | "subscription_required"
-  | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
+  | "host_refused" | "auth_failure" | "rate_limit" | "overloaded" | "server_error"
   | "invalid_request" | "model_not_found" | "max_output_tokens"
   | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit"
   | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "input_safety_unavailable" | "safety_recording_unavailable" | "safety_recording_paused" | "safety_recording_chat_full" | "safety_recording_brain_full" | "unknown";
@@ -1399,6 +1408,7 @@ export const FIRST_PARTY_FAILURE_CLASSES: Readonly<{ [Class in FirstPartyFailure
   verification_required: "verification_required",
   billing_error: "billing_error",
   subscription_required: "subscription_required",
+  host_refused: "host_refused",
   auth_failure: "auth_failure",
   rate_limit: "rate_limit",
   overloaded: "overloaded",

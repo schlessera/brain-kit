@@ -1,4 +1,4 @@
-import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
+import type { ConsumerServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { activityFrameHandlers } from "./activity.js";
 import { chatFrameHandlers } from "./chat.js";
 import { connectionFrameHandlers } from "./connection.js";
@@ -62,7 +62,7 @@ const serverMessageHandlers = {
   ...handoffFrameHandlers,
 } satisfies ServerMessageHandlerMap<ServerMessageType>;
 
-export function dispatchServerMessage(msg: ServerMessage, context: DispatchContext): void {
+export function dispatchServerMessage(msg: ConsumerServerMessage, context: DispatchContext): void {
   // The mapped type preserves the message/handler correlation. TypeScript
   // loses that correlation at an indexed union access, so restore it only at
   // this single composition boundary.

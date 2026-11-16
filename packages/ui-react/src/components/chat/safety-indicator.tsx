@@ -9,7 +9,7 @@ import { createSafetyReviewer, type SafetyReviewProgress } from "../../lib/safet
 
 const sources:Record<SafetyEvidence["occurrence"]["source"],string>={web_fetch:"Web fetch",web_search:"Web search",staged_share:"Shared input",chat_attachment:"Chat attachment",
   workspace_read:"Workspace read",mcp_document:"External tool input",user_marked:"Marked untrusted",fetching_command:"Fetching command",unclassified_command:"Unclassified command",
-  compute_output:"Compute output",apify_result:"Apify result",egress_connection:"Network input",legacy_unknown:"Legacy input evidence"};
+  compute_output:"Compute output",apify_result:"Apify result",github_result:"GitHub result",egress_connection:"Network input",legacy_unknown:"Legacy input evidence"};
 
 /** The host's tool identity AND turn identity must match the rendered entry. */
 export function ToolSafetyIndicator({turnId,toolIds}:{turnId?:string;toolIds:readonly string[]}) {

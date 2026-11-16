@@ -227,7 +227,9 @@ async function initialize(init: Init): Promise<void> {
   });
   send({ type: "ready", sessionId: session.sessionId, append: renderedAppend, ...(session.model ? { model: session.model } : {}),
     ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
-    levels: session.getAvailableThinkingLevels?.() ?? [], cost: session.getSessionStats().cost });
+    levels: session.getAvailableThinkingLevels?.() ?? [], cost: session.getSessionStats().cost,
+    // Before any model-directed code runs: the host's evidence for an extension-free worker (#2874).
+    loadedExtensions: opened.loadedExtensions });
 }
 
 async function syncAuth(): Promise<void> {
