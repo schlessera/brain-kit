@@ -485,6 +485,25 @@ and earlier messages byte-identical. For Claude it holds the system-prompt
 option and the assembled MCP roster. It is not part of the default runtime
 cell.
 
+The repository carries three incompressible 2 MiB charts beside its books, so
+Git objects and checkout both hold real data
+([#3513](https://github.com/schlessera/brain-kit/issues/3513)). The first turn
+ends with a warm read of the same source. Throughout every turn, from its
+message to its settled idle status, the parent samples `GET /api/health`
+every 100 ms and a WebSocket `ping`/`pong` every 200 ms. It also samples the
+pool's peak physical allocation every 100 ms, from the data, metadata and
+system `disk_used` in `/sys/fs/btrfs/<fsid>/allocation` rather than through the
+manager, so the sampling never queues behind the app's own pool calls. It
+reads the pool device's block I/O per turn. The child times each reference tool call at the model
+boundary: one in-process MCP call for Claude, and for Pi the span from the
+scripted answer naming the step to the request carrying its result.
+`reference-integration-latency.json` records the samples' p50, p95 and maximum,
+the elapsed times and the kernel, btrfs-progs, Git, Bun and candidate
+identities. Every health probe must answer and every ping must return its
+pong. The warm read must add no source root and be faster than the cold one.
+Latencies, elapsed times and the first turn's peak are held to
+`INTEGRATED_TOLERANCES` in `reference-integration.native.ts`.
+
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and
 `SETFCAP`. It deliberately omits
