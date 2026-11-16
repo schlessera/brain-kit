@@ -209,7 +209,7 @@ export function danglingBins(root: string): string[] {
 }
 
 /** The reinstall that gives the harnesses runtime bytes they own. */
-export const COPY_INSTALL = "rm -rf node_modules && bun install --frozen-lockfile --backend=copyfile";
+export const COPY_INSTALL = "sh scripts/prepare-diagnostic-install.sh";
 
 /**
  * The first installed file that shares its inode with something outside
@@ -267,7 +267,7 @@ async function main(): Promise<number> {
   const linked = externallyHardlinked(root);
   if (linked) {
     console.error(`Experiment tier refused: node_modules is hard-linked to Bun's cache (${linked}), which the ` +
-      `offline harnesses reject. Reinstall the same lock as copies: ${COPY_INSTALL}`);
+      `offline harnesses reject. Preserve evidence and move aside the owned node_modules, then prepare the same lock: ${COPY_INSTALL}`);
     return 1;
   }
   const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"]);
