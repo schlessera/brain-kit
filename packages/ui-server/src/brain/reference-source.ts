@@ -707,6 +707,8 @@ export function createReferenceSources(options: {
       // A root a managed worktree (#2430) was snapshotted from stays: releasing it would free nothing.
       if (record.purpose !== "source" || record.state === "reclaimed" || keep.has(record.id)) continue;
       if (options.dependents?.(record.id)) { retained.push(record.id); continue; }
+      // MUTATION M1 (#3513), reverted before ready: startup recovery leaves an interrupted writable staging root behind.
+      if (record.state === "writable") continue;
       try { await pool.poolRelease(record.id); released.push(record.id); }
       catch { retained.push(record.id); }
     }
