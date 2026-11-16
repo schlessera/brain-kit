@@ -31,13 +31,3 @@ export const RAFT_MARKS: Mark[] = [
   { id: "s6", kind: "text", color: "yellow", at: { x: 1700, y: 3500 }, text: "move the raft here" },
 ];
 
-/** The same scene at a quarter of the size, for stories that encode the layer:
- * a 12-megapixel PNG takes a hosted runner seconds to measure (#4098). */
-export const RAFT_QUARTER_SIZE = { width: RAFT_SIZE.width / 4, height: RAFT_SIZE.height / 4 };
-export const RAFT_QUARTER_MARKS: Mark[] = RAFT_MARKS.map(mark => {
-  const q = (p: { x: number; y: number }) => ({ x: p.x / 4, y: p.y / 4 });
-  if (mark.kind === "pen") return { ...mark, points: mark.points.map(q) };
-  if (mark.kind === "arrow") return { ...mark, from: q(mark.from), to: q(mark.to) };
-  if (mark.kind === "ellipse") return { ...mark, x: mark.x / 4, y: mark.y / 4, w: mark.w / 4, h: mark.h / 4 };
-  return { ...mark, at: q(mark.at) };
-});
