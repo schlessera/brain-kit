@@ -1868,6 +1868,45 @@ pre-merge confirmation if any of these holds:
 - unresolved first-main failures grow by more than ten in the week;
 - red main blocks a release for more than 24 hours.
 
+## Fast lane outside the core packages
+
+The maintainer ruled on 2026-11-16 that the fast lane allowed on 2026-11-03
+still applies, and that it is recorded here. The 2026-11-03 ruling reduced
+proof to clear the main queue faster. The same day, after five main
+regressions and red main #3511 on the reduced path, it was narrowed to the
+PRs below.
+
+- **Who qualifies.** A PR whose diff against its base touches nothing under
+  `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
+  `packages/core/`. Every other PR, and every epic landing, keeps
+  [ready confirmation](#hybrid-post-merge-heavy-proof) through
+  `integrate.ts confirm`.
+- **What it skips.** The explicit ready-candidate run (`verify`, `pack`,
+  `unit`). A qualifying PR merges on its exact head once these hold:
+  - its newest CI run on that head has no failed or cancelled job, apart from
+    the feedback `proof` job;
+  - its PR body carries a passing `check:pr` receipt (local lint, leakage,
+    changesets and affected fast invariants);
+  - main is not red;
+  - it holds the merge lease, so that it does not race a confirmation.
+- **What it relies on.** Draft CI runs only the metadata gates, so a
+  fast-lane PR reaches main with no hosted unit run before the merge. Its
+  local receipt and the squash's own main run, which proves every affected
+  category, are the proof. The squash's main run must be watched until it is
+  green. A red result opens the ordinary
+  [red-main incident](#red-main-record-and-coordinator), and its fix or revert
+  goes through normal proof.
+
+**Why.** Most queued 0.45.0 PRs change only CI scripts, tests, experiments or
+docs, and confirmation serializes them at about 30–40 minutes each. The
+regressions that led to the 2026-11-03 narrowing came from the four product
+packages, which keep full pre-merge proof.
+
+**What does not change.** Milestones, the check receipt, the single merge
+lease, red-main refusal, main's complete affected proof and releases from a
+green main all still apply. A fast-lane merge is not a successful delivery
+until its main run is green.
+
 ## Historical measurement and upstream guidance
 
 The following guidance records the paid-provider investigation which motivated
