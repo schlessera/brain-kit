@@ -411,7 +411,9 @@ reservation sampled every 50 ms while the step ran. The run checks:
 - **Write-time EDQUOT.** A worktree writing past its allowance is refused by
   `write()` with `EDQUOT`, charging neither its sibling nor its source. A
   commit larger than one operation's allowance is refused inside the refresh
-  fetch: the previous root keeps serving, marked stale with Git's quota error,
+  fetch, with Git's quota error. Past the refresh window the previous commit's
+  validation has also lapsed, so no stale copy may be served: the request
+  rejects as `capacity`, the previous root is neither served nor withdrawn,
   and the staging root is released and reclaimed.
 - **Cancellation.** A refresh whose only requester leaves once its staging
   root is writable rejects as `cancelled`, publishes nothing, and its staging
@@ -473,8 +475,10 @@ Git objects and checkout both hold real data
 ends with a warm read of the same source. Throughout every turn, from its
 message to its settled idle status, the parent samples `GET /api/health`
 every 100 ms and a WebSocket `ping`/`pong` every 200 ms. It also samples the
-pool's peak charge and reservations every 100 ms, and reads the pool device's
-block I/O per turn. The child times each reference tool call at the model
+pool's peak physical allocation every 100 ms, from the data, metadata and
+system `disk_used` in `/sys/fs/btrfs/<fsid>/allocation` rather than through the
+manager, so the sampling never queues behind the app's own pool calls. It
+reads the pool device's block I/O per turn. The child times each reference tool call at the model
 boundary: one in-process MCP call for Claude, and for Pi the span from the
 scripted answer naming the step to the request carrying its result.
 `reference-integration-latency.json` records the samples' p50, p95 and maximum,

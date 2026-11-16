@@ -51,7 +51,8 @@ const percentile = (values: number[], fraction: number) => { const sorted = [...
 const summary = (values: number[]) => ({ count: values.length, p50: percentile(values, 0.5), p95: percentile(values, 0.95), max: values.length ? Math.max(...values) : null });
 const latency: { schema: 1; basis: string; environment: Record<string, string>; tolerances: typeof IT; backends: Record<string, unknown> } = {
   schema: 1, basis: "health: GET /api/health every 100 ms, sequential, 10 s timeout; ws: ping every 200 ms, pong receipt; tool elapsed: the child's model-boundary time per reference tool call; "
-    + "peak: pool status every 100 ms; io: pool loop device block counters (/proc/diskstats) per turn, after sync",
+    + "peak: the pool's data, metadata and system disk_used from /sys/fs/btrfs/<fsid>/allocation every 100 ms (the space-info term of chargedBytes, without simple-quota owner charge); "
+    + "io: pool loop device block counters (/proc/diskstats) per turn, after sync",
   environment: {}, tolerances: IT, backends: {},
 };
 const saveLatency = () => writeFileSync(join(ARTIFACTS, "reference-integration-latency.json"), JSON.stringify(latency, null, 2));
@@ -137,6 +138,12 @@ note("native-ready", { ready });
 const qualified = await manager.poolStatus();
 note("pool-qualified", { status: qualified });
 expect(qualified.qualified, "INTEGRATED_POOL_QUALIFIED").toBe(true);
+/** Physical allocation of the pool, read from sysfs without the manager; null if unreadable. */
+const POOL_FSID = fsid(POOL);
+function poolDiskUsed(): number | null {
+  try { return ["data", "metadata", "system"].reduce((sum, kind) => sum + Number(readFileSync(`/sys/fs/btrfs/${POOL_FSID}/allocation/${kind}/disk_used`, "utf8").trim()), 0); }
+  catch { return null; }
+}
 const records = async () => {
   const all: NativePoolRecord[] = [];
   for (let after: string | null = null; ;) { const page = await manager.listPoolRecovery(after); all.push(...page.records); if (!page.next) return all; after = page.next; }
@@ -199,14 +206,15 @@ async function run(backend: "claude" | "pi") {
     /** Health, liveness and pool sampling for one turn; the returned stop waits for its loops and its outstanding pongs. */
     function sampling(turn: string) {
       let running = true, probes = 0;
-      const peak = { chargedBytes: 0, pendingBytes: 0 }, start: { chargedBytes: number | null } = { chargedBytes: null };
+      const peak = { chargedBytes: 0 }, start: { chargedBytes: number | null } = { chargedBytes: null };
       Bun.spawnSync(["sync"]);
       const before = poolIo(), began = performance.now();
       const loops = [
         (async () => { while (running) { const at = performance.now(); const status = await fetch(origin + "/api/health", { signal: AbortSignal.timeout(10_000) }).then(response => response.status, () => 0); health.push({ turn, ms: performance.now() - at, status }); await Bun.sleep(100); } })(),
         (async () => { while (running) { const probeId = `odysseus-${backend}-${turn}-${probes++}`; pings.set(probeId, { turn, sent: performance.now() }); ws!.send(JSON.stringify({ type: "ping", probeId })); await Bun.sleep(200); } })(),
-        (async () => { while (running) { const value = (await manager.poolStatus().catch(() => null))?.accounting;
-          if (value) { start.chargedBytes ??= value.chargedBytes; peak.chargedBytes = Math.max(peak.chargedBytes, value.chargedBytes); peak.pendingBytes = Math.max(peak.pendingBytes, value.pendingBytes); }
+        // Read-only sysfs, never the manager: a second client polling it mid-turn would queue behind, and perturb, the app's own pool calls.
+        (async () => { while (running) { const value = poolDiskUsed();
+          if (value !== null) { start.chargedBytes ??= value; peak.chargedBytes = Math.max(peak.chargedBytes, value); }
           await Bun.sleep(100); } })(),
       ];
       return async () => {
@@ -280,7 +288,7 @@ async function run(backend: "claude" | "pi") {
       `INTEGRATED_${tag}_HEALTH_AND_LIVENESS_ANSWERED`).toEqual({ health: true, ws: true, healthFailures: 0, lostPongs: 0 });
     expect({ p95: measured.health.p95! <= IT.healthP95Ms, max: measured.health.max! <= IT.healthMaxMs }, `INTEGRATED_${tag}_HEALTH_LATENCY ${JSON.stringify(measured.health)}`).toEqual({ p95: true, max: true });
     expect({ p95: measured.ws.p95! <= IT.wsP95Ms, max: measured.ws.max! <= IT.wsMaxMs }, `INTEGRATED_${tag}_WS_LATENCY ${JSON.stringify(measured.ws)}`).toEqual({ p95: true, max: true });
-    expect(sampled.inspects!.io, `INTEGRATED_${tag}_IO_COUNTED`).not.toBeNull();
+    expect({ io: sampled.inspects!.io !== null, peak: sampled.inspects!.startChargedBytes !== null }, `INTEGRATED_${tag}_IO_AND_PEAK_SAMPLED`).toEqual({ io: true, peak: true });
     expect(sampled.inspects!.peak.chargedBytes - (sampled.inspects!.startChargedBytes ?? 0), `INTEGRATED_${tag}_INSPECTS_PEAK_BOUNDED`).toBeLessThanOrEqual(IT.inspectsPeakBytes);
 
     // Acquisition and inspection: a private source at the first commit, read by a worker, charging no changed path.
@@ -381,7 +389,10 @@ async function run(backend: "claude" | "pi") {
     if (!exited) child.kill("SIGTERM");
     const code = await child.exited;
     writeFileSync(join(ARTIFACTS, `app-${backend}.log`), `exit ${code}\n--- stdout\n${await output}\n--- stderr\n${await errors}`);
-    note(`${backend}-app-exit`, { code });
+    // The app's own warnings, so a failed run's cause is in the job log even if no artifact survives.
+    const warnings = events().filter(row => row.kind === "fixture_logs").flatMap(row => row.records).filter((log: { severity: string }) => log.severity !== "INFO" && log.severity !== "DEBUG")
+      .map((log: { severity: string; body: unknown }) => `${log.severity}: ${String(log.body).slice(0, 400)}`).slice(-12);
+    note(`${backend}-app-exit`, { code, warnings });
   }
 }
 
@@ -410,4 +421,6 @@ try {
   expect(left, "INTEGRATED_NO_WORKTREE_LEFT").toEqual([]);
 } finally {
   await service.close();
+  // The app wrote its data as UID 1000, some of it owner-only; the receipt upload reads the whole artifact tree.
+  Bun.spawnSync(["chmod", "-R", "a+rX", ARTIFACTS]);
 }

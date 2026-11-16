@@ -296,21 +296,24 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     const parked = await measure("worktrees-released", null);
 
     // Write-time EDQUOT on a refresh: a commit larger than one operation's allowance is refused inside the fetch.
-    // The previous root keeps serving, marked stale, and the staging root is released.
+    // The refresh window has passed and so has the previous commit's validation (both default to five minutes),
+    // so no stale copy may be served: the request rejects as capacity. The previous root is neither served nor
+    // withdrawn, and the staging root is released.
     const accepted = git(work, "rev-parse", "HEAD").trim();
     incompressible(join(work, "charts", "poseidon.bin"), allowance + 8 * MIB);
     git(work, "add", "."); git(work, "commit", "-q", "-m", "Poseidon raises a storm"); push();
     advance();
-    const [overflowed, overflowMs, overflowPeak] = await sampled(() => request());
+    const [overflowed, overflowMs, overflowPeak] = await sampled(() => request().then(
+      lease => { lease.release(); return { root: lease.rootId as string | null, code: null as string | null, message: lease.error }; },
+      (error: { code?: string; message?: string }) => ({ root: null as string | null, code: error.code ?? null, message: error.message ?? String(error) })));
     await settledStaging("REFERENCE_EFFICIENCY_EDQUOT_REFRESH");
-    const refusedRefresh = await reclaimed("edquot-refresh", parked, { ms: overflowMs, peak: overflowPeak, error: overflowed.error });
-    report.findings.refreshEdquot = { allowance, commitBytes: allowance + 8 * MIB, error: overflowed.error, peak: overflowPeak, residualBytes: refusedRefresh.chargedBytes - parked.chargedBytes };
-    expect({ root: overflowed.rootId, stale: overflowed.stale, roots: await sourceRoots() }, "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_KEEPS_PREVIOUS")
-      .toEqual({ root: cold.rootId, stale: true, roots: [cold.rootId] });
-    // The transport classifies the refusal by Git's own message (reference-transport.ts); the error carries it.
-    expect(overflowed.error ?? "", "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_REFUSED_AT_WRITE").toMatch(/quota/i);
+    const refusedRefresh = await reclaimed("edquot-refresh", parked, { ms: overflowMs, peak: overflowPeak, refusal: overflowed });
+    report.findings.refreshEdquot = { allowance, commitBytes: allowance + 8 * MIB, refusal: overflowed, peak: overflowPeak, residualBytes: refusedRefresh.chargedBytes - parked.chargedBytes };
+    expect({ root: overflowed.root, code: overflowed.code, roots: await sourceRoots() }, "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_REFUSED_AS_CAPACITY")
+      .toEqual({ root: null, code: "capacity", roots: [cold.rootId] });
+    // The transport classifies the refusal by Git's own message (reference-transport.ts); the refusal carries it.
+    expect(overflowed.message ?? "", "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_REFUSED_AT_WRITE").toMatch(/quota/i);
     expect(refusedRefresh.chargedBytes - parked.chargedBytes, "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_RECLAIMED").toBeLessThanOrEqual(T.reclaimedBytes);
-    overflowed.release();
     // The remote rewinds past the storm; the next refresh never fetches it.
     git(work, "reset", "-q", "--hard", accepted); push("--force");
 
