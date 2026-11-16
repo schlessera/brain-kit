@@ -5,10 +5,12 @@ import { consumerProbe, invocationFixture } from "./helpers/test-invocation-fixt
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture() { const value = invocationFixture(); roots.push(value.root); return value; }
-async function until(check: () => boolean, label: string) {
+// A label that reports output is a function, read when the wait ends: built at
+// the call, it would show only what had arrived before the wait began.
+async function until(check: () => boolean, label: string | (() => string)) {
   const end = Date.now() + 10_000;
   while (!check() && Date.now() < end) await Bun.sleep(10);
-  expect(check(), label).toBe(true);
+  expect(check(), typeof label === "string" ? label : label()).toBe(true);
 }
 // A child publishes every file this suite polls for and then reads by writing a
 // temporary file and renaming it into place. writeFileSync creates the file
@@ -81,7 +83,7 @@ const out=openSync("tmp/survivor.log","w");const child=spawn(process.execPath,["
     survivor = readPid(join(root, "tmp/survivor-pid"), "SURVIVOR_PID_PUBLISHED");
     const result = await running.done; expect(result.code).not.toBe(0);
     writeFileSync(join(root, "tmp/owner-died"), "release");
-    await until(() => existsSync(join(root, "tmp/survivor-done")), "SURVIVOR_ACTUAL_FALLBACK: " + (existsSync(join(root, "tmp/survivor.log")) ? readFileSync(join(root, "tmp/survivor.log"), "utf8") : ""));
+    await until(() => existsSync(join(root, "tmp/survivor-done")), () => "SURVIVOR_ACTUAL_FALLBACK: " + (existsSync(join(root, "tmp/survivor.log")) ? readFileSync(join(root, "tmp/survivor.log"), "utf8") : ""));
     expect(readFileSync(join(root, "tmp/survivor-done"), "utf8")).toBe("done");
   } finally {
     running.child.kill(); await running.done;
@@ -176,10 +178,13 @@ for (const entry of ["wrapper", "direct"] as const) test(`${entry} watch reruns 
 const child=Bun.spawn([process.execPath,...${JSON.stringify(args)}],{stdout:"inherit",stderr:"inherit"});const end=Date.now()+15000;while(!existsSync("tmp/stop-watch")&&Date.now()<end)await Bun.sleep(10);child.kill("SIGTERM");await child.exited;`);
   const running = start(root);
   try {
-    await until(() => running.output().includes("WATCH_CONSUMER 1"), "FIRST_WATCH_CONSUMER: " + running.output());
+    // Edit only after the first watch run has finished. Bun prints the summary
+    // after the file's teardown, so the edit cannot land inside that run, and
+    // the rerun it starts is the only one this test waits for.
+    await until(() => /WATCH_CONSUMER 1[\s\S]*Ran 1 test across 1 file/.test(running.output()), () => "FIRST_WATCH_RUN_COMPLETE: " + running.output());
     write("expected", "2"); write("packages/ithaca/src/index.ts", "export const cargo = 2;\n");
     write("watched.test.ts", watched + "\n// Odysseus prepares another voyage.\n");
-    await until(() => running.output().includes("WATCH_CONSUMER 2"), "SECOND_WATCH_CONSUMER: " + running.output());
+    await until(() => running.output().includes("WATCH_CONSUMER 2"), () => "SECOND_WATCH_CONSUMER: " + running.output());
     write("tmp/stop-watch", "stop");
     const result = await running.done; expect(result.code, result.output).toBe(0); expect(result.output).not.toContain("(fail)");
   } finally { write("tmp/stop-watch", "stop"); running.child.kill(); await running.done; }
