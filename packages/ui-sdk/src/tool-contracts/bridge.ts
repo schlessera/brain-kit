@@ -380,6 +380,91 @@ export const REQUEST_IMAGE_MASK_CONTRACT = defineToolComponentContract({
 });
 
 // ---------------------------------------------------------------------------
+// request_image_markup (#3975)
+// ---------------------------------------------------------------------------
+
+export const REQUEST_IMAGE_MARKUP_TOOL_NAME = "request_image_markup";
+
+/** The longest `instruction` the editor's "Agent asks:" line shows. */
+export const REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX = 200;
+
+export const REQUEST_IMAGE_MARKUP_DESCRIPTION = [
+  "Ask the user to mark up an image in their browser: arrows, circles, freehand strokes and short text notes that say what to change, as opposed to `request_image_mask`, which marks where pixels may change.",
+  "Use before an edit the user would rather point at than describe, e.g. \"move the raft to where the arrow points and make the circled sail red\". The host saves a transparent PNG layer the size of the image under `.brain/scratch/markup/` and returns its path, the mark counts and the note texts.",
+  "Pass the layer to `brain image --ref <imagePath> --markup <markupPath>`, with the same image as the first `--ref`. Never pass it to `--mask`.",
+  "The user may close the editor, in which case this returns an error: fall back to describing the change in words instead of retrying.",
+].join("\n");
+
+export const REQUEST_IMAGE_MARKUP_INPUT_SCHEMA = z.object({
+  imagePath: z
+    .string()
+    .describe(
+      "Repo-relative path of the PNG, JPEG or WebP image to mark up, e.g. photos/raft-at-ithaca.jpg"
+    ),
+  instruction: z
+    .string()
+    .max(REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX)
+    .optional()
+    .describe(
+      "What the user should mark, shown to them while they draw, e.g. 'mark what should move and where'"
+    ),
+});
+
+export type RequestImageMarkupInput = z.infer<
+  typeof REQUEST_IMAGE_MARKUP_INPUT_SCHEMA
+>;
+
+/** How many marks of each kind the layer holds. */
+export interface ImageMarkupCounts {
+  pen: number;
+  arrow: number;
+  ellipse: number;
+  text: number;
+}
+
+export interface ImageMarkupPayload {
+  /** The source, as submitted. */
+  imagePath: string;
+  /** The saved layer, repo-relative, always under `.brain/scratch/markup/`. */
+  markupPath: string;
+  /** The source's displayed size after EXIF orientation, which the layer matches. */
+  width: number;
+  height: number;
+  /** The layer's size in bytes. */
+  bytes: number;
+  marks: ImageMarkupCounts;
+  /** The note texts, in placement order. */
+  notes: string[];
+  note: string;
+}
+
+const MARK_COUNT = z.number().int().nonnegative();
+
+export const IMAGE_MARKUP_PAYLOAD_SCHEMA = z.looseObject({
+  imagePath: z.string(),
+  markupPath: z.string(),
+  width: z.number(),
+  height: z.number(),
+  bytes: z.number(),
+  marks: z.looseObject({ pen: MARK_COUNT, arrow: MARK_COUNT, ellipse: MARK_COUNT, text: MARK_COUNT }),
+  notes: z.array(z.string()),
+  note: z.string(),
+}) satisfies z.ZodType<ImageMarkupPayload>;
+
+export const REQUEST_IMAGE_MARKUP_CONTRACT = defineToolComponentContract({
+  name: REQUEST_IMAGE_MARKUP_TOOL_NAME,
+  description: REQUEST_IMAGE_MARKUP_DESCRIPTION,
+  input: REQUEST_IMAGE_MARKUP_INPUT_SCHEMA,
+  payload: IMAGE_MARKUP_PAYLOAD_SCHEMA,
+  brief: (name) =>
+    `- **Let the reader draw what should change.** When an image edit is easier
+  to point at than to describe, call \`${name}\` — they draw arrows, circles
+  and notes, and you get a transparent layer for \`brain image --markup\`. A
+  mask says where pixels may change; markup says what to change. Describing
+  the change in words is the fallback when they close the editor.`,
+});
+
+// ---------------------------------------------------------------------------
 // query_activity — a contract with no payload
 // ---------------------------------------------------------------------------
 
@@ -509,6 +594,7 @@ export const BRIDGE_TOOL_CONTRACTS = [
   ASK_USER_FORM_CONTRACT,
   GET_CURRENT_LOCATION_CONTRACT,
   REQUEST_IMAGE_MASK_CONTRACT,
+  REQUEST_IMAGE_MARKUP_CONTRACT,
   QUERY_ACTIVITY_CONTRACT,
   SHOW_BLOCK_CONTRACT,
   TURN_TEMP_CONTRACT,
@@ -527,6 +613,7 @@ const names = [
   ASK_USER_FORM_CONTRACT.name,
   GET_CURRENT_LOCATION_CONTRACT.name,
   REQUEST_IMAGE_MASK_CONTRACT.name,
+  REQUEST_IMAGE_MARKUP_CONTRACT.name,
   QUERY_ACTIVITY_CONTRACT.name,
   SHOW_BLOCK_CONTRACT.name,
   TURN_TEMP_CONTRACT.name,

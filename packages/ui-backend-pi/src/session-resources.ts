@@ -67,6 +67,7 @@ export function createSessionResources(options: {
         activity: caps.activity,
         inbox: caps.inbox,
         mask: caps.mask,
+        markup: caps.markup,
         turnTemp: caps.turnTemp,
         reference: caps.reference,
         compute: caps.compute,
@@ -115,7 +116,7 @@ export function createSessionResources(options: {
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true, compute: true, web: true,
+        location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, web: true,
       } }, subagentTool, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
@@ -198,6 +199,7 @@ function buildAppend(
         inboxList: env.caps.inbox && "inbox_list", inboxGet: env.caps.inbox && "inbox_get",
         inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action", completeShare: env.caps.inbox && "complete_share",
         mask: env.caps.mask && "request_image_mask",
+        markup: env.caps.markup === true && "request_image_markup",
         turnTemp: env.caps.turnTemp === true && "turn_temp",
         referenceSource: env.caps.reference === true && "reference_source",
         referenceWorktree: env.caps.reference === true && "reference_worktree",

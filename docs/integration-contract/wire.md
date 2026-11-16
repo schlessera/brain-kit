@@ -2118,6 +2118,51 @@ after each hello, appends each frame, and derives a sent row's read state only
 from those records. Until a session's records arrive, a sent row claims neither
 "read" nor "not read yet".
 
+<a id="markup-requests-additive-0450-3975"></a>
+
+### Markup requests (additive, 0.45.0, #3975)
+
+`request_image_markup` ([MCP](mcp.md#hosted-markup-layer-application-additive-0450-3975))
+opens the browser's markup editor. Only the request and a decline travel on
+the socket. The layer itself is uploaded: it may be up to 52,428,800 bytes, far
+beyond `MAX_CLIENT_FRAME_BYTES` (12,000,000), which is unchanged.
+
+- **`client_hello.capabilities.imageMarkup: true`** (`IMAGE_MARKUP_CAPABILITY`)
+  says the connection opens the editor and uploads the layer. A host asks only
+  when a connection of the turn's principal declared it, and refuses the tool
+  otherwise. The SDK's `BrainUiClient` declares it.
+- **`markup_request`** `{ type: "markup_request", requestId, imagePath,
+  instruction?, width, height, maxBytes, uploadPath, sourcePath, sessionId?,
+  turnId? }`.
+  `width` and `height` are the source's displayed size, read by the server
+  after EXIF orientation; the layer is exported at exactly that size.
+  `maxBytes` is 52,428,800. `uploadPath` is `/markup/<requestId>` and
+  `sourcePath` is `/markup/<requestId>/source`, both relative to the API base.
+  The editor reads the source there, with the frame's `turnId`. `requestId` is
+  unguessable (`markup-<uuid>`).
+- **Delivery.** The frame goes only to the turn principal's connections that
+  declared `imageMarkup`. When the last of those disconnects, the request is
+  rejected (`Client disconnected`), whoever else stays connected. A client
+  that receives a second request while one is open queues it behind the first.
+- **The answer** is one `POST <api base><uploadPath>?turnId=<turnId>` to the
+  [markup upload route](../http-api.md#markup-layer-upload-additive-0450-3975).
+  A refused upload leaves the request open, so the editor stays up with the
+  route's reason.
+- **`markup_error`** `{ type: "markup_error", requestId, code: "cancelled" |
+  "failed", message, turnId? }` declines. Only a connection of the request's
+  principal can decline it; `cancelled` resolves the tool with `The user
+  closed the markup editor`.
+
+A markup request needs a live client, like a mask request. A cancelled turn
+or a host shutdown rejects it, and a later upload for its id
+answers 404. There is no `markup_response` frame.
+
+The SDK publishes `ServerMarkupRequest`, `ClientMarkupError`,
+`IMAGE_MARKUP_CAPABILITY`, `serverMarkupRequestSchema` and
+`clientMarkupErrorSchema`. `serverMessageSchema` and `clientMessageSchema`
+accept the new frames, and a consumer that ignores unknown frame types is
+unaffected.
+
 <a id="explicit-chat-deletion-additive-3230"></a>
 
 ### Explicit chat deletion (additive, #3230)

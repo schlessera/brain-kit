@@ -1,4 +1,4 @@
-import { SAFETY_READ_CAPABILITIES } from "@schlessera/brain-ui-sdk/protocol";
+import { SAFETY_READ_CAPABILITIES, IMAGE_MARKUP_CAPABILITY } from "@schlessera/brain-ui-sdk/protocol";
 import { createHash } from "node:crypto";
 import { upgradeWebSocket, websocket } from "hono/bun";
 import type { MiddlewareHandler } from "hono";
@@ -326,6 +326,9 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
       // re-delivered on reconnect — a phone drops its socket at every screen
       // lock, and denying pending approvals on that signal killed real work.
       // The turn timeout remains their upper bound.
+      // A markup editor needs one of ITS principal's connections that can
+      // draw (#3975): once the last of those leaves, nobody can answer it.
+      host.coordinator.drainMarkup(p => !host.clients.anyDeclares(IMAGE_MARKUP_CAPABILITY, p.principalId), "Client disconnected");
       if (host.clients.hasClients()) return;
       for (const turn of host.coordinator.running) {
         host.coordinator.drainClientBoundForTurn(turn, "Client disconnected");

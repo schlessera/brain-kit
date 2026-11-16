@@ -28,11 +28,11 @@ const HOST_READS: ReadonlySet<string> = new Set(["brain_read_base", "query_activ
 /**
  * Host bridge handlers that write, all before their result returns: the
  * application route (strict `write_file` and `edit_file` too), inbox, mask,
- * policy and reference tools. Evidence for any other name, whatever the
+ * markup (#3975), policy and reference tools. Evidence for any other name, whatever the
  * backend reports, proves nothing about what the call ran.
  */
 const HOST_WRITES: ReadonlySet<string> = new Set(["brain_add", "brain_update", "brain_archive", "apply_staged_changes", "write_file", "edit_file",
-  "inbox_add", "resolve_action", "complete_share", "request_image_mask", "propose_policy_change", "reference_source", "reference_worktree"]);
+  "inbox_add", "resolve_action", "complete_share", "request_image_mask", "request_image_markup", "propose_policy_change", "reference_source", "reference_worktree"]);
 
 export function toolObservation(name: string | null, path: ToolExecutionPath | undefined): ToolObservation {
   if (name === null || path === undefined) return "unproven";
