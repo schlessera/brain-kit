@@ -51,7 +51,8 @@ export const INTEGRATED_TOLERANCES = Object.freeze({
   /** Peak pool allocation above the turn's start during the first turn: one source and two worktree snapshots. Measured 14.7 MiB. */
   inspectsPeakBytes: 20 * 1024 ** 2,
 });
-const IT = INTEGRATED_TOLERANCES;
+// TEMPORARY (#3513) mutation round: the probe may replace named bounds with values below their measurements.
+const IT = Object.freeze({ ...INTEGRATED_TOLERANCES, ...JSON.parse(process.env.BRAIN_INTEGRATED_TOLERANCE_BREACH ?? "{}") }) as typeof INTEGRATED_TOLERANCES;
 /** Three incompressible 2 MiB charts beside the books: Git objects and checkout both hold them. */
 const CHARTS = 3, CHART_BYTES = 2 * 1024 ** 2;
 const percentile = (values: number[], fraction: number) => { const sorted = [...values].sort((a, b) => a - b); return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(fraction * sorted.length) - 1)]! : null; };
