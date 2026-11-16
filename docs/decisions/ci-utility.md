@@ -1084,13 +1084,31 @@ retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
 
-Qualification is tied to the exact operation, source and installed identities;
-unknown readers, drift or missing inputs retain complete fresh proof. The fresh
-shard independently passes its computed identity to host preparation and checks
-installation/runtime identity again before emitting its existing receipt. Both
-shards, independent immutable source/current validation and whole-workflow
-successful eligibility retain the existing complete-domain protocol. Local proof
-is not a hosted baseline, retention hit or permission to use a failed workflow.
+**The frozen qualification is retired (maintainer, 2026-11-16,
+[#4105](https://github.com/schlessera/brain-kit/issues/4105)).** #2293 pinned the
+producer's source (`e8502b6f…`, the frozen #2293 snapshot), its installation
+(a hash over every package, file, byte and mode in `node_modules`) and three
+source files. That let a ready PR retain browser proof from an earlier green
+run. The pin no longer protected anything live:
+
+- Under the [hybrid ruling](#hybrid-post-merge-heavy-proof), ready confirmation
+  no longer runs browser proof, and the squash's main run is always fresh.
+- All three pinned source files had drifted, so the binding could not qualify
+  on the current tree in any case.
+- Any dependency change moved the installation hash and turned `unit` red. That
+  needed a manual requalification run on a Docker host and a second merge
+  cycle. It happened three times (#3320, #3968, #4102), and the frozen
+  producer's SVG and PNG came out byte-identical every time.
+
+The binding (`scripts/native-diagram-inputs.ts`) and its self-test are
+removed, and the browser input closure no longer binds the producer's reads.
+The browser domain therefore always runs fresh. This supersedes the
+requalification rulings of 2026-11-02 (#2509/#3320) and 2026-11-11 (#3968).
+The container boundary above, the producer's own run-time identity checks and
+the browser's validation of the handoff are unchanged. If browser retention
+returns to ready confirmation, its qualification is designed afresh then.
+Local proof is not a hosted baseline, retention hit or permission to use a
+failed workflow.
 
 Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
 asset. Its explicit resource identity records package name/version, relative

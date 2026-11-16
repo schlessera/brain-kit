@@ -11,6 +11,12 @@ export interface Checkout { sha: string; tree: string; parents: string[]; }
 export interface Inputs {
   version: 2; category: Reusable; fingerprint: string; runner: string;
   inventory: Spec[]; partitions: string[][]; excluded: string[];
+  /**
+   * Never produced since #4105 retired the frozen native diagram qualification.
+   * `scripts/ci-proof.ts` and `scripts/visual.mjs` still read it, and do
+   * nothing when it is absent; they are audited sources, so the dead branches
+   * go when those files next change under their own re-audit.
+   */
   nativeDiagram?:{source:string;installation:string;runtime:string};
 }
 export function git(root: string, ...args: string[]): string {

@@ -35,8 +35,7 @@ copy alone proves neither provenance nor pristine package bytes.
 Keep the original and recovered observations separate. Do not change package
 versions, locks, assertions, qualification pins or file modes to force a pass.
 Rebuild as required and rerun the original focused check through its offline
-wrapper. For the frozen native diagram fixture, retain the failed/restored
-installation identities and run `bun run test ./tests/native-diagram-inputs.test.ts`.
+wrapper.
 Once evidence is retained and no process uses it, remove only the owned old
 installation. Never delete or repair shared caches while others may use them.
 Repeat preparation before a new independent diagnostic; an installation you
