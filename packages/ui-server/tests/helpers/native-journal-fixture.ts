@@ -122,6 +122,8 @@ export function createNativeJournalFixture(brain: string, root: string, copy = (
     async prepareStage() { throw Error("Copied native fixture does not qualify output-stage runtime; provide explicit prepared worker test output."); },
     async inspectStage() { throw Error("Copied native fixture has no output stage to inspect."); },
     async releaseStage(id) { return { id, state: "deleted" }; },
+    async prepareTurnTree() { throw Error("Copied native fixture has no managed volume for turn data trees."); },
+    async releaseTurnTree(id) { return { id, state: "deleted" }; },
     async poolStatus() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolCreate() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolSeal() { throw Error("Copied native fixture has no reference pool volume."); },

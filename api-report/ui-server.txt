@@ -1718,11 +1718,14 @@ signatures (every public export and the types it is made of)
         id: string;
         state: "creating" | "sealed" | "deleting" | "deleted";
         checkpoint?: NativeCheckpoint;
-        kind?: "stage";
+        kind?: "stage" | "tree";
         stage?: NativeStage;
         stageRequest?: {
             checkpointId: string;
             checkpointUuid: string;
+            allowanceBytes: number;
+        };
+        treeRequest?: {
             allowanceBytes: number;
         };
     }
@@ -1752,6 +1755,12 @@ signatures (every public export and the types it is made of)
         checkpointUuid: string;
         changes: AsyncIterable<NativeStageChange>;
         completed: NativeDeltaStream["completed"];
+    }
+  NativeTurnTree (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativeTurnTree {
+        id: string;
+        path: string;
+        allowanceBytes: number;
     }
   Observability (packages/ui-server/src/observability/index.ts)
     export interface Observability {
@@ -2512,6 +2521,7 @@ signatures (every public export and the types it is made of)
         }>;
         poolWithdraw: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeStage>;
+        prepareTurnTree: (id: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeTurnTree>;
         readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         readStage: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         ready: (signal?: AbortSignal) => Promise<NativeManagerReady>;
@@ -2520,6 +2530,10 @@ signatures (every public export and the types it is made of)
             state: "deleted";
         }>;
         releaseStage: (id: string, signal?: AbortSignal) => Promise<{
+            id: string;
+            state: "deleted";
+        }>;
+        releaseTurnTree: (id: string, signal?: AbortSignal) => Promise<{
             id: string;
             state: "deleted";
         }>;

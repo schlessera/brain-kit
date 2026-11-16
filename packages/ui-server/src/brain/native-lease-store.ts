@@ -15,7 +15,7 @@ export const url = import.meta.url;
 /** This owner's identity: the manager instance's generation on this boot and PID namespace. */
 export interface NativeLeaseOwner { generation: string; boot: string; pidNamespace: string }
 
-type Lease = { kind: "checkpoint" | "stage"; checkpoint_uuid: string | null; stage_lower_id: string | null; stage_allowance: number | null; owner_pid: number; owner_start: string; owner_generation: string; owner_boot: string; owner_pid_namespace: string; state: "creating" | "sealed" | "deleting" };
+type Lease = { kind: "checkpoint" | "stage" | "tree"; checkpoint_uuid: string | null; stage_lower_id: string | null; stage_allowance: number | null; owner_pid: number; owner_start: string; owner_generation: string; owner_boot: string; owner_pid_namespace: string; state: "creating" | "sealed" | "deleting" };
 type PoolLease = { purpose: string; from_id: string | null; allowance: number; state: "creating" | "held" | "releasing" };
 
 export function reviveNativeLeaseError(wire: WireError): Error | undefined {
@@ -47,6 +47,15 @@ export function setup(db: Database, owner: NativeLeaseOwner): WriteProcedures {
         if (!lease) db.query("INSERT INTO native_root_leases(id,owner_pid,owner_start,owner_generation,owner_boot,owner_pid_namespace,state,kind,stage_lower_id,stage_allowance) VALUES (?,?,?,?,?,?,'creating','stage',?,?)").run(id, SELF.pid, SELF.start, owner.generation, owner.boot, owner.pidNamespace, checkpointId, allowanceBytes);
       }).immediate();
       return lowerUuid;
+    },
+    /** A turn data tree (#2911); its allowance is kept in `stage_allowance`. */
+    treeIntent(id: string, allowanceBytes: number): void {
+      db.transaction(() => {
+        const lease = row(id);
+        if (poolRow(id)) throw new NativeBrainManagerError("unknown", "This identity already belongs to a reference pool lease.");
+        if (lease && (!mine(lease) || lease.kind !== "tree" || lease.state === "deleting" || lease.stage_allowance !== allowanceBytes)) throw new NativeBrainManagerError("unknown", "Turn-tree identity belongs to another owner or deletion.");
+        if (!lease) db.query("INSERT INTO native_root_leases(id,owner_pid,owner_start,owner_generation,owner_boot,owner_pid_namespace,state,kind,stage_allowance) VALUES (?,?,?,?,?,?,'creating','tree',?)").run(id, SELF.pid, SELF.start, owner.generation, owner.boot, owner.pidNamespace, allowanceBytes);
+      }).immediate();
     },
     poolIntent(id: string, purpose: string, from: string | null, allowanceBytes: number): void {
       db.transaction(() => {
