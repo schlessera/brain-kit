@@ -133,11 +133,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     child.kill("SIGKILL");
   }
   // Extension code runs on every tool event and can write at any time (#2834):
-  // only a worker that loads none can prove a call's execution path. Proof
-  // also ends, for the worker's lifetime, once it admits a call that can run
-  // other code (bash, grep, brain-owned configuration through an index tool,
-  // an application tool) or starts a call under a running call's identity:
-  // from then on the worker's own reports are no evidence.
+  // only a worker that loads none can prove a call's execution path. A
+  // configuration without discovery loads none; with discovery on, the
+  // worker's own loader reports what it loaded before the prompt (#2874).
+  // Proof also ends, for the worker's lifetime, once it admits a call that
+  // can run other code (bash, grep, brain-owned configuration through an
+  // index tool, an application tool) or starts a call under a running call's
+  // identity: from then on the worker's own reports are no evidence.
   const extensionFree = envelope !== undefined || !discoversPiExtensions(backend);
   const proof = createExecutionProof(extensionFree, new Set(["read_file", "write_file", "edit_file", "brain_read_base", ...bridgeTools.map(tool => tool.name)]));
   const dispatch = createPiWorkerRpcDispatcher({ brainPath: backend.brainPath, turn: turnContext, live, grants, releases, workerLock,
@@ -239,12 +241,22 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
  * as and which RPCs it made. Proof ends, for the worker's lifetime, once it
  * admits a tool outside the provable set or starts a call under a running
  * call's identity.
+ *
+ * `extensionFree` is what the configuration proves. A discovering worker
+ * becomes extension-free only when its own loader reports none loaded in its
+ * `ready` frame (#2874), which the reader accepts once, before the prompt.
+ * Any loaded extension or load error ends proof, whatever the configuration
+ * said; no report leaves the configuration's answer. The set cannot change
+ * after that report: only `AgentSession.reload()` reloads it, and a managed
+ * worker reaches that only through a loaded extension's `ctx.reload()`.
  */
 function createExecutionProof(extensionFree: boolean, provableTools: ReadonlySet<string>) {
-  let provable = extensionFree;
+  let loadedNone = extensionFree, provable = true;
   const running = new Set<string>();
   const executions = new Map<string, CallExecution>();
+  const proves = () => loadedNone && provable;
   return {
+    loaded: (count: number | undefined): void => { if (count !== undefined) loadedNone = count === 0; },
     executed: (msg: PiWorkerRpc): CallExecution => {
       let seen = executions.get(msg.toolCallId);
       if (!seen) executions.set(msg.toolCallId, seen = { name: msg.toolName, host: false, lock: false, phases: new Set() });
@@ -252,7 +264,7 @@ function createExecutionProof(extensionFree: boolean, provableTools: ReadonlySet
       else if (seen.name !== msg.toolName) seen.name = "";
       return seen;
     },
-    canFinalize: (toolName:string,toolCallId:string):boolean => provable&&running.has(toolCallId)&&provenToolExecution(toolName,executions.get(toolCallId))!==undefined,
+    canFinalize: (toolName:string,toolCallId:string):boolean => proves()&&running.has(toolCallId)&&provenToolExecution(toolName,executions.get(toolCallId))!==undefined,
     admit: (toolName: string): void => { if (!provableTools.has(toolName)) provable = false; },
     started: (toolCallId: string): void => {
       if (running.has(toolCallId)) provable = false;
@@ -260,7 +272,7 @@ function createExecutionProof(extensionFree: boolean, provableTools: ReadonlySet
     },
     ended: (toolName: string, toolCallId: string): ReturnType<typeof provenToolExecution> => {
       const started = running.delete(toolCallId);
-      const proven = provable && started ? provenToolExecution(toolName, executions.get(toolCallId)) : undefined;
+      const proven = proves() && started ? provenToolExecution(toolName, executions.get(toolCallId)) : undefined;
       executions.delete(toolCallId);
       return proven;
     },

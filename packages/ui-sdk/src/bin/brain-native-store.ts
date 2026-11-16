@@ -8,6 +8,7 @@ import { nativeCheckpointId, NativeBrainManagerError } from "../server/native-br
 
 const usage = `Usage: brain-native-store /absolute/root-owned-config.json
        brain-native-store pool status /absolute/root-owned-config.json
+       brain-native-store pool growth /absolute/root-owned-config.json
        brain-native-store pool recovery [--after <id>] /absolute/root-owned-config.json
        brain-native-store pool release <id> /absolute/root-owned-config.json`;
 function loadConfig(path: string): NativeBrainManagerConfig {
@@ -36,13 +37,14 @@ async function pool(args: string[]): Promise<number> {
   const action = args[0], config = args.at(-1);
   const after = action === "recovery" && args.length === 4 && args[1] === "--after" ? args[2]! : null;
   const id = action === "release" && args.length === 3 ? args[1]! : null;
-  const shaped = (action === "status" && args.length === 2) || (action === "recovery" && (args.length === 2 || after !== null)) || id !== null;
+  const shaped = ((action === "status" || action === "growth") && args.length === 2) || (action === "recovery" && (args.length === 2 || after !== null)) || id !== null;
   if (!shaped || !config || (after !== null && !nativeCheckpointId.safeParse(after).success) || (id !== null && !nativeCheckpointId.safeParse(id).success)) {
     console.error(usage); return 2;
   }
   const fixed = loadConfig(config), client = createNativeBrainManagerClient({ socketPath: fixed.socketPath, timeoutMs: fixed.operationTimeoutMs });
   try {
     const result = action === "status" ? { action, status: await client.poolStatus() }
+      : action === "growth" ? { action, growth: await client.poolGrowth() }
       : action === "recovery" ? { action, ...(await client.listPoolRecovery(after)) }
       : { action, record: await client.poolRelease(id!) };
     console.log(JSON.stringify({ schema_version: 1, ok: true, ...result }));

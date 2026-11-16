@@ -851,7 +851,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:71-253`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:73-261`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -1681,7 +1681,12 @@ connections reach only `taint.egress.allow` and hosts its proxies already
 admitted. In an interactive turn, a connection to any other host first shows
 a permission card naming the host and what tainted the session; allowing it
 admits that host for the rest of the session (#3430). Voice turns refuse
-without a card. Refusals, including a declined card, are `egress_denial`
+without a card. With `taint.classifier: heuristics` in the governance policy
+(off by default), the host also judges each call a tainted session makes
+before it runs (#4088): a call that looks like it carries the session's
+notes out is refused, or asks with the reason on the card, even to a host
+the session already reached, and a clean read admits the hosts it names
+without the card while it runs. Refusals, including a declined card, are `egress_denial`
 events with reason `taint_allowlist`. Every refusal with a policy cause
 (taint, the deny or allow list, the byte ceiling, an unapproved outward host)
 answers with a status text and a body naming that cause, so `curl -v`, `git`

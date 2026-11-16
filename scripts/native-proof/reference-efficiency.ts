@@ -7,13 +7,19 @@
  * refreshed unchanged and changed, refreshed under concurrent readers, and
  * checked out into two managed worktrees. A reflinked and a full copy of the
  * same checkout, and a copy onto another filesystem, compare the copy paths.
+ * Under the same workload, a worktree and a refresh each write past their
+ * allowance and are refused at write time with EDQUOT, a refresh is cancelled
+ * mid-fetch, and an app instance is killed mid-acquisition and recovered by the
+ * next instance's startup recovery.
  *
  * Every step records the pool's own accounting (`chargedBytes`: unique
  * physical allocation across data, metadata and system, profile replication
  * included; `ownerBytes`: simple-quota first-owner charge per root) and an
  * independent extent census (`btrfs filesystem du`). Neither logical size nor
- * a sum of st_blocks is reported as unique usage. The report is
- * `reference-efficiency.json` next to the other receipts.
+ * a sum of st_blocks is reported as unique usage. Every step also records the
+ * pool device's block I/O and this process's I/O (reaped children included)
+ * since the previous step. The report is `reference-efficiency.json` next to
+ * the other receipts.
  */
 import { expect } from "bun:test";
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
@@ -23,6 +29,7 @@ import type { NativePoolRecord, NativePoolStatus } from "../../packages/ui-sdk/s
 import type { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/server/native-brain-manager-client.js";
 import { createFixtureWorktrees } from "./reference-worktree-allocation.js";
 import { settledWorktreeRelease } from "./reference-worktree-release.js";
+import { poolIo, poolIoDelta, type PoolIo } from "./pool-io.js";
 
 const MIB = 1024 ** 2;
 /** Generated workload: 40 books of 50 short lines, three 2 MiB charts, then one changed commit. */
@@ -47,12 +54,17 @@ export const EFFICIENCY_TOLERANCES = Object.freeze({
   reflinkBytes: 256 * 1024,
   /** Cold acquisition elapsed: measured 1,265 ms. Concurrent refresh: measured 4,688 ms. */
   coldMs: 15_000, concurrentMs: 30_000,
+  /** A refused, cancelled or crashed acquisition, after observed reclamation, pool-wide: the case's final residual bound. */
+  reclaimedBytes: 4 * MIB,
 });
+
 const T = EFFICIENCY_TOLERANCES;
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 export interface EfficiencyContext {
   client: Client;
+  /** The served manager's socket, for the crashed app instance's own client. */
+  socketPath: string;
   artifacts: string;
   note: (kind: string, facts: Record<string, unknown>) => void;
   command: (argv: string[], permitFailure?: boolean) => string;
@@ -63,11 +75,11 @@ interface Census { path: string; total: number; exclusive: number; shared: numbe
 interface Step {
   step: string; ms: number | null; chargedBytes: number; ownerBytes: number; globalBytes: number; pendingBytes: number; availableBytes: number;
   data: number; metadata: number; roots: { id: string; purpose: string; state: string; from: string | null; ownerBytes: number | null }[];
-  census: Census[]; [extra: string]: unknown;
+  census: Census[]; io: PoolIo | null; [extra: string]: unknown;
 }
 
 export async function runReferenceEfficiency(context: EfficiencyContext): Promise<void> {
-  const { client, artifacts, note, command, sync } = context;
+  const { client, socketPath, artifacts, note, command, sync } = context;
   const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
   const { createPrincipal } = await import("../../packages/ui-server/src/db/principals.js");
   const { createReferenceGrant } = await import("../../packages/ui-server/src/db/reference-grants.js");
@@ -98,7 +110,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
   git(work, "add", ".gitmodules");
   git(work, "commit", "-q", "-m", "Odysseus charts the Aegean");
   command(["git", "clone", "-q", "--bare", work, join(srv, "aegean.git")]);
-  const push = () => git(work, "push", "-q", join(srv, "aegean.git"), "main");
+  const push = (...flags: string[]) => git(work, "push", "-q", ...flags, join(srv, "aegean.git"), "main");
 
   const db = createUiDb(join(state, "ui.db"));
   let clock = Date.now();
@@ -112,13 +124,15 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     return { path: name.join(" "), total: Number(total), exclusive: Number(exclusive), shared: Number(shared) };
   });
   const report: { schema: 1; basis: string; workload: typeof W; environment: Record<string, string>; steps: Step[]; findings: Record<string, unknown> } = {
-    schema: 1, basis: "chargedBytes: pool accounting basis (btrfs-space-info-disk-used+simple-quota-owner); ownerBytes: simple-quota first-owner charge per root; census: btrfs filesystem du extent sharing",
+    schema: 1, basis: "chargedBytes: pool accounting basis (btrfs-space-info-disk-used+simple-quota-owner); ownerBytes: simple-quota first-owner charge per root; census: btrfs filesystem du extent sharing; "
+      + "io: since the previous step, after sync: pool loop device block counters (/proc/diskstats) and this process with its reaped children (/proc/self/io); peak: pool status sampled every 50 ms",
     workload: W, environment: {
       kernel: command(["uname", "-r"]).trim(), btrfsProgs: command(["btrfs", "--version"]).split("\n")[0]!.trim(), git: command(["git", "--version"]).trim(),
       bun: Bun.version, candidate: process.env.BRAIN_PROOF_CANDIDATE ?? "unrecorded",
     }, steps: [], findings: {},
   };
   const save = () => writeFileSync(join(artifacts, "reference-efficiency.json"), JSON.stringify(report, null, 2));
+  let counters = poolIo();
   async function measure(step: string, ms: number | null, paths: string[] = [], extra: Record<string, unknown> = {}): Promise<Step> {
     sync();
     const status: NativePoolStatus = await client.poolStatus();
@@ -126,32 +140,71 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     const a = status.accounting!;
     const roots = (await records()).filter(record => ["reserved", "writable", "sealed"].includes(record.state))
       .map(record => ({ id: record.id, purpose: record.purpose, state: record.state, from: record.from, ownerBytes: record.ownerBytes }));
+    const read = poolIo(), io = poolIoDelta(read, counters);
+    counters = read;
     const row: Step = { step, ms, chargedBytes: a.chargedBytes, ownerBytes: a.ownerBytes, globalBytes: a.globalBytes, pendingBytes: a.pendingBytes,
-      availableBytes: a.availableBytes, data: a.spaces.data.bytesUsed, metadata: a.spaces.metadata.bytesUsed, roots, census: census(paths), ...extra };
+      availableBytes: a.availableBytes, data: a.spaces.data.bytesUsed, metadata: a.spaces.metadata.bytesUsed, roots, census: census(paths), io, ...extra };
+    expect(io, `REFERENCE_EFFICIENCY_IO_COUNTED_${step}`).not.toBeNull();
     report.steps.push(row); save(); note("efficiency", { step, ms, chargedBytes: row.chargedBytes, pendingBytes: row.pendingBytes, roots: roots.length });
     return row;
   }
   const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => { const began = performance.now(); const value = await work(); return [value, Math.round(performance.now() - began)]; };
+  /** Timed work with the pool's peak combined charge and reservations sampled every 50 ms while it runs. */
+  const sampled = async <T>(work: () => Promise<T>): Promise<[T, number, { chargedBytes: number; pendingBytes: number }]> => {
+    const peak = { chargedBytes: 0, pendingBytes: 0 };
+    let running = true;
+    const sampling = (async () => {
+      while (running) {
+        const value = (await client.poolStatus().catch(() => null))?.accounting;
+        if (value) { peak.chargedBytes = Math.max(peak.chargedBytes, value.chargedBytes); peak.pendingBytes = Math.max(peak.pendingBytes, value.pendingBytes); }
+        await Bun.sleep(50);
+      }
+    })();
+    try { const [value, ms] = await timed(work); return [value, ms, peak]; } finally { running = false; await sampling; }
+  };
   const owner = (step: Step, id: string) => step.roots.find(root => root.id === id)?.ownerBytes ?? null;
   // Writable roots carry no owner charge until sealed, so worktrees compare on the census's exclusive extents.
   const exclusive = (step: Step, path: string) => { const entry = step.census.find(value => value.path === path); expect(entry, `REFERENCE_EFFICIENCY_CENSUS_${step.step}`).toBeDefined(); return entry!.exclusive; };
   const pathOf = async (id: string) => (await records()).find(record => record.id === id)!.path!;
   const sourceRoots = async () => (await records()).filter(record => record.purpose === "source" && record.state === "sealed").map(record => record.id);
+  /** Source roots still reserved, writable or deleting: an acquisition whose staging was not released. */
+  const unsettled = async () => (await records()).filter(record => record.purpose === "source" && ["reserved", "writable", "deleting"].includes(record.state));
+  async function settledStaging(label: string) {
+    for (let attempt = 0; attempt < 400 && (await unsettled()).length; attempt++) await Bun.sleep(25);
+    expect((await unsettled()).map(record => ({ id: record.id, state: record.state })), `${label}_STAGING_RELEASED`).toEqual([]);
+  }
+  /** Measure again until the pool is back within the bound of `base`, crediting only observed reclamation. */
+  async function reclaimed(step: string, base: Step, extra: Record<string, unknown> = {}): Promise<Step> {
+    let row = await measure(step, null, [], extra);
+    for (let attempt = 0; attempt < 20 && row.chargedBytes - base.chargedBytes > T.reclaimedBytes; attempt++) { await Bun.sleep(250); row = await measure(step, null, [], extra); }
+    return row;
+  }
+  /** Wait for a source root not in `known` to reach `state`, polling the pool every 5 ms. */
+  async function newSourceRoot(known: Set<string>, state: string, stop: () => boolean = () => false): Promise<NativePoolRecord | undefined> {
+    for (let attempt = 0; attempt < 4_000 && !stop(); attempt++) {
+      const found = (await records()).find(record => record.purpose === "source" && !known.has(record.id) && record.state === state);
+      if (found) return found;
+      await Bun.sleep(5);
+    }
+    return undefined;
+  }
 
   try {
     const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
     createReferenceGrant(db, { brain: "ithaca", principalId: penelope.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: penelope.id, now: clock });
-    const sources = createReferenceSources({ db, pool: client, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca", credentials: {}, now,
+    // One app instance's services; the crash below replaces them with the next instance's.
+    const instance = () => createReferenceSources({ db, pool: client, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca", credentials: {}, now,
       dependents: rootId => referenceWorktreeDependents(db, rootId) });
-    const worktrees = createFixtureWorktrees({ db, pool: client, sources, now }, note);
-    const repository = `file://${srv}/aegean.git`, request = () => sources.request({ principalId: penelope.id, repository, revision: "main" });
+    let sources = instance();
+    let worktrees = createFixtureWorktrees({ db, pool: client, sources, now }, note);
+    const repository = `file://${srv}/aegean.git`, request = (signal?: AbortSignal) => sources.request({ principalId: penelope.id, repository, revision: "main", ...(signal ? { signal } : {}) });
     const baseline = await measure("baseline", null);
 
     // Cold acquisition: one new sealed source root holds Git objects and the checkout.
-    const [cold, coldMs] = await timed(request);
+    const [cold, coldMs, coldPeak] = await sampled(() => request());
     const coldRoot = await pathOf(cold.rootId);
     const objects = (root: string) => Object.fromEntries(command(["git", "-c", "safe.directory=*", "--git-dir", join(root, ".git"), "count-objects", "-v"]).trim().split("\n").map(line => line.split(": ") as [string, string]));
-    const acquired = await measure("cold-acquisition", coldMs, [coldRoot, join(coldRoot, ".git"), join(coldRoot, "odyssey"), join(coldRoot, "charts")], { objects: objects(coldRoot) });
+    const acquired = await measure("cold-acquisition", coldMs, [coldRoot, join(coldRoot, ".git"), join(coldRoot, "odyssey"), join(coldRoot, "charts")], { objects: objects(coldRoot), peak: coldPeak });
     const coldOwner = owner(acquired, cold.rootId)!;
     expect(coldOwner, "REFERENCE_EFFICIENCY_COLD_HOLDS_OBJECTS_AND_CHECKOUT").toBeGreaterThanOrEqual(2 * W.charts * W.chartBytes);
     expect(await sourceRoots(), "REFERENCE_EFFICIENCY_COLD_ONE_ROOT").toEqual([cold.rootId]);
@@ -161,8 +214,10 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     expect(features, "REFERENCE_EFFICIENCY_SUBMODULE_AND_LFS_NOT_FETCHED").toEqual({ submodule: "", lfs: "version https://git-lfs.github.com/spec/v1" });
 
     // Repeat read inside the refresh window: the same root, no new checkout and no new allocation.
-    const [warm, warmMs] = await timed(request);
-    const reread = await measure("repeat-read", warmMs);
+    const [warm, warmMs, warmPeak] = await sampled(() => request());
+    const reread = await measure("repeat-read", warmMs, [], { peak: warmPeak });
+    // A warm read never reserves: its peak stays at the charge the cold acquisition left.
+    expect(warmPeak.pendingBytes, "REFERENCE_EFFICIENCY_REPEAT_READ_RESERVES_NOTHING").toBe(0);
     expect({ root: warm.rootId, roots: await sourceRoots() }, "REFERENCE_EFFICIENCY_REPEAT_READ_REUSES_ROOT").toEqual({ root: cold.rootId, roots: [cold.rootId] });
     expect(warmMs, "REFERENCE_EFFICIENCY_REPEAT_READ_FASTER_THAN_COLD").toBeLessThan(coldMs);
     expect(coldMs, "REFERENCE_EFFICIENCY_COLD_ELAPSED").toBeLessThanOrEqual(T.coldMs);
@@ -170,7 +225,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
 
     // Unchanged refresh after the window: validated in place, no new root.
     advance();
-    const [unchanged, unchangedMs] = await timed(request);
+    const [unchanged, unchangedMs] = await timed(() => request());
     const validated = await measure("unchanged-refresh", unchangedMs);
     expect({ root: unchanged.rootId, roots: await sourceRoots(), refreshed: unchanged.refreshedAt > cold.refreshedAt }, "REFERENCE_EFFICIENCY_UNCHANGED_REFRESH_IN_PLACE")
       .toEqual({ root: cold.rootId, roots: [cold.rootId], refreshed: true });
@@ -215,6 +270,20 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     expect(repackLoss, "REFERENCE_EFFICIENCY_REPACK_LOSES_SHARING").toBeGreaterThanOrEqual(W.charts * W.chartBytes);
     expect(linkedGrowth, "REFERENCE_EFFICIENCY_LINKED_WORKTREE_CHECKS_OUT_NEW_EXTENTS").toBeGreaterThanOrEqual(W.charts * W.chartBytes);
     expect(owner(linked, cold.rootId), "REFERENCE_EFFICIENCY_SHARING_LOSS_STAYS_IN_ITS_WORKTREE").toBe(owner(allocated, cold.rootId));
+    // Write-time EDQUOT: a worktree writing past its own allowance is refused by the kernel at write(), and charges nothing outside itself.
+    const allowance = (await client.poolStatus()).limits.operationBytes;
+    let overflowWritten = 0, overflowRefusal = "";
+    const overflowFd = openSync(join(secondPath, "charts", "poseidon.bin"), "w");
+    try { while (overflowWritten < 2 * allowance) overflowWritten += writeSync(overflowFd, randomBytes(MIB)); }
+    catch (error) { overflowRefusal = (error as NodeJS.ErrnoException).code ?? String(error); }
+    finally { closeSync(overflowFd); }
+    const refusedWrite = await measure("worktree-edquot", null, [firstPath, secondPath], { allowance, written: overflowWritten, refusal: overflowRefusal });
+    report.findings.worktreeEdquot = { allowance, written: overflowWritten, refusal: overflowRefusal, exclusive: exclusive(refusedWrite, secondPath) };
+    expect(overflowRefusal, "REFERENCE_EFFICIENCY_WORKTREE_EDQUOT_AT_WRITE").toBe("EDQUOT");
+    expect(exclusive(refusedWrite, secondPath), "REFERENCE_EFFICIENCY_WORKTREE_EDQUOT_WITHIN_ALLOWANCE").toBeLessThanOrEqual(allowance);
+    expect(Math.abs(exclusive(refusedWrite, firstPath) - exclusive(edited, firstPath)), "REFERENCE_EFFICIENCY_WORKTREE_EDQUOT_LEAVES_SIBLING").toBeLessThanOrEqual(64 * 1024);
+    expect(owner(refusedWrite, cold.rootId), "REFERENCE_EFFICIENCY_WORKTREE_EDQUOT_LEAVES_SOURCE").toBe(owner(allocated, cold.rootId));
+    rmSync(join(secondPath, "charts", "poseidon.bin"));
     // The managed release reads the commit as unpreserved work; this proof then releases both roots itself.
     const held = { record: (await records()).find(record => record.id === first.id)!, row: worktrees.inventory().find(entry => entry.row.id === first.id)!.row };
     const retained = await settledWorktreeRelease({ db, worktrees, records, note }, held,
@@ -226,22 +295,94 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     db.query("DELETE FROM reference_worktrees").run();
     const parked = await measure("worktrees-released", null);
 
-    // Changed refresh: the staging root snapshots the previous one, so only new objects and changed files allocate.
+    // Write-time EDQUOT on a refresh: a commit larger than one operation's allowance is refused inside the fetch.
+    // The refresh window has passed and so has the previous commit's validation (both default to five minutes),
+    // so no stale copy may be served: the request rejects as capacity. The previous root is neither served nor
+    // withdrawn, and the staging root is released.
+    const accepted = git(work, "rev-parse", "HEAD").trim();
+    incompressible(join(work, "charts", "poseidon.bin"), allowance + 8 * MIB);
+    git(work, "add", "."); git(work, "commit", "-q", "-m", "Poseidon raises a storm"); push();
+    advance();
+    const [overflowed, overflowMs, overflowPeak] = await sampled(() => request().then(
+      lease => { lease.release(); return { root: lease.rootId as string | null, code: null as string | null, message: lease.error }; },
+      (error: { code?: string; message?: string }) => ({ root: null as string | null, code: error.code ?? null, message: error.message ?? String(error) })));
+    await settledStaging("REFERENCE_EFFICIENCY_EDQUOT_REFRESH");
+    const refusedRefresh = await reclaimed("edquot-refresh", parked, { ms: overflowMs, peak: overflowPeak, refusal: overflowed });
+    report.findings.refreshEdquot = { allowance, commitBytes: allowance + 8 * MIB, refusal: overflowed, peak: overflowPeak, residualBytes: refusedRefresh.chargedBytes - parked.chargedBytes };
+    expect({ root: overflowed.root, code: overflowed.code, roots: await sourceRoots() }, "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_REFUSED_AS_CAPACITY")
+      .toEqual({ root: null, code: "capacity", roots: [cold.rootId] });
+    // The transport classifies the refusal by Git's own message (reference-transport.ts); the refusal carries it.
+    expect(overflowed.message ?? "", "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_REFUSED_AT_WRITE").toMatch(/quota/i);
+    expect(refusedRefresh.chargedBytes - parked.chargedBytes, "REFERENCE_EFFICIENCY_EDQUOT_REFRESH_RECLAIMED").toBeLessThanOrEqual(T.reclaimedBytes);
+    // The remote rewinds past the storm; the next refresh never fetches it.
+    git(work, "reset", "-q", "--hard", accepted); push("--force");
+
+    // The changed commit every following step acquires: a revised book and one new chart.
     for (let line = 0; line < W.changedLines; line++) writeFileSync(join(work, "odyssey", "book-1", `line-${line}.md`), `Ithaca log: book 1, line ${line}, revised.\n`);
     incompressible(join(work, "charts", "scheria.bin"), W.addedChartBytes);
     git(work, "add", "."); git(work, "commit", "-q", "-m", "Odysseus reaches Scheria"); push();
     advance();
-    const [changed, changedMs] = await timed(request);
+
+    // Cancellation mid-fetch: the only requester leaves once the staging root is writable. The fetch stops,
+    // nothing is published, and the staging root is released.
+    {
+      const known = new Set((await records()).map(record => record.id)), controller = new AbortController();
+      const outcome = request(controller.signal).then(lease => ({ lease, error: null }), (error: unknown) => ({ lease: null, error: error as { code?: string; message?: string } }));
+      const staged = await newSourceRoot(known, "writable");
+      const [left, cancelMs] = await timed(async () => { controller.abort(); return outcome; });
+      left.lease?.release();
+      await settledStaging("REFERENCE_EFFICIENCY_CANCEL");
+      const cancelled = await reclaimed("cancelled-refresh", parked, { ms: cancelMs, staged: staged?.id ?? null, error: left.error?.message ?? null });
+      const stagedState = (await records()).find(record => record.id === staged?.id)?.state ?? null;
+      report.findings.cancellation = { staged: staged?.id ?? null, code: left.error?.code ?? null, stagedState, cancelMs, residualBytes: cancelled.chargedBytes - parked.chargedBytes };
+      expect({ staged: Boolean(staged), code: left.error?.code ?? null }, "REFERENCE_EFFICIENCY_CANCEL_DURING_FETCH").toEqual({ staged: true, code: "cancelled" });
+      expect({ roots: await sourceRoots(), stagedState: ["deleted", "reclaimed"].includes(stagedState ?? "") }, "REFERENCE_EFFICIENCY_CANCEL_PUBLISHES_NOTHING")
+        .toEqual({ roots: [cold.rootId], stagedState: true });
+      expect(cancelled.chargedBytes - parked.chargedBytes, "REFERENCE_EFFICIENCY_CANCEL_RECLAIMED").toBeLessThanOrEqual(T.reclaimedBytes);
+    }
+
+    // Crash mid-acquisition and restart: another app instance on this database is killed with SIGKILL while its
+    // staging root is writable, so none of its own cleanup runs. The next instance's startup recovery releases
+    // that root and serves the previous source again.
+    let rested: Step;
+    {
+      await worktrees.close(); await sources.close();
+      const known = new Set((await records()).map(record => record.id));
+      const child = Bun.spawn([process.execPath, join(import.meta.dir, "reference-efficiency-crash-child.ts"), join(state, "ui.db"), socketPath, repository, penelope.id, String(clock)],
+        { cwd: "/repo", stdout: "pipe", stderr: "pipe" });
+      let exited = false; void child.exited.then(() => { exited = true; });
+      const stranded = await newSourceRoot(known, "writable", () => exited);
+      child.kill("SIGKILL");
+      const [code, output, errors] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      const crashed = await measure("crashed-refresh", null, [], { stranded: stranded?.id ?? null, code, output: output.trim().slice(-500), errors: errors.trim().slice(-1000) });
+      expect({ stranded: Boolean(stranded), signal: child.signalCode, acquired: output.includes("acquired") }, `REFERENCE_EFFICIENCY_CRASH_STRANDS_STAGING ${errors.slice(-1000)}`)
+        .toEqual({ stranded: true, signal: "SIGKILL", acquired: false });
+      // The manager outlives its client: the stranded root stays writable and charged until someone releases it.
+      expect(crashed.roots.find(root => root.id === stranded!.id)?.state, "REFERENCE_EFFICIENCY_CRASH_LEAVES_STAGING_CHARGED").toBe("writable");
+      sources = instance();
+      const [recovered, recoverMs] = await timed(() => sources.recover());
+      worktrees = createFixtureWorktrees({ db, pool: client, sources, now }, note);
+      await settledStaging("REFERENCE_EFFICIENCY_RESTART");
+      rested = await reclaimed("restart-recovered", parked, { ms: recoverMs, released: recovered.released, retained: recovered.retained });
+      report.findings.crashRecovery = { stranded: stranded!.id, recoverMs, released: recovered.released, retained: recovered.retained, residualBytes: rested.chargedBytes - parked.chargedBytes };
+      expect({ released: recovered.released.includes(stranded!.id), retained: recovered.retained, roots: await sourceRoots() }, "REFERENCE_EFFICIENCY_RESTART_RELEASES_STAGING")
+        .toEqual({ released: true, retained: [], roots: [cold.rootId] });
+      expect(rested.chargedBytes - parked.chargedBytes, "REFERENCE_EFFICIENCY_RESTART_RECLAIMED").toBeLessThanOrEqual(T.reclaimedBytes);
+    }
+
+    // Changed refresh: the staging root snapshots the previous one, so only new objects and changed files allocate.
+    const [changed, changedMs, changedPeak] = await sampled(() => request());
     const changedRoot = await pathOf(changed.rootId);
     // The superseded root has already left its view, so the census covers the new root only.
-    const refreshed = await measure("changed-refresh", changedMs, [changedRoot], { objects: objects(changedRoot) });
+    const refreshed = await measure("changed-refresh", changedMs, [changedRoot], { objects: objects(changedRoot), peak: changedPeak });
     expect(changed.rootId, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_NEW_ROOT").not.toBe(cold.rootId);
     const refreshOwner = owner(refreshed, changed.rootId)!;
     report.findings.changedRefreshPerCold = refreshOwner / coldOwner;
     // The new chart is stored once as a Git object and once checked out; nothing inherited is copied.
     expect(refreshOwner, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_CHARGES_NEW_DATA").toBeGreaterThanOrEqual(2 * W.addedChartBytes);
     expect(refreshOwner, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_NOT_A_RECLONE").toBeLessThan(coldOwner / 2);
-    expect(refreshed.chargedBytes - parked.chargedBytes, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_GROWTH_BOUNDED").toBeLessThanOrEqual(T.changedRefreshBytes);
+    // Measured from the restarted instance's recovered state: the refused, cancelled and crashed attempts left nothing behind it.
+    expect(refreshed.chargedBytes - rested.chargedBytes, "REFERENCE_EFFICIENCY_CHANGED_REFRESH_GROWTH_BOUNDED").toBeLessThanOrEqual(T.changedRefreshBytes);
 
     // Concurrent readers during one refresh join it: exactly one new root, every reader on it.
     writeFileSync(join(work, "odyssey", "book-2", "line-0.md"), "Ithaca log: book 2, line 0, the Phaeacians listen.\n");
@@ -249,7 +390,7 @@ export async function runReferenceEfficiency(context: EfficiencyContext): Promis
     advance();
     const before = await sourceRoots();
     let peak = 0; const sample = setInterval(() => { client.poolStatus().then(value => { peak = Math.max(peak, value.accounting?.pendingBytes ?? 0); }, () => {}); }, 50);
-    const [readers, concurrentMs] = await timed(() => Promise.all(Array.from({ length: 4 }, request)));
+    const [readers, concurrentMs] = await timed(() => Promise.all(Array.from({ length: 4 }, () => request())));
     clearInterval(sample);
     const joined = await measure("concurrent-refresh", concurrentMs, [], { peakPendingBytes: peak });
     const added = (await sourceRoots()).filter(id => !before.includes(id));

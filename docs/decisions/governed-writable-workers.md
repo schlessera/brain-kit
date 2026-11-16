@@ -355,7 +355,7 @@ the same places, where links lead included. Inbox staging is judged at each dire
 it publishes, and before every compensation removes anything: its own
 partial or published arrival, and an earlier arrival that the call
 reconciles (`conversation: (input`,
-`packages/ui-server/src/inbox/intake.ts:137-140`). A call refused before
+`packages/ui-server/src/inbox/intake.ts:212-216`). A call refused before
 staging leaves no receipt and no item. Links are read at each change, so a
 link a governed worker swaps in between two changes stops the next one; one
 swapped in between a check and its own system call is not covered, because
@@ -952,6 +952,25 @@ configuration still loads from the frozen view at the brain path.
   readers that require one link (`checkGovernancePolicy`, the embedding
   policy, storage-attachment facts) and cannot cross subvolumes. The tree
   still holds one copy per concurrent turn on the temporary directory.
+- **On managed storage the tree shares the checkpoint's extents (#2911).**
+  The maintainer's ruling of 2026-10-25 on
+  [#2911](https://github.com/schlessera/brain-kit/issues/2911) supplies the
+  manager-provisioned location the bullet above lacked. A view the native
+  manager acquired gets its tree from that manager: an app-owned directory in
+  the manager's private `trees/` area on the same volume, outside the live
+  brain and every checkpoint, with the documents in `data/` and an unmasked
+  turn's index in `index/`. Admission still plans and pools the copy, but
+  requires a reflink (`COPYFILE_FICLONE_FORCE`): a file that cannot share the
+  checkpoint's extents fails the turn instead of being copied in full. The
+  worker still receives only its own tree, read-only at the fixed path; the
+  manager's area is masked in every worker, so it cannot reach a peer's tree.
+  The tree's committed effects are bounded (`TURN_TREE_EFFECT_BYTES`, 64 MiB):
+  past it the tree stops recording and the turn's index reads refuse. At the
+  turn's end the server asks the manager to remove the tree, which it does
+  only once no process mounts it. A masked turn's private index stays on the
+  server's temporary directory, as do trees for views no manager acquired.
+  Ownership, capacity and recovery are in the
+  [native storage decision](native-brain-storage.md#turn-data-trees-on-the-managed-volume-2911).
 - **Committed bytes enter the tree inside the commit boundary.** Each
   application hands the tree its committed effects with the live base each
   one replaced, partial staged failures included; an archive writes the
@@ -1203,6 +1222,25 @@ with nothing written, as `application_failed` for an application or a mask,
 since a long hold is not revocation. A principal that really lost authority
 refuses `authority_revoked` at once, waiting or not (`export async function retryHeld`,
 `packages/ui-server/src/brain/authority-hold.ts:92-102`).
+
+**Conversation intake waits out a hold at every write (#2869, maintainer,
+2026-10-25).** A turn's `inbox_add` stages its arrival, publishes it, commits
+its receipt and compensates what it abandoned, and each of those writes is
+coordinated with the same hold rather than checked once at entry. Each change
+runs through one write gate: it waits for a hold outside any transaction or
+lock, sharing one 60-second deadline across the whole intake, then makes its
+final check and its change in the same tick, so a hold that begins after that
+check cannot overlap it. Staging writes are synchronous under the gate for that
+reason. The final check renews the turn, the principal, the origin thread and
+the turn's provider masks over the staging directory, and the receipt
+transaction still refuses a receipt that reconciliation took meanwhile.
+Revocation, turn replacement and cancellation refuse at once; a hold past the
+bound refuses; none of them leaves a queue claim. Compensation is the host's
+own effect: it waits for a hold on brain writes whatever the turn's authority,
+and when it cannot run within the bound or after cancellation it removes
+nothing and leaves its `cleanup` receipt for reconciliation. A committed
+receipt is never compensated (`function writeBoundary`,
+`packages/ui-server/src/inbox/intake.ts:113-127`).
 
 **A pause the policy observation raises is a no-publication outcome (#2870,
 maintainer, 2026-10-25).** Policy publication runs inside its own journal
@@ -1530,12 +1568,43 @@ evidence is unproven.
 The pi backend reports evidence only from its own record of each call's RPCs.
 A call that names two tools, takes the write lock as a read, or reports only
 part of its read proves nothing (`export function provenToolExecution`,
-`packages/ui-backend-pi/src/worker-session.ts:29-37`). It reports nothing at
+`packages/ui-backend-pi/src/worker-session.ts:30-38`). It reports nothing at
 all for a worker that loads extensions. Extension handlers run on every tool
 event, bridge reads included, and can write at any time
-(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:139`).
-With extensions loaded, which is pi's default, every result is observed as
-before. The worker's reports are evidence only while it has run nothing but
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:143`).
+With extensions loaded every result is observed as before.
+
+Whether a worker loaded any is read from the worker's own loader, not only
+from its configuration (#2874). The curated default
+(`export function discoversPiExtensions`,
+`packages/ui-backend-pi/src/extension-inspection.ts:64-66`) loads none. A
+worker with discovery on counts every extension, extension load error and
+extension runner path its session holds (`export function loadedPiExtensions`,
+`packages/ui-backend-pi/src/native-session-runtime.ts:136-139`) and sends
+that count in its `ready` frame, before the prompt and before any
+model-directed code runs. The host accepts a count of zero as extension-free
+and any other count as unproven, whatever the configuration said; a worker
+that sends no count keeps the configuration's answer
+(`function createExecutionProof`,
+`packages/ui-backend-pi/src/worker-session.ts:253-259`). An installed or
+repo-local extension is counted, and the managed worker then refuses the turn
+anyway (`function unqualifiedResources`,
+`packages/ui-backend-pi/src/native-session-runtime.ts:143-145`).
+
+The count cannot change during the turn. In pi 0.99.2 the loaded set changes
+only in `AgentSession.reload()`, which reloads the settings and the resource
+loader and builds a new extension runner. Its only callers are pi's
+interactive `/reload` and an extension command's `ctx.reload()`, which pi's
+modes bind through `bindExtensions`. A managed worker runs no pi mode and
+binds nothing, and a `/` prompt reaches only commands that loaded extensions
+registered. With none loaded nothing can reach `reload()`. A turn that writes `.pi/extensions/`, a
+settings file or a package changes only what a later worker loads. A worker
+whose set can change, which is any worker with an extension loaded, proves
+nothing. The guard before each model request rechecks the set as a backstop
+(`export function installPiToolSafety`,
+`packages/ui-backend-pi/src/tool-safety.ts:27-42`).
+
+The worker's reports are evidence only while it has run nothing but
 curated code. Once it admits a call outside the provable set (`bash`, `grep`,
 an index tool that loads `brain.config.ts`, an application tool), or starts a
 call under a running call's identity, it reports nothing more until it exits.
@@ -2015,7 +2084,7 @@ brain and every managed worktree, has its own owner, and each owner keeps at
 most `NATIVE_RELEASE_BACKLOG`, two, previous checkpoints retained, whether
 queued or failed. An observation makes room before it takes its own
 checkpoint (`async function reserveRelease`,
-`packages/ui-server/src/brain/native-journal-observer.ts:356-362`): it waits
+`packages/ui-server/src/brain/native-journal-observer.ts:361-369`): it waits
 inside the hold for the oldest queued release, or, when failed releases fill
 the bound, retries the oldest one inside the hold, as every release ran
 before. If that retry fails, the observation is refused before it takes a
@@ -2023,7 +2092,7 @@ checkpoint, so the bound is never exceeded. Each retained checkpoint is charged 
 it holds that the live root no longer has: the bytes of every file version
 replaced or removed since it was taken
 (`releases(): NativeJournalReleaseAccounting`,
-`packages/ui-server/src/brain/native-journal-observer.ts:512-516`).
+`packages/ui-server/src/brain/native-journal-observer.ts:520-524`).
 Directory and other metadata extents are not counted. The store's free space,
 which the `free_space_floor` scope limit reads, counts the actual extents until
 each release completes. Shutdown waits for every queued release, retries
@@ -2475,7 +2544,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:84-204`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:86-216`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -3159,7 +3228,7 @@ every turn without a proven recipient:
     roadblock signatures (`scope=roadblocks`). `running` and `rollups`
     return labels and counts that may also name documents.
   - `inbox_list` and `inbox_get` (`inboxList`,
-    `packages/ui-server/src/inbox/bridge-tools.ts:62-83`): each item's stored
+    `packages/ui-server/src/inbox/bridge-tools.ts:78-99`): each item's stored
     payload, titles, details and option labels, and its thread.
 
   None of these fields records which documents its text came from. A run from
@@ -3178,7 +3247,7 @@ every turn without a proven recipient:
   #2741 option C).** #2698 left autonomous turns out. Their bridge still
   serves `inbox_list` and `inbox_get` when the exact roster allows them,
   scoped to the turn's origin thread (`inboxList: async`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:62-83`), and the dispatcher
+  `packages/ui-server/src/inbox/bridge-tools.ts:78-99`), and the dispatcher
   embeds the thread's text in the first message (`async function context`,
   `packages/ui-server/src/inbox/dispatcher.ts:163-185`). Source inspection
   finds these retained thread inputs:
@@ -3199,14 +3268,14 @@ every turn without a proven recipient:
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
-  `packages/ui-server/src/inbox/bridge-tools.ts:52-56`). Host code records
+  `packages/ui-server/src/inbox/bridge-tools.ts:68-72`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
   recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-117`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
   digest of the staged bytes intake read (`const evidence = author`,
-  `packages/ui-server/src/inbox/intake.ts:105`); text the server composed
+  `packages/ui-server/src/inbox/intake.ts:178`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
   lifecycle notices); text an autonomous run wrote (escalations, yields)
   whose admitted masks hid every folder now masked; and, since #2816, an
@@ -3497,7 +3566,7 @@ recipient only when it can record what the turn is shown (`const recipient = opt
 view is not on managed native storage, where the relay runs, is refused before
 this (#3314). The turn's relay is
 then held to that origin: it refuses to start toward any other
-(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:81-83`),
 pi refuses a changed endpoint before its credential is read, and a turn that
 has a recipient but no relay refuses to start. A model change inside a turn
 cannot leave the one relay socket the worker has.
@@ -3627,7 +3696,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:71`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:73`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -4077,7 +4146,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:60-82`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:62-84`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -4091,7 +4160,7 @@ listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
 `smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
 `smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
 `smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
-(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:20-23`).
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:22-25`).
 Microsoft Graph and Exchange Online carry more than mail, so their reads by
 an opaque script also wait on the card. The coordinator chose this list for
 #1665; the maintainer may override it.
@@ -4217,7 +4286,7 @@ charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist` (an interactive turn asks first
 since 2026-11-03, see [below](#tainted-destinations-ask)). The taint list
 narrows and never widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:84-230`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:86-242`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -4265,12 +4334,12 @@ through the turn's tool-permission card (`toolName: "Network"`, `kind:
 (`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:198-203`). The
 card names the destination, the session's first taint source and the
 consequence of allowing it
-(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:39-44`).
+(`taintedDestinationDescription`, `packages/ui-server/src/brain/turn-egress.ts:41-46`).
 Concurrent connections to the same host share one card. An allowed
 connection's admission adds its host to the turn's contacted hosts, and its
 charged `egress_connection` record carries the host into the session's later
 turns, so it is not asked for again; a different host still asks
-(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:168-179`).
+(`const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:172-183`).
 A decline refuses: the record stays an `egress_denial` with reason
 `taint_allowlist`, and the 403 carries a short reason the tool can print (`function describeRefusal`,
 `packages/ui-sdk/src/server/egress-proxy.ts:88-104`). Stopping the turn while the
@@ -4279,6 +4348,35 @@ grant surface, and autonomous turns, which have no turn proxy, refuse without
 a card as before; deny and `allowlist` mode still refuse first. Maintainer
 ruling A on #3430; B (ask only for reads) and C (keep refusing with an
 after-the-fact notice) were rejected.
+
+<a id="extraction-heuristics"></a>
+
+**Extraction heuristics at admission — 2026-11-16
+([#4088](https://github.com/schlessera/brain-kit/issues/4088)).** Asking for
+every new host shows the card often enough to be rubber-stamped, and admits
+anything sent to a host the session already reached. The policy setting
+`taint.classifier: heuristics` (default `off`) runs the deterministic
+heuristics #3434 measured ([the plan](../plans/extraction-classifier.md)) on
+each call a tainted session makes, at the per-call admission every backend
+awaits with the call's full input (`wrap`,
+`packages/ui-server/src/brain/turn-extraction.ts:137-158`). The signals and
+bands are pure (`classify`,
+`packages/ui-server/src/governance/extraction-classifier.ts:583-590`); their
+session state (shingle hashes of the files read, the hosts the tainting
+content named, each site's earlier payloads) is in-memory host state, never
+recorded or sent to a provider. `block` refuses the call with the reason as
+its tool result, the only verdict text the model sees. `ask` raises a per-use
+card naming the reason, for any call, including one to a contacted host;
+voice refuses instead. `allow` relaxes only the #3430 card, only for the hosts
+a readable call (a WebFetch, a visible curl/wget or `gh` read) names, and only
+while that call is in progress; an opaque or unattributable call in progress
+withholds it, because the proxy cannot tell which process opened a connection
+(`relaxes`, `packages/ui-server/src/brain/turn-extraction.ts:193-197`). Deny,
+`allowlist` mode, the byte ceiling, the outward-host card and the outward
+action cards never consult it. A session this process did not observe from
+its first turn, or whose state outgrew its bounds, never allows. The setting
+stays off by default until a maintainer ruling on #4088 after the band is
+requalified (#4090).
 
 <a id="refusals-say-why"></a>
 
@@ -4294,7 +4392,7 @@ the byte ceiling, an unapproved outward host, or a tainted session's host
 outside its allow-list, with the session's first taint source and what the
 user can do (`function describeRefusal`,
 `packages/ui-sdk/src/server/egress-proxy.ts:88-104`; the source wording,
-`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:195`). The status
+`cause: () =>`, `packages/ui-server/src/brain/turn-egress.ts:207`). The status
 line carries the reason because `curl -v`, `git` and `egress-connect` print
 only that line for a refused CONNECT. The provider relay passes the proxy's
 reason through as the refusal body's `error.message` and an additive
@@ -4399,7 +4497,7 @@ admission (`relayed`, `packages/ui-sdk/src/server/egress-proxy.ts:338`), and
 worker HTTP and `CONNECT` traffic cannot claim it, even to a provider's host
 (`narrowed`, `packages/ui-sdk/src/server/egress-proxy.ts:196`). Turn egress
 records neither a taint nor a contacted host for the operation
-(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:204-209`). So in a
+(`admitted`, `packages/ui-server/src/brain/turn-egress.ts:216-221`). So in a
 tainted session, the worker's own traffic stays narrowed away from the
 provider's host.
 
