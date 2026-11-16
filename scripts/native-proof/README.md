@@ -399,7 +399,12 @@ are sealed, so their comparisons use the census's exclusive extents.
 `pendingBytes` and `availableBytes` are the admission reservations. A
 `btrfs filesystem du` census reports total, exclusive and shared extents per
 path. Git's `count-objects` is recorded as logical object size only; no
-logical size or sum of `st_blocks` is reported as unique usage. The run checks:
+logical size or sum of `st_blocks` is reported as unique usage. Every row also
+carries `io`: the pool loop device's block reads and writes from
+`/proc/diskstats`, and this process's own I/O with its reaped transport
+workers from `/proc/self/io`, both since the previous row and after a `sync`.
+Cold, warm and refresh rows add `peak`, the highest combined charge and
+reservation sampled every 50 ms while the step ran. The run checks:
 
 - **Reuse.** A repeat read inside the refresh window, and an unchanged
   refresh after it, reuse the one source root and allocate at most 256 KiB.
@@ -419,6 +424,22 @@ logical size or sum of `st_blocks` is reported as unique usage. The run checks:
 - **Sharing loss.** `git repack -a -d -f` in a worktree, or a linked
   `git worktree add` inside one, allocates its objects or checkout as new
   extents charged to that worktree alone.
+- **Write-time EDQUOT.** A worktree writing past its allowance is refused by
+  `write()` with `EDQUOT`, charging neither its sibling nor its source. A
+  commit larger than one operation's allowance is refused inside the refresh
+  fetch, with Git's quota error. Past the refresh window the previous commit's
+  validation has also lapsed, so no stale copy may be served: the request
+  rejects as `capacity`, the previous root is neither served nor withdrawn,
+  and the staging root is released and reclaimed.
+- **Cancellation.** A refresh whose only requester leaves once its staging
+  root is writable rejects as `cancelled`, publishes nothing, and its staging
+  root is released and reclaimed.
+- **Crash and restart.** A second app instance on the same database
+  (`reference-efficiency-crash-child.ts`) is killed with `SIGKILL` while its
+  staging root is writable. The manager keeps that root writable and charged.
+  The next instance's startup `recover()` releases it, retains nothing and
+  keeps the previous source, and the space is observed reclaimed. The changed
+  refresh then runs on that restarted instance.
 
 Repository features, as the transport handles them:
 
