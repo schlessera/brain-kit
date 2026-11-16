@@ -831,13 +831,14 @@ const shapes = await create("staging", 32 * MIB);
 
 // 19. Repository efficiency (#3513): a generated repository acquired, read again,
 // refreshed unchanged, changed and concurrently, and checked out into managed
-// worktrees, with the unique allocation of every step in reference-efficiency.json.
+// worktrees; write-time EDQUOT, cancellation and crash recovery under the same
+// workload; the unique allocation and I/O of every step in reference-efficiency.json.
 {
   const { runReferenceEfficiency } = await import("./reference-efficiency.js");
   await manager.close();
   const served = await serveNativeBrainManager(config);
   try {
-    await runReferenceEfficiency({ client: createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), artifacts: ARTIFACTS, note, command, sync });
+    await runReferenceEfficiency({ client: createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), socketPath: config.socketPath, artifacts: ARTIFACTS, note, command, sync });
   } finally { await served.close(); }
   manager = await createNativeBrainManager(config);
 }

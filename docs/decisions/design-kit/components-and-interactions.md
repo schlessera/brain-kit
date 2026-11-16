@@ -1269,7 +1269,7 @@ A 44px box stays where it is the design, or where it draws no visible box:
 | Text inputs, selects and search fields | 44px is the field's own box, and a replaced element cannot carry a pseudo-element. |
 | Rows: `bk-row` list rows, `ListRow`, the mobile sheet rows, the untrusted-marks entry and list rows, trace rows in run detail, label rows around a `Toggle`, and the storage indicator strip | The row is the target, as for kit rows. |
 | Borderless links and `Disclosure` triggers given 44px through a host rule | They paint no box, so nothing visible is inflated. D57 records the `Disclosure` case. |
-| Icon controls the size of an `md` `IconButton`: the mask editor's tools, the viewer toolbar's link and share trigger, the zoom toolbar, and the graph's floating discs | 44px is the kit's `md` icon size. |
+| Icon controls the size of an `md` `IconButton`: the mask and markup editors' tools, swatches and widths, the viewer toolbar's link and share trigger, the zoom toolbar, and the graph's floating discs | 44px is the kit's `md` icon size. |
 | `ApprovalCard`'s Deny mount (96 × 44) and `Send bug report` | Approved designs specify 44px. |
 | The live conversation strip | Its bar is laid out around 44px controls (its 44/52px rows). It is a touch-first surface, not inflated `sm` or `md` Buttons. (The dictation sheet's primary button was here too until #3694 replaced the sheet with the voice field.) |
 | The crash fallback (`app-error-boundary`) | It renders without the kit and uses system colours. |
