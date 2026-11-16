@@ -15,6 +15,8 @@ import { createScratch } from "./bridge-capabilities/scratch.js";
 import { createAttachmentRead } from "./bridge-capabilities/attachments.js";
 import { createWebAccess } from "./bridge-capabilities/web.js";
 import { createEffectiveSafety } from "../governance/effective-safety.js";
+import { sessionTaint } from "../governance/session-taint.js";
+import type { GithubOutwardAction } from "../github/host.js";
 import { retainTurnSessionBinding } from "./bridge-session-binding.js";
 
 export { emitTurnError } from "./bridge-capabilities/turn-error.js";
@@ -124,10 +126,33 @@ function applyExternalServices(ctx: BridgeContext, bridge: BackendBridge, transc
       approvals: { requestPermission: request => bridge.requestPermission(request) }, signal }, call);
   }
   // GitHub (#3797): the host holds the credential and records the session's
-  // taint; the turn, never the call, names principal and session.
+  // taint; the turn, never the call, names principal and session. Writes
+  // (#3798) take the allow-list from this turn's admitted policy, and their
+  // card from this bridge's own approval surface, so voice and revoked turns
+  // refuse as they do for every other card. No policy, no writes.
   if (host.githubTools) {
     const github = host.githubTools;
-    bridge.github = call => github.call({ turnId, principalId, sessionId: () => transcript.collectedSessionId ?? turn.sessionId ?? null, signal }, call);
+    const sessionId = () => transcript.collectedSessionId ?? turn.sessionId ?? null;
+    const posture = work?.posture === "voice" ? "voice" as const : "interactive" as const;
+    const write = {
+      repositories: () => governance?.policy.policy.outward?.github?.repositories ?? null,
+      posture,
+      requestPermission: (request: Parameters<BackendBridge["requestPermission"]>[0]) => bridge.requestPermission(request),
+      toolName,
+      tainted: () => {
+        const writes = host.activity?.governanceWrites, db = host.activity?.governanceDb;
+        return writes ? writes.taint(turnId, sessionId()) !== null : db ? sessionTaint(db, turnId, sessionId()) !== null : false;
+      },
+      isCurrent: () => !signal.aborted && isAuthorized(),
+      // Awaited where the store can say whether it committed, so an approval that is not recorded sends nothing.
+      govern: async (event: GithubOutwardAction) => {
+        const input = { ...event, turnId, sessionId: sessionId(), actor: posture, model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null } as never;
+        const writes = host.activity?.governanceWrites;
+        if (writes) { await writes.record(input); return; }
+        host.catalog.recordGovernanceEvent?.(input);
+      },
+    };
+    bridge.github = call => github.call({ turnId, principalId, sessionId, signal, write }, call);
   }
 }
 

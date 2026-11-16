@@ -36,7 +36,7 @@ export type GithubToolName = (typeof GITHUB_TOOL_NAMES)[keyof typeof GITHUB_TOOL
 export type GithubReadToolName = typeof GITHUB_TOOL_NAMES.read | typeof GITHUB_TOOL_NAMES.search;
 export type GithubWriteToolName = typeof GITHUB_TOOL_NAMES.create | typeof GITHUB_TOOL_NAMES.comment;
 export const GITHUB_TOOL_NAME_LIST: readonly GithubToolName[] = Object.freeze(Object.values(GITHUB_TOOL_NAMES));
-/** The tools registered today; the write tools join them with their approval cards (#3798). */
+/** The read tools (#3797); the write tools (#3798) follow them in the roster, behind the policy allow-list and a per-write card. */
 export const GITHUB_READ_TOOL_NAMES: readonly GithubReadToolName[] = Object.freeze([GITHUB_TOOL_NAMES.read, GITHUB_TOOL_NAMES.search]);
 export const isGithubToolName = (name: string): name is GithubToolName => (GITHUB_TOOL_NAME_LIST as readonly string[]).includes(name);
 
@@ -127,7 +127,7 @@ export const GITHUB_ISSUE_SEARCH_INPUT_SCHEMA = z.strictObject({
     .describe(`Results to return; default ${GITHUB_LIMITS.searchDefault}, at most ${GITHUB_LIMITS.searchMax}`),
 });
 
-/** Declared now and registered with its approval card in #3798. */
+/** One issue, sent only to an allow-listed repository after a per-use card (#3798). */
 export const GITHUB_ISSUE_CREATE_INPUT_SCHEMA = z.strictObject({
   repository,
   title: z.string().trim().min(1).max(GITHUB_LIMITS.writeTitleChars).describe("The issue title"),
@@ -136,7 +136,7 @@ export const GITHUB_ISSUE_CREATE_INPUT_SCHEMA = z.strictObject({
     .describe("Existing label names to apply"),
 });
 
-/** Declared now and registered with its approval card in #3798. */
+/** One comment, sent only to an allow-listed repository after a per-use card (#3798). */
 export const GITHUB_ISSUE_COMMENT_INPUT_SCHEMA = z.strictObject({
   repository,
   number: issueNumber,
@@ -313,7 +313,7 @@ export const GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA = z.strictObject({
   fetched_at: timestamp,
 });
 
-/** #3798 fills these; the shape is fixed here so the components bind once. */
+/** What a write returns (#3798); the shape is fixed here so the components bind once. */
 export const GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA = z.strictObject({
   kind: z.literal("issue_created"),
   repository: z.string().max(141),
@@ -351,8 +351,13 @@ export type GithubIssueCommentPayload = z.infer<typeof GITHUB_ISSUE_COMMENT_PAYL
 /**
  * Why a call did nothing. `unavailable` carries a reason: `no_credential`
  * (the host has no `BRAIN_UI_GITHUB_TOOLS_TOKEN`), `credential_rejected`,
- * `no_host` (no host handler in this turn) or `not_registered` (a write tool
- * before #3798).
+ * `no_host` (no host handler in this turn), `recording_unavailable` (a
+ * write's approval could not be recorded) or, before #3798 only,
+ * `not_registered`. A write (#3798) also refuses `policy_denied` with
+ * `repository_not_allowed` (outside `outward.github.repositories`) or
+ * `no_write_surface` (an autonomous turn), and `approval_declined` with
+ * `declined`, `edited` (the approval changed what would be sent) or
+ * `voice_posture`.
  */
 export const GITHUB_ERROR_CODES = ["invalid_input", "unavailable", "not_found", "forbidden", "rate_limited", "upstream_error",
   "policy_denied", "approval_declined"] as const;

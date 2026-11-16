@@ -21,7 +21,7 @@ import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWork
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
-import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, GITHUB_READ_TOOL_NAMES, READ_ATTACHMENT_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/server";
+import { APIFY_TOOL_NAMES, COMPUTE_TOOL_CONTRACTS, GITHUB_READ_TOOL_NAMES, GITHUB_TOOL_NAMES, READ_ATTACHMENT_TOOL_NAME, visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
@@ -270,6 +270,12 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     // GitHub reads (#3797): the host holds the credential and taints the
     // session; like the web tools they run without a card.
     if (req.bridge.github) allowed.push(...GITHUB_READ_TOOL_NAMES.map(name => visibleToolName(name, "claude")));
+    // GitHub writes (#3798): the host checks the policy allow-list and asks
+    // per exact write on its own card; a runtime card would ask twice and
+    // offer a rememberable grant. Voice and no-grant turns keep the runtime
+    // gate, which refuses them before the host is reached.
+    if (req.bridge.github && !req.noGrantSurface && req.posture !== "voice")
+      allowed.push(visibleToolName(GITHUB_TOOL_NAMES.create, "claude"), visibleToolName(GITHUB_TOOL_NAMES.comment, "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
