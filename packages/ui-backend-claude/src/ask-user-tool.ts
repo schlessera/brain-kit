@@ -4,6 +4,7 @@ import { registerInboxTools } from "./inbox-tools.js";
 import { registerReferenceTools } from "./reference-tools.js";
 import { registerComputeTools } from "./compute-tools.js";
 import { registerApifyTools } from "./apify-tools.js";
+import { registerGithubTools } from "./github-tools.js";
 import { registerReadAttachmentTool } from "./read-attachment-tool.js";
 import { registerBrainApplicationTools } from "./brain-application-tools.js";
 import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -108,6 +109,8 @@ export function createBrainUiMcpServer(handlers: {
   compute?: Pick<BackendBridge, "compute">;
   /** The fixed Apify operations (#3162); interactive sessions only. */
   apify?: Pick<BackendBridge, "apify">;
+  /** The host GitHub read tools (#3797); interactive sessions only. */
+  github?: Pick<BackendBridge, "github">;
   /** On-demand reads of the conversation's composer originals (#3154); interactive sessions only. */
   attachments?: Pick<BackendBridge, "readAttachment">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
@@ -137,6 +140,7 @@ export function createBrainUiMcpServer(handlers: {
       inbox: handlers.inbox ?? {}, application: handlers.application ?? {}, reference: handlers.reference ?? {},
       compute: handlers.compute ?? {},
       apify: handlers.apify ?? {},
+      github: handlers.github ?? {},
       attachments: handlers.attachments ?? {},
     };
   }
@@ -191,6 +195,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.reference) registerReferenceTools(server.instance, handlers.reference, observe);
   if (handlers.compute) registerComputeTools(server.instance, handlers.compute, observe);
   if (handlers.apify) registerApifyTools(server.instance, handlers.apify, observe);
+  if (handlers.github) registerGithubTools(server.instance, handlers.github, observe);
   if (handlers.attachments) registerReadAttachmentTool(server.instance, handlers.attachments, observe);
   if (handlers.application && (handlers.stableRoster || handlers.application.applyBrain)) registerBrainApplicationTools(server.instance, handlers.application, handlers.stableRoster, observe);
   if (rosterComplete) {
