@@ -49,11 +49,11 @@ operational inbox intake for `/share`. `/track-upload` calls `stageShare` with
 
 **Staging.** `stageShareAt` writes generic bytes under a server-minted ID in
 `.brain-ui/inbox/<id>/`, sanitizes names and publishes them with an atomic
-rename (`stageShareAt`, `packages/ui-server/src/share/staging.ts:298-463`). It
+rename (`stageShareAt`, `packages/ui-server/src/share/staging.ts:312-516`). It
 tries the shared track parser on every file
-(`let imported`, `packages/ui-server/src/share/staging.ts:379-381`). The
+(`let imported`, `packages/ui-server/src/share/staging.ts:416-418`). The
 MIME-to-extension table lists PDF
-(`EXTENSION_BY_TYPE`, `packages/ui-server/src/share/staging.ts:91-114`), which
+(`EXTENSION_BY_TYPE`, `packages/ui-server/src/share/staging.ts:96-119`), which
 only names the stored file and reads nothing. Staged shares are pruned after
 seven days (`SHARE_STAGING_TTL_MS`, `packages/ui-sdk/src/protocol.ts:2614`).
 

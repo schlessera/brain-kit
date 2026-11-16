@@ -266,3 +266,39 @@ test("two devices at nine snapshots save at the same moment: exactly one is admi
   const total = (t.app.db.query("SELECT SUM(json_array_length(outgoing_snapshots)) AS n FROM session_drafts WHERE session_id = 'voyage-ithaca'").get() as { n: number }).n;
   expect(total).toBe(10);
 });
+
+test("a stale save cannot bring back a snapshot whose send the host accepted with the draft kept (#3733)", () => {
+  const f = fixture();
+  const fees = storeOriginal(f.dir, f.store, f.owner, "draft-ithaca", "harbour-fees.txt", "Two oxen\n");
+  const stale = [f.snapshot(1, "dispatched", [fees.fileId]), f.snapshot(2, "held")];
+  const sent = f.save("draft-ithaca", { snapshots: stale });
+  // The phone types on after sending: a newer revision exists, so the
+  // acceptance keeps the draft and releases only the accepted snapshot.
+  const typed = f.save("draft-ithaca", { text: "And the crew?", snapshots: stale });
+  const live = () => (f.db.query("SELECT COALESCE(SUM(json_array_length(outgoing_snapshots)), 0) AS n FROM session_drafts WHERE session_id = 'voyage-ithaca' AND deleted_at IS NULL").get() as { n: number }).n;
+  expect(f.store.accept({ draftRef: { draftId: "draft-ithaca", revision: sent }, sessionId: "voyage-ithaca", resumed: true, requestId: "request-1", principalId: f.owner, fileIds: [fees.fileId] })).toBe("kept");
+  expect(live()).toBe(1);
+  // A tab that read the draft before the acceptance still lists the sent
+  // snapshot. Its save under the revision it holds is a conflict that carries
+  // the current list, not a new dispatched snapshot.
+  const conflict = f.refuse(() => f.save("draft-ithaca", { text: "And the crew? All of them.", snapshots: stale }));
+  expect(conflict.status).toBe(409);
+  expect(conflict.body).toMatchObject({ error: "DRAFT_CONFLICT", current: { text: "And the crew?" } });
+  const current = (conflict.body as { current: Draft }).current;
+  expect(current.revision).toBeGreaterThan(typed);
+  expect(current.snapshots?.map((s) => s.requestId)).toEqual(["request-2"]);
+  // The single-slot write is refused the same way.
+  expect(f.refuse(() => f.save("draft-ithaca", { outgoing: { requestId: "request-1", text: "Message 1 to Ithaca", fileIds: [fees.fileId], state: "dispatched" } })).body)
+    .toMatchObject({ error: "DRAFT_CONFLICT" });
+  // Nothing came back: no snapshot names the request, the chat's count is
+  // unchanged, and the sent file is the message's, not outgoing.
+  const after = f.store.get(f.owner, "draft-ithaca");
+  expect(after.revision).toBe(current.revision);
+  expect(after.snapshots?.some((s) => s.requestId === "request-1")).toBe(false);
+  expect(live()).toBe(1);
+  expect(f.store.attachmentRef(fees.fileId, "outgoing", "draft-ithaca")).toBe(false);
+  expect(f.store.attachmentRef(fees.fileId, "message", "voyage-ithaca")).toBe(true);
+  // Saving from the current revision goes on as usual.
+  f.revisions.set("draft-ithaca", current.revision);
+  f.save("draft-ithaca", { text: "And the crew? All of them.", snapshots: [f.snapshot(2, "held")] });
+});

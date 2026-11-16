@@ -1,5 +1,5 @@
 import { GhostBand } from "../internal/GhostBand.js";
-import { useId, type CSSProperties, type KeyboardEvent } from "react";
+import { useId, useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import {
   GhostDot,
@@ -93,7 +93,8 @@ export function QueueItemRow(p: QueueItemRowProps) {
   const s = STATES[state] || STATES.claimed;
   const view = p.view || "ready";
   const loading = view === "loading";
-  const arriving = useArrival(loading);
+  const frame = useRef<HTMLDivElement>(null);
+  const arriving = useArrival(loading, frame);
   // The ghost's seed is this instance — kept per item key, not per list
   // position — so re-ranking a row never regenerates its glyphs.
   const id = useId();
@@ -189,6 +190,7 @@ export function QueueItemRow(p: QueueItemRowProps) {
 
   return (
     <div
+      ref={frame}
       style={{ ...box, position: "relative" }}
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}

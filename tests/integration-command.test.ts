@@ -117,8 +117,11 @@ fi`); chmodSync(shim, 0o755);
   const probeLog = (id: number) => (id === 401 ? { sha: base, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-base-green" ? 0 : 1 }
     : mode === "expedite-revert" ? { sha: head, tests: [], absent: ["tests/raft.test.ts"], exitCode: 0 }
     : { sha: head, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-head-red" ? 1 : 0 });
-  writeFileSync(gh, `#!${process.execPath}
-    import {readFileSync,renameSync,writeFileSync} from "node:fs";
+  const cheapGh = ["confirm-cancel", "confirm-cap", "confirm-valid"].includes(mode);
+  const slowGh = cheapGh ? join(bin, "gh.ts") : gh, responses = join(dir, "responses");
+  mkdirSync(responses);
+  writeFileSync(slowGh, `#!${process.execPath}
+    import {readFileSync,renameSync,rmSync,writeFileSync} from "node:fs";
     import {GitReservationStore,reservationTransition} from ${JSON.stringify(library)};
     const args=process.argv.slice(2), file=${JSON.stringify(apiState)}, s=JSON.parse(readFileSync(file,"utf8"));
     const candidate=${JSON.stringify(candidate)}, actual=${JSON.stringify(actual)}, root=${JSON.stringify(root)}, remote=${JSON.stringify(remote)};
@@ -137,6 +140,7 @@ fi`); chmodSync(shim, 0o755);
     const run=(id,workflow)=>({id,run_attempt:1,event:"pull_request",head_sha:head,status:s.mode.startsWith("confirm-")&&workflow==="ci"&&s.requested&&(["confirm-cap","confirm-outage","confirm-changed","confirm-revoked"].includes(s.mode)||s.now===${NOW}||(s.mode==="confirm-transient"&&s.now<${NOW}+180000))?"queued":"completed",conclusion:s.mode==="proof-failure"&&workflow==="ci"?"failure":s.mode==="confirm-cancel"&&s.requested&&workflow==="ci"?"cancelled":"success",repository:{html_url:candidate.repository},head_repository:{html_url:candidate.repository},pull_requests:[{number:7}]});
     const checkout="[command]git log -1 --format=%H\\n2026-07-12T00:00:00Z "+(s.mode==="wrong-checkout"?"c".repeat(40):actual.sha)+"\\n";
     let value;
+    if(args[0]==="pr")rmSync(${JSON.stringify(join(responses, "candidate"))},{force:true});
     if(args[0]==="repo")value=repo;
     else if(args[0]==="pr"&&args[1]==="view")value={closingIssuesReferences:refs.map(ref=>({url:"https://github.com/"+ref.replace("#","/issues/")}))};
     else if(args[0]==="pr"&&args[1]==="ready"){s.draft=args.includes("--undo");if(!s.draft){s.requested=true;const fail={"confirm-transient":1,"confirm-outage":99}[s.mode];if(fail)writeFileSync(${JSON.stringify(failPush)},String(fail));}value="ready";}
@@ -149,7 +153,7 @@ fi`); chmodSync(shim, 0o755);
       }
       if(s.mode==="confirm-poll-transient"&&s.requested&&s.now>${NOW}&&!s.pollFailed&&path.includes("actions/workflows/ci.yml/runs")){s.pollFailed=true;writeFileSync(file,JSON.stringify(s));console.error("Get 'https://api.github.com/"+path+"': dial tcp 192.0.2.1:443: connect: connection refused");process.exit(1);}
       if(s.mode==="confirm-revoked"&&s.requested&&!s.revoked&&path.includes("actions/workflows/ci.yml/runs")){const store=new GitReservationStore(root), snap=store.read();store.publish(snap,reservationTransition(snap.state,{kind:"revoke",maintainer:true,reason:"Abandon controlled fixture"},202,s.now));s.revoked=true;}
-      if(args.includes("--include")){console.log("HTTP/2.0 200 OK\\nDate: "+new Date(s.now).toUTCString()+"\\n\\n{}");writeFileSync(file,JSON.stringify(s));process.exit(0);}
+      if(args.includes("--include")){const headers="HTTP/2.0 200 OK\\nDate: "+new Date(s.now).toUTCString()+"\\n\\n{}";if(${cheapGh}&&s.requested)writeFileSync(${JSON.stringify(join(responses, "clock"))},headers+"\\n");console.log(headers);writeFileSync(file,JSON.stringify(s));process.exit(0);}
       if(path==="user")value={id:101,login:"odysseus"};
       else if(path.includes("actions/workflows/red-main-probe.yml/runs"))value={workflow_runs:[[301,base,probes[401]],[302,head,probes[402]]].map(([id,sha,p])=>({id,run_attempt:1,status:"completed",conclusion:p.exitCode?"failure":"success",display_title:"red-main probe fix 11 "+sha}))};
       else if(["/runs/301/attempts/1/jobs","/runs/302/attempts/1/jobs"].some(x=>path.includes(x)))value={jobs:[{id:path.includes("/301/")?401:402,name:"probe",status:"completed"}]};
@@ -175,14 +179,40 @@ fi`); chmodSync(shim, 0o755);
       else if(/issues\\/\\d+$/.test(path)){s.reads.push(path);value={milestone:{title:s.mode==="wrong-milestone"||s.mode==="confirm-wrong-milestone"||(s.mode.endsWith("-mismatch")&&path.endsWith("issues/30"))?"0.43.1":"0.44.0"}};}
       else throw new Error("Unexpected offline API "+path);
     } else throw new Error("Unexpected offline gh "+JSON.stringify(args));
-    writeFileSync(file,JSON.stringify(s));console.log(typeof value==="string"?value:JSON.stringify(value));`); chmodSync(gh, 0o755);
+    const output=typeof value==="string"?value:JSON.stringify(value);
+    if(${cheapGh}&&s.requested&&args[0]==="api"){
+      const path=args[1], key=path.endsWith("/pulls/7")?"candidate":path.endsWith("git/ref/heads/main")?"base":s.mode==="confirm-cap"&&path.includes("actions/workflows/ci.yml/runs?event=pull_request")?"ci":null;
+      if(key)writeFileSync(${JSON.stringify(responses)}+"/"+key,output+"\\n");
+    }
+    writeFileSync(file,JSON.stringify(s));console.log(output);`);
+  // Confirmation repeatedly reads the same candidate/base (and, in the cap
+  // case, queued run). Replay these responses with shell builtins after the
+  // stateful fake produces them once. PR commands invalidate the candidate;
+  // each virtual tick refreshes the clock before invoking renewal callbacks.
+  // Every command still crosses the executable boundary; all sixty renewals
+  // still use real Git remote CAS. Failure-injection modes use the stateful fake.
+  if (cheapGh) writeFileSync(gh, `#!/bin/sh
+response=
+case "$1:$2" in
+  api:repos/odysseus/brain-kit/pulls/7) response=candidate ;;
+  api:repos/odysseus/brain-kit/git/ref/heads/main) response=base ;;
+  api:repos/odysseus/brain-kit/actions/workflows/ci.yml/runs?event=pull_request*) response=ci ;;
+  api:--include) response=clock ;;
+esac
+if [ -n "$response" ] && [ -f '${responses}/'$response ]; then
+  while IFS= read -r line; do printf '%s\\n' "$line"; done < '${responses}/'$response
+else
+  exec '${process.execPath}' '${slowGh}' "$@"
+fi`);
+  chmodSync(gh, 0o755);
   const preload = join(dir, "clock.ts");
   writeFileSync(preload, `import {readFileSync,writeFileSync} from "node:fs";const callbacks=new Map();let id=0;
     const originalSet=globalThis.setInterval,originalClear=globalThis.clearInterval,originalSleep=Bun.sleep;
     globalThis.setInterval=(callback,ms,...args)=>ms===60000?(callbacks.set(++id,callback),id):originalSet(callback,ms,...args);
     globalThis.clearInterval=timer=>callbacks.has(timer)?callbacks.delete(timer):originalClear(timer);
     performance.now=()=>JSON.parse(readFileSync(${JSON.stringify(apiState)},"utf8")).now-${NOW};
-    Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));for(const callback of callbacks.values())await callback();};`);
+    Bun.sleep=async ms=>{if(ms!==60000)return originalSleep(ms);const file=${JSON.stringify(apiState)},state=JSON.parse(readFileSync(file,"utf8"));state.now+=ms;writeFileSync(file,JSON.stringify(state));
+      if(${cheapGh})writeFileSync(${JSON.stringify(join(responses, "clock"))},"HTTP/2.0 200 OK\\nDate: "+new Date(state.now).toUTCString()+"\\n\\n{}\\n");for(const callback of callbacks.values())await callback();};`);
   // `<renew|release>-<holder|none|wrong>` runs the lease command as a separate process with the same actor and public id.
   const lifecycle = /^(?:legacy-)?(renew|release)-(holder|none|wrong)$/.exec(mode);
   const presented = (kind: string) => kind === "holder" ? ["--token", TOKEN] : kind === "wrong" ? ["--token", OTHER] : [];

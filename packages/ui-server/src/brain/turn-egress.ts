@@ -9,6 +9,8 @@ import { contactedHosts, recordFirstTaint, sessionTaint, type TaintSource } from
 import type { GovernanceWrites } from "../governance/event-writes.js";
 import { safetyProjection } from "../governance/safety-store.js";
 import { settleTurnSessionBinding } from "../ws/bridge-session-binding.js";
+import { isMarkedUntrusted } from "../files/untrusted-marks.js";
+import { createTurnExtraction } from "./turn-extraction.js";
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
@@ -99,6 +101,8 @@ export async function prepareTurnEgress(options: {
    * `governanceDb` through `record`.
    */
   governanceWrites?: Pick<GovernanceWrites, "firstTaint" | "taint"> & Partial<Pick<GovernanceWrites,"recordingAvailable" | "safety">>;
+  /** The brain's host path, for the extraction classifier's read files and named paths (#4088). */
+  brainPath?: string;
 }) {
   const calls = createOutwardCalls();
   let recordingFailure: Error | undefined;
@@ -177,6 +181,12 @@ export async function prepareTurnEgress(options: {
     const allowed = await pending;
     return allowed && !signal.aborted;
   };
+  // The extraction classifier (#4088), off unless the policy turns it on. It
+  // needs the session's taint record, so a host that keeps none never runs it.
+  const extraction = db && options.policy.taint.classifier === "heuristics" ? createTurnExtraction({ bridge: options.bridge, origin: options.origin,
+    sessionId: options.sessionId, tainted: () => firstTaint() !== null, contacted, brainPath: options.brainPath,
+    cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
+    marked: path => isMarkedUntrusted(db, path) }) : null;
   const taint = db ? {
     allow: options.policy.taint.egress.allow,
     tainted: (connectionId?: string) => {
@@ -190,7 +200,9 @@ export async function prepareTurnEgress(options: {
       }
       return firstTaint() !== null;
     },
-    contacted: (host: string) => contacted.has(host),
+    // An `allow` from the extraction classifier relaxes this check, and only
+    // this one, while the readable call naming the host is in progress.
+    contacted: (host: string) => contacted.has(host) || extraction?.relaxes(host) === true,
     // A refusal names what tainted the session, as the card does (#3431).
     cause: () => { const source = firstTaint()?.source; return source ? TAINT_SOURCE_WORDING[source] : null; },
     // Voice has no grant surface; it keeps refusing without a card (#3430).
@@ -245,9 +257,20 @@ export async function prepareTurnEgress(options: {
   const original = options.bridge;
   /** The bridge the backend receives, so its classifications and results open and close each call. */
   const bridge: BackendBridge = { ...original,
-    emit(message) { calls.emitted(message); original.emit(message); },
+    emit(message) { calls.emitted(message); extraction?.emitted(message); original.emit(message); },
     activity(event) { calls.activity(event); original.activity?.(event); },
   };
+  if (extraction) {
+    // Read at each call, not here: the host installs its admission collector
+    // on the bridge it handed this turn, possibly after this proxy started.
+    let wrapped: { from: BackendBridge["inputSafety"]; to: BackendBridge["inputSafety"] } | undefined;
+    Object.defineProperty(bridge, "inputSafety", { enumerable: true, configurable: true,
+      get: () => {
+        if (!wrapped || wrapped.from !== original.inputSafety) wrapped = { from: original.inputSafety, to: extraction.inputSafety(original.inputSafety) };
+        return wrapped.to;
+      },
+      set: (value: BackendBridge["inputSafety"]) => { original.inputSafety = value; } });
+  }
   const relayOperation = (kind: "inference" | "relayed", method: string, target: URL, signal: AbortSignal) => {
     const operation = proxy[kind](method, target, signal);
     return settleOperation(operation);

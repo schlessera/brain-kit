@@ -56,6 +56,20 @@ inspecting CI on a PR live in the `work-issue` skill's
   commands and explicitly preloaded child probes. Production invocations keep
   their own policy. The startup-view copier still refuses concurrent changes.
 
+The shared test preload assigns a fresh disposable `HOME` and
+`CLAUDE_CONFIG_DIR`, including when a caller inherited a real Claude config
+path. Tests that supply their own profile paths must keep them in owned
+fixtures. The test launcher supplies a separate disposable invoking home before
+starting Bun, so even a native HOME fallback cannot select user storage. The
+preload then assigns the test's working home. After the test process and its
+children finish, the launcher compares the invoking home's sentinel tree with
+its original path membership and metadata, including nanosecond change times.
+This detects retained creations and same-size overwrites without patching
+filesystem functions or observing unrelated sessions' storage activity.
+The preload restores both environment descriptors and removes its storage
+after all test files finish. Turns must await owned observation saves before
+settling so teardown cannot race storage writes.
+
 ### Deliberate offline commands on Linux
 
 Use the repository launcher when a manual test command needs OS-level network
@@ -369,6 +383,13 @@ boundary, the reasons and the file- and assertion-level inventory are in
   `python3`, `bwrap`, `unshare`, `setpriv` and `ip`, permitted namespaces and a
   built workspace (`bun run build`), and refuses to start without them. `bun run test experiments/<file>` runs one
   file while debugging.
+- **Nested worker namespaces.** The installed-runtime placement control also
+  needs the real worker host probe to pass inside its outer offline namespace.
+  An AppArmor profile on the outer `bwrap` can deny the inner worker's namespace
+  creation even when a direct host probe succeeds. The control fails early
+  with `OWNED_CLAUDE_NESTED_WORKER_HOST_REQUIRED`, the probe's cause and the
+  current AppArmor label when available. Use a qualified isolated proof host;
+  neither a skipped placement nor disabling either boundary supplies proof.
 - **The release gate.** Release preparation runs the tier after
   `bun run version` and before `bun run release` (the
   [release skill](../../.agents/skills/release/SKILL.md) has the sequence).
@@ -504,7 +525,12 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   native host, pinned browser, layout, capture and endurance proof runs on
   every main squash
   ([hybrid ruling](../decisions/ci-utility.md#hybrid-post-merge-heavy-proof)).
-  Agents keep focused local behavioral proof.
+  Agents keep focused local behavioral proof. A PR that touches none of
+  `packages/ui-react/`, `packages/ui-kit/`, `packages/ui-server/` or
+  `packages/core/` may instead take the
+  [fast lane](../decisions/ci-utility.md#fast-lane-outside-the-core-packages):
+  it skips ready-candidate confirmation and is proved by its `check:pr`
+  receipt and its squash's main run.
 - Run `bun run check:pr --base origin/main` before opening or marking ready,
   and paste the receipt block it prints into the PR body. Record a check you
   cannot finish with `--check-timeout=<seconds>` or `--skip <check name>`

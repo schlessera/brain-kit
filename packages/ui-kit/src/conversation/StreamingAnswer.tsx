@@ -1,5 +1,5 @@
 import { GhostBand } from "../internal/GhostBand.js";
-import type { CSSProperties, KeyboardEvent } from "react";
+import { useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import { GhostText, INCOMING, useArrival } from "../internal/GhostText.js";
 import { StatusDot } from "../primitives/StatusDot.js";
@@ -78,7 +78,8 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
   const canStop = p.stoppable !== false;
   const act = Boolean(p.onStop);
   const waiting = p.bars !== false && !text;
-  const arriving = useArrival(waiting);
+  const frame = useRef<HTMLDivElement>(null);
+  const arriving = useArrival(waiting, frame);
   // Code points, not UTF-16 units, so the tail never splits a character.
   const chars = Array.from(text);
   const split = Math.max(0, chars.length - TAIL);
@@ -100,6 +101,7 @@ export function StreamingAnswer(p: StreamingAnswerProps) {
 
   return (
     <div
+      ref={frame}
       data-kit-streaming-answer=""
       style={{
         display: "flex",

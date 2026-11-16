@@ -5,7 +5,9 @@
  * receives the dedicated credential; the session's taint is recorded as
  * `github_result`; no client frame and no subprocess environment carries
  * the credential; with only `GITHUB_TOKEN` set the tools answer
- * `unavailable` and send nothing.
+ * `unavailable` and send nothing. Writes (#3798) take their allow-list from
+ * the turn's admitted governance policy and their card from the turn's own
+ * approval surface, and are recorded as `outward_action`.
  *
  * Keyless and offline: the fixed API origin is routed to a loopback fake
  * after the network preload; the tokens are synthetic sentinels.
@@ -14,7 +16,7 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { GithubToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
@@ -32,9 +34,14 @@ import { GENERIC_GITHUB_SENTINEL, GITHUB_TOOLS_SENTINEL, fakeGithub, routeGithub
 
 const SESSION = "sess-ithaca-github";
 
-async function hostedTurn(backendId: "pi" | "claude", env: Record<string, string>, script: (github: (tool: string, input: unknown) => Promise<GithubToolResult>) => Promise<void>) {
+async function hostedTurn(backendId: "pi" | "claude", env: Record<string, string>, script: (github: (tool: string, input: unknown) => Promise<GithubToolResult>) => Promise<void>,
+  options: { policy?: string; answer?: (request: Record<string, unknown>) => Record<string, unknown> } = {}) {
   const root = await mkdtemp(resolve(tmpdir(), "odysseus-host-github-")), brain = resolve(root, "brain");
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
+  if (options.policy !== undefined) {
+    await mkdir(resolve(brain, "context/policies"), { recursive: true });
+    await writeFile(resolve(brain, "context/policies/governance.md"), `---\nschema_version: 1\n${options.policy}\n---\nIthaca's outward rules.\n`);
+  }
   const fake = fakeGithub(), restore = routeGithubApi(fake);
   const names = ["BRAIN_UI_GITHUB_TOOLS_TOKEN", "GITHUB_TOKEN"] as const;
   const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
@@ -68,11 +75,22 @@ async function hostedTurn(backendId: "pi" | "claude", env: Record<string, string
     const handlers = createWsHandlers(app.wsHost, principal), ws = { send: (text: string) => { sent.push(text); }, close() {}, readyState: 1 } as WSContext;
     await handlers.onOpen(undefined as never, ws);
     handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Look up the suitors issue", requestId: "github-request" }) } as MessageEvent, ws);
-    const until = Date.now() + 45_000;
-    while (!finished || app.isTurnActive()) { if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`); await Bun.sleep(10); }
+    const until = Date.now() + 45_000, answered = new Set<string>(), cards: Array<Record<string, unknown>> = [];
+    while (!finished || app.isTurnActive()) {
+      if (Date.now() > until) throw new Error(`turn did not finish: ${sent.join("\n")}`);
+      // Answer each approval card the client is shown, as the user would.
+      for (const frame of sent.map(text => JSON.parse(text) as Record<string, unknown>)) {
+        if (frame.type !== "tool_approval_request" || answered.has(String(frame.toolUseId))) continue;
+        answered.add(String(frame.toolUseId)); cards.push(frame);
+        const answer = options.answer?.(frame) ?? { type: "tool_denial", message: "No card was expected." };
+        handlers.onMessage({ data: JSON.stringify({ toolUseId: frame.toolUseId, turnId: frame.turnId, channel: "card", ...answer }) } as MessageEvent, ws);
+      }
+      await Bun.sleep(10);
+    }
     if (scriptError) throw scriptError;
     const taint = queryGovernanceEvents(app.db, { kinds: ["taint"], limit: 10 }).sort((a, b) => a.id - b.id);
-    return { root, fake, sent, taint, workerEnvs };
+    const outward = queryGovernanceEvents(app.db, { kinds: ["outward_action"], limit: 10 }).sort((a, b) => a.id - b.id);
+    return { root, fake, sent, taint, outward, cards, workerEnvs };
   } finally {
     await app.close(); broker.close(); await native.close();
     restore(); fake.stop();
@@ -110,5 +128,39 @@ test("with only GITHUB_TOKEN set the read tools answer unavailable, send nothing
     for (const result of results) expect(result, "GITHUB_NO_FALLBACK_TO_GITHUB_TOKEN").toMatchObject({ ok: false, error: { code: "unavailable", reason: "no_credential" } });
     expect(outcome.fake.seen).toEqual([]);
     expect(outcome.taint).toEqual([]);
+  } finally { await rm(outcome.root, { recursive: true, force: true }); }
+}, 60_000);
+
+const POLICY = 'outward: { github: { repositories: ["odysseus/ithaca"] } }';
+const ISSUE = { repository: "odysseus/ithaca", title: "Bar the hall doors", body: "Before the contest of the bow.", labels: ["household"] };
+
+for (const backendId of ["pi", "claude"] as const) test(`a ${backendId} turn files an allowed issue after one card from the turn's policy, and is refused outside it before any card`, async () => {
+  const results: GithubToolResult[] = [];
+  const outcome = await hostedTurn(backendId, { BRAIN_UI_GITHUB_TOOLS_TOKEN: GITHUB_TOOLS_SENTINEL }, async github => {
+    results.push(await github("brain_github_issue_create", { ...ISSUE, repository: "circe/aiaia" }));
+    results.push(await github("brain_github_issue_create", ISSUE));
+  }, { policy: POLICY, answer: () => ({ type: "tool_approval" }) });
+  try {
+    expect(results[0], "GITHUB_APP_OUTSIDE_LIST_REFUSED").toMatchObject({ ok: false, error: { code: "policy_denied", reason: "repository_not_allowed" } });
+    expect(results[1], "GITHUB_APP_ALLOWED_WRITE").toMatchObject({ ok: true, result: { kind: "issue_created", repository: "odysseus/ithaca", number: 42 } });
+    expect(outcome.cards.length, "GITHUB_APP_ONE_CARD").toBe(1);
+    expect(outcome.cards[0], "GITHUB_APP_CARD_EXACT").toMatchObject({ input: ISSUE });
+    expect(outcome.fake.seen.map(request => [request.method, request.path]), "GITHUB_APP_ONE_REQUEST").toEqual([["POST", "/repos/odysseus/ithaca/issues"]]);
+    expect(outcome.outward.map(event => ({ session: event.sessionId, action: event.payload.action, target: event.payload.target, decision: event.payload.decision })), "GITHUB_APP_OUTWARD_RECORDED").toEqual([
+      { session: SESSION, action: "gh_write", target: "circe/aiaia", decision: "refused" }, { session: SESSION, action: "gh_write", target: "odysseus/ithaca", decision: "approved" }]);
+    for (const event of outcome.outward) GOVERNANCE_EVENT_SCHEMAS.outward_action.payload.parse(event.payload);
+  } finally { await rm(outcome.root, { recursive: true, force: true }); }
+}, 60_000);
+
+test("without a governance policy entry a write is refused before any card and sends nothing", async () => {
+  const results: GithubToolResult[] = [];
+  const outcome = await hostedTurn("claude", { BRAIN_UI_GITHUB_TOOLS_TOKEN: GITHUB_TOOLS_SENTINEL }, async github => {
+    results.push(await github("brain_github_issue_create", ISSUE));
+    results.push(await github("brain_github_issue_comment", { repository: "odysseus/ithaca", number: 7, body: "Counted." }));
+  }, { answer: () => ({ type: "tool_approval" }) });
+  try {
+    for (const result of results) expect(result, "GITHUB_APP_NO_LIST_REFUSED").toMatchObject({ ok: false, error: { code: "policy_denied", reason: "repository_not_allowed" } });
+    expect(outcome.cards).toEqual([]);
+    expect(outcome.fake.seen).toEqual([]);
   } finally { await rm(outcome.root, { recursive: true, force: true }); }
 }, 60_000);
