@@ -1,7 +1,9 @@
 /** Native control, always fake: no provider transport delegates to real fetch. */
+// The host loads this first; the worker inherits the marker and imports it again.
+const inWorker = process.env.BRAIN_MEASURE_PI_WORKER_OFFLINE === "1";
 process.env.BRAIN_MEASURE_PI_WORKER_OFFLINE = "1";
-import { writeFileSync,readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync,writeFileSync,readFileSync } from "node:fs";
+import { join,resolve } from "node:path";
 import {plugin} from "bun";
 import { createHash } from "node:crypto";
 // Only this offline preload substitutes app storage; the provider-enabled entry
@@ -19,12 +21,21 @@ plugin({ name: "offline-pi-native-app-fixture", setup(build) {
 if(process.env.BRAIN_MEASURE_PI_OFFLINE_MUTATION==="replay-history")plugin({name:"offline-replay-history-negative",setup(build){build.onLoad({filter:/\/pi-ai\/dist\/api\/openai-codex-responses\.js$/},({path})=>{const source=readFileSync(path,"utf8"),anchor="            const bodyJson = JSON.stringify(body);";if(source.split(anchor).length!==2)throw new Error("Offline real provider payload anchor drift.");return {contents:source.replace(anchor,'            if(body.input.some(item=>item.type==="function_call_output"))body.input=body.input.filter(item=>item.type!=="function_call"&&item.type!=="function_call_output");\n'+anchor),loader:"js"};});}});
 if(process.env.BRAIN_MEASURE_PI_OFFLINE_MUTATION==="preterminal-cancel")plugin({name:"offline-preterminal-consumer-cancel",setup(build){build.onLoad({filter:/\/pi-ai\/dist\/api\/openai-codex-responses\.js$/},({path})=>{const source=readFileSync(path,"utf8"),anchor="        yield event;\n    }\n}\nfunction normalizeCodexStatus";if(source.split(anchor).length!==2)throw new Error("Offline terminal consumer anchor drift.");return {contents:source.replace(anchor,'        if(event.type==="response.created")return;\n'+anchor),loader:"js"};});}});
 const {decodePiRequest}=await import("./pi-schema-capture.ts");
+const {nativeCredential}=await import("./pi-schema-measurement.ts");
 const accountId = "fictional-odysseus-account";
 const payload = { exp: Math.floor(Date.now() / 1000) + 3600, "https://api.openai.com/auth": { chatgpt_account_id: accountId } };
 process.env.BRAIN_MEASURE_CODEX_ACCESS_TOKEN = `offline.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.fictional`;
 process.env.BRAIN_MEASURE_CODEX_ACCOUNT_ID = accountId;
 process.env.BRAIN_MEASURE_CODEX_MODEL = "gpt-6.1-sol"; // fictional credential, exact ruled model identity only
 for (const key of ["OPENAI_API_KEY", "OPENAI_CODEX_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "TYPESAFE_API_KEY"]) delete process.env[key];
+// The host inference relay resolves the turn's credential from pi's auth store
+// before the worker launches (#4031). Provision the same fictional identity
+// into the fresh fixture agent directory, never over an existing store.
+if (!inWorker) {
+  const agentDir = process.env.PI_CODING_AGENT_DIR;
+  if (!agentDir || existsSync(join(agentDir, "auth.json"))) throw new Error("Offline host fixture credential needs a fresh PI_CODING_AGENT_DIR.");
+  writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ "openai-codex": nativeCredential() }), { mode: 0o600, flag: "wx" });
+}
 const original = globalThis.fetch.bind(globalThis);
 let sequence = process.env.BRAIN_MEASURE_PI_REPLAY_ROOT ? 1 : 0;
 globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
