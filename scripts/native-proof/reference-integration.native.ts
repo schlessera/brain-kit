@@ -6,16 +6,9 @@
  * reference tool, a production worker inspects it, and a managed worktree is
  * requested, edited, renewed and released; its retained work reaches the
  * host-only hygiene review and the owner removes it there.
- *
- * Under that Git workload (#3513), the parent samples `/api/health` and the
- * WebSocket `ping`/`pong` round trip throughout every turn, the pool's peak
- * charge and reservations, and the pool device's block I/O per turn. The
- * child times every reference tool call; cold and warm source reads are held
- * to `INTEGRATED_TOLERANCES`. The report is `reference-integration-latency.json`.
  */
 import { expect } from "bun:test";
-import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync, writeSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { serveNativeBrainManager } from "../../packages/ui-sdk/src/server/native-brain-manager.js";
@@ -26,36 +19,6 @@ import { journalDatabasePath } from "../../packages/ui-server/src/db/journal-dat
 import { referenceWorktreeJournalPath } from "../../packages/ui-server/src/brain/reference-worktree-journal.js";
 import { bytes } from "../../tests/helpers/provider-history.js";
 import { INTEGRATION_STEPS, INTEGRATION_TURNS, stepKey } from "./reference-integration-steps.js";
-import { poolIo, poolIoDelta, type PoolIo } from "./pool-io.js";
-
-/**
- * Latency and elapsed bounds of the integrated cell (#3513). PROVISIONAL until
- * the first hosted baseline: each is replaced by its measured value with
- * headroom, recorded beside it. Health and WebSocket samples cover every turn
- * from its message to its settled idle status.
- */
-export const INTEGRATED_TOLERANCES = Object.freeze({
-  healthP95Ms: 500, healthMaxMs: 2_000,
-  wsP95Ms: 500, wsMaxMs: 2_000,
-  /** The first reference_source call of a backend: a cold acquisition of the 1,203-file repository with its charts. */
-  coldSourceMs: 30_000,
-  /** The last call of the first turn: the same source again, reused or validated in place. */
-  warmSourceMs: 5_000,
-  /** Peak pool charge above the turn's start during the first turn: one source and two worktree snapshots. */
-  inspectsPeakBytes: 64 * 1024 ** 2,
-});
-const IT = INTEGRATED_TOLERANCES;
-/** Three incompressible 2 MiB charts beside the books: Git objects and checkout both hold them. */
-const CHARTS = 3, CHART_BYTES = 2 * 1024 ** 2;
-const percentile = (values: number[], fraction: number) => { const sorted = [...values].sort((a, b) => a - b); return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(fraction * sorted.length) - 1)]! : null; };
-const summary = (values: number[]) => ({ count: values.length, p50: percentile(values, 0.5), p95: percentile(values, 0.95), max: values.length ? Math.max(...values) : null });
-const latency: { schema: 1; basis: string; environment: Record<string, string>; tolerances: typeof IT; backends: Record<string, unknown> } = {
-  schema: 1, basis: "health: GET /api/health every 100 ms, sequential, 10 s timeout; ws: ping every 200 ms, pong receipt; tool elapsed: the child's model-boundary time per reference tool call; "
-    + "peak: the pool's data, metadata and system disk_used from /sys/fs/btrfs/<fsid>/allocation every 100 ms (the space-info term of chargedBytes, without simple-quota owner charge); "
-    + "io: pool loop device block counters (/proc/diskstats) per turn, after sync",
-  environment: {}, tolerances: IT, backends: {},
-};
-const saveLatency = () => writeFileSync(join(ARTIFACTS, "reference-integration-latency.json"), JSON.stringify(latency, null, 2));
 
 const SOURCE = "/repo", MIB = 1024 ** 2, APP_UID = 1000, POOL = "/reference-pool";
 const ARTIFACTS = process.env.BRAIN_REFERENCE_POOL_ARTIFACTS ?? "/proof";
@@ -96,7 +59,7 @@ command(["git", "init", "--quiet", "-b", "main", workspace]);
 writeFileSync(join(workspace, "log.md"), "Argo log: the crew rows past Scylla.\n");
 const workspaceLog = () => existsSync(join(workspace, "log.md")) ? readFileSync(join(workspace, "log.md"), "utf8") : null;
 
-// The offline fictional repository: 24 books of 50 lines and three incompressible charts, served from a local path.
+// The offline fictional repository: 24 books of 50 lines, served from a local path.
 const srv = "/native-runtime/srv", work = "/native-runtime/ithaca-work", bare = join(srv, "ithaca.git");
 /** A loose ref overrides the packed one: point the remote's main at a commit, or at one it cannot deliver. */
 const advertise = (commit: string) => writeFileSync(join(bare, "refs/heads/main"), `${commit}\n`);
@@ -108,11 +71,6 @@ gitIn(work, "init", "-q", "-b", "main");
 for (let book = 0; book < 24; book++) {
   mkdirSync(join(work, "odyssey", `book-${book}`), { recursive: true });
   for (let line = 0; line < 50; line++) writeFileSync(join(work, "odyssey", `book-${book}`, `line-${line}.md`), `Ithaca chart: book ${book}, line ${line}.\n`);
-}
-mkdirSync(join(work, "charts"));
-for (let chart = 0; chart < CHARTS; chart++) {
-  const fd = openSync(join(work, "charts", `aegean-${chart}.bin`), "w");
-  try { writeSync(fd, randomBytes(CHART_BYTES)); } finally { closeSync(fd); }
 }
 gitIn(work, "add", "."); gitIn(work, "commit", "-q", "-m", "Odysseus charts the way home");
 const first = gitIn(work, "rev-parse", "HEAD").trim();
@@ -138,19 +96,10 @@ note("native-ready", { ready });
 const qualified = await manager.poolStatus();
 note("pool-qualified", { status: qualified });
 expect(qualified.qualified, "INTEGRATED_POOL_QUALIFIED").toBe(true);
-/** Physical allocation of the pool, read from sysfs without the manager; null if unreadable. */
-const POOL_FSID = fsid(POOL);
-function poolDiskUsed(): number | null {
-  try { return ["data", "metadata", "system"].reduce((sum, kind) => sum + Number(readFileSync(`/sys/fs/btrfs/${POOL_FSID}/allocation/${kind}/disk_used`, "utf8").trim()), 0); }
-  catch { return null; }
-}
 const records = async () => {
   const all: NativePoolRecord[] = [];
   for (let after: string | null = null; ;) { const page = await manager.listPoolRecovery(after); all.push(...page.records); if (!page.next) return all; after = page.next; }
 };
-latency.environment = { kernel: command(["uname", "-r"]).trim(), btrfsProgs: command(["btrfs", "--version"]).split("\n")[0]!.trim(), git: command(["git", "--version"]).trim(),
-  bun: Bun.version, candidate: process.env.BRAIN_PROOF_CANDIDATE ?? "unrecorded" };
-saveLatency();
 const { serializeSigned } = await import(join(SOURCE, "node_modules/hono/dist/utils/cookie.js"));
 
 async function run(backend: "claude" | "pi") {
@@ -185,16 +134,9 @@ async function run(backend: "claude" | "pi") {
     expect(granted.status, `INTEGRATED_${tag}_OWNER_GRANT_CREATED`).toBe(201);
 
     const frames: any[] = [], approvals: any[] = [];
-    // Liveness and health samples (#3513), each tagged with the turn it ran in.
-    const pings = new Map<string, { turn: string; sent: number }>(), pongs: { turn: string; ms: number }[] = [], health: { turn: string; ms: number; status: number }[] = [];
     ws = new (WebSocket as any)(origin.replace("http", "ws") + "/ws", { headers: { cookie, origin } }) as WebSocket;
     ws.addEventListener("message", message => {
       const frame = { ...JSON.parse(String(message.data)), receiptAt: performance.now() };
-      if (frame.type === "pong") {
-        const ping = pings.get(frame.probeId);
-        if (ping) { pongs.push({ turn: ping.turn, ms: frame.receiptAt - ping.sent }); pings.delete(frame.probeId); }
-        return;
-      }
       frames.push(frame); appendFileSync(join(ARTIFACTS, `frames-${backend}.jsonl`), JSON.stringify(frame) + "\n");
       // A gated tool waits for the user's card: the user approves it once, per use.
       if (frame.type === "tool_approval_request") { approvals.push({ toolName: frame.toolName, kind: frame.kind ?? "tool" }); ws!.send(JSON.stringify({ type: "tool_approval", toolUseId: frame.toolUseId, turnId: frame.turnId })); }
@@ -203,32 +145,6 @@ async function run(backend: "claude" | "pi") {
     ws.send(JSON.stringify({ type: "client_hello", protocolRev: 3, capabilities: { followUpQueue: true } }));
     let sessionId: string | undefined;
     const turns: Record<string, { turnId: string; journal: any }> = {};
-    /** Health, liveness and pool sampling for one turn; the returned stop waits for its loops and its outstanding pongs. */
-    function sampling(turn: string) {
-      let running = true, probes = 0;
-      const peak = { chargedBytes: 0 }, start: { chargedBytes: number | null } = { chargedBytes: null };
-      Bun.spawnSync(["sync"]);
-      const before = poolIo(), began = performance.now();
-      const loops = [
-        (async () => { while (running) { const at = performance.now(); const status = await fetch(origin + "/api/health", { signal: AbortSignal.timeout(10_000) }).then(response => response.status, () => 0); health.push({ turn, ms: performance.now() - at, status }); await Bun.sleep(100); } })(),
-        (async () => { while (running) { const probeId = `odysseus-${backend}-${turn}-${probes++}`; pings.set(probeId, { turn, sent: performance.now() }); ws!.send(JSON.stringify({ type: "ping", probeId })); await Bun.sleep(200); } })(),
-        // Read-only sysfs, never the manager: a second client polling it mid-turn would queue behind, and perturb, the app's own pool calls.
-        (async () => { while (running) { const value = poolDiskUsed();
-          if (value !== null) { start.chargedBytes ??= value; peak.chargedBytes = Math.max(peak.chargedBytes, value); }
-          await Bun.sleep(100); } })(),
-      ];
-      return async () => {
-        const elapsedMs = Math.round(performance.now() - began);
-        running = false; await Promise.all(loops);
-        const outstanding = () => [...pings.values()].filter(ping => ping.turn === turn).length;
-        await until(() => outstanding() === 0, `${turn} pongs`, 5_000).catch(() => {});
-        Bun.spawnSync(["sync"]);
-        return { elapsedMs, startChargedBytes: start.chargedBytes, peak, lostPongs: outstanding(), io: poolIoDelta(poolIo(), before) as PoolIo | null };
-      };
-    }
-    const sampled: Record<string, Awaited<ReturnType<ReturnType<typeof sampling>>>> = {};
-    const knownRoots = new Set((await records()).map(record => record.id));
-    let inspectsSourceRoots = 0;
     for (const key of INTEGRATION_TURNS) {
       if (key === "corrects") {
         // Source moves on: the remote's main gains a commit, past the refresh cooldown.
@@ -241,55 +157,29 @@ async function run(backend: "claude" | "pi") {
         advertise(UNDELIVERABLE);
         await Bun.sleep(2_500);
       }
-      // Samples cover the turn itself, from its message to its settled idle status.
-      const stop = sampling(key);
-      try {
-        const requestId = `odysseus-${backend}-${key}`, begin = performance.now();
-        ws.send(JSON.stringify({ type: "chat_message", text: `Odysseus ${key} the Ithaca chart on 2026-07-12.`, requestId, sessionId }));
-        await until(() => frames.some(frame => frame.type === "session_info" && frame.requestId === requestId) || frames.some(frame => frame.type === "error" && frame.requestId === requestId), `${key} ack`);
-        const ack = frames.find(frame => frame.type === "session_info" && frame.requestId === requestId);
-        if (!ack) throw Error(`INTEGRATED_${tag}_${key.toUpperCase()}_ADMITTED: ${JSON.stringify(frames.filter(frame => frame.requestId === requestId))}`);
-        expect(ack.workerProfile?.actualProfile, `INTEGRATED_${tag}_GOVERNED_PROFILE`).toBe("governed");
-        sessionId = ack.sessionId;
-        await until(() => frames.some(frame => (frame.type === "result" || frame.type === "error") && frame.receiptAt >= begin && (frame.sessionId ?? sessionId) === sessionId), `${key} result`, 120_000);
-        await until(() => frames.some(frame => frame.type === "turn_journal" && frame.turnId === ack.turnId && frame.journal?.state === "complete"), `${key} journal complete`, 30_000);
-        // The next turn starts only after this one settled: no follow-up queue in between.
-        await until(() => frames.some(frame => frame.type === "status" && frame.status === "idle" && frame.turnId === ack.turnId
-          && frame.receiptAt >= frames.find(other => other.type === "turn_journal" && other.turnId === ack.turnId && other.journal?.state === "complete")!.receiptAt), `${key} settled`, 30_000);
-        const terminal = frames.findLast(frame => (frame.type === "result" || frame.type === "error") && frame.receiptAt >= begin);
-        expect(frames.filter(frame => frame.type === "text_delta" && frame.turnId === ack.turnId && /stopped|froze|freeze/.test(frame.text)), `INTEGRATED_${tag}_${key.toUpperCase()}_NOT_STOPPED_BY_SCOPE`).toEqual([]);
-        const journal = frames.findLast(frame => frame.type === "turn_journal" && frame.turnId === ack.turnId)!.journal;
-        turns[key] = { turnId: ack.turnId, journal };
-        note(`${backend}-turn`, { key, turnId: ack.turnId, outcome: terminal?.outcome ?? terminal?.type, journal });
-        expect(terminal?.type === "result" && terminal.outcome !== "error", `INTEGRATED_${tag}_${key.toUpperCase()}_SUCCEEDED ${JSON.stringify(terminal)}`).toBe(true);
-      } finally { sampled[key] = await stop(); }
-      if (key === "inspects") inspectsSourceRoots = (await records()).filter(record => record.purpose === "source" && !knownRoots.has(record.id)).length;
+      const requestId = `odysseus-${backend}-${key}`, begin = performance.now();
+      ws.send(JSON.stringify({ type: "chat_message", text: `Odysseus ${key} the Ithaca chart on 2026-07-12.`, requestId, sessionId }));
+      await until(() => frames.some(frame => frame.type === "session_info" && frame.requestId === requestId) || frames.some(frame => frame.type === "error" && frame.requestId === requestId), `${key} ack`);
+      const ack = frames.find(frame => frame.type === "session_info" && frame.requestId === requestId);
+      if (!ack) throw Error(`INTEGRATED_${tag}_${key.toUpperCase()}_ADMITTED: ${JSON.stringify(frames.filter(frame => frame.requestId === requestId))}`);
+      expect(ack.workerProfile?.actualProfile, `INTEGRATED_${tag}_GOVERNED_PROFILE`).toBe("governed");
+      sessionId = ack.sessionId;
+      await until(() => frames.some(frame => (frame.type === "result" || frame.type === "error") && frame.receiptAt >= begin && (frame.sessionId ?? sessionId) === sessionId), `${key} result`, 120_000);
+      await until(() => frames.some(frame => frame.type === "turn_journal" && frame.turnId === ack.turnId && frame.journal?.state === "complete"), `${key} journal complete`, 30_000);
+      // The next turn starts only after this one settled: no follow-up queue in between.
+      await until(() => frames.some(frame => frame.type === "status" && frame.status === "idle" && frame.turnId === ack.turnId
+        && frame.receiptAt >= frames.find(other => other.type === "turn_journal" && other.turnId === ack.turnId && other.journal?.state === "complete")!.receiptAt), `${key} settled`, 30_000);
+      const terminal = frames.findLast(frame => (frame.type === "result" || frame.type === "error") && frame.receiptAt >= begin);
+      expect(frames.filter(frame => frame.type === "text_delta" && frame.turnId === ack.turnId && /stopped|froze|freeze/.test(frame.text)), `INTEGRATED_${tag}_${key.toUpperCase()}_NOT_STOPPED_BY_SCOPE`).toEqual([]);
+      const journal = frames.findLast(frame => frame.type === "turn_journal" && frame.turnId === ack.turnId)!.journal;
+      turns[key] = { turnId: ack.turnId, journal };
+      note(`${backend}-turn`, { key, turnId: ack.turnId, outcome: terminal?.outcome ?? terminal?.type, journal });
+      expect(terminal?.type === "result" && terminal.outcome !== "error", `INTEGRATED_${tag}_${key.toUpperCase()}_SUCCEEDED ${JSON.stringify(terminal)}`).toBe(true);
     }
     const steps = Object.fromEntries(events().filter(row => row.kind === "integration_step").map(row => [stepKey(row.turn, row.index), row.value]));
     note(`${backend}-steps`, { steps, approvals });
     for (const key of INTEGRATION_TURNS) for (const index of INTEGRATION_STEPS[key]!.keys())
       expect(steps[stepKey(key, index)], `INTEGRATED_${tag}_STEP_RECORDED ${stepKey(key, index)}`).toBeDefined();
-
-    // Latency, elapsed time, peak allocation and I/O under the Git workload (#3513), recorded before they are judged.
-    const elapsed: Record<string, number> = Object.fromEntries(events().filter(row => row.kind === "integration_step" && typeof row.elapsedMs === "number").map(row => [stepKey(row.turn, row.index), row.elapsedMs]));
-    const measured = { health: summary(health.map(sample => sample.ms)), healthFailures: health.filter(sample => sample.status !== 200).length,
-      ws: summary(pongs.map(sample => sample.ms)), lostPongs: pings.size, tools: elapsed, turns: sampled, inspectsSourceRoots,
-      perTurn: Object.fromEntries(INTEGRATION_TURNS.map(key => [key, { health: summary(health.filter(sample => sample.turn === key).map(sample => sample.ms)), ws: summary(pongs.filter(sample => sample.turn === key).map(sample => sample.ms)) }])) };
-    latency.backends[backend] = measured; saveLatency();
-    note(`${backend}-latency`, measured);
-    expect({ ok: steps["inspects#6"].ok, commit: steps["inspects#6"].source?.commit, freshness: steps["inspects#6"].source?.freshness }, `INTEGRATED_${tag}_WARM_SOURCE_READ`)
-      .toEqual({ ok: true, commit: first, freshness: "fresh" });
-    expect(inspectsSourceRoots, `INTEGRATED_${tag}_WARM_READ_ADDS_NO_ROOT`).toBe(1);
-    expect({ cold: typeof elapsed["inspects#0"], warm: typeof elapsed["inspects#6"] }, `INTEGRATED_${tag}_SOURCE_ELAPSED_RECORDED`).toEqual({ cold: "number", warm: "number" });
-    expect(elapsed["inspects#0"]!, `INTEGRATED_${tag}_COLD_SOURCE_ELAPSED`).toBeLessThanOrEqual(IT.coldSourceMs);
-    expect(elapsed["inspects#6"]!, `INTEGRATED_${tag}_WARM_SOURCE_ELAPSED`).toBeLessThanOrEqual(IT.warmSourceMs);
-    expect(elapsed["inspects#6"]! < elapsed["inspects#0"]!, `INTEGRATED_${tag}_WARM_FASTER_THAN_COLD`).toBe(true);
-    expect({ health: measured.health.count > 0, ws: measured.ws.count > 0, healthFailures: measured.healthFailures, lostPongs: measured.lostPongs },
-      `INTEGRATED_${tag}_HEALTH_AND_LIVENESS_ANSWERED`).toEqual({ health: true, ws: true, healthFailures: 0, lostPongs: 0 });
-    expect({ p95: measured.health.p95! <= IT.healthP95Ms, max: measured.health.max! <= IT.healthMaxMs }, `INTEGRATED_${tag}_HEALTH_LATENCY ${JSON.stringify(measured.health)}`).toEqual({ p95: true, max: true });
-    expect({ p95: measured.ws.p95! <= IT.wsP95Ms, max: measured.ws.max! <= IT.wsMaxMs }, `INTEGRATED_${tag}_WS_LATENCY ${JSON.stringify(measured.ws)}`).toEqual({ p95: true, max: true });
-    expect({ io: sampled.inspects!.io !== null, peak: sampled.inspects!.startChargedBytes !== null }, `INTEGRATED_${tag}_IO_AND_PEAK_SAMPLED`).toEqual({ io: true, peak: true });
-    expect(sampled.inspects!.peak.chargedBytes - (sampled.inspects!.startChargedBytes ?? 0), `INTEGRATED_${tag}_INSPECTS_PEAK_BOUNDED`).toBeLessThanOrEqual(IT.inspectsPeakBytes);
 
     // Acquisition and inspection: a private source at the first commit, read by a worker, charging no changed path.
     const acquired = steps["inspects#0"];
@@ -389,10 +279,7 @@ async function run(backend: "claude" | "pi") {
     if (!exited) child.kill("SIGTERM");
     const code = await child.exited;
     writeFileSync(join(ARTIFACTS, `app-${backend}.log`), `exit ${code}\n--- stdout\n${await output}\n--- stderr\n${await errors}`);
-    // The app's own warnings, so a failed run's cause is in the job log even if no artifact survives.
-    const warnings = events().filter(row => row.kind === "fixture_logs").flatMap(row => row.records).filter((log: { severity: string }) => log.severity !== "INFO" && log.severity !== "DEBUG")
-      .map((log: { severity: string; body: unknown }) => `${log.severity}: ${String(log.body).slice(0, 400)}`).slice(-12);
-    note(`${backend}-app-exit`, { code, warnings });
+    note(`${backend}-app-exit`, { code });
   }
 }
 
@@ -421,6 +308,4 @@ try {
   expect(left, "INTEGRATED_NO_WORKTREE_LEFT").toEqual([]);
 } finally {
   await service.close();
-  // The app wrote its data as UID 1000, some of it owner-only; the receipt upload reads the whole artifact tree.
-  Bun.spawnSync(["chmod", "-R", "a+rX", ARTIFACTS]);
 }

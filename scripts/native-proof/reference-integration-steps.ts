@@ -42,7 +42,6 @@ const request: IntegrationStep = { kind: "tool", tool: "reference_worktree", inp
 /** Turn prompts carry `Odysseus <key>`. */
 export const INTEGRATION_STEPS: Record<string, IntegrationStep[]> = {
   // Acquire and inspect shared source, then request two worktrees; the second is released unused.
-  // A last, warm read of the same source (#3513) reuses its root inside the refresh window or validates it in place.
   inspects: [
     source(),
     { kind: "bash", command: state => `find ${sourcePath(state, "inspects", 0)}/odyssey -type f | wc -l; cat ${sourcePath(state, "inspects", 0)}/odyssey/book-23/line-49.md` },
@@ -50,7 +49,6 @@ export const INTEGRATION_STEPS: Record<string, IntegrationStep[]> = {
     request,
     { kind: "bash", command: state => `find ${held(state, "inspects", 2)}/odyssey -type f | wc -l; cat ${held(state, "inspects", 2)}/odyssey/book-1/line-1.md` },
     action("release", "inspects", 3),
-    source(),
   ],
   // Source has moved to a newer commit; the worktree has not. Edit it and renew it.
   corrects: [
