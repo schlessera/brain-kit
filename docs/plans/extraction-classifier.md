@@ -11,7 +11,13 @@ to be rubber-stamped.
 
 The harness, the labelled set and the recorded runs are in
 [`evals/3434-extraction-classifier/`](../../evals/3434-extraction-classifier/README.md).
-Nothing here changes production admission.
+The heuristics now ship behind `taint.classifier: heuristics`, off by default
+([#4088](https://github.com/schlessera/brain-kit/issues/4088); how they sit in
+admission is [the decision record](../decisions/governed-writable-workers.md#extraction-heuristics)).
+`packages/ui-server/tests/extraction-classifier-labelled.test.ts` runs the
+labelled set through the production classifier and compares every call with
+the recorded offline run. The Jev band is not built
+([#4089](https://github.com/schlessera/brain-kit/issues/4089)).
 
 ## Where it runs and what it may change
 
@@ -30,7 +36,7 @@ It is advisory and narrow:
 - An `allow` may relax exactly one thing, the #3430 card for a host the
   tainted session has not contacted
   (`const narrowing`, `packages/ui-sdk/src/server/egress-proxy.ts:280-285`;
-  `const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:168-179`).
+  `const approveTainted`, `packages/ui-server/src/brain/turn-egress.ts:172-183`).
   Because the proxy cannot tell which process opened a connection, that
   relaxation can only cover the hosts a readable call names while it is in
   progress, as the outward exception already does. An opaque call withholds
@@ -75,7 +81,7 @@ Each is deterministic and was scored alone
 | Taint host | A destination's site appears among the hosts the tainting content named. |
 | Encoded blob | A base64 or hex token of at least twelve characters in subdomain, path, query or body; an undecodable one must be twenty characters with a digit. `encodedText`: the blob decodes to readable text. |
 | Volume | A query of 120 characters or data of 512 bytes to a host the session has not contacted. |
-| Write-shaped | Paste, webhook, request-bin, form, upload and collect hosts, the built-in outward mail hosts (`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:20`), a writing method to a submit, issue, comment, gist or message path, a beacon path, or an MCP tool named send, create, post, upload, comment, write, update, append or share. |
+| Write-shaped | Paste, webhook, request-bin, form, upload and collect hosts, the built-in outward mail hosts (`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:22`), a writing method to a submit, issue, comment, gist or message path, a beacon path, or an MCP tool named send, create, post, upload, comment, write, update, append or share. |
 | Fan-out | Five earlier calls, or three distinct hosts, to one site the session had not used before its taint. |
 | Method | A writing method, or a tool the policy classifies outward or opaque. |
 
@@ -278,3 +284,9 @@ These stay with the card, whatever configuration is chosen:
   reason is the only verdict text the model sees.
 - **Outward actions are not blocked by overlap.** They keep their own card, with
   the overlap as evidence on it.
+- **Production derives the tool class from the command policy.** The
+  labelled set authors it per case. A curl or wget write is an outward action
+  with its own card in production, and the classifier scores it as the set
+  does: a writing method to a named host, blocked for a strong copy. `gh api`
+  with fields is a GitHub write in production, so it keeps the outward card
+  that the set's GraphQL reads do not show.

@@ -1681,7 +1681,12 @@ connections reach only `taint.egress.allow` and hosts its proxies already
 admitted. In an interactive turn, a connection to any other host first shows
 a permission card naming the host and what tainted the session; allowing it
 admits that host for the rest of the session (#3430). Voice turns refuse
-without a card. Refusals, including a declined card, are `egress_denial`
+without a card. With `taint.classifier: heuristics` in the governance policy
+(off by default), the host also judges each call a tainted session makes
+before it runs (#4088): a call that looks like it carries the session's
+notes out is refused, or asks with the reason on the card, even to a host
+the session already reached, and a clean read admits the hosts it names
+without the card while it runs. Refusals, including a declined card, are `egress_denial`
 events with reason `taint_allowlist`. Every refusal with a policy cause
 (taint, the deny or allow list, the byte ceiling, an unapproved outward host)
 answers with a status text and a body naming that cause, so `curl -v`, `git`
