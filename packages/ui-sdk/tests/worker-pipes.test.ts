@@ -7,7 +7,7 @@
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { availableParallelism } from "node:os";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -73,15 +73,15 @@ function ownedTmp() {
 
 /**
  * Marks when a maintenance worker's two output streams have both ended: from
- * then on only Bun's own duplicates of their descriptors can still be open.
+ * then on Bun's own duplicates or a test's retained reader can still be open.
  * `launched` runs when the first is created, which is when the launch is done.
  */
-function workerOutputs(launched?: () => void) {
+function workerOutputs(launched?: (fd: number) => void) {
   const real = workerPipes.fifoStream;
   let created = 0, ended = 0, end!: () => void;
   const done = new Promise<void>(resolve => { end = resolve; });
   const spy = spyOn(workerPipes, "fifoStream").mockImplementation(fd => {
-    if (created++ === 0) launched?.();
+    if (created++ === 0) launched?.(fd);
     return real(fd).pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ flush: () => { if (++ended === 2) end(); } }));
   });
   return { ended: done, restore: () => spy.mockRestore() };
@@ -183,19 +183,24 @@ test("an abort that lands while a finished maintenance command's pipes close sti
   const startupView = createFixtureWorkerStartupView(f.brain);
   const tmp = ownedTmp();
   const controller = new AbortController();
-  let pool: ReturnType<typeof holdWorkPool> | undefined;
-  // The pool is held from the end of the launch, before any Bun stream exists.
-  const outputs = workerOutputs(() => { pool = holdWorkPool(f.root); });
+  let held: number | undefined;
+  // A real extra reader keeps this FIFO's release pending, independent of
+  // whether foreign work overtakes a queued pool hold (#3995). It cannot
+  // delay EOF: it holds no writing end.
+  const outputs = workerOutputs(fd => { held = openSync("/proc/self/fd/" + fd, constants.O_RDONLY | constants.O_NONBLOCK); });
+  const release = () => { if (held !== undefined) { closeSync(held); held = undefined; } };
   let run: Promise<Error | undefined> | undefined;
   try {
     run = refusal(() => runMaintenanceWorker({ brainPath: f.brain, startupView, command: ["/bin/sh", "-c", "printf ithaca"],
       env: { PATH: "/usr/bin:/bin" }, credentials: false, tempDomain: { statePath: join(f.root, "maintenance-state.db") }, signal: controller.signal }));
-    // The command has finished; the abort lands while its pipes wait for the pool, which then frees.
-    void outputs.ended.then(async () => { await Bun.sleep(50); controller.abort(); await Bun.sleep(200); await pool?.release(); });
+    expect(await Promise.race([outputs.ended.then(() => "ended"), run]), "OUTPUT_EOF_PRECEDES_MAINTENANCE_SETTLEMENT").toBe("ended");
+    expect(held, "ABORT_WAITS_FOR_OUTPUT_EOF_WITH_FIFO_HELD").toBeNumber();
+    controller.abort();
+    release();
     expect(await run, "ABORT_DURING_RELEASE_REFUSES").toBeInstanceOf(DOMException);
     expect(tmp.remains(), "ABORT_DURING_RELEASE_RELEASES_PIPES").toEqual({ directories: [], descriptors: [] });
   } finally {
-    controller.abort(); await pool?.release(); await run;
+    controller.abort(); release(); await run;
     outputs.restore(); tmp.restore(); startupView.cleanup(); f.cleanup();
   }
 });
