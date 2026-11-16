@@ -150,7 +150,9 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         }
       }
       expect(privateIndex && existsSync(privateIndex), "NATIVE_PRIVATE_INDEX_REMOVED_AFTER_TURN").toBe(false);
-      expect(treeRoot && existsSync(treeRoot), "NATIVE_MANAGER_REMOVED_THE_TREE_AFTER_TURN").toBe(false);
+      // A governed turn's tree feeds only its index updates and is never mounted.
+      if (profile === "strict") expect(treeRoot?.startsWith("/") && existsSync(treeRoot), `NATIVE_MANAGER_REMOVED_THE_TREE_AFTER_TURN: ${treeRoot}`).toBe(false);
+      else expect(treeRoot, "NATIVE_GOVERNED_TREE_IS_NOT_MOUNTED").toBeUndefined();
       // The peer's copy is live, permitted text now; the next profile's turn
       // would rightly index it. Restore the note before that turn's checkpoint.
       writeFileSync(join(brain, "notes/provider-peer.md"), document("Odysseus shared raft", "A peer may change this note mid-turn."));
