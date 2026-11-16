@@ -36,6 +36,18 @@ import { accent, color, font, token } from "../tokens.js";
  * just focused rather than on a positional guess into `items`: the DOM walk
  * skips decorative pills, so in a mixed row the two indexes diverge and firing
  * `items[n]` would filter by the wrong pill.
+ *
+ * ## Every interactive pill reaches 44px (#4086)
+ *
+ * Under `any-pointer: coarse` each pill with an `onClick` carries `.bk-hit`,
+ * so its target reaches 44px past its 20.5px paint, and it paints at least
+ * 44px wide, so it never reaches sideways. The strip then clips only
+ * horizontally (`.bk-filter-row`), which lets the vertical reach through.
+ * A fine pointer keeps the paint and the strip as they are. Decorative pills
+ * never reach. The neighbour rule still binds the caller: a reaching control
+ * above or below the row needs a gap of at least the sum of the two vertical
+ * reaches, 11.75px for the pill, so a row that wraps under a neighbour widens
+ * its row gap under a coarse pointer (the design-kit record has the numbers).
  */
 export interface FilterItem {
   label: string;
@@ -65,10 +77,11 @@ export function FilterRow(p: FilterRowProps) {
   const anyInteractive = eligible.includes(true);
   const roving = useRoving(eligible, active);
 
+  // The strip's clipping lives in `.bk-filter-row`, because under a coarse
+  // pointer it clips one axis only, which an inline style cannot express.
   const row: CSSProperties = {
     display: "flex",
     gap: 6,
-    overflow: "hidden",
     boxSizing: "border-box",
     width: "100%",
   };
@@ -92,7 +105,7 @@ export function FilterRow(p: FilterRowProps) {
   }
 
   return (
-    <div style={row} role={anyInteractive ? "tablist" : undefined}>
+    <div style={row} className="bk-filter-row" role={anyInteractive ? "tablist" : undefined}>
       {src.map((item, i) => {
         const on = i === active;
         const act = Boolean(item.onClick);
@@ -101,6 +114,9 @@ export function FilterRow(p: FilterRowProps) {
           borderRadius: 999,
           padding: "4px 10px",
           whiteSpace: "nowrap",
+          // Centred for the coarse-pointer 44px minimum width; a pill at its
+          // natural width has no free space to centre in.
+          textAlign: "center",
           font: `500 10.5px/1 ${mono ? font.mono : font.body}`,
           // A filter pill IS a chip — same shape, same 40% border and 10% tint —
           // so it reads the chip ramp rather than minting a second one.
@@ -125,7 +141,8 @@ export function FilterRow(p: FilterRowProps) {
             // properties, so it takes wave 1's `.bk-control` rather than
             // `.bk-row`. The unpadded strip clips,
             // so its ring is inset rather than extending beyond the pill.
-            className={act ? "bk-control bk-control-inset" : undefined}
+            // `.bk-hit` reaches 44px under a coarse pointer (#4086).
+            className={act ? "bk-control bk-control-inset bk-hit" : undefined}
             role={act ? "tab" : undefined}
             aria-selected={act ? on : undefined}
             tabIndex={act ? roving.tabIndexFor(i) : undefined}
