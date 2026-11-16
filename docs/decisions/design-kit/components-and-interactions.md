@@ -1302,11 +1302,16 @@ Under a fine pointer both are their paint, as #3252 already rules.
   overflow-y: visible`): `clip` leaves the other axis `visible`, where
   `hidden` would turn it into `auto`. Horizontal overflow and paint are
   unchanged. Focus keeps `bk-control-inset`, because the strip still clips at
-  its ends (#1775).
+  its ends (#1775). The strip's clipping is the `.bk-filter-row` class, since
+  an inline style cannot clip one axis under one pointer only.
 - The viewer drops its `[role=tab]` 44px overrides. Under a coarse pointer it
   widens the gap between its wrapped toolbar lines from 12px to 20px
-  (`any-pointer-coarse:gap-y-5`), since the 11.75px pill reach and the
-  7.8px reach of an `sm` Button on the line above total more than 12px.
+  (`any-pointer-coarse:gap-y-5`), so that the 11.75px pill reach and the
+  7.8px reach of an `sm` Button on the line above would still clear each
+  other. As built (#4086), every control that can sit on the line above is a
+  44px box with no reach (the untrusted mark is an `md` `IconButton`), which
+  12px already clears; the wider gap keeps the rule when a reaching control is
+  put there.
 - The dismissal reasons stay raw `aria-pressed` buttons, swap `bk-row
   min-h-11` for `bk-control bk-hit`, and widen their wrapped-row gap to 16px
   under a coarse pointer (`any-pointer-coarse:gap-y-4`, the row gap the
@@ -1319,11 +1324,24 @@ Under a fine pointer both are their paint, as #3252 already rules.
 permit overlap. The 44px floor, the coarse-pointer condition and the neighbour
 rule (gap ≥ the sum of the two facing reaches) still hold, and a caller that
 breaks them is corrected, not exempted. With `FilterRow`'s 6px gap each side's
-horizontal reach must be at most 3px, so **an interactive pill is at least
-38px wide**, or its row widens the gap to meet the same rule. Each caller is
+horizontal reach must be at most 3px, so an interactive pill must be at least
+38px wide, or its row must widen the gap to meet the same rule. Each caller is
 also checked for an ancestor that clips its vertical reach, wrapped or stacked
 neighbours that need a wider coarse-pointer row gap, labels that wrap, and
 focus rings that would be cut. #4086 lists every interactive caller.
+
+**Narrow pills paint 44px wide on touch (maintainer, 2026-11-16, #4086).**
+The audit measured three interactive pills under 44px: the viewer's Raw
+(40px) and the graph Direction row's In (31px) and Out (41px). Their
+sideways reach would be clipped at the strip's ends, where the strip keeps
+clipping, and In and Out would overlap across the 6px gap. So under a coarse
+pointer an interactive pill paints at least 44px wide, label centred
+(`.bk-filter-row > .bk-hit`). No pill then reaches sideways, which meets the
+38px rule above for every caller without a per-caller exception. Height and
+fine-pointer paint are unchanged. Rejected: a 38px minimum under every
+pointer, because an end pill would still fall up to 3px short and the
+fine-pointer paint would change, and per-caller fixes, because each new
+narrow pill would meet the same problem.
 
 **Why default, not opt-in.** The brief proposed an opt-in `reach` prop,
 mirroring `Button`'s, and an audit of the other callers later. That branch is

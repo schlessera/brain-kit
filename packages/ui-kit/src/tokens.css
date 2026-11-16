@@ -1647,6 +1647,20 @@
   }
 }
 
+/* `FilterRow`'s strip (#4086, ruled on #3531). Every interactive pill reaches
+ * by default, so under a coarse pointer the strip clips only horizontally:
+ * `overflow-x: clip` leaves `overflow-y` visible, where `hidden` would turn it
+ * into `auto` and cut the pills' 11.75px vertical reach off. Pills never
+ * overflow vertically, so paint is unchanged. An interactive pill also paints
+ * at least 44px wide there, so no pill reaches sideways: nothing is clipped at
+ * the strip's ends and no reach crosses the 6px gap into a neighbour. A fine
+ * pointer keeps the strip and the pills exactly as they were. */
+.bk-filter-row { overflow: hidden; }
+@media (any-pointer: coarse) {
+  .bk-filter-row { overflow-x: clip; overflow-y: visible; }
+  .bk-filter-row > .bk-hit { min-width: 44px; }
+}
+
 /* ── Rows ─────────────────────────────────────────────────────────────────
  *
  * A full-width row is not a control, and the design separates them at exactly

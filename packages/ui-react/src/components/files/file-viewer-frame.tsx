@@ -43,7 +43,11 @@ interface ViewerToolbarProps {
 
 export function ViewerToolbar(p: ViewerToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-border bg-surface px-4 py-3">
+    // The 20px coarse row gap (#4086, ruled on #3531): a wrapped Preview/Raw
+    // line reaches 11.75px up. Every control on the line above is a 44px box
+    // today, which 12px already clears, so the gap is for a reaching control
+    // put there later (an `sm` Button reaches 7.8px down).
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 any-pointer-coarse:gap-y-5 border-b border-border bg-surface px-4 py-3">
       <IconButton size="md" name="Reveal in tree" glyph={<FolderOpen className="h-3.5 w-3.5" />} onClick={p.onReveal} />
       <div className="min-w-0 flex-1 basis-[140px]">
         {/* The reading pane's title: where a press of Files puts focus while
@@ -73,7 +77,7 @@ export function ViewerToolbar(p: ViewerToolbarProps) {
       )}
       {p.share && <div className="[&_button]:min-h-[44px] [&_button]:min-w-[44px]">{p.share}</div>}
       {p.previewAvailable && (
-        <div className="w-auto shrink-0 [&_[role=tab]]:inline-flex [&_[role=tab]]:min-h-[44px] [&_[role=tab]]:min-w-[44px] [&_[role=tab]]:items-center [&_[role=tab]]:justify-center">
+        <div className="w-auto shrink-0">
           <FilterRow
             items={[
               { label: "Preview", onClick: () => p.onMode("preview") },
