@@ -874,7 +874,7 @@ for (const width of [320, 1280]) {
   });
   test(`activity lens pills reach 44px past their paint at ${width}px`, async () => {
     const { d } = await migrationScene(3, "dark", width);
-    const lens = [...d.host.querySelectorAll<HTMLElement>('[role="tab"]')].find((tab) => /^needs you /.test(tab.textContent ?? ""));
+    const lens = [...d.host.querySelectorAll<HTMLElement>('[role="tab"]')].find((tab) => (tab.textContent ?? "").startsWith("needs you "));
     expect(lens, "the lens row renders").toBeDefined();
     const list = lens!.closest<HTMLElement>('[role="tablist"]')!;
     pillsReach(list, '[role="tab"]', "lens", 20.5);
