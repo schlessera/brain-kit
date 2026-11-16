@@ -166,10 +166,10 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native Claude history.** Live JSONL, per-session subordinate files, titles,
   archive manifests/index/staged or conflict copies can contain readable text.
   History reads can restore archived files before reading the SDK transcript
-  (`createHistory`, `packages/ui-backend-claude/src/history.ts:45-103`;
+  (`createHistory`, `packages/ui-backend-claude/src/history.ts:46-104`;
   `restoreArchivedSession`, `packages/ui-backend-claude/src/transcript-archive.ts:180-213`).
   The live/archive roots are resolved by the backend
-  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:31-40`).
+  (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:32-41`).
   Archive movement and crash recovery must join the same lifecycle fence
   (`archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:267-327`).
   Delete all owned branches/subagents/copies, not just the displayed branch.
@@ -183,7 +183,7 @@ must be tested through their installed runtime, not inferred from directory name
 - **Native-adjacent host files.** Display text mappings and replay receipts include
   tool inputs/outputs (`sessionReplay`, `packages/ui-sdk/src/server/session-replay.ts:24-78`).
   Prompt context retains original user text, the frozen append and delivered facts
-  (`sessionPromptContext`, `packages/ui-sdk/src/server/session-prompt-context.ts:26-87`).
+  (`sessionPromptContext`, `packages/ui-sdk/src/server/session-prompt-context.ts:36-97`).
   These hashed session files are outside the brain and are not fully enumerated
   by the backend's transcript roots. Removal must explicitly include them.
 - **Canonical dialogue and provenance.** `071_session_dialogue.sql` owns

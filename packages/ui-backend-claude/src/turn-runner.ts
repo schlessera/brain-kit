@@ -216,7 +216,9 @@ async function startTurn(runner: TurnRunnerState, req: StartTurnRequest): Promis
 async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Promise<void> {
   const { options } = runner;
   const { req, profile, abortController, input } = claim;
+  let relay: TurnInferenceRelay | undefined;
   const adapter = new StreamAdapter(req.bridge.activity, {
+    hostRefusalReason: () => relay?.refusalReason,
     subscriptionAuth: profile.billing !== "api",
     autonomousUsage: req.autonomous?.containment === "restricted",
     freshRuntimeUsage: req.autonomous?.persistence === "none" && req.sessionId === undefined,
@@ -230,7 +232,6 @@ async function runAdmittedTurn(runner: TurnRunnerState, claim: ClaimedTurn): Pro
   const limits = new WorkerLimitReporter(reportActivity);
   const ackGrace: { timer?: ReturnType<typeof setTimeout> } = {};
   let archiveEnv: Record<string, string | undefined> | undefined;
-  let relay: TurnInferenceRelay | undefined;
   const phase = req.sessionId === undefined ? "start before prompt release" : "resume before prompt release";
   const runtimeRequirements = claudeRuntimeRequirements(options.backend.versionRequirements, phase, profile.model);
 

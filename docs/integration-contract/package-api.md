@@ -119,7 +119,8 @@ that has a turn proxy, and one per credentialed maintenance run where the host
 has managed native storage. A relay sends a key only to that key's built-in
 first-party origin (`GEMINI_API_KEY` to `https://generativelanguage.googleapis.com`,
 `ANTHROPIC_API_KEY` to `https://api.anthropic.com`, `OPENAI_API_KEY` to
-`https://api.openai.com`) or to an exact origin the server's
+`https://api.openai.com`, `TYPESAFE_API_KEY` to `https://api.typesafe.ai`
+since #3792) or to an exact origin the server's
 `BRAIN_UI_CLI_PROVIDER_ORIGINS` (`KEY=origin[,origin];...`) lists for that key.
 A custom endpoint or a custom key variable is refused unless listed. The
 public protocol adds the `TurnBudgetCoverage` type ([wire](wire.md#completed-inference-usage-and-budgets-additive-1669)).
@@ -152,6 +153,36 @@ passes its origin to `startInferenceRelay` as the new internal
 `recipientOrigin` option. The relay then refuses to start toward any other
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
+
+<a id="consumer-frames-without-pong-breaking-3389"></a>
+
+## Consumer frames without `pong` (breaking before 1.0, #3389)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ConsumerServerMessage`, defined as
+`Exclude<ServerMessage, ServerPong>`: the frames `BrainUiClient` hands its
+consumer. `ServerFrameHandlers` is keyed on `ConsumerServerMessage["type"]`
+and its `onAny` takes a `ConsumerServerMessage`. Before, both were keyed on
+`ServerMessage`, so a consumer could register a `pong` handler that the client
+never called, because it answers its own probes and returns first. That
+handler is now a type error; delete it. Code typed against `ServerMessage`
+still accepts every frame the client delivers.
+
+`ServerMessage`, `ServerPong`, `serverPongSchema` and `parseServerMessage` are
+unchanged, as is the [liveness exchange](wire.md#interactive-answer-receipts-breaking-910) on the wire.
+
+In `@schlessera/brain-ui-react`, `root.connection.conversation` gains
+`receive(frame)` for the frames the conversation client owns:
+`dialogue_history`, `tool_resolution`, `conversation_opened`,
+`conversation_closed`, `conversation_event`, `conversation_work`,
+`conversation_output` and `conversation_permission`. The server-frame handler
+map routes them there, and `frame()`, which still sees every inbound frame
+first, now returns them unchanged instead of consuming them. `frame()` takes
+and returns a `ConsumerServerMessage`. `root.connection.handleServerMessage`
+still takes a `ServerMessage` and ignores a `pong` fed to it. The client's
+`permissions` likewise gains `resolution(frame)` for `tool_resolution`, which
+`permissions.frame()` no longer reads. What voice does with each frame is
+unchanged.
 
 <a id="reading-a-chat-deletions-outcome-additive-3455"></a>
 
@@ -521,6 +552,48 @@ the optional new `BackendBridge.apify(call)`; without it the tool refuses as
 approvals; a backend sends the parsed input only. Names, schemas and the
 envelope are documented in [the MCP component](mcp.md#apify-tools-additive-0450-3162).
 Both first-party backends register the tools in every interactive session.
+
+## Host GitHub tools (additive, 0.45.0, #3797)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the four GitHub tool contracts (`GITHUB_TOOL_CONTRACTS`,
+`GITHUB_READ_TOOL_CONTRACTS` and each `GITHUB_ISSUE_*_CONTRACT`), their names
+(`GITHUB_TOOL_NAMES`, `GITHUB_TOOL_NAME_LIST`, `GITHUB_READ_TOOL_NAMES`,
+`isGithubToolName`), the four strict input schemas, the payload schemas
+(`GITHUB_ISSUE_READ_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_SEARCH_PAYLOAD_SCHEMA`,
+`GITHUB_ISSUE_CREATE_PAYLOAD_SCHEMA`, `GITHUB_ISSUE_COMMENT_PAYLOAD_SCHEMA`
+and their parts), `GITHUB_RESULT_SCHEMAS`, `GITHUB_ERROR_CODES`,
+`GITHUB_LIMITS`, the origins `GITHUB_WEB_ORIGIN` and `GITHUB_API_ORIGIN`, the
+name helpers `isGithubRepositoryName` and `parseGithubRepository`, the
+direct-link validators `githubDirectUrl(value, scope, target)`,
+`githubSearchUrl(scope, q)` and `isGithubSearchUrl(value, scope, q)`, and the
+matching types (`GithubToolCall`, `GithubToolResult`, each payload, input and
+part). `@schlessera/brain-ui-sdk/server` adds the experimental backend toolkit
+helper `handleGithubTool(name, input, bridge)`, which validates the strict
+input and forwards `{ tool, input }` to the optional new
+`BackendBridge.github(call)`; without it the tool refuses `unavailable`
+(`no_host`). Shapes are documented in
+[the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
+export changes.
+
+## GitHub detail-page types (additive, 0.45.0, #3796)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) adds
+the item and page types the internal
+[GitHub detail route](../http-api.md#github-detail-pages-internal-0450-3796)
+returns: `GITHUB_DETAIL_PARTS` with `isGithubDetailPart` and the
+`GithubDetailPart` type, `GITHUB_DETAIL_PAGE_SIZE` (30),
+`GITHUB_REVIEW_COMMENT_SCHEMA`, `GITHUB_CHANGED_FILE_SCHEMA` with
+`GITHUB_CHANGED_FILE_STATUSES`, `GITHUB_CHECK_RUN_SCHEMA` with
+`GITHUB_CHECK_CONCLUSIONS`, `GITHUB_DETAIL_PAGE_SCHEMA` (one page per part, in
+the existing comment, review and commit types and the three new ones),
+`GITHUB_DETAIL_ERROR_SCHEMA` (the tools' error plus a nullable `reset_at`) and
+`GITHUB_DETAIL_ERROR_RESPONSE_SCHEMA`, and the matching types
+`GithubReviewComment`, `GithubChangedFile`, `GithubCheckRun`,
+`GithubDetailPage` and `GithubDetailError`. Text GitHub users wrote is marked
+untrusted as in the tool payloads. The route's raw path and payload stay
+internal; these exports are the types a client binds to. No existing export
+changes.
 
 ## Package entry points
 
@@ -4203,6 +4276,35 @@ retain existing owned checkpoint authority and storage caps; they do not
 authorize arbitrary host paths. See the [host boundary](../hosting/agent-workers.md#separate-worker-identity)
 for descriptor transfer, supervision, cleanup and best-effort limits.
 
+### Managed turn data trees (additive, 0.45.0, #2911)
+
+The native manager client gains two operations, and the lease owner wraps
+both:
+
+- `prepareTurnTree(id, allowanceBytes)` returns `NativeTurnTree`
+  (`{ id, path, allowanceBytes }`). `id` is a caller-generated UUID and
+  `allowanceBytes` a positive multiple of 4096. The manager alone chooses the
+  path: `<store>/.brain-native/trees/<id>`, owned by its fixed app UID and
+  group with mode `0710`. It refuses with `capacity` when the live trees'
+  allowances, this one and one emergency reserve's worth of headroom do not
+  fit the volume's free space, or while the emergency reserve is consumed. A
+  retry with the same identity and allowance returns the same tree; a
+  released identity refuses with `released`.
+- `releaseTurnTree(id)` returns `{ id, state: "deleted" }` once the manager has
+  removed the directory and observed a filesystem commit. It refuses with
+  `unavailable`, removing nothing, while any process still mounts the tree. An
+  unrecorded directory refuses with `unknown`. An unknown identity with no
+  directory is recorded as deleted, which fences a later create.
+
+`NativeRecoveryRecord.kind` gains `tree`, and records gain an optional
+`treeRequest` (`{ allowanceBytes }`). Checkpoint operations refuse a tree
+identity with `invalid`, and the tree operations refuse a checkpoint or stage
+identity the same way. The lease owner records a `tree` root lease before each
+request. It releases only its own trees, or a dead owner's during recovery,
+and its lease table migrates in place. No call accepts a host path, UID or
+mode. The rules are in the
+[native storage decision](../decisions/native-brain-storage.md#turn-data-trees-on-the-managed-volume-2911).
+
 ### Reference pool storage (additive, #2428)
 
 The root-owned `brain-native-store` configuration accepts an optional
@@ -4306,6 +4408,60 @@ No call accepts a host path, UID or mount. Worker masks now include the pool's
 `access` directory, and `brain-native-store pool` records carry the new fields.
 The mechanism is recorded in the
 [pool decision](../decisions/reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
+
+<a id="reference-pool-growth-status-additive-0450-3515"></a>
+
+### Reference pool growth status (additive, 0.45.0, #3515)
+
+`brain-native-store pool growth <config>` prints the same envelope as `status`,
+with `action: "growth"` and `growth`, and the same exit codes. The native
+manager client gains `poolGrowth()`, which takes no identity, path or selector
+and returns `NativePoolGrowth`:
+
+- `basis` is `btrfs-space-info-disk-used+simple-quota-owner`. `state` is
+  `available` or `unavailable`. `reason` says why the whole status is
+  unavailable; `generation` is the observation's filesystem generation.
+- `thresholds` are `{ worktreeRatio: 0.25, refreshRatio: 0.75, retainedSources: 2 }`,
+  exported as `REFERENCE_POOL_GROWTH_THRESHOLDS`.
+- `worktrees` (writable or sealed) and `refreshes` (sealed sources with a
+  `from`) are `NativePoolGrowthComparison`s:
+  - `id`, `from`, and `cold`, the cold acquisition at the root of the chain;
+  - `ownerBytes`, null when the accounting has no charge for the root;
+  - `basisBytes`, that acquisition's charge when it was sealed;
+  - `thresholdBytes`, `basisBytes` times the ratio, rounded down;
+  - `state`, and `flagged`, true when `ownerBytes` is strictly above
+    `thresholdBytes`.
+
+  A basis or charge that cannot be read gives `state: "unavailable"` and null
+  bytes, never zero, and is never flagged.
+- `sources` are `NativePoolGrowthSources`, one per published name: `name`,
+  `roots` (`id`, `view`, `ownerBytes`), their summed `ownerBytes`, and
+  `flagged` when more than `retainedSources` views publish the name. A root
+  with no recorded charge has `ownerBytes: null`, and so does the sum: never
+  zero. The count flag still applies.
+- `flags` are `NativePoolGrowthFlag`s: `kind` (`worktree`, `refresh` or
+  `retained-sources`), `subject` (root id or name), `observedBytes` (null only
+  for a retained-sources sum that includes an unknown charge),
+  `thresholdBytes` (null for the count), `threshold`, and `observedCount`
+  (null for a ratio).
+- `omitted` counts comparisons, groups or flags left out to keep one reply
+  within the 64 KiB control bound. Unflagged detail goes first.
+
+The status is read-only. It neither reconciles, deletes, resets nor reserves
+anything, and nothing in it forecasts savings or freed capacity. It is
+unavailable in these cases:
+
+- the pool refuses for any reason other than `capacity`;
+- the owner accounting is unreadable;
+- a view holds a non-link entry;
+- a published name resolves to anything but a recorded sealed source in its
+  own view, such as a path, another view or a stale identity.
+
+The manager records each root's charge when it is sealed, so the basis
+survives the root's release. Roots sealed before this release carry none. A
+released one reads as unavailable, while a live sealed one uses its current,
+unchanging charge. The rationale is in
+[the pool decision](../decisions/reference-pool-accounting.md#background-deduplication-is-rejected-residual-growth-is-reported-3515).
 
 <a id="reference-and-worktree-tools-additive-0440-2432"></a>
 

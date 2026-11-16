@@ -2,8 +2,9 @@ import { createConversationRecovery } from "./conversation-recovery.js";
 import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import { CONVERSATION_LIMITS } from "@schlessera/brain-ui-sdk/protocol";
-import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationPersonaRef, ConversationProfile, LiveDefault, LivePersonaStatus, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ConsumerServerMessage, ServerMessage, ServerConversationOpened, ConversationPersonaRef, ConversationProfile, LiveDefault, LivePersonaStatus, ServerConversationClosed, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord, DialoguePage, DialogueRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
+import type { ConversationFrame } from "../hooks/websocket-handlers/types.js";
 import { openConversationMicrophone, createConversationPlayback } from "./conversation-pcm.js";
 
 export interface ConversationClientOutput extends ConversationOutputRecord {
@@ -701,7 +702,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (root.stores.voice.getState().mode === "conversation") root.stores.voice.getState().setMode("idle");
   }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
-  function frame(message: ServerMessage): ServerMessage | null {
+  /**
+   * Every inbound frame, before the chat routing: rewrites, observations and
+   * the frames voice consumes beside the map. The frames this client owns
+   * outright go through the handler map to {@link receive} instead (#3389).
+   */
+  function frame(message: ConsumerServerMessage): ConsumerServerMessage | null {
     // Preserve only exact fixed admission copy; request identity does not make diagnostics safe.
     if (message.type === "error" && message.code === "SESSION_LOAD_ERROR" && ![
       "The host cannot verify this conversation. No work was started; your draft is kept.",
@@ -716,65 +722,6 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       state.setState({durableAvailable});
     }
     if (message.type === "session_info") loadDialogue(message.sessionId);
-    if (message.type === "dialogue_history") {
-      const read = message.requestId ? dialogueReads.get(message.requestId) : undefined;
-      if (message.requestId && !read) return null;
-      if (message.requestId) dialogueReads.delete(message.requestId);
-      const key = message.sessionId ?? read?.key ?? `dialogue:${message.ownerId}`;
-      // Native reads cannot change target. Owner-addressed reads may return
-      // the host's canonical owner after a merge; the request pins the source.
-      if (read && !read.ownerId && key !== read.key) return null;
-      const previousPage = state.getState().dialogue[key] ?? Object.values(state.getState().dialogue).find(p => p.ownerId === message.ownerId);
-      if (previousPage && previousPage.generation !== message.generation && !read) return null;
-      if(!message.sessionId) root.stores.chat.getState().setHistoryOwner(key,message.ownerId);
-      const selected=root.stores.chat.getState().activeSessionId;
-      if(message.sessionId && selected && historyOwnerFor(selected) && state.getState().dialogue[selected]?.ownerId === message.ownerId){
-        const oldBuffer=root.stores.chat.getState().buffers[selected];
-        if(state.getState().sessionId===selected) state.setState({sessionId:message.sessionId});
-        if(oldBuffer)root.stores.chat.getState().setMessages(message.sessionId,oldBuffer.messages);
-        root.stores.chat.getState().setActiveSession(message.sessionId);
-      }
-
-      if(read?.ownerId && message.sessionId && selected === read.key){
-        root.stores.chat.getState().setActiveSession(message.sessionId);
-        send({type:"session_resume",sessionId:message.sessionId});
-      }
-      if (read?.ownerId && !message.sessionId) {
-        root.stores.chat.getState().setMessages(read.key, []);
-        root.stores.chat.getState().noteHistoryLoaded(read.key);
-        // There is deliberately no backend transcript or synthetic turn.
-      }
-      let refreshCursor=false;
-      state.setState(current => {
-        const old = current.dialogue[key] ?? Object.values(current.dialogue).find(p=>p.ownerId===message.ownerId);
-        if (old && old.generation !== message.generation && !read) return current;
-        const merged = new Map<number, DialogueRecord>();
-        // A new snapshot replaces old pages, retaining a live tail above H.
-        if (old && old.generation === message.generation) for (const r of old.records) if (!read || read.older || r.sequence > message.through) merged.set(r.sequence, r);
-        for (const r of message.records) merged.set(r.sequence, r);
-        let records = [...merged.values()].sort((a,b) => a.sequence-b.sequence);
-        const overflow = records.length > 2000;
-        if(overflow && !read) refreshCursor=true;
-        if (overflow) records = read?.older ? records.slice(0,2000) : records.slice(-2000);
-        const page = {...message, through: Math.max(old?.generation === message.generation ? old.through : 0,message.through), records,
-          before: read ? message.before : old?.before, cursor:read ? message.cursor : old?.cursor,
-          ...(overflow && !read?.older ? {before:message.before ?? old?.before} : {})};
-        const entries = Object.entries({...current.dialogue,[key]:page}).filter(([k,p])=>k===key || (k!==read?.key && p.ownerId!==message.ownerId)).slice(-8);
-        return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: unsavedOverflow ? current.dialogueNotice : message.coverage === "partial" ? "Voice history may be incomplete." : ""};
-      });
-      const retained = state.getState().dialogue[key];
-      if (message.sessionId && retained?.ownerId === message.ownerId && retained.generation === message.generation) {
-        // Exact correlated owner reads authorize O -> canonical C/session S.
-        // Native reads and unsolicited current-generation updates authorize
-        // only aliases already known to have the returned owner.
-        const sourceOwner = read?.ownerId ?? message.ownerId;
-        for (const from of new Set(unassignedWorkOwners.map(owner => owner.sessionId))) {
-          if (from && (read?.ownerId && from === read.key || historyOwnerFor(from) === sourceOwner)) moveUnassignedWork(from, message.sessionId);
-        }
-      }
-      if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
-      return null;
-    }
     if (message.type === "error" && message.requestId && dialogueReads.has(message.requestId)
       && (message.code === "SESSION_NOT_FOUND" || message.code === "SESSION_LOAD_ERROR")) {
       const read = dialogueReads.get(message.requestId)!;
@@ -878,30 +825,90 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (message.type === "live_persona") {
       // Takes effect at the next new conversation's Start, never mid-conversation.
       state.setState({ livePersona: message.livePersona });
-      return message;
     }
-    if (!message.type.startsWith("conversation_")) return message;
+    return message;
+  }
+  function dialogueHistory(message: Extract<ConversationFrame, { type: "dialogue_history" }>) {
+    const read = message.requestId ? dialogueReads.get(message.requestId) : undefined;
+    if (message.requestId && !read) return;
+    if (message.requestId) dialogueReads.delete(message.requestId);
+    const key = message.sessionId ?? read?.key ?? `dialogue:${message.ownerId}`;
+    // Native reads cannot change target. Owner-addressed reads may return
+    // the host's canonical owner after a merge; the request pins the source.
+    if (read && !read.ownerId && key !== read.key) return;
+    const previousPage = state.getState().dialogue[key] ?? Object.values(state.getState().dialogue).find(p => p.ownerId === message.ownerId);
+    if (previousPage && previousPage.generation !== message.generation && !read) return;
+    if(!message.sessionId) root.stores.chat.getState().setHistoryOwner(key,message.ownerId);
+    const selected=root.stores.chat.getState().activeSessionId;
+    if(message.sessionId && selected && historyOwnerFor(selected) && state.getState().dialogue[selected]?.ownerId === message.ownerId){
+      const oldBuffer=root.stores.chat.getState().buffers[selected];
+      if(state.getState().sessionId===selected) state.setState({sessionId:message.sessionId});
+      if(oldBuffer)root.stores.chat.getState().setMessages(message.sessionId,oldBuffer.messages);
+      root.stores.chat.getState().setActiveSession(message.sessionId);
+    }
+
+    if(read?.ownerId && message.sessionId && selected === read.key){
+      root.stores.chat.getState().setActiveSession(message.sessionId);
+      send({type:"session_resume",sessionId:message.sessionId});
+    }
+    if (read?.ownerId && !message.sessionId) {
+      root.stores.chat.getState().setMessages(read.key, []);
+      root.stores.chat.getState().noteHistoryLoaded(read.key);
+      // There is deliberately no backend transcript or synthetic turn.
+    }
+    let refreshCursor=false;
+    state.setState(current => {
+      const old = current.dialogue[key] ?? Object.values(current.dialogue).find(p=>p.ownerId===message.ownerId);
+      if (old && old.generation !== message.generation && !read) return current;
+      const merged = new Map<number, DialogueRecord>();
+      // A new snapshot replaces old pages, retaining a live tail above H.
+      if (old && old.generation === message.generation) for (const r of old.records) if (!read || read.older || r.sequence > message.through) merged.set(r.sequence, r);
+      for (const r of message.records) merged.set(r.sequence, r);
+      let records = [...merged.values()].sort((a,b) => a.sequence-b.sequence);
+      const overflow = records.length > 2000;
+      if(overflow && !read) refreshCursor=true;
+      if (overflow) records = read?.older ? records.slice(0,2000) : records.slice(-2000);
+      const page = {...message, through: Math.max(old?.generation === message.generation ? old.through : 0,message.through), records,
+        before: read ? message.before : old?.before, cursor:read ? message.cursor : old?.cursor,
+        ...(overflow && !read?.older ? {before:message.before ?? old?.before} : {})};
+      const entries = Object.entries({...current.dialogue,[key]:page}).filter(([k,p])=>k===key || (k!==read?.key && p.ownerId!==message.ownerId)).slice(-8);
+      return {dialogue: Object.fromEntries(entries), dialogueRestoredThrough: Object.fromEntries(entries.map(([k])=>[k,k===key && read ? message.through : current.dialogueRestoredThrough[k] ?? -1])), dialogueNotice: unsavedOverflow ? current.dialogueNotice : message.coverage === "partial" ? "Voice history may be incomplete." : ""};
+    });
+    const retained = state.getState().dialogue[key];
+    if (message.sessionId && retained?.ownerId === message.ownerId && retained.generation === message.generation) {
+      // Exact correlated owner reads authorize O -> canonical C/session S.
+      // Native reads and unsolicited current-generation updates authorize
+      // only aliases already known to have the returned owner.
+      const sourceOwner = read?.ownerId ?? message.ownerId;
+      for (const from of new Set(unassignedWorkOwners.map(owner => owner.sessionId))) {
+        if (from && (read?.ownerId && from === read.key || historyOwnerFor(from) === sourceOwner)) moveUnassignedWork(from, message.sessionId);
+      }
+    }
+    if(refreshCursor) queueMicrotask(()=>loadDialogue(key));
+  }
+  /** The live conversation's own frames, routed here by the handler map (#3389). */
+  function conversation(message: Exclude<ConversationFrame, { type: "dialogue_history" | "tool_resolution" }>) {
     const s = state.getState();
     if ((message.type === "conversation_opened" || message.type === "conversation_closed") && openingId && message.requestId === openingId) {
       // A duplicate/foreign response cannot consume the valid pending request.
       if (s.active && openingEntry === entryLifetime && s.profile
-        && (message.conversationId !== s.profile.conversationId || message.epoch <= s.profile.epoch)) return null;
+        && (message.conversationId !== s.profile.conversationId || message.epoch <= s.profile.epoch)) return;
       openingId = undefined;
       if (!s.active || openingEntry !== entryLifetime) {
         requested = false;
         send({ type: "conversation_stop", conversationId: message.conversationId });
         if (s.active) queueMicrotask(startEpoch);
-        return null;
+        return;
       }
-      if (message.type === "conversation_closed") { closedNotice = closeDiagnostic(message.reason,message); send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return null; }
-    } else if (message.type === "conversation_opened") return null;
+      if (message.type === "conversation_closed") { closedNotice = closeDiagnostic(message.reason,message); send({ type: "conversation_stop", conversationId: message.conversationId }); pause(true, true, false); return; }
+    } else if (message.type === "conversation_opened") return;
     if (message.type === "conversation_work") {
       const p = scope();
       const request = requests.get(message.requestId);
       const ownRequest = request?.conversationId === message.conversationId && request.epoch === message.epoch;
-      if (p?.conversationId !== message.conversationId && !ownRequest && !contextualWork.has(message.requestId)) return null;
+      if (p?.conversationId !== message.conversationId && !ownRequest && !contextualWork.has(message.requestId)) return;
       const contextual = retainContextualWork(message);
-      if (contextual === false) return null;
+      if (contextual === false) return;
       if (contextual && message.turnId && message.sessionId) moveUnassignedWork(contextual.noticeOwner, message.sessionId, message.conversationId, contextual.draftOrigin);
       const neverStarted = message.state === "refused" || (!message.turnId && (message.state === "cancelled" || message.state === "error"));
       if (ownRequest && neverStarted && request.composerDraftId && !restoredRequests.has(message.requestId)) {
@@ -919,40 +926,40 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         if (resync > 0) resync--;
         refresh(); if (consent) void capture();
       }
-      return null;
+      return;
     }
-    if (!s.active) return null;
+    if (!s.active) return;
     if (message.type === "conversation_opened") {
-      if (!requested || (s.profile && (s.profile.conversationId !== message.conversationId || message.epoch <= s.profile.epoch))) return null;
+      if (!requested || (s.profile && (s.profile.conversationId !== message.conversationId || message.epoch <= s.profile.epoch))) return;
       clearClosedNotice();
       generation++; state.setState({ token: generation }); stopMic(); resetRecovery(); playback.dispose(); playback = makePlayback(); fragments.clear(); unassignedThrough = -1; seenRecognition.clear(); retiredInputs.clear(); capturedInputs.clear(); manualReview.clear(); incompleteReview.clear(); lastInput = undefined;
       state.setState({ profile: message, connection: "Connected", text: "", interaction: "Listening", disclosureOpen: agreedEntry !== entryLifetime || agreedDisclosure !== disclosureKey(message, message.agentProviderId ?? entryProfileId) });
       if (agreedEntry !== entryLifetime || agreedDisclosure !== disclosureKey(message, message.agentProviderId ?? entryProfileId)) setConsent(false);
       resync = message.resync.work + message.resync.outputs;
       ready = false; if (consent) void capture();
-      return null;
+      return;
     }
     const p = scope();
-    if (!p || !("conversationId" in message) || message.conversationId !== p.conversationId) return null;
-    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message, true); if (resync > 0) resync--; refresh(); if (consent) void capture(); return null; }
-    if (!("epoch" in message) || message.epoch !== p.epoch) return null;
+    if (!p || !("conversationId" in message) || message.conversationId !== p.conversationId) return;
+    if (message.type === "conversation_output") { updateOutput(message.epoch, message.outputId, message, true); if (resync > 0) resync--; refresh(); if (consent) void capture(); return; }
+    if (!("epoch" in message) || message.epoch !== p.epoch) return;
     if (message.type === "conversation_closed") {
       // An old epoch can close after explicit Resume has already requested
       // its replacement. The opening's own closed response is handled above;
       // this receipt must not retire the replacement request or its consent.
-      if (openingId && requested) return null;
+      if (openingId && requested) return;
       requested = false;
       if (message.reason === "stopped") {
         suspend(); startEpoch();
       } else if (message.reason === "disconnected" || message.reason === "provider_closed") {
         closedNotice = closeDiagnostic(message.reason,message); suspend(); startEpoch();
       } else { closedNotice = closeDiagnostic(message.reason,message); pause(true); }
-      return null;
+      return;
     }
-    if (message.type !== "conversation_event") return null;
+    if (message.type !== "conversation_event") return;
     const event = message.event;
-    if (event.kind === "ready") { inputFormat = event.input; ready = true; refresh(); if (consent) void capture(); return null; }
-    if (!ready) return null;
+    if (event.kind === "ready") { inputFormat = event.input; ready = true; refresh(); if (consent) void capture(); return; }
+    if (!ready) return;
     if (message.retention === "unsaved") {
       stopForStorageFailure();
       if (event.kind === "unassigned_input_fragment") retainRecognition(event,true);
@@ -962,17 +969,17 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         updateOutput(p.epoch,event.outputId,{unsavedGenerated:(old?.unsavedGenerated ?? "")+event.text,unsavedFragments:(old?.unsavedFragments ?? 0)+1});
       }
       // Historical failure evidence never enters review, permissions, tasks or playback.
-      return null;
+      return;
     }
-    if (storageFailedScope === liveScopeKey()) return null;
+    if (storageFailedScope === liveScopeKey()) return;
     if (event.kind === "unassigned_input_fragment") {
-      if (!retainRecognition(event)) return null;
+      if (!retainRecognition(event)) return;
       const retained = state.getState().unassigned;
-      if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && !f.utteranceId && f.sequence === event.sequence)) return null;
+      if (retained.some(f => f.conversationId === p.conversationId && f.epoch === p.epoch && !f.utteranceId && f.sequence === event.sequence)) return;
       // Review context is separate from exact archived recognition. Never merge
       // approximate session intervals into captured utterances.
       const fragment = { sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: p.capabilities.contextualTasks === "supported", ...event };
-      if (fragment.taskContext) { retainContext(fragment); return null; }
+      if (fragment.taskContext) { retainContext(fragment); return; }
       // Earlier contextual discussion has its own bound and is never review text.
       const unassigned = [...retained.filter(f => !f.taskContext), fragment];
       let reviewChars=unassigned.reduce((n,f)=>n+f.text.length,0), trimmed=false;
@@ -980,7 +987,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         reviewChars-=unassigned.shift()!.text.length; trimmed=true;
       }
       state.setState({unassigned:[...retained.filter(f => f.taskContext),...unassigned],...(trimmed ? {notice:REVIEW_TRIMMED_NOTICE} : {})});
-      return null;
+      return;
     }
     if (event.kind === "unassigned_delegation") {
       const ownerDraft = s.sessionId === null ? draftOrigin : null;
@@ -988,23 +995,23 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (owner) owner.count++;
       else unassignedWorkOwners.push({ conversationId: p.conversationId, sessionId: s.sessionId, draftOrigin: ownerDraft, count: 1 });
       while (unassignedWorkOwners.length > CONVERSATION_LIMITS.maxFragmentsPerUtterance) unassignedWorkOwners.shift();
-      refreshUnassignedWork(); return null;
+      refreshUnassignedWork(); return;
     }
     if (event.kind === "input_fragment") {
-      if (!capturedInputs.has(event.utteranceId) || retiredInputs.has(event.utteranceId)) return null;
+      if (!capturedInputs.has(event.utteranceId) || retiredInputs.has(event.utteranceId)) return;
       // Display deduplication must not intercept the existing permission or
       // manual-review path, including its attribution/finality validation.
       const newRecognition = retainRecognition(event);
       if (permissions.input(event)) {
         retiredInputs.add(event.utteranceId); fragments.delete(event.utteranceId); lastInput = undefined;
         state.setState({ text: [...fragments.values()].flatMap(items => [...items.values()].map(f => f.text)).join(" ").trim() });
-        saveDraft(); refresh(); return null;
+        saveDraft(); refresh(); return;
       }
       if (p.capabilities.contextualTasks === "supported") {
-        if (!newRecognition) return null;
+        if (!newRecognition) return;
         // Bounded ephemeral context, never a manual-review draft or grant.
         retainContext({ sessionId: s.sessionId, conversationId: p.conversationId, epoch: p.epoch, taskContext: true, utteranceId: event.utteranceId, sequence: event.sequence, text: event.text, timing: { kind: "unavailable" }, finalization: event.finalization === "final" ? "final" : "unknown" });
-        return null;
+        return;
       }
       const items = fragments.get(event.utteranceId) ?? new Map();
       if (event.certainty !== "known" || event.origin !== "user" || (event.confidence ?? 0) < 0.9) manualReview.add(event.utteranceId);
@@ -1022,7 +1029,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       if (reviewIsIncomplete()) {
         removeSavedDraft(); clearTimeout(hold); hold=undefined;
         state.setState({notice:REVIEW_BOUNDED_NOTICE});
-        refresh(); return null;
+        refresh(); return;
       }
       saveDraft();
       maybeHold(generation); refresh();
@@ -1032,18 +1039,26 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     } else if (event.kind === "audio") {
       try {
         const pcm = Uint8Array.from(atob(event.pcm), c => c.charCodeAt(0));
-        if (state.getState().disclosureOpen || typeof document !== "undefined" && document.hidden) { updateOutput(p.epoch, event.outputId, { playback: "unknown" }); return null; }
+        if (state.getState().disclosureOpen || typeof document !== "undefined" && document.hidden) { updateOutput(p.epoch, event.outputId, { playback: "unknown" }); return; }
         if (recovery.phase !== "audible") {
           recovery.observe(pcm, performance.now());
           updateOutput(p.epoch, event.outputId, { playback: "unknown" });
           // Poll before the next event; never enqueue a suppressed chunk.
-          return null;
+          return;
         }
         playback.enqueue(event.outputId, pcm, event.format);
       }
       catch { pause(true); }
     } else if (event.kind === "interrupted") { suppressOutput(!!mic && !ended && !!utterance); refresh(); }
-    return null;
+  }
+  /**
+   * The frames this client owns, from their handler-map entries (#3389). The
+   * map is their only router: `frame` passes them through unchanged.
+   */
+  function receive(message: ConversationFrame) {
+    if (message.type === "dialogue_history") dialogueHistory(message);
+    else if (message.type === "tool_resolution") permissions.resolution(message);
+    else conversation(message);
   }
   const unwatchChat = root.stores.chat.subscribe((next, previous) => {
     if (state.getState().active) {
@@ -1088,7 +1103,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const unwatchAuth = root.authLock.registerStop(async () => { leave(); clearPrivateDialogue(); });
   return {
     loadDialogue, historyOwnerFor,
-    state, frame, permissions,
+    state, frame, receive, permissions,
     attachControls() {
       controlOwners++;
       let attached = true;

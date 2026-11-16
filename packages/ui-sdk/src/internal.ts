@@ -44,7 +44,7 @@ export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME, WORKER_PROVIDER_RELAY_D
 export { CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorker, launchMaintenanceWorkerAsync, maintenanceLaunch, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult } from "./server/maintenance-worker.js";
 export { MaintenanceTempBusyError, reserveMaintenanceTemp, type MaintenanceTempKind } from "./server/maintenance-temp-budget.js";
-export { prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput, isManagedWorkerStartupView, assertManagedTurnStartupView, UNMANAGED_TURN_STORAGE, hasManagedNativeStorage } from "./server/worker-startup-view.js";
+export { prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput, isManagedWorkerStartupView, nativeTurnTreeManager, assertManagedTurnStartupView, UNMANAGED_TURN_STORAGE, hasManagedNativeStorage } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
 export function maintenanceGitEntry(): string { return Bun.resolveSync("./server/maintenance-git-entry", import.meta.dir); }
 export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";
@@ -75,12 +75,12 @@ export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutput
 
 export { createNativeBrainManagerClient } from "./server/native-brain-manager-client.js";
 export { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, NativeBrainManagerError } from "./server/native-brain-manager-protocol.js";
-export type { NativePoolRecord, NativePoolStatus, NativePoolState, NativePoolCheckpoint, NativePoolAccess, NativePoolCreatePurpose } from "./server/native-brain-manager-protocol.js";
+export type { NativePoolRecord, NativePoolStatus, NativePoolState, NativePoolCheckpoint, NativePoolAccess, NativePoolCreatePurpose, NativeTurnTree } from "./server/native-brain-manager-protocol.js";
 // Runtime-neutral: the pool module reaches `bun:sqlite`, which this entry's Node build must never load.
 export { REFERENCE_POOL_CHECKPOINT_BYTES } from "./server/native-brain-manager-protocol.js";
 
 export { RTK_WORKER_ENV } from "./server/rtk.js";
-export { sessionPromptContext } from "./server/session-prompt-context.js";
+export { sessionPromptContext, stripHostContextFromTitle } from "./server/session-prompt-context.js";
 export type { SessionPromptFacts } from "./server/session-prompt-context.js";
 
 export { describeClient } from "./server/system-prompt.js";
