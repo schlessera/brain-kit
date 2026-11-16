@@ -197,6 +197,9 @@ The report distinguishes three quantities:
   Initial queue is separately request-to-first-observed-job for first attempts.
   A rerun's original `created_at` is not its request time. Dependent-job queue
   eligibility, reservations, human review and ready-to-merge time are unknown.
+- **Runner-slot wait:** job creation to observed execution start, with explicit
+  unknown counts and a known-job denominator for waits over five minutes. See
+  [cohorts and schema versions](ci-throughput.md#runner-slot-wait).
 - **Check duration:** mean, median, nearest-rank p90 and sample count per
   event/category, named step and successful resource-command phase. Job/step
   samples include observed failed and cancelled execution. Means across
