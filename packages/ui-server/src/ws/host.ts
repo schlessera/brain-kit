@@ -106,6 +106,8 @@ export interface WsHostOptions {
   apify?: import("../apify/host.js").ApifyHost;
   /** @internal The host-owned web tools (#3685): Pi's governed and strict interactive turns forward their calls here. */
   webTools?: import("../web-tools/broker.js").WebBroker;
+  /** @internal The host GitHub tools (#3797): interactive turns of both backends call them through the bridge. */
+  githubTools?: import("../github/host.js").GithubToolsHost;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -296,6 +298,8 @@ export class WsHost {
   readonly apify?: import("../apify/host.js").ApifyHost;
   /** @internal The host-owned web tools (#3685). */
   readonly webTools?: import("../web-tools/broker.js").WebBroker;
+  /** @internal The host GitHub tools (#3797). */
+  readonly githubTools?: import("../github/host.js").GithubToolsHost;
   /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -412,6 +416,7 @@ export class WsHost {
     this.computeTools = options.computeTools;
     this.apify = options.apify;
     this.webTools = options.webTools;
+    this.githubTools = options.githubTools;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;
