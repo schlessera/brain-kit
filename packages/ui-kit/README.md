@@ -75,6 +75,31 @@ search list. Pass `score=""` when retrieval supplies no score; it is a retrieval
 metric rather than a calibrated probability. Opening remains the caller's
 `onClick`, and long snippet tokens wrap within the card.
 
+## GitHub objects
+
+The `GitHub*` components draw what the GitHub tools return (#3800, design on
+#3795). They take props and callbacks only: no client, no fetch, no stores,
+and they never build a URL. Map the tool payload onto them in the consumer.
+
+- **Direct links.** `htmlUrl` (and `searchUrl` on `GitHubResultList`) renders
+  a `GitHub ↗` link only when it is `https:` on host `github.com`, with no
+  userinfo or port. It opens in a new tab with no opener and no referrer.
+  Validate the URL's shape before passing it; the kit only refuses to render
+  anything else.
+- **Avatars.** `avatarSrc` loads only from the page's own origin (the brain's
+  avatar proxy). Any other URL keeps the initials and makes no request.
+- **Absent is never passing.** `checks: null` reads "— None reported" and a
+  `null` review state reads "— Not reported"; neither is teal or ✓.
+- **On-demand parts.** `GitHubDetailSection` draws the states S0 to S7 from
+  its `state` prop and calls `onLoad`, `onLoadMore` and `onRetry`; the
+  consumer owns the request.
+
+`UntrustedText` renders text written outside Brain as a safe markdown subset.
+HTML and images stay text and never load. An `https:` link is a button that
+opens a full-address interstitial naming its registrable domain, and only
+the interstitial's Open action navigates. Every other link is text with the
+reason it won't open.
+
 ## Custom answers
 
 `AskUserCard` keeps Submit and Dismiss visible when `otherOpen` shows the
