@@ -372,7 +372,6 @@ export async function stageShareAt(
   // whatever links lie on the way itself, as they are when it is asked.
   const check = (name: string) => guard?.(`${SHARE_STAGING_DIR}/${name}`);
   const run = <T>(effect: "stage" | "compensate", change: () => T): T | Promise<T> => gate ? gate(effect, change) : change();
-  check(partialDir);
   // Every staging change goes through descriptors opened without following
   // links (#2907): a linked staging directory refuses, as cleanup and the
   // prune refuse it, and a link swapped in later cannot redirect a change.
@@ -380,6 +379,7 @@ export async function stageShareAt(
   let partial: StagingDirectory;
   try {
     partial = await run("stage", () => {
+      // Judged before the staging root is opened, and again after any wait.
       check(partialDir);
       root ??= openStagingRoot(brainPath, true)!;
       root.verify(); return makeDirectory(root.dir, partialName);
