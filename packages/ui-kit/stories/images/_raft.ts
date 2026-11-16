@@ -30,3 +30,4 @@ export const RAFT_MARKS: Mark[] = [
   { id: "s5", kind: "text", color: "red", at: { x: 1900, y: 1750 }, text: "make the sail red" },
   { id: "s6", kind: "text", color: "yellow", at: { x: 1700, y: 3500 }, text: "move the raft here" },
 ];
+

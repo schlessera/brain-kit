@@ -6,6 +6,7 @@ import { MarkupEditor, type MarkupEditorProps } from "../../src/images/MarkupEdi
 import { atWidth } from "../_viewports.js";
 import { consumerViewport } from "../conversation/_consumer-parity.js";
 import { RAFT_MARKS, RAFT_PATH, RAFT_SIZE, RAFT_SRC } from "./_raft.js";
+import { countMarks, markupNotes, type Mark, type MarkupExport, type MarkupSize } from "../../src/images/markup.js";
 
 type SceneProps = Omit<MarkupEditorProps, "open" | "onDismiss"> & { width: number; onDismiss: () => void };
 
@@ -46,6 +47,23 @@ const at = (width: 320 | 390 | 1280, args: Partial<Omit<SceneProps, "onSubmit" |
   const base = atWidth(width);
   return { ...base, args: { ...base.args, ...args } };
 };
+
+/**
+ * A deterministic stand-in for the PNG encoder. The story projects run
+ * Chromium without `NoIdleEncodingForWebTests`, so a real `toBlob` waits for
+ * idle time that a loaded hosted runner may not give it (#4098). Real
+ * encoding, its pixels and the exact byte boundary are proven in
+ * `tests/visual/markup-editor.visual.tsx`, whose project sets that flag; the
+ * stories prove the editor's flow around whatever the encoder measures.
+ */
+const encodedAs = (bytes: number) => async (marks: readonly Mark[], size: MarkupSize): Promise<MarkupExport> => ({
+  png: new Blob([new Uint8Array(bytes)], { type: "image/png" }),
+  bytes,
+  width: size.width,
+  height: size.height,
+  counts: countMarks(marks),
+  notes: markupNotes(marks),
+});
 
 const dialog = () => within(document.body).findByRole("dialog", { name: "Mark up the image" });
 
@@ -129,12 +147,12 @@ export const DiscardConfirmation = meta.story({
 });
 
 export const OverTheCap = meta.story({
-  ...at(320, { initialMarks: RAFT_MARKS, maxBytes: 1024 }),
+  ...at(320, { initialMarks: RAFT_MARKS, maxBytes: 1024, exportLayer: encodedAs(2048) }),
   play: async ({ args }) => {
     const editor = await dialog();
     await userEvent.click(within(editor).getByRole("button", { name: "Send markup" }));
     const alert = await within(editor).findByRole("alert");
-    await expect(alert.textContent).toMatch(/^This markup is \d+ KB; the limit is 1 KB\. Remove some freehand marks\.$/);
+    await expect(alert.textContent).toBe("This markup is 2 KB; the limit is 1 KB. Remove some freehand marks.");
     await expect(args.onSubmit).not.toHaveBeenCalled();
     // The editor stays open with the drawing intact.
     await expect(within(editor).getByRole("img", { name: /^6 marks/ })).toBeTruthy();
@@ -142,7 +160,7 @@ export const OverTheCap = meta.story({
 });
 
 export const Submitted = meta.story({
-  ...at(390, { initialMarks: RAFT_MARKS }),
+  ...at(390, { initialMarks: RAFT_MARKS, exportLayer: encodedAs(212 * 1024) }),
   play: async ({ args }) => {
     const editor = await dialog();
     await userEvent.click(within(editor).getByRole("button", { name: "Send markup" }));
@@ -151,6 +169,6 @@ export const Submitted = meta.story({
     await expect([layer.width, layer.height]).toEqual([3024, 4032]);
     await expect(layer.counts).toEqual({ pen: 1, arrow: 2, ellipse: 1, text: 2 });
     await expect(layer.notes).toEqual(["make the sail red", "move the raft here"]);
-    await expect(layer.bytes).toBe(layer.png.size);
+    await expect(layer.bytes).toBe(212 * 1024);
   },
 });
