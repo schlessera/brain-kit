@@ -73,7 +73,7 @@ test("the reader binds the worker's ready frame and refuses a protocol that clos
   const reading = readPiWorkerProtocol({ child, state, ready, done: Promise.withResolvers<void>(), sessionId: SESSION, backend: { brainPath: brain },
     startupStarted: 0, promptContext: undefined, sessionBudgetLimits: undefined, autonomous: false, resumed: false, turnContext: createTurnContext(),
     nativeVersions: {} as NativeFileVersions, receipts: receipts(), resumedIds: new Set(), listeners: new Set(),
-    proof: { started: () => {}, ended: () => undefined }, toolExecution: undefined, dispatch: async () => undefined, send: () => {},
+    proof: { loaded: () => {}, started: () => {}, ended: () => undefined }, toolExecution: undefined, dispatch: async () => undefined, send: () => {},
     fail: () => {}, reportLimitHits: () => {}, limitEnded: async () => undefined, diagnostic: () => "" });
   sendPipe(stdout, { type: "ready", sessionId: SESSION, levels: ["low", "high"], cost: 0.25 });
   stdout.end();
@@ -87,7 +87,7 @@ test("startup collector loss crosses the real pipe reader without an active-turn
  const state:PiWorkerTurnState={active:false,initialized:false,ended:false,error:undefined,cost:0,thinkingLevel:undefined,levels:[],model:undefined,ownedPrompt:undefined};
  const reading=readPiWorkerProtocol({child,state,ready:Promise.withResolvers<void>(),done:Promise.withResolvers<void>(),sessionId:SESSION,backend:{brainPath:brain},
   startupStarted:0,promptContext:undefined,sessionBudgetLimits:undefined,autonomous:false,resumed:false,turnContext:createTurnContext(),
-  nativeVersions:{} as NativeFileVersions,receipts:receipts(),resumedIds:new Set(),listeners:new Set(),proof:{started(){},ended(){return undefined;}},
+  nativeVersions:{} as NativeFileVersions,receipts:receipts(),resumedIds:new Set(),listeners:new Set(),proof:{loaded(){},started(){},ended(){return undefined;}},
   toolExecution:undefined,dispatch:async()=>{rpcs++;throw new Error("No active turn");},send(){answers++;},fail(){},reportLimitHits(){},limitEnded:async()=>undefined,diagnostic:()=>""});
  sendPipe(stdout,{type:"error",errorClass:"input_safety_unavailable",message:"Unqualified voyage extension"});stdout.end();
  const refusal=await reading.then(()=>undefined,error=>error);

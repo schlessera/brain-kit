@@ -154,6 +154,36 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+<a id="consumer-frames-without-pong-breaking-3389"></a>
+
+## Consumer frames without `pong` (breaking before 1.0, #3389)
+
+`@schlessera/brain-ui-sdk/protocol` (and the root and `./client` entries that
+re-export it) exports `ConsumerServerMessage`, defined as
+`Exclude<ServerMessage, ServerPong>`: the frames `BrainUiClient` hands its
+consumer. `ServerFrameHandlers` is keyed on `ConsumerServerMessage["type"]`
+and its `onAny` takes a `ConsumerServerMessage`. Before, both were keyed on
+`ServerMessage`, so a consumer could register a `pong` handler that the client
+never called, because it answers its own probes and returns first. That
+handler is now a type error; delete it. Code typed against `ServerMessage`
+still accepts every frame the client delivers.
+
+`ServerMessage`, `ServerPong`, `serverPongSchema` and `parseServerMessage` are
+unchanged, as is the [liveness exchange](wire.md#interactive-answer-receipts-breaking-910) on the wire.
+
+In `@schlessera/brain-ui-react`, `root.connection.conversation` gains
+`receive(frame)` for the frames the conversation client owns:
+`dialogue_history`, `tool_resolution`, `conversation_opened`,
+`conversation_closed`, `conversation_event`, `conversation_work`,
+`conversation_output` and `conversation_permission`. The server-frame handler
+map routes them there, and `frame()`, which still sees every inbound frame
+first, now returns them unchanged instead of consuming them. `frame()` takes
+and returns a `ConsumerServerMessage`. `root.connection.handleServerMessage`
+still takes a `ServerMessage` and ignores a `pong` fed to it. The client's
+`permissions` likewise gains `resolution(frame)` for `tool_resolution`, which
+`permissions.frame()` no longer reads. What voice does with each frame is
+unchanged.
+
 <a id="reading-a-chat-deletions-outcome-additive-3455"></a>
 
 ## Reading a chat deletion's outcome (additive, #3455)
@@ -367,6 +397,50 @@ exactly that model into a web executor's egress route (`WebModelEgress`:
 (`{ provider, model, credential: "api_key" | "oauth", basePath, socket }`) is
 everything the executor is told, and never holds a credential. A backend that
 does not set `model` behaves as before.
+
+## UI-kit image editors and markup (additive, 0.45.0, #3983)
+
+`@schlessera/brain-ui-kit` exports the shared image-editor shell and the
+markup editor's parts. `request_image_markup` integration (#3975) consumes
+them; no tool, wire or mask contract changes here.
+
+- `ImageEditorFrame`: the fullscreen dark editor shell. Props `open`, `title`,
+  optional `subtitle` (plain text), `subtitlePrefix` and `subtitleMode`
+  (`"truncate"`, one line, or `"expand"`, two lines that expand with
+  `aria-expanded`), `closeLabel`, `onClose(reason)`, `error`, `toolbar`,
+  `children` (the stage), `initialFocus`, `stageRef`, `stagePadding` and
+  `data-*`. The mask editor in `@schlessera/brain-ui-react` now renders inside
+  it with unchanged visible behaviour.
+- `MarkupEditor`: the composed editor. Props `open`, `src`, `imagePath`,
+  optional `instruction`, `size` (the source's displayed `{ width, height }`
+  after EXIF orientation, which the layer is exported at), `maxBytes`
+  (default `MARKUP_MAX_BYTES`, 52,428,800), `onSubmit(layer)`, `onDismiss()`,
+  and `initialMarks`, `initialView`, `initialTool`, `exportLayer` and `layout`
+  for stories and tests. "Send markup" needs a committed mark; dismissal with
+  marks asks first; an encoded layer over `maxBytes` keeps the editor open
+  with `overCapMessage`. `MARKUP_EDITOR_TITLE` and `MARKUP_CLOSED` ("The user
+  closed the markup editor") are the strings the integration matches.
+- Parts: `MarkupCanvas` (controlled marks, own zoom/pan, `onCommit`,
+  `onNoteRequest`, `noteField`, `focusTarget`), `MarkupToolbar` (with
+  `MARKUP_TOOLS` and `MARKUP_EMPTY_HINT`), `MarkupNoteField`,
+  `MarkupResultCard` (`imagePath`, `markupPath`, `width`, `height`, `bytes`,
+  `marks`, `notes`, optional `markupSrc` and `matchesSource`; with
+  `markupReceiptRows`, `MARKUP_NOT_RENDERED`, `MARKUP_RECEIPT_NOTES`) and
+  `MarkupFallback` (`imagePath?`, `reason`).
+- The model: types `Mark` (`PenMark`, `ArrowMark`, `EllipseMark`, `TextMark`,
+  all in image coordinates), `MarkupTool`, `MarkupColor`, `MarkupWidth`,
+  `MarkupPoint`, `MarkupSize`, `MarkupCounts` and `MarkupExport`
+  (`{ png, bytes, width, height, counts, notes }`); constants
+  `MARKUP_COLORS`, `MARKUP_WIDTHS`, `MARKUP_MAX_BYTES`, `MARKUP_MAX_ZOOM`,
+  `MARKUP_NOTE_MAX` and `MARKUP_SECOND_TOUCH_MS`; and `exportMarkupPng(marks,
+  size)`, `countMarks`, `markupNotes`, `describeCounts`, `markupSummary`,
+  `markupBytesLabel` and `overCapMessage`. `counts` uses the result keys
+  `pen`, `arrow`, `ellipse` and `text`.
+
+The semantic `IconName` gains `pen`, `arrow`, `ellipse`, `text`, `undo`,
+`redo`, `erase`, `zoom-in`, `zoom-out` and `fit` for the markup toolbar and
+zoom controls. No existing key, glyph or component changes. This ships in a
+minor.
 
 ## UI-kit enlarge icon (additive #3397)
 
@@ -4378,6 +4452,60 @@ No call accepts a host path, UID or mount. Worker masks now include the pool's
 `access` directory, and `brain-native-store pool` records carry the new fields.
 The mechanism is recorded in the
 [pool decision](../decisions/reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
+
+<a id="reference-pool-growth-status-additive-0450-3515"></a>
+
+### Reference pool growth status (additive, 0.45.0, #3515)
+
+`brain-native-store pool growth <config>` prints the same envelope as `status`,
+with `action: "growth"` and `growth`, and the same exit codes. The native
+manager client gains `poolGrowth()`, which takes no identity, path or selector
+and returns `NativePoolGrowth`:
+
+- `basis` is `btrfs-space-info-disk-used+simple-quota-owner`. `state` is
+  `available` or `unavailable`. `reason` says why the whole status is
+  unavailable; `generation` is the observation's filesystem generation.
+- `thresholds` are `{ worktreeRatio: 0.25, refreshRatio: 0.75, retainedSources: 2 }`,
+  exported as `REFERENCE_POOL_GROWTH_THRESHOLDS`.
+- `worktrees` (writable or sealed) and `refreshes` (sealed sources with a
+  `from`) are `NativePoolGrowthComparison`s:
+  - `id`, `from`, and `cold`, the cold acquisition at the root of the chain;
+  - `ownerBytes`, null when the accounting has no charge for the root;
+  - `basisBytes`, that acquisition's charge when it was sealed;
+  - `thresholdBytes`, `basisBytes` times the ratio, rounded down;
+  - `state`, and `flagged`, true when `ownerBytes` is strictly above
+    `thresholdBytes`.
+
+  A basis or charge that cannot be read gives `state: "unavailable"` and null
+  bytes, never zero, and is never flagged.
+- `sources` are `NativePoolGrowthSources`, one per published name: `name`,
+  `roots` (`id`, `view`, `ownerBytes`), their summed `ownerBytes`, and
+  `flagged` when more than `retainedSources` views publish the name. A root
+  with no recorded charge has `ownerBytes: null`, and so does the sum: never
+  zero. The count flag still applies.
+- `flags` are `NativePoolGrowthFlag`s: `kind` (`worktree`, `refresh` or
+  `retained-sources`), `subject` (root id or name), `observedBytes` (null only
+  for a retained-sources sum that includes an unknown charge),
+  `thresholdBytes` (null for the count), `threshold`, and `observedCount`
+  (null for a ratio).
+- `omitted` counts comparisons, groups or flags left out to keep one reply
+  within the 64 KiB control bound. Unflagged detail goes first.
+
+The status is read-only. It neither reconciles, deletes, resets nor reserves
+anything, and nothing in it forecasts savings or freed capacity. It is
+unavailable in these cases:
+
+- the pool refuses for any reason other than `capacity`;
+- the owner accounting is unreadable;
+- a view holds a non-link entry;
+- a published name resolves to anything but a recorded sealed source in its
+  own view, such as a path, another view or a stale identity.
+
+The manager records each root's charge when it is sealed, so the basis
+survives the root's release. Roots sealed before this release carry none. A
+released one reads as unavailable, while a live sealed one uses its current,
+unchanging charge. The rationale is in
+[the pool decision](../decisions/reference-pool-accounting.md#background-deduplication-is-rejected-residual-growth-is-reported-3515).
 
 <a id="reference-and-worktree-tools-additive-0440-2432"></a>
 

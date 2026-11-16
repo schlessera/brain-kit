@@ -34,6 +34,16 @@ import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  Circle,
+  Eraser,
+  MoveUpRight,
+  Pencil,
+  Redo2,
+  Scan,
+  Type,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
   CircleAlert,
   CircleCheck,
   CircleDashed,
@@ -234,6 +244,18 @@ export const ICONS = {
   /** Discard what is held, as a keyboard's backspace key does: lucide's
    * `Delete` is the backspace-key glyph (#3762). */
   backspace: Delete,
+  // The markup editor (#3983): its five tools share `hand` for Pan, plus
+  // history and the zoom controls.
+  pen: Pencil,
+  arrow: MoveUpRight,
+  ellipse: Circle,
+  text: Type,
+  undo: Undo2,
+  redo: Redo2,
+  erase: Eraser,
+  "zoom-in": ZoomIn,
+  "zoom-out": ZoomOut,
+  fit: Scan,
 } as const satisfies Record<string, LucideIcon>;
 
 /** Every semantic name the kit knows. The kit's icon vocabulary. */

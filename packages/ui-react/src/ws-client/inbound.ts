@@ -1,4 +1,4 @@
-import type { ClientMessage, InboxView, ServerMessage, ServerLocationRequest } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientMessage, ConsumerServerMessage, InboxView, ServerMessage, ServerLocationRequest } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
 import { restorationOf, type ChatState, type ChatKey } from "../stores/chat-state.js";
 import type { SessionChat } from "../stores/chat-store.js";
@@ -14,7 +14,7 @@ import { refusalReason } from "../lib/turn-failure.js";
 import type { AccountServices } from "./account.js";
 import type { createConversationClient } from "../voice/conversation-client.js";
 
-type InboundConversation = Pick<ReturnType<typeof createConversationClient>, "frame" | "historyOwnerFor" | "state">;
+type InboundConversation = Pick<ReturnType<typeof createConversationClient>, "frame" | "receive" | "historyOwnerFor" | "state">;
 
 interface InboundDeps {
   disposed: () => boolean;
@@ -56,10 +56,28 @@ const CONNECTION_WIDE = new Set<ServerMessage["type"]>([
 ]);
 
 /**
- * Every inbound frame, in order: the voice conversation's routing, the
- * restoration and turn-boundary prefilter, request receipts, then the typed
- * handler map — once for connection-wide frames, or after the demux has
- * found the frame's session buffer. The map is the single routing table.
+ * The voice conversation's own frames (#3389), dispatched connection-wide at
+ * the point the conversation client sees every frame. Nothing after that
+ * reads them: they carry no chat state, run state or request receipt.
+ * `tool_resolution` is the conversation client's too, but it continues to the
+ * demux, which records its session's run state before dispatching it once.
+ */
+const CONVERSATION_OWNED = new Set<ServerMessage["type"]>([
+  "dialogue_history",
+  "conversation_opened",
+  "conversation_closed",
+  "conversation_event",
+  "conversation_work",
+  "conversation_output",
+  "conversation_permission",
+]);
+
+/**
+ * Every inbound frame, in order: the voice conversation's prefilter (its own
+ * frames go from there straight to the map), the restoration and
+ * turn-boundary prefilter, request receipts, then the typed handler map —
+ * once for connection-wide frames, or after the demux has found the frame's
+ * session buffer. The map is the single routing table.
  */
 export function createInbound(root: BrainUiServices, deps: InboundDeps) {
   // A connect snapshot may answer after its captured turn ended on this socket.
@@ -109,7 +127,15 @@ export function createInbound(root: BrainUiServices, deps: InboundDeps) {
       retryReceipt: deps.retries.receipt,
       answerReceipt: (msg) => deps.services.answers.receipt(msg),
       queueReport: deps.followUps.queueReport,
+      conversation: deps.conversation.receive,
     };
+  }
+
+  /** Dispatch a frame once, outside the per-session demux. */
+  function dispatchConnectionWide(msg: ConsumerServerMessage): void {
+    const state = root.stores.chat.getState();
+    const key = state.activeSessionId;
+    dispatchServerMessage(msg, context(state, key, undefined, undefined, () => (key === null ? state.draft : state.buffers[key])));
   }
 
   /**
@@ -187,11 +213,15 @@ export function createInbound(root: BrainUiServices, deps: InboundDeps) {
 
   function handleServerMessage(msg: ServerMessage): void {
     if (deps.disposed() || root.authLock.state.getState().phase !== "active") return;
+    // The SDK client consumes `pong` for liveness and never hands one on, so
+    // the map has no entry for it (#3389). Neither does a frame fed in here.
+    if (msg.type === "pong") return;
     // Voice frames bypass handleFrame; flush earlier backend text before observing them.
     if (msg.type.startsWith("conversation_")) deps.deltas.flush();
     const routed = deps.conversation.frame(msg);
     if (!routed) return;
     msg = routed;
+    if (CONVERSATION_OWNED.has(msg.type)) { dispatchConnectionWide(msg); return; }
     if (deps.services.safety.frame(msg)) return;
     if (!prefilter(msg)) return;
     handleFrame(msg);
@@ -330,18 +360,14 @@ export function createInbound(root: BrainUiServices, deps: InboundDeps) {
     return undefined;
   }
 
-  function handleFrame(msg: ServerMessage): void {
+  function handleFrame(msg: ConsumerServerMessage): void {
     // Every frame that is not itself a delta must see the transcript fully
     // applied: the demux below reads buffer state, and the store records parts in
     // arrival order, so a tool call landing ahead of buffered text would reorder
     // the message.
     if (msg.type !== "text_delta" && msg.type !== "thinking_delta") deps.deltas.flush();
+    if (CONNECTION_WIDE.has(msg.type)) { dispatchConnectionWide(msg); return; }
     const state = root.stores.chat.getState();
-    if (CONNECTION_WIDE.has(msg.type)) {
-      const key = state.activeSessionId;
-      dispatchServerMessage(msg, context(state, key, undefined, undefined, () => (key === null ? state.draft : state.buffers[key])));
-      return;
-    }
     trackRequest(msg, state);
 
     // Parallel-session demux (per-session buffers). Every frame is scoped by
@@ -351,6 +377,9 @@ export function createInbound(root: BrainUiServices, deps: InboundDeps) {
     // session's pre-binding frames) apply to the buffer in view.
     const frameSessionId = (msg as { sessionId?: string }).sessionId;
     if (!noteRunState(msg, state, frameSessionId)) return;
+    // A permission outcome is the voice client's, whether or not its session
+    // has a buffer here; only its run state belongs to the demux.
+    if (msg.type === "tool_resolution") { dispatchConnectionWide(msg); return; }
     const key = bufferKeyFor(msg, state, frameSessionId);
     if (key === undefined) return;
     if ((msg.type === "session_info" || msg.type === "status") && msg.requestId && msg.thinkingLevel !== undefined) {

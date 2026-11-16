@@ -1,5 +1,5 @@
 import { GhostBand } from "../internal/GhostBand.js";
-import { useId, type CSSProperties, type KeyboardEvent } from "react";
+import { useId, useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import { Chip } from "../primitives/Chip.js";
 import { GhostIconSlot, Ghosted, ghostLength, useArrival, useLastLengths, useLoadingValue } from "../internal/GhostText.js";
@@ -107,7 +107,8 @@ export function FileRow(p: FileRowProps) {
   const act = Boolean(p.onClick) && p.view !== "loading";
   const view = p.view || "ready";
   const loading = view === "loading";
-  const arriving = useArrival(loading);
+  const frame = useRef<HTMLDivElement>(null);
+  const arriving = useArrival(loading, frame);
   // The ghost's seed is this instance — kept per item key, not per list
   // position — so re-ranking a row never regenerates its glyphs.
   const id = useId();
@@ -202,6 +203,7 @@ export function FileRow(p: FileRowProps) {
 
   return (
     <div
+      ref={frame}
       style={{ ...box, position: "relative" }}
       aria-busy={loading ? true : undefined}
       className={act ? "bk-row" : undefined}
