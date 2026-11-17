@@ -617,32 +617,36 @@ test("the merge path refuses an undisposed finding, rereads the record at the me
   expect(expedited.commentReads).toBe(0);
 });
 
-test("a proof-system candidate waits for its predecessor's own main run, then one green run after a failure; a product candidate does not (#3269)", async () => {
-  for (const [mode, message] of [
-    ["lane-own-busy", "has no settled main run of its own yet"],
-    ["confirm-lane-own-busy", "has no settled main run of its own yet"],
-    ["lane-own-red", "its own main run is not green"],
-    ["lane-recovering", "the newest settled main run after it is not green"],
-    ["confirm-lane-recovering", "the newest settled main run after it is not green"],
-    ["lane-cancelled", "run 2 after it at"],
-  ] as const) {
-    const refused = await scenario(mode);
-    expect(refused.dispatched, `NO_PROOF_SYSTEM_MERGE_INSIDE_THE_WINDOW:${mode}`).toBe(false);
-    expect(refused.code, refused.err).toBe(1);
-    expect(refused.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
-    expect(refused.err).toContain("1 more green main run required");
-    expect(refused.err).toContain(message);
-    expect(refused.err).not.toContain("Off-main qualification missing");
-    expect(refused.requested, `NO_CANDIDATE_CI_FOR_A_HELD_CANDIDATE:${mode}`).toBe(false);
-    expect(refused.state.active, `REFUSED_BEFORE_OWNERSHIP_OR_RELEASED:${mode}`).toBeNull();
-  }
-  // The own green run opens the lane without later runs; after a failure, one later green run reopens it.
-  for (const mode of ["lane-own-red-product", "lane-recovering-product", "lane-open", "lane-pending", "lane-recovered", "lane-own-red-recovered"]) {
+// One scenario per test: each starts its own child process, and twelve of them under one
+// 27-second work deadline overran it on a loaded runner (run 44104941268, 27.2 s).
+for (const [mode, message] of [
+  ["lane-own-busy", "has no settled main run of its own yet"],
+  ["confirm-lane-own-busy", "has no settled main run of its own yet"],
+  ["lane-own-red", "its own main run is not green"],
+  ["lane-recovering", "the newest settled main run after it is not green"],
+  ["confirm-lane-recovering", "the newest settled main run after it is not green"],
+  ["lane-cancelled", "run 2 after it at"],
+] as const) test(`a proof-system candidate waits for its predecessor's own main run, then one green run after a failure: ${mode} (#3269)`, async () => {
+  const refused = await scenario(mode);
+  expect(refused.dispatched, `NO_PROOF_SYSTEM_MERGE_INSIDE_THE_WINDOW:${mode}`).toBe(false);
+  expect(refused.code, refused.err).toBe(1);
+  expect(refused.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
+  expect(refused.err).toContain("1 more green main run required");
+  expect(refused.err).toContain(message);
+  expect(refused.err).not.toContain("Off-main qualification missing");
+  expect(refused.requested, `NO_CANDIDATE_CI_FOR_A_HELD_CANDIDATE:${mode}`).toBe(false);
+  expect(refused.state.active, `REFUSED_BEFORE_OWNERSHIP_OR_RELEASED:${mode}`).toBeNull();
+});
+
+// The own green run opens the lane without later runs; after a failure, one later green run reopens it.
+// A product candidate does not wait at all.
+for (const mode of ["lane-own-red-product", "lane-recovering-product", "lane-open", "lane-pending", "lane-recovered", "lane-own-red-recovered"]) {
+  test(`the lane admits a candidate it no longer holds: ${mode} (#3269)`, async () => {
     const accepted = await scenario(mode);
     expect(accepted.code, `LANE_ACCEPTS:${mode}: ${accepted.err}`).toBe(2);
     expect(accepted.dispatched).toBe(true);
-  }
-});
+  });
+}
 
 test("lane --json reports the refusal's decision from the same function (#3269)", async () => {
   const read = await scenario("lane-recovering-read");
