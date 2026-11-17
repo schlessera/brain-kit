@@ -19,6 +19,7 @@ import { handleInboxDecision, handleInboxSubscribe, handleInboxUnsubscribe } fro
 import { handleLocalExchange } from "./local-exchange.js";
 import { handleLocationError, handleLocationResponse } from "./location.js";
 import { handleMaskError, handleMaskResponse } from "./mask.js";
+import { handleMarkupError } from "./markup.js";
 import { handlePing } from "./ping.js";
 import { handleRetryStatus, handleRetryTurn } from "./retry.js";
 import { handleScopeDecision } from "./scope-decision.js";
@@ -51,6 +52,7 @@ export const CLIENT_MESSAGE_HANDLERS: ClientMessageHandlers = {
   location_error: handleLocationError,
   mask_response: handleMaskResponse,
   mask_error: handleMaskError,
+  markup_error: handleMarkupError,
   tool_approval: handleToolApproval,
   tool_denial: handleToolDenial,
   cancel: handleCancel,

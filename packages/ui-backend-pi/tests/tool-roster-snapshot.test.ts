@@ -26,6 +26,8 @@ const VARIANTS: Record<string, Partial<BrainToolDeps>> = {
   scratchShell: { shellCwd: "/worker/scratch", capabilities: { mask: true } },
   // The host-owned web tools (#3685) join the bridge tools; nothing else moves.
   web: { capabilities: { web: true } },
+  // The host-owned markup tool (#3975) follows the mask tool; nothing else moves.
+  markup: { capabilities: { mask: true, markup: true } },
 };
 
 function roster(): string {

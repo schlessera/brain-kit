@@ -92,6 +92,15 @@ export class ClientSet {
     return this.clients.size > 0;
   }
 
+  /** Whether any attached socket of `principalId` declared `capability`. */
+  anyDeclares(capability: string, principalId?: string): boolean {
+    for (const client of this.clients.values()) {
+      if (principalId !== undefined && client.principalId !== principalId) continue;
+      if (client.capabilities?.[capability] === true) return true;
+    }
+    return false;
+  }
+
   /**
    * Close and forget only sockets admitted for one principal.
    */

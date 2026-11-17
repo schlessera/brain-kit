@@ -36,6 +36,7 @@ export "." (./src/index.ts)
   type LocalCaptureStopReason
   type LocalCaptureSupport
   LocalRecordingSheet
+  type MarkupRequest
   type MaskRequest
   type MessageAttachment
   type Recording
@@ -590,6 +591,18 @@ signatures (every public export and the types it is made of)
         onStop: () => Promise<void>;
         onDiscard: () => Promise<void>;
     }): import("react").JSX.Element | null;
+  MarkupRequest (packages/ui-react/src/stores/markup-state.ts)
+    export interface MarkupRequest {
+        requestId: string;
+        imagePath: string;
+        instruction?: string;
+        width: number;
+        height: number;
+        maxBytes: number;
+        uploadPath: string;
+        sourcePath: string;
+        turnId?: string;
+    }
   MaskRequest (packages/ui-react/src/stores/mask-state.ts)
     export interface MaskRequest {
         requestId: string;

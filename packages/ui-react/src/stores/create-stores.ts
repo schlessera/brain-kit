@@ -11,6 +11,7 @@ import { createActivityStore } from "./activity-state.js";
 import { createPrincipalStore } from "./principal-state.js";
 import { createInboxStore } from "./inbox-state.js";
 import { createMaskStore } from "./mask-state.js";
+import { createMarkupStore } from "./markup-state.js";
 import { createShareStore } from "./share-state.js";
 import { createHandoffStore } from "./handoff-state.js";
 import { createFollowUpStore } from "./follow-up-state.js";
@@ -40,6 +41,7 @@ export function createBrainStores(env: StoreEnvironment) {
     inbox: createInboxStore(),
     principal: createPrincipalStore(env),
     mask: createMaskStore(),
+    markup: createMarkupStore(),
     share: createShareStore(),
     handoff,
     followUp: createFollowUpStore(),

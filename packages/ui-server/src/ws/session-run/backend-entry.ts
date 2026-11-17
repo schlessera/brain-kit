@@ -1,9 +1,10 @@
 import { linkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, heldCustomProviderKeys, startProviderRelay } from "@schlessera/brain-ui-sdk/internal";
+import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, heldCustomProviderKeys, startProviderRelay, type ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 import type { BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { prepareTurnEgress } from "../../brain/turn-egress.js";
+import { turnExtractionJudge } from "../../brain/turn-extraction-judge.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetContext, inferenceBudgetLimits } from "../../brain/turn-budgets.js";
 import { createSafetyCollector } from "../../governance/safety-collector.js";
 import { sessionTaint } from "../../governance/session-taint.js";
@@ -152,6 +153,25 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
     throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
   if (!governedHold || !relayed) return;
   const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
+  // The turn every relayed attempt and judge call is metered on, fixed now: a late report never lands on a later turn.
+  const relayTurnId = turn.turnId;
+  const observeAttempt = (attempt: ProviderRelayReceipt) => {
+    if (!host.budgets) return;
+    try {
+      budget!.write(host.budgets.observeProvider(relayTurnId, attempt).then(result => {
+        if (!result || stops.budget || abortController.signal.aborted || turn.cancelled) return;
+        // A crossed block refuses each further relayed request (ruling D3 on
+        // #1673); the agent's next completed response, which sees the same
+        // scopes, stops the turn as any usage over a block does.
+        budget!.warn(result.warnings);
+      }));
+    } catch { if (!stops.budget) budget!.unavailable(); }
+  };
+  // The extraction judge (#4089), present only while the policy turns it on.
+  const extractionJudge = turnExtractionJudge({ client: host.extractionJudge, policy: governedHold.policy.policy, turnId: relayTurnId,
+    sessionId: () => turn.sessionId ?? null, ...(host.governedTurns ? { exposures: ids => host.governedTurns!.exposures(ids) } : {}),
+    ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}), budgets: host.budgets, observe: observeAttempt,
+    stopped: () => abortController.signal.aborted ? "The turn was stopped." : (stops.budget as Error | undefined)?.message ?? null });
   held.turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
     turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => run.mainModel,
     profile: heldProfile(run), origin,policyHash:governedHold.policy.hash, brainPath: host.brainPath,
@@ -159,13 +179,13 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
     ...(governanceWrites ? { record: (event: Parameters<typeof governanceWrites.record>[0]) => governanceWrites.record(event), governanceWrites }
       : governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
     ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
+    ...(extractionJudge ? { extractionJudge } : {}),
   });
   // The worker reaches the network only through this proxy, which taints on
   // its first admitted connection: shell commands no longer pass through the
   // command classifier (#3429).
   recorder?.setEgressProxied();
-  // The turn this relay meters, fixed now: a late report never lands on a later turn.
-  const egress = held.turnEgress, hold = governedHold, relayTurnId = turn.turnId;
+  const egress = held.turnEgress, hold = governedHold;
   held.providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),
     admit: async () => {
       if(abortController.signal.aborted||governanceWrites&&!governanceWrites.recordingAvailable(turn.turnId,turn.sessionId??null))return {allowed:false,message:"Input recording is unavailable; the turn was stopped."};
@@ -181,18 +201,7 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
         return blocked ? { allowed: false, message: new BudgetExceeded(blocked, "mid_turn").message } : { allowed: true };
       } catch { return { allowed: false, message: new BudgetUnavailable().message }; }
     },
-    observe: attempt => {
-      if (!host.budgets) return;
-      try {
-        budget!.write(host.budgets.observeProvider(relayTurnId, attempt).then(result => {
-          if (!result || stops.budget || abortController.signal.aborted || turn.cancelled) return;
-          // A crossed block refuses each further relayed request (ruling D3 on
-          // #1673); the agent's next completed response, which sees the same
-          // scopes, stops the turn as any usage over a block does.
-          budget!.warn(result.warnings);
-        }));
-      } catch { if (!stops.budget) budget!.unavailable(); }
-    },
+    observe: observeAttempt,
   });
   linkSync(held.providerRelay.socketPath, join(egress.dir, PROVIDER_RELAY_SOCKET_NAME));
   const customKeys = heldCustomProviderKeys(host.cliProviderOrigins);

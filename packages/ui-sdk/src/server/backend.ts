@@ -257,6 +257,15 @@ export interface BackendBridge {
    */
   requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
   /**
+   * Ask the user to mark up an image (#3975). Host-owned end to end: the host
+   * opens the editor, receives the layer over its bounded upload route,
+   * rechecks the source, authority and destination, writes the layer under
+   * `.brain/scratch/markup/` and resolves with the receipt. Rejects when the
+   * user closes the editor, the turn is cancelled or any recheck refuses.
+   * Absent means the host cannot apply markup, and the tool refuses.
+   */
+  requestImageMarkup?(input: import("../tool-contracts/bridge.js").RequestImageMarkupInput): Promise<import("../tool-contracts/bridge.js").ImageMarkupPayload>;
+  /**
    * Prune scratch after a tool writes. `produced` names canonical, slash-separated
    * brain-relative files that the host MUST retain for this pass, alongside its
    * retained-conversation pins. Never rejects; absent when there is no scratch pass.

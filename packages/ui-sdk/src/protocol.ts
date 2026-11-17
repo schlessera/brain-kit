@@ -141,6 +141,7 @@ export type ClientMessage =
   | ClientLocationError
   | ClientMaskResponse
   | ClientMaskError
+  | ClientMarkupError
   | ClientActivitySubscribe
   | ClientActivityUnsubscribe
   | ClientLocalExchange
@@ -943,6 +944,7 @@ export type ServerMessage =
   | ServerPong
   | ServerLocationRequest
   | ServerMaskRequest
+  | ServerMarkupRequest
   | ServerActivitySnapshot
   | ServerActivityDelta
   | ServerMessageBlocks
@@ -3054,6 +3056,13 @@ export interface AttachmentFile {
 export const ATTACHMENT_READS_CAPABILITY = "attachmentReads";
 
 /**
+ * `client_hello` capability (#3975): this client opens the markup editor for a
+ * `markup_request` and uploads the layer. A host asks only when a connected
+ * client declares it, and refuses `request_image_markup` otherwise.
+ */
+export const IMAGE_MARKUP_CAPABILITY = "imageMarkup";
+
+/**
  * One recorded `read_attachment` call of a session (#3589): what the agent
  * read of one original, never the text. UI evidence only; it never reaches a
  * provider.
@@ -3474,6 +3483,49 @@ export interface ClientMaskError {
   type: "mask_error";
   requestId: string;
   /** `cancelled` = the user declined; `failed` = the editor could not produce a mask. */
+  code: "cancelled" | "failed";
+  message: string;
+  turnId?: string;
+}
+
+/**
+ * Server → Client (#3975). The agent asked the user to mark up an image. The
+ * browser opens the markup editor on `imagePath` at the source's displayed
+ * size, which the server read from the image's own header after EXIF
+ * orientation, and the layer is exported at exactly that size.
+ *
+ * The answer does not travel over the socket: a layer may be up to 50 MiB,
+ * far beyond `MAX_CLIENT_FRAME_BYTES`. The browser uploads it to `uploadPath`
+ * (`POST`, relative to the API base) with this frame's `turnId`, and declines
+ * with a `ClientMarkupError` carrying the same `requestId`.
+ */
+export interface ServerMarkupRequest extends SessionScoped {
+  type: "markup_request";
+  requestId: string;
+  /** Repo-relative path of the image to mark up. */
+  imagePath: string;
+  /** What the agent asks the user to mark, shown as "Agent asks:". */
+  instruction?: string;
+  /** The source's displayed size, which the layer must match. */
+  width: number;
+  height: number;
+  /** The most layer bytes the upload accepts: 52,428,800. */
+  maxBytes: number;
+  /** Where the layer is uploaded, relative to the API base: `/markup/<requestId>`. */
+  uploadPath: string;
+  /**
+   * Where the editor reads the source, relative to the API base:
+   * `/markup/<requestId>/source`, with the frame's `turnId`. Served only while
+   * the request is open and the source still has the hash the server bound.
+   */
+  sourcePath: string;
+}
+
+/** Client → Server (#3975). The user closed the markup editor, or it could not run. */
+export interface ClientMarkupError {
+  type: "markup_error";
+  requestId: string;
+  /** `cancelled` = the user closed the editor; `failed` = the editor could not produce a layer. */
   code: "cancelled" | "failed";
   message: string;
   turnId?: string;

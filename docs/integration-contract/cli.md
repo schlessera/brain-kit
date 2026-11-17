@@ -491,6 +491,9 @@ with explicit incoming/recipient defaults. This reports data, not a runtime
 trust exemption or new review capability; sticky taint enforcement is unchanged.
 Since #4088 (additive), `effective.taint` also includes `classifier`, `"off"`
 unless the file sets `"heuristics"`.
+Since #4089 (additive), `effective.taint` also includes `judge`,
+`{ "mode": "off", "floor": 0.9 }` unless the file sets `mode: jev` or a
+`floor` from 0.5 to 1.
 Valid and missing inputs exit 0 with `ok: true`, and invalid inputs exit 1 with
 `ok: false`. Missing inputs have a null hash, no errors and built-in defaults.
 Invalid input returns defaults, its validation errors, and a hash when its bytes

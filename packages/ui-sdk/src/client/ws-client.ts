@@ -26,7 +26,7 @@
  * Bun and Node 22+ all provide. State belongs to the consumer; this owns the
  * socket.
  */
-import { ACTIVITY_COMPUTE_CAPABILITY, ASK_RECEIPTS_CAPABILITY, ATTACHMENT_READS_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, SESSION_SAFETY_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV } from "../protocol.js";
+import { ACTIVITY_COMPUTE_CAPABILITY, ASK_RECEIPTS_CAPABILITY, ATTACHMENT_READS_CAPABILITY, FOLLOW_UP_QUEUE_CAPABILITY, IMAGE_MARKUP_CAPABILITY, SESSION_SAFETY_CAPABILITY, LIVENESS_CAPABILITY, PROTOCOL_REV } from "../protocol.js";
 import type { ClientMessage, ConsumerServerMessage } from "../protocol.js";
 import { parseServerMessage } from "../schemas.js";
 
@@ -142,6 +142,7 @@ const REQUEST_KEYS: Readonly<Record<string, "toolUseId" | "requestId">> = {
   ask_user_form_request: "requestId",
   location_request: "requestId",
   mask_request: "requestId",
+  markup_request: "requestId",
 };
 
 /** Reply frames, and the field naming the request they answer. */
@@ -157,6 +158,7 @@ const REPLY_KEYS: Readonly<Record<string, "toolUseId" | "requestId">> = {
   location_error: "requestId",
   mask_response: "requestId",
   mask_error: "requestId",
+  markup_error: "requestId",
 };
 
 /**
@@ -253,7 +255,7 @@ export class BrainUiClient {
             JSON.stringify({
               type: "client_hello",
               protocolRev: PROTOCOL_REV,
-              capabilities: { [SESSION_SAFETY_CAPABILITY]: true, [ASK_RECEIPTS_CAPABILITY]: true, [FOLLOW_UP_QUEUE_CAPABILITY]: true, toolResolution: true, sessionDialogue: true, [ACTIVITY_COMPUTE_CAPABILITY]: true, [ATTACHMENT_READS_CAPABILITY]: true },
+              capabilities: { [SESSION_SAFETY_CAPABILITY]: true, [ASK_RECEIPTS_CAPABILITY]: true, [FOLLOW_UP_QUEUE_CAPABILITY]: true, toolResolution: true, sessionDialogue: true, [ACTIVITY_COMPUTE_CAPABILITY]: true, [ATTACHMENT_READS_CAPABILITY]: true, [IMAGE_MARKUP_CAPABILITY]: true },
             })
           );
         } catch {

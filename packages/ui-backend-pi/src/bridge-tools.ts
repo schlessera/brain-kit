@@ -23,6 +23,9 @@ import {
   REQUEST_IMAGE_MASK_DESCRIPTION,
   REQUEST_IMAGE_MASK_INPUT_SCHEMA,
   REQUEST_IMAGE_MASK_TOOL_NAME,
+  REQUEST_IMAGE_MARKUP_DESCRIPTION,
+  REQUEST_IMAGE_MARKUP_INPUT_SCHEMA,
+  REQUEST_IMAGE_MARKUP_TOOL_NAME,
   SHOW_BLOCK_DESCRIPTION,
   SHOW_BLOCK_INPUT_SCHEMA,
   SHOW_BLOCK_TOOL_NAME,
@@ -47,6 +50,7 @@ import {
   handleGetCurrentLocation,
   handleQueryActivity,
   handleRequestImageMask,
+  handleRequestImageMarkup,
   handleShowBlock,
   type LocationHandlerOptions,
 } from "@schlessera/brain-ui-sdk/server";
@@ -89,6 +93,8 @@ export interface PiBridgeToolOptions {
     activity?: boolean;
     inbox?: boolean;
     mask?: boolean;
+    /** The host's markup editor and application (#3975). */
+    markup?: boolean;
     policyChange?: boolean;
     turnTemp?: boolean;
     /** Shared reference source and managed worktrees (#2432). */
@@ -284,6 +290,22 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     },
   } satisfies ToolDefinition;
 
+  const requestImageMarkup = {
+    name: REQUEST_IMAGE_MARKUP_TOOL_NAME,
+    label: "Request image markup",
+    description: REQUEST_IMAGE_MARKUP_DESCRIPTION,
+    parameters: toPiParameters(REQUEST_IMAGE_MARKUP_INPUT_SCHEMA),
+    async execute(_id: string, input: unknown) {
+      // Checked at execute time, like the mask editor: the tool set outlives
+      // the turn, and a turn with no grant surface has nobody to draw.
+      if (turn.noGrantSurface) {
+        throw new Error("This turn has no way to show anyone an image, so request_image_markup cannot be used in it.");
+      }
+      const payload = await handleRequestImageMarkup(REQUEST_IMAGE_MARKUP_INPUT_SCHEMA.parse(input), turn.bridge ?? {});
+      return textResult(JSON.stringify(payload), { markupPath: payload.markupPath });
+    },
+  } satisfies ToolDefinition;
+
   const showBlock = {
     name: SHOW_BLOCK_TOOL_NAME,
     label: "Show block",
@@ -325,6 +347,7 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
   if (capabilities?.location) tools.push(getCurrentLocation);
   if (capabilities?.activity) tools.push(queryActivity);
   if (capabilities?.mask) tools.push(requestImageMask);
+  if (capabilities?.markup) tools.push(requestImageMarkup);
   if (capabilities?.inbox) for (const contract of INBOX_TOOL_CONTRACTS) tools.push({
     name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
     async execute(_id: string, input: unknown) {

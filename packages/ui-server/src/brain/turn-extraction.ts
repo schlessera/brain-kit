@@ -18,6 +18,11 @@
  *   opaque or unattributable call in progress withholds it: the proxy cannot
  *   tell which process opened a connection.
  *
+ * With `taint.judge.mode: jev` (#4089), a call in the heuristics' ambiguous
+ * band goes to the judge instead (`createExtractionJudge`,
+ * `packages/ui-server/src/governance/extraction-judge.ts`), from an
+ * interactive turn only; its band then decides as above.
+ *
  * Deny, `allowlist` mode, budgets and outward-action cards are decided
  * elsewhere and never consult it. Its session state is in-memory host state,
  * never written to the record or the provider-facing conversation.
@@ -28,7 +33,8 @@ import { inputTaintSignals, outputTaintSignals } from "../activity/ingestion-tai
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { existsSync } from "node:fs";
 import { posix } from "node:path";
-import { ExtractionSession, callInput, classify, localTool, namedHosts, readPath, readText, type ToolClass, type Verdict } from "../governance/extraction-classifier.js";
+import { ExtractionSession, callInput, classify, localTool, namedHosts, readPath, readText, type Band, type ToolClass, type Verdict } from "../governance/extraction-classifier.js";
+import { judgeState, type ExtractionJudge } from "../governance/extraction-judge.js";
 
 type InputSafety = NonNullable<BackendBridge["inputSafety"]>;
 
@@ -83,6 +89,11 @@ export function createTurnExtraction(options: {
   cause: () => string | null;
   brainPath?: string;
   marked?: (path: string) => boolean;
+  /**
+   * The judge for the ambiguous band (#4089), when the policy turns it on.
+   * Only an interactive turn asks it: voice refuses wherever it would ask.
+   */
+  judge?: ExtractionJudge;
 }) {
   const initialId = options.sessionId();
   // A new conversation's state is complete from its first call. A resumed one
@@ -114,8 +125,14 @@ export function createTurnExtraction(options: {
     const hosts = verdict.request.route === "network" ? verdict.request.hosts : [];
     const call: Call = { relax: [], hosts, withholds: !attributable };
     const relaxable = readable && options.origin === "interactive" && hosts.length > 0;
-    if (verdict.band === "block") throw new Error(extractionRefusal(tool, verdict.reason ?? "looks like it carries data out of this session", options.cause()));
-    if (verdict.band === "ask") {
+    // Only the ambiguous band reaches the judge, and only from a turn that
+    // could show its card. Its state is the request, the name of what tainted
+    // the session and the overlap: never the conversation or what was read.
+    let band: Band = verdict.band;
+    if (verdict.ambiguous && options.judge && options.origin === "interactive")
+      band = (await options.judge(judgeState(verdict.request, verdict.signals, options.cause() ?? "read content the user did not write"))).band;
+    if (band === "block") throw new Error(extractionRefusal(tool, verdict.reason ?? "looks like it carries data out of this session", options.cause()));
+    if (band === "ask") {
       const reason = verdict.reason ?? "looks like it carries data out of this session";
       // Voice has no grant surface: it refuses wherever an interactive turn would ask.
       if (options.origin !== "interactive") throw new Error(extractionRefusal(tool, reason, options.cause()));

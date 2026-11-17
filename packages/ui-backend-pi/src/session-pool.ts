@@ -70,7 +70,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       currentCaps: req.autonomous ? undefined : {
         askUser: available("ask_user"), askUserList: available("ask_user_list"), askUserRank: available("ask_user_rank"), askUserForm: available("ask_user_form"),
         location: available("get_current_location"), activity: available("query_activity"), inbox: available("inbox_list"),
-        mask: available("request_image_mask"), policyChange: available("propose_policy_change"), turnTemp: true,
+        mask: available("request_image_mask"), markup: available("request_image_markup"), policyChange: available("propose_policy_change"), turnTemp: true,
         reference: available("reference_source"), compute: available("brain_compute_run"), apify: available("brain_apify_discover"),
         attachments: available("read_attachment"), web: available("web_search"), github: available("brain_github_issue_read") },
       ...(req.turnBudgetMs ? { turnBudgetMs: req.turnBudgetMs } : {}),

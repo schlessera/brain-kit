@@ -89,6 +89,10 @@ const SAMPLES: ServerMessage[] = [
   },
   { type: "mask_request", requestId: "r1", imagePath: "a.png", sessionId: "s1" },
   {
+    type: "markup_request", requestId: "markup-r1", imagePath: "photos/raft-at-ithaca.jpg", instruction: "mark what should move",
+    width: 3024, height: 4032, maxBytes: 52_428_800, uploadPath: "/markup/markup-r1", sourcePath: "/markup/markup-r1/source", sessionId: "s1",
+  },
+  {
     type: "activity_snapshot",
     view: "run",
     runId: "r1",

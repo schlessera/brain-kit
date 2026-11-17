@@ -4,6 +4,7 @@
  * `init` reported arrives unchanged, a run the rules finish never launches
  * the CLI, and human mode keeps the report and the agent's text.
  */
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +12,8 @@ import { join } from "node:path";
 
 import { runCli } from "./cli-harness";
 import { brainWithRemote, cleanupFixtures, SCENARIO_SETUPS } from "./sync-fixture";
+
+withoutSigningForEach();
 
 const scratch: string[] = [];
 afterEach(() => {

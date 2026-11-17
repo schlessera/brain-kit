@@ -7,7 +7,7 @@
 type: finance
 client: __SLUG__                    # stable slug; must match the directory name
 display_name: __DISPLAY__           # human-readable name shown in reports
-# legal_name: Acme Corporation LLC  # optional; full legal entity name
+# legal_name: Ithaca Fleet  # optional; full legal entity name
 currency: __CURRENCY__              # ISO code; drives money formatting (USD/EUR special-cased)
 status: active                      # free-form label: active | inactive | archived
 terms_days: __TERMS__               # payment terms in days; overdue = issued + terms_days

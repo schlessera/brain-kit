@@ -95,6 +95,7 @@ import type {
   ServerHello,
   ServerLocationRequest,
   ServerMaskRequest,
+  ServerMarkupRequest,
   ServerMessage,
   ServerChatRetired,
   DialogueEvidence, DialogueRecord, DialoguePage, ClientDialogueRead, ServerDialogueHistory,
@@ -129,6 +130,7 @@ import type {
   ClientLocationResponse,
   ClientMaskError,
   ClientMaskResponse,
+  ClientMarkupError,
   ClientMessage,
   ClientSessionResume,
   ApprovalChannel,
@@ -632,6 +634,15 @@ export const clientMaskErrorSchema = z.looseObject({
   turnId: id.optional(),
 }) satisfies z.ZodType<ClientMaskError>;
 
+/** The decline only: the layer itself is uploaded over HTTP (#3975). */
+export const clientMarkupErrorSchema = z.looseObject({
+  type: z.literal("markup_error"),
+  requestId: id,
+  code: z.enum(["cancelled", "failed"]),
+  message: z.string().max(MAX_ANSWER_CHARS),
+  turnId: id.optional(),
+}) satisfies z.ZodType<ClientMarkupError>;
+
 const activityView = z.enum(["index", "session", "run"]);
 
 export const clientActivitySubscribeSchema = z.looseObject({
@@ -939,6 +950,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   clientLocationErrorSchema,
   clientMaskResponseSchema,
   clientMaskErrorSchema,
+  clientMarkupErrorSchema,
   clientActivitySubscribeSchema,
   clientActivityUnsubscribeSchema,
   clientLocalExchangeSchema,
@@ -1542,6 +1554,19 @@ export const serverMaskRequestSchema = z.looseObject({
   instruction: z.string().optional(),
   ...sessionScoped,
 }) satisfies z.ZodType<ServerMaskRequest>;
+
+export const serverMarkupRequestSchema = z.looseObject({
+  type: z.literal("markup_request"),
+  requestId: z.string().max(MAX_ID_CHARS),
+  imagePath: z.string(),
+  instruction: z.string().optional(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  maxBytes: z.number().int().positive(),
+  uploadPath: z.string().max(1024),
+  sourcePath: z.string().max(1024),
+  ...sessionScoped,
+}) satisfies z.ZodType<ServerMarkupRequest>;
 
 const activitySpanSchema = z.looseObject({
   spanId: id,
@@ -2163,6 +2188,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   serverPongSchema,
   serverLocationRequestSchema,
   serverMaskRequestSchema,
+  serverMarkupRequestSchema,
   serverActivitySnapshotSchema,
   serverActivityDeltaSchema,
   serverMessageBlocksSchema,

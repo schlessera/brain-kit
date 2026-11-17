@@ -5,6 +5,7 @@
  * `brain sync` and review's `brain hygiene next` for the same tree.
  */
 
+import { withoutSigningForEach } from "./git-fixture";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,6 +15,8 @@ import { renderReport } from "../src/lib/sync/report";
 import type { RunEnvelope } from "../src/lib/sync/run";
 import { runCli } from "./cli-harness";
 import { brainWithRemote, cleanupFixtures, git, syncJson, write } from "./sync-fixture";
+
+withoutSigningForEach();
 
 afterEach(cleanupFixtures);
 
