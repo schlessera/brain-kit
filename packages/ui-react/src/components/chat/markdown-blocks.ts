@@ -38,8 +38,12 @@ const DEFINITION = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*\[(?:[^\]\\]|\\[\s\
  * A line that starts with HTML (a tag, open or closing, a comment, a
  * declaration or a processing instruction), after any indentation and
  * blockquote or list-item prefixes. An autolink (`<https://…>`) is not HTML.
+ * A tag name counts only once whitespace, `/` or `>` follows it, never at
+ * the end of the text: while a tag or an autolink is still being typed
+ * (`<h`, `<https`), it is not yet HTML, so the split does not collapse and
+ * split again under a streaming answer.
  */
-const HTML_LINE = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*<(?:\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|[!?])/m;
+const HTML_LINE = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*<(?:\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>])|[!?])/m;
 /** A fence marker that is indented or follows a blockquote or list-item prefix. */
 const NESTED_FENCE = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])+(?:`{3,}|~{3,})/m;
 /** A top-level fence opener or closer: three or more backticks or tildes at column 0. */

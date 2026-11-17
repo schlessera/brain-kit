@@ -51,6 +51,19 @@ describe("splitMarkdownBlocks", () => {
     for (const text of ["See [the log][l].\n\n> [l]: https://ithaca.example/log", "A claim.[^1]\n\nMore.\n\n> [^1]: The source.", "See [x].\n\n>> [x]: /u", "See [the log][l].\n\n- [l]: https://ithaca.example/log", "See [a\\]b].\n\n[a\\]b]: https://ithaca.example/"])
       expect(realSplit(text), text).toHaveLength(1);
   });
+  test("a tag or an autolink still being typed at a line start does not collapse the split", () => {
+    const answer = "Plan:\n\n```mermaid\ngraph LR; Troy-->Ithaca\n```\n\nThe voyage.\n\n";
+    const blocks = realSplit(answer + "Sources:").length;
+    for (const tail of ["<https://ithaca.example/log>", "<a@ithaca.example>", "<co"]) {
+      for (let i = 1; i <= tail.length; i++) {
+        expect(realSplit(answer + tail.slice(0, i)).length, `while "${tail.slice(0, i)}" streams`).toBeGreaterThanOrEqual(blocks);
+      }
+    }
+    // Once the tag name is finished the line is HTML, and from then on the
+    // text parses whole: it collapses once, never back and forth.
+    expect(realSplit(answer + "<co>")).toHaveLength(1);
+    expect(realSplit(answer + "<co>Shipwrights</co>")).toHaveLength(1);
+  });
   test("leading blank lines start no empty block", () => {
     expect(realSplit("\n\nFirst.\n\nSecond.")).toEqual(["\n\nFirst.\n", "Second."]);
   });
@@ -103,7 +116,7 @@ describe("split and whole render the same HTML", () => {
 const LINES = [
   "Para text", "Another line", "# Head", "Setext\n===", "Setext2\n---", "---", "***", "- item", "* item", "+ item", "1. one", "3) three",
   "  continued", "    indented code", "> quote", "> > nested", "| a | b |\n| - | - |\n| 1 | 2 |", "```", "```js", "~~~", "````", "  ```", "   ~~~",
-  "- ```", "> ```", "<div>", "</div>", "<details>", "<span>x</span>", "<pre>", "</pre>", "<!--", "-->", "[r]: /u", "> [q]: /q", "[^1]: note", "see [x][r] and [^1]",
+  "- ```", "> ```", "<div>", "</div>", "<div", "<co", "<https", "<details>", "<span>x</span>", "<pre>", "</pre>", "<!--", "-->", "[r]: /u", "> [q]: /q", "[^1]: note", "see [x][r] and [^1]",
   "\u00a0", " ", "\t", "<br>", "Term\n: def", "1. a\n2. b", "- a\n  - b", "text with `code`", "***bold***", "\\", "- [ ] task", "|x|", "a | b", "-- | --",
   "hard break  ", "back\\", "<https://ithaca.example>", "*emph", "**", "[link](/u)", "![img](/i.png)", "&amp;", "1.", "-", ">", "#", "======", "| --- |", "\t- tab item", "10. ten", "~~~~ ~", "```` js", "  > quote", "\u3000", "a\u00a0b",
 ];
