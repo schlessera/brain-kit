@@ -16,6 +16,7 @@ import { useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { watchCloseRequests } from "@schlessera/brain-ui-kit/internal";
+import { Overlay } from "@schlessera/brain-ui-kit";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { AppShell } from "../../src/components/layout/app-shell.js";
@@ -393,6 +394,35 @@ test("a disarmed surface above an armed one lets the close request reach the pag
   expect(a!.watching, "the take holds the watcher again").toBe(true);
   await userEvent.keyboard("{Escape}"); await frame();
   expect([take, pane, reachedPage], "then the take").toEqual([1, 1, 1]);
+});
+
+for (const watcher of [true, false]) test(`a surface opened over a phone drawer takes Escape, not the drawer beneath${watcher ? "" : " (without CloseWatcher)"}`, async ctx => {
+  if (watcher) spyCloseWatcher(ctx); else withoutCloseWatcher(ctx);
+  await page.viewport(390, 800);
+  const host = document.createElement("div");
+  document.body.append(host);
+  let drawerCloses = 0, surfaceCloses = 0;
+  function Drawer() {
+    const [open, setOpen] = useState(false);
+    return <>
+      <button data-test-drawer="" onClick={() => setOpen(true)}>Open Sessions</button>
+      <Overlay open={open} variant="panel" modal={false} title="Sessions" onClose={() => { drawerCloses++; setOpen(false); }}>
+        <p>Ithaca sessions</p>
+      </Overlay>
+    </>;
+  }
+  const renderer = createRoot(host);
+  ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); host.remove(); });
+  flushSync(() => renderer.render(<Drawer />));
+  await userEvent.click(host.querySelector<HTMLElement>("[data-test-drawer]")!); await frame();
+  expect(document.querySelector('[data-panel], [data-bk-overlay="panel"]'), "the drawer is open").not.toBeNull();
+  // A surface opens above the drawer (a dictation notice arriving), from script.
+  let surface: ReturnType<typeof watchCloseRequests> | null = watchCloseRequests(document, () => { surfaceCloses++; queueMicrotask(() => { surface?.destroy(); surface = null; }); return true; });
+  ctx.onTestFinished(() => surface?.destroy());
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([surfaceCloses, drawerCloses], "the surface on top closes; the drawer beneath stays").toEqual([1, 0]);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([surfaceCloses, drawerCloses], "then the drawer").toEqual([1, 1]);
 });
 
 test("a dictation gate notice takes a close request as Cancel, once", async ctx => {

@@ -23,8 +23,10 @@ export function registerOverlay(document: Document, entry: Entry): () => void {
     const keys = (event: KeyboardEvent) => {
       const top = entries.at(-1);
       // A watching top entry receives Escape as the platform's close request,
-      // through its watcher: taking it here as well would close twice.
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || !top || top.modal || top.watch?.watching) return;
+      // through its watcher: taking it here as well would close twice. An
+      // entry with a surface opened above it (a dictation field over a
+      // drawer) is not the topmost surface, so the Escape is that surface's.
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || !top || top.modal || top.watch?.watching || top.watch?.topmost === false) return;
       event.preventDefault();
       event.stopPropagation();
       top.escape();

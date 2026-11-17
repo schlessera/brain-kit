@@ -40,6 +40,8 @@ export interface CloseRequestWatch {
   disarm(): void;
   /** Whether close requests currently reach the surface through a watcher. */
   readonly watching: boolean;
+  /** Whether this is the document's topmost open surface: the only one that takes close requests. */
+  readonly topmost: boolean;
   /** Stop for good: the watcher and the keydown fallback are removed. */
   destroy(): void;
 }
@@ -132,6 +134,9 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
     },
     get watching() {
       return watcher !== null;
+    },
+    get topmost() {
+      return !destroyed && topmost();
     },
     destroy() {
       if (destroyed) return;
