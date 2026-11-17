@@ -336,6 +336,32 @@ test("a disarmed surface beneath an armed one leaves Escape to the surface above
   expect([upper, lower], "with the upper gone, Escape reaches the pane's fallback").toEqual([1, 1]);
 });
 
+test("re-arming a surface beneath another waits until the upper one closes", async ctx => {
+  const seen = spyCloseWatcher(ctx);
+  let lower = 0, upper = 0;
+  const openLower = document.createElement("button"); openLower.textContent = "Open the pane";
+  const openUpper = document.createElement("button"); openUpper.textContent = "Start the take";
+  document.body.append(openLower, openUpper);
+  let a: ReturnType<typeof watchCloseRequests> | null = null, b: ReturnType<typeof watchCloseRequests> | null = null;
+  openLower.onclick = () => { a = watchCloseRequests(document, () => { lower++; return true; }, { escape: false }); };
+  openUpper.onclick = () => { b = watchCloseRequests(document, () => { upper++; return false; }, { escape: false }); };
+  ctx.onTestFinished(() => { a?.destroy(); b?.destroy(); openLower.remove(); openUpper.remove(); });
+  await userEvent.click(openLower);
+  // Drilled in (#2582): the pane is disarmed. Then a take opens above it.
+  a!.disarm();
+  await userEvent.click(openUpper);
+  // Back at the pane's root while the take is still open: the pane re-arms.
+  a!.arm();
+  expect(a!.watching, "the pane's arming waits beneath the take").toBe(false);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([upper, lower], "the take, on top, takes the request").toEqual([1, 0]);
+  b!.destroy();
+  expect(a!.watching, "with the take gone, the pane's watcher is armed").toBe(true);
+  await userEvent.keyboard("{Escape}"); await frame();
+  expect([upper, lower], "the next request reaches the pane").toEqual([1, 1]);
+  expect(seen.closed).toBe(2);
+});
+
 test("a dictation gate notice takes a close request as Cancel, once", async ctx => {
   const seen = spyCloseWatcher(ctx);
   const host = document.createElement("div");

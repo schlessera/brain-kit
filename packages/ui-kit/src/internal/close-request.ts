@@ -56,12 +56,18 @@ export interface CloseRequestOptions {
 }
 
 /**
- * Each document's open surfaces, in opening order. Only the topmost one's
- * Escape fallback acts: a surface disarmed beneath an armed one (a drilled-in
- * pane under a dictation take) must not take the Escape that is the upper
- * surface's close request.
+ * Each document's open surfaces, in opening order, so the platform's watcher
+ * stack keeps the same order:
+ * - only the topmost surface's Escape fallback acts, so a surface disarmed
+ *   beneath an armed one (a drilled-in pane under a dictation take) never
+ *   takes the Escape that is the upper surface's close request;
+ * - a surface arms a new watcher only while it is topmost. A new watcher goes
+ *   on top of the platform's stack, so arming one beneath another surface
+ *   would let it take the next Back first. Its arming waits, and runs when
+ *   the surfaces above it close (`wake`).
  */
-const opened = new WeakMap<Document, symbol[]>();
+interface Opened { id: symbol; wake: () => void }
+const opened = new WeakMap<Document, Opened[]>();
 
 function watcherConstructor(view: Window | null): CloseWatcherConstructor | null {
   const candidate = (view as (Window & { CloseWatcher?: unknown }) | null)?.CloseWatcher;
@@ -74,13 +80,13 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
   const id = Symbol("close-request");
   const order = opened.get(document) ?? [];
   opened.set(document, order);
-  order.push(id);
+  const topmost = () => order.at(-1)?.id === id;
   let armed = options.armed ?? true;
   let destroyed = false;
   let watcher: PlatformCloseWatcher | null = null;
 
   const create = () => {
-    if (!Watcher || !armed || destroyed || watcher) return;
+    if (!Watcher || !armed || destroyed || watcher || !topmost()) return;
     const created = new Watcher();
     created.onclose = () => {
       // The platform destroys a watcher once it closes; drop our reference
@@ -103,12 +109,13 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
   const keys = (event: KeyboardEvent) => {
     // With an armed watcher, Escape is the platform's close request and
     // arrives through the watcher; handling it here too would close twice.
-    if (watcher || destroyed || event.key !== "Escape" || event.defaultPrevented || event.isComposing || order.at(-1) !== id) return;
+    if (watcher || destroyed || event.key !== "Escape" || event.defaultPrevented || event.isComposing || !topmost()) return;
     // Prevented only when the surface closed. A refusal (a modal over it,
     // closedBy="none", a finishing take) leaves the keydown for whatever
     // takes it next: a dialog above needs it for its own cancel.
     if (request()) event.preventDefault();
   };
+  order.push({ id, wake: () => create() });
   if (options.escape ?? true) document.addEventListener("keydown", keys);
   create();
 
@@ -128,9 +135,11 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
       if (destroyed) return;
       destroyed = true;
       release();
-      const index = order.indexOf(id);
+      const index = order.findIndex((entry) => entry.id === id);
       if (index !== -1) order.splice(index, 1);
       document.removeEventListener("keydown", keys);
+      // The surface now on top may have an arming waiting on this one.
+      order.at(-1)?.wake();
     },
   };
 }
