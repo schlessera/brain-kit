@@ -31,14 +31,21 @@ export function parseDeadlineFactor(value: unknown): number {
   return factor;
 }
 
+// Vitest injects test.env into import.meta.env in the browser. Bun exposes
+// import.meta.env too; plain Node falls back to process.env. No browser shim
+// or Node built-in is required by a spec importing this helper.
+const runEnvironment = (): Readonly<Record<string, string | undefined>> =>
+  // Keep import.meta.env contiguous: Vitest recognizes it before TS casts are erased.
+  import.meta.env ?? (typeof process === "undefined" ? {} : process.env);
+
 /** The factor of this process's run: one unless a loaded run set it. */
-export function deadlineFactor(env: Readonly<Record<string, string | undefined>> = process.env): number {
+export function deadlineFactor(env: Readonly<Record<string, string | undefined>> = runEnvironment()): number {
   const raw = env[DEADLINE_FACTOR_ENV];
   return raw === undefined || raw === "" ? 1 : parseDeadlineFactor(raw);
 }
 
 /** A watchdog's duration for this run: the written milliseconds times the run's factor. */
-export function watchdogMs(milliseconds: number, env: Readonly<Record<string, string | undefined>> = process.env): number {
+export function watchdogMs(milliseconds: number, env: Readonly<Record<string, string | undefined>> = runEnvironment()): number {
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) throw new Error("A watchdog is a positive, finite number of milliseconds");
   return milliseconds * deadlineFactor(env);
 }
