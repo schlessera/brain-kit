@@ -25,7 +25,7 @@ export const ARCHIVE_VERSIONS: Record<ArchiveKind, readonly number[]> = {
 /** GitHub refuses a blob over 100 MB; stop short of it rather than fail mid-push. */
 export const MAX_FILE_BYTES = 95 * 1024 * 1024;
 const MONTH = /^\d{4}-\d{2}$/;
-const ARCHIVE_PATH = /^(\d{4}-\d{2})\/([a-z-]+)\.json$/;
+const ARCHIVE_PATH = /^(\d{4}-\d{2})\/(?:([a-z-]+)\.json|(run)\/(\d{2})\.json)$/;
 
 type Row = Record<string, any>;
 export interface Refusal { kind: string; key: string; reason: string }
@@ -59,6 +59,9 @@ const SPECS: Record<ArchiveKind, { at(r: Row): unknown; key(r: Row): string; lis
   "red-main": { at: r => r.collectedAt, key: r => digest(r) },
   source: { at: r => r.createdAt, key: r => String(r.artifact) },
 };
+const dayOf = (kind: ArchiveKind, record: Row) => new Date(SPECS[kind].at(record) as string).toISOString().slice(0, 10);
+const partitionOf = (kind: ArchiveKind, record: Row) => kind === "run"
+  ? `${monthOf(kind, record)}/run/${dayOf(kind, record).slice(8)}.json` : `${monthOf(kind, record)}/${kind}.json`;
 export const monthOf = (kind: ArchiveKind, record: Row) => new Date(SPECS[kind].at(record) as string).toISOString().slice(0, 7);
 
 /** Schema, identity and leakage screen for one record. Returns why it is refused, or null. */
@@ -115,7 +118,7 @@ function mergeTwo(kind: ArchiveKind, old: Row, row: Row): Row {
   }
 }
 
-/** One month and kind of the archive: identity → record. */
+/** One archive partition and kind: identity → record. */
 export class MonthFile {
   readonly rows = new Map<string, Row>();
   constructor(readonly kind: ArchiveKind) {}
@@ -144,15 +147,16 @@ export class MonthFile {
   }
 }
 
-/** Parses one archived month file, refusing unknown kinds, versions or repositories rather than guessing. */
+/** Parses a monthly or daily archive file, refusing unknown kinds, versions or repositories. */
 export function parseMonthFile(path: string, text: string, repository: string): { kind: ArchiveKind; month: string; rows: Row[] } {
   const match = ARCHIVE_PATH.exec(path);
-  if (!match || !(ARCHIVE_KINDS as readonly string[]).includes(match[2]!)) throw new Error(`Unknown archive file ${path}`);
-  const kind = match[2] as ArchiveKind, rows = JSON.parse(text);
+  if (!match || !(ARCHIVE_KINDS as readonly string[]).includes((match[2] ?? match[3])!)) throw new Error(`Unknown archive file ${path}`);
+  const kind = (match[2] ?? match[3]) as ArchiveKind, rows = JSON.parse(text);
   if (!Array.isArray(rows)) throw new Error(`Invalid archive file ${path}`);
   for (const row of rows) {
     if (!ARCHIVE_VERSIONS[kind].includes(row?.version)) throw new Error(`Unknown ${kind} version ${JSON.stringify(row?.version)} in ${path}`);
     if (row.repository !== repository) throw new Error(`Archive ${path} belongs to another repository`);
+    if (match[4] && dayOf(kind, row) !== `${match[1]}-${match[4]}`) throw new Error(`Record outside its day partition in ${path}`);
     if (monthOf(kind, row) !== match[1]) throw new Error(`Record outside its month partition in ${path}`);
   }
   return { kind, month: match[1]!, rows };
@@ -199,7 +203,7 @@ export interface Batch { records: { kind: ArchiveKind; row: Row }[]; refused: Re
 
 /**
  * Merges a batch into the archive and publishes it. Each attempt reads the
- * remote head, merges into the month files it touches, and pushes with an exact
+ * remote head, merges into the partition files it touches, and pushes with an exact
  * lease on that head; a lost race re-reads and re-merges, so a competing writer
  * is never overwritten. A source another writer archived meanwhile is skipped.
  * An unchanged tree makes no commit.
@@ -210,9 +214,9 @@ export async function publishBatch(store: GitArchiveStore, repository: string, b
     const parent = await store.read(), tree = await store.files(parent), refused = [...batch.refused];
     const archived = await archivedSources(store, parent, repository);
     const skip = new Set(batch.sources.filter(s => archived.has(s.artifact)).map(s => s.artifact));
+    const legacyRuns = new Map<string, MonthFile>();
     const months = new Map<string, MonthFile>(), original = new Map<string, string>();
-    const file = async (kind: ArchiveKind, month: string) => {
-      const path = `${month}/${kind}.json`;
+    const file = async (kind: ArchiveKind, path: string) => {
       let target = months.get(path);
       if (!target) {
         target = new MonthFile(kind); months.set(path, target);
@@ -228,15 +232,40 @@ export async function publishBatch(store: GitArchiveStore, repository: string, b
     for (const { kind, row } of batch.records) {
       if (row.__source !== undefined && skip.has(row.__source)) continue;
       const { __source, ...clean } = row;
-      const reason = (await file(kind, monthOf(kind, clean))).add(clean);
+      const target = await file(kind, partitionOf(kind, clean));
+      let incoming = clean;
+      if (kind === "run") {
+        const legacyPath = `${monthOf(kind, clean)}/run.json`, legacyBlob = tree.get(legacyPath);
+        if (legacyBlob) {
+          let legacy = legacyRuns.get(legacyPath);
+          if (!legacy) {
+            legacy = new MonthFile("run");
+            for (const row of parseMonthFile(legacyPath, await store.blob(legacyBlob), repository).rows) {
+              const conflict = legacy.add(row);
+              if (conflict) throw new Error(conflict);
+            }
+            // Cache outside the output map: legacy files remain byte-identical.
+            legacyRuns.set(legacyPath, legacy);
+          }
+          const old = legacy.rows.get(SPECS.run.key(clean));
+          if (old) {
+            try { incoming = mergeTwo("run", old, clean); }
+            catch (error) {
+              refused.push({ kind, key: SPECS.run.key(clean), reason: String(error instanceof Error ? error.message : error) });
+              continue;
+            }
+          }
+        }
+      }
+      const reason = target.add(incoming);
       if (reason) refused.push({ kind, key: SPECS[kind].key(clean), reason });
     }
-    for (const source of batch.sources) if (!skip.has(source.artifact)) (await file("source", monthOf("source", source))).add(source);
+    for (const source of batch.sources) if (!skip.has(source.artifact)) (await file("source", partitionOf("source", source))).add(source);
     // Coordination events published under events/ (#2954) are compaction inputs too; they stay where they are.
     for (const [path, blob] of tree) if (/^events\/[\w-]+\.json$/.test(path)) {
       const row = JSON.parse(await store.blob(blob)), reason = screenRecord("event", row, repository);
       if (reason) { refused.push({ kind: "event", key: path, reason }); continue; }
-      const conflict = (await file("event", monthOf("event", row))).add(row);
+      const conflict = (await file("event", partitionOf("event", row))).add(row);
       if (conflict) refused.push({ kind: "event", key: row.id, reason: conflict });
     }
     const changes = new Map<string, string>();
@@ -409,6 +438,14 @@ export async function readArchive(store: GitArchiveStore, repository: string, mo
     const parsed = parseMonthFile(path, await store.blob(blob), repository);
     rows[parsed.kind].push(...parsed.rows);
   }
+  // Both layouts may contain an attempt. Apply the writer's deterministic join
+  // before any consumer counts it; contradictions remain an explicit refusal.
+  const runs = new MonthFile("run");
+  for (const row of rows.run) {
+    const conflict = runs.add(row);
+    if (conflict) throw new Error(`Conflicting archived run: ${conflict}`);
+  }
+  rows.run = JSON.parse(runs.serialize());
   rows.event = [...new Map(rows.event.map(e => [JSON.stringify(e), e])).values()];
   return { head, rows };
 }
