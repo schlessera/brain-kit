@@ -10,6 +10,7 @@ import {
   dialogueRecordSchema,
 } from "@schlessera/brain-ui-sdk/schemas";
 import { assertLive, isRetired } from "./chat-lifecycle.js";
+import { principalAccount } from "../middleware/account-partition.js";
 
 export interface DialogueOwner {
   id: string;
@@ -142,10 +143,12 @@ export function openDialogue(db: Database, input: DialogueOpen, activeEpochs?:Re
         const safety=input.sessionId?db.query("SELECT history_owner_id FROM safety_sessions WHERE session_id=? AND principal_id=? AND classification='new'").get(input.sessionId,input.principalId) as {history_owner_id:string}|null:null;
         const id = safety?.history_owner_id ?? input.conversationId;
         db.prepare(
-          "INSERT INTO dialogue_owners(id,principal_id,session_id,coverage,created_at) VALUES(?,?,?,?,?)"
+          "INSERT INTO dialogue_owners(id,principal_id,principal_account,session_id,coverage,created_at) VALUES(?,?,?,?,?,?)"
         ).run(
           id,
           input.principalId,
+          // The durable account of the owner, from its own row (#3962).
+          principalAccount(db, input.principalId),
           input.sessionId ?? null,
           input.sessionId && hasUnretainedVoice(db, input.principalId, input.sessionId) ? "legacy" : "complete",
           Date.now()
