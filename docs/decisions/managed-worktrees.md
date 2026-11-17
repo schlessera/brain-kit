@@ -234,7 +234,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:898-909`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:995-1026`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:1005-1036`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -277,7 +277,7 @@ source. Managed GitHub sources are withheld without network access: their
 validation needs an explicit request on the new turn's proxy and budget.
 These rules cover sources a running turn reads; a running reader keeps its
 existing mount
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:799-837`):
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:809-847`):
 
 - a source with less than the bind margin of validation left counts as
   lapsed: a minute, or half of a shorter configured lifetime, so it does not
@@ -291,7 +291,7 @@ existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:725-742`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:734-751`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
@@ -310,7 +310,7 @@ withheld rather than checked again; withholding takes only short pool calls,
 so the bind converges whatever the cache size. A bind that still cannot be
 admitted, because a pool change stays unconfirmed, refuses, and the turn runs
 without shared source views
-(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:843-852`).
+(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:853-862`).
 The margin covers the moments between admission and the workers' mounts.
 
 Suspension, restoration, withdrawal and publication of one source run one at a

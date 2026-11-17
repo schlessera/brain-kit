@@ -81,8 +81,11 @@ default to five minutes and are configured separately
   A successful private metadata check also withdraws the prior public copy.
   An incomplete metadata check withholds cached roots until acquisition can
   establish authority again. Private metadata responses of 401, 403 or 404
-  are authority refusals; the selected private grant is checked once more
-  after the acquisition wire finishes shutting down.
+  are authority refusals. The retained lease guard is checked after wire
+  shutdown, including validation lifetime, principal, selected grant,
+  credential and API-recipient permission. A failed close also checks and
+  contains authority loss. Shutdown expiry withholds the expired source under
+  its exposure lock, while a newer successful validation stays exposed.
   Repository metadata fences every cached and in-flight revision of that
   repository. Older requests cannot publish or restore public state after a
   newer private or refused observation, even before the first catalog row
@@ -257,14 +260,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:897-922`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:907-932`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:925-969`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:935-979`).
 
 ## Evidence
 

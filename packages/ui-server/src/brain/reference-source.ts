@@ -588,6 +588,10 @@ export function createReferenceSources(options: {
       } else if (!signal.aborted && context.current() && (reason === "denied" || reason === "unauthorized" || reason === "missing")) {
         work = Promise.all(domains.map(domain => reason === "missing" ? withdraw(domain, repository.canonical, revision)
           : withdrawRepository(domain, repository.canonical, revision)));
+      } else if (result && reason === "unavailable") {
+        // Wire shutdown may outlive the lease's validation. A newer live
+        // validation wins when this expiry cleanup reaches the exposure lock.
+        work = suspendSource(operation.domain, repository.canonical, revision, true);
       } else if (publishing) {
         work = withdraw(operation.domain, repository.canonical, revision);
       } else if (!signal.aborted && context.current() && openAttempted && !accessOpened) {
@@ -664,15 +668,20 @@ export function createReferenceSources(options: {
       await operation.promise;
       assertFence(operation.domain);
       assertTurn();
-      // Closing the wire also awaits: its original private grant must still
-      // authorize the lease after shutdown, without inheriting a new grant.
-      if (operation.domain !== PUBLIC && authorize(operation.domain, input.principalId, repository)?.id !== operation.grantId)
-        throw new ReferenceSourceError("unauthorized", "The selected reference grant changed before acquisition completed.");
+      // The retained guard includes validation, principal and selected
+      // grant/credential/recipient authority after wire shutdown completes.
+      result!.assertAuthority();
       return result!;
     } catch (error) {
       const held = result;
-      held?.release();
-      if (held) await containFailure(error, false);
+      if (held) {
+        // A failed close can hide an authority loss too; contain that loss
+        // even when the wire itself never returned successfully.
+        try { held.assertAuthority(); } catch (authorityError) { error = authorityError; }
+        held.release();
+        await containFailure(error, false);
+      }
+      if (error instanceof ReferenceTransportError) throw new ReferenceSourceError(error.reason === "denied" ? "unauthorized" : error.reason, error.message);
       throw error;
     }
     finally { operations.delete(id); void settle(...splitKey(operation.key)).catch(error => warn("managed source settle failed", error)); }
@@ -722,10 +731,11 @@ export function createReferenceSources(options: {
    * unsettled until the pool confirms, so a bind retries it and refuses until
    * it does.
    */
-  function suspendSource(domain: string, repository: string, revision: string): Promise<void> {
+  function suspendSource(domain: string, repository: string, revision: string, onlyExpired = false): Promise<void> {
     const key = sourceKey(domain, repository, revision);
     return exclusive(key, async () => {
       const source = row(domain, repository, revision);
+      if (onlyExpired && (!source || validationLive(source))) return;
       const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(domain, repository, revision) as { id: string }[];
       const pending = [...pendingPublications].filter(([, publication]) => publication.key === key);
       if ((!source?.root_id && !roots.length && !pending.length) || (suspended.has(key) && !unsettled.has(key) && !pending.length)) return;

@@ -655,6 +655,58 @@ describe("live managed authority", () => {
       } finally { held?.release(); await f.close(); }
     });
 
+  for (const loss of ["credential", "recipient", "principal", "expiry"] as const)
+  for (const closeFails of [false, true])
+    test(`source authority lost to ${loss} during ${closeFails ? "failed" : "successful"} wire shutdown is contained`, async () => {
+      const f = await fixture({ private: loss === "credential" || loss === "recipient" });
+      if (loss === "credential" || loss === "recipient") f.grant();
+      let held: Awaited<ReturnType<typeof f.request>> | undefined, delivered: typeof held;
+      try {
+        held = await f.request();
+        expect(readFileSync(join(held.viewPath, held.name, "README.md"), "utf8")).toContain("Odysseus");
+        const open = f.github.open;
+        f.github.open = async input => {
+          const access = await open(input);
+          return Object.freeze({ ...access, async close() {
+            await access.close();
+            if (loss === "credential") f.credentials.GITHUB_TOKEN = undefined;
+            else if (loss === "recipient") f.db.query("UPDATE reference_grants SET metadata_credential_recipient = NULL").run();
+            else if (loss === "principal") revokePrincipal(f.db, f.owner.id, Date.now());
+            else f.state.clock += 400_000;
+            if (closeFails) throw new Error("Wire shutdown did not complete.");
+          } });
+        };
+        const outcome = await f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+        delivered = outcome.lease;
+        expect(delivered, "SOURCE_MUST_NOT_RETURN_ALREADY_INVALID_AUTHORITY").toBeUndefined();
+        expect(existsSync(join(held.viewPath, held.name, "README.md")), "WIRE_SHUTDOWN_FAILURE_CONTAINS_INVALID_SOURCE_NAME").toBe(false);
+        expect(existsSync(join(held.viewPath, held.rootId, "README.md")), "WIRE_SHUTDOWN_FAILURE_CONTAINS_INVALID_SOURCE_ROOT").toBe(false);
+        expect(outcome.error).toMatchObject({ code: loss === "expiry" ? "unavailable" : "unauthorized" });
+      } finally { delivered?.release(); held?.release(); await f.close(); }
+    });
+
+  test("expiry during an older wire shutdown cannot suspend a newer validation", async () => {
+    const f = await fixture(), closing = Promise.withResolvers<void>(), resumeClose = Promise.withResolvers<void>();
+    let held: Awaited<ReturnType<typeof f.request>> | undefined, current: typeof held, older: Promise<{ lease: typeof held; error: unknown }> | undefined;
+    try {
+      held = await f.request();
+      const open = f.github.open; let openings = 0;
+      f.github.open = async input => {
+        const access = await open(input), paused = ++openings === 1;
+        return Object.freeze({ ...access, async close() { await access.close(); if (paused) { closing.resolve(); await resumeClose.promise; } } });
+      };
+      older = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+      await closing.promise; f.state.clock += 400_000;
+      current = await f.request(f.other.id, "telemachus-newer-validation", f.secondEgress);
+      resumeClose.resolve(); const outcome = await older;
+      outcome.lease?.release();
+      expect(outcome.error, "OLDER_EXPIRED_LEASE_IS_NOT_RETURNED").toMatchObject({ code: "unavailable" });
+      expect(existsSync(join(current.viewPath, current.name, "README.md")), "OLDER_EXPIRY_CANNOT_HIDE_NEW_VALIDATION").toBe(true);
+      expect(readFileSync(join(current.viewPath, current.name, "README.md"), "utf8")).toContain("Odysseus");
+      expect(() => current!.assertAuthority(), "NEW_VALIDATION_SURVIVES_OLDER_SHUTDOWN_EXPIRY").not.toThrow();
+    } finally { resumeClose.resolve(); (await older)?.lease?.release(); current?.release(); held?.release(); await f.close(); }
+  });
+
   test("a revoked private grant during wire shutdown refuses and hides the cached source", async () => {
     const f = await fixture({ private: true }), issued = f.grant();
     let held: Awaited<ReturnType<typeof f.request>> | undefined;
