@@ -157,6 +157,23 @@ for (const surface of SURFACES) {
   });
 }
 
+for (const surface of SURFACES) test(`${surface.name}: a dispatched (untrusted) Escape still closes it once while its watcher is armed`, async ctx => {
+  // A synthetic keydown raises no close request, so the watcher never sees
+  // it; the keydown path must take it, once (#4230: the storybook play
+  // functions dispatch their Escape this way).
+  const seen = spyCloseWatcher(ctx);
+  const s = await mount(ctx, surface.width);
+  const opener = s.tab(surface.tab);
+  opener.focus(); await userEvent.click(opener); await frame();
+  expect(seen.created, "armed").toBeGreaterThan(0);
+  const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+  expect(escape.isTrusted).toBe(false);
+  (document.activeElement ?? document.body).dispatchEvent(escape); await frame();
+  expect(s.ui.stores.ui.getState()[surface.flag], `${surface.name} closed on the dispatched Escape`).toBe(false);
+  expect(seen.closed, "the watcher saw no close request").toBe(0);
+  await expect.poll(() => document.activeElement, { message: "focus returns to the opener" }).toBe(opener);
+});
+
 test("a modal over a destination panel takes the first close request, the panel the next", async ctx => {
   const seen = spyCloseWatcher(ctx);
   const s = await mount(ctx, 390);
