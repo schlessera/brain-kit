@@ -32,6 +32,8 @@ let passwordHash = "";
 let port = 0;
 type Host = { app: Awaited<ReturnType<typeof createApp>>; server: ReturnType<typeof Bun.serve> };
 let host: Host | undefined;
+/** The passkey the first test registers, carried to the second test's authenticator. */
+let registered: Record<string, unknown> | undefined;
 
 const backend: AgentBackend = {
   id: "local-scripted", capabilities: { resume: true, permissions: false, thinking: false, attachments: false, askUser: false, costReporting: false, concurrentSessions: true, followUp: false },
@@ -91,30 +93,36 @@ afterAll(async () => {
 });
 
 /** A page with a CDP virtual authenticator that answers with user verification, and a log of what it asked. */
-async function passkeyPage(context: BrowserContext): Promise<{ page: Page; cdp: CDPSession; options: string[]; warnings: string[] }> {
+interface Seen { probes: number; mediations: string[] }
+async function passkeyPage(context: BrowserContext): Promise<{ page: Page; cdp: CDPSession; authenticatorId: string; options: string[]; warnings: string[]; seen: Seen }> {
   // Record each credentials.get mediation, so "conditional UI started" is the
   // browser's own fact, and each conditional-mediation probe: the screen runs
   // that probe in the same tick that draws its passkey button, just before it
-  // would ask for login options.
+  // would ask for login options. Recorded here, in the test, because a
+  // sign-in reloads the page.
+  const seen: Seen = { probes: 0, mediations: [] };
+  await context.exposeBinding("__seen", (_source, kind: string, value?: string) => {
+    if (kind === "probe") seen.probes++;
+    else seen.mediations.push(String(value));
+  });
   await context.addInitScript(() => {
-    const seen = window as unknown as { __mediations: string[]; __probes: number };
-    seen.__mediations = []; seen.__probes = 0;
+    const record = (window as unknown as { __seen(kind: string, value?: string): Promise<void> }).__seen;
     const get = navigator.credentials.get.bind(navigator.credentials);
     navigator.credentials.get = (request?: CredentialRequestOptions) => {
-      seen.__mediations.push(String(request?.mediation ?? "optional"));
+      void record("mediation", String(request?.mediation ?? "optional"));
       return get(request);
     };
     const probe = PublicKeyCredential.isConditionalMediationAvailable.bind(PublicKeyCredential);
-    PublicKeyCredential.isConditionalMediationAvailable = () => { seen.__probes++; return probe(); };
+    PublicKeyCredential.isConditionalMediationAvailable = () => { void record("probe"); return probe(); };
   });
   const page = await context.newPage();
   const cdp = await context.newCDPSession(page);
   await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
   const options: string[] = [], warnings: string[] = [];
   page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/auth/passkey/login-options") options.push(request.method()); });
   page.on("console", (message) => { if (message.type() === "warning" && message.text().startsWith("[passkeys]")) warnings.push(message.text()); });
-  return { page, cdp, options, warnings };
+  return { page, cdp, authenticatorId, options, warnings, seen };
 }
 
 const methods = (page: Page) => page.evaluate(async () => (await fetch("/api/auth/methods", { cache: "no-store" })).json());
@@ -124,7 +132,7 @@ const loginScreenSettled = (page: Page) => page.getByRole("button", { name: "Sig
 test.skipIf(!executablePath)("a passkey-only screen asks for no login options, and its passkey button still signs in", async () => {
   const context = await browser!.newContext();
   try {
-    const { page, options, warnings } = await passkeyPage(context);
+    const { page, cdp, authenticatorId, options, warnings, seen } = await passkeyPage(context);
     await page.goto(origin());
     // No credential yet: the password signs in, and the passkey is registered.
     await page.getByPlaceholder("Password").waitFor({ timeout: 15_000 });
@@ -132,42 +140,59 @@ test.skipIf(!executablePath)("a passkey-only screen asks for no login options, a
     expect(await methods(page), "one passkey and no password override: passkey-only").toEqual({ password: false, passkey: true });
 
     await context.clearCookies();
-    options.length = 0;
+    options.length = 0; seen.probes = 0; seen.mediations.length = 0;
     await page.reload();
     await loginScreenSettled(page);
     expect(await page.getByPlaceholder("Password").count(), "no password field, so no webauthn autofill input").toBe(0);
-    // The causal barrier: the screen decides in the same tick that draws the
-    // button, so a conditional ceremony would already have probed. Then the
-    // page's network goes idle, so a login-options request would have left.
-    expect(await page.evaluate(() => (window as unknown as { __probes: number }).__probes), "conditional UI never probed").toBe(0);
+    // The causal barriers: the screen decides in the same tick that draws the
+    // button, so a conditional ceremony would already have probed; and once
+    // the page's network is idle, a login-options request would have left.
     await page.waitForLoadState("networkidle");
+    expect(seen.probes, "conditional UI never probed").toBe(0);
     expect(options, "PASSKEY_ONLY_NO_LOGIN_OPTIONS").toEqual([]);
     expect(warnings, "no [passkeys] warning").toEqual([]);
-    expect(await page.evaluate(() => (window as unknown as { __mediations: string[] }).__mediations)).toEqual([]);
+    expect(seen.mediations).toEqual([]);
 
     // The explicit button: one login-options request, then a signed-in app.
     await page.getByRole("button", { name: "Sign in with a passkey" }).click();
     await page.locator("#signed-in").waitFor({ timeout: 15_000 });
     expect(options, "the button asked once").toEqual(["POST"]);
     expect(warnings).toEqual([]);
+    // The passkey as it stands now (its signature counter included), for the next test.
+    const { credentials } = await cdp.send("WebAuthn.getCredentials", { authenticatorId });
+    expect(credentials).toHaveLength(1);
+    registered = credentials[0] as unknown as Record<string, unknown>;
   } finally { await context.close(); }
 }, 90_000);
 
-test.skipIf(!executablePath)("beside a password field, conditional UI starts once and offers the passkey in the field's autofill", async () => {
+// The page's authenticator holds the host's registered passkey, and its
+// simulated user presence answers the field's conditional (autofill) request
+// with it: the app signs in through autofill, with no button pressed.
+test.skipIf(!executablePath)("beside a password field, conditional UI starts once and its autofill signs in with the passkey", async () => {
+  expect(registered, "the first test registered a passkey").toBeDefined();
   await stopHost(host);
   host = await startHost(true);
   const context = await browser!.newContext();
   try {
-    const { page, options, warnings } = await passkeyPage(context);
+    const { page, cdp, authenticatorId, options, warnings, seen } = await passkeyPage(context);
+    // The same passkey, on this page's authenticator: the one the host knows.
+    await cdp.send("WebAuthn.addCredential", { authenticatorId, credential: registered as never });
+    const answered = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/auth/passkey/login-options");
+    // The field the autofill attaches to; the sign-in below reloads the page.
+    const field = page.waitForFunction(() => document.querySelector("input[autocomplete='current-password webauthn']") !== null, undefined, { timeout: 15_000 });
     await page.goto(origin());
-    expect(await methods(page)).toEqual({ password: true, passkey: true });
-    await loginScreenSettled(page);
-    expect(await page.getByPlaceholder("Password").getAttribute("autocomplete")).toBe("current-password webauthn");
-    expect(await page.evaluate(() => (window as unknown as { __probes: number }).__probes), "positive control for the probe barrier (startAuthentication probes again)").toBeGreaterThan(0);
-    await page.waitForFunction(() => (window as unknown as { __mediations: string[] }).__mediations.length > 0, undefined, { timeout: 15_000 });
-    expect(await page.evaluate(() => (window as unknown as { __mediations: string[] }).__mediations), "the browser was asked for a conditional (autofill) passkey").toEqual(["conditional"]);
+    await field;
+    // A usernameless request for this RP, which the stored passkey answers.
+    const request = await (await answered).json() as { rpId?: string; allowCredentials?: unknown[] };
+    expect(request.rpId).toBe("localhost");
+    expect(request.allowCredentials ?? []).toEqual([]);
+    // The app signs in through the autofill request, with no button pressed.
+    await page.locator("#signed-in").waitFor({ timeout: 15_000 });
     await page.waitForLoadState("networkidle");
-    expect(options, "exactly one login-options request on load").toEqual(["POST"]);
+    expect(seen.probes, "positive control for the probe barrier (startAuthentication probes again)").toBeGreaterThan(0);
+    expect(seen.mediations, "the browser was asked for a conditional (autofill) passkey, and only that").toEqual(["conditional"]);
+    expect(options, "exactly one login-options request, and none for the sign-in itself").toEqual(["POST"]);
     expect(warnings).toEqual([]);
+    expect(await methods(page)).toEqual({ password: true, passkey: true });
   } finally { await context.close(); }
 }, 90_000);
