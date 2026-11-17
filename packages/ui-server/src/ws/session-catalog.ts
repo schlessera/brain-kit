@@ -361,22 +361,26 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
     dialogueAppend: input => submit("dialogueAppend", input),
     dialogueBind: async (conversationId, principalId, sessionId) => {
+      // The owner the conversation names before adoption. Read it before the
+      // bind, which retires that owner's id behind an alias.
+      const previousId=activeDialogueEpochs.get(conversationId)?.owner.id
+        ?? (db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null)?.owner_id;
       const owner=await submit<DialogueOwner | null>("dialogueBind", conversationId, principalId, sessionId);
-      const active=activeDialogueEpochs.get(conversationId);
-      if(owner && active && active.principalId===principalId) {
-        // Pending callbacks still hold this object across adoption. Replacing
-        // it would hide their genuine failure behind a fresh healthy owner.
-        // Every live scope on the adopted owner takes its canonical identity,
-        // whichever login of the account opened it (#3963).
-        const previousId=active.owner.id;
-        for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId){
-          const partial=scope.owner.coverage === "partial";
-          Object.assign(scope.owner,owner);
-          if(partial) scope.owner.coverage="partial";
-        }
-        return active.owner;
+      if(!owner || previousId===undefined) return owner;
+      // Pending callbacks still hold these objects across adoption. Replacing
+      // them would hide their genuine failure behind a fresh healthy owner.
+      // The adoption already moved every live scope of the previous owner, so
+      // each takes the canonical identity in place, whichever login opened it
+      // and whichever login bound it (#3963): its liveness is the durable
+      // owner's, and its epoch authority stays its own principal.
+      let shared:DialogueOwner|undefined;
+      for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId){
+        const partial=scope.owner.coverage === "partial";
+        Object.assign(scope.owner,owner);
+        if(partial) scope.owner.coverage="partial";
+        shared ??= scope.owner;
       }
-      return owner;
+      return activeDialogueEpochs.get(conversationId)?.owner ?? shared ?? owner;
     },
     async dialogueRead(principalId, target) {
       await tail;

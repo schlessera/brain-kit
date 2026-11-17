@@ -200,12 +200,16 @@ export class DialogueJournal {
     if (!sessionId) return;
     const adopting = this.adopting.get(turnId);
     if (msg.type === "session_info" && adopting) {
-      this.conversations.set(adopting.id, adopting);
+      // A live conversation keeps its own owner object through adoption: a
+      // fresh copy would drop its ingress until the bind settled and leave
+      // its pending callbacks on the old identity (#3963).
+      const live = this.conversations.get(adopting.id);
+      if (!live) this.conversations.set(adopting.id, adopting);
       // The adopting turn's own login binds it, not the history's first one.
       this.bind(adopting.id, this.adopters.get(turnId) ?? adopting.principal_id, sessionId);
       this.adopting.delete(turnId);
       this.adopters.delete(turnId);
-      this.conversations.delete(adopting.id);
+      if (!live) this.conversations.delete(adopting.id);
     }
     const owner =
       this.sessions.get(sessionId) ??

@@ -255,6 +255,44 @@ test("another login of the account cannot write voice evidence into an epoch it 
   } finally { await f.close(); }
 });
 
+test("another login's adoption of a live provisional history keeps its live identity and healthy coverage", async () => {
+  const f = await fixture();
+  const { DialogueJournal } = await import("../src/ws/dialogue");
+  const catalog = createSessionCatalog(() => f.db, undefined, undefined, { writer: f.writer, pricing: { resolve: () => null }, store: createOffloopActivityStore(f.db, f.writer) });
+  const pages: { ownerId: string; coverage: string }[] = [];
+  const journal = new DialogueJournal(catalog, page => pages.push({ ownerId: page.ownerId, coverage: page.coverage }), () => {});
+  try {
+    // The home login already has this chat's session history.
+    const home = await catalog.dialogueOpen!({ conversationId: "ithaca-voice", principalId: f.home.id, epoch: 1, providerId: "fake-live", sessionId: "ithaca" });
+    await catalog.dialogueClose!("ithaca-voice", f.home.id, 1, false);
+    // The ship login is live in a host-only history.
+    const ship = await journal.open({ conversationId: "argos-voice", principalId: f.ship.id, epoch: 1, providerId: "fake-live" });
+    expect(ship!.id).toBe("argos-voice");
+    // The home login's typed turn adopts it into the session.
+    journal.adoptTurn("homecoming", ship!.id, f.home.id);
+    journal.backend({ type: "session_info", sessionId: "ithaca", turnId: "homecoming", isNew: false } as never);
+    // The live epoch keeps speaking while the adoption is in flight.
+    const during = { kind: "voice" as const, conversationId: "argos-voice", epoch: 1, providerId: "fake-live",
+      event: { kind: "unassigned_input_fragment" as const, sequence: 1, text: "Hold the course.", timing: { kind: "unavailable" as const }, finalization: "final" as const } };
+    expect(journal.voice("argos-voice", during, () => {}), "DIALOGUE_ADOPTION_KEEPS_LIVE_INGRESS").toBe(true);
+    await journal.settled();
+    expect(f.db.query("SELECT owner_id FROM dialogue_aliases WHERE id='argos-voice'").get(), "DIALOGUE_CROSS_LOGIN_ADOPTION_MERGED").toEqual({ owner_id: home.id });
+    expect((await catalog.dialogueRead!(f.home.id, { sessionId: "ithaca" }))!.coverage, "DIALOGUE_CROSS_LOGIN_ADOPTION_STAYS_HEALTHY").toBe("complete");
+    expect(f.owners(), "DIALOGUE_CROSS_LOGIN_ADOPTION_DB_COMPLETE").toMatchObject([{ id: home.id, coverage: "complete" }]);
+    // The live epoch's journal references now name the canonical owner.
+    expect(ship!.id, "DIALOGUE_CROSS_LOGIN_ADOPTION_UPDATES_LIVE_OWNER").toBe(home.id);
+    const e = { kind: "voice" as const, conversationId: "argos-voice", epoch: 1, providerId: "fake-live",
+      event: { kind: "unassigned_input_fragment" as const, sequence: 0, text: "Steer for the hall.", timing: { kind: "unavailable" as const }, finalization: "final" as const } };
+    expect(journal.voice("argos-voice", e, () => {})).toBe(true);
+    await journal.settled();
+    expect(pages.at(-1), "DIALOGUE_CROSS_LOGIN_ADOPTION_PUBLISHES_CANONICAL_OWNER").toEqual({ ownerId: home.id, coverage: "complete" });
+    expect(f.db.query("SELECT COUNT(*) AS n FROM dialogue_records WHERE owner_id=? AND payload LIKE '%argos-voice%'").get(home.id), "DIALOGUE_ADOPTION_RETAINS_BOTH_UTTERANCES").toEqual({ n: 2 });
+    journal.close("argos-voice", f.ship.id, 1);
+    await journal.settled();
+    expect((await catalog.dialogueRead!(f.ship.id, { sessionId: "ithaca" }))!.coverage).toBe("complete");
+  } finally { await journal.settled().catch(() => {}); await catalog.settled!(); await f.close(); }
+});
+
 test("the catalog keeps live-epoch authority with the login that opened it", async () => {
   const f = await fixture();
   const catalog = createSessionCatalog(() => f.db, undefined, undefined, { writer: f.writer, pricing: { resolve: () => null }, store: createOffloopActivityStore(f.db, f.writer) });
