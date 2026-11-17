@@ -193,6 +193,15 @@ export async function runDeterminism(options: RunOptions): Promise<Report> {
   }
   for (const line of describePlan(plan, burnerCount)) log(line);
   if (factor > 1) log(`Test deadlines scaled by ${factor} under load: Bun's per-test cap is ${deadlines.testCapMs} ms, and explicit test and hook timeouts and watchdogMs() watchdogs are multiplied the same way.`);
+  // Write before starting the wrapper: a step timeout cannot reach the completion summary.
+  const oversized = plan.files.filter(entry => entry.weightSeconds * entry.repetitions > plan.budgetSeconds);
+  if (oversized.length) {
+    const warning = ["### Single file exceeds partition capacity", "",
+      ...oversized.map(entry => `- \`${entry.file}\`: ${entry.repetitions} repetitions cost ${(entry.weightSeconds * entry.repetitions).toFixed(1)} weighted s against ` +
+        `${plan.budgetSeconds} s capacity. This file cannot be split across partitions; hosted planning runs it alone within the ${DETERMINISM_PARTITIONS.stepMinutes}-minute proof step.`), "", ""].join("\n");
+    log(warning.trim());
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, warning);
+  }
   const files = plan.files.map(entry => entry.file), started = performance.now();
   mkdirSync(dirname(join(root, JUNIT_PATH)), { recursive: true });
   rmSync(join(root, JUNIT_PATH), { force: true });
