@@ -77,9 +77,10 @@ describe("reading a job log", () => {
  * `pulls/<n>/files` returns the first 3000, one page of 30 unless the call
  * asks for more per page and for every page.
  */
-function github(overrides: Record<string, { code?: number; stdout: string }> = {}, changed: readonly string[] = ["packages/ithaca/tests/oars.test.ts", "docs/voyage.md"]): Gh {
+type Changed = string | { path: string; previous: string };
+function github(overrides: Record<string, { code?: number; stdout: string }> = {}, changed: readonly Changed[] = ["packages/ithaca/tests/oars.test.ts", "docs/voyage.md"]): Gh {
   const view: Record<string, unknown> = { state: "OPEN", isDraft: false, headRefOid: HEAD, baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: "",
-    body: `Refs #12\n\n${RECEIPT_START}\n{}\n`, files: changed.slice(0, 100).map(path => ({ path })), changedFiles: changed.length,
+    body: `Refs #12\n\n${RECEIPT_START}\n{}\n`, files: changed.slice(0, 100).map(file => ({ path: typeof file === "string" ? file : file.path })), changedFiles: changed.length,
     statusCheckRollup: [run("proof", "COMPLETED", "SUCCESS"), run("unit (1)", "COMPLETED", "SUCCESS")] };
   const answers: Record<string, { code?: number; stdout: string }> = {
     "run list": { stdout: JSON.stringify([{ databaseId: 7, workflowName: "CI", event: "pull_request", attempt: 1, status: "completed", conclusion: "failure" }]) },
@@ -101,7 +102,12 @@ function github(overrides: Record<string, { code?: number; stdout: string }> = {
     if (!answer && key === "pr view") answer = { stdout: JSON.stringify(Object.fromEntries(args[args.indexOf("--json") + 1]!.split(",").map(field => [field, view[field]]))) };
     if (!answer && key === `repos/${REPO}/pulls/42/files`) {
       const listed = changed.slice(0, 3000), page = Math.min(Number(new URLSearchParams(query).get("per_page") ?? 30), 100);
-      answer = { stdout: (args.includes("--paginate") ? listed : listed.slice(0, page)).map(path => JSON.stringify(path)).join("\n") };
+      // Like `gh`, each entry prints as the call's `--jq` selects: its `filename` alone, or with the `previous_filename` a rename has.
+      const jq = args[args.indexOf("--jq") + 1], entry = (file: Changed) => typeof file === "string" ? { filename: file } : { filename: file.path, previous_filename: file.previous };
+      const select = jq === ".[] | .filename | tojson" ? (file: Changed) => entry(file).filename
+        : jq === ".[] | [.filename, (.previous_filename // empty)] | tojson" ? (file: Changed) => Object.values(entry(file)) : undefined;
+      if (!select) throw Error(`the fake does not know the --jq program ${jq}`);
+      answer = { stdout: (args.includes("--paginate") ? listed : listed.slice(0, page)).map(file => JSON.stringify(select(file))).join("\n") };
     }
     return answer ? { code: answer.code ?? 0, stdout: answer.stdout, stderr: answer.code ? "gh: Not Found (HTTP 404)" : "" } : { code: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
   };
@@ -157,6 +163,21 @@ describe("one pull request's state", () => {
     const changed = [...Array.from({ length: 149 }, (_, index) => `packages/ithaca/src/oar-${index}.ts`), "packages/pylos/src/sands.ts"];
     const result = await status(github({}, changed), "--expect-base", OLD_BASE);
     expect(result.json.baseGained).toEqual({ files: 2, overlapsThisPr: ["packages/pylos/src/sands.ts"] });
+  });
+
+  // #4152: both of GitHub's file lists name a renamed file by its new path, so a base that changed the old one read as no overlap.
+  test("a moved base's change to a path the pull request renames away from is named as an overlap", async () => {
+    const changed = ["docs/voyage.md", { path: "packages/pylos/src/shore.ts", previous: "packages/pylos/src/sands.ts" }];
+    const result = await status(github({}, changed), "--expect-base", OLD_BASE);
+    expect(result.json.baseGained).toEqual({ files: 2, overlapsThisPr: ["packages/pylos/src/sands.ts"] });
+  });
+
+  test("a rename's two paths count as one file read, so a cut list still says that it is incomplete", async () => {
+    // 3001 files, of which GitHub lists 3000; one listed file is a rename, so the list holds 3001 paths.
+    const changed = [{ path: "packages/pylos/src/shore.ts", previous: "packages/pylos/src/sands.ts" }, ...Array.from({ length: 3000 }, (_, index) => `packages/ithaca/src/oar-${index}.ts`)];
+    const result = await status(github({}, changed), "--expect-base", OLD_BASE);
+    expect(result.json.baseGained).toEqual({ files: 2, overlapsThisPr: ["packages/pylos/src/sands.ts"],
+      overlapIncomplete: ["read 3000 of the 3001 files this pull request changes"] });
   });
 
   test("an overlap list read from fewer files than the pull request changes says that it is incomplete", async () => {
