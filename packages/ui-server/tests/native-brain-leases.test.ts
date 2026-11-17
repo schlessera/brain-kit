@@ -178,6 +178,25 @@ test("unknown stage creation pins its lower root until confirmed stage deletion 
   } finally { await second.close(); await f.close(); }
 });
 
+test("source leases forward permanent withdrawal and refuse a keeper without its receipt", async () => {
+  const f = await fixture(); let supported = false;
+  f.native.client.poolCreate = async (id, purpose, from, allowanceBytes, _signal, permanentWithdrawal) => {
+    expect(permanentWithdrawal, "LEASE_OWNER_PRESERVES_PERMANENT_WITHDRAWAL").toBe(true);
+    return { id, purpose, from, allowanceBytes, state: "writable", root: null, path: null, ownerBytes: null, reason: null, view: null, access: null,
+      ...(supported ? { publicationRevoked: false } : {}) };
+  };
+  try {
+    await expectRejection(f.owner.client.poolCreate(ID, "source", null, 4096, undefined, true), "durable lease identity");
+    supported = true;
+    expect(await f.owner.client.poolCreate(ID, "source", null, 4096, undefined, true)).toMatchObject({ publicationRevoked: false });
+    f.native.client.poolPublish = async (id, view, _name, _signal, expectedRoots) => {
+      expect(expectedRoots, "LEASE_OWNER_FORWARDS_PUBLICATION_EXPECTATIONS").toEqual([ID, null]);
+      return { id, purpose: "source", from: null, allowanceBytes: 4096, state: "sealed", root: null, path: null, ownerBytes: null, reason: null, view, access: null };
+    };
+    await f.owner.client.poolPublish(ID, OTHER, "ithaca", undefined, [ID, null]);
+  } finally { await f.close(); }
+});
+
 test("reference pool roots are durable app leases that dead-owner recovery and close never delete", async () => {
   const f = await fixture(), calls: string[] = [];
   const record = (id: string, purpose: "source" | "worktree" | "staging" | "checkpoint", from: string | null, allowanceBytes: number, state: string) =>
@@ -226,7 +245,10 @@ test("worktree checkpoints, deltas, reads and access moves need this app's held 
   f.native.client.poolDelta = async (from, to) => { calls.push(`delta:${from}:${to}`); return { stream: new ReadableStream(), completed: Promise.resolve({ exitCode: 0 as const, bytes: 0 }) }; };
   f.native.client.poolStatCheckpoint = async id => { calls.push(`stat:${id}`); return null; };
   f.native.client.poolAccess = async (id, access) => { calls.push(`access:${id}:${access}`); return record(id, "worktree", SOURCE, "writable", { access }); };
-  f.native.client.poolPark = async id => { calls.push(`park:${id}`); return record(id, "worktree", SOURCE, "writable"); };
+  f.native.client.poolPark = async (id, _signal, expectedAccess) => {
+    calls.push(`park:${id}`);
+    return record(id, "worktree", SOURCE, "writable", { access: expectedAccess !== undefined && expectedAccess !== ACCESS ? ACCESS : null });
+  };
   try {
     await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
     await expectRejection(f.owner.client.poolCheckpoint(CHECKPOINT, SOURCE), "held worktree", "REFERENCE_CHECKPOINT_ONLY_OF_A_HELD_WORKTREE");
@@ -238,8 +260,9 @@ test("worktree checkpoints, deltas, reads and access moves need this app's held 
     await f.owner.client.poolDelta(CHECKPOINT, CHECKPOINT);
     await f.owner.client.poolStatCheckpoint(CHECKPOINT, "", 1000);
     await f.owner.client.poolAccess(WORKTREE, ACCESS);
+    expect((await f.owner.client.poolPark(WORKTREE, undefined, CHECKPOINT)).access, "LEASE_OWNER_PRESERVES_NATIVE_PARK_PRECONDITION").toBe(ACCESS);
     await f.owner.client.poolPark(WORKTREE);
-    expect(calls).toEqual([`create:${SOURCE}`, `create:${WORKTREE}`, `checkpoint:${CHECKPOINT}`, `delta:${CHECKPOINT}:${CHECKPOINT}`, `stat:${CHECKPOINT}`, `access:${WORKTREE}:${ACCESS}`, `park:${WORKTREE}`]);
+    expect(calls).toEqual([`create:${SOURCE}`, `create:${WORKTREE}`, `checkpoint:${CHECKPOINT}`, `delta:${CHECKPOINT}:${CHECKPOINT}`, `stat:${CHECKPOINT}`, `access:${WORKTREE}:${ACCESS}`, `park:${WORKTREE}`, `park:${WORKTREE}`]);
     expect(f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(CHECKPOINT)).toEqual({ state: "held" });
   } finally { await f.close(); }
 });

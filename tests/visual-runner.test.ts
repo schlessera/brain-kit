@@ -57,6 +57,9 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
       args: process.argv.slice(2), cwd: process.cwd()}) + "\\n");`;
   await writeFile(resolve(root, "node_modules/vitest/vitest.mjs"),
     record.replace("COMMAND", '"vitest"') + "process.exit(Number(process.env.RUNNER_EXIT));");
+  // A stand-in for the container side of the browser repetition gate (#4163), recorded like Vitest.
+  await writeFile(resolve(root, "scripts/browser-determinism-inside.mjs"),
+    record.replace("COMMAND", '"repeat"') + "process.exit(Number(process.env.RUNNER_EXIT));");
   for (const command of ["bun", "docker"]) {
     const script = resolve(root, "commands", command);
     const docker = command === "docker" ? `
@@ -176,6 +179,32 @@ test("inside default serializes browser files in every configured project", asyn
     "run", ...projects.map((project) => `--project=${project}`), "--browser.fileParallelism=false",
   ]);
   expect(result.calls[0]!.cwd).toBe(resolve(result.root, "packages/ui-kit"));
+});
+
+test("a repeat plan enters the same container and runs the repetition runner there in place of vitest run (#4163)", async () => {
+  const plan = "--repeat-plan=tmp/browser-determinism/plan.json";
+  const inside = await invoke(["--inside", "--project=rail-fine", plan], 7);
+  // The runner's exit status is the launcher's, and Vitest's CLI is never started: the runner drives Vitest in-process.
+  expect(inside.code, inside.stderr).toBe(7);
+  expect(inside.calls).toEqual([{ command: "repeat", args: ["tmp/browser-determinism/plan.json"], cwd: resolve(inside.root, "packages/ui-kit") }]);
+  const local = await invoke(["--project=ui-react-layout", "--project=visual", plan]);
+  expect(local.code, local.stderr).toBe(0);
+  expect(local.calls.map((call) => call.command), "SAME_HOST_PATH_AS_ANY_BROWSER_RUN").toEqual(["bun", "docker", "repeat"]);
+  const docker = local.calls[1]!.args;
+  expect(docker.slice(docker.indexOf("--inside"))).toEqual(["--inside", "--project=ui-react-layout", "--project=visual", plan]);
+  // The selected projects decide the network exactly as for an ordinary run of them.
+  expect(docker, "LAYOUT_STAYS_OFFLINE").toContain("--network=none");
+  expect((await invoke(["--project=visual", plan])).calls[1]!.args).not.toContain("--network=none");
+});
+
+test("a repeat plan names its projects and a file under tmp/, and nothing else that chooses files", async () => {
+  const plan = "--repeat-plan=tmp/browser-determinism/plan.json";
+  for (const args of [[plan], ["--project=visual", plan, "--shard=1/2"], ["--project=visual", plan, "--update"], ["--project=visual", plan, "--filter=Composer"],
+    ["--project=visual", plan, plan], ["--project=visual", "--repeat-plan=packages/plan.json"], ["--project=visual", "--repeat-plan=tmp/../plan.json"]]) {
+    const refused = await invoke(args);
+    expect([refused.code, refused.calls], args.join(" ")).toEqual([1, []]);
+    expect(refused.stderr).toContain("use --repeat-plan=tmp/<plan>.json once, with --project and no --update, --shard, --filter, --proof-report or scheduling override");
+  }
 });
 
 test("hosted proof adds project-aware case receipts while retaining human output and the runner failure", async () => {

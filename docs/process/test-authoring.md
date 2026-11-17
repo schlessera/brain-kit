@@ -159,7 +159,21 @@ first failing repetition
 a while, reads the wall clock or keeps state from its previous run fails
 there, not on someone else's merge. Reproduce a failure with
 `bun scripts/test-determinism.ts --base origin/main`, and fix the test under
-the rule it broke. A longer deadline or a retry is not a fix.
+the rule it broke. A retry is not a fix. A longer watchdog is the fix only
+when the watchdog is what tripped (C4): the gate already multiplies watchdogs
+by eight, so a test that still times out there is usually waiting for a while
+or racing something.
+
+A story, a visual baseline, or a pointer, layout or offline spec is checked
+the same way: the hosted `browser_determinism` job repeats each added or
+modified spec in the pinned container under CPU load, in every Vitest project
+that includes it, five times on a draft and twice at ready confirmation
+([the gate](testing.md#changed-browser-specs-repeat-under-load)). A spec that
+reads a status once instead of waiting for it, or that leaves something in
+`localStorage` for its own next pass, fails there. Reproduce a failure with
+`bun scripts/browser-determinism.ts --base origin/main`. Changing a helper
+repeats nothing, so a wait added to a shared helper is proved by the specs
+that are changed with it.
 
 ## Cost
 
@@ -175,10 +189,22 @@ the rule it broke. A longer deadline or a retry is not a fix.
 - **C3. A real-time wait of a second or more needs its justification.** State
   the failure mode controlled time cannot reproduce and the basis for the
   window ([test-waits.md](test-waits.md)). Prevents `real-time-wait`.
-- **C4. Never raise a time budget to make a test pass.** A changed timeout or
-  deadline is a proof-system change with its own lane
-  ([the CI decision](../decisions/ci-utility.md#proof-system-lane)). A test that
-  needs a minute is telling you about its tier or its setup. Prevents
+- **C4. A watchdog is sized for the worst case; a product timing is asserted
+  on a clock.** They are two kinds of number
+  ([the ruling](../decisions/ci-utility.md#test-watchdogs-are-a-worst-case-catch-all)).
+  A *watchdog* stops a hang and cleans up: Bun's per-test cap, a test's own
+  timeout, a timer that stops its child processes. Set it well above the
+  test's normal duration, about ten times, so that only a real hang trips it,
+  and write an in-test one as `watchdogMs(n)` (`scripts/test-deadlines.ts`) so
+  a run under deliberate load scales it. When one trips on a slow run, raise
+  it or let the run scale it: that is not a failed proof, and the work is not
+  squeezed to fit. Raising one needs no proof-system lane. A *product timing*
+  is a time the product promises: a 0.6-second hold, a one-second guard, a
+  five-second readiness limit. Never loosen it to make a test pass, and never
+  assert it through a test timeout: advance a controlled clock, or compare a
+  measured duration with the promise (D1, D2). To tell them apart, ask what a
+  user would notice if the number doubled. A test that needs a minute of real
+  work is still telling you about its tier or its setup (C1, C2). Prevents
   `long-timeout`.
 
 ## Proving a test can fail

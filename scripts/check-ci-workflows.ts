@@ -1,7 +1,7 @@
 /** GitHub is the sole CI provider; contributions share read-only workflows. */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { DETERMINISM_PARTITIONS, PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
+import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS, PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
 import { CATEGORY_JOBS, FEEDBACK_GROUP, renderHeavyFeedbackWorkflow, sameWorkflow } from "./heavy-feedback-workflow";
 import { actionPinProblems, pinned } from "./action-pins";
@@ -33,7 +33,7 @@ export function workflowProblems(text: string, file: string): string[] {
   if (JSON.stringify(workflow.permissions) !== JSON.stringify(permissions)) fail("workflow permissions must be the specified read-only contents/actions scope");
   const expectedTriggers = file === "ci.yml" ? ["pull_request", "push", "schedule", "workflow_dispatch"] : ["pull_request"];
   if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(expectedTriggers)) fail("unexpected contribution triggers");
-  const expectedJobs = file === "ci.yml" ? ["browser", "captures", "changeset", "determinism", "endurance", "layout", "pack", "proof", "runtime", "runtime_host", "unit", "verify"] : ["contract"];
+  const expectedJobs = file === "ci.yml" ? ["browser", "browser_determinism", "captures", "changeset", "determinism", "endurance", "layout", "pack", "proof", "runtime", "runtime_host", "unit", "verify"] : ["contract"];
   if (JSON.stringify(Object.keys(workflow.jobs ?? {}).sort()) !== JSON.stringify(expectedJobs)) fail("missing or unexpected CI jobs");
   for (const [name, job] of Object.entries(workflow.jobs ?? {})) {
     if (job["runs-on"] !== "ubuntu-24.04") fail(`${name}: unmapped GitHub-hosted runner`);
@@ -53,7 +53,7 @@ export function workflowProblems(text: string, file: string): string[] {
     }
   }
   if (file === "ci.yml") {
-    const names = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"];
+    const names = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"];
     for (const name of names) {
       const job = workflow.jobs?.[name];
       if (job?.needs !== "changeset") fail(`${name}: independent proof must depend only on metadata`);
@@ -116,11 +116,23 @@ export function workflowProblems(text: string, file: string): string[] {
         determinismProof?.env?.DETERMINISM_SHARDS !== "${{ strategy.job-total }}") fail("determinism: matrix and shard divisor must come from the planner's determinism_shards output");
     // One artifact name per partition: a shared name fails every upload after the first.
     if (!determinism?.steps?.some((step: Step) => step.uses?.startsWith("actions/upload-artifact@") && step.with?.name === "determinism-proof-${{ matrix.shard }}")) fail("determinism: each partition must upload its own receipts");
+    // Changed browser specs repeat in planned partitions too, under the same one-owner rule (#4163):
+    // the matrix is the planner's output, the divisor is the matrix's own job total, and the step limit is the table's.
+    const repeat = workflow.jobs?.browser_determinism as any;
+    const repeatProof = repeat?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts browser_determinism"));
+    if (changeset?.outputs?.browser_determinism_shards !== "${{ steps.plan.outputs.browser_determinism_shards }}" ||
+        JSON.stringify(repeat?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.browser_determinism_shards) }}" }) ||
+        repeatProof?.run !== 'bun scripts/ci-proof.ts browser_determinism --shard=${{ matrix.shard }}/"$BROWSER_REPEAT_SHARDS"' ||
+        repeatProof?.env?.BROWSER_REPEAT_SHARDS !== "${{ strategy.job-total }}") fail("browser_determinism: matrix and shard divisor must come from the planner's browser_determinism_shards output");
+    if (repeatProof?.["timeout-minutes"] !== BROWSER_DETERMINISM_PARTITIONS.stepMinutes) fail(`browser_determinism: proof must retain its ${BROWSER_DETERMINISM_PARTITIONS.stepMinutes}-minute limit`);
+    const repeatLimit = repeat?.["timeout-minutes"];
+    if (typeof repeatLimit !== "number" || !Number.isInteger(repeatLimit) || repeatLimit < BROWSER_DETERMINISM_PARTITIONS.stepMinutes + 5) fail("browser_determinism: job limit must cover proof and 5 minutes of other steps");
+    if (!repeat?.steps?.some((step: Step) => step.uses?.startsWith("actions/upload-artifact@") && step.with?.name === "browser-determinism-proof-${{ matrix.shard }}")) fail("browser_determinism: each partition must upload its own receipts");
     const proof = workflow.jobs?.proof;
     if (proof?.name !== "${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}") fail("proof: draft, manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
     if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
-    for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) {
+    for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "browser_determinism"]) {
       if (!workflow.jobs?.[category]?.steps?.some(step => step.run === `bun scripts/ci-proof.ts ${category}` || step.run?.startsWith(`bun scripts/ci-proof.ts ${category} `))) fail(`${category}: complete proof command is missing`);
     }
     if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");

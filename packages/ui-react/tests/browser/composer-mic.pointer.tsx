@@ -11,8 +11,14 @@
  * a hold that was cancelled, is proven to have opened no microphone, no
  * provider connection and no history read. Each instrument is restored with
  * its complete property descriptor when the test ends.
+ *
+ * The mic has two timings: a press held 0.6 s opens Start, and after a
+ * completed or cancelled hold the release's click is swallowed for one second.
+ * Both run on a clock this file controls (`stopClock`). Input stays native;
+ * time passes only when a test advances it, so a slow runner cannot stretch a
+ * dwell between two inputs (#4170, #4184).
  */
-import { afterAll, beforeAll, expect, inject, onTestFinished, test, type TestContext } from "vitest";
+import { afterAll, beforeAll, expect, inject, onTestFinished, test, vi, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -44,7 +50,15 @@ let styles: HTMLStyleElement;
 beforeAll(async () => { styles = document.createElement("style"); styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
 afterAll(() => styles.remove());
 
-const wait = (ms: number) => new Promise(done => setTimeout(done, ms));
+/** The real timer, kept from before any test stops the clock. */
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+const wait = (ms: number) => new Promise(done => realSetTimeout(done, ms));
+
+/** The mic's own timings (`HOLD_MS` and `SWALLOW_MS` in `composer-mic.tsx`), stated here so that changing either fails. */
+const HOLD = 600;
+const GUARD = 1000;
+/** The stopped clock draws an animation frame every 16 ms. */
+const FRAME = 16;
 
 /** Replaces one property for the test and puts its complete descriptor back afterwards. */
 function instrument<T extends object>(ctx: TestContext, target: T, key: PropertyKey, value: unknown) {
@@ -112,18 +126,96 @@ async function scene(ctx: TestContext, width: number) {
 }
 
 type Kind = "mouse" | "touch";
+type Scene = Awaited<ReturnType<typeof scene>>;
+type Point = { x: number; y: number };
+
+const CLOCK = ["setTimeout", "clearTimeout", "performance", "requestAnimationFrame", "cancelAnimationFrame"] as const;
+/**
+ * Stops the clock the mic reads: its hold timer, its click guard, the ring's
+ * animation frames and `performance.now`. From here time passes only in
+ * `advance`, however long the runner takes between two inputs. The scene's
+ * start-up runs before this, on the real clock, and timers set before the
+ * stop keep running in real time. `restore` hands the clock back for what a
+ * case does after its gesture; the test's end restores it otherwise.
+ *
+ * While the clock is stopped, wait with `reached`, never `expect.poll`: a
+ * poll that is not yet true advances a faked clock by its interval.
+ */
+function stopClock(ctx: TestContext) {
+  const own = CLOCK.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+  let stopped = true;
+  const restore = () => {
+    if (!stopped) return;
+    stopped = false;
+    vi.useRealTimers();
+    // The faked `performance` comes back as a plain value where the window had an accessor.
+    for (const [key, descriptor] of own) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
+  };
+  vi.useFakeTimers({ toFake: [...CLOCK], shouldClearNativeTimers: true });
+  ctx.onTestFinished(restore);
+  return { restore };
+}
+/** Moves the stopped clock on, and commits what the mic's timers and frames drew. */
+const advance = (ms: number) => flushSync(() => { vi.advanceTimersByTime(ms); });
+
+/**
+ * Waits for the page to act on an input it has been sent. This is real time,
+ * but it is a completion, not a dwell: the clock the mic reads is stopped, so
+ * the wait cannot let a hold complete or a click guard end.
+ */
+async function reached(read: () => boolean, message: string) {
+  const deadline = Date.now() + 5_000;
+  while (!read()) {
+    if (Date.now() > deadline) throw new Error(message);
+    await wait(5);
+  }
+}
 
 function centre(el: Element) {
   const box = el.getBoundingClientRect();
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
-/** A press that a failed assertion leaves down is lifted when its test ends. */
-function press(kind: Kind, at: { x: number; y: number }) {
+const phase = (s: Scene) => s.mic()?.dataset.phase ?? "no mic";
+const ring = (s: Scene) => Number(s.mic()?.querySelector(".bk-voice-ring")?.getAttribute("data-progress"));
+const hint = (s: Scene) => s.host.querySelector(".bk-voice-hint")?.textContent ?? null;
+
+/**
+ * Presses the mic and leaves it down. `t` on every later input of the gesture
+ * is the event's time since this press, and matches the stopped clock. A
+ * press that a failed assertion leaves down is lifted when its test ends.
+ */
+async function press(s: Scene, kind: Kind, at: Point) {
   onTestFinished(() => commands.sheetInput(kind, [{ type: "up", ...at, t: 0 }]));
-  return commands.sheetInput(kind, [{ type: "down", ...at, t: 0 }]);
+  await commands.sheetInput(kind, [{ type: "down", ...at, t: 0 }]);
+  await reached(() => phase(s) === "pressed", `${kind}: the press reaches the mic`);
 }
-const move = (kind: Kind, at: { x: number; y: number }, t: number) => commands.sheetInput(kind, [{ type: "move", ...at, t }]);
-const lift = (kind: Kind, at: { x: number; y: number }, t: number) => commands.sheetInput(kind, [{ type: "up", ...at, t }]);
+const move = (kind: Kind, at: Point, t: number) => commands.sheetInput(kind, [{ type: "move", ...at, t }]);
+
+let markers = 0;
+/**
+ * Everything the browser made of the inputs sent so far has reached the page:
+ * the events themselves and the click a release produces, which for a touch
+ * the browser sends as a separate tap after the release. A later native
+ * input is the barrier: Chromium hands input to the page in the order it was
+ * sent, so once the page has seen this mouse move, whatever an earlier input
+ * caused has been handled. The mic ignores the move: it is not a press, a
+ * click or a key, and no press is down.
+ */
+async function delivered(t: number) {
+  const at = { x: 3 + markers++ % 5, y: 3 };
+  let seen = false;
+  const mark = (event: PointerEvent) => { if (event.pointerType === "mouse" && Math.abs(event.clientX - at.x) < 1 && Math.abs(event.clientY - at.y) < 1) seen = true; };
+  window.addEventListener("pointermove", mark, true);
+  try {
+    await commands.sheetInput("mouse", [{ type: "move", ...at, t }]);
+    await reached(() => seen, "the marker input reaches the page");
+  } finally { window.removeEventListener("pointermove", mark, true); }
+}
+/** Lifts the press at `at`, `t` ms after it, and returns once the page has handled the release and any click it made. */
+async function release(kind: Kind, at: Point, t: number) {
+  await commands.sheetInput(kind, [{ type: "up", ...at, t }]);
+  await delivered(t);
+}
 
 const MODE = inject("railPointer");
 /** A mouse under a fine pointer, a touch under a coarse one, both under a mixed one. */
@@ -141,25 +233,36 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
     const s = await scene(ctx, width);
     const at = centre(s.mic()!);
     const before = s.traffic();
-    await press(kind, at);
+    const clock = stopClock(ctx);
+    await press(s, kind, at);
     // Mid-hold: the ring fills and the hint explains, and nothing has started.
-    await expect.poll(() => s.mic()!.dataset.phase, { message: `${kind}: the ring fills` }).toBe("holding");
-    await expect.poll(() => s.host.querySelector(".bk-voice-hint")?.textContent).toBe("Keep holding to talk live");
-    await wait(250);
-    expect(Number(s.mic()!.querySelector(".bk-voice-ring")?.getAttribute("data-progress")), `${kind}: progress follows elapsed time`).toBeGreaterThan(0);
+    advance(FRAME);
+    expect(phase(s), `${kind}: the ring fills`).toBe("holding");
+    expect(hint(s)).toBe("Keep holding to talk live");
+    advance(250 - FRAME);
+    // The ring was last drawn at most one frame ago.
+    expect(ring(s), `${kind}: progress follows elapsed time`).toBeGreaterThan((250 - FRAME) / HOLD);
+    expect(ring(s), `${kind}: progress follows elapsed time`).toBeLessThanOrEqual(250 / HOLD);
     expect(s.client.state.getState().disclosureOpen, `${kind}: 0.6 s has not passed`).toBe(false);
     expect(s.traffic(), `${kind}: HOLD_CAPTURES_NOTHING`).toEqual(before);
-    // Still held: at 0.6 s Start opens, with a light haptic.
-    await expect.poll(() => s.client.state.getState().disclosureOpen, { message: `${kind}: the hold opens Start` }).toBe(true);
-    expect(s.haptics, `${kind}: one light haptic`).toEqual([10]);
-    await lift(kind, at, 900);
-    await wait(100);
+    advance(HOLD - 250 - 1);
+    expect(s.client.state.getState().disclosureOpen, `${kind}: one millisecond short of 0.6 s, Start has not opened`).toBe(false);
+    expect(s.haptics, `${kind}: no haptic before the hold completes`).toEqual([]);
+    expect(s.traffic(), `${kind}: HOLD_CAPTURES_NOTHING`).toEqual(before);
+    // Still held, and no release has been sent: at 0.6 s Start opens, with a light haptic.
+    advance(1);
+    expect(s.client.state.getState().disclosureOpen, `${kind}: the hold opens Start while the mic is still held`).toBe(true);
+    expect(s.haptics, `${kind}: one light haptic while the mic is still held`).toEqual([10]);
+    // Released one millisecond before the click guard ends.
+    advance(GUARD - 1);
+    await release(kind, at, HOLD + GUARD - 1);
     // The release is not a tap: Start stays, and no dictation began.
     expect(s.client.state.getState().disclosureOpen, `${kind}: the release does not dismiss Start`).toBe(true);
     expect(s.ui.stores.voice.getState().mode).toBe("conversation");
     expect(s.microphone, `${kind}: Start is not Start pressed`).toEqual([]);
     expect(s.traffic().frames.filter(type => type !== "conversation_enter"), `${kind}: no provider bytes before Start`).toEqual(before.frames);
-    expect(s.network.socket()!.frames("conversation_start")).toHaveLength(0);
+    expect(s.network.socket()!.frames("conversation_start"), `${kind}: the release inside the click guard does not press Start`).toHaveLength(0);
+    clock.restore();
     await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
     expect(s.client.state.getState().active).toBe(false);
   }
@@ -170,14 +273,21 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`an ear
   {
     const s = await scene(ctx, width);
     const at = centre(s.mic()!);
-    await press(kind, at);
-    await wait(250);
-    await lift(kind, at, 250);
-    await expect.poll(() => s.ui.stores.voice.getState().mode, { message: `${kind}: the tap dictates` }).toBe("dictate");
-    await wait(600);
+    const clock = stopClock(ctx);
+    await press(s, kind, at);
+    // Released part-way through the hold, with the ring drawn that far.
+    advance(250);
+    expect(phase(s), `${kind}: the tap is released part-way through the hold`).toBe("holding");
+    expect(ring(s), `${kind}: the ring is part-way round at the release`).toBeGreaterThan((250 - FRAME) / HOLD);
+    expect(ring(s), `${kind}: the ring is part-way round at the release`).toBeLessThanOrEqual(250 / HOLD);
+    await release(kind, at, 250);
+    expect(s.ui.stores.voice.getState().mode, `${kind}: the tap dictates`).toBe("dictate");
+    // Past the 0.6 s the press would have needed: the release ended the hold.
+    advance(HOLD);
     expect(s.client.state.getState().disclosureOpen, `${kind}: EARLY_RELEASE_NEVER_OPENS_START`).toBe(false);
     expect(s.client.state.getState().active).toBe(false);
     expect(s.haptics).toEqual([]);
+    clock.restore();
     // The dictation path is the one that opens the microphone.
     await expect.poll(() => s.microphone.length, { message: `${kind}: dictation opens the microphone`, timeout: 5_000 }).toBeGreaterThan(0);
   }
@@ -189,25 +299,56 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`leavin
     const s = await scene(ctx, width);
     const at = centre(s.mic()!);
     const before = s.traffic();
-    await press(kind, at);
-    await expect.poll(() => s.mic()!.dataset.phase).toBe("holding");
+    stopClock(ctx);
+    await press(s, kind, at);
+    advance(150);
+    expect(phase(s)).toBe("holding");
+    expect(hint(s)).toBe("Keep holding to talk live");
+    // The pointer leaves, still down. The clock is stopped, so only leaving can end the hold here.
     const away = { x: at.x - 120, y: at.y - 160 };
     await move(kind, away, 150);
-    await expect.poll(() => s.mic()?.dataset.phase ?? "no mic: the hold completed", { message: `${kind}: leaving cancels` }).toBe("idle");
-    expect(s.host.querySelector(".bk-voice-hint"), `${kind}: the hint goes with the hold`).toBe(null);
-    await wait(700);
+    await reached(() => phase(s) !== "holding", `${kind}: leaving cancels`);
+    expect(phase(s), `${kind}: leaving cancels`).toBe("idle");
+    expect(hint(s), `${kind}: the hint goes with the hold`).toBe(null);
+    // Away and still down until one millisecond before the click guard ends:
+    // 1,149 ms after the press, well past the 0.6 s a running hold needs.
+    advance(GUARD - 1);
+    expect(s.client.state.getState().disclosureOpen, `${kind}: a cancelled hold never opens Start`).toBe(false);
+    expect(s.haptics, `${kind}: a cancelled hold never completes`).toEqual([]);
+    expect(phase(s), `${kind}: a cancelled hold never completes`).toBe("idle");
     // Back over the mic and released there: still not a tap, and not a hold.
-    await move(kind, at, 850);
-    await lift(kind, at, 900);
-    await wait(300);
+    await move(kind, at, 150 + GUARD - 1);
+    await release(kind, at, 150 + GUARD - 1);
     expect(s.client.state.getState().disclosureOpen, `${kind}: a cancelled hold never opens Start`).toBe(false);
     expect(s.ui.stores.voice.getState().mode, `${kind}: a cancelled hold does not dictate`).toBe("idle");
     expect(s.haptics).toEqual([]);
     expect(s.traffic(), `${kind}: CANCELLED_HOLD_CAPTURES_NOTHING`).toEqual(before);
     // The next tap is still a tap.
-    await press(kind, at);
-    await lift(kind, at, 100);
-    await expect.poll(() => s.ui.stores.voice.getState().mode, { message: `${kind}: the next tap dictates` }).toBe("dictate");
+    await press(s, kind, at);
+    await release(kind, at, 100);
+    expect(s.ui.stores.voice.getState().mode, `${kind}: the next tap dictates`).toBe("dictate");
+  }
+});
+
+// A touch that slid away and back is not a tap to the browser, so only a mouse clicks here.
+for (const kind of KINDS.filter(kind => kind === "mouse")) for (const width of [320, 1280] as const) test(`one second after a cancelled hold the release is a tap again ${kind} ${width}`, async ctx => {
+  premise();
+  {
+    const s = await scene(ctx, width);
+    const at = centre(s.mic()!);
+    stopClock(ctx);
+    await press(s, kind, at);
+    advance(150);
+    await move(kind, { x: at.x - 120, y: at.y - 160 }, 150);
+    await reached(() => phase(s) !== "holding", `${kind}: leaving cancels`);
+    expect(phase(s), `${kind}: leaving cancels`).toBe("idle");
+    // The case above releases one millisecond earlier, and is swallowed.
+    advance(GUARD);
+    await move(kind, at, 150 + GUARD);
+    await release(kind, at, 150 + GUARD);
+    expect(s.ui.stores.voice.getState().mode, `${kind}: the click guard has ended, so the release dictates`).toBe("dictate");
+    expect(s.client.state.getState().disclosureOpen, `${kind}: a cancelled hold never opens Start`).toBe(false);
+    expect(s.haptics).toEqual([]);
   }
 });
 
@@ -218,20 +359,50 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`withou
     flushSync(() => s.client.state.setState({ available: false }));
     const at = centre(s.mic()!);
     const before = s.traffic();
-    await press(kind, at);
-    await expect.poll(() => s.mic()!.dataset.phase, { message: `${kind}: the ring still fills (V4)` }).toBe("holding");
-    await expect.poll(() => s.host.textContent, { message: `${kind}: S4 replaces Start` }).toContain(S4);
-    expect(s.haptics).toEqual([10]);
-    await lift(kind, at, 800);
-    await wait(150);
+    const clock = stopClock(ctx);
+    await press(s, kind, at);
+    advance(FRAME);
+    expect(phase(s), `${kind}: the ring still fills (V4)`).toBe("holding");
+    advance(HOLD - FRAME - 1);
+    expect(s.host.textContent, `${kind}: one millisecond short of 0.6 s, no notice`).not.toContain(S4);
+    expect(s.haptics, `${kind}: no haptic before the hold completes`).toEqual([]);
+    // Still held, and no release has been sent.
+    advance(1);
+    expect(s.host.textContent, `${kind}: S4 replaces Start while the mic is still held`).toContain(S4);
+    expect(s.haptics, `${kind}: one light haptic while the mic is still held`).toEqual([10]);
+    const ok = page.getByRole("button", { name: "OK", exact: true });
+    expect(document.activeElement, `${kind}: the notice takes focus`).toBe(ok.element());
+    // Released one millisecond before the click guard ends.
+    advance(GUARD - 1);
+    await release(kind, at, HOLD + GUARD - 1);
     expect(s.client.state.getState().active, `${kind}: Start does not open`).toBe(false);
     expect(s.ui.stores.voice.getState().mode, `${kind}: the release is not a tap`).toBe("idle");
     expect(s.traffic(), `${kind}: S4 captures nothing`).toEqual(before);
-    const ok = page.getByRole("button", { name: "OK", exact: true });
-    expect(document.activeElement, `${kind}: the notice takes focus`).toBe(ok.element());
+    expect(document.activeElement, `${kind}: the release leaves focus on the notice`).toBe(ok.element());
+    clock.restore();
     await userEvent.keyboard("{Enter}");
     await expect.poll(() => s.host.textContent).not.toContain(S4);
     await expect.poll(() => document.activeElement, { message: `${kind}: OK hands focus back to the mic` }).toBe(s.mic());
+  }
+});
+
+// The mic stays in place under S4, so the release's click lands on it for a mouse and for a touch.
+for (const kind of KINDS) for (const width of [320, 1280] as const) test(`one second after a completed hold the release is a tap again ${kind} ${width}`, async ctx => {
+  premise();
+  {
+    const s = await scene(ctx, width);
+    flushSync(() => s.client.state.setState({ available: false }));
+    const at = centre(s.mic()!);
+    stopClock(ctx);
+    await press(s, kind, at);
+    advance(HOLD);
+    expect(s.host.textContent, `${kind}: S4 replaces Start while the mic is still held`).toContain(S4);
+    // The case above releases one millisecond earlier, and is swallowed.
+    advance(GUARD);
+    await release(kind, at, HOLD + GUARD);
+    expect(s.ui.stores.voice.getState().mode, `${kind}: the click guard has ended, so the release dictates`).toBe("dictate");
+    expect(s.client.state.getState().active, `${kind}: Start does not open`).toBe(false);
+    expect(s.haptics).toEqual([10]);
   }
 });
 

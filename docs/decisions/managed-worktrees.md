@@ -7,7 +7,7 @@ commit. It builds on the [acquisition service](reference-source-acquisition.md)
 and the pool's [checkpoints and access generations](reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 This record names the concrete choices the rulings left to implementation. The
 service is `createReferenceWorktrees`
-(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:150-694`),
+(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:153-713`),
 created with the acquisition service. The agent tools that call it arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432) ([agent tools](#agent-tools)). Hygiene findings,
 review and cleanup arrived with [#2431](https://github.com/schlessera/brain-kit/issues/2431)
@@ -19,7 +19,7 @@ A request names the principal, a repository and a branch or tag, like a source
 request. The service asks the acquisition service for that source, so its
 authority, freshness and private boundary all apply, and then snapshots the
 sealed source root it was given
-(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:427-455`).
+(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:458-490`).
 The worktree's starting commit is the commit that source reported, and it never
 moves with the source. A read-only baseline checkpoint is taken at once. Each
 worktree gets the pool's per-operation allowance. A worktree belongs to one
@@ -31,6 +31,21 @@ record. While any worktree record names a source root, capacity eviction and
 startup recovery keep that root: a snapshot keeps its source's extents and
 owner charge, so releasing the source would free nothing.
 
+The acquiring turn and live private grant are checked after pool and database
+waits. The host source lease also retains a live authority check after its wire
+closes: newer withdrawal or suspension, validation expiry, principal or selected
+private grant/credential loss invalidates waiting allocation and access. An
+originally public worktree cannot finish a wait using authority that a newer
+metadata observation refused. Authority lost during allocation discards its
+roots and record, including when the activation write completed before the
+final authority check; an access that dispatched is parked and its holder cleared.
+Cleanup supplies its requesting generation to native parking. The manager
+compares that expected holder under its mutation lock, so a refused or
+lost-reply grant cannot park another process's live generation during its
+native-grant/database-receipt gap. A native refusal still cleans a grant of
+this request whose reply was lost. Database holder clearing names only the
+expected generation; a mismatched native holder is retained.
+
 ## Worker generations and access
 
 A worker generation is one access generation in the pool, opened for one
@@ -39,7 +54,7 @@ restricted (autonomous) turn holds no worktree. The generation records the
 owning process (PID, start time, boot and PID namespace).
 
 Access makes a worktree available to one open generation
-(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:513-523`):
+(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:555-565`):
 
 1. The generation must be open in this process for a running turn, and belong
    to the requesting principal.
@@ -50,9 +65,13 @@ Access makes a worktree available to one open generation
    worktree of private source needs a live grant covering its repository at
    every access, even if its branch has since become public. The repository's
    revision is then validated through the acquisition service under its own
-   clocks, and the grant is read again after that and after coverage, just
-   before the move. A revoked grant, or an expired validation that cannot be
-   renewed, refuses.
+   clocks, and the grant is read again after revalidation, coverage, the native
+   move and the database grant write. A revoked grant, or an expired validation
+   that cannot be renewed, refuses. Failed access parks a newly dispatched
+   mount or one already held by this generation and clears its database holder;
+   another live generation's mount remains busy. A public starting snapshot
+   also needs the live private grant whenever the current source check requires
+   private access; its original public domain cannot bypass that requirement.
 5. Journal coverage is established for the turn before the pool moves the
    worktree into the generation. Without coverage the service refuses access,
    so no worker reaches a worktree that is not journaled.
@@ -77,10 +96,10 @@ own generation and its turn no longer runs; that record is process-wide, so
 every service instance in the process reads the same evidence. Closing a
 service ends the registration of the generations it opened. Any other case,
 such as an owner in another PID namespace, is **unknown**
-(`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:205-211`).
+(`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:208-214`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
-(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:590-617`).
+(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:639-666`).
 After three days without explicit activity, a worktree expires:
 
 - with a live holder it stays `active` and held, however long the turn runs;
@@ -97,7 +116,7 @@ unknown; what happens next is in [hygiene and cleanup](#hygiene-and-cleanup).
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/session-run/admission.ts:191-203`;
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/session-run/admission.ts:196-208`;
 `// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:886-897`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
@@ -125,8 +144,8 @@ A managed worktree is not inside the brain, so the brain's checkpoints never
 cover it. The turn journal observes each covered worktree as its own root,
 through that worktree's read-only checkpoints and deltas and the same observer
 and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:596-608`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:430-444`).
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:626-638`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:449-463`).
 Coverage starts with a baseline checkpoint and inventory before the grant, and
 every journal observation, periodic, at a scope cap or at the turn's end, then
 observes the worktree too.
@@ -154,7 +173,7 @@ Ordinary brain and workspace journaling is unchanged.
 ## Guidance
 
 Workers with a bound generation receive fixed guidance in the existing sandbox
-note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:554-560`):
+note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:583-589`):
 shared source is read-only and moves, a worktree starts at a reported commit
 that never moves, where to work, that edits are journaled and scope-counted,
 that only explicit access or renewal resets the three-day clock, that expiry
@@ -165,7 +184,7 @@ arrive only in the results that grant access.
 ## Cleanup eligibility facts
 
 Release and expiry record durable facts for hygiene review
-(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:241-284`):
+(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:253-296`):
 the reason, the holder (`none`, `live` or `unknown`) and whether work remains
 (`none`, `unpreserved` or `unknown`). Work is read from a fresh read-only
 checkpoint and a metadata delta against the baseline. Nothing of the worktree
@@ -193,17 +212,17 @@ source and worktrees to agents through two bridge tools, `reference_source` and
 once in the SDK and registered identically by both backends
 ([MCP contract](../integration-contract/mcp.md#reference-source-and-managed-worktree-tools-additive-0440-2432)).
 The host side is `createReferenceTools`
-(`createReferenceTools`, `packages/ui-server/src/brain/reference-tools.ts:60-200`).
+(`createReferenceTools`, `packages/ui-server/src/brain/reference-tools.ts:62-197`).
 
 **The turn is the authority.** Before a governed or strict turn's workers
 start, the host records its principal and what those workers bind: the public
 view, the principal's private view and the turn's worker generation, if one
 opened
-(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/session-run/admission.ts:204-210`).
+(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/session-run/admission.ts:209-215`).
 A call carries only a repository, a revision or a worktree identity. The bridge
 adds the turn's own principal, and a call for a turn the host did not prepare,
 or under another principal, refuses
-(`async call(turnId: string`, `packages/ui-server/src/brain/reference-tools.ts:147-196`).
+(`async call(turnId: string`, `packages/ui-server/src/brain/reference-tools.ts:155-204`).
 Every operation then runs through the acquisition and worktree services, which
 check grants, validation and ownership again; a tool never repeats or skips
 their rules. Once the turn ends, its record is gone and its bridge holds
@@ -215,7 +234,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:898-909`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:747-778`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:1209-1240`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -244,7 +263,7 @@ access and their rosters do not name the tools.
 fixed roster with fixed descriptions; a turn without a handler refuses at call
 time. Lifecycle and freshness facts arrive only in the result of the call that
 produced them, and the sandbox note's reference guidance is fixed text
-(`const REFERENCE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:551-553`),
+(`const REFERENCE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:580-582`),
 so no earlier system prompt, tool or message changes
 ([provider history](provider-history.md)).
 
@@ -252,10 +271,13 @@ so no earlier system prompt, tool or message changes
 published there, not only those this turn asks for, so the Q4 rule (a fresh
 check before a new mount) applies to the bind itself. The maintainer ruled on
 2026-10-24 how ([option 1](https://github.com/schlessera/brain-kit/issues/2432)):
-before a turn's workers bind a view, every source in it whose validation lapsed
-is validated again, including sources a running turn reads; one that fails is
-withheld from the new bind, and a running reader keeps its existing mount
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:571-609`):
+before a turn's workers bind a view, a lapsed legacy source is validated
+again without waiting for maintenance admission. A busy check withholds the
+source. Managed GitHub sources are withheld without network access: their
+validation needs an explicit request on the new turn's proxy and budget.
+These rules cover sources a running turn reads; a running reader keeps its
+existing mount
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:976-1014`):
 
 - a source with less than the bind margin of validation left counts as
   lapsed: a minute, or half of a shorter configured lifetime, so it does not
@@ -269,7 +291,7 @@ withheld from the new bind, and a running reader keeps its existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:506-517`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:873-890`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
@@ -288,7 +310,7 @@ withheld rather than checked again; withholding takes only short pool calls,
 so the bind converges whatever the cache size. A bind that still cannot be
 admitted, because a pool change stays unconfirmed, refuses, and the turn runs
 without shared source views
-(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:615-624`).
+(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:1038-1047`).
 The margin covers the moments between admission and the workers' mounts.
 
 Suspension, restoration, withdrawal and publication of one source run one at a
@@ -400,7 +422,7 @@ selects undone copy.
 Markdown findings and the host's by core's ordinal rules (severity, known
 urgency, age, identity), and every operation that names a host finding goes to
 the host, never to the CLI
-(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:56-68`).
+(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:57-69`).
 A retained or failed worktree offers one repair, `delete-worktree`; an unknown
 one offers none and stays kept and charged, and "check again" assesses it
 afresh, after a failed removal too. Selection assesses its winner again before
@@ -420,7 +442,7 @@ atomically with grants
 [pool accounting](reference-pool-accounting.md)), so a grant that lands between
 the last check and the release fails the removal instead of losing the grant. The worktree
 service is the only executor, through one effect
-(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:333-370`).
+(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:345-382`).
 Immediately before it, with no await between the last check and submission of the receipt:
 
 1. the worktree is released or expired, and no removal of it was already
@@ -456,13 +478,13 @@ without another release, which would fail or leave a tombstone identity. The
 lease owner holds a release's lease again when the pool never committed it (the
 root is still writable or sealed), so a failed removal stays assessable; it never
 does so over a newer release of the same identity
-(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:377-412`).
+(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:389-424`).
 Capacity is credited only when the pool reports the worktree `reclaimed`:
 until then its source root stays protected from eviction.
 
 **Automatic removal.** Release, expiry and the close of a holding generation
 remove a worktree only when its fresh assessment shows no holder and no work
-(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:302-305`).
+(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:314-317`).
 Reconciliation retries a clean worktree whose removal could not run. Nothing is
 archived or purged speculatively, and a worktree whose work or owner is
 unknown is never removed automatically. Arbitrary repositories and shared

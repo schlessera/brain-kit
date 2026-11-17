@@ -55,7 +55,10 @@ export function setup(db: Database, { brain, self: SELF }: { brain: string; self
         const lastAttempt = db.query("SELECT MAX(attempted_at) AS at FROM storage_notice_receipts WHERE brain = ?").get(brain) as { at: number | null };
         if (state.lastPersistedAt > now || lastAttempt.at !== null && lastAttempt.at > now) return null;
         const sub = db.query("SELECT principal_id, time_zone, p256dh, auth FROM push_subscriptions WHERE endpoint = ?").get(endpoint) as { principal_id: string | null; time_zone: string | null; p256dh: string; auth: string } | null;
-        if (!sub?.principal_id || !owner(sub.principal_id, now)) return null;
+        // Authority is the clock's, read here (#4176): `now` was stamped before
+        // the attempt waited for the writer. It still orders time, judges the
+        // eligibility windows and quiet hours and records `attempted_at`.
+        if (!sub?.principal_id || !owner(sub.principal_id, Date.now())) return null;
         const eligible = state.pressures.filter(row => row.severity === "critical" && row.episode && !row.scopeChanged && row.supportAt !== null && row.supportAt <= now && now - row.supportAt <= RECENT && !state.suppressedEpisodes.includes(row.episode));
         for (const row of eligible) db.query("INSERT OR IGNORE INTO storage_notice_receipts (brain, episode, endpoint, principal_id, state) VALUES (?, ?, ?, ?, 'pending')").run(brain, row.episode!, endpoint, sub.principal_id);
         if (status.pending || status.paused && status.paused !== "collection-unavailable") return null;

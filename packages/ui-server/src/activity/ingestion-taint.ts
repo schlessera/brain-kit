@@ -1,7 +1,7 @@
 /** Which completed tool calls ingested untrusted content (G6); this grants no tool authority. */
 import { isWithin } from "@schlessera/brain-common/internal/safe-path";
 import { posix } from "node:path";
-import { WORKER_AREA_ROOT } from "@schlessera/brain-ui-sdk/internal";
+import { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
 import { commandTaintSource } from "./command-taint.js";
 
 type IngestionSource = "web_fetch" | "web_search" | "staged_share" | "chat_attachment" | "workspace_read" | "mcp_document"
@@ -52,6 +52,9 @@ function pathSource(path: string, brainPath: string | undefined): IngestionSourc
     return relative.startsWith("../") ? anyArea(relative) : leadingArea(relative);
   }
   const absolute = path.startsWith("/") ? posix.normalize(path) : posix.resolve(brainPath!, path);
+  // A sealed acquisition or writable snapshot alone proves no actual read
+  // provenance. Ordinary file tools retain the workspace restriction.
+  if ([WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT].some(root => isWithin(root, absolute, { includeRoot: true }))) return "workspace_read";
   for (const root of [brainPath && posix.normalize(brainPath).replace(/\/$/, ""), WORKER_AREA_ROOT]) {
     if (root && isWithin(root, absolute, { includeRoot: false })) return leadingArea(absolute.slice(root.length + 1));
   }

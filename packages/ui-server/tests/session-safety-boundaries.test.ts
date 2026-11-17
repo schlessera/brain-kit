@@ -137,7 +137,7 @@ test("queued handoff turns retain the original inherited evidence without copyin
   try {
     await f.writes.safetyBegin({ turnId: "source-turn", bindingId, sessionId: null, principalId: principal.id, backendId: "claude", at: 0 });
     f.db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('source',0,0,'claude')").run();
-    f.db.query("INSERT INTO chat_session_owners VALUES('source',?,0)").run(principal.id);
+    f.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('source',?,0)").run(principal.id);
     safetyCatalogCreated(f.db, "source", principal.id, "source-turn");
     await f.writes.bind("source-turn", "source");
     await source.ready("claude", 1);

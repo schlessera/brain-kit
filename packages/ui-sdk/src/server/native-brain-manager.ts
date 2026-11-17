@@ -503,7 +503,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig,
       if (request.operation === "poolCheckpoint") return Response.json(await pool().checkpoint(request, signal));
       if (request.operation === "poolAccessOpen") return Response.json(pool().accessOpen(request.access));
       if (request.operation === "poolAccess") return Response.json(await pool().grant(request, signal));
-      if (request.operation === "poolPark") return Response.json(await pool().park(request.id, signal));
+      if (request.operation === "poolPark") return Response.json(await pool().park(request.id, signal, request.expectedAccess));
       if (request.operation === "poolAccessClose") return Response.json(await pool().accessClose(request.access, signal));
       if (request.operation === "poolDelta") {
         const roots = await pool().deltaRoots(request.from, request.to, signal);

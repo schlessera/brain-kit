@@ -170,11 +170,12 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (!mine(lease) && lease.state !== "deleting" && live(lease) !== false) throw new NativeBrainManagerError("unknown", "This turn tree is still held by another live app or cron owner.");
       return releaseOwned(lease, signal);
     }); },
-    poolCreate(id, purpose, from, allowanceBytes, signal) { return operation(async () => {
+    poolCreate(id, purpose, from, allowanceBytes, signal, permanentWithdrawal) { return operation(async () => {
       signal?.throwIfAborted();
       await leases.call("poolIntent", id, purpose, from, allowanceBytes);
-      const record = await raw.poolCreate(id, purpose, from, allowanceBytes, signal);
-      if (record.id !== id || record.purpose !== purpose || record.from !== from || record.allowanceBytes !== allowanceBytes || !["writable", "sealed"].includes(record.state))
+      const record = await raw.poolCreate(id, purpose, from, allowanceBytes, signal, permanentWithdrawal);
+      if (record.id !== id || record.purpose !== purpose || record.from !== from || record.allowanceBytes !== allowanceBytes || !["writable", "sealed"].includes(record.state)
+        || (permanentWithdrawal && record.publicationRevoked !== false))
         throw new NativeBrainManagerError("unknown", "Reference pool reply does not match its durable lease identity.");
       await run("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='creating'", id);
       return record;
@@ -183,9 +184,9 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held reference pool root can be sealed.");
       return raw.poolSeal(id, signal);
     }); },
-    poolPublish(id, view, name, signal) { return operation(async () => {
+    poolPublish(id, view, name, signal, expectedRoots) { return operation(async () => {
       if (poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held reference pool root can be published.");
-      const record = await raw.poolPublish(id, view, name, signal);
+      const record = await raw.poolPublish(id, view, name, signal, expectedRoots);
       if (record.id !== id || record.view !== view || record.state !== "sealed") throw new NativeBrainManagerError("unknown", "Reference publication reply does not match its durable lease identity.");
       return record;
     }); },
@@ -225,9 +226,9 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (poolRow(id)?.purpose !== "worktree" || poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held worktree can be made accessible.");
       return raw.poolAccess(id, access, signal);
     }); },
-    poolPark(id, signal) { return operation(async () => {
+    poolPark(id, signal, expectedAccess) { return operation(async () => {
       if (poolRow(id)?.purpose !== "worktree" || poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held worktree can be parked.");
-      return raw.poolPark(id, signal);
+      return raw.poolPark(id, signal, expectedAccess);
     }); },
     poolAccessOpen(access, signal) { return operation(() => raw.poolAccessOpen(access, signal)); },
     poolAccessClose(access, signal) { return operation(() => raw.poolAccessClose(access, signal)); },

@@ -1695,7 +1695,7 @@ worker does:
 - **Only interactive turns are journaled, and they load project
   configuration.** Evidence is wired only into the session-run turn request
   for a governed turn with a journal (`export function turnRequest`,
-  `packages/ui-server/src/ws/session-run/backend-entry.ts:203-218`). That turn
+  `packages/ui-server/src/ws/session-run/backend-entry.ts:217-232`). That turn
   is never a restricted autonomous one. It runs with `settingSources:
   ["project"]` and without `strictMcpConfig`
   (`const sdkOptions: Options`, `packages/ui-backend-claude/src/sdk-options.ts:406-422`).
@@ -2047,7 +2047,7 @@ fresh globals per request, with the path as its only argument, and answers
 with the program's output, its exit status and the traceback a fresh launch
 printed, without the loop's own frame. The manager turns a failure into the
 same refusal a failed launch produced (`async function inspection`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:189-193`). Every
+`packages/ui-sdk/src/server/native-brain-manager.ts:215-219`). Every
 `qualify` and `verifyOwned` still inspects the live path on every operation;
 nothing is cached between requests. An interrupted, timed-out, oversized or
 malformed exchange, or one with an interpreter that died, kills the
@@ -2254,7 +2254,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:511`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:512`)
   must not feed any budget.
 
 **Enforcement:**
@@ -4310,7 +4310,7 @@ outside the brain and the strict area root counts any such segment); a
 fetching or unclassified Bash call (only on a turn without the egress proxy
 since 2026-11-03, see below); and any MCP tool whose server is not
 brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:95-105`).
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:99-109`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). Historically the first source was the
@@ -4364,7 +4364,7 @@ proxy is up, the host tells the turn's recorder
 (`recorder?.setEgressProxied();`, `packages/ui-server/src/ws/run-session.ts:747`),
 and its shell calls skip the classifier
 (`const command = shellProxied ? null : commandTaintSource(tool, input);`,
-`packages/ui-server/src/activity/ingestion-taint.ts:97`). A `curl` on such a
+`packages/ui-server/src/activity/ingestion-taint.ts:101`). A `curl` on such a
 turn taints through the proxy's `egress_connection` record. Every non-shell
 source (web tools, other MCP servers, untrusted areas, marked files) still
 taints there. A turn without the proxy keeps the classifier unchanged
@@ -4508,7 +4508,7 @@ admitted file-tool read of it as untrusted input: a `Read`, `Edit`, `Grep`,
 reader, whose normalized brain-relative path is marked, or a search whose
 output names it, records `taint` with `source: "user_marked"` as the session's
 first source (`fileSource`,
-`packages/ui-server/src/activity/ingestion-taint.ts:81-86`). An untrusted area
+`packages/ui-server/src/activity/ingestion-taint.ts:85-90`). An untrusted area
 still names its own source first, and an absolute path outside the brain's
 host path is not matched against marks. A mark is looked up when the call
 completes; a lookup that fails counts as marked

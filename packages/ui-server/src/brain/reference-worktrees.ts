@@ -28,6 +28,8 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { parseNativeBrainDelta, type createNativeBrainManagerClient, type NativePoolCheckpoint, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
 import { ReferenceSourceError, type ReferenceSources } from "./reference-source.js";
+import { ReferenceTransportError } from "./reference-transport.js";
+import type { ReferenceAcquisitionContext } from "./reference-acquisition.js";
 
 /**
  * Generations whose turn runs in this process (`running`), and the subset that
@@ -113,6 +115,7 @@ export interface ReferenceWorktreeRow {
   id: string; principal_id: string; domain: string; repository: string; revision: string; base_commit: string | null; source_root: string; baseline: string | null;
   allowance: number; state: "creating" | "active" | "released" | "expired"; created_at: number; accessed_at: number; released_at: number | null; holder: string | null; cleanup: string | null;
   root_uuid: string | null;
+  repository_url: string | null;
 }
 type WorktreeRow = ReferenceWorktreeRow;
 /** A removal's durable receipt (#2431). */
@@ -222,9 +225,18 @@ export function createReferenceWorktrees(options: {
    * its repository, whatever the revision's current visibility; the
    * repository's revision is then validated under the source's own clocks.
    */
-  async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "revision" | "domain">, signal?: AbortSignal) {
+  async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "repository_url" | "revision" | "domain">, signal?: AbortSignal, acquisition?: ReferenceAcquisitionContext) {
     covered(row);
-    try { (await options.sources.request({ principalId: row.principal_id, repository: row.repository, revision: row.revision, signal })).release(); }
+    try {
+      const location = { repositoryKey: row.repository, ...(row.repository_url ? { repositoryUrl: row.repository_url } : {}) };
+      const source = await options.sources.request({ principalId: row.principal_id, ...location, revision: row.revision, signal, acquisition });
+      try {
+        // A public starting snapshot cannot bypass the private authority the
+        // current source check required. A private starting snapshot keeps its
+        // original grant requirement even if the repository is public now.
+        return { ...row, domain: row.domain !== "public" || source.domain !== "public" ? "private" : "public", assertAuthority: source.assertAuthority };
+      } finally { source.release(); }
+    }
     catch (error) {
       if (error instanceof ReferenceSourceError) throw new ReferenceWorktreeError(error.code === "cancelled" || error.code === "busy" ? "unavailable"
         : error.code === "missing" || error.code === "invalid" ? "unauthorized" : error.code, `Worktree authority could not be confirmed: ${error.message}`);
@@ -233,7 +245,7 @@ export function createReferenceWorktrees(options: {
   }
   /** A private worktree's grant, read live; checked again after every await before a grant. */
   function covered(row: Pick<WorktreeRow, "principal_id" | "repository" | "domain">) {
-    if (row.domain !== "public" && !options.sources.covers({ principalId: row.principal_id, repository: row.repository }))
+    if (row.domain !== "public" && !options.sources.covers({ principalId: row.principal_id, repositoryKey: row.repository }))
       throw new ReferenceWorktreeError("unauthorized", "No live reference grant covers this private worktree's repository.");
   }
 
@@ -418,48 +430,78 @@ export function createReferenceWorktrees(options: {
     for (const { id } of open) await serial(id, () => settle(id, signal));
   }
   /** Return a worktree whose holder is provably gone to the masked roots, then forget the holder. */
-  async function recoverHolder(row: WorktreeRow, signal?: AbortSignal): Promise<WorktreeRow> {
-    await pool.poolPark(row.id, signal);
-    await write("recoverHolder", row.id, row.holder);
+  async function recoverHolder(row: WorktreeRow, signal?: AbortSignal, expectedHolder = row.holder): Promise<WorktreeRow> {
+    if (!expectedHolder) return row;
+    // The native grant can precede its database receipt in another process.
+    // Check and park under the manager's one mutation lock, never a stale read.
+    const parked = await pool.poolPark(row.id, signal, expectedHolder);
+    if (parked.access !== null) throw new ReferenceWorktreeError("busy", "Another worker generation holds this worktree; its access was retained.");
+    await write("recoverHolder", row.id, expectedHolder);
     return worktree(row.id)!;
   }
 
-  async function allocate(input: { principalId: string; repository: unknown; revision: unknown; signal?: AbortSignal }): Promise<ReferenceWorktree> {
+  function acquiringTurn(input: { signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }): void {
+    input.signal?.throwIfAborted();
+    if (input.acquisition && !input.acquisition.current()) throw new ReferenceWorktreeError("unavailable", "The acquiring turn is no longer available.");
+  }
+  function acquiringAuthority(input: { signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }, row: Pick<WorktreeRow, "principal_id" | "repository" | "domain"> & { assertAuthority(): void }): void {
+    acquiringTurn(input);
+    try { row.assertAuthority(); }
+    catch (error) {
+      if (error instanceof ReferenceSourceError) throw new ReferenceWorktreeError(error.code === "cancelled" || error.code === "busy" ? "unavailable" : error.code, error.message);
+      if (error instanceof ReferenceTransportError) throw new ReferenceWorktreeError(error.reason === "denied" ? "unauthorized" : "unavailable", error.message);
+      throw error;
+    }
+    covered(row);
+  }
+
+  async function allocate(input: { principalId: string; repository: unknown; revision: unknown; signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }): Promise<ReferenceWorktree> {
     if (closed) throw new ReferenceWorktreeError("unavailable", "Managed worktrees are closed.");
     let lease;
-    try { lease = await options.sources.request({ principalId: input.principalId, repository: input.repository, revision: input.revision, signal: input.signal }); }
+    try { lease = await options.sources.request({ principalId: input.principalId, repository: input.repository, revision: input.revision, signal: input.signal, acquisition: input.acquisition }); }
     catch (error) {
       if (error instanceof ReferenceSourceError) throw new ReferenceWorktreeError(error.code === "cancelled" || error.code === "busy" ? "unavailable" : error.code, error.message);
       throw error;
     }
     const id = randomUUID(), at = now();
+    const authority = { principal_id: input.principalId, domain: lease.domain, repository: lease.repository, assertAuthority: lease.assertAuthority };
     try {
+      acquiringAuthority(input, authority);
       const allowance = (await pool.poolStatus(input.signal)).limits.operationBytes;
+      acquiringAuthority(input, authority);
       // Recorded before the pool sees it: recovery and eviction protection both start here.
-      await write("allocate", id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at);
+      await write("allocate", id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at, lease.repositoryUrl);
+      let activating = false;
       try {
+        acquiringAuthority(input, authority);
         const created = await pool.poolCreate(id, "worktree", lease.rootId, allowance, input.signal);
         await write("recordRoot", created.root?.uuid ?? null, id);
+        acquiringAuthority(input, authority);
         const baseline = randomUUID();
         await write("recordBaseline", baseline, id);
+        acquiringAuthority(input, authority);
         await pool.poolCheckpoint(baseline, id, input.signal);
+        acquiringAuthority(input, authority);
+        // Allocation is an explicit access: the inactivity clock starts now.
+        activating = true;
+        await write("activate", now(), id);
+        acquiringAuthority(input, authority);
+        return view(worktree(id)!);
       } catch (error) {
-        await discard(id).catch(cleanup => warn("unfinished worktree was not released; startup recovery retries it", cleanup));
+        await discard(id, activating).catch(cleanup => warn("unfinished worktree was not released; startup recovery retries it", cleanup));
+        if (error instanceof ReferenceWorktreeError) throw error;
         const code = (error as { code?: string }).code;
         throw new ReferenceWorktreeError(code === "capacity" ? "capacity" : "unavailable", `The worktree could not be created: ${error instanceof Error ? error.message : String(error)}`);
       }
-      // Allocation is an explicit access: the inactivity clock starts now.
-      await write("activate", now(), id);
-      return view(worktree(id)!);
     } finally { lease.release(); }
   }
   /** Release an unfinished allocation's roots; its record goes only once the pool confirms. */
-  async function discard(id: string) {
+  async function discard(id: string, activating = false) {
     const row = worktree(id);
     if (!row) return;
     if (row.baseline) await pool.poolRelease(row.baseline);
     await pool.poolRelease(id);
-    await write("discard", id);
+    await write("discard", id, activating);
   }
 
   /** Open one worker generation of a running turn: an empty directory its workers bind whole. */
@@ -510,7 +552,7 @@ export function createReferenceWorktrees(options: {
     });
   }
 
-  function access(input: { worktreeId: string; principalId: string; generation: string; signal?: AbortSignal }): Promise<ReferenceWorktree> {
+  function access(input: { worktreeId: string; principalId: string; generation: string; signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }): Promise<ReferenceWorktree> {
     // Registered before any await, so retiring the generation waits for this access.
     if (!accepting.has(input.generation))
       return Promise.reject(new ReferenceWorktreeError("unavailable", "This worker generation is not running; no worktree can be made available to it."));
@@ -521,7 +563,7 @@ export function createReferenceWorktrees(options: {
     void work.catch(() => {}).finally(() => { pending.delete(work); if (!pending.size) inflight.delete(input.generation); });
     return work;
   }
-  function grant(input: { worktreeId: string; principalId: string; generation: string; signal?: AbortSignal }): Promise<ReferenceWorktree> {
+  function grant(input: { worktreeId: string; principalId: string; generation: string; signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }): Promise<ReferenceWorktree> {
     return serial(input.worktreeId, async () => {
       if (closed) throw new ReferenceWorktreeError("unavailable", "Managed worktrees are closed.");
       const target = generation(input.generation);
@@ -538,22 +580,29 @@ export function createReferenceWorktrees(options: {
         if (holder !== false) throw new ReferenceWorktreeError("busy", holder ? "Another running worker holds this worktree." : "Another worker may still hold this worktree; its liveness is unknown.");
         row = await recoverHolder(row, input.signal);
       }
-      await authorize(row, input.signal);
-      if (row.holder !== target.id) {
-        // Coverage first: no worker reaches a worktree its journal does not observe.
-        await options.coverage({ turnId: target.turn_id, worktreeId: row.id }, input.signal);
-        // Authority may have ended while revalidation or coverage awaited.
-        covered(row);
-        await pool.poolAccess(row.id, target.id, input.signal);
-        // A removal admitted elsewhere while the grant awaited wins: the grant is withdrawn, never recorded.
-        if (cleanupOf(row.id)) {
-          await pool.poolPark(row.id).catch(error => warn("withdrawn worktree grant was not parked", error));
-          throw new ReferenceWorktreeError("released", "This worktree was released; request a new one.");
+      let dispatched = false;
+      try {
+        const authority = await authorize(row, input.signal, input.acquisition);
+        acquiringAuthority(input, authority);
+        if (row.holder !== target.id) {
+          // Coverage first: no worker reaches a worktree its journal does not observe.
+          await options.coverage({ turnId: target.turn_id, worktreeId: row.id }, input.signal);
+          // Authority may have ended while revalidation or coverage awaited.
+          acquiringAuthority(input, authority);
+          dispatched = true;
+          await pool.poolAccess(row.id, target.id, input.signal);
+          acquiringAuthority(input, authority);
+          // A removal admitted elsewhere while the grant awaited wins: the grant is withdrawn, never recorded.
+          if (cleanupOf(row.id)) throw new ReferenceWorktreeError("released", "This worktree was released; request a new one.");
         }
+        // Explicit access or resumption: the only events, with renewal, that move the clock.
+        await write("grant", target.id, now(), row.id);
+        acquiringAuthority(input, authority);
+        return view(worktree(row.id)!);
+      } catch (error) {
+        if (dispatched || row.holder === target.id) await recoverHolder(worktree(row.id) ?? row, undefined, target.id).catch(cleanup => warn("withdrawn managed worktree grant was not parked", cleanup));
+        throw error;
       }
-      // Explicit access or resumption: the only events, with renewal, that move the clock.
-      await write("grant", target.id, now(), row.id);
-      return view(worktree(row.id)!);
     });
   }
   /** `live`, when given, is read where the effect runs: a caller whose turn ended changes nothing (#2432). */

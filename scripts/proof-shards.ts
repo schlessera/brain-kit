@@ -40,5 +40,27 @@ export function unitPartitions(cadence: string | undefined, files?: number): num
  * seconds; capacity times that ratio must fit the step limit. The planner's
  * `determinism_shards` output, each partition's command, both aggregates, the
  * merge path and the workflow guard read this table. Measured basis:
- * docs/decisions/ci-utility.md, "Changed tests repeat under load before merge". */
-export const DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 10, stepMinutes: 40, loadRatio: 6.84 } as const;
+ * docs/decisions/ci-utility.md, "Changed tests repeat under load before merge".
+ *
+ * `deadlineFactor` multiplies test deadlines inside the job (#4191): Bun's
+ * per-test cap, explicit test and hook timeouts and `watchdogMs` watchdogs
+ * (scripts/test-deadlines.ts). It is the smallest whole number at least 15%
+ * above `loadRatio`, the largest slowdown measured under the job's own load,
+ * so a watchdog trips on a hang and not on the load. One hung test waiting out
+ * its scaled cap after a full capacity must still fit the step limit. Basis:
+ * docs/decisions/ci-utility.md, "Test watchdogs are a worst-case catch-all". */
+export const DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 10, stepMinutes: 40, loadRatio: 6.84, deadlineFactor: 8 } as const;
+
+/** `browser_determinism` partitions (#4163): the one owner of one job's
+ * capacity, the most partitions a selection may use, the proof step's limit
+ * and the cost of a project/file pair that has no reviewed weight. Capacity is
+ * in seconds of `scripts/browser-shard-costs.json` at the selection's
+ * repetition count, and it is also the budget that reduces the count
+ * (`BROWSER_BUDGET_SECONDS`, scripts/browser-determinism-plan.ts). `loadRatio`
+ * is the largest elapsed seconds per weighted second the #4116 spike measured
+ * for a pass under burners inside the container. The planner's
+ * `browser_determinism_shards` output, each partition's command, both
+ * aggregates, the merge path and the workflow guard read this table. Measured
+ * basis: docs/decisions/ci-utility.md, "Changed browser specs repeat under
+ * load before merge". */
+export const BROWSER_DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 15, stepMinutes: 20, loadRatio: 1.8, unweightedSeconds: 10 } as const;
