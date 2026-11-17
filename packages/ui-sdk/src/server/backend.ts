@@ -294,7 +294,8 @@ export interface BackendBridge {
   /**
    * Shared reference source and managed worktrees (#2432). The host binds the
    * principal, turn and worker generation; the call carries only the tool and
-   * its parsed input. Refusals resolve as `{ ok: false }`.
+   * its parsed input. Immutable reads additionally carry the runtime's actual
+   * toolCallId separately from model-authored input. Refusals resolve as `{ ok: false }`.
    */
   referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
   /**

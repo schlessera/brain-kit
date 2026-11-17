@@ -23,6 +23,7 @@ import {
 import { ReferenceSourceError, type ReferenceSourceLease, type ReferenceSources } from "./reference-source.js";
 import { ReferenceWorktreeError, type ReferenceWorktree, type ReferenceWorktreeGeneration, type ReferenceWorktrees } from "./reference-worktrees.js";
 import type { ReferenceAcquisitionContext } from "./reference-acquisition.js";
+import type { ReferenceReads } from "./reference-read.js";
 
 /** Distinct sources one turn keeps protected from capacity eviction while it reads them. */
 const TURN_LEASES = 32;
@@ -62,6 +63,7 @@ interface TurnAccess {
 export function createReferenceTools(options: {
   sources: Pick<ReferenceSources, "request" | "bindable">;
   worktrees?: Pick<ReferenceWorktrees, "allocate" | "access" | "renew" | "release" | "list">;
+  reads?: ReferenceReads;
   log?: Logger;
 }) {
   const turns = new Map<string, TurnAccess>();
@@ -124,6 +126,9 @@ export function createReferenceTools(options: {
   const current = (turnId: string, access: TurnAccess) => turns.get(turnId) === access;
 
   return {
+    async observeResult(turnId: string, toolCallId: string, tool: string, output: string, finalized: boolean, segments?: readonly string[]) {
+      await options.reads?.observeResult(turnId, toolCallId, tool, output, finalized, segments);
+    },
     /** The real turn proxy exists only after bind preparation. Never accept a proxy from tool input. */
     attachEgress(turnId: string, principalId: string, input: Omit<ReferenceAcquisitionContext, "turnId">): void {
       const access = turns.get(turnId);
@@ -150,6 +155,7 @@ export function createReferenceTools(options: {
     end(turnId: string): void {
       const access = turns.get(turnId);
       turns.delete(turnId);
+      options.reads?.end(turnId);
       for (const lease of access?.leases.values() ?? []) lease.release();
     },
     async call(turnId: string, principalId: string, call: ReferenceToolCall, signal?: AbortSignal): Promise<ReferenceToolResult> {
@@ -158,6 +164,12 @@ export function createReferenceTools(options: {
       if (!access || access.principalId !== principalId)
         return { ok: false, code: "unavailable", message: "This turn's workers have no managed reference access; it is available to interactive governed and strict turns only." };
       try {
+        if (call.tool === "reference_read") {
+          if (!options.reads) return { ok: false, code: "unavailable", message: "Immutable reference reads are unavailable on this host." };
+          const result = await options.reads.read({ turnId, principalId, toolCallId: call.toolCallId, request: call.input, acquisition: access.acquisition, signal });
+          signal?.throwIfAborted();
+          return current(turnId, access) ? result : ended();
+        }
         if (call.tool === "reference_source") {
           const input = REFERENCE_SOURCE_INPUT_SCHEMA.parse(call.input);
           if (!access.views) return { ok: false, code: "unavailable", message: "Shared reference source cannot be bound into this turn's workers." };

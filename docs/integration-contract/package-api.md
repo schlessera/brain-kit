@@ -4682,6 +4682,29 @@ unchanging charge. The rationale is in
 
 <a id="reference-and-worktree-tools-additive-0440-2432"></a>
 
+### Immutable reference read (additive, 0.45.0, #3613)
+
+`/tool-contracts` and `/server` add `REFERENCE_READ_TOOL_NAME`,
+`REFERENCE_READ_INPUT_SCHEMA`, `REFERENCE_READ_CONTRACT`, `ReferenceReadInput`
+and `ReferenceReadView`. The contract joins `REFERENCE_TOOL_CONTRACTS` and
+`BRIDGE_TOOL_CONTRACTS`. `SurfaceTools` adds optional `referenceRead`.
+`ReferenceToolCall` adds the `reference_read` case with optional runtime
+`toolCallId`; missing identity is refused by a supporting host. The call id is
+not an input-schema field. `ReferenceToolResult` adds the successful `read`
+case described in the [MCP contract](mcp.md#immutable-reference-read-additive-0450-3613).
+`handleReferenceTool` accepts an optional fourth `toolCallId` argument and
+forwards it only for immutable reads. Existing callers and reference operations
+retain their signatures and behavior.
+
+The concrete host read service and `reference_reads` evidence table are
+internal. Records retain an acquisition snapshot, read principal/turn/call,
+regular blob/path/range/digest and exact result digest. They contain no source
+content and survive acquisition eviction. `prepared` proves no result delivery;
+`observed` means the final backend hook reported that exact text segment;
+`unknown` cannot be promoted by later replay. It is not a provider-inference
+receipt or a source-trust capability. Both supported backends keep their
+provider tools, system and earlier messages unchanged across later turns.
+
 ### Reference and worktree tools (additive, 0.44.0, #2432)
 
 `@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) gains

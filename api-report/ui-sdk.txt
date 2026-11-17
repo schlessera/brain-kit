@@ -1036,6 +1036,9 @@ export "./client" (./src/client/index.ts)
   READ_ATTACHMENT_DESCRIPTION
   READ_ATTACHMENT_INPUT_SCHEMA
   READ_ATTACHMENT_TOOL_NAME
+  REFERENCE_READ_CONTRACT
+  REFERENCE_READ_INPUT_SCHEMA
+  REFERENCE_READ_TOOL_NAME
   REFERENCE_SOURCE_CONTRACT
   REFERENCE_SOURCE_INPUT_SCHEMA
   REFERENCE_SOURCE_TOOL_NAME
@@ -1058,6 +1061,8 @@ export "./client" (./src/client/index.ts)
   RESOLVE_ACTION_INPUT_SCHEMA
   type ReadAttachmentInput
   type RecordingTranscription
+  type ReferenceReadInput
+  type ReferenceReadView
   type ReferenceSourceInput
   type ReferenceSourceView
   type ReferenceToolCall
@@ -2936,6 +2941,9 @@ export "./server" (./src/server/index.ts)
   READ_ATTACHMENT_DESCRIPTION
   READ_ATTACHMENT_INPUT_SCHEMA
   READ_ATTACHMENT_TOOL_NAME
+  REFERENCE_READ_CONTRACT
+  REFERENCE_READ_INPUT_SCHEMA
+  REFERENCE_READ_TOOL_NAME
   REFERENCE_SOURCE_CONTRACT
   REFERENCE_SOURCE_INPUT_SCHEMA
   REFERENCE_SOURCE_TOOL_NAME
@@ -2959,6 +2967,8 @@ export "./server" (./src/server/index.ts)
   type ReadAttachmentInput
   type RecordingTranscription
   type RecoverableTranscriptStore
+  type ReferenceReadInput
+  type ReferenceReadView
   type ReferenceSourceInput
   type ReferenceSourceView
   type ReferenceToolCall
@@ -3604,6 +3614,9 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   READ_ATTACHMENT_DESCRIPTION
   READ_ATTACHMENT_INPUT_SCHEMA
   READ_ATTACHMENT_TOOL_NAME
+  REFERENCE_READ_CONTRACT
+  REFERENCE_READ_INPUT_SCHEMA
+  REFERENCE_READ_TOOL_NAME
   REFERENCE_SOURCE_CONTRACT
   REFERENCE_SOURCE_INPUT_SCHEMA
   REFERENCE_SOURCE_TOOL_NAME
@@ -3625,6 +3638,8 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   RESOLVE_ACTION_CONTRACT
   RESOLVE_ACTION_INPUT_SCHEMA
   type ReadAttachmentInput
+  type ReferenceReadInput
+  type ReferenceReadView
   type ReferenceSourceInput
   type ReferenceSourceView
   type ReferenceToolCall
@@ -6319,6 +6334,12 @@ signatures (every public export and the types it is made of)
         repository: z.ZodOptional<z.ZodString>;
         revision: z.ZodOptional<z.ZodString>;
         worktreeId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"reference_read", z.ZodObject<{
+        maximum: z.ZodDefault<z.ZodNumber>;
+        offset: z.ZodDefault<z.ZodNumber>;
+        path: z.ZodString;
+        repository: z.ZodString;
+        revision: z.ZodString;
     }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_health", z.ZodObject<{
         provider: z.ZodOptional<z.ZodString>;
     }, z.core.$strict>>, import("./contract.js").ToolContract<"brain_compute_plan", z.ZodObject<{
@@ -6356,7 +6377,7 @@ signatures (every public export and the types it is made of)
     const BRIDGE_TOOL_POSTURE: Readonly<{
         allowedTools(adapter: BridgeToolAdapter): readonly string[];
         claudePrefix: "mcp__brain-ui__";
-        names: readonly ("ask_user" | "ask_user_form" | "ask_user_list" | "ask_user_rank" | "brain_compute_cancel" | "brain_compute_collect" | "brain_compute_health" | "brain_compute_plan" | "brain_compute_run" | "brain_compute_status" | "complete_share" | "get_current_location" | "inbox_add" | "inbox_get" | "inbox_list" | "query_activity" | "reference_source" | "reference_worktree" | "request_image_markup" | "request_image_mask" | "resolve_action" | "show_block" | "turn_temp")[];
+        names: readonly ("ask_user" | "ask_user_form" | "ask_user_list" | "ask_user_rank" | "brain_compute_cancel" | "brain_compute_collect" | "brain_compute_health" | "brain_compute_plan" | "brain_compute_run" | "brain_compute_status" | "complete_share" | "get_current_location" | "inbox_add" | "inbox_get" | "inbox_list" | "query_activity" | "reference_read" | "reference_source" | "reference_worktree" | "request_image_markup" | "request_image_mask" | "resolve_action" | "show_block" | "turn_temp")[];
         visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
@@ -11513,6 +11534,24 @@ signatures (every public export and the types it is made of)
     }, z.core.$strict>;
   READ_ATTACHMENT_TOOL_NAME (packages/ui-sdk/src/tool-contracts/attachment.ts)
     const READ_ATTACHMENT_TOOL_NAME: "read_attachment";
+  REFERENCE_READ_CONTRACT (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_READ_CONTRACT: import("./contract.js").ToolContract<"reference_read", z.ZodObject<{
+        maximum: z.ZodDefault<z.ZodNumber>;
+        offset: z.ZodDefault<z.ZodNumber>;
+        path: z.ZodString;
+        repository: z.ZodString;
+        revision: z.ZodString;
+    }, z.core.$strict>>;
+  REFERENCE_READ_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_READ_INPUT_SCHEMA: z.ZodObject<{
+        maximum: z.ZodDefault<z.ZodNumber>;
+        offset: z.ZodDefault<z.ZodNumber>;
+        path: z.ZodString;
+        repository: z.ZodString;
+        revision: z.ZodString;
+    }, z.core.$strict>;
+  REFERENCE_READ_TOOL_NAME (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_READ_TOOL_NAME: "reference_read";
   REFERENCE_SOURCE_CONTRACT (packages/ui-sdk/src/tool-contracts/reference.ts)
     const REFERENCE_SOURCE_CONTRACT: import("./contract.js").ToolContract<"reference_source", z.ZodObject<{
         repository: z.ZodString;
@@ -11540,6 +11579,12 @@ signatures (every public export and the types it is made of)
         repository: z.ZodOptional<z.ZodString>;
         revision: z.ZodOptional<z.ZodString>;
         worktreeId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"reference_read", z.ZodObject<{
+        maximum: z.ZodDefault<z.ZodNumber>;
+        offset: z.ZodDefault<z.ZodNumber>;
+        path: z.ZodString;
+        repository: z.ZodString;
+        revision: z.ZodString;
     }, z.core.$strict>>];
   REFERENCE_WORKTREE_ACTIONS (packages/ui-sdk/src/tool-contracts/reference.ts)
     const REFERENCE_WORKTREE_ACTIONS: readonly ["request", "access", "renew", "release", "list"];
@@ -11661,6 +11706,20 @@ signatures (every public export and the types it is made of)
             sourceVersion: string;
         }): string;
     }
+  ReferenceReadInput (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export type ReferenceReadInput = z.infer<typeof REFERENCE_READ_INPUT_SCHEMA>;
+  ReferenceReadView (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export interface ReferenceReadView {
+        repository: string;
+        revision: string;
+        commit: string;
+        path: string;
+        offset: number;
+        length: number;
+        totalBytes: number;
+        encoding: "utf8" | "base64";
+        content: string;
+    }
   ReferenceSourceInput (packages/ui-sdk/src/tool-contracts/reference.ts)
     export type ReferenceSourceInput = z.infer<typeof REFERENCE_SOURCE_INPUT_SCHEMA>;
   ReferenceSourceView (packages/ui-sdk/src/tool-contracts/reference.ts)
@@ -11682,6 +11741,10 @@ signatures (every public export and the types it is made of)
     } | {
         tool: typeof REFERENCE_WORKTREE_TOOL_NAME;
         input: ReferenceWorktreeInput;
+    } | {
+        tool: typeof REFERENCE_READ_TOOL_NAME;
+        input: ReferenceReadInput;
+        toolCallId?: string;
     };
   ReferenceToolName (packages/ui-sdk/src/server/bridge-tools/reference.ts)
     export type ReferenceToolName = (typeof REFERENCE_TOOL_CONTRACTS)[number]["name"];
@@ -11691,6 +11754,10 @@ signatures (every public export and the types it is made of)
     export type ReferenceToolResult = {
         ok: true;
         source: ReferenceSourceView;
+        guidance: string;
+    } | {
+        ok: true;
+        read: ReferenceReadView;
         guidance: string;
     } | {
         ok: true;
@@ -14596,6 +14663,7 @@ signatures (every public export and the types it is made of)
         turnTemp?: string | false;
         referenceSource?: string | false;
         referenceWorktree?: string | false;
+        referenceRead?: string | false;
         computeHealth?: string | false;
         computePlan?: string | false;
         computeRun?: string | false;
@@ -16895,7 +16963,7 @@ signatures (every public export and the types it is made of)
         isError: boolean;
     }>;
   handleReferenceTool (packages/ui-sdk/src/server/bridge-tools/reference.ts)
-    export function handleReferenceTool(name: ReferenceToolName, input: unknown, bridge: Pick<BackendBridge, "referenceAccess">): Promise<{
+    export function handleReferenceTool(name: ReferenceToolName, input: unknown, bridge: Pick<BackendBridge, "referenceAccess">, toolCallId?: string): Promise<{
         text: string;
         isError: boolean;
     }>;

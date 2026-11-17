@@ -264,7 +264,7 @@ export function computeToolRoster(req: StartTurnRequest, allowedTools: readonly 
     if (!req.noGrantSurface && req.posture !== "voice") for (const [name, handler] of [["inbox_add", "inboxAdd"], ["resolve_action", "resolveAction"], ["complete_share", "completeShare"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
     // The host owns reference authority and refuses per call (#2432); an
     // approval card would add nothing a grant does not already decide.
-    if (req.bridge.referenceAccess) allowed.push(visibleToolName("reference_source", "claude"), visibleToolName("reference_worktree", "claude"));
+    if (req.bridge.referenceAccess) allowed.push(visibleToolName("reference_source", "claude"), visibleToolName("reference_worktree", "claude"), visibleToolName("reference_read", "claude"));
     // External compute (#3108): the host decides authority and shows its own
     // per-use approval card for a run, so a runtime card would ask twice.
     if (req.bridge.compute) allowed.push(...COMPUTE_TOOL_CONTRACTS.map(contract => visibleToolName(contract.name, "claude")));
@@ -719,6 +719,7 @@ function buildAppend(
         turnTemp: tools.turnTemp && TURN_TEMP_TOOL_NAME,
         referenceSource: tools.reference && visibleToolName("reference_source", "claude"),
         referenceWorktree: tools.reference && visibleToolName("reference_worktree", "claude"),
+        referenceRead: tools.reference && visibleToolName("reference_read", "claude"),
         ...Object.fromEntries(COMPUTE_SURFACE_KEYS.map(([key, name]) => [key, tools.compute && visibleToolName(name, "claude")])),
       },
     })

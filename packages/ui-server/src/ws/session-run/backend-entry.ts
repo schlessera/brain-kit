@@ -121,7 +121,8 @@ export async function openTurnBridge(
     await safetyWrites.safetyBegin({bindingId,turnId:turn.turnId,principalId:turn.principalId??null,sessionId:resumeId??null,
       historyOwnerId:initial.historyOwnerId,backendId:backend.id,sourceSessionId:handoffSource,policyHash:governedHold?.policy.hash??null,at:Date.now()});
     bridge.inputSafety=createSafetyCollector(safetyDb,safetyWrites,{bindingId,turnId:turn.turnId,backendId:backend.id,
-      sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>run.abortController.abort(error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null});
+      sessionId:()=>turn.sessionId??null,actor:origin,brainPath:host.brainPath,shellProxied:()=>!!held.turnEgress,signal:run.abortController.signal,stop:error=>run.abortController.abort(error),onReady:()=>recorder?.setSafetyHooked(),policyHash:governedHold?.policy.hash??null,
+      referenceReads:host.referenceTools});
   }
   // A failed update is already on each application's Activity record,
   // and its paths stay queued for the next reader; the turn still ends.

@@ -1837,6 +1837,15 @@ findings. Described in
 [the package API](integration-contract/package-api.md#hygiene-card-caller-copy-additive-0440-2837).
 
 
+## Immutable reference read tool (additive, 0.45.0, #3613)
+
+Both backends gain `reference_read`, a bounded regular-file read from a
+host-acquired GitHub commit. The [MCP contract](integration-contract/mcp.md#immutable-reference-read-additive-0450-3613)
+defines its strict inputs and byte-preserving content result. The
+[package API](integration-contract/package-api.md#immutable-reference-read-additive-0450-3613)
+records the additive shared contracts and runtime call identity. Host-only
+acquisition/read/result evidence supplies no repository trust exemption.
+
 ## Reference and worktree tools (additive, 0.44.0, #2432)
 
 Both backends gain the bridge tools `reference_source` and `reference_worktree`,

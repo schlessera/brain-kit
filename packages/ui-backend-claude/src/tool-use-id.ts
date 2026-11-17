@@ -17,9 +17,14 @@
  */
 export const TOOL_USE_ID_META_KEY = "claudecode/toolUseId";
 
-export function askRequestId(extra: unknown): string {
+/** Runtime-issued correlation only; callers needing proof must not mint a replacement. */
+export function modelToolUseId(extra: unknown): string | undefined {
   const meta = extra && typeof extra === "object" ? (extra as { _meta?: unknown })._meta : undefined;
   const id =
     meta && typeof meta === "object" ? (meta as Record<string, unknown>)[TOOL_USE_ID_META_KEY] : undefined;
-  return typeof id === "string" && id.length > 0 ? id : crypto.randomUUID();
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+export function askRequestId(extra: unknown): string {
+  return modelToolUseId(extra) ?? crypto.randomUUID();
 }

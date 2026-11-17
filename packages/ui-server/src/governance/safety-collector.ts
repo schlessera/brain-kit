@@ -7,9 +7,11 @@ import { occurrence } from "./occurrence.js";
 import type { GovernanceWrites } from "./event-writes.js";
 import { SafetyRecordingUnavailable } from "./safety-store.js";
 import { safetyQueue } from "./safety-queue.js";
+import type { ReferenceTools } from "../brain/reference-tools.js";
 
 export function createSafetyCollector(db:Database,writes:GovernanceWrites,options:{turnId:string;bindingId:string;backendId:string;
- sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null}):NonNullable<BackendBridge["inputSafety"]> {
+ sessionId:()=>string|null;actor?:"interactive"|"voice";brainPath?:string;shellProxied:()=>boolean;signal:AbortSignal;onReady?:()=>void;stop?:(error:Error)=>void;policyHash?:string|null;
+ referenceReads?:Pick<ReferenceTools,"observeResult">}):NonNullable<BackendBridge["inputSafety"]> {
  // `admitted`: every input signal of its latest begin() is recorded, and the
  // call owes its result. A result for a call whose begin() failed partway
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
@@ -137,6 +139,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
+    await options.referenceReads?.observeResult(options.turnId,toolUseId,tool,output,finalized,segments);
     const state=finalized&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
     // The last exposure commits with the call's discharge, in one
     // transaction: no end and no restart can find the record durable and

@@ -190,6 +190,7 @@ import { registerReferenceWrites } from "./brain/reference-writes.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createGitHubReferenceAccess } from "./brain/github-reference-access.js";
 import { createReferenceTools } from "./brain/reference-tools.js";
+import { createReferenceReads } from "./brain/reference-read.js";
 import { createComputeHost, readHostedComputeConfig } from "./brain/compute-host.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
 import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
@@ -557,6 +558,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The agent tools (#2432) reach both services only through the turn's own access.
   const referenceTools = referenceSources ? createReferenceTools({ sources: referenceSources, ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
+    reads: createReferenceReads({ db, brain: nativeReady.brainUuid, sources: referenceSources, pool: nativeManager, transport: referenceTransport }),
     log: brainLog }) : undefined;
   if (referenceWorktrees) {
     bootCleanup.push(() => referenceWorktrees.close());
