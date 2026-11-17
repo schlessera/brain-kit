@@ -62,5 +62,7 @@ export const DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 10, stepMinut
  * `browser_determinism_shards` output, each partition's command, both
  * aggregates, the merge path and the workflow guard read this table. Measured
  * basis: docs/decisions/ci-utility.md, "Changed browser specs repeat under
- * load before merge". */
-export const BROWSER_DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 15, stepMinutes: 20, loadRatio: 1.8, unweightedSeconds: 10 } as const;
+ * load before merge". `deadlineFactor` is the smallest integer at least 15%
+ * above the measured ratio: Vitest defaults and in-spec watchdogs scale by
+ * it only inside this deliberately loaded job (#4192). */
+export const BROWSER_DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 15, stepMinutes: 20, loadRatio: 1.8, unweightedSeconds: 10, deadlineFactor: 3 } as const;
