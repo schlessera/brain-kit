@@ -215,7 +215,12 @@ export function createReferenceSources(options: {
       if (closed) throw new ReferenceSourceError("unavailable", "Reference sources are closed.");
       if (fence !== (authorityFences.get(key) ?? 0) || withdrawn.has(key))
         throw new ReferenceSourceError(suspended.has(key) ? "unavailable" : "unauthorized", "A newer observation invalidated this source's authority.");
-      if (suspended.has(key) || !validationLive(source))
+      // App/cron owners share the catalog, not these process-local fences.
+      // New effects must still name this publication after their own waits.
+      const current = row(source.domain, source.repository, source.revision);
+      if (!usable(current) || current.root_id !== source.root_id || current.commit_id !== source.commit_id || current.ref !== source.ref)
+        throw new ReferenceSourceError("unauthorized", "This source publication is no longer authoritative.");
+      if (suspended.has(key) || !validationLive(source) || !validationLive(current))
         throw new ReferenceSourceError("unavailable", "This source's authority needs fresh validation.");
       authority?.();
     };

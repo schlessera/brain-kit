@@ -777,6 +777,68 @@ describe("live managed authority", () => {
       } finally { if (first) await worktrees.closeGeneration(first.id); if (other) await worktrees.closeGeneration(other.id); await worktrees.close(); await f.close(); }
     });
 
+  for (const observation of ["private", "unknown", "replacement"] as const)
+  for (const wait of ["coverage", "native-grant", "held-refresh"] as const)
+    test(`another source service's ${observation} observation fences a worktree during ${wait}`, async () => {
+      const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+      const context = { turnId: "odysseus-shared-source-authority", egress: f.egress, current: () => f.state.current };
+      const invalidate = async () => {
+        if (observation === "private") f.state.private = true;
+        else if (observation === "unknown") f.state.status = 503;
+        else f.state.ownerId = 202;
+        const pending = otherSources.request({ principalId: f.other.id, repository, revision: "main",
+          acquisition: { turnId: "telemachus-other-source-owner", egress: f.secondEgress, current: () => true } });
+        if (observation === "replacement") (await pending).release();
+        else await expect(pending).rejects.toMatchObject({ code: observation === "private" ? "unauthorized" : "unavailable" });
+        if (observation === "unknown") expect(otherDb.query("SELECT validated_at FROM reference_sources WHERE domain = 'public'").get(),
+          "OTHER_SERVICE_SUSPENSION_IS_DURABLE").toEqual({ validated_at: 0 });
+      };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources,
+        coverage: async () => { if (wait === "coverage") await invalidate(); } });
+      let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+      try {
+        const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+        generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+        if (wait === "native-grant") {
+          const access = f.pool.poolAccess;
+          f.pool.poolAccess = async (...args) => { const result = await access(...args); await invalidate(); return result; };
+        }
+        if (wait === "held-refresh") {
+          await worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context });
+          const request = f.sources.request;
+          f.sources.request = async input => { const lease = await request(input); await invalidate(); return lease; };
+        }
+        await expect(worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context }),
+          "WORKTREE_RECHECKS_OTHER_SERVICE_DURABLE_AUTHORITY").rejects.toMatchObject({ code: observation === "unknown" ? "unavailable" : "unauthorized" });
+        expect(f.pool.records.get(item.id)!.access, "OTHER_SERVICE_INVALIDATION_PARKS_WORKTREE").toBeNull();
+        expect(existsSync(join(generation.path, item.id, "README.md")), "OTHER_SERVICE_INVALIDATION_HIDES_WORKTREE_FILES").toBe(false);
+        expect(worktrees.get({ worktreeId: item.id, principalId: f.owner.id }).generation).toBeNull();
+      } finally {
+        if (generation) await worktrees.closeGeneration(generation.id);
+        await worktrees.close(); await otherSources.close(); otherDb.close(); await f.close();
+      }
+    });
+
+  test("another service's valid check preserves the waiting source lease", async () => {
+    const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+    const context = { turnId: "odysseus-shared-valid-authority", egress: f.egress, current: () => f.state.current };
+    const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources, coverage: async () => {
+      const lease = await otherSources.request({ principalId: f.other.id, repository, revision: "main",
+        acquisition: { turnId: "telemachus-valid-source-check", egress: f.secondEgress, current: () => true } });
+      lease.release();
+    } });
+    let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+    try {
+      const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+      generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+      await worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context });
+      expect(readFileSync(join(generation.path, item.id, "README.md"), "utf8"), "OTHER_SERVICE_VALIDATION_PRESERVES_AUTHORIZED_WORKTREE").toContain("Odysseus");
+    } finally {
+      if (generation) await worktrees.closeGeneration(generation.id);
+      await worktrees.close(); await otherSources.close(); otherDb.close(); await f.close();
+    }
+  });
+
   for (const observation of ["private", "unknown"] as const)
   for (const wait of ["coverage", "native-grant", "held-refresh"] as const)
     test(`a public worktree cannot outlive newer ${observation} authority during ${wait}`, async () => {
