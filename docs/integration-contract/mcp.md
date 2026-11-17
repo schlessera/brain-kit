@@ -1591,6 +1591,38 @@ false`, `rule: null` and `decision` `refused`, `declined` or `approved`. The
 approval is recorded before the request is sent; if it cannot be recorded,
 nothing is sent. The turn journal lists every one as irreversible.
 
+### Raw connections to GitHub's API (0.45.0, #3799)
+
+The worker holds no GitHub credential, and the four tools above are the
+supported way to reach GitHub. A shell command that reaches GitHub's API
+directly is not refused outright. The default outward hosts include
+`api.github.com` and `uploads.github.com`. If the turn's running calls are not
+all visible reads, or approved outward actions naming that host, a connection
+to either host waits on the existing `Network` approval card. That covers an
+opaque script, or a compound command the classifier cannot read. The card is
+a per-use `tool_approval_request` with `toolName: "Network"`,
+`kind: "command"`, `input: { host, port, method }` and the description
+`<METHOD> to <host>:<port>`, for example `CONNECT to api.github.com:443`. It
+is never remembered.
+
+- Allowing it admits the held connection.
+- Declining it refuses the connection with
+  `403 Forbidden - outward connection not approved` and the body `Blocked: a
+  connection to <host> acts outside the brain in the user's name, and it was
+  not approved. Do not retry it; say what you needed it for.` The decision is
+  recorded as `egress_connection` with `outcome: "denied"` and
+  `reason: "outward_not_approved"`.
+- Stopping the turn while the card waits cancels the connection and withdraws
+  the card. A late answer admits nothing.
+- A card raised while no client is connected is held and sent to the next
+  client that connects. Only the turn's own timeout bounds that wait.
+
+Voice turns have no grant surface and are refused without a card. Both
+backends' fixed outward note tells the model to use the GitHub tools and not
+`gh`, `curl` or WebFetch. When the tools are absent, or answer `unavailable`
+or `policy_denied`, the model is to tell the user what they said and stop. No
+wire shape changes.
+
 ## Host-owned web tools (additive, 0.45.0, #3685)
 
 The pi backend's ordinary governed and strict interactive sessions list four

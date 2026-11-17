@@ -124,6 +124,21 @@ governance event (`gh_write`) that the turn journal lists as irreversible.
 and [supported inputs](supported-inputs.md#governance-policy).
 This ships in a minor.
 
+## Raw GitHub API connections keep their Network card (documentation, 0.45.0, #3799)
+
+This records shipped behaviour and adds no surface. When a shell command
+connects to an outward GitHub host (`api.github.com`, `uploads.github.com`)
+and the classifier cannot read it, the connection waits on the existing
+per-use `Network` card. The card names method, host and port. Allowing it
+admits the connection. Declining it refuses with `outward_not_approved`.
+Stopping the turn cancels the connection. A card raised with no client
+connected is sent to the next client that connects. Both backends' fixed
+outward note names the host GitHub tools under their visible names, tells the
+model not to fall back to `gh`, `curl` or WebFetch, and says what to do when
+the tools are unavailable. See
+[the MCP component](integration-contract/mcp.md#raw-connections-to-githubs-api-0450-3799)
+and [the decision](decisions/governed-writable-workers.md#outward-actions-g5).
+
 ## GitHub detail-page types (additive, 0.45.0, #3796)
 
 `@schlessera/brain-ui-sdk/tool-contracts` adds the detail-page part list,

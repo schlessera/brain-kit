@@ -56,3 +56,16 @@ test("the capabilities note states the taint rules, the session's taint and wher
   expect(tainted).toContain("taint.egress.allow hosts, hosts this session already contacted, and the host's inference and provider relays");
   expect(tainted).toContain("still reaches its approved provider after untrusted input");
 });
+
+test("the outward note sends GitHub through the host tools under each backend's visible names (#3799)", () => {
+  for (const [adapter, read] of [["claude", "mcp__brain-ui__brain_github_issue_read"], ["pi", "brain_github_issue_read"]] as const) {
+    const note = workerOutwardNote(true, null, adapter);
+    expect(note, `GITHUB_NOTE_NAMES_TOOLS ${adapter}`).toContain(`\`${read}\``);
+    expect(note).toContain(`\`${read.replace("_read", "_create")}\``);
+    expect(note, "GITHUB_NOTE_NO_FALLBACK").toContain("Do not fall back to gh, curl or WebFetch for GitHub.");
+    expect(note, "GITHUB_NOTE_UNAVAILABLE").toContain("If these tools are absent, or answer unavailable or policy_denied, tell the user what they said and stop.");
+    // The note precedes the session's taint line, so a tainted session keeps the same GitHub text.
+    expect(workerOutwardNote(true, { eventId: 7, source: "web_fetch" }, adapter).startsWith(note.slice(0, note.indexOf("# Untrusted input")))).toBe(true);
+  }
+  expect(workerOutwardNote(true, undefined, "pi"), "GITHUB_NOTE_WITHOUT_HOST_RECORD").toContain("`brain_github_issue_search`");
+});

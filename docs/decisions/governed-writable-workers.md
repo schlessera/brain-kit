@@ -4165,6 +4165,58 @@ Microsoft Graph and Exchange Online carry more than mail, so their reads by
 an opaque script also wait on the card. The coordinator chose this list for
 #1665; the maintainer may override it.
 
+**Host GitHub tools — 2026-11-09 (#3791).** The
+[maintainer ruled](https://github.com/schlessera/brain-kit/issues/3791) that a
+hosted turn reaches GitHub only through four fixed host MCP tools:
+`brain_github_issue_read`, `brain_github_issue_search`,
+`brain_github_issue_create` and `brain_github_issue_comment`. Claude sees them
+as `mcp__brain-ui__brain_github_*` and pi under the bare names. A relayed `gh`
+and a documented "no GitHub here" were both rejected. The rest of the ruling:
+
+- **A dedicated credential.** The tools use the host-only
+  `BRAIN_UI_GITHUB_TOOLS_TOKEN` and nothing else. There is no fallback to
+  `GITHUB_TOKEN` or any other token. Every subprocess audience and worker
+  launch strips the variable. Workers never hold a GitHub credential, so `gh`
+  and raw API calls inside a turn are never authenticated. Without the token
+  the tools answer `unavailable` and send nothing.
+- **Reads are untrusted input.** GitHub text returned to a turn taints the
+  session as `github_result` before the model sees it. Reads see only what the
+  token can see. Routing of reads and searches under G2 is ruled separately on
+  #4029.
+- **Writes have an allow-list.** A write goes only to a repository listed in
+  the admitted policy's `outward.github.repositories` (`owner/repo` or
+  `owner/*`). Anything else is refused before any card is shown. Inside the
+  list, every write still raises its own exact-body approval card. Voice never
+  approves a write, and autonomous turns have no write surface.
+- **The Network card stays.** An unclassified connection to an outward GitHub
+  host keeps its `Network` approval card (`approveOutward`,
+  `packages/ui-server/src/brain/turn-egress.ts:256-263`); it is not refused
+  outright. The hosted report behind #3791 was a compound shell command that
+  ended in `curl` to `api.github.com`. The classifier reads such a command as
+  opaque, so no visible-read exception covers it. Its `CONNECT` was held for
+  68 seconds and then refused as `outward_not_approved`. The record did not
+  show whether a card was ever displayed.
+
+  #3799 proves this path end to end through the real WebSocket handlers. The
+  card names the method and host (`CONNECT to api.github.com:443`), and the
+  client's status reads `Waiting for approval: Network`. Allowing admits the
+  held tunnel. Declining refuses it with `outward_not_approved` and a reason
+  the tool prints. Stopping the turn cancels the connection and withdraws the
+  card. If no client is connected when the card is raised, the card is held,
+  logged as waiting for a reconnect, and sent to the next client that
+  connects. Only the turn's own timeout bounds that wait
+  (`resendPendingInteractive`, `packages/ui-server/src/ws/resend.ts:13-16`).
+  No separate notification exists for a held card. A visible, classified
+  read, such as `gh issue view` or a plain `curl` GET, still connects without
+  a card under the exception above, but it reaches GitHub unauthenticated.
+- **The model is told.** Both backends' outward note names the four tools
+  under the backend's visible names. It says that `gh`, `curl` and WebFetch
+  cannot act as the user on GitHub. When the tools are absent, or answer
+  `unavailable` or `policy_denied`, the model is to report what they said and
+  stop rather than fall back (`githubToolsRule`,
+  `packages/ui-sdk/src/server/outward-policy.ts:130-136`). The note is part of
+  each session's fixed system prompt and does not change between turns.
+
 ### Untrusted input (G6)
 
 **Prospective supersession — 2026-11-05 (#3599).** The
