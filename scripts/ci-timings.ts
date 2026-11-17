@@ -159,6 +159,7 @@ export async function collectAttempt(api: TimingAPI, repository: string, raw: Ra
         const rows = log.split("\n").filter(line => line.includes("BRAIN_SELECTED_PROOF_RECEIPT "));
         if (rows.length !== 1) throw new Error("Selected-proof timing metadata missing or ambiguous");
         const receipt = JSON.parse(rows[0]!.split("BRAIN_SELECTED_PROOF_RECEIPT ")[1]!);
+        // Always empty since proof retention was retired (#4107); archived runs before it could retain.
         if (!Array.isArray(receipt.retained) || receipt.retained.some((c: unknown) => c !== "browser" && c !== "layout") ||
           !CATEGORIES.every(c => ["true", "false"].includes(receipt.selections?.[c]))) throw new Error("Invalid selected-proof timing metadata");
         snapshot.selection = { selections: Object.fromEntries(CATEGORIES.map(c => [c, receipt.selections[c]])), retained: receipt.retained };

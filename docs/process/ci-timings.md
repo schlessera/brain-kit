@@ -27,8 +27,9 @@ The time interval selects runs by their original creation time. Every available
 attempt of a selected run is collected separately. `--resources` additionally
 reads executed proof-job logs for their structured resource markers and the
 aggregate's selection/retention marker. It does not persist full logs. Without
-that option, job and step timestamps are still available, but retained browser
-proof cannot always be distinguished from other skipped jobs. An unavailable
+that option, job and step timestamps are still available. In runs archived
+before browser proof retention was retired (#4107), a retained browser job
+cannot always be distinguished from other skipped jobs. An unavailable
 marker remains unknown, rather than a zero-duration command.
 
 Filtered searches recursively split time ranges at GitHub's 1,000-result cap.

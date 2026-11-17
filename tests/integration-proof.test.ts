@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { PROOF_JOBS } from "../scripts/ci-proof";
 import { verifyIntegrationProof } from "../scripts/integration-proof";
 import { scanText } from "../scripts/check-leakage";
-import type { API } from "../scripts/proof-reuse";
+import type { API } from "../scripts/proof-api";
 
 const candidate = { repository: "https://github.com/odysseus/brain-kit", pr: 7, head: "a".repeat(40), base: "b".repeat(40) };
 const job = { id: 19, name: "changeset", status: "completed", conclusion: "success", run_id: 17, head_sha: candidate.head };

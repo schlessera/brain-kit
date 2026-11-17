@@ -26,7 +26,6 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
     "tests/diagram-export-installation.test.ts", // 0.03s finite installed input controls.
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
     "tests/candidate-proof.test.ts", "tests/proof-inventory.test.ts",
-    "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).
     "tests/measurement-fixture-lifetime.test.ts", // 0.13s owner/exit regression (#1330).
     "tests/ci-workflows.test.ts", "tests/heavy-feedback.test.ts", "tests/release-manifest.test.ts", "tests/ci-pack.test.ts",
     "tests/lockfile.test.ts",
@@ -79,10 +78,6 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
  * Keep the input scopes beside their invariant, including non-Markdown inputs.
  */
 export const FILE_INPUT_TESTS: Readonly<Record<string, readonly RegExp[]>> = {
-  // The fixture copies these sources as bytes, so import discovery misses edits.
-  "tests/source-browser-dispatch.test.ts": [
-    /^packages\/ui-react\/src\/(?:connection\.ts|hooks\/use-websocket\.ts|hooks\/websocket-handlers\/[^/]+\.ts|lib\/stats\/context-text\.ts)$/,
-  ],
   // Links, path kinds and short citations can resolve to arbitrary repo targets.
   // New/deleted targets anywhere can break a doc without changing its Markdown.
   "tests/docs-paths.test.ts": [/.+/],
@@ -132,8 +127,6 @@ export const FILE_INPUT_TESTS: Readonly<Record<string, readonly RegExp[]>> = {
   "tests/candidate-admission.test.ts": [/^\.github\/workflows\/ci\.yml$/],
   "tests/project-sync-main.test.ts": [/^\.github\/workflows\/project-sync\.yml$/],
   "tests/ci-timings.test.ts": [/^\.github\/workflows\/ci-timings\.yml$/],
-  "tests/generated-build-inputs.test.ts": [/^\.github\/workflows\/ci\.yml$/],
-  "tests/generated-theme-inputs.test.ts": [/^\.github\/workflows\/ci\.yml$/],
 };
 
 export interface CheckPlan {

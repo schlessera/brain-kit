@@ -144,6 +144,7 @@ fi`); chmodSync(shim, 0o755);
     if(s.mode==="missing-selection")delete selected.selections.endurance;
     if(s.mode==="unexpected-skip"){selected.selections.endurance="true";selected.results.endurance="success";}
     if(s.mode==="repetition-skipped")selected.selections.determinism="true";
+    if(s.mode==="retained-receipt"){selected.selections.browser="true";selected.results.browser="skipped";selected.retained=["browser"];}
     const job=(id,name,conclusion="success")=>({id,name,status:"completed",conclusion,run_id:91,head_sha:head});
     const jobs=[job(1,"changeset"),job(2,"proof"),...categories.flatMap((name,index)=>name==="browser"&&s.mode.startsWith("browser-")
       ?[1,2,3].filter(shard=>s.mode!=="browser-missing-third"||shard!==3).map(shard=>job(20+shard,"browser ("+shard+")"))
@@ -441,6 +442,11 @@ test("shared merge executable requires all three delivered browser shards", asyn
   expect(missing.dispatched, "NO_MERGE_WITH_MISSING_THIRD_BROWSER_SHARD").toBe(false);
   expect(missing.code).toBe(1);
   expect(missing.err).toContain("Actual selected job inventory differs");
+  // Retention is retired (#4107): a receipt excusing a skipped selected browser job is not proof.
+  const retained = await scenario("retained-receipt");
+  expect(retained.dispatched, "NO_MERGE_ON_RETAINED_BROWSER_PROOF").toBe(false);
+  expect(retained.code).toBe(1);
+  expect(retained.err).toContain("Retained proof is retired");
 });
 
 test("delivered issues accepts 22 and the finite boundary with every milestone read back", async () => {

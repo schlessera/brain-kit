@@ -22,7 +22,6 @@ name: Draft heavy feedback
 permissions:
   contents: read
   actions: read
-  checks: read
 concurrency:
   group: "heavy-feedback-${{ github.event.pull_request.number || inputs.pr }}"
   cancel-in-progress: true
@@ -52,8 +51,6 @@ jobs:
       verify: "${{ steps.plan.outputs.verify }}"
       pack: "${{ steps.plan.outputs.pack }}"
       determinism: "${{ steps.plan.outputs.determinism }}"
-      run_browser: "${{ steps.reuse.outputs.run_browser }}"
-      run_layout: "${{ steps.reuse.outputs.run_layout }}"
       red_main_oid: "${{ steps.plan.outputs.red_main_oid }}"
       base_sha: "${{ steps.admit.outputs.base_sha }}"
     steps:
@@ -89,9 +86,6 @@ jobs:
           HEAD_SHA: "${{ inputs.head_sha }}"
           FEEDBACK_PR: "${{ inputs.pr }}"
         run: bun scripts/ci-plan.ts
-      - name: Select fresh browser and layout execution
-        id: reuse
-        run: bun scripts/proof-reuse.ts
   verify:
     needs: changeset
     if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.verify == 'true' }}"
@@ -306,7 +300,7 @@ jobs:
           retention-days: 7
   browser:
     needs: changeset
-    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true' }}"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -345,7 +339,7 @@ jobs:
           retention-days: 7
   layout:
     needs: changeset
-    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true' }}"
+    if: "${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.layout == 'true' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:

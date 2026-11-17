@@ -2,7 +2,7 @@
 import { validateCandidate } from "./candidate-proof";
 import { checkout, type Checkout } from "./proof-inputs";
 import type { Candidate } from "./integration-reservation";
-import type { API } from "./proof-reuse";
+import type { API } from "./proof-api";
 import { PROOF_JOBS, proofProblems } from "./ci-proof";
 import { MAX_UNIT_PARTITIONS, shardNumbers, unitPartitionLimit } from "./proof-shards";
 import { coveredCategories } from "./check-receipt";
@@ -110,14 +110,15 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   const selectedLines = proofLog.split("\n").filter(line => line.includes("BRAIN_SELECTED_PROOF_RECEIPT "));
   if (selectedLines.length !== 1) throw new Error("Fresh structured selected-proof receipt required");
   const selected = JSON.parse(selectedLines[0]!.split("BRAIN_SELECTED_PROOF_RECEIPT ")[1]!) as {
-    selections: Record<string, string>; results: Record<string, string>; retained: string[]; unitShards: string | null;
+    selections: Record<string, string>; results: Record<string, string>; retained?: unknown; unitShards: string | null;
   };
-  if (!Array.isArray(selected.retained) || selected.retained.some(name => !["browser", "layout"].includes(name))) throw new Error("Unsupported retained proof identity");
+  // Retention is retired (#4107): a receipt naming a retained category is not fresh proof.
+  if (selected.retained !== undefined && (!Array.isArray(selected.retained) || selected.retained.length)) throw new Error("Retained proof is retired: every selected category must run fresh");
   const needs = { changeset: { result: "success", outputs: selected.selections }, ...Object.fromEntries(PROOF_JOBS.map(name => [name, { result: selected.results[name] }])) };
-  if (proofProblems(needs, new Set(selected.retained)).length) throw new Error("Selected proof did not satisfy the aggregate policy");
+  if (proofProblems(needs).length) throw new Error("Selected proof did not satisfy the aggregate policy");
   const expected = ["changeset:success", "proof:success"];
   for (const name of PROOF_JOBS) {
-    const fresh = selected.selections[name] === "true" && !selected.retained.includes(name);
+    const fresh = selected.selections[name] === "true";
     if (fresh && (name === "browser" || name === "layout")) expected.push(...shardNumbers(name).map(shard => `${name} (${shard}):success`));
     else if (fresh && name === "unit") {
       const shards: unknown = JSON.parse(selected.unitShards ?? "null");

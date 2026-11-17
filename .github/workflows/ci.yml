@@ -12,7 +12,6 @@ on:
 permissions:
   contents: read
   actions: read
-  checks: read
 
 # Cancel obsolete PR heads. Preserve every integrated main commit's evidence.
 concurrency:
@@ -41,9 +40,6 @@ jobs:
       verify: ${{ steps.plan.outputs.verify }}
       pack: ${{ steps.plan.outputs.pack }}
       determinism: ${{ steps.plan.outputs.determinism }}
-      run_browser: ${{ steps.reuse.outputs.run_browser }}
-      run_layout: ${{ steps.reuse.outputs.run_layout }}
-      reuse: ${{ steps.reuse.outputs.reuse }}
       red_main_oid: ${{ steps.plan.outputs.red_main_oid }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -77,14 +73,8 @@ jobs:
       - name: Discover product scenario and assertion ownership
         if: steps.plan.outputs.cadence != 'draft'
         run: bun scripts/proof-inventory.ts
-      # Plan outputs and retention decisions are set before any metadata gate can
-      # fail, so a main push still runs its complete selected proof (#2942).
-      - name: Retain only validated equivalent automatic proof
-        id: reuse
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
-        run: bun scripts/proof-reuse.ts
+      # Plan outputs are set before any metadata gate below can fail, so a main
+      # push still runs its complete selected proof (#2942).
       - name: Lint, leakage and contribution workflow guards
         run: bun run lint
       - name: Env documentation matches its descriptors
@@ -101,14 +91,12 @@ jobs:
           elif [ "$GITHUB_EVENT_NAME" = push ]; then
             bun scripts/check-changeset.ts "$BEFORE_SHA"
           fi
-      - name: Retention ledger and diagnostics
+      - name: Product scenario inventory
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: proof-reuse-ledger
-          path: |
-            tmp/proof-reuse.json
-            tmp/proof-inventory.json
+          name: proof-inventory
+          path: tmp/proof-inventory.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -425,7 +413,7 @@ jobs:
 
   browser:
     needs: changeset
-    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true' }}
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -490,7 +478,7 @@ jobs:
 
   layout:
     needs: changeset
-    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.layout == 'true' && needs.changeset.outputs.run_layout == 'true' }}
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.layout == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:

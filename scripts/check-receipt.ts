@@ -98,12 +98,12 @@ export function receiptFromBody(body: string | null | undefined): CheckReceipt |
   return parseReceipt(parsed);
 }
 
-/** Hosted categories the exact-head selected proof ran successfully (or validly retained). */
-export function coveredCategories(selected: { selections: Record<string, string>; results: Record<string, string>; retained: string[] }): Set<Category> {
+/** Hosted categories the exact-head selected proof ran successfully. */
+export function coveredCategories(selected: { selections: Record<string, string>; results: Record<string, string> }): Set<Category> {
   const covered = new Set<Category>(["changeset"]);
   for (const category of CATEGORIES) {
     if (category === "changeset" || selected.selections[category] !== "true") continue;
-    if (selected.results[category] === "success" || selected.retained.includes(category)) covered.add(category);
+    if (selected.results[category] === "success") covered.add(category);
   }
   return covered;
 }

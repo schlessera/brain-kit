@@ -8,7 +8,7 @@ import { heavyFeedbackWorkflowProblems } from "../scripts/check-ci-workflows";
 import { requestHeavyFeedback, type GH } from "../scripts/request-heavy-feedback";
 import { verifyIntegrationProof } from "../scripts/integration-proof";
 import { MAX_MS } from "../scripts/integration-reservation";
-import type { API } from "../scripts/proof-reuse";
+import type { API } from "../scripts/proof-api";
 
 const ROOT = resolve(import.meta.dir, "..");
 const REPO = "odysseus/brain-kit";

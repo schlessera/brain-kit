@@ -26,6 +26,18 @@ escaping or unsupported inputs retain the previous broad selection. Exact source
 matching detects a changed call site; it does not prove an arbitrary runtime target
 is bounded. Do not declare an owner as its own target to conceal unknown inputs.
 
+Identical indirect expressions can name exact lexical function scopes; stale,
+ambiguous or shadowed bindings remain unresolved. A declaration can instead
+name the one runner observation class, which admits only literal Linux boot
+identity, self status and self PID-namespace queries through unshadowed
+imported filesystem readers. Those values are runner observations, never Git
+blobs or repository payloads.
+
+No script resolves an edge by pinning source bytes. The audited bindings that
+did were [retired with proof retention](#retaining-complete-browser-domains)
+(#4107): an edge the walk cannot follow leaves the category unresolved, and it
+keeps the broad rule.
+
 Runtime-selected configuration/modules and backend imports can prevent a closed
 category. That is a conservative result, not permission to discard an edge. The
 shared Vitest config imports the dispatch command; its real application fixture
@@ -540,8 +552,8 @@ with `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
 (the default remains browser). Each domain retains its own run/attempt/job,
 checkout/tree/parent and pinned-image provenance. Refresh requires fresh
 successful jobs from every shard of a successful CI run, matching actual checkouts, complete
-reported project/file coverage and source/image attribution; cancelled,
-partial or retained-only proof supplies no measurements. Refreshing one domain
+reported project/file coverage and source/image attribution; cancelled or
+partial proof supplies no measurements. Refreshing one domain
 preserves the other's costs and provenance. Reviewed CI reports are measurement
 inputs, never runtime dependencies. Layout refresh admits ordinary
 `ui-react-layout` measurements; `ui-react-endurance` remains a separate mandatory
@@ -670,9 +682,7 @@ outcome never establishes a definite timeout cause. A
 successful proof step without affirmative completion evidence fails summary
 validation. A forced whole-job cancellation can prevent the summary itself;
 absence is unknown/nonpassing, never a promise of completion. These controls
-preserve aggregate refusal and all offline and proof-reuse rules. Changing
-the audited coordinator invalidates optional generated-build binding until a
-separate post-merge re-audit under #2408; this repair does not repin it.
+preserve aggregate refusal and all offline rules.
 
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
@@ -928,130 +938,93 @@ commit/tree/parents to the requested head/base and live PR readiness/head plus
 an independently queried base ref. A changed base requires a new confirmation
 request, even when a reviewer considers that base change unrelated. This is a
 conservative identity rule: no rebase is required solely to request a new
-combined checkout, and admitted equivalent browser/layout domains can still be
-retained. It supersedes the earlier permission to merge after only a manual
-unrelated-base assessment. Endurance and Git-sensitive domains remain fresh. Reuse is justified only
-when the complete suite inputs, dependency closure, fixtures and harness are
-unchanged and recorded evidence establishes that fact; unknown/global changes
-require fresh proof. There is no generic passing-result cache. The earlier run
-still names its own tree, not a later combined checkout. Required branch rules
+combined checkout. It supersedes the earlier permission to merge after only a manual
+unrelated-base assessment. Every selected category runs fresh on the new
+combined checkout: there is no passing-result cache, and
+[browser proof retention is retired](#retaining-complete-browser-domains).
+An earlier run still names its own tree, not a later combined checkout. Required branch rules
 and actual merge-result parent/tree validation remain binding.
 
 ### Retaining complete browser domains
 
-Under #1333, ready-PR metadata can retain every shard of a complete browser or
-layout domain from up to three recent successful automatic runs of that same
-contribution. Unit, types, packaging, native runtime and editorial checks remain
-fresh: their Git-sensitive or broader process inputs do not have an admitted
-independent domain. Main pushes and scheduled/manual runs execute fresh proof.
-There are no chains through previously retained/skipped jobs.
+**Retired (maintainer, 2026-11-16,
+[#4107](https://github.com/schlessera/brain-kit/issues/4107)).** Every selected
+`browser` and `layout` job runs fresh. This supersedes #1333 (retention), #2126
+(its hosted demonstration) and the #2408 re-audit rulings of 2026-10-18 and
+2026-11-04, and follows #4105, which retired the native diagram pin for the
+same reason.
 
-Vitest's installed `list --filesOnly --json=<path>` discovers actual project/file
-ownership without collecting suites. Browser and layout each fingerprint their
-complete applicable static-import and validated indirect-input closure from
-#2125, including CSS scan roots and assets. Unknown runtime/computed inputs,
-unavailable discovery and invalid declarations require fresh execution.
-Directory ownership includes added descendants; missing and symbolic inputs
-remain conservative failures until fully supported.
+**What it was.** Under #1333, a ready PR could skip every shard of a complete
+browser or layout domain when an earlier successful run of the same
+contribution had run it on equivalent inputs. Equivalence was a fingerprint
+over the domain's complete input closure. To call a closure complete, each
+runtime edge the static walk could not follow was resolved by an *audited
+binding*: a script that named the exact call site and pinned the SHA-256 of
+every source file involved. The aggregate revalidated a ledger of retained
+categories before accepting their skip.
 
-Identical indirect expressions can name exact lexical function scopes; stale,
-ambiguous or shadowed bindings remain unresolved. A narrow runner observation
-class admits literal Linux boot identity, self status and self PID-namespace
-queries through unshadowed imported filesystem readers. It rejects descriptor
-paths, dynamic PID/path expressions, arbitrary files and non-reader constructs.
-Those values are runner observations, never Git blobs or provider/repository
-payloads. Other process/filesystem inputs still need supported ownership.
+**Why it is retired.**
 
-Generated fixture roots additionally require the root-redirect environment
-variables `BRAIN_ROOT`, `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT`
-to be absent, including empty overrides. The versioned runner condition is
-checked when making fresh receipts and revalidating current/source evidence.
-A verified literal producer in an owned temporary root alone does not bind a
-consumer reached through CLI arguments, cwd or configuration redirection.
+- **No event reaches it.** Retention applied only to a ready PR that selected
+  `browser` or `layout`. Under the [hybrid ruling](#hybrid-post-merge-heavy-proof),
+  ready confirmation no longer selects either, and ready feedback never did.
+  Main and exhaustive runs were always fresh.
+- **It rarely worked before that.** #2126 recorded no retained category in 57
+  PR runs. Its one controlled hit saved runner seconds and was slower end to
+  end (1,253 s against 1,220 s).
+- **Its pins failed product PRs.** A pin is a hash of first-party source, and
+  its self-test read the live file. A product change to a pinned file, such as
+  `packages/ui-react/src/ws-client/inbound.ts`, turned `unit` red until the
+  changing PR recomputed the hash. Twenty PRs edited that one file.
 
-A bounded command-activation audit covers seven dormant server, Mermaid and scene
-callbacks. Registration in a selected project is allowed only when the complete
-selected call inventory proves the callback is never invoked. It checks the
-complete selected spec inventory, inherited setup/global hooks and their static
-imports; actual invocation, callback escapes, dynamic loaders and aliased
-command invocation retain fresh execution. Admission additionally requires exact
-audited runner, configuration, callback and imported-helper source identities.
-An edit requires a new audit rather than general TypeScript partial evaluation.
-Only a proven inactive arrow body defers its runtime inputs. Its module and
-static imports still execute and retain ordinary input checks, including any
-top-level initializer or side effect. Dormant declared targets and their static
-imports remain fingerprinted source bytes. This bounded support does not close
-unrelated generated assets or provenance inputs.
-The audited configuration, selected specs and inherited setup/global hooks are
-also ordinary runtime closure roots; inspecting their command calls cannot
-substitute for hashing their sources and resolving their executed input reads.
+**What was removed.**
 
-Generated consumer stylesheet imports bind the exact `ui-kit`/`ui-react`
-`dist/styles.css` output and byte-copied theme/token exports to their source stylesheets, recursive CSS inputs and
-tracked producer. The audited build cleans package output, uses the frozen
-Tailwind dependency and completes successfully before browser execution and its
-fresh receipt. Three audited command readers additionally bind the runner's
-`packages/ui-kit` cwd. Producer, command or execution-path drift makes that
-binding unavailable. Current `dist` bytes never substitute for source inputs.
-Other generated artifacts, external assets and temporary readers remain unknown
-until their own bindings are validated.
+- The retained-proof lookup, its ledger, the aggregate's revalidation and the
+  fresh-execution receipt each shard printed for it. The metadata job has no
+  retention step and sets no `run_browser`, `run_layout` or `reuse` output.
+  `checks: read`, which only that lookup used, is gone from the token.
+- The inclusion fingerprint and its immutable-tree snapshot.
+- Every audited binding, with its frozen positive fixtures and self-tests:
+  command activation, document and replay producers, runtime readers, dispatch
+  registries, literal payloads, locked installed assets, generated CSS and the
+  dictation theme, screenshot baselines, and the Worker capability audit
+  manifest.
 
-Generated CSS/theme and inclusion self-tests use raw Git blobs from the
-independently pinned audited revision for their positive producer controls.
-They test actual current producer bytes separately: legitimate audit drift
-requires fresh proof and does not redefine the positive fixture. The locked
-offline compiler and installed-asset byte/mode controls remain runtime proof.
+**What stays.**
 
-Browser document, inactive-command and worker-boundary self-tests follow the
-same ownership rule. Their positive config, callers, producers and binary font
-fixtures come from independently pinned raw Git blobs, including frozen directory
-membership (`const owner`, `tests/frozen-browser-source.ts:8-22`). Actual candidate
-bytes are checked separately against that owner
-(`test.each([...reviewedBrowserDocuments])`, `tests/bound-browser-documents.test.ts:142-155`);
-changed enforcement cannot qualify by recomputing its manifest. These fixtures
-exercise the existing audit and never refresh production pins or authorize
-retained proof for the candidate.
+- **Selection** ([browser proof input ownership](#browser-proof-input-ownership)).
+  The static walk and the declared inputs still build each category's closure.
+  An edge a binding used to resolve is now unresolved, so the category keeps
+  the planner's broad rule for it. Removing a binding can only widen
+  selection. The qualification replay found no narrowing: over the archived
+  100-PR set (#1741–#2071) and over the 100 most recent merges at the time
+  (#3837–#4101), the rule after the removal selected every category the rule
+  before it selected, in all four browser categories. The ten build and CI
+  scripts that left the closures each make a plan global on their own, which
+  selects everything.
+- **The aggregate.** A selected job that is missing, skipped, cancelled or
+  failed cannot pass, and nothing excuses a skip. `integrate.ts merge` refuses
+  a selected-proof receipt that names a retained category. The receipt keeps an
+  always-empty `retained` list so that a checkout predating the retirement and
+  the timing collector still parse it.
+- **The zero-Worker boundary.** The selected browser projects install it before
+  product imports (`installWorkerBoundary`, `scripts/browser-worker-boundary.ts:2-21`).
+  It records and refuses every Worker construction, checks after test hooks and
+  again in the outer `aroundAll` after returned and file-fixture cleanup, then
+  restores the original descriptor. Catching the construction error in the
+  product cannot make the proof pass. Layout, endurance and the real PDF-worker
+  runtime categories run unrestricted.
+- **Every runtime assertion in the browser suites**, including the
+  zero-request replay guards and the native producer's checks below.
 
-Only a reviewed re-audit moves the audited revision
-([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer ruling 2026-10-18):
+**The guard against a return.** `tests/first-party-source-pins.test.ts` refuses
+a script or test that holds the SHA-256 of a first-party source file. It also
+changes the bytes of two formerly pinned product files in a copy of the tree,
+and requires planning and the root tests the planner selects for them to pass.
+If retention is wanted again, its qualification is designed afresh, without
+source pins that a product change can break.
 
-- **Trigger.** A legitimate change to any file in the audited producer table
-  (`const auditedProducer`, `scripts/generated-build-inputs.ts`) lands on main.
-  That merge leaves the binding unavailable, so proof runs fresh. A separate
-  follow-up PR restores it. Drift is not batched indefinitely.
-- **Owner.** The audited revision (`const owner`, `tests/frozen-generated-source.ts`)
-  must be a delivered main commit. CI reads its blobs offline from full history,
-  and a squash merge discards the changing PR's own commits, so that PR cannot
-  name itself as the owner.
-- **Audit.** The re-audit reviews each changed producer and the combined set's
-  guarantees: cleaned package output, the frozen Tailwind dependency, the build
-  finishing before browser execution, checked exits and the fresh receipt. It
-  records the owner, the changed paths and digests, and the rationale.
-  Recomputing a digest is not an audit.
-- **Update.** One PR moves the owner, refreshes every matching production digest
-  and updates the positive-fixture provenance together. It records two mutation
-  receipts, then completes local and hosted proof:
-  - a producer-digest bypass fails its negative control;
-  - corrupt positive ownership fails its positive control.
-- **Drift during review.** A producer that changes again before the re-audit
-  merges needs renewed review, or stays unqualified and keeps fresh proof.
-  Automatic pin refreshes and per-file ownership are not part of this
-  procedure.
-- **Audited readers.** The same rule covers the audited command readers
-  (`const readers`, `scripts/locked-browser-assets.ts:6-9`;
-  `const auditedReaders`, `scripts/generated-build-inputs.ts:37-41`)
-  ([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer
-  ruling 2026-11-04). A legitimate change to a reader makes its asset binding
-  unknown, so proof runs fresh; it never fails a test, and the changing PR does
-  not refresh the reader's pin. The reader's self-test holds the repository's
-  actual reader to whichever side of its pin its bytes are on: matching bytes
-  must yield the installed receipt and drifted bytes must yield no receipt
-  (`test("the repo reader`, `tests/locked-browser-assets.test.ts:26-33`). Its
-  positive control reads the reader from the frozen owner. The post-merge
-  re-audit moves that owner and refreshes the reader's pins in both maps
-  together.
-
-The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
+The native diagram SVG/PNG/PDF fixture runs behind a container boundary.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
 actual immutable manifest reference. The only host mounts are the private six-workspace
@@ -1059,12 +1032,10 @@ source view (read-only), a private external-package installation (read-only), th
 captured installed Bun bytes (read-only), and an initially empty owned output
 directory. Its HOME/temp and shared-memory filesystems are fresh container state;
 neither the original checkout nor host temporary directories or browser font
-cache are mounted. Image and Bun identities join the browser input fingerprint.
+cache are mounted.
 Execution bootstrap provisions the exact manifest digest and verifies its
 RepoDigest before either producer or browser consumption. Acquisition stays
-outside the offline producer and proof lookup.
-Metadata lookup projects the explicit manifest reference without requiring a Docker image
-on the metadata runner; actual execution requires that exact manifest reference with no pull.
+outside the offline producer; execution requires that exact manifest reference with no pull.
 The kernel mount boundary applies to imported initialization and shared library
 helpers as well as the fixed entry; their inactivity is not assumed.
 
@@ -1087,177 +1058,34 @@ retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
 
-Qualification is tied to the exact operation, source and installed identities;
-unknown readers, drift or missing inputs retain complete fresh proof. The fresh
-shard independently passes its computed identity to host preparation and checks
-installation/runtime identity again before emitting its existing receipt. Both
-shards, independent immutable source/current validation and whole-workflow
-successful eligibility retain the existing complete-domain protocol. Local proof
-is not a hosted baseline, retention hit or permission to use a failed workflow.
+**The frozen qualification is retired (maintainer, 2026-11-16,
+[#4105](https://github.com/schlessera/brain-kit/issues/4105)).** #2293 pinned the
+producer's source (`e8502b6f…`, the frozen #2293 snapshot), its installation
+(a hash over every package, file, byte and mode in `node_modules`) and three
+source files. That let a ready PR retain browser proof from an earlier green
+run. The pin no longer protected anything live:
 
-Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
-asset. Its explicit resource identity records package name/version, relative
-asset name, SHA-256 and mode in addition to the matching manifest/lockfile and
-frozen-install conditions. Missing, symbolic, escaped or changed reader inputs
-remain fresh; a changed reader stays fresh until its post-merge re-audit. This is exact-file validation, not a scan of `node_modules` or a
-claim that arbitrary installed files belong to a domain.
+- Under the [hybrid ruling](#hybrid-post-merge-heavy-proof), ready confirmation
+  no longer runs browser proof, and the squash's main run is always fresh.
+- All three pinned source files had drifted, so the binding could not qualify
+  on the current tree in any case.
+- Any dependency change moved the installation hash and turned `unit` red. That
+  needed a manual requalification run on a Docker host and a second merge
+  cycle. It happened three times (#3320, #3968, #4102), and the frozen
+  producer's SVG and PNG came out byte-identical every time.
 
-Two exact source-owned literal payloads—the rectangle SVG fixture and the
-black/white pixel probe—have no resource loads or executable content. Their
-complete owner and call identities validate the actual Playwright sink and
-lexical binding. Interpolated HTML and other payloads remain unresolved; this
-support cannot certify arbitrary generated documents.
+The binding (`scripts/native-diagram-inputs.ts`) and its self-test are
+removed, and the browser input closure no longer binds the producer's reads.
+The browser domain therefore always runs fresh. This supersedes the
+requalification rulings of 2026-11-02 (#2509/#3320) and 2026-11-11 (#3968).
+The container boundary above, the producer's own run-time identity checks and
+the browser's validation of the handoff are unchanged. Local proof is not a
+hosted baseline or permission to use a failed workflow.
 
-The complete activation-audited import inventory also seals two bounded reader
-flows. The exact browser sequencer calls the cost reader without an override,
-so its default is the module-relative cost JSON. The exact font command fixes
-the repository and lock-hash cache roots, verifies every length/checksum before
-use and replaces the pinned stylesheet URLs with those verified bytes. Reader,
-caller and font JSON/CSS/head identities must match their audit; additional
-imports, reexports or loaders into either reader require fresh execution. These
-bindings name only the exact consumed repository bytes. They do not bless
-arbitrary file parameters, changed font data or unverified cached content.
 
-Two finite private dispatch registries admit their exact indexed calls while
-every handler and imported helper retains normal runtime input traversal. The
-source audit verifies literal function entries, copied handler maps and private
-non-escaping registries. The complete importer inventory rejects additional
-map consumers; two exact consumers of a different chat helper are separately
-audited. Changed source, escaping maps or new consumers require fresh execution.
-
-The dictation theme command has a separate temporary-output producer binding.
-Its exact source owns a new temporary directory, invokes the locked Tailwind
-CLI with constant input/output arguments, awaits successful completion, reads
-only that output and removes the directory. The binding includes the compiler
-asset identity, checked build producer and recursively resolved CSS entry,
-theme, tokens and explicit source scan. Its precise `promisify` and
-`createRequire` uses do not permit other aliases. The runner registration and
-complete importer inventory seal the command's caller; source or input drift
-requires a new audit. This support does not admit arbitrary subprocess outputs.
-
-One interpolated HTML fixture is separately bound to its exact producer and
-complete selected command-call inventory. The destination-press spec supplies
-only the source-owned paragraph document plus an explicit reporting/scroll
-script; its other call removes the route. Exact configuration, command owner
-and caller bytes seal the argument origins. Additional direct, renamed or
-await-import command callers, escaping command aliases or direct owner imports
-require fresh execution. This is a producer binding, not an assertion that
-HTML containing a script is inert.
-
-The argument-free ghost replay has a distinct self-contained-document binding.
-Its sole exact caller first renders the literal Performance story, then copies
-that scene's DOM and the loaded CSS rules. The preview, inherited font setup,
-checksum-verifying font producer, lock/CSS/head inputs and replay guard are
-source-audited; all imported component and CSS dependencies retain their normal
-closure traversal. Verified font bytes are inline data URLs. The replay page
-aborts and records every HTTP/websocket attempt, also records request events
-that could bypass routing, and asserts no attempts after document/font loading
-and before/after tracing. Loopback resources receive no exemption. A resource
-attempt fails the actual proof; source, caller, guard or producer drift requires
-a new audit. The scene, visual assertions and trace remain unchanged.
-
-Diagram capture binds all six exact renderer, axis, positional, node-link,
-callout and scene-bounds callers and their complete call-site inventories,
-closed SVG primitive producers,
-literal adopted fixture, generated consumer CSS and locked inline-font inputs.
-Its additional replay page contains that source-owned document, aborts and records
-HTTP/websocket requests, and checks the zero-request invariant after document and
-font loading and after capture. Unknown DOM or resource origins remain unresolved;
-source or producer drift requires fresh execution and a new audit. The
-scene-bounds caller owns one literal origin-group fixture and two literal
-annotation variants. Its client/static/flattened renderers share the closed
-primitive producer; the fixture, flattening dependency and changed geometry,
-annotation and painter sources are pinned explicitly. This audit does not
-qualify native retention or replace complete fresh runtime proof.
-
-The selected browser capability additionally requires a complete audited
-input-domain identity and an enforced zero-Worker boundary. The native,
-forwarding diagnostic established no intended Worker execution in that
-selection; its observation ended at `afterAll`, so it does not claim returned
-cleanup coverage. Enforcement installs before product imports, records and
-refuses every construction attempt, checks after test hooks and checks again
-in the earliest outer `aroundAll` finally after returned/file-fixture cleanup.
-Catching a construction error in the product cannot make its proof pass. The
-original descriptor is restored completely after checking. Real PDF-worker
-runtime categories and the layout/endurance projects retain fresh unrestricted
-execution; no product constructor or configuration default changes.
-
-Admission validates exact known enforcement/configuration sources independently
-of the audit manifest, then joins every selected source/data path, blob/mode,
-directory membership, resource identity and inventory entry to that bounded
-audit. Any relevant source, caller, realm, hook, guard or data edit executes
-fresh until re-audited. A constructor hidden by a new alias cannot bypass this
-mandatory browser capability check merely by disappearing from syntax
-discovery. Unknown external resources still prevent admission. The manifest's
-own bytes are ordinary shared fingerprint inputs; it is never self-hashed.
-Version 2 separates current source-audit admission from historical diagnostic
-observations. Historical case counts and their cleanup gap remain attributed to
-the old selection; adding projects does not fabricate a whole-domain observation.
-Old or missing admission metadata stays fresh. Its metadata cannot replace
-complete successful guarded fresh jobs or the
-independent retained-proof validator. This bounds the existing PDF constructor
-to no consumed Worker resource; it does not authorize an arbitrary worker URL.
-
-Vitest screenshot references are inputs too. The pinned installed resolver's
-verified defaults locate them under each selected spec's own
-`__screenshots__/<spec basename>` directory. Eligible immutable tracked paths,
-bytes and modes join the closure and capability identity, including added,
-deleted and renamed baselines. A tracked file/symlink at a baseline directory
-cannot hide an external reference. Custom screenshot directories/resolvers,
-matcher aliases and unresolved option objects stay fresh; only closed literal
-comparison settings are supported. The framework asset identity joins the
-locked installed resources. No current output or untracked image enters this
-snapshot, and baseline changes cannot inherit old passing comparisons.
-
-The inclusion fingerprint binds relevant immutable Git paths, blob identities
-and modes, selected discovery ownership/order, the domain's measured partitions (`PROOF_SHARDS`) and
-runner identity. It also includes every proof/tooling script and workflow,
-root/package manifests and lockfiles, compiler configuration and expanded build
-source inventories. These conservative shared harness inputs can invalidate
-retention even when only one domain executes them. Unrelated prose is not an
-input merely because it is tracked; imported or declared prose remains included.
-
-Source/current closure discovery uses separate raw-Git-blob snapshots. Workspace
-package links resolve inside their own snapshot, while external dependency
-resolution uses the frozen install only after source/current algorithm,
-configuration, manifests and lockfiles match. Current generated/dist artifacts,
-working-tree bytes and Git archive substitutions cannot stand in for immutable
-source content. A helper or dependency identity mismatch executes fresh.
-
-The implemented fingerprint is only a necessary condition for retention. A
-bounded browser admission still needs the complete guarded fresh baseline and
-real retained-proof validation; unsupported layout/runtime inputs continue
-fresh execution. Neither a synthetic closed fixture nor a graph
-structure hash establishes a real hosted retention hit. #2126 remains open until
-its controlled same-PR hosted demonstration and independent aggregate evidence
-are complete.
-
-Each source shard must have an actual successful fresh execution step, a
-matching GitHub Actions check, one post-success receipt, and a checkout log
-for the same PR. Run/attempt/job/check IDs and immutable commit/tree/parents
-are verified against the [read-only GitHub job/check APIs](https://docs.github.com/en/rest/actions/workflow-jobs).
-Both source and current Git
-trees are recomputed; artifact or PR metadata claims alone cannot authorize
-retention. The source workflow must be identical. The current-head aggregate
-independently repeats receipt validation before accepting a selected domain's
-intentional skip, retaining the original evidence's identity in the ledger.
-Missing, failed, cancelled, held, malformed or mismatched evidence cannot pass.
-
-CI adds only `actions: read` and `checks: read` for those APIs; ordinary fork execution retains
-its read-only token, no secrets and nonpersisted checkout credentials. Lookup
-is limited to three runs, 32 API requests with a 45-second API budget, bounded response sizes and
-finite logs; unavailable evidence falls back to fresh execution. The aggregate
-fails closed if previously admitted retention is no longer verifiable.
-The escaped ledger output stays below 90 KB, leaving room for the aggregate's
-other outputs under the native per-environment-string limit; larger receipts
-execute fresh.
-Record actual retained runner time and lookup/aggregate costs on a controlled
-base advancement. This preserves runner consumption without claiming that
-unchanged browser proof removes a remaining long native critical path.
 Discovery has a fixed 30-second wall-clock maximum for the native child to exit
-and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:81-139`),
-in local preflight and hosted metadata,
-fingerprinting, reuse lookup and aggregate validation. The maintainer selected
+and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:55-113`),
+in local preflight and hosted metadata. The maintainer selected
 option A under [#2380](https://github.com/schlessera/brain-kit/issues/2380) on
 2026-10-22: #2326's cold discovery sample took 14,811 ms in the pinned offline
 image with two CPUs, so 30 seconds allows approximately twice that observed
@@ -1266,9 +1094,8 @@ margin does not guarantee completion under arbitrary CPU starvation; a stuck
 child can take up to 15 seconds longer to fail than under the previous maximum.
 Process controls inject a short deadline and assert the default separately;
 the integration test allows additional time for ownership scanning and cleanup.
-Discovery failure still rejects unsuccessful inventories and retains the
-caller's existing fresh-execution or fail-closed behavior.
-A missing immutable Git object has an eight-second bounded fetch.
+Discovery failure still rejects unsuccessful inventories: selection then keeps
+the broad rule for every browser category, and the scenario inventory fails closed.
 Runner image context comes from the image's
 [recorded environment](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-environment.sh).
 
@@ -1649,7 +1476,8 @@ a run killed from outside still leaves an honest receipt.
 `integrate.ts merge` maps each skipped, timed-out or preempted check to its
 hosted categories and refuses the candidate when none of them ran successfully
 in the exact-head selected proof, naming every such check and the categories it
-needs. A category retained by validated proof reuse counts as run. The metadata
+needs. Only a category that ran counts: nothing is retained from an earlier
+run. The metadata
 gate always runs, so lint, leakage and changeset checks are always covered; an
 unknown check maps to no category and can never be covered.
 
@@ -1778,7 +1606,7 @@ branch, so the request always runs main's admission code.
 - **Red main.** The refusal while main is red is the red-main gate from
   [#2942](https://github.com/schlessera/brain-kit/issues/2942). The admission
   job runs it on the requested head after admission
-  (`redMain.name`, `scripts/heavy-feedback-workflow.ts:85`), so feedback is
+  (`redMain.name`, `scripts/heavy-feedback-workflow.ts:84`), so feedback is
   refused only when that head contains the bad commit and the PR is not a
   declared fix ([#3321](https://github.com/schlessera/brain-kit/issues/3321)).
 
@@ -1818,7 +1646,7 @@ stay pre-merge; heavy categories move to the squash's own main run.
   `unit` (complete affected unit/integration discovery, unchanged). It no
   longer runs `runtime`, `runtime_host`, `browser`, `layout`, `captures` or
   `endurance`. The exclusion lives in one place:
-  `proofSelections` (`scripts/ci-plan.ts:441-453`) applies
+  `proofSelections` (`scripts/ci-plan.ts:434-446`) applies
   `POST_MERGE_CATEGORIES` (`scripts/red-main.ts:20-25`). Candidate admission,
   the aggregate and the merge path validate that same selection, so none of
   them can require a post-merge category.
@@ -2210,7 +2038,7 @@ this narrowly scoped collector while retaining the existing CI/provider gates.
 The [collection guide](../process/ci-timings.md) defines interval/attempt
 accounting, missing evidence, cancellation costs, PR attribution and the
 historical exhaustive-run proxy. Estimates remain distinct from same-source
-paired measurements. Timing metadata never authorizes proof retention or merge.
+paired measurements. Timing metadata never authorizes a skipped category or a merge.
 
 The expanded [issue #2476](https://github.com/schlessera/brain-kit/issues/2476)
 objective is reliable parallel agent throughput. Collection

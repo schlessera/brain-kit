@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { proofCadence, planChecks, proofSelections } from "../scripts/ci-plan";
 import { requireCandidate, validateCandidate } from "../scripts/candidate-proof";
-import type { API } from "../scripts/proof-reuse";
+import type { API } from "../scripts/proof-api";
 
 const actual = { sha: "a".repeat(40), tree: "b".repeat(40), parents: ["c".repeat(40), "d".repeat(40)] };
 const event = { action: "ready_for_review", pull_request: { number: 7, draft: false,
