@@ -59,7 +59,7 @@ select an unbounded full-page screenshot.
 | `maxConcurrent` | `2` | Renders in flight; more queue. |
 | `maxQueue` | `16` | Waiting renders beyond the cap before "renderer busy". |
 | `idleTimeoutMs` | 5 min | Close the browser after this long without a render. |
-| `allowHosts` | `[]` | Explicit host allowlist excluded from **both** the DNS blackhole and interception. A predicate was rejected by design — it could only gate the interceptable channels. |
+| `allowHosts` | `[]` | Explicit host allowlist excluded from **both** the DNS blackhole and interception (`http:` and `https:` requests only). Each entry must be a plain host name or IP literal; anything else (a wildcard, comma, space, scheme, port or path) throws from `createRenderer` before any launch. A predicate was rejected by design — it could only gate the interceptable channels. |
 
 The phases are sequential. A render rejects or returns within
 `queueTimeoutMs + browserTimeoutMs + renderTimeoutMs` (120 s by default),
