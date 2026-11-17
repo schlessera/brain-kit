@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { MAX_FILE_BYTES, publishBatch, readArchive, compactArtifacts, GitArchiveStore, MonthFile, parseMonthFile, type ArchiveAPI } from "../scripts/ci-archive";
-import { archiveInputs } from "../scripts/ci-timings";
+import { archiveInputs, type TimingSnapshot } from "../scripts/ci-timings";
 import { evidenceReport } from "../scripts/ci-evidence-report";
 import { archiveWorkflowProblems } from "../scripts/check-ci-workflows";
 
@@ -19,7 +19,7 @@ function git(root: string, ...args: string[]) {
   return new TextDecoder().decode(p.stdout).trim();
 }
 
-function run(id: number, event: "pull_request" | "push", start: number, collected: number) {
+function run(id: number, event: "pull_request" | "push", start: number, collected: number): TimingSnapshot {
   return { version: 1, repository, collectedAt: at(collected), run: { id, attempt: 1, workflow: "CI", path: ".github/workflows/ci.yml", event,
     head: event === "push" ? merge : sha, prs: [42], attribution: "run payload", createdAt: at(start), startedAt: at(start), status: "completed", conclusion: "success" },
     jobs: [{ id: id * 10, name: "proof", category: "proof", conclusion: "success", labels: [], execution: "observed",
@@ -291,7 +291,7 @@ test("mixed layouts preserve legacy blobs and both reports count attempts once",
   const loaded = await readArchive(store, repository);
   expect(loaded.rows.run.map(r => [r.run.id, r.collectedAt]), "MIXED_LAYOUT_JOIN").toEqual([[1, at(120)], [2, at(60)]]);
   const inputs = await archiveInputs("origin", repository, undefined, undefined, one);
-  expect(inputs.snapshots).toEqual(loaded.rows.run);
+  expect(loaded.rows.run).toEqual(inputs.snapshots);
   const options = { cadence: "daily" as const, until: "2026-07-13T00:00:00Z", now: "2026-07-13T00:00:00Z" };
   const mixed = evidenceReport(inputs, options);
   const single = evidenceReport({ ...inputs, snapshots: [run(1, "push", 4, 120), run(2, "push", 5, 60)] }, options);
