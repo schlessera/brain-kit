@@ -16,6 +16,7 @@ import { watchWriteSites } from "./helpers/write-sites.js";
 import * as probe from "./fixtures/write-worker-probe.js";
 import { watchRetainedErrors } from "./helpers/retained-errors.js";
 import { rejection } from "./helpers/expect-rejection.js";
+import { heldWriter } from "./helpers/held-writer.js";
 
 const start = Date.UTC(2026, 6, 12, 9, 41), scope = hashScope("Odysseus stores");
 function observation(at: number): Aggregate {
@@ -59,6 +60,37 @@ test("storage initialization, flush, begin, finish and sweep commit on the worke
       "storage_notice_receipts", "storage_notice_receipts", "storage_notice_receipts",
     ]);
   } finally { await f.close(); }
+});
+
+for (const expiring of [true, false]) test(expiring
+  ? "an owner login that expires while a storage notice waits for the writer records no attempt (#4176)"
+  : "a storage notice behind a held writer still records its attempt at the stamped time (#4176)", async () => {
+  const f = fixture(), held = await heldWriter(f.writer, join(f.root, "ui.db"));
+  try {
+    const owner = createPrincipal(f.db, { authMethod: "password", label: "Odysseus", ttlSeconds: 365 * 24 * 3600 });
+    const endpoint = "https://push.example.test/Ithaca";
+    f.db.query("INSERT INTO push_subscriptions (endpoint, p256dh, auth, principal_id, time_zone, created_at) VALUES (?, 'opaque-key', 'opaque-auth', ?, 'UTC', ?)").run(endpoint, owner.id, start);
+    const history = createStorageHistory(f.db, f.root, { now: f.now, writer: f.writer });
+    history.offer(observation(start));
+    expect(await history.flush()).toBe(true);
+    const notices = createStorageNotifier(f.db, history, f.writer);
+    await held.hold();
+    const submitted = held.posted("begin");
+    // The attempt's stamp is a fixed daytime one, so quiet hours and the
+    // eligibility windows are judged deterministically; the owner is usable at it.
+    const pending = notices.begin(endpoint, start);
+    await submitted;
+    if (expiring) await held.expireWhileQueued(owner.id);
+    held.release();
+    const attempt = await pending;
+    if (expiring) {
+      expect(attempt, "STORAGE_NOTICE_OWNER_EXPIRY_CHECKED_AT_COMMIT").toBeNull();
+      expect(f.db.query("SELECT COUNT(*) AS n FROM storage_notice_receipts").get(), "NO_STORAGE_ATTEMPT_RECORDED").toEqual({ n: 0 });
+    } else {
+      expect(attempt).not.toBeNull();
+      expect(f.db.query("SELECT attempted_at AS at FROM storage_notice_receipts").all(), "STORAGE_NOTICE_ATTEMPTED_AT_IS_THE_STAMP").toEqual([{ at: start }]);
+    }
+  } finally { await held.close(); await f.close(); }
 });
 
 test("a held worker keeps flush off the loop and coalesces requests after the in-flight commit", async () => {
