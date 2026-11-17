@@ -512,6 +512,29 @@ describe("changed Bun test files repeat under load before merge (#4109)", () => 
     expect(heavy.determinism).toEqual(plan.determinism!);
   });
 
+  test("the aggregate refuses published outputs that drop a selected repetition or add an unselected one", async () => {
+    const { validateSelections } = await import("../scripts/candidate-proof");
+    const f = fixture(), base = f.base;
+    f.write("tests/added.test.ts", passing); f.git("add", "."); f.git("commit", "-qm", "add a test"); const withTest = f.git("rev-parse", "HEAD");
+    const outputsFor = (head: string, before: string) => {
+      const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: head };
+      const event = { action: "synchronize", pull_request: { draft: true, base: { sha: before }, head: { sha: head } } };
+      const plan = planFromEnvironment(f.dir, { ...env, BASE_SHA: before, HEAD_SHA: head }); plan.cadence = "draft";
+      return { env, event, outputs: { cadence: "draft", ...Object.fromEntries(Object.entries(proofSelections(plan)).map(([name, on]) => [name, String(on)])) } as Record<string, string> };
+    };
+    const selected = outputsFor(withTest, base);
+    expect(selected.outputs.determinism, "DRAFT_SELECTS_REPETITION").toBe("true");
+    expect(() => validateSelections(f.dir, selected.event, selected.env, selected.outputs)).not.toThrow();
+    expect(() => validateSelections(f.dir, selected.event, selected.env, { ...selected.outputs, determinism: "false" }), "DROPPED_SELECTION_REFUSED")
+      .toThrow("determinism: required candidate selection differs from actual inputs");
+    f.write("docs/voyage.md", "Ithaca lies west.\n"); f.git("add", "."); f.git("commit", "-qm", "docs only"); const docsOnly = f.git("rev-parse", "HEAD");
+    const unselected = outputsFor(docsOnly, withTest);
+    expect(unselected.outputs.determinism, "DOCS_ONLY_SELECTS_NONE").toBe("false");
+    expect(() => validateSelections(f.dir, unselected.event, unselected.env, unselected.outputs)).not.toThrow();
+    expect(() => validateSelections(f.dir, unselected.event, unselected.env, { ...unselected.outputs, determinism: "true" }), "ADDED_SELECTION_REFUSED")
+      .toThrow("determinism: required candidate selection differs from actual inputs");
+  });
+
   test("a change that touches no Bun test file never selects it, and a main push never repeats", () => {
     const f = fixture(); f.write("packages/core/tests/held.test.ts", passing);
     f.git("add", "."); f.git("commit", "-qm", "an existing test"); const base = f.git("rev-parse", "HEAD");
