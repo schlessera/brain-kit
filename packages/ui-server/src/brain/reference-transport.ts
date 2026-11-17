@@ -12,6 +12,8 @@ import { MaintenanceTempBusyError, runMaintenanceWorker, type MaintenanceCommand
 import type { ReferenceRepository } from "../db/reference-grants.js";
 import { githubReferenceRepository } from "./github-reference-identity.js";
 import type { GitHubReferenceWire } from "./github-reference-wire.js";
+import { parseReferenceBlob, REFERENCE_BLOB_PROGRAM, REFERENCE_BLOB_RANGE_MAXIMUM, validReferenceBlobInput,
+  type ReferenceBlob, type ReferenceBlobInput } from "./reference-blob.js";
 
 /** Fixed configuration of every acquired reference repository; nothing repository-controlled is ever configuration. */
 export const REFERENCE_GIT_CONFIG = `[core]
@@ -61,6 +63,8 @@ export interface ReferenceTransport {
   checkout(input: { root: string; commit: string; signal?: AbortSignal }): Promise<void>;
   /** Host-only, offline tree identity; required by managed acquisition, never supplied by a caller. */
   tree?(input: { root: string; commit: string; signal?: AbortSignal }): Promise<string>;
+  /** Fixed offline object read; callers must bind and attest the sealed root and live authority. */
+  readBlob?(input: ReferenceBlobInput): Promise<ReferenceBlob>;
 }
 
 function assertWireRepository(repository: ReferenceRepository, wire?: GitHubReferenceWire): void {
@@ -167,6 +171,22 @@ export function createReferenceTransport(options: {
     return result;
   }
   return {
+    async readBlob(input) {
+      input.signal?.throwIfAborted();
+      if (!validReferenceBlobInput(input)) throw new ReferenceTransportError("invalid", "Reference blob reads need an ordinary Git path and bounded byte range.");
+      const result = await run({ ...command({ token: null, network: false, mirror: input.root, signal: input.signal,
+        argv: ["/usr/bin/python3", "-I", "-S", "-c", REFERENCE_BLOB_PROGRAM, git(), input.root, input.commit, input.tree, input.path,
+          String(input.offset), String(input.maximum)] }), outputBytes: 2 * REFERENCE_BLOB_RANGE_MAXIMUM + 4096 });
+      input.signal?.throwIfAborted();
+      if (result.killed) throw new ReferenceTransportError("unavailable", "The immutable reference read timed out or was cancelled.");
+      if (result.exitCode !== 0) {
+        let reason: "invalid" | "unavailable" | "capacity" = "unavailable";
+        try { const value = JSON.parse(result.stdout); if (Object.keys(value).join(",") === "code" && ["invalid", "capacity"].includes(value.code)) reason = value.code; } catch { /* Unreadable worker receipts refuse. */ }
+        throw new ReferenceTransportError(reason, "The selected immutable regular blob could not be read within its bounds.");
+      }
+      try { return parseReferenceBlob(result.stdout, input); }
+      catch { throw new ReferenceTransportError("unavailable", "The immutable reference byte evidence is invalid."); }
+    },
     async tree({ root, commit, signal }) {
       if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new ReferenceTransportError("invalid", "tree inspection needs one commit id");
       const result = await run(command({ token: null, network: false, mirror: root, signal,
