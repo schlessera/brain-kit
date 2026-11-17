@@ -2,7 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { compactArtifacts, GitArchiveStore, MonthFile, parseMonthFile, type ArchiveAPI } from "../scripts/ci-archive";
+import { MAX_FILE_BYTES, publishBatch, readArchive, compactArtifacts, GitArchiveStore, MonthFile, parseMonthFile, type ArchiveAPI } from "../scripts/ci-archive";
+import { archiveInputs } from "../scripts/ci-timings";
+import { evidenceReport } from "../scripts/ci-evidence-report";
 import { archiveWorkflowProblems } from "../scripts/check-ci-workflows";
 
 const repository = "odysseus/chronicle", ref = "refs/heads/brain-ci-metrics";
@@ -93,7 +95,7 @@ test("backfilling the same artifacts twice adds no commit and downloads nothing 
   expect(first, "FIRST_BACKFILL_COMMITS").toMatchObject({ commits: 1, sources: 2, pending: 0, refused: [] });
   expect(api.calls.filter(p => p.endsWith("/zip")), "UNTRUSTED_ARTIFACT_NOT_DOWNLOADED").toEqual(["actions/artifacts/1/zip", "actions/artifacts/2/zip"]);
   expect(git(f.remote, "ls-tree", "-r", "--name-only", ref).split("\n")).toEqual(["2026-07/collection.json", "2026-07/enrichment.json",
-    "2026-07/pull.json", "2026-07/reservations.json", "2026-07/run.json", "2026-07/source.json"]);
+    "2026-07/pull.json", "2026-07/reservations.json", "2026-07/run/12.json", "2026-07/source.json"]);
   const head = git(f.remote, "rev-parse", ref);
   const again = f.api(), second = await compactArtifacts({ store, api: again, repository, branch: "main" });
   expect(second, "SECOND_BACKFILL_IDEMPOTENT").toMatchObject({ commits: 0, sources: 0, pending: 0, head });
@@ -108,8 +110,8 @@ test("compaction keeps the newest observation per identity and stores a repeated
   f.add(2, at(120), hour(120, { "pull-42.json": pull(120, { changedFiles: 3 }) }));
   f.add(3, "2026-08-01T00:30:00Z", { "run-9-attempt-1.json": { ...run(9, "push", 0, 0), run: { ...run(9, "push", 0, 0).run, createdAt: "2026-08-01T00:10:00Z" } } });
   await compactArtifacts({ store: new GitArchiveStore(one), api: f.api(), repository, branch: "main" });
-  expect(month(f.remote, "2026-07/run.json").map(r => [r.run.id, r.collectedAt])).toEqual([[1, at(120)], [2, at(120)]]);
-  expect(month(f.remote, "2026-08/run.json").map(r => r.run.id), "MONTH_PARTITION").toEqual([9]);
+  expect(month(f.remote, "2026-07/run/12.json").map(r => [r.run.id, r.collectedAt])).toEqual([[1, at(120)], [2, at(120)]]);
+  expect(month(f.remote, "2026-08/run/01.json").map(r => r.run.id), "MONTH_PARTITION").toEqual([9]);
   expect(month(f.remote, "2026-07/pull.json").map(r => r.changedFiles)).toEqual([3]);
   expect(month(f.remote, "2026-07/event.json").map(r => r.id)).toEqual(["w1"]);
   const manifests = month(f.remote, "2026-07/collection.json");
@@ -131,7 +133,7 @@ test("a record that fails the leakage screen or carries an unknown version is re
   const published = git(f.remote, "log", "-p", ref);
   expect(published.toLowerCase(), "NOTHING_PERSONAL_PUBLISHED").not.toContain(personal);
   expect(month(f.remote, "2026-07/pull.json").map(p => p.number)).toEqual([42]);
-  expect(month(f.remote, "2026-07/run.json").map(r => r.run.id)).toEqual([1, 2]);
+  expect(month(f.remote, "2026-07/run/12.json").map(r => r.run.id)).toEqual([1, 2]);
   expect(month(f.remote, "2026-07/source.json")[0]).toMatchObject({ artifact: 1, refused: 2 });
 });
 
@@ -262,4 +264,71 @@ test("only the archive job holds write authority, and only for contents", () => 
   expect(problem(workflow.replace('"17 2 * * *"', '"17 * * * *"'))).toContain("ci-evidence-archive.yml: archive compaction must run once a day");
   expect(problem(workflow.replace("mkdir -p tmp", "bun install --frozen-lockfile\n          mkdir -p tmp")))
     .toContain("ci-evidence-archive.yml: archive scripts must not interpolate events or install dependencies");
+});
+
+test("daily placement uses run creation UTC date across boundaries and late arrivals", async () => {
+  const f = setup(), store = new GitArchiveStore(f.clone("one"));
+  const dates = ["2026-07-12T23:59:59Z", "2026-07-13T00:00:00Z", "2026-08-01T00:30:00+01:00", "2026-08-01T00:00:00Z"];
+  const records = dates.map((createdAt, i) => {
+    const row = run(i + 10, "push", 0, 200);
+    row.run.createdAt = createdAt;
+    return { kind: "run" as const, row };
+  });
+  const batch = { records, refused: [], sources: [] };
+  const first = await publishBatch(store, repository, batch);
+  expect(first.files, "UTC_DAY_PARTITIONS").toEqual(["2026-07/run/12.json", "2026-07/run/13.json", "2026-07/run/31.json", "2026-08/run/01.json"]);
+  expect((await publishBatch(store, repository, { ...batch, records: [...records].reverse() })).committed).toBe(false);
+  expect(() => parseMonthFile("2026-07/run/13.json", JSON.stringify([records[0]!.row]), repository)).toThrow("outside its day partition");
+});
+
+test("mixed layouts preserve legacy blobs and both reports count attempts once", async () => {
+  const f = setup(), one = f.clone("one"), store = new GitArchiveStore(one);
+  const legacy = new MonthFile("run"); legacy.add(run(1, "push", 4, 120)); legacy.add(run(2, "push", 5, 60));
+  const text = legacy.serialize();
+  await store.commit(null, new Map([["2026-07/run.json", text]]), "legacy runs");
+  await publishBatch(store, repository, { records: [{ kind: "run", row: run(1, "push", 4, 60) }], refused: [], sources: [] });
+  expect(git(f.remote, "show", `${ref}:2026-07/run.json`) + "\n", "LEGACY_UNCHANGED").toBe(text);
+  const loaded = await readArchive(store, repository);
+  expect(loaded.rows.run.map(r => [r.run.id, r.collectedAt]), "MIXED_LAYOUT_JOIN").toEqual([[1, at(120)], [2, at(60)]]);
+  const inputs = await archiveInputs("origin", repository, undefined, undefined, one);
+  expect(inputs.snapshots).toEqual(loaded.rows.run);
+  const options = { cadence: "daily" as const, until: "2026-07-13T00:00:00Z", now: "2026-07-13T00:00:00Z" };
+  const mixed = evidenceReport(inputs, options);
+  const single = evidenceReport({ ...inputs, snapshots: [run(1, "push", 4, 120), run(2, "push", 5, 60)] }, options);
+  expect(mixed).toEqual(single);
+  expect(mixed.activity.find(d => d.day === "2026-07-12")?.observedRunAttempts).toBe(2);
+  const again = await publishBatch(store, repository, { records: [{ kind: "run", row: run(1, "push", 4, 60) }], refused: [], sources: [] });
+  expect(again.committed).toBe(false);
+});
+
+test("daily output allows exactly 95 MiB and refuses one byte over before committing any file", async () => {
+  let commits = 0;
+  const store = { read: async () => null, files: async () => new Map(), commit: async () => { commits++; return sha; } } as unknown as GitArchiveStore;
+  const row = { ...run(1, "push", 0, 60), padding: "" };
+  const file = new MonthFile("run"); file.add(row);
+  row.padding = "x".repeat(MAX_FILE_BYTES - Buffer.byteLength(file.serialize()));
+  const batch = { records: [{ kind: "run" as const, row }, { kind: "pull" as const, row: pull(60) }], refused: [], sources: [] };
+  expect((await publishBatch(store, repository, batch)).committed, "AT_CAP_ALLOWED").toBe(true);
+  row.padding += "x";
+  await expect(publishBatch(store, repository, batch)).rejects.toThrow("2026-07/run/12.json would exceed");
+  expect(commits, "OVER_CAP_NO_PUBLICATION").toBe(1);
+});
+
+test("mixed layout joins are order independent and conflicting identities refuse", async () => {
+  const f = setup(), store = new GitArchiveStore(f.clone("one"));
+  const older = run(1, "push", 0, 60), newer = run(1, "push", 0, 120);
+  const monthly = new MonthFile("run"), daily = new MonthFile("run"); monthly.add(older); daily.add(newer);
+  await store.commit(null, new Map([["2026-07/run.json", monthly.serialize()], ["2026-07/run/12.json", daily.serialize()]]), "mixed layouts");
+  const forward = await readArchive(store, repository);
+  const files = store.files.bind(store);
+  store.files = async oid => new Map([...(await files(oid))].reverse());
+  expect((await readArchive(store, repository)).rows, "READER_ORDER_INDEPENDENT").toEqual(forward.rows);
+  const bad = { ...older, run: { ...older.run, head: "b".repeat(40) } };
+  const refused = await publishBatch(store, repository, { records: [{ kind: "run", row: bad }], sources: [], refused: [] });
+  expect(refused.refused, "LEGACY_CONFLICT_REFUSED").toEqual([{ kind: "run", key: "1/1", reason: "Conflicting archive identity" }]);
+  expect(refused.committed).toBe(false);
+  const head = await store.read();
+  await store.commit(head, new Map([["2026-07/run/12.json", JSON.stringify([bad])]]), "conflicting identity");
+  await expect(readArchive(store, repository)).rejects.toThrow("Conflicting archive identity");
+  expect(() => parseMonthFile("2026-07/run/12.json", JSON.stringify([{ ...older, version: 9 }]), repository)).toThrow("Unknown run version 9");
 });
