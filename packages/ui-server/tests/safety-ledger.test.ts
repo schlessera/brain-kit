@@ -19,7 +19,7 @@ function fixture(){const root=mkdtempSync(join(tmpdir(),"odysseus-safety-ledger-
 async function fresh(f:ReturnType<typeof fixture>,turnId="voyage",sessionId="ithaca"){
  const bindingId=crypto.randomUUID();await f.writes.safetyBegin({turnId,bindingId,sessionId:null,principalId:"odysseus",backendId:"claude",at:0});
  f.db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES(?,0,0,'claude')").run(sessionId);
- f.db.query("INSERT INTO chat_session_owners VALUES(?,'odysseus',0)").run(sessionId);
+ f.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,'odysseus',0)").run(sessionId);
  safetyCatalogCreated(f.db,sessionId,"odysseus",turnId);
  await f.writes.bind(turnId,sessionId);
  const collector=createSafetyCollector(f.db,f.writes,{turnId,bindingId,sessionId:()=>sessionId,backendId:"claude",signal:new AbortController().signal,shellProxied:()=>true,brainPath:"/srv/ithaca"});
@@ -348,7 +348,7 @@ test("an imported provisional alias binds its actual owner and generation withou
  const f=fixture();try{
  f.db.exec("INSERT INTO dialogue_owners(id,principal_id,session_id,generation,coverage,created_at) VALUES('canonical-owner','odysseus',NULL,9,'complete',0); INSERT INTO dialogue_aliases VALUES('native-alias','canonical-owner')");
  const bindingId=crypto.randomUUID();await f.writes.safetyBegin({turnId:"adopt-import",bindingId,historyOwnerId:"native-alias",principalId:"odysseus",sessionId:null,backendId:"claude",at:1});
- f.db.exec("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('adopted',0,0,'claude'); INSERT INTO chat_session_owners VALUES('adopted','odysseus',0); UPDATE dialogue_owners SET session_id='adopted' WHERE id='canonical-owner'");
+ f.db.exec("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('adopted',0,0,'claude'); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('adopted','odysseus',0); UPDATE dialogue_owners SET session_id='adopted' WHERE id='canonical-owner'");
  safetyCatalogCreated(f.db,"adopted","odysseus","adopt-import");await f.writes.bind("adopt-import","adopted");await f.writes.safetyReady("adopt-import","claude",1);
  const state=f.writes.safety(null,"adopted");
  expect(state.session,"SAFETY_BINDING_USES_CANONICAL_HISTORY_OWNER_AND_GENERATION").toEqual({sessionId:"adopted",historyOwnerId:"canonical-owner",historyGeneration:"9"});
@@ -429,7 +429,7 @@ for(const boundary of ["count","bytes"] as const)for(const race of [false,true])
   const row=governanceEventRow({kind:"taint",turnId,sessionId:null,actor:"interactive",model:null,profile:null,payload:{source:"web_fetch",tool:"WebFetch",detail:null}});
   for(let i=0;i<count;i++)await channel.call("safetyReserve",row,`${turnId}-${i}`,bytes);
  }
- f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('merged',0,0); INSERT INTO chat_session_owners VALUES('merged','odysseus',0)");
+ f.db.exec("INSERT INTO sessions(id,created_at,last_active_at) VALUES('merged',0,0); INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('merged','odysseus',0)");
  let result:unknown;
  if(race){
   const {Database}=await import("bun:sqlite");peer=new Database(f.path);peer.exec("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON");peerWriter=openSqliteWriter(peer);

@@ -872,6 +872,20 @@ answer as for a chat that does not exist. The session catalog's
 No request, receipt, frame or field shape changes, and paging and retention of
 undeleted chats are unchanged. This ships in a minor.
 
+## Same-account chat deletion (additive, #4138)
+
+`POST /api/chat-deletions` ([HTTP](http-api.md#explicit-chat-deletion-additive-3230))
+now admits any usable owner login when every recorded owner of the chat proves
+that same owner account, so a chat two owner logins used, by voice or by typing,
+is deleted by either of them, also after the other login is pruned. A chat with
+a record of another account, or with missing, corrupt or contradictory account
+evidence, still refuses as `unavailable`. The operation, its receipt and its
+retry key stay with the login that started it. Agent, ambient, system, revoked
+and expired callers are still `unauthorized`. No request, receipt, refusal or
+frame shape changes, and live conversation and epoch control is unchanged
+([decision](decisions/chat-history-deletion.md#same-account-deletion--2026-11-17-4138)).
+This ships in a minor.
+
 ## Native history removal (additive, #3229)
 
 `BackendCapabilities.historyRemoval?` and the optional

@@ -2856,7 +2856,8 @@ What stays exact:
   which before this change was always the opening login.
 - An agent, ambient, system or unknown principal matches only itself. A
   pruned, expired or revoked login regains nothing: the caller is still a
-  current, authorized login. Exact-principal chat deletion is unchanged.
+  current, authorized login. Chat deletion by another login of the account
+  follows its own rule ([#4138](../integration-contract.md#same-account-chat-deletion-additive-4138)).
 - History whose login was pruned before it stored an account stays unknown
   and refused. Corrupt or contradictory stored evidence matches nobody, its
   own principal included, and refuses only that chat.

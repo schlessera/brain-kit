@@ -30,6 +30,7 @@ import { saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
 import { saveConversationEpoch, saveConversationTask } from "./conversation-storage.js";
 import { assertLive, recordChatCleanup, retireChat, type ChatStore, type ChatStoreOutcome, type RetireChatInput } from "./chat-lifecycle.js";
 import { cleanChatStore, type HostChatStore } from "./chat-store-cleanup.js";
+import { principalAccount } from "../middleware/account-partition.js";
 export const url = import.meta.url;
 
 export const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
@@ -174,7 +175,8 @@ export function setup(db: Database, options: SessionCatalogWriteOptions = {}): W
         const created = !db.query("SELECT 1 FROM sessions WHERE id=?").get(row.id);
         db.prepare(UPSERT_SESSION_SQL).run(row.id, row.title, row.at, row.at, row.costUsd, row.turns, row.providerId, row.backendId);
         if (created) {
-          db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,created_at) VALUES(?,?,?)").run(row.id, owner, row.at);
+          // Its durable account from the creator's own row (#4138), deletion evidence once the login is pruned.
+          db.prepare("INSERT OR IGNORE INTO chat_session_owners(session_id,principal_id,principal_account,created_at) VALUES(?,?,?,?)").run(row.id, owner, principalAccount(db, owner), row.at);
           safetyCatalogCreated(db,row.id,owner,row.creatorTurnId);
         }
       })();
