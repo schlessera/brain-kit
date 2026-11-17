@@ -104,6 +104,21 @@ shape changes. See
 [the package API](integration-contract/package-api.md#start-card-persona-choice-3698).
 This ships in a minor.
 
+## Data routing for the host GitHub reads (additive, 0.45.0, #4029)
+
+GitHub is a provider-policy recipient, named `github`. Before any request,
+`brain_github_issue_read` and `brain_github_issue_search` refuse a
+conversation that has shown a provider folder the policy keeps from `github`
+(`policy_denied`, reason `recipient_restricted`), and, under a policy that
+restricts `github`, one whose exposure cannot be judged (`policy_denied`,
+reason `recipient_unproven`). The two reasons are new on the read tools. A
+policy whose `providers` rules do not allow `github` therefore starts
+restricting GitHub reads for those folders. The write tools are not routed:
+their card and `outward.github.repositories` stay their gate. See
+[the MCP component](integration-contract/mcp.md#github-data-routing-additive-0450-4029)
+and [supported inputs](supported-inputs.md#governance-policy).
+This ships in a minor.
+
 ## Host GitHub writes and their repository allow-list (additive, 0.45.0, #3798)
 
 Both first-party backends register `brain_github_issue_create` and

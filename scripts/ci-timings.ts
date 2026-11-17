@@ -1,4 +1,4 @@
-/** CI timing collection and explicit local-event publication. Logs are data; no candidate code is executed. */
+/** CI timing collection, explicit local-event publication and the durable archive. Logs are data; no candidate code is executed. */
 import { publishEvents } from "./ci-event-publish";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -420,12 +420,30 @@ async function readOperationalData(dir: string): Promise<{ pulls: PullObservatio
     else if (entry.name === RED_MAIN_ARCHIVE) redMain.push(await Bun.file(path).json());
     else if (COORDINATOR_FILE.test(entry.name)) coordinator.push(await Bun.file(path).json());
   }
+  return { pulls: newestPulls(pulls), events, acquisitions, reservations, redMain, coordinator };
+}
+function newestPulls(pulls: PullObservation[]): PullObservation[] {
   const unique = new Map<string, PullObservation>();
   for (const p of pulls) {
     const key = `${p.repository}/${p.number}`, old = unique.get(key);
     if (!old || p.collectedAt > old.collectedAt) unique.set(key, p);
   }
-  return { pulls: [...unique.values()], events, acquisitions, reservations, redMain, coordinator };
+  return [...unique.values()];
+}
+/**
+ * Report inputs from the durable data ref on `remote` (#2955). With an explicit
+ * window, months from one before `since` through one after `until` are read, so
+ * a cohort's earlier PR attempts and later main proof stay in view.
+ */
+async function archiveInputs(remote: string, repository: string, since?: string, until?: string): Promise<ReportInputs & { head: string | null }> {
+  const { GitArchiveStore, readArchive } = await import("./ci-archive");
+  const shift = (at: string, months: number) => { const d = new Date(at); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + months); return d.toISOString().slice(0, 7); };
+  const range = since && until ? [shift(since, -1), shift(until, 1)] as const : null;
+  const { head, rows } = await readArchive(new GitArchiveStore(process.cwd(), remote), repository, range ? m => m >= range[0] && m <= range[1] : undefined);
+  if (!head) throw new Error("The archive ref does not exist on that remote");
+  return { head, snapshots: rows.run as TimingSnapshot[], collections: rows.collection, operational: {
+    pulls: newestPulls(rows.pull as PullObservation[]), events: rows.event as WorkEvent[], acquisitions: rows.enrichment as LifecycleAcquisition[],
+    reservations: rows.reservations as ReservationArchive[], redMain: rows["red-main"] as RedMainArchive[], coordinator: rows.coordinator as CoordinatorObservation[] } };
 }
 const COORDINATOR_FILE = /^coordinator-\d+-attempt-\d+\.json$/;
 
@@ -464,8 +482,10 @@ function reservationCoverage(input: ReservationArchive[]) {
     complete: archives.every(a => a.error === undefined), observed: archives.some(a => a.error === undefined),
     leases: mergeLeaseObservations(archives.flatMap(a => a.leases)) };
 }
-async function writeReport(dir: string, history: string, scenario?: Scenario) {
-  const snapshots = await readSnapshots(dir), rawCollections = await readCollections(dir);
+/** Report inputs already loaded, as from the durable archive, instead of read from `dir`. */
+export interface ReportInputs { snapshots: TimingSnapshot[]; collections: any[]; operational: Awaited<ReturnType<typeof readOperationalData>> }
+async function writeReport(dir: string, history: string, scenario?: Scenario, inputs?: ReportInputs) {
+  const snapshots = inputs?.snapshots ?? await readSnapshots(dir), rawCollections = inputs?.collections ?? await readCollections(dir);
   const collections = [...new Map(rawCollections.map(c => [c.id ?? JSON.stringify(c), c])).values()];
   const observed = new Set(snapshots.map(s => `${s.repository}/${s.run.id}/${s.run.attempt}`));
   const missing = new Set<string>();
@@ -473,7 +493,7 @@ async function writeReport(dir: string, history: string, scenario?: Scenario) {
     const key = `${c.repository}/${r.run}/${attempt}`;
     if (!observed.has(key)) missing.add(key);
   }
-  const basic = summarize(snapshots), operational = await readOperationalData(dir);
+  const basic = summarize(snapshots), operational = inputs?.operational ?? await readOperationalData(dir);
   if (new Set([...snapshots, ...collections, ...operational.pulls, ...operational.events,
     ...operational.acquisitions, ...operational.reservations, ...operational.redMain, ...operational.coordinator].map(s => s.repository)).size > 1) throw new Error("Report one repository at a time");
   const analysisPath = join(dir, "analysis-window.json"), scenarioPath = join(dir, "scenario.json");
@@ -553,10 +573,13 @@ if (import.meta.main) {
       if (flag === "--resources") { resources = true; continue; }
       if (flag === "--reservations") { reservations = true; continue; }
       if (flag === "--red-main") { redMain = true; continue; }
-      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve", "--history"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
+      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve", "--history", "--from-archive", "--dir", "--branch"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
       options.set(flag, args.shift()!);
     }
     if (mode === "publish" && (resources || reservations || redMain || [...options.keys()].some(flag => !["--repo", "--out"].includes(flag)))) throw new Error("Publish accepts only --repo and --out");
+    if (mode === "archive" && (resources || reservations || redMain || [...options.keys()].some(flag => !["--repo", "--dir", "--branch", "--request-budget", "--reserve"].includes(flag)))) throw new Error("Archive accepts only --repo, --dir, --branch, --request-budget and --reserve");
+    if (options.has("--from-archive") && mode !== "report") throw new Error("--from-archive applies to report only");
+    if (["--dir", "--branch"].some(flag => options.has(flag)) && mode !== "archive") throw new Error("--dir and --branch apply to archive only");
     const dir = resolve(options.get("--out") ?? "tmp/ci-timings");
     // Proof-policy epochs read this ref's first-parent history from the local checkout.
     const history = options.get("--history") ?? "origin/main";
@@ -582,7 +605,18 @@ if (import.meta.main) {
     }
     if (options.has("--scenario")) await Bun.write(join(dir, "scenario.json"), JSON.stringify(await Bun.file(options.get("--scenario")!).json(), null, 2));
     if (options.has("--since") && options.has("--until")) await Bun.write(join(dir, "analysis-window.json"), JSON.stringify({ since: options.get("--since"), until: options.get("--until"), source: "explicit analysis interval" }));
-    if (mode === "publish") {
+    if (mode === "archive") {
+      // Writes only refs/heads/brain-ci-metrics on origin; inputs are screened before any push.
+      const archive = await import("./ci-archive"), store = new archive.GitArchiveStore(process.cwd());
+      let result;
+      if (options.has("--dir")) {
+        const batch = await archive.directoryBatch(resolve(options.get("--dir")!), repository), published = await archive.publishBatch(store, repository, batch);
+        result = { head: published.head, commits: published.committed ? 1 : 0, sources: 0, pending: 0, files: published.files, refused: published.refused, stopped: null };
+      } else result = await archive.compactArtifacts({ store, api, repository, branch: options.get("--branch") ?? "main" });
+      console.log(JSON.stringify(result));
+      // A refused record is excluded and named; everything else is already published.
+      if (result.refused.length) process.exitCode = 1;
+    } else if (mode === "publish") {
       console.log(JSON.stringify(await publishEvents({ root: process.cwd(), dir, repository })));
     } else if (mode === "record") {
       if (!options.has("--event")) throw new Error("Record requires --event JSON-file");
@@ -597,7 +631,11 @@ if (import.meta.main) {
       }
       console.log(`Recorded ${event.id}`);
     } else if (mode === "enrich") { if ((await enrich(dir, api, repository, resources)).some(e => !budgetProblem(e.problem))) process.exitCode = 1; await writeReport(dir, history); console.log(`Enriched ${dir}`); }
-    else if (mode === "report") { await writeReport(dir, history); console.log(`Report written to ${dir}`); }
+    else if (mode === "report") {
+      const inputs = options.has("--from-archive") ? await archiveInputs(options.get("--from-archive")!, repository, options.get("--since"), options.get("--until")) : undefined;
+      await writeReport(dir, history, undefined, inputs);
+      console.log(inputs ? `Report from archive ${inputs.head} written to ${dir}` : `Report written to ${dir}`);
+    }
     else if (mode === "collect") {
       const cutoff = options.get("--until") ?? new Date(Date.now() - 15 * 60000).toISOString();
       const since = options.get("--since");
@@ -701,6 +739,6 @@ if (import.meta.main) {
       if (errors.some(e => !budgetProblem(e.error)) || enrichmentErrors.some(e => !budgetProblem(e.problem)) ||
         (await readSnapshots(dir)).some(s => s.problems.some(p => !budgetProblem(p))) ||
         !api.budget.stopped && report.collectionCoverage.missingAttempts.length) process.exitCode = 1;
-    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record|publish [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--reservations] [--red-main] [--event JSON] [--scenario JSON] [--history REF] [--repo owner/repo] [--out DIR]");
+    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record|publish|archive [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--reservations] [--red-main] [--event JSON] [--scenario JSON] [--history REF] [--from-archive REMOTE] [--dir DIR] [--branch DEFAULT_BRANCH] [--repo owner/repo] [--out DIR]");
   } catch (error) { console.error(error); process.exitCode = 1; }
 }
