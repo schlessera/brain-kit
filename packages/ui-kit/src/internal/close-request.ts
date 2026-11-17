@@ -109,9 +109,11 @@ export function watchCloseRequests(document: Document, request: () => boolean, o
     }
   };
   const keys = (event: KeyboardEvent) => {
-    // With an armed watcher, Escape is the platform's close request and
-    // arrives through the watcher; handling it here too would close twice.
-    if (watcher || destroyed || event.key !== "Escape" || event.defaultPrevented || event.isComposing || !topmost()) return;
+    // With an armed watcher, a real Escape is the platform's close request and
+    // arrives through the watcher; handling it here too would close twice. A
+    // dispatched (untrusted) Escape never raises a close request, so it is
+    // handled here whether or not a watcher is armed (#4230).
+    if ((watcher && event.isTrusted) || destroyed || event.key !== "Escape" || event.defaultPrevented || event.isComposing || !topmost()) return;
     // Prevented only when the surface closed. A refusal (a modal over it,
     // closedBy="none", a finishing take) leaves the keydown for whatever
     // takes it next: a dialog above needs it for its own cancel.
