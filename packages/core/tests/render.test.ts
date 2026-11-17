@@ -118,6 +118,22 @@ describe("brain render", () => {
     });
   });
 
+  describe("--allow-host takes only a plain host (#2496)", () => {
+    for (const format of ["html", "pdf"]) test(`--allow-host '*' is a usage error naming the value, before any render (${format})`, async () => {
+      const out = `notes/allow-star.${format}`;
+      const res = await render(["notes/trip.md", "--format", format, "--out", out, "--allow-host", "*", "--json"]);
+      expect(res.code).toBe(1);
+      expect(res.stderr + res.stdout).toContain('--allow-host "*" is not a plain host name or IP address');
+      expect(existsSync(join(root, out))).toBe(false);
+    });
+
+    test("an entry that would inject a resolver rule is refused", async () => {
+      const res = await render(["notes/trip.md", "--format", "html", "--out", "notes/allow-comma.html", "--allow-host", "upload.wikimedia.org, MAP * 10.0.0.1", "--json"]);
+      expect(res.code).toBe(1);
+      expect(res.stderr + res.stdout).toContain("upload.wikimedia.org, MAP * 10.0.0.1");
+    });
+  });
+
   describe("the temp directory is not scratch space (#310)", () => {
     test("an output under the system temp directory is refused", async () => {
       const out = join(tmpdir(), `brain-render-${Date.now()}.html`);
