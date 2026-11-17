@@ -101,7 +101,11 @@ default to five minutes and are configured separately
   Suspension also expires the stored validation clock, so restart cannot
   republish uncertain authority into a newly bound view without fresh
   validation. Post-publication authority loss hides native exposure before
-  storage cleanup begins. Managed failure containment runs once per request;
+  storage cleanup begins. Anonymous identity refusal withdraws public exposure
+  before any credentialed retry, so cancellation during the retry cannot retain
+  the refused public copy. Initial metadata failures are captured before wire
+  shutdown, just as final metadata failures are.
+  Managed failure containment runs once per request;
   its later cleanup cannot unpublish a newer validated source. Refusal before
   any metadata attempt, such as exhausted turn allowance, does not invalidate
   another turn's cached authority.
@@ -142,7 +146,7 @@ reclamation is observed.
 ## Fixed GitHub wire and identity authority (#3613)
 
 The concrete access owner (`createGitHubReferenceAccess`,
-`packages/ui-server/src/brain/github-reference-access.ts:19-141`) uses the
+`packages/ui-server/src/brain/github-reference-access.ts:19-151`) uses the
 fixed transport (`createGitHubReferenceWire`,
 `packages/ui-server/src/brain/github-reference-wire.ts:19-254`).
 
@@ -249,14 +253,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:883-908`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:884-909`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:911-955`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:912-956`).
 
 ## Evidence
 

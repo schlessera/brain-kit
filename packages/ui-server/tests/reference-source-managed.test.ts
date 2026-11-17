@@ -30,13 +30,14 @@ async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
   if (writer) registerReferenceWrites(db, writer);
   const credentials: Record<string, string | undefined> = { GITHUB_TOKEN: "odysseus-fixture-token" };
   const metadata: string[] = [], git: unknown[] = [];
-  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200, invalidAt: 0, invalidJsonAt: 0 };
+  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200, invalidAt: 0, invalidJsonAt: 0, endOnPrivateMetadata: false };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: tls.cert, key: tls.key }, fetch(request) {
     metadata.push(request.headers.get("authorization") ?? "anonymous");
     if (metadata.length === state.invalidJsonAt) return new Response("{", { headers: { "content-type": "application/json" } });
     if (metadata.length === state.invalidAt) return Response.json({ id: "invalid" });
     if (state.status !== 200) return new Response(null, { status: state.status });
     if (state.private && !request.headers.has("authorization")) return new Response(null, { status: 404 });
+    if (state.endOnPrivateMetadata && request.headers.has("authorization")) state.current = false;
     return Response.json({ id: 101, owner: { id: state.ownerId, login: "Odysseus" }, name: "Ithaca", full_name: "Odysseus/Ithaca",
       clone_url: `${repository}.git`, url: "https://api.github.com/repos/odysseus/ithaca", private: state.private });
   } });
@@ -271,6 +272,35 @@ for (const wait of ["coverage", "native-grant"] as const)
     } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
   });
 describe("live managed authority", () => {
+  test("anonymous public refusal is fenced before a private retry ends its turn", async () => {
+    const f = await fixture(); let held: Awaited<ReturnType<typeof f.request>> | undefined;
+    try {
+      held = await f.request(); expect(readFileSync(join(held.viewPath, held.name, "README.md"), "utf8")).toContain("Odysseus");
+      f.state.private = true; f.grant(); f.state.endOnPrivateMetadata = true;
+      await expect(f.request()).rejects.toThrow();
+      const views = await f.sources.bindable(f.other.id);
+      expect(existsSync(join(views.public, held.name, "README.md")), "PRIVATE_RETRY_TURN_END_CANNOT_UNDO_ANONYMOUS_REFUSAL").toBe(false);
+      expect(existsSync(join(views.public, held.rootId, "README.md")), "ANONYMOUS_REFUSAL_REMOVES_PUBLIC_ROOT_IDENTITY").toBe(false);
+    } finally { held?.release(); await f.close(); }
+  });
+
+  for (const malformed of ["schema", "json"] as const)
+    test(`initial ${malformed} metadata failure survives a turn ending during access shutdown`, async () => {
+      const f = await fixture(); let held: Awaited<ReturnType<typeof f.request>> | undefined;
+      try {
+        held = await f.request();
+        expect(readFileSync(join(held.viewPath, held.name, "README.md"), "utf8")).toContain("Odysseus");
+        if (malformed === "schema") f.state.invalidAt = f.metadata.length + 1;
+        else f.state.invalidJsonAt = f.metadata.length + 1;
+        const open = f.github.open;
+        f.github.open = async input => { try { return await open(input); } finally { f.state.current = false; } };
+        await expect(f.request()).rejects.toThrow();
+        const views = await f.sources.bindable(f.other.id);
+        expect(existsSync(join(views.public, held.name, "README.md")), "INITIAL_METADATA_FAILURE_SURVIVES_ACCESS_SHUTDOWN").toBe(false);
+        expect(existsSync(join(views.public, held.rootId, "README.md")), "INITIAL_METADATA_FAILURE_HIDES_ROOT_IDENTITY").toBe(false);
+      } finally { held?.release(); await f.close(); }
+    });
+
   test("older failed publication cleanup cannot unpublish a newly validated source", async () => {
     const f = await fixture(), releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>();
     let held: Awaited<ReturnType<typeof f.request>> | undefined, current: typeof held, failedId = "", failed = false, pending: Promise<unknown> | undefined;
@@ -463,7 +493,7 @@ describe("live managed authority", () => {
     let later: Promise<{ lease: Awaited<ReturnType<typeof f.request>> | undefined; error: unknown }> | undefined;
     try {
       await arrived.promise; expect(readFileSync(path, "utf8")).toContain("Odysseus");
-      f.state.private = true; f.grant(); f.credentials.GITHUB_TOKEN = undefined;
+      f.state.invalidAt = f.metadata.length + 1;
       f.github.open = async input => { try { return await open(input); } finally { observed.resolve(); } };
       later = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
       await observed.promise; await new Promise<void>(resolve => setImmediate(resolve));
@@ -554,11 +584,14 @@ describe("live managed authority", () => {
         f.state.private = true;
         if (outcome !== "denied") f.grant();
         if (outcome === "unavailable") f.credentials.GITHUB_TOKEN = undefined;
-        f.github.open = async input => { try { return await open(input); } finally { observed.resolve(); } };
+        f.github.open = async input => {
+          try { return await open({ ...input, withdrawPublic: async () => { observed.resolve(); await input.withdrawPublic?.(); } }); }
+          finally { observed.resolve(); }
+        };
         const later = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
         await observed.promise;
-        // Let the source service process the completed metadata result before
-        // the older native reply arrives; no wall-clock race or external I/O.
+        // The public withdrawal has started before the older native reply
+        // arrives; no wall-clock race or external I/O.
         await new Promise<void>(resolve => setImmediate(resolve));
         resume.resolve();
         const old = await earlier, current = await later;

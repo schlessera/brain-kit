@@ -130,8 +130,8 @@ export function createReferenceSources(options: {
    * it was not renewed (#2432). Their roots stay charged and cached; the next
    * request that validates them publishes them again. `unsettled` holds those
    * whose suspension did not finish: a bind retries it and refuses until it
-   * does. In memory only: startup recovery republishes every source, and the
-   * next bind suspends again.
+   * does. Suspension also expires durable validation, so a new service's
+   * bind preparation withholds uncertain authority before exposing its view.
    */
   const suspended = new Set<string>(), unsettled = new Set<string>();
   /** Root identities already moved out of their view: superseded, withdrawn or suspended. */
@@ -594,7 +594,8 @@ export function createReferenceSources(options: {
         if (maxBytes < 1) throw new ReferenceSourceError("capacity", "The acquiring turn has no network allowance left.");
         openAttempted = true;
         access = await options.github!.open({ principalId: input.principalId, repository: repository.url, revision, egress: context.egress, maxBytes, signal,
-          current: () => !closed && context.current() });
+          current: () => !closed && context.current(),
+          withdrawPublic: async () => { await withdrawRepository(PUBLIC, repository.canonical, revision); } });
         accessOpened = true;
         const currentAccess = access;
         const assertCurrent = () => {

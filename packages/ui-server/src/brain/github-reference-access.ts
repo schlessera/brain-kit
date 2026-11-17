@@ -9,7 +9,7 @@ import { referenceRevision, ReferenceTransportError, type ReferenceCheck, type R
 type WireOptions = Parameters<typeof createGitHubReferenceWire>[0];
 type RequestBounds = Pick<WireOptions, "egress" | "maxBytes" | "timeoutMs" | "signal"> & { current?: () => boolean };
 
-/** A failed final identity observation makes existing cache authority uncertain too. */
+/** A failed identity observation makes existing cache authority uncertain too. */
 export class GitHubReferenceMetadataError extends ReferenceTransportError {
   constructor(error: unknown) {
     super(error instanceof ReferenceTransportError ? error.reason : "unavailable", error instanceof Error ? error.message : "GitHub repository identity is unavailable");
@@ -49,7 +49,9 @@ export function createGitHubReferenceAccess(options: {
     },
 
     /** Open one host-only budget; anonymous metadata always precedes any permitted private retry. */
-    async open(input: RequestBounds & { principalId: string; repository: unknown; revision: unknown }) {
+    async open(input: RequestBounds & { principalId: string; repository: unknown; revision: unknown;
+      /** The source host must hide prior public exposure before a credentialed retry can await. */
+      withdrawPublic?: () => Promise<void> }) {
       const location = githubReferenceRepository(input.repository), repository = referenceRepository(location.cloneUrl);
       const revision = referenceRevision(input.revision);
       principal(input.principalId);
@@ -69,10 +71,12 @@ export function createGitHubReferenceAccess(options: {
         } else if (credentialed) throw new ReferenceTransportError("denied", "anonymous acquisition cannot dispatch a credential");
       };
       const wire = await createGitHubReferenceWire({ ...input, repository: location.canonical, ...options.wireTransport, authorize });
+      let openingMetadata = true;
       try {
         let result = await wire.metadata(null);
-        principal(input.principalId);
         if (result.status === 401 || result.status === 404) {
+          await input.withdrawPublic?.();
+          principal(input.principalId);
           grant = coveringReferenceGrant(options.db, { brain: options.brain, principalId: input.principalId, repository, now: now() });
           if (!grant?.credential || grant.metadataCredentialRecipient !== REFERENCE_METADATA_CREDENTIAL_RECIPIENT)
             throw new ReferenceTransportError("denied", "private identity needs a live reference grant and explicit API credential permission");
@@ -85,6 +89,7 @@ export function createGitHubReferenceAccess(options: {
         if (result.status !== 200) throw new ReferenceTransportError([401, 403, 404].includes(result.status) ? "denied" : "unavailable", "GitHub repository identity is unavailable");
         const identity: GitHubReferenceIdentity = parseGitHubReferenceMetadata(location.canonical, result.value);
         if (!grant && identity.private) throw new ReferenceTransportError("denied", "anonymous metadata cannot establish public source access");
+        openingMetadata = false;
         const assertCurrent = () => {
           wire.signal.throwIfAborted();
           authorize("git", credential !== null); authorize("metadata", credential !== null);
@@ -136,7 +141,12 @@ export function createGitHubReferenceAccess(options: {
           },
           close: () => wire.close(),
         });
-      } catch (error) { await wire.close(); throw error; }
+      } catch (error) {
+        // Retain an observed metadata failure before shutdown can outlive its turn.
+        const failure = openingMetadata && !input.signal?.aborted && (!input.current || input.current())
+          ? new GitHubReferenceMetadataError(error) : error;
+        await wire.close(); throw failure;
+      }
     },
   };
 }
