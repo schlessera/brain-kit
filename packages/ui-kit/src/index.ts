@@ -99,6 +99,7 @@ export {
 } from "./evidence/DataTable.js";
 export { Receipt, type ReceiptProps, type ReceiptRow } from "./evidence/Receipt.js";
 export { SearchResultCard, type SearchResultCardProps } from "./evidence/SearchResultCard.js";
+export { UntrustedText, registrableDomain, type UntrustedTextProps } from "./evidence/UntrustedText.js";
 export { TraceSteps, type TraceStep, type TraceStepsProps } from "./evidence/TraceSteps.js";
 
 /* Decision surfaces. */
@@ -360,3 +361,18 @@ export {
   type PenMark,
   type TextMark,
 } from "./images/markup.js";
+
+/* GitHub objects: presentational, props and callbacks only (#3800). */
+export { GitHubStateChip, type GitHubStateChipProps } from "./github/GitHubStateChip.js";
+export { GitHubRef, type GitHubRefProps } from "./github/GitHubRef.js";
+export { GitHubIdentity, GitHubParticipants, type GitHubIdentityProps, type GitHubParticipantsProps } from "./github/GitHubIdentity.js";
+export { GitHubPullRequest, type GitHubPullRequestProps } from "./github/GitHubPullRequest.js";
+export { GitHubIssue, GitHubWriteNotice, type GitHubIssueProps, type GitHubWriteNoticeProps } from "./github/GitHubIssue.js";
+export { GitHubThread, type GitHubThreadItem, type GitHubThreadProps } from "./github/GitHubThread.js";
+export { GitHubComment, type GitHubCommentProps } from "./github/GitHubComment.js";
+export { GitHubReview, type GitHubReviewProps, type GitHubReviewState } from "./github/GitHubReview.js";
+export { GitHubCommitRow, type GitHubCommitRowProps } from "./github/GitHubCommitRow.js";
+export { GitHubMergeEvent, type GitHubMergeEventProps } from "./github/GitHubMergeEvent.js";
+export { GitHubResultList, type GitHubResult, type GitHubResultListProps } from "./github/GitHubResultList.js";
+export { GitHubDetailSection, type GitHubDetailSectionProps, type GitHubDetailState } from "./github/GitHubDetailSection.js";
+export { githubHref, type GitHubPerson, type GitHubState } from "./github/shared.js";

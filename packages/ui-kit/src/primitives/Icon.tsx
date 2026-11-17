@@ -91,7 +91,13 @@ import {
   FolderGit2,
   FolderOpen,
   FolderTree,
+  GitCommitHorizontal,
+  GitMerge,
+  GitPullRequest,
   GitPullRequestClosed,
+  GitPullRequestDraft,
+  CircleDot,
+  Diff,
   Hand,
   History,
   Inbox,
@@ -256,6 +262,18 @@ export const ICONS = {
   "zoom-in": ZoomIn,
   "zoom-out": ZoomOut,
   fit: Scan,
+  // GitHub objects and reviews (#3800). Four reuse a session-state glyph
+  // under their own meaning, so a future icon set can tell them apart.
+  "pr-open": GitPullRequest,
+  "pr-merged": GitMerge,
+  "pr-closed": GitPullRequestClosed,
+  "issue-open": CircleDot,
+  "issue-closed": CircleCheck,
+  "not-planned": CircleSlash,
+  draft: GitPullRequestDraft,
+  commit: GitCommitHorizontal,
+  "changes-requested": Diff,
+  "review-pending": CircleDashed,
 } as const satisfies Record<string, LucideIcon>;
 
 /** Every semantic name the kit knows. The kit's icon vocabulary. */

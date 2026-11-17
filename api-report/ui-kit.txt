@@ -126,6 +126,40 @@ export "." (./src/index.ts)
   type FormOption
   type GhostRole
   type GhostSpec
+  GitHubComment
+  type GitHubCommentProps
+  GitHubCommitRow
+  type GitHubCommitRowProps
+  GitHubDetailSection
+  type GitHubDetailSectionProps
+  type GitHubDetailState
+  GitHubIdentity
+  type GitHubIdentityProps
+  GitHubIssue
+  type GitHubIssueProps
+  GitHubMergeEvent
+  type GitHubMergeEventProps
+  GitHubParticipants
+  type GitHubParticipantsProps
+  type GitHubPerson
+  GitHubPullRequest
+  type GitHubPullRequestProps
+  GitHubRef
+  type GitHubRefProps
+  type GitHubResult
+  GitHubResultList
+  type GitHubResultListProps
+  GitHubReview
+  type GitHubReviewProps
+  type GitHubReviewState
+  type GitHubState
+  GitHubStateChip
+  type GitHubStateChipProps
+  GitHubThread
+  type GitHubThreadItem
+  type GitHubThreadProps
+  GitHubWriteNotice
+  type GitHubWriteNoticeProps
   type GraphEdge
   type GraphLegendItem
   type GraphNode
@@ -351,6 +385,8 @@ export "." (./src/index.ts)
   UncertainWord
   type UncertainWordProps
   UnplayedText
+  UntrustedText
+  type UntrustedTextProps
   VOICE_SKINS
   type ValueTone
   type ViewState
@@ -387,11 +423,13 @@ export "." (./src/index.ts)
   exportMarkupPng
   followUpLabel
   font
+  githubHref
   markupBytesLabel
   markupNotes
   markupReceiptRows
   markupSummary
   overCapMessage
+  registrableDomain
   z
 
 export "./brand" (./src/brand.ts)
@@ -1289,6 +1327,239 @@ signatures (every public export and the types it is made of)
         role: GhostRole;
         size?: number;
     }
+  GitHubComment (packages/ui-kit/src/github/GitHubComment.tsx)
+    export function GitHubComment(p: GitHubCommentProps): import("react").JSX.Element;
+  GitHubCommentProps (packages/ui-kit/src/github/GitHubComment.tsx)
+    export interface GitHubCommentProps {
+        author: GitHubPerson;
+        time?: string;
+        body: string;
+        htmlUrl?: string | null;
+        bodyTruncated?: boolean;
+        preview?: boolean;
+    }
+  GitHubCommitRow (packages/ui-kit/src/github/GitHubCommitRow.tsx)
+    export function GitHubCommitRow(p: GitHubCommitRowProps): import("react").JSX.Element;
+  GitHubCommitRowProps (packages/ui-kit/src/github/GitHubCommitRow.tsx)
+    export interface GitHubCommitRowProps {
+        sha: string;
+        subject: string;
+        message?: string | null;
+        author: GitHubPerson | null;
+        time?: string;
+        htmlUrl?: string | null;
+    }
+  GitHubDetailSection (packages/ui-kit/src/github/GitHubDetailSection.tsx)
+    export function GitHubDetailSection(p: GitHubDetailSectionProps): import("react").JSX.Element;
+  GitHubDetailSectionProps (packages/ui-kit/src/github/GitHubDetailSection.tsx)
+    export interface GitHubDetailSectionProps {
+        state: GitHubDetailState;
+        noun: string;
+        object: string;
+        idleLabel: string;
+        moreLabel?: string;
+        errorStatus?: number | string;
+        resetAt?: string;
+        resetIn?: string;
+        children?: ReactNode;
+        onLoad?: () => void;
+        onLoadMore?: () => void;
+        onRetry?: () => void;
+    }
+  GitHubDetailState (packages/ui-kit/src/github/GitHubDetailSection.tsx)
+    export type GitHubDetailState = "idle" | "loading" | "loaded" | "empty" | "error" | "rate-limited" | "no-credential" | "gone";
+  GitHubIdentity (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export function GitHubIdentity(p: GitHubIdentityProps): import("react").JSX.Element;
+  GitHubIdentityProps (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export interface GitHubIdentityProps extends GitHubPerson {
+        size?: 22 | 20;
+        meta?: ReactNode;
+    }
+  GitHubIssue (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export function GitHubIssue(p: GitHubIssueProps): import("react").JSX.Element;
+  GitHubIssueProps (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export interface GitHubIssueProps {
+        state: "open" | "completed" | "not-planned";
+        repo: string;
+        number?: number | null;
+        htmlUrl?: string | null;
+        title: string;
+        author?: GitHubPerson | null;
+        opened?: string;
+        participants?: GitHubParticipantsProps;
+        locked?: boolean;
+        labels?: string[];
+        body?: string | null;
+        bodyLength?: number;
+        bodyTruncated?: boolean;
+        children?: ReactNode;
+        brainRead?: string;
+        posting?: {
+            status: "preview" | "posted";
+            time?: string;
+            note?: string;
+        };
+    }
+  GitHubMergeEvent (packages/ui-kit/src/github/GitHubMergeEvent.tsx)
+    export function GitHubMergeEvent(p: GitHubMergeEventProps): import("react").JSX.Element;
+  GitHubMergeEventProps (packages/ui-kit/src/github/GitHubMergeEvent.tsx)
+    export interface GitHubMergeEventProps {
+        by: GitHubPerson | null;
+        into: string;
+        sha?: string | null;
+        time?: string;
+        variant?: "banner" | "event";
+    }
+  GitHubParticipants (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export function GitHubParticipants(p: GitHubParticipantsProps): import("react").JSX.Element;
+  GitHubParticipantsProps (packages/ui-kit/src/github/GitHubIdentity.tsx)
+    export interface GitHubParticipantsProps {
+        people: GitHubPerson[];
+        count: number;
+    }
+  GitHubPerson (packages/ui-kit/src/github/shared.tsx)
+    export interface GitHubPerson {
+        login: string | null;
+        association?: string | null;
+        bot?: boolean;
+        avatarSrc?: string | null;
+    }
+  GitHubPullRequest (packages/ui-kit/src/github/GitHubPullRequest.tsx)
+    export function GitHubPullRequest(p: GitHubPullRequestProps): import("react").JSX.Element;
+  GitHubPullRequestProps (packages/ui-kit/src/github/GitHubPullRequest.tsx)
+    export interface GitHubPullRequestProps {
+        state: "open" | "draft" | "merged" | "closed";
+        repo: string;
+        number: number;
+        htmlUrl?: string | null;
+        title: string;
+        author: GitHubPerson;
+        opened?: string;
+        headRef: string;
+        baseRef: string;
+        labels?: string[];
+        reviews: {
+            changesRequested: number;
+            approved: number;
+        } | null;
+        checks: {
+            passed: number;
+            failed: number;
+            running: number;
+            skipped?: number;
+        } | null;
+        size?: {
+            files: number;
+            additions: number;
+            deletions: number;
+        } | null;
+        commits?: number | null;
+        reviewers?: {
+            person: GitHubPerson;
+            state: GitHubReviewState;
+            time?: string;
+        }[];
+        body?: string | null;
+        bodyLength?: number;
+        bodyTruncated?: boolean;
+        merge?: GitHubMergeEventProps;
+        tabs?: {
+            items: {
+                label: string;
+                count?: number;
+            }[];
+            active: number;
+            onSelect: (index: number) => void;
+        };
+        children?: ReactNode;
+        brainRead?: string;
+        preview?: boolean;
+    }
+  GitHubRef (packages/ui-kit/src/github/GitHubRef.tsx)
+    export function GitHubRef(p: GitHubRefProps): import("react").JSX.Element;
+  GitHubRefProps (packages/ui-kit/src/github/GitHubRef.tsx)
+    export interface GitHubRefProps {
+        kind: "pr" | "issue";
+        repo: string;
+        number?: number | null;
+        htmlUrl?: string | null;
+        title?: string;
+        state?: GitHubState;
+    }
+  GitHubResult (packages/ui-kit/src/github/GitHubResultList.tsx)
+    export interface GitHubResult {
+        kind: "pr" | "issue";
+        number: number;
+        state: "open" | "draft" | "merged" | "closed" | "completed" | "not-planned";
+        title: string;
+        facts?: string[];
+        summary?: string | null;
+        htmlUrl?: string | null;
+    }
+  GitHubResultList (packages/ui-kit/src/github/GitHubResultList.tsx)
+    export function GitHubResultList(p: GitHubResultListProps): import("react").JSX.Element;
+  GitHubResultListProps (packages/ui-kit/src/github/GitHubResultList.tsx)
+    export interface GitHubResultListProps {
+        repo: string;
+        query: string;
+        total: number;
+        results: GitHubResult[];
+        incomplete?: boolean;
+        searchUrl?: string | null;
+        initial?: number;
+    }
+  GitHubReview (packages/ui-kit/src/github/GitHubReview.tsx)
+    export function GitHubReview(p: GitHubReviewProps): import("react").JSX.Element;
+  GitHubReviewProps (packages/ui-kit/src/github/GitHubReview.tsx)
+    export interface GitHubReviewProps {
+        reviewer: GitHubPerson;
+        state: GitHubReviewState;
+        time?: string;
+        body?: string | null;
+        htmlUrl?: string | null;
+        lineComments?: number;
+        onShowLineComments?: () => void;
+        children?: ReactNode;
+    }
+  GitHubReviewState (packages/ui-kit/src/github/GitHubReview.tsx)
+    export type GitHubReviewState = "approved" | "changes-requested" | "commented" | "dismissed" | "review-requested" | null;
+  GitHubState (packages/ui-kit/src/github/shared.tsx)
+    export type GitHubState = "open" | "draft" | "merged" | "closed" | "completed" | "not-planned" | "approved" | "changes-requested" | "review-requested" | "commented" | "dismissed" | "failing" | "running" | "passed" | "none-reported" | "not-reported" | "not-posted" | "posted";
+  GitHubStateChip (packages/ui-kit/src/github/GitHubStateChip.tsx)
+    export function GitHubStateChip(p: GitHubStateChipProps): import("react").JSX.Element;
+  GitHubStateChipProps (packages/ui-kit/src/github/GitHubStateChip.tsx)
+    export interface GitHubStateChipProps {
+        state: GitHubState;
+        kind?: "pr" | "issue";
+        count?: number;
+        variant?: "chip" | "inline";
+    }
+  GitHubThread (packages/ui-kit/src/github/GitHubThread.tsx)
+    export function GitHubThread(p: GitHubThreadProps): import("react").JSX.Element;
+  GitHubThreadItem (packages/ui-kit/src/github/GitHubThread.tsx)
+    export type GitHubThreadItem = ({
+        kind: "comment";
+        id: string;
+    } & GitHubCommentProps) | ({
+        kind: "review";
+        id: string;
+    } & GitHubReviewProps) | ({
+        kind: "merge";
+        id: string;
+    } & GitHubMergeEventProps);
+  GitHubThreadProps (packages/ui-kit/src/github/GitHubThread.tsx)
+    export interface GitHubThreadProps {
+        items: GitHubThreadItem[];
+        label?: string;
+        before?: ReactNode;
+        emptyText?: string;
+    }
+  GitHubWriteNotice (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export function GitHubWriteNotice(p: GitHubWriteNoticeProps): import("react").JSX.Element;
+  GitHubWriteNoticeProps (packages/ui-kit/src/github/GitHubIssue.tsx)
+    export interface GitHubWriteNoticeProps {
+        outcome: "declined" | "changed" | "unknown";
+    }
   GraphEdge (packages/ui-kit/src/agents/GraphView.tsx)
     export type GraphEdge = [
         number,
@@ -1396,8 +1667,16 @@ signatures (every public export and the types it is made of)
   ICONS (packages/ui-kit/src/primitives/Icon.tsx)
     const ICONS: {
         readonly "calendar-ok": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "changes-requested": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "folder-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "issue-closed": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "issue-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "mic-off": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "not-planned": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "pr-closed": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "pr-merged": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "pr-open": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly "review-pending": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "zoom-in": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly "zoom-out": import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly activity: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1420,6 +1699,7 @@ signatures (every public export and the types it is made of)
         readonly chat: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly choose: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly collapse: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly commit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly compose: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly confirm: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly copy: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -1429,6 +1709,7 @@ signatures (every public export and the types it is made of)
         readonly digest: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly dismiss: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly down: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+        readonly draft: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly edit: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly ellipse: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
         readonly enlarge: import("react").ForwardRefExoticComponent<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
@@ -2122,6 +2403,7 @@ signatures (every public export and the types it is made of)
         theme?: string;
         keepLive?: string;
         closeLabel?: string;
+        describedBy?: string;
         children: ReactNode;
     } & DataAttributes;
   OverlayVariant (packages/ui-kit/src/chrome/Overlay.tsx)
@@ -2900,6 +3182,23 @@ signatures (every public export and the types it is made of)
     export function UnplayedText({ children }: {
         children: ReactNode;
     }): import("react").JSX.Element;
+  UntrustedText (packages/ui-kit/src/evidence/UntrustedText.tsx)
+    export function UntrustedText(p: UntrustedTextProps): import("react").JSX.Element;
+  UntrustedTextProps (packages/ui-kit/src/evidence/UntrustedText.tsx)
+    export interface UntrustedTextProps {
+        text: string;
+        source: string;
+        sourcePhrase?: string;
+        author?: string | null;
+        frame?: "box" | "rule" | "none";
+        caption?: string | false;
+        lines?: number;
+        linesNarrow?: number;
+        expandLabel?: string;
+        maxChars?: number;
+        truncated?: boolean;
+        truncatedNote?: ReactNode;
+    }
   VOICE_SKINS (packages/ui-kit/src/voice/tone.ts)
     const VOICE_SKINS: Readonly<Record<VoiceTone, VoiceSkin>>;
   ValueTone (packages/ui-kit/src/types.ts)
@@ -3084,6 +3383,8 @@ signatures (every public export and the types it is made of)
         readonly display: "'DM Serif Text',Georgia,serif";
         readonly mono: "'JetBrains Mono',ui-monospace,monospace";
     };
+  githubHref (packages/ui-kit/src/github/shared.tsx)
+    export function githubHref(raw: string | null | undefined): string | null;
   highlyRestrictive (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
   markupBytesLabel (packages/ui-kit/src/images/markup.ts)
     export function markupBytesLabel(bytes: number): string;
@@ -3096,6 +3397,8 @@ signatures (every public export and the types it is made of)
   overCapMessage (packages/ui-kit/src/images/markup.ts)
     export function overCapMessage(bytes: number, maxBytes?: number): string;
   refusalSentence (packages/render-template/src/links.ts) recorded in api-report/render-template.txt
+  registrableDomain (packages/ui-kit/src/evidence/UntrustedText.tsx)
+    export function registrableDomain(host: string): string;
   z (packages/ui-kit/src/tokens.ts)
     const z: {
         readonly banner: "var(--bk-z-banner)";

@@ -42,6 +42,8 @@ export type OverlayProps = OverlayName & {
   keepLive?: string;
   /** For untitled media/sheet chrome, opt into the drawn close slot. */
   closeLabel?: string;
+  /** The id of the element whose text describes the overlay (`aria-describedby`). */
+  describedBy?: string;
   children: ReactNode;
 } & DataAttributes;
 
@@ -179,6 +181,7 @@ export function Overlay(p: OverlayProps) {
     "data-theme": p.theme,
     "aria-label": p.label,
     "aria-labelledby": p.title ? heading : p.labelledBy,
+    "aria-describedby": p.describedBy,
     tabIndex: -1,
     onKeyDown: keys,
   };
