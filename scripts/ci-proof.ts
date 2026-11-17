@@ -7,6 +7,7 @@ import { localChecks, requireRuntimeTools } from "./check-pr";
 import { runCommands, type Command } from "./ci-runner";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests, discoverTests } from "./test-shards";
+import { repetitionsFor } from "./test-determinism";
 import { resolveBrowserPin } from "./captures/provenance";
 import { startUnitMemorySampler } from "./unit-memory";
 import { diskSampler, floorProblem } from "./ci-disk";
@@ -60,7 +61,8 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     env: { BRAIN_REQUIRE_CHROME: "1" } }];
   // The unit job's serial form, repeated: changed files may drive real Chrome too.
   if (category === "determinism") return [{ name: "changed Bun test files repeated under CPU load",
-    argv: [process.execPath, join(root, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`, ...determinismFiles(plan)],
+    argv: [process.execPath, join(root, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`,
+      ...(repetitionsFor(plan.cadence) === undefined ? [] : [`--repetitions=${repetitionsFor(plan.cadence)}`]), ...determinismFiles(plan)],
     env: { BRAIN_REQUIRE_CHROME: "1" } }];
   const names: Record<Exclude<ProofCategory, "unit" | "determinism">, string[]> = {
     browser: ["workspace build for real browser checks", "complete pinned visual/accessibility/pointer suite"],

@@ -1894,21 +1894,33 @@ test more than once before it merged.
   modifies against its merge base (`determinismTests`,
   `scripts/ci-plan.ts:323-328`). It runs them in one invocation of the offline
   wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
-  `scripts/test-determinism.ts:84-87`), so the offline preload applies and
+  `scripts/test-determinism.ts:93-96`), so the offline preload applies and
   preparation builds once. One busy loop per CPU runs for the duration. Each
   is killed by PID on every exit path, and exits by itself if its parent dies
-  (`startBurners`, `scripts/test-determinism.ts:136-151`). The first failing
+  (`startBurners`, `scripts/test-determinism.ts:145-160`). The first failing
   repetition fails the command, which names the file, the repetition and the
   case. A passing run must also show every repetition in Bun's test report.
 - **Bounded.** Five repetitions by default, within a budget of 600 seconds of
   the reviewed weights in `scripts/test-shard-costs.json`. When five do not
   fit, every file gets the same reduced count, down to a floor of two
-  (`planRepetitions`, `scripts/test-determinism.ts:62-81`). A selection too
+  (`planRepetitions`, `scripts/test-determinism.ts:71-90`). A selection too
   heavy for the floor still runs every file twice and is reported over budget.
   No selected file is skipped; the report lists each one with the repetitions
   it got. Over 150 merges before the gate, 142 selections fit five
   repetitions. A selection too heavy for the job's step limit is
   [#4117](https://github.com/schlessera/brain-kit/issues/4117).
+- **Two repetitions at ready confirmation.** The maintainer ruled on
+  2026-11-17 ([#4137](https://github.com/schlessera/brain-kit/issues/4137))
+  that ready confirmation runs the floor of two, and every other cadence keeps
+  five (`repetitionsFor`, `scripts/test-determinism.ts:41-43`). The merge lease
+  is held while confirmation runs. In run 44017250694 the job took 1,236
+  seconds at five repetitions, against 979 for the slowest of eight `unit`
+  partitions, and the lease was held about 25 minutes. The draft head has
+  normally run the same files five times already, so confirmation re-checks the
+  tree that merges at lower cost. The accepted cost is a weaker check on the
+  exact head that merges. Splitting the selection across runners and reusing
+  the draft result were considered and declined: the first costs runners and
+  code, the second brings back an input-reuse rule of the kind #4107 retired.
 - **Where it is required.** The hosted `determinism` job is selected whenever
   the plan lists such a file, at every pull-request cadence: draft, ready
   `synchronize` feedback and ready confirmation. Draft heavy feedback runs it
