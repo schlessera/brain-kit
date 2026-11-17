@@ -66,3 +66,21 @@ describe("the tracker commands the skills name", () => {
     expect(unread).toEqual([]);
   });
 });
+
+describe("the review commands the skills name", () => {
+  const source = read("scripts/review-receipt.ts");
+  const named = invocations(TRACKER_SKILLS.map(read).join("\n"), "review-receipt.ts");
+
+  test("the review step is written down with its commands", () => {
+    expect(named.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(named.map(entry => entry.sub))).toEqual(new Set(["post", "check"]));
+  });
+
+  test("every subcommand and flag is one the script reads", () => {
+    const subcommands = /\["([a-z]+)", "([a-z]+)"\]\.includes\(command/.exec(source)!.slice(1, 3);
+    expect(subcommands).toEqual(["post", "check"]);
+    const flags = new Set([...source.matchAll(/\[((?:"[a-z-]+"(?:, )?)+)\]\.includes\(arg\.slice\(2\)\)/g)].flatMap(match => [...match[1]!.matchAll(/"([a-z-]+)"/g)].map(flag => flag[1]!)));
+    expect([...flags].sort()).toEqual(["base", "dry-run", "findings", "head", "no-findings", "repo", "reviewer"]);
+    expect(named.flatMap(entry => entry.flags.filter(flag => !flags.has(flag)).map(flag => `review-receipt --${flag}: ${entry.line}`))).toEqual([]);
+  });
+});

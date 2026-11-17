@@ -66,6 +66,7 @@ import { createSessionRoutes } from "./routes/sessions.js";
 import { createChatDeletionRoutes } from "./routes/chat-deletions.js";
 import { createChatDeletion } from "./ws/chat-deletion.js";
 import { createDraftRoutes } from "./routes/drafts.js";
+import { createMarkupRoutes } from "./routes/markup.js";
 import { createSessionRecoveryRoutes } from "./routes/session-recovery.js";
 import { supportsSessionRecovery } from "./ws/recovery.js";
 import { createDraftStore } from "./drafts/store.js";
@@ -877,6 +878,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     inbox: createInboxStream(createInboxStore(db), db, observability.logger("inbox"),
       hygieneReview.resolver),
     classifier,
+    // The extraction judge's own client (#4089): one request per call, no
+    // retry, its usage and answering model read for the meter and the pin.
+    extractionJudge: createJevClient({ apiKey: config.classification.apiKey, log: observability.logger("extraction-judge"), production: true }),
     labeller: createLabeller({
       options: options.labeller ?? null,
       log: observability.logger("labels"),
@@ -1279,6 +1283,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createPolicyProposalRoutes(host));
   app.route("/api", createAgentPolicyRoutes(host, () => activity.runtime.snapshot().workerHost?.limits ?? null));
   app.route("/api", createDraftRoutes(drafts));
+  // The markup layer's own bounded upload (#3975): too large for a socket frame.
+  app.route("/api", createMarkupRoutes(host.coordinator));
   app.route("/api", createAttachmentRoutes({ brainRoot: config.brainPath, store: drafts, instanceId: attachmentInstanceId }));
   // Only where server_hello advertises attachmentReads (#3589).
   if (host.attachmentLimits) app.route("/api", createAttachmentReadRoutes(host));

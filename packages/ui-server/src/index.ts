@@ -104,6 +104,7 @@ export { type ActivityStream } from "./activity/stream.js";
 // application-level check; consumers use this value only to avoid setting a
 // smaller process-level request ceiling.
 export { MAX_ARCHIVE_BYTES } from "./skills/install.js";
+export { MARKUP_UPLOAD_MAX_BODY_BYTES } from "./routes/markup.js";
 
 // Observability: the producing side is the OpenTelemetry API, the consuming
 // side is ours. Swap the consumer to change where a deployment reports; a test

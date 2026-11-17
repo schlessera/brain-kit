@@ -1563,7 +1563,7 @@ evidence is unproven.
 | Pi `read_file` (direct worker read) | The curated `readFileSync` in the worker | The governed `read_start` and `read_end` RPCs for that call, and no lock | Not observed |
 | Pi `write_file`, `edit_file` (direct worker writers) | The curated write under its path lock | The lock RPC plus `write_check` and `write_end` | Observed |
 | `bash`, `grep`, `brain_search`, `brain_context`, `brain_read`, `brain_list`, `brain_graph`, `brain_read_many`, extension and subagent tools, anything else | A subprocess, or brain-owned code: `brain.config.ts` evaluated in the worker by the first index query (`async function ensureContext`, `packages/ui-backend-pi/src/brain-access.ts:175`), which stays loaded. Index readers also run a host index barrier first, which can write `.brain-index/` | None | Observed, and every later result of the turn is observed too |
-| Every Claude tool | Built-ins run in the worker next to project settings hooks and the brain's own MCP server, which can run brain-owned code on any tool event | None reported | Observed, as before |
+| Every Claude tool | Built-ins run in the worker next to project settings hooks and the brain's own MCP server, which can run brain-owned code on any tool event | None reported; no proof condition holds for a journaled Claude turn ([#2875](#claude-tool-execution-evidence--2026-11-15-2875)) | Observed, as before |
 
 The pi backend reports evidence only from its own record of each call's RPCs.
 A call that names two tools, takes the write lock as a read, or reports only
@@ -1667,6 +1667,103 @@ The observation's native checkpoint and release dominate a writer's cost
 automatic refresh (#2873, since made metadata-only; see below). Neither can be
 cut by scheduling without weakening capture, so these targets are reported as
 unmet rather than relaxed.
+
+### Claude tool execution evidence — 2026-11-15 (#2875)
+
+**Conclusion: negative.** The Claude backend reports no
+`StartTurnRequest.toolExecution` evidence, and every Claude tool result stays
+observed. No condition the host can check proves that a journaled Claude call
+ran no project hook and no brain-owned MCP code. This was checked against the
+installed Claude Agent SDK 0.3.293 and its bundled CLI (build 2026-10-07).
+
+**The proof conditions.** A Claude read could skip its observation only if
+all of these held for the whole session, as the pi backend's extension-free
+worker does:
+
+1. No hook runs from any source the CLI loads: managed policy, project
+   settings, plugins, or agent and skill definitions.
+2. No MCP server runs except the host's in-process `brain-ui` server. That
+   rules out the brain's own `brain mcp` server and any other `.mcp.json`,
+   plugin or agent-frontmatter server.
+3. Neither of the first two can change during the session, including
+   through reloads and code a turn introduces.
+4. The host verifies all three from the runtime it launched, not from a
+   configured flag or from documentation.
+
+**Why none of them holds.**
+
+- **Only interactive turns are journaled, and they load project
+  configuration.** Evidence is wired only into the session-run turn request
+  for a governed turn with a journal (`export function turnRequest`,
+  `packages/ui-server/src/ws/session-run/backend-entry.ts:203-218`). That turn
+  is never a restricted autonomous one. It runs with `settingSources:
+  ["project"]` and without `strictMcpConfig`
+  (`const sdkOptions: Options`, `packages/ui-backend-claude/src/sdk-options.ts:406-422`).
+  Only the restricted envelope reads no settings and uses no project MCP
+  configuration (`function applyTurnSettings`,
+  `packages/ui-backend-claude/src/sdk-options.ts:615-624`), and no journaled
+  turn uses that envelope. Without `strictMcpConfig`, the SDK applies project
+  `.mcp.json`, plugin and on-disk agent-frontmatter MCP servers (the installed
+  `sdk.d.ts`, `strictMcpConfig`).
+- **The default brain runs brain-owned code for the whole session.** The
+  template's `.mcp.json` declares the `brain` server, `bun
+  node_modules/.bin/brain mcp`. It starts with the CLI, before any call. It
+  evaluates `brain.config.ts` and its modules, opens `brain.db`, registers
+  module tools, and advances compute jobs it started for as long as it lives
+  (`export async function startMcpServer`,
+  `packages/core/src/mcp-server.ts:723-795`). That is the Claude counterpart of
+  a pi worker with extensions loaded, which reports nothing.
+- **The CLI reloads configuration during the session.** The bundled CLI has
+  a settings change detector that watches the settings files for additions,
+  changes and deletions, a skill change detector, a plugin-directory watch and
+  a managed-settings poll. Each re-reads its source mid-session, subject only
+  to a `ConfigChange` hook. The SDK lists `user_settings`, `project_settings`,
+  `local_settings`, `policy_settings` and `skills` as sources that can change
+  (the installed `sdk.d.ts`, `ConfigChangeHookInput`). Settings checked at
+  launch therefore do not describe a later call.
+- **The host cannot read the effective hook set.** Managed hooks run even
+  under a non-managed `disableAllHooks` (the installed `sdk.d.ts`,
+  `policyHookCount`). The SDK's `Query` exposes no method that returns the
+  hooks in force. `get_hooks_listing` exists only as an internal control
+  request subtype, and it would be a snapshot that a reload can make stale.
+  `includeHookEvents` streams hook lifecycle messages, but the SDK documents
+  it as an output option, not as a complete or ordered record. Hooks on
+  events other than tool use, such as `ConfigChange`, `FileChanged` and
+  `InstructionsLoaded`, also run outside any call.
+- **Protection does not cover every input.** `.claude/settings.json`,
+  `.claude/settings.local.json` and `.mcp.json` are tier B, which the policy
+  may release (`export const PROTECTED_TIER_B`,
+  `packages/common/src/protected-paths.ts:25-34`). `.claude/skills/`,
+  `.claude/agents/` and the scripts a hook command runs are not protected.
+  Code a turn writes there itself is covered: the call that writes it is
+  unproven, so every later result of that turn is observed. A change by
+  another writer outside every active turn's calls is not covered. That
+  includes an external editor or host maintenance, and the CLI would pick the
+  change up by reloading.
+
+**What is guarded.** The backend never calls `toolExecution`. A scripted
+Claude turn with a project `PostToolUse` hook and the brain's `.mcp.json`
+server, and one with neither at turn start, runs `Read`, `Grep`, `Glob`, two
+`mcp__brain-ui__` reads and `mcp__brain__brain_search` to their results. The
+test fails if any of them reports evidence
+(`packages/ui-backend-claude/tests/tool-execution-evidence.test.ts`). On the
+host, evidence reported for a Claude tool name classifies as unproven, because
+the classified names are the pi and bridge names
+(`export function toolObservation`,
+`packages/ui-server/src/brain/tool-observation.ts:37-42`). The schedule test
+covers both points.
+
+**Not measured.** No Claude read qualifies, so
+`scripts/prove-native-host.ts --observation-timing` has no proven Claude read
+to time. Claude's per-result observations are unchanged from #2834.
+
+**What would reopen this.** The question can be reopened if a later runtime
+gives the host a verified, session-stable hook and MCP server set: a public
+query of the effective set together with a way to pin it against reloads, or
+a launch mode that loads none. Even then, it would apply only to a brain whose
+`.mcp.json` declares no `brain` server. Turning hooks off for interactive
+turns, or dropping the brain MCP server from them, would change what a brain's
+own configuration does, and that needs a maintainer ruling first.
 
 ### Metadata-only index history — 2026-10-25 (#2873)
 
@@ -4262,9 +4359,9 @@ anything sent to a host the session already reached. The policy setting
 heuristics #3434 measured ([the plan](../plans/extraction-classifier.md)) on
 each call a tainted session makes, at the per-call admission every backend
 awaits with the call's full input (`wrap`,
-`packages/ui-server/src/brain/turn-extraction.ts:137-158`). The signals and
+`packages/ui-server/src/brain/turn-extraction.ts:154-175`). The signals and
 bands are pure (`classify`,
-`packages/ui-server/src/governance/extraction-classifier.ts:583-590`); their
+`packages/ui-server/src/governance/extraction-classifier.ts:596-605`); their
 session state (shingle hashes of the files read, the hosts the tainting
 content named, each site's earlier payloads) is in-memory host state, never
 recorded or sent to a provider. `block` refuses the call with the reason as
@@ -4274,12 +4371,47 @@ voice refuses instead. `allow` relaxes only the #3430 card, only for the hosts
 a readable call (a WebFetch, a visible curl/wget or `gh` read) names, and only
 while that call is in progress; an opaque or unattributable call in progress
 withholds it, because the proxy cannot tell which process opened a connection
-(`relaxes`, `packages/ui-server/src/brain/turn-extraction.ts:193-197`). Deny,
+(`relaxes`, `packages/ui-server/src/brain/turn-extraction.ts:210-214`). Deny,
 `allowlist` mode, the byte ceiling, the outward-host card and the outward
 action cards never consult it. A session this process did not observe from
 its first turn, or whose state outgrew its bounds, never allows. The setting
 stays off by default until a maintainer ruling on #4088 after the band is
 requalified (#4090).
+
+<a id="extraction-judge"></a>
+
+**The Jev judge for the ambiguous band — 2026-11-16
+([#4089](https://github.com/schlessera/brain-kit/issues/4089)).** Most of the
+heuristics' remaining benign cards are links the tainting content named and
+pagination cursors, which score in a band from 0.2 to below 0.35. With
+`taint.judge.mode: jev` (default `off`, effective only beside
+`classifier: heuristics`), an interactive turn puts a call in that band to Jev
+instead of showing its card (`let band: Band`,
+`packages/ui-server/src/brain/turn-extraction.ts:131-133`). Jev is
+shown the outgoing request with its body cut at 2,000 characters, the wording
+of what tainted the session and the overlap score, never the conversation,
+the tainting content or a file the session read. The model is pinned to
+`jev-1.13.0`, the one #3434 measured, and an answer from any other model is no
+answer. `benign` admits the call and `extraction` refuses it only at or above
+the floor, 0.9 by default and configurable from 0.5 to 1 (`judgeBand`,
+`packages/ui-server/src/governance/extraction-judge.ts:74-77`). Every other
+outcome leaves the card (`createExtractionJudge`,
+`packages/ui-server/src/governance/extraction-judge.ts:116-148`). That covers
+`suspicious`, an answer below the floor, no answer, a timeout, the host
+client's open breaker and a missing key. The request is its own G2 data flow.
+TypeSafe is the recipient `typesafe` under the web providers' routing rule, so
+a conversation shown a folder the policy keeps from it, or one whose exposure
+cannot be judged yet, sends nothing. A blocked budget scope, or no ledger to
+charge, sends nothing either. Each request is recorded as a `typesafe`
+attempt with operation `extraction_judge` against the turn, its conversation
+and its UTC day, with the tokens TypeSafe reports. No rate is held for it, so
+its cost is unknown, never zero (`turnExtractionJudge`,
+`packages/ui-server/src/brain/turn-extraction-judge.ts:26-58`). Voice turns
+never call it and keep refusing; autonomous turns have no turn proxy and so
+no classifier. Answers stay host state: a judged call reaches the conversation
+only as its card or its refusal, whose text is the heuristics' reason. The
+setting stays off by default until the band is requalified (#4090) and a
+maintainer rules on it.
 
 <a id="refusals-say-why"></a>
 

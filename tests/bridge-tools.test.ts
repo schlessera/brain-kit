@@ -26,6 +26,7 @@ import * as claudeAskList from "../packages/ui-backend-claude/src/ask-user-list-
 import * as claudeAskRank from "../packages/ui-backend-claude/src/ask-user-rank-tool";
 import * as claudeLocation from "../packages/ui-backend-claude/src/location-tool";
 import * as claudeMask from "../packages/ui-backend-claude/src/mask-tool";
+import * as claudeMarkup from "../packages/ui-backend-claude/src/markup-tool";
 import * as claudeActivity from "../packages/ui-backend-claude/src/activity-tool";
 import * as claudeBlock from "../packages/ui-backend-claude/src/show-block-tool";
 import * as claudeTurnTemp from "../packages/ui-backend-claude/src/turn-temp-tool";
@@ -93,6 +94,7 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
   },
   get_current_location: { highAccuracy: false },
   request_image_mask: { imagePath: "x.png" },
+  request_image_markup: { imagePath: "photos/raft-at-ithaca.jpg", instruction: "mark what should move and where" },
   query_activity: { scope: "running" },
   turn_temp: { action: "usage" },
   show_block: {
@@ -148,6 +150,10 @@ function makeAdapters(root: string) {
       timestamp: 0,
     }),
     requestMask: async () => new Uint8Array([1, 2, 3]),
+    // Host-owned end to end (#3975): the adapters relay input and receipt only.
+    requestImageMarkup: async (input: shared.RequestImageMarkupInput) => ({ imagePath: input.imagePath,
+      markupPath: ".brain/scratch/markup/raft-at-ithaca.3f9a1c2e.markup.png", width: 3024, height: 4032, bytes: 2048,
+      marks: { pen: 0, arrow: 1, ellipse: 1, text: 1 }, notes: ["make the sail red"], note: "Fixture host" }),
     queryActivity: async () => ({ running: [] }),
     inboxList: async () => ({ items: [], threads: [] }), inboxGet: async () => ({}), inboxAdd: async () => ({}), resolveAction: async () => ({}), completeShare: async () => ({ itemId: "harbor", status: "done", replay: false }),
     referenceAccess: async () => ({ ok: true as const, action: "list" as const, worktrees: [], truncated: false, guidance: "Fixture host" }),
@@ -169,6 +175,7 @@ function makeAdapters(root: string) {
         reverseGeocodeConfig: noGeocode,
       }),
       claudeMask.createMaskTool(bridge.requestMask, root, application),
+      claudeMarkup.createMarkupTool(bridge.requestImageMarkup),
       claudeActivity.createActivityQueryTool(bridge.queryActivity),
       ...createInboxTools(bridge as never),
       ...createReferenceTools(bridge),
@@ -179,7 +186,7 @@ function makeAdapters(root: string) {
     pi: pi.createPiBridgeTools({
       brainPath: root,
       turn: { bridge, turnTemp: turnTemp(root) } as never,
-      capabilities: { location: true, activity: true, mask: true, inbox: true, turnTemp: true, reference: true, compute: true },
+      capabilities: { location: true, activity: true, mask: true, markup: true, inbox: true, turnTemp: true, reference: true, compute: true },
       reverseGeocodeConfig: noGeocode,
     }) as any[],
   };
@@ -558,6 +565,7 @@ describe("bridge tool adapter validation", () => {
     ],
     get_current_location: [{ highAccuracy: "yes" }],
     request_image_mask: [{ imagePath: 42 }],
+    request_image_markup: [{ imagePath: 42 }, { imagePath: "photos/raft-at-ithaca.jpg", instruction: "x".repeat(201) }],
     query_activity: [{ scope: "all" }, { scope: "recent", hoursBack: "24" }],
     turn_temp: [{ action: "delete" }, { action: "purge", paths: "frames" }, { action: "purge", paths: [""] }],
     show_block: [
@@ -770,6 +778,7 @@ describe("bridge tool loading posture", () => {
       askUserRank: unreachable as never,
       getLocation: unreachable as never,
       requestMask: unreachable as never,
+      requestImageMarkup: unreachable as never,
       queryActivity: unreachable as never,
       inbox: { inboxList: unreachable as never, inboxGet: unreachable as never, inboxAdd: unreachable as never, resolveAction: unreachable as never, completeShare: unreachable as never },
       reference: { referenceAccess: unreachable as never },

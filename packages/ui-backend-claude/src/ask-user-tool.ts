@@ -26,6 +26,7 @@ import { BRIDGE_TOOL_POSTURE, handleAskUser } from "@schlessera/brain-ui-sdk/ser
 import { createLocationTool, type LocationHandler } from "./location-tool.js";
 import { createActivityQueryTool, type ActivityQueryHandler } from "./activity-tool.js";
 import { createMaskTool, type MaskHandler } from "./mask-tool.js";
+import { createMarkupTool, type MarkupHandler } from "./markup-tool.js";
 import { createShowBlockTool } from "./show-block-tool.js";
 import { createAskUserListTool, type AskUserListHandler } from "./ask-user-list-tool.js";
 import { createAskUserRankTool, type AskUserRankHandler } from "./ask-user-rank-tool.js";
@@ -121,6 +122,8 @@ export function createBrainUiMcpServer(handlers: {
   askUserFormLimits?: AskUserFormLimits;
   getLocation?: LocationHandler;
   requestMask?: MaskHandler;
+  /** The host's markup operation (#3975); the host writes the layer. */
+  requestImageMarkup?: MarkupHandler;
   queryActivity?: ActivityQueryHandler;
   /** The turn_temp tool (#1703), built with the turn's own access to its worker's turn temp. */
   turnTemp?: SdkMcpToolDefinition<any>;
@@ -137,6 +140,7 @@ export function createBrainUiMcpServer(handlers: {
       askUser: handlers.askUser ?? unavailable, askUserList: handlers.askUserList ?? unavailable,
       askUserRank: handlers.askUserRank ?? unavailable, askUserForm: handlers.askUserForm ?? unavailable,
       requestMask: handlers.requestMask ?? unavailable, queryActivity: handlers.queryActivity ?? unavailable,
+      requestImageMarkup: handlers.requestImageMarkup ?? unavailable,
       inbox: handlers.inbox ?? {}, application: handlers.application ?? {}, reference: handlers.reference ?? {},
       compute: handlers.compute ?? {},
       apify: handlers.apify ?? {},
@@ -154,6 +158,7 @@ export function createBrainUiMcpServer(handlers: {
   if (handlers.requestMask && handlers.brainPath) {
     tools.push(createMaskTool(handlers.requestMask, handlers.brainPath, handlers.application));
   }
+  if (handlers.requestImageMarkup) tools.push(createMarkupTool(handlers.requestImageMarkup));
   if (handlers.queryActivity) {
     tools.push(createActivityQueryTool(handlers.queryActivity));
   }

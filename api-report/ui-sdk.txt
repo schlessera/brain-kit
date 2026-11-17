@@ -131,6 +131,7 @@ export "." (./src/index.ts)
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
+  type ClientMarkupError
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
@@ -235,6 +236,7 @@ export "." (./src/index.ts)
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
+  IMAGE_MARKUP_CAPABILITY
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -370,6 +372,7 @@ export "." (./src/index.ts)
   type ServerLiveSettings
   type ServerLocalExchangeResult
   type ServerLocationRequest
+  type ServerMarkupRequest
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
@@ -718,6 +721,7 @@ export "./client" (./src/client/index.ts)
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
+  type ClientMarkupError
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
@@ -926,6 +930,8 @@ export "./client" (./src/client/index.ts)
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
+  IMAGE_MARKUP_CAPABILITY
+  IMAGE_MARKUP_PAYLOAD_SCHEMA
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
   INBOX_ADD_INPUT_SCHEMA
@@ -934,6 +940,8 @@ export "./client" (./src/client/index.ts)
   INBOX_LIST_CONTRACT
   INBOX_LIST_INPUT_SCHEMA
   INBOX_TOOL_CONTRACTS
+  type ImageMarkupCounts
+  type ImageMarkupPayload
   type ImageMaskPayload
   type InboxActionItem
   type InboxActionStatus
@@ -1037,6 +1045,11 @@ export "./client" (./src/client/index.ts)
   REFERENCE_WORKTREE_INPUT_SCHEMA
   REFERENCE_WORKTREE_LIST_LIMIT
   REFERENCE_WORKTREE_TOOL_NAME
+  REQUEST_IMAGE_MARKUP_CONTRACT
+  REQUEST_IMAGE_MARKUP_DESCRIPTION
+  REQUEST_IMAGE_MARKUP_INPUT_SCHEMA
+  REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX
+  REQUEST_IMAGE_MARKUP_TOOL_NAME
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -1057,6 +1070,7 @@ export "./client" (./src/client/index.ts)
   type RenderFormat
   type RenderRequest
   type RendererPack
+  type RequestImageMarkupInput
   type RequestImageMaskInput
   type ResolutionEffect
   type ResolveActionInput
@@ -1130,6 +1144,7 @@ export "./client" (./src/client/index.ts)
   type ServerLiveSettings
   type ServerLocalExchangeResult
   type ServerLocationRequest
+  type ServerMarkupRequest
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
@@ -1744,6 +1759,7 @@ export "./protocol" (./src/protocol.ts)
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
+  type ClientMarkupError
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
@@ -1845,6 +1861,7 @@ export "./protocol" (./src/protocol.ts)
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
+  IMAGE_MARKUP_CAPABILITY
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -1975,6 +1992,7 @@ export "./protocol" (./src/protocol.ts)
   type ServerLiveSettings
   type ServerLocalExchangeResult
   type ServerLocationRequest
+  type ServerMarkupRequest
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
@@ -2170,6 +2188,7 @@ export "./schemas" (./src/schemas.ts)
   clientLocalExchangeSchema
   clientLocationErrorSchema
   clientLocationResponseSchema
+  clientMarkupErrorSchema
   clientMaskErrorSchema
   clientMaskResponseSchema
   clientMessageSchema
@@ -2281,6 +2300,7 @@ export "./schemas" (./src/schemas.ts)
   serverLiveSettingsSchema
   serverLocalExchangeResultSchema
   serverLocationRequestSchema
+  serverMarkupRequestSchema
   serverMaskRequestSchema
   serverMessageBlocksSchema
   serverMessageLinksSchema
@@ -2454,6 +2474,13 @@ export "./server" (./src/server/index.ts)
   BRAIN_APPLICATION_MAX_BYTES
   BRAIN_APPLICATION_TOOLS
   BRAIN_LOCK_KEY
+  BRAIN_MARKUP_CLOSED
+  BRAIN_MARKUP_DIR
+  BRAIN_MARKUP_MAX_BYTES
+  BRAIN_MARKUP_MAX_NOTES
+  BRAIN_MARKUP_MAX_PIXELS
+  BRAIN_MARKUP_NOTE_MAX_CHARS
+  BRAIN_MARKUP_SOURCE_MAX_BYTES
   BRAIN_MASK_MAX_BYTES
   BRAIN_READ_BASE_DESCRIPTION
   BRAIN_READ_BASE_PAGE_CHARS
@@ -2562,6 +2589,7 @@ export "./server" (./src/server/index.ts)
   type ClientLocalExchange
   type ClientLocationError
   type ClientLocationResponse
+  type ClientMarkupError
   type ClientMaskError
   type ClientMaskResponse
   type ClientMessage
@@ -2794,6 +2822,8 @@ export "./server" (./src/server/index.ts)
   type HygieneReviewState
   type HygieneWorktreeDetails
   type HygieneWorktreeDetailsRead
+  IMAGE_MARKUP_CAPABILITY
+  IMAGE_MARKUP_PAYLOAD_SCHEMA
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
   INBOX_ADD_INPUT_SCHEMA
@@ -2802,6 +2832,8 @@ export "./server" (./src/server/index.ts)
   INBOX_LIST_CONTRACT
   INBOX_LIST_INPUT_SCHEMA
   INBOX_TOOL_CONTRACTS
+  type ImageMarkupCounts
+  type ImageMarkupPayload
   type ImageMaskHandlerOptions
   type ImageMaskPayload
   type InboxActionItem
@@ -2913,6 +2945,11 @@ export "./server" (./src/server/index.ts)
   REFERENCE_WORKTREE_INPUT_SCHEMA
   REFERENCE_WORKTREE_LIST_LIMIT
   REFERENCE_WORKTREE_TOOL_NAME
+  REQUEST_IMAGE_MARKUP_CONTRACT
+  REQUEST_IMAGE_MARKUP_DESCRIPTION
+  REQUEST_IMAGE_MARKUP_INPUT_SCHEMA
+  REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX
+  REQUEST_IMAGE_MARKUP_TOOL_NAME
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -2934,6 +2971,7 @@ export "./server" (./src/server/index.ts)
   type RenderContentType
   type RenderFormat
   type RenderRequest
+  type RequestImageMarkupInput
   type RequestImageMaskInput
   type RequestToolPermissionOptions
   type ResolutionEffect
@@ -3010,6 +3048,7 @@ export "./server" (./src/server/index.ts)
   type ServerLiveSettings
   type ServerLocalExchangeResult
   type ServerLocationRequest
+  type ServerMarkupRequest
   type ServerMaskRequest
   type ServerMessage
   type ServerMessageBlocks
@@ -3254,6 +3293,7 @@ export "./server" (./src/server/index.ts)
   handleQueryActivity
   handleReadAttachment
   handleReferenceTool
+  handleRequestImageMarkup
   handleRequestImageMask
   handleShowBlock
   handleTurnTemp
@@ -3532,6 +3572,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type GithubToolResult
   type GithubUser
   type GithubWriteToolName
+  IMAGE_MARKUP_PAYLOAD_SCHEMA
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
   INBOX_ADD_INPUT_SCHEMA
@@ -3540,6 +3581,8 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   INBOX_LIST_CONTRACT
   INBOX_LIST_INPUT_SCHEMA
   INBOX_TOOL_CONTRACTS
+  type ImageMarkupCounts
+  type ImageMarkupPayload
   type ImageMaskPayload
   type InboxAddInput
   type InboxGetInput
@@ -3570,6 +3613,11 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   REFERENCE_WORKTREE_INPUT_SCHEMA
   REFERENCE_WORKTREE_LIST_LIMIT
   REFERENCE_WORKTREE_TOOL_NAME
+  REQUEST_IMAGE_MARKUP_CONTRACT
+  REQUEST_IMAGE_MARKUP_DESCRIPTION
+  REQUEST_IMAGE_MARKUP_INPUT_SCHEMA
+  REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX
+  REQUEST_IMAGE_MARKUP_TOOL_NAME
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -3585,6 +3633,7 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   type ReferenceWorktreeAction
   type ReferenceWorktreeInput
   type ReferenceWorktreeView
+  type RequestImageMarkupInput
   type RequestImageMaskInput
   type ResolveActionInput
   SHOW_BLOCK_CONTRACT
@@ -5292,6 +5341,20 @@ signatures (every public export and the types it is made of)
     }>;
   BRAIN_LOCK_KEY (packages/ui-sdk/src/server/lock-keys.ts)
     const BRAIN_LOCK_KEY: "brain-docs";
+  BRAIN_MARKUP_CLOSED (packages/ui-sdk/src/server/brain-markup.ts)
+    const BRAIN_MARKUP_CLOSED: "The user closed the markup editor";
+  BRAIN_MARKUP_DIR (packages/ui-sdk/src/server/brain-markup.ts)
+    const BRAIN_MARKUP_DIR: ".brain/scratch/markup";
+  BRAIN_MARKUP_MAX_BYTES (packages/ui-sdk/src/server/brain-markup.ts)
+    const BRAIN_MARKUP_MAX_BYTES: number;
+  BRAIN_MARKUP_MAX_NOTES (packages/ui-sdk/src/server/brain-markup.ts)
+    const BRAIN_MARKUP_MAX_NOTES: 200;
+  BRAIN_MARKUP_MAX_PIXELS (packages/ui-sdk/src/server/brain-markup.ts)
+    const BRAIN_MARKUP_MAX_PIXELS: 16777216;
+  BRAIN_MARKUP_NOTE_MAX_CHARS (packages/ui-sdk/src/server/brain-markup.ts)
+    const BRAIN_MARKUP_NOTE_MAX_CHARS: 80;
+  BRAIN_MARKUP_SOURCE_MAX_BYTES (packages/ui-sdk/src/server/brain-markup.ts)
+    const BRAIN_MARKUP_SOURCE_MAX_BYTES: number;
   BRAIN_MASK_MAX_BYTES (packages/ui-sdk/src/server/brain-mask.ts)
     const BRAIN_MASK_MAX_BYTES: number;
   BRAIN_READ_BASE_DESCRIPTION (packages/ui-sdk/src/server/brain-read-base.ts)
@@ -5508,6 +5571,23 @@ signatures (every public export and the types it is made of)
         imagePath: z.ZodString;
         maskPath: z.ZodString;
         note: z.ZodString;
+    }, z.core.$loose>>, import("./contract.js").ToolComponentContract<"request_image_markup", z.ZodObject<{
+        imagePath: z.ZodString;
+        instruction: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        bytes: z.ZodNumber;
+        height: z.ZodNumber;
+        imagePath: z.ZodString;
+        marks: z.ZodObject<{
+            arrow: z.ZodNumber;
+            ellipse: z.ZodNumber;
+            pen: z.ZodNumber;
+            text: z.ZodNumber;
+        }, z.core.$loose>;
+        markupPath: z.ZodString;
+        note: z.ZodString;
+        notes: z.ZodArray<z.ZodString>;
+        width: z.ZodNumber;
     }, z.core.$loose>>, import("./contract.js").ToolContract<"query_activity", z.ZodObject<{
         hoursBack: z.ZodOptional<z.ZodNumber>;
         limit: z.ZodOptional<z.ZodNumber>;
@@ -6276,7 +6356,7 @@ signatures (every public export and the types it is made of)
     const BRIDGE_TOOL_POSTURE: Readonly<{
         allowedTools(adapter: BridgeToolAdapter): readonly string[];
         claudePrefix: "mcp__brain-ui__";
-        names: readonly ("ask_user" | "ask_user_form" | "ask_user_list" | "ask_user_rank" | "brain_compute_cancel" | "brain_compute_collect" | "brain_compute_health" | "brain_compute_plan" | "brain_compute_run" | "brain_compute_status" | "complete_share" | "get_current_location" | "inbox_add" | "inbox_get" | "inbox_list" | "query_activity" | "reference_source" | "reference_worktree" | "request_image_mask" | "resolve_action" | "show_block" | "turn_temp")[];
+        names: readonly ("ask_user" | "ask_user_form" | "ask_user_list" | "ask_user_rank" | "brain_compute_cancel" | "brain_compute_collect" | "brain_compute_health" | "brain_compute_plan" | "brain_compute_run" | "brain_compute_status" | "complete_share" | "get_current_location" | "inbox_add" | "inbox_get" | "inbox_list" | "query_activity" | "reference_source" | "reference_worktree" | "request_image_markup" | "request_image_mask" | "resolve_action" | "show_block" | "turn_temp")[];
         visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
@@ -6466,6 +6546,7 @@ signatures (every public export and the types it is made of)
         askUserFormLimits?: AskUserFormLimits;
         getLocation?(options?: GeoRequestOptions): Promise<LocationFix>;
         requestMask?(imagePath: string, instruction?: string): Promise<Uint8Array>;
+        requestImageMarkup?(input: import("../tool-contracts/bridge.js").RequestImageMarkupInput): Promise<import("../tool-contracts/bridge.js").ImageMarkupPayload>;
         pruneScratch?(produced?: readonly string[]): Promise<void>;
         activity?(event: BackendActivityEvent): void;
         queryActivity?(query: ActivityQuery): Promise<ActivityQueryResult>;
@@ -7286,6 +7367,14 @@ signatures (every public export and the types it is made of)
         timestamp: number;
         turnId?: string;
     }
+  ClientMarkupError (packages/ui-sdk/src/protocol.ts)
+    export interface ClientMarkupError {
+        type: "markup_error";
+        requestId: string;
+        code: "cancelled" | "failed";
+        message: string;
+        turnId?: string;
+    }
   ClientMaskError (packages/ui-sdk/src/protocol.ts)
     export interface ClientMaskError {
         type: "mask_error";
@@ -7302,7 +7391,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   ClientMessage (packages/ui-sdk/src/protocol.ts)
-    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
+    export type ClientMessage = ClientSafetyRead | ClientSafetySubscribe | ClientSafetyUnsubscribe | ClientScopeDecision | ClientHello | ClientRetryTurn | ClientRetryStatus | ClientChatMessage | ClientToolApproval | ClientToolDenial | ClientCancelRequest | ClientSessionResume | ClientAskUserResponse | ClientAskUserCancel | ClientAskUserListResponse | ClientAskUserRankResponse | ClientAskUserFormResponse | ClientAskAnswerStatus | ClientPing | ClientLocationResponse | ClientLocationError | ClientMaskResponse | ClientMaskError | ClientMarkupError | ClientActivitySubscribe | ClientActivityUnsubscribe | ClientLocalExchange | ClientHandoffPrepare | ClientHandoffPrepareCancel | ClientHandoffStatus | ClientInboxResolve | ClientInboxSnooze | ClientInboxSubscribe | ClientInboxUnsubscribe | ClientDialogueRead | ClientConversationStart | ClientConversationAudio | ClientConversationEndpoint | ClientConversationCommit | ClientConversationPlayback | ClientConversationStop;
   ClientPing (packages/ui-sdk/src/protocol.ts)
     export interface ClientPing {
         type: "ping";
@@ -10292,6 +10381,24 @@ signatures (every public export and the types it is made of)
     } | {
         status: "gone";
     };
+  IMAGE_MARKUP_CAPABILITY (packages/ui-sdk/src/protocol.ts)
+    const IMAGE_MARKUP_CAPABILITY: "imageMarkup";
+  IMAGE_MARKUP_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const IMAGE_MARKUP_PAYLOAD_SCHEMA: z.ZodObject<{
+        bytes: z.ZodNumber;
+        height: z.ZodNumber;
+        imagePath: z.ZodString;
+        marks: z.ZodObject<{
+            arrow: z.ZodNumber;
+            ellipse: z.ZodNumber;
+            pen: z.ZodNumber;
+            text: z.ZodNumber;
+        }, z.core.$loose>;
+        markupPath: z.ZodString;
+        note: z.ZodString;
+        notes: z.ZodArray<z.ZodString>;
+        width: z.ZodNumber;
+    }, z.core.$loose>;
   IMAGE_MASK_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const IMAGE_MASK_PAYLOAD_SCHEMA: z.ZodObject<{
         bytes: z.ZodNumber;
@@ -10365,6 +10472,24 @@ signatures (every public export and the types it is made of)
         }, z.core.$strict>], "disposition">>;
         receiptIds: z.ZodArray<z.ZodString>;
     }, z.core.$strict>>];
+  ImageMarkupCounts (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    export interface ImageMarkupCounts {
+        pen: number;
+        arrow: number;
+        ellipse: number;
+        text: number;
+    }
+  ImageMarkupPayload (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    export interface ImageMarkupPayload {
+        imagePath: string;
+        markupPath: string;
+        width: number;
+        height: number;
+        bytes: number;
+        marks: ImageMarkupCounts;
+        notes: string[];
+        note: string;
+    }
   ImageMaskHandlerOptions (packages/ui-sdk/src/server/bridge-tools/mask.ts)
     export interface ImageMaskHandlerOptions {
         brainPath: string;
@@ -11441,6 +11566,36 @@ signatures (every public export and the types it is made of)
     const REFERENCE_WORKTREE_LIST_LIMIT: 20;
   REFERENCE_WORKTREE_TOOL_NAME (packages/ui-sdk/src/tool-contracts/reference.ts)
     const REFERENCE_WORKTREE_TOOL_NAME: "reference_worktree";
+  REQUEST_IMAGE_MARKUP_CONTRACT (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const REQUEST_IMAGE_MARKUP_CONTRACT: import("./contract.js").ToolComponentContract<"request_image_markup", z.ZodObject<{
+        imagePath: z.ZodString;
+        instruction: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        bytes: z.ZodNumber;
+        height: z.ZodNumber;
+        imagePath: z.ZodString;
+        marks: z.ZodObject<{
+            arrow: z.ZodNumber;
+            ellipse: z.ZodNumber;
+            pen: z.ZodNumber;
+            text: z.ZodNumber;
+        }, z.core.$loose>;
+        markupPath: z.ZodString;
+        note: z.ZodString;
+        notes: z.ZodArray<z.ZodString>;
+        width: z.ZodNumber;
+    }, z.core.$loose>>;
+  REQUEST_IMAGE_MARKUP_DESCRIPTION (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const REQUEST_IMAGE_MARKUP_DESCRIPTION: string;
+  REQUEST_IMAGE_MARKUP_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const REQUEST_IMAGE_MARKUP_INPUT_SCHEMA: z.ZodObject<{
+        imagePath: z.ZodString;
+        instruction: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+  REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const REQUEST_IMAGE_MARKUP_INSTRUCTION_MAX: 200;
+  REQUEST_IMAGE_MARKUP_TOOL_NAME (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    const REQUEST_IMAGE_MARKUP_TOOL_NAME: "request_image_markup";
   REQUEST_IMAGE_MASK_CONTRACT (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const REQUEST_IMAGE_MASK_CONTRACT: import("./contract.js").ToolComponentContract<"request_image_mask", z.ZodObject<{
         imagePath: z.ZodString;
@@ -11598,6 +11753,8 @@ signatures (every public export and the types it is made of)
         backend?: string;
         renderers: ToolRenderer[];
     }
+  RequestImageMarkupInput (packages/ui-sdk/src/tool-contracts/bridge.ts)
+    export type RequestImageMarkupInput = z.infer<typeof REQUEST_IMAGE_MARKUP_INPUT_SCHEMA>;
   RequestImageMaskInput (packages/ui-sdk/src/tool-contracts/bridge.ts)
     export type RequestImageMaskInput = z.infer<typeof REQUEST_IMAGE_MASK_INPUT_SCHEMA>;
   RequestToolPermissionOptions (packages/ui-sdk/src/server/permission-gate.ts)
@@ -13421,6 +13578,18 @@ signatures (every public export and the types it is made of)
         requestId: string;
         options?: GeoRequestOptions;
     }
+  ServerMarkupRequest (packages/ui-sdk/src/protocol.ts)
+    export interface ServerMarkupRequest extends SessionScoped {
+        type: "markup_request";
+        requestId: string;
+        imagePath: string;
+        instruction?: string;
+        width: number;
+        height: number;
+        maxBytes: number;
+        uploadPath: string;
+        sourcePath: string;
+    }
   ServerMaskRequest (packages/ui-sdk/src/protocol.ts)
     export interface ServerMaskRequest extends SessionScoped {
         type: "mask_request";
@@ -13429,7 +13598,7 @@ signatures (every public export and the types it is made of)
         instruction?: string;
     }
   ServerMessage (packages/ui-sdk/src/protocol.ts)
-    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerLivePersona | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired | ServerAttachmentRead | ServerLiveSettings;
+    export type ServerMessage = ServerSafetyHistory | ServerSafetyUpdate | ServerSafetyUnavailable | ServerScopeDecisionReceipt | ServerHello | ServerRetryReceipt | ServerTextDelta | ServerThinkingDelta | ServerToolUseStart | ServerToolInputDelta | ServerToolUseComplete | ServerToolResult | ServerToolApprovalRequest | ServerResultMessage | ServerError | ServerStatus | ServerSessionInfo | ServerSessionHistory | ServerAskUserRequest | ServerAskUserListRequest | ServerAskUserRankRequest | ServerAskUserFormRequest | ServerAskAnswerReceipt | ServerPong | ServerLocationRequest | ServerMaskRequest | ServerMarkupRequest | ServerActivitySnapshot | ServerActivityDelta | ServerMessageBlocks | ServerMessageLinks | ServerLocalExchangeResult | ServerHandoffDraft | ServerHandoffReceipt | InboxSnapshot | InboxDelta | ServerToolResolution | ServerSessionQueue | ServerDialogueHistory | ServerConversationOpened | ServerLivePersona | ServerConversationClosed | ServerConversationEvent | ServerConversationWork | ServerConversationOutput | ServerConversationPermission | ServerTurnJournal | ServerUsage | ServerChatRetired | ServerAttachmentRead | ServerLiveSettings;
   ServerMessageBlocks (packages/ui-sdk/src/protocol.ts)
     export interface ServerMessageBlocks extends SessionScoped {
         type: "message_blocks";
@@ -14409,6 +14578,7 @@ signatures (every public export and the types it is made of)
         askUserForm?: string | false;
         location?: string | false;
         mask?: string | false;
+        markup?: string | false;
         activity?: string | false;
         inboxList?: string | false;
         inboxGet?: string | false;
@@ -15669,6 +15839,17 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"location_response">;
     }, z.core.$loose>;
+  clientMarkupErrorSchema (packages/ui-sdk/src/schemas.ts)
+    const clientMarkupErrorSchema: z.ZodObject<{
+        code: z.ZodEnum<{
+            cancelled: "cancelled";
+            failed: "failed";
+        }>;
+        message: z.ZodString;
+        requestId: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"markup_error">;
+    }, z.core.$loose>;
   clientMaskErrorSchema (packages/ui-sdk/src/schemas.ts)
     const clientMaskErrorSchema: z.ZodObject<{
         code: z.ZodEnum<{
@@ -15887,6 +16068,15 @@ signatures (every public export and the types it is made of)
         requestId: z.ZodString;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"mask_error">;
+    }, z.core.$loose>, z.ZodObject<{
+        code: z.ZodEnum<{
+            cancelled: "cancelled";
+            failed: "failed";
+        }>;
+        message: z.ZodString;
+        requestId: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"markup_error">;
     }, z.core.$loose>, z.ZodObject<{
         runId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
@@ -16701,6 +16891,8 @@ signatures (every public export and the types it is made of)
         text: string;
         isError: boolean;
     }>;
+  handleRequestImageMarkup (packages/ui-sdk/src/server/bridge-tools/markup.ts)
+    export function handleRequestImageMarkup(input: RequestImageMarkupInput, bridge: Pick<BackendBridge, "requestImageMarkup">): Promise<ImageMarkupPayload>;
   handleRequestImageMask (packages/ui-sdk/src/server/bridge-tools/mask.ts)
     export function handleRequestImageMask(input: RequestImageMaskInput, bridge: BackendBridge, options: ImageMaskHandlerOptions): Promise<ImageMaskPayload>;
   handleShowBlock (packages/ui-sdk/src/server/bridge-tools/show-block.ts)
@@ -22969,6 +23161,20 @@ signatures (every public export and the types it is made of)
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"location_request">;
     }, z.core.$loose>;
+  serverMarkupRequestSchema (packages/ui-sdk/src/schemas.ts)
+    const serverMarkupRequestSchema: z.ZodObject<{
+        height: z.ZodNumber;
+        imagePath: z.ZodString;
+        instruction: z.ZodOptional<z.ZodString>;
+        maxBytes: z.ZodNumber;
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        sourcePath: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"markup_request">;
+        uploadPath: z.ZodString;
+        width: z.ZodNumber;
+    }, z.core.$loose>;
   serverMaskRequestSchema (packages/ui-sdk/src/schemas.ts)
     const serverMaskRequestSchema: z.ZodObject<{
         imagePath: z.ZodString;
@@ -24811,6 +25017,18 @@ signatures (every public export and the types it is made of)
         sessionId: z.ZodOptional<z.ZodString>;
         turnId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"mask_request">;
+    }, z.core.$loose>, z.ZodObject<{
+        height: z.ZodNumber;
+        imagePath: z.ZodString;
+        instruction: z.ZodOptional<z.ZodString>;
+        maxBytes: z.ZodNumber;
+        requestId: z.ZodString;
+        sessionId: z.ZodOptional<z.ZodString>;
+        sourcePath: z.ZodString;
+        turnId: z.ZodOptional<z.ZodString>;
+        type: z.ZodLiteral<"markup_request">;
+        uploadPath: z.ZodString;
+        width: z.ZodNumber;
     }, z.core.$loose>, z.ZodObject<{
         append: z.ZodOptional<z.ZodBoolean>;
         events: z.ZodArray<z.ZodObject<{

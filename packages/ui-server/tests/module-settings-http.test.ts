@@ -1,3 +1,4 @@
+import { withoutSigningForEach } from "../../core/tests/git-fixture";
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,6 +11,8 @@ import { join, resolve } from "node:path";
 import { BRAIN_BIN } from "../../core/tests/cli-harness";
 import { createPrincipal } from "../src/db/principals";
 import { httpContractApp } from "./helpers/http-contract-app";
+
+withoutSigningForEach();
 
 const SECRET = "module-settings-fixture-secret-0123456789";
 function git(root: string, args: string[]): string {
