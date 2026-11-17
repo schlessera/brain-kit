@@ -176,6 +176,20 @@ function centre(el: Element) {
   const box = el.getBoundingClientRect();
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
+/**
+ * The mic's centre falls below Start on a coarse device. Its upper portion
+ * overlaps Start on all rail projects, so an in-place release can activate it.
+ */
+function holdPoint(el: Element) {
+  const box = el.getBoundingClientRect();
+  return { x: box.x + box.width / 2, y: box.top + 4 };
+}
+
+function expectStartUnder(at: Point) {
+  const start = page.getByRole("button", { name: "Start", exact: true }).element();
+  expect(start.contains(document.elementFromPoint(at.x, at.y)), "the original release point hits Start").toBe(true);
+}
+
 const phase = (s: Scene) => s.mic()?.dataset.phase ?? "no mic";
 const ring = (s: Scene) => Number(s.mic()?.querySelector(".bk-voice-ring")?.getAttribute("data-progress"));
 const hint = (s: Scene) => s.host.querySelector(".bk-voice-hint")?.textContent ?? null;
@@ -232,7 +246,7 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
   premise();
   {
     const s = await scene(ctx, width);
-    const at = centre(s.mic()!);
+    const at = holdPoint(s.mic()!);
     const before = s.traffic();
     const clock = stopClock(ctx);
     await press(s, kind, at);
@@ -256,6 +270,7 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
     expect(s.haptics, `${kind}: one light haptic while the mic is still held`).toEqual([10]);
     // Released after 999 ms; the completed hold is still guarded.
     advance(GUARD - 1);
+    expectStartUnder(at);
     await release(kind, at, HOLD + GUARD - 1);
     // The release is not a tap: Start stays, and no dictation began.
     expect(s.client.state.getState().disclosureOpen, `${kind}: the release does not dismiss Start`).toBe(true);
@@ -272,12 +287,13 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`a comp
 for (const kind of KINDS) for (const width of [320, 1280] as const) test(`five seconds after Start opens the original release never presses Start ${kind} ${width}`, async ctx => {
   premise();
   const s = await scene(ctx, width);
-  const at = centre(s.mic()!);
+  const at = holdPoint(s.mic()!);
   const clock = stopClock(ctx);
   await press(s, kind, at);
   advance(HOLD);
   expect(s.client.state.getState().disclosureOpen, "the hold opens Start before release").toBe(true);
   advance(5_000);
+  expectStartUnder(at);
   await release(kind, at, HOLD + 5_000);
   expect(s.network.socket()!.frames("conversation_start"), "the original release must not press Start").toHaveLength(0);
   expect(s.client.state.getState().disclosureOpen, "Start stays open and unpressed").toBe(true);
