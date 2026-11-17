@@ -51,6 +51,11 @@ bun evals/3434-extraction-classifier/requalify.ts --summary --results <file>
   It calibrates nothing.
 - `results-4090-offline-2026-11-17.json` — the keyless stub run of that set.
   It exercises the report and is not a Jev measurement.
+- `results-4090-2026-11-17.json` — the live run of that set: `jev-1.13.0` on
+  its 43 band calls, three repetitions, with the typed answers, the answering
+  model, input tokens, spend and latency, and no request state.
+  `requalify.ts --summary --results` recomputes its report offline. The
+  measured tables are in [the plan](../../docs/plans/extraction-classifier.md#requalifying-the-band-4090).
 
 ## The requalification set (#4090)
 
