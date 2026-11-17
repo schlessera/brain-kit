@@ -321,6 +321,15 @@ not proof of a later provider request. Every read still records workspace
 input; ordinary file marks keep their independent signals. Approved-owner
 matching and the full qualified source-trust route remain separate work.
 
+Observation compares the complete plain-text result or the fixed tool's
+single-text MCP envelope with that segment. Extra content, structured payloads
+and error envelopes cannot borrow a matching text part. Pi omits qualified
+segments for a mixed reference result instead of filtering away its non-text
+parts. Reports lost before the collector's result method, including malformed
+or replayed worker RPCs, invalidate that call before failure containment.
+An earlier loss also fences a read prepared afterward; another call's known
+observation remains independent.
+
 ## Admission
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or

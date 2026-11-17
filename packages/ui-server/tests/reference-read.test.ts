@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { createUiDb } from "../src/db/client";
 import { createPrincipal } from "../src/db/principals";
@@ -19,6 +19,9 @@ import { createSafetyCollector } from "../src/governance/safety-collector";
 import { safetyCatalogCreated, safetyRecords } from "../src/governance/safety-store";
 import { createReferenceTools } from "../src/brain/reference-tools";
 import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
+import { createPiWorkerRpcDispatcher, type PiWorkerRpcContext, type PiWorkerRpc } from "../../ui-backend-pi/src/worker-rpc";
+import { createPermissionWiring } from "../../ui-backend-claude/src/permission-hooks";
+import { safetyResultInput } from "../../ui-backend-pi/src/worker-protocol";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -73,9 +76,9 @@ for (const worker of [false, true]) test(`returned content has durable exact-ran
   expect(row.response_digest).toBe(sha256(Buffer.from(JSON.stringify(result))));
   expect(row.delivery, "PREPARED_IS_NOT_OBSERVED_DELIVERY").toBe("prepared");
   expect(JSON.stringify(result)).not.toContain("acquisition"); expect(JSON.stringify(result)).not.toContain("digest");
-  await f.reads.observeResult("other-turn", "read-1", "reference_read", "", true, [JSON.stringify(result)]);
+  await f.reads.observeResult("other-turn", "read-1", "reference_read", JSON.stringify(result), true, [JSON.stringify(result)]);
   expect(f.db.query("SELECT delivery FROM reference_reads").get()).toEqual({ delivery: "prepared" });
-  await f.reads.observeResult("reading-turn", "read-1", "reference_read", "", true, [JSON.stringify(result)]);
+  await f.reads.observeResult("reading-turn", "read-1", "reference_read", JSON.stringify(result), true, [JSON.stringify(result)]);
   expect(f.db.query("SELECT delivery FROM reference_reads").get(), "ONLY_EXACT_CALL_RESULT_OBSERVES_DELIVERY").toEqual({ delivery: "observed" });
   expect(f.state.released).toBe(1);
 });
@@ -221,6 +224,83 @@ for (const backend of ["claude", "pi"]) for (const conflict of ["altered", "mixe
       .toEqual({ delivery: "observed" });
   });
 }
+
+function piSafetyDispatcher(collector: Awaited<ReturnType<typeof collectedFixture>>["collector"]) {
+  return createPiWorkerRpcDispatcher({ turn: { bridge: { inputSafety: collector } }, live() {},
+    executed: (msg: PiWorkerRpc) => ({ name: msg.toolName, host: false, lock: false, phases: new Set() }),
+    canFinalizeSafety: () => true } as unknown as PiWorkerRpcContext);
+}
+
+for (const loss of ["malformed", "replayed", "wrong-tool"]) test(`the Pi dispatcher makes ${loss} lost read reports sticky unknown`, async () => {
+  const f = await collectedFixture("pi"), { collector, tool } = f, dispatch = piSafetyDispatcher(collector);
+  await collector.begin("read-1", tool, { repository, revision: "main", path: "README.md" });
+  const text = JSON.stringify(await f.call());
+  const report = (id: number, input: Record<string, unknown>, toolName = tool): PiWorkerRpc =>
+    ({ type: "rpc", id, method: "safetyResult", toolCallId: "read-1", toolName, input });
+  await dispatch(report(1, { output: text, segments: [text] }));
+  expect(f.db.query("SELECT delivery FROM reference_reads").get()).toEqual({ delivery: "observed" });
+  const failure = await dispatch(report(loss === "malformed" ? 2 : 1, loss === "malformed" ? { output: 1 } : { output: text, segments: [text] },
+    loss === "wrong-tool" ? "Bash" : tool)).then(() => null, error => error);
+  expect(failure).toBeInstanceOf(Error);
+  expect(failure.message).toContain(loss === "malformed" ? "Malformed safety result" : "Replayed pi worker RPC");
+  expect(f.db.query("SELECT delivery FROM reference_reads").get(), "DISPATCHER_LOSS_INVALIDATES_READ_OBSERVATION")
+    .toEqual({ delivery: "unknown" });
+  await dispatch(report(3, { output: text, segments: [text] }));
+  expect(f.db.query("SELECT delivery FROM reference_reads").get()).toEqual({ delivery: "unknown" });
+});
+
+test("a lost Pi report before read preparation cannot become observed later", async () => {
+  const f = await collectedFixture("pi"), { collector, tool } = f, dispatch = piSafetyDispatcher(collector);
+  const deliveries: string[] = [], observe = f.reads.observeResult.bind(f.reads);
+  f.reads.observeResult = async (...args) => {
+    await observe(...args);
+    const row = f.db.query("SELECT delivery FROM reference_reads WHERE tool_call_id = 'read-1'").get() as { delivery: string } | null;
+    if (row) deliveries.push(row.delivery);
+  };
+  await collector.begin("read-1", tool, { repository, revision: "main", path: "README.md" });
+  const failed = await dispatch({ type: "rpc", id: 1, method: "safetyResult", toolCallId: "read-1", toolName: tool, input: { output: 1 } })
+    .then(() => null, error => error);
+  expect(failed).toBeInstanceOf(Error);
+  const text = JSON.stringify(await f.call());
+  // A delayed host preparation/result cannot erase the earlier loss notice.
+  await dispatch({ type: "rpc", id: 2, method: "safetyResult", toolCallId: "read-1", toolName: tool, input: { output: text, segments: [text] } })
+    .catch(() => {});
+  expect(f.db.query("SELECT delivery FROM reference_reads").get(), "EARLY_LOSS_FENCES_LATE_READ_OBSERVATION")
+    .toEqual({ delivery: "unknown" });
+  expect(deliveries, "EARLY_LOSS_NEVER_PUBLISHES_A_TRANSIENT_OBSERVED_READ").not.toContain("observed");
+});
+
+for (const extra of ["none", "false-error", "image", "resource", "structured", "error"]) test(`the Claude result hook handles ${extra} immutable-read content honestly`, async () => {
+  const f = await collectedFixture("claude"), { collector, tool } = f, controller = new AbortController();
+  await collector.begin("read-1", tool, { repository, revision: "main", path: "README.md" });
+  const text = JSON.stringify(await f.call());
+  const content: unknown[] = [{ type: "text", text }];
+  if (extra === "image") content.push({ type: "image", data: "AQ==", mimeType: "image/png" });
+  if (extra === "resource") content.push({ type: "resource", resource: { uri: "voyage://ithaca/chart", text: "Circe changes the chart." } });
+  const response = { content, ...(extra === "structured" ? { structuredContent: { chart: "Circe changes the chart." } } : {}),
+    ...(extra === "false-error" || extra === "error" ? { isError: extra === "error" } : {}) };
+  const wiring = createPermissionWiring({ req: { prompt: "Read the Ithaca chart.", signal: controller.signal,
+    bridge: { emit() {}, requestPermission: async () => ({ behavior: "allow" as const }), inputSafety: collector } },
+    allowedTools: [tool], confirmPatterns: [], brainPath: dirname(f.path), childEnv: {}, log() {},
+    turnLock: { acquireForTool: async () => ({ ok: true }), releaseForTool() {} } as never });
+  const hook = wiring.hooks!.PostToolUse!.find(group => !group.matcher)!.hooks[0]!;
+  await hook({ hook_event_name: "PostToolUse", tool_use_id: "read-1", tool_name: tool, tool_input: {}, tool_response: response,
+    session_id: "ithaca", cwd: dirname(f.path), transcript_path: "" } as never, "read-1", { signal: controller.signal });
+  expect(f.db.query("SELECT delivery FROM reference_reads").get(), "CLAUDE_FULL_RESULT_MUST_BE_ONE_EXACT_TEXT_PART")
+    .toEqual({ delivery: extra === "none" || extra === "false-error" ? "observed" : "unknown" });
+});
+
+for (const extra of ["none", "image", "resource"]) test(`the Pi safety wire retains ${extra} immutable-read completeness`, async () => {
+  const f = await collectedFixture("pi"), { collector, tool } = f, dispatch = piSafetyDispatcher(collector);
+  await collector.begin("read-1", tool, { repository, revision: "main", path: "README.md" });
+  const text = JSON.stringify(await f.call());
+  const content: { type: string; text?: unknown; [key: string]: unknown }[] = [{ type: "text", text }];
+  if (extra === "image") content.push({ type: "image", data: "AQ==", mimeType: "image/png" });
+  if (extra === "resource") content.push({ type: "resource", resource: { uri: "voyage://ithaca/chart", text: "Circe changes the chart." } });
+  await dispatch({ type: "rpc", id: 1, method: "safetyResult", toolCallId: "read-1", toolName: tool, input: safetyResultInput(tool, content) });
+  expect(f.db.query("SELECT delivery FROM reference_reads").get(), "PI_WIRE_CANNOT_HIDE_NON_TEXT_READ_CONTENT")
+    .toEqual({ delivery: extra === "none" ? "observed" : "unknown" });
+});
 
 test("both managed read names remain workspace input; ordinary explicit marks remain independent", () => {
   for (const tool of ["reference_read", "mcp__brain-ui__reference_read"])

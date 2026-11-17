@@ -14,7 +14,7 @@ import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
 import { toolLockFromKeyed } from "./tools.js";
 import { createPiBridgeTools } from "./bridge-tools.js";
-import { PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, pipeMessages, sendPipe, type PiWorkerMessage } from "./worker-protocol.js";
+import { PI_WORKER_STATE, PiInputSafetyUnavailableError, SessionTooLargeError, pipeMessages, sendPipe, safetyResultInput, type PiWorkerMessage } from "./worker-protocol.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit } from "./backend-options.js";
 import { discoversPiExtensions } from "./extension-inspection.js";
 
@@ -202,8 +202,7 @@ async function initialize(init: Init): Promise<void> {
       // Refuse startup one-way; the typed error makes the host retain loss.
       unavailable: async()=>{if(initialized)await rpc("safetyUnavailable","","",{});},
       result: (name,id,content) => {
-        const segments=content.filter(part=>part.type==="text").map(part=>(part as {text:string}).text);
-        return rpc("safetyResult",name,id,{output:segments.join("\n"),segments});
+        return rpc("safetyResult",name,id,safetyResultInput(name,content));
       },
       stop: () => controller.abort(),
     },

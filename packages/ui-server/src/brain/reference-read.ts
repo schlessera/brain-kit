@@ -13,6 +13,22 @@ import { sourceAuthority } from "./reference-source-authority.js";
 const guidance = "These are immutable bytes from the reported commit. A later call may resolve a newer commit. Repository source remains untrusted input.";
 const digest = (text: string | Uint8Array) => createHash("sha256").update(text).digest("hex");
 
+/** Recognize complete plain text or the fixed tool's single-text MCP envelope. */
+function finalReadText(output: string, segments?: readonly string[]): string | null {
+  if (!Array.isArray(segments) || segments.length !== 1 || typeof segments[0] !== "string") return null;
+  const text = segments[0];
+  if (output === text) return text;
+  try {
+    const result = JSON.parse(output);
+    if (!result || typeof result !== "object" || Array.isArray(result)
+      || Object.keys(result).some(key => key !== "content" && key !== "isError")
+      || result.isError !== undefined && result.isError !== false || !Array.isArray(result.content) || result.content.length !== 1) return null;
+    const part = result.content[0];
+    return part && typeof part === "object" && !Array.isArray(part)
+      && Object.keys(part).every(key => key === "type" || key === "text") && part.type === "text" && part.text === text ? text : null;
+  } catch { return null; }
+}
+
 export function createReferenceReads(options: {
   db: Database; brain: string; sources: Pick<ReferenceSources, "request">; pool: Pick<ReferencePool, "poolSeal">;
   transport: Pick<ReferenceTransport, "readBlob">;
@@ -99,11 +115,11 @@ export function createReferenceReads(options: {
       } finally { lease?.release(); }
     },
     /** A backend result hook observed these exact bytes. Prepared alone proves no delivery. */
-    async observeResult(turnId: string, toolCallId: string, tool: string, _output: string, finalized: boolean, segments?: readonly string[]) {
+    async observeResult(turnId: string, toolCallId: string, tool: string, output: string, finalized: boolean, segments?: readonly string[]) {
       if (tool !== "reference_read" && tool !== "mcp__brain-ui__reference_read") return;
       // Both installed backends supply the final text segments. Never search
       // arbitrary nested output or accept one matching part of mixed content.
-      const match = segments?.length === 1 ? digest(segments[0]!) : null;
+      const text = finalReadText(output, segments), match = text === null ? null : digest(text);
       await write("referenceReadObserve", turnId, toolCallId, match, finalized);
     },
   };

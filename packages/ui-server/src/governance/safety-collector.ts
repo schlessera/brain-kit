@@ -17,7 +17,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // cannot be recorded faithfully. `owed`: its obligation is durable (#3812).
  // `refused`: the backend refused a call with this id, so nothing more for
  // that id is admitted or let run.
- type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean};
+ type Operation={tool:string;inputHashes:Set<string>;id:string;occurrences:string[];done:boolean;admitted:boolean;signals:IngestionSignal[];outputHash?:string;owed:boolean;refused:boolean;uncertain:boolean};
  const operations=new Map<string,Operation>();
  // What the backend reported about each id: how many times the runtime asked
  // to admit a call under it, for each tool name it came under, and whether
@@ -31,7 +31,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
  // A refusal can prove the call never ran only for an id admitted once,
  // under one tool name, and never allowed.
  const once=(call:{tools:Map<string,number>;allowed:boolean}|undefined)=>!!call&&!call.allowed&&call.tools.size===1&&[...call.tools.values()][0]===1;
- const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],done:false,admitted:false,signals:[],owed:false,refused:false});
+ const operation=(tool:string):Operation=>({tool,inputHashes:new Set<string>(),id:crypto.randomUUID(),occurrences:[],done:false,admitted:false,signals:[],owed:false,refused:false,uncertain:false});
  const base=()=>({turnId:options.turnId,sessionId:options.sessionId(),actor:options.actor??"interactive" as const,model:null,profile:null});
  const marked=(path:string)=>isMarkedUntrusted(db,path);
  const hash=(value:string)=>new Bun.CryptoHasher("sha256").update(value).digest("hex");
@@ -83,6 +83,16 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   void result.finally(()=>{queued--;if(tails.get(id)===result)tails.delete(id);}).catch(()=>{});
   return result;
  };
+ const rejectReadResult=async(toolUseId:string,tool:string,error:unknown)=>{
+  // Invalidating first also covers reports lost before result() and ensures
+  // failure containment cannot stop the record's owner before this commits.
+  const op=operations.get(toolUseId);if(op)op.uncertain=true;
+  try{
+   for(const name of new Set([tool,operations.get(toolUseId)?.tool]))if(name)
+    await options.referenceReads?.observeResult(options.turnId,toolUseId,name,"",false);
+  }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"));}
+  return fail(error);
+ };
  return {
   async ready(backend,version){assertLive();await writes.safetyReady(options.turnId,backend,version);options.onReady?.();},
   async unavailable(){return fail(new Error("Input collection is not qualified for this runtime configuration"));},
@@ -123,15 +133,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // tools, never a record; the turn's end waits for a record under way),
   // and any failure leaves its chat a permanent gap.
   result(toolUseId,tool,output,finalized,segments){
-   const reject=async(error:unknown)=>{
-    // Invalidate before failure containment can stop the record's owner. This
-    // includes rejection before observation and before queue admission.
-    try{
-     for(const name of new Set([tool,operations.get(toolUseId)?.tool]))if(name)
-      await options.referenceReads?.observeResult(options.turnId,toolUseId,name,"",false);
-    }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"));}
-    return fail(error);
-   };
+   const reject=(error:unknown)=>rejectReadResult(toolUseId,tool,error);
    return recording(serial(toolUseId,async()=>{
    try{
     if(segments&&segments.length>256)throw new Error("Safety result segment capacity exceeded");
@@ -149,7 +151,7 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
       const item=observed(toolUseId,signal.detector,op.id);
       await writes.firstTaint({...base(),kind:"taint",payload:{source:signal.source,tool,detail:null,occurrence:item}});op.occurrences.push(item.id);
     }
-    await options.referenceReads?.observeResult(options.turnId,toolUseId,tool,output,finalized,segments);
+    await options.referenceReads?.observeResult(options.turnId,toolUseId,tool,output,finalized&&!op.uncertain,segments);
     const state=finalized&&!['Bash','bash'].includes(tool)?"finalized":"interrupted_unknown";
     // The last exposure commits with the call's discharge, in one
     // transaction: no end and no restart can find the record durable and
@@ -208,9 +210,9 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   },true);},
   // A result the backend could not hand over (a refused or malformed report):
   // its chat keeps a permanent gap. Resolves once that gap is durable.
-  async lost(toolUseId,tool,cause){
+  lost(toolUseId,tool,cause){return recording((async()=>{
    const loss=new Error(`Safety result for ${tool} (${toolUseId}) was not recorded: ${cause instanceof Error?cause.message:String(cause)}`);
-   try{await fail(loss);}catch(error){if(error!==loss)throw error;}
-  },
+   try{await rejectReadResult(toolUseId,tool,loss);}catch(error){if(error!==loss)throw error;}
+  })());},
  };
 }
