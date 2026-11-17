@@ -70,6 +70,8 @@ export interface ReferenceSourceLease {
   /** True when the latest refresh failed and the previous authorized revision is returned. */
   stale: boolean;
   error: string | null;
+  /** Host-only lifetime check for effects awaiting after this acquisition; never a source trust capability. */
+  assertAuthority(): void;
   /** Ends this reader's protection against capacity eviction. Idempotent. */
   release(): void;
 }
@@ -205,9 +207,18 @@ export function createReferenceSources(options: {
     Boolean(source?.root_id && source.commit_id && source.refreshed_at !== null && source.validated_at !== null);
   const validationLive = (source: SourceRow) => source.validated_at !== null && now() < source.validated_at + limits.validationMs;
 
-  async function lease(source: SourceRow, stale: boolean, error: string | null): Promise<ReferenceSourceLease> {
+  async function lease(source: SourceRow, stale: boolean, error: string | null, authority?: () => void): Promise<ReferenceSourceLease> {
     if (!usable(source)) throw new ReferenceSourceError("unavailable", "No usable authorized reference source exists.");
     const key = sourceKey(source.domain, source.repository, source.revision);
+    const fence = authorityFences.get(key) ?? 0;
+    const assertAuthority = () => {
+      if (closed) throw new ReferenceSourceError("unavailable", "Reference sources are closed.");
+      if (fence !== (authorityFences.get(key) ?? 0) || withdrawn.has(key))
+        throw new ReferenceSourceError(suspended.has(key) ? "unavailable" : "unauthorized", "A newer observation invalidated this source's authority.");
+      if (suspended.has(key) || !validationLive(source))
+        throw new ReferenceSourceError("unavailable", "This source's authority needs fresh validation.");
+      authority?.();
+    };
     leases.set(key, (leases.get(key) ?? 0) + 1);
     let released = false;
     const release = () => {
@@ -222,7 +233,7 @@ export function createReferenceSources(options: {
       await write("sourceTouch", now(), source.domain, source.repository, source.revision);
       return { domain: source.domain === PUBLIC ? "public" : "private", view: view.id, viewPath: view.hostPath!, name: source.name, repository: source.repository,
         revision: source.revision, commit: source.commit_id, rootId: source.root_id, refreshedAt: source.refreshed_at, validatedAt: source.validated_at, stale, error,
-        release };
+        assertAuthority, release };
     } catch (error) { release(); throw error; }
   }
 
@@ -636,7 +647,9 @@ export function createReferenceSources(options: {
         assertCurrent();
         const current = row(domain, repository.canonical, revision);
         if (!usable(current)) throw new ReferenceSourceError("unavailable", "Managed source publication is unavailable.");
-        result = await restored(await lease(current, false, null), current, assertCurrent, signal);
+        result = await restored(await lease(current, false, null, () => {
+          assertTurn(); currentAccess.assertAuthority();
+        }), current, assertCurrent, signal);
         assertCurrent();
         return { kind: "source", row: current, stale: false, error: null };
       } catch (error) {

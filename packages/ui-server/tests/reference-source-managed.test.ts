@@ -8,7 +8,7 @@ import { createGitHubReferenceAccess } from "../src/brain/github-reference-acces
 import { createReferenceSources } from "../src/brain/reference-source";
 import type { ReferenceTransport } from "../src/brain/reference-transport";
 import { createUiDb } from "../src/db/client";
-import { createPrincipal } from "../src/db/principals";
+import { createPrincipal, revokePrincipal } from "../src/db/principals";
 import { createReferenceGrant, revokeReferenceGrant } from "../src/db/reference-grants";
 import { fixtureTls } from "./fixtures/fixture-tls";
 import { referencePoolDouble } from "./helpers/reference-pool-double";
@@ -687,6 +687,82 @@ describe("live managed authority", () => {
       expect(existsSync(join(views.public, old.name, "README.md")), "MANAGED_PRIVATE_TRANSITION_WITHDRAWS_PUBLIC_COPY").toBe(false);
     } finally { current?.release(); old?.release(); await f.close(); }
   });
+
+  for (const observation of ["private", "unknown"] as const)
+  for (const wait of ["coverage", "native-grant", "held-refresh"] as const)
+    test(`a public worktree cannot outlive newer ${observation} authority during ${wait}`, async () => {
+      const f = await fixture();
+      const context = { turnId: "odysseus-public-worktree", egress: f.egress, current: () => f.state.current };
+      const invalidate = async () => {
+        if (observation === "private") f.state.private = true; else f.state.status = 503;
+        await expect(f.request(f.other.id, "telemachus-newer-authority", f.secondEgress)).rejects.toMatchObject({ code: observation === "private" ? "unauthorized" : "unavailable" });
+      };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources,
+        coverage: async () => { if (wait === "coverage") await invalidate(); } });
+      let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+      try {
+        const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+        generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+        if (wait === "native-grant") {
+          const access = f.pool.poolAccess;
+          f.pool.poolAccess = async (...args) => { const result = await access(...args); await invalidate(); return result; };
+        }
+        if (wait === "held-refresh") {
+          await worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context });
+          expect(readFileSync(join(generation.path, item.id, "README.md"), "utf8")).toContain("Odysseus");
+          const request = f.sources.request;
+          f.sources.request = async input => { const lease = await request(input); if (input.principalId === f.owner.id) await invalidate(); return lease; };
+        }
+        await expect(worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context }),
+          "PUBLIC_WORKTREE_RECHECKS_NEWER_SOURCE_AUTHORITY").rejects.toMatchObject({ code: observation === "private" ? "unauthorized" : "unavailable" });
+        expect(f.pool.records.get(item.id)!.access, "INVALIDATED_PUBLIC_WORKTREE_IS_PARKED").toBeNull();
+        expect(existsSync(join(generation.path, item.id, "README.md")), "INVALIDATED_PUBLIC_WORKTREE_FILES_ARE_HIDDEN").toBe(false);
+        expect(worktrees.get({ worktreeId: item.id, principalId: f.owner.id }).generation, "INVALIDATED_PUBLIC_WORKTREE_HOLDER_IS_CLEARED").toBeNull();
+      } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
+    });
+
+  for (const authority of ["principal", "credential"] as const)
+    test(`worktree coverage cannot outlive its acquiring ${authority} after wire shutdown`, async () => {
+      const f = await fixture({ private: authority === "credential" }); if (authority === "credential") f.grant();
+      const context = { turnId: "odysseus-live-worktree-authority", egress: f.egress, current: () => f.state.current };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources, coverage: async () => {
+        if (authority === "principal") revokePrincipal(f.db, f.owner.id, Date.now()); else f.credentials.GITHUB_TOKEN = undefined;
+      } });
+      let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+      try {
+        const item = await worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context });
+        generation = await worktrees.openGeneration({ principalId: f.owner.id, turnId: context.turnId, profile: "governed" });
+        await expect(worktrees.access({ worktreeId: item.id, principalId: f.owner.id, generation: generation.id, acquisition: context }),
+          "WORKTREE_RETAINS_LIVE_AUTHORITY_AFTER_WIRE_SHUTDOWN").rejects.toMatchObject({ code: "unauthorized" });
+        expect(f.pool.records.get(item.id)!.access, "LOST_ACQUISITION_AUTHORITY_CANNOT_MOUNT_WORKTREE").toBeNull();
+        expect(existsSync(join(generation.path, item.id, "README.md")), "LOST_ACQUISITION_AUTHORITY_HIDES_WORKTREE_FILES").toBe(false);
+      } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
+    });
+
+  for (const wait of ["native-create", "checkpoint"] as const)
+    test(`a public allocation cannot outlive newer private authority during ${wait}`, async () => {
+      const f = await fixture();
+      const context = { turnId: "odysseus-public-allocation", egress: f.egress, current: () => f.state.current };
+      const worktrees = createReferenceWorktrees({ db: f.db, pool: f.pool, sources: f.sources, coverage: async () => {} });
+      const invalidate = async () => {
+        f.state.private = true;
+        await expect(f.request(f.other.id, "telemachus-newer-authority", f.secondEgress)).rejects.toMatchObject({ code: "unauthorized" });
+      };
+      try {
+        if (wait === "native-create") {
+          const create = f.pool.poolCreate;
+          f.pool.poolCreate = async (...args) => { const result = await create(...args); if (args[1] === "worktree") await invalidate(); return result; };
+        } else {
+          const checkpoint = f.pool.poolCheckpoint;
+          f.pool.poolCheckpoint = async (...args) => { const result = await checkpoint(...args); await invalidate(); return result; };
+        }
+        await expect(worktrees.allocate({ principalId: f.owner.id, repository, revision: "main", acquisition: context }),
+          "PUBLIC_ALLOCATION_RECHECKS_NEWER_SOURCE_AUTHORITY").rejects.toMatchObject({ code: "unauthorized" });
+        expect(worktrees.list(f.owner.id), "INVALIDATED_PUBLIC_ALLOCATION_IS_DISCARDED").toEqual([]);
+        expect([...f.pool.records.values()].filter(record => record.purpose === "worktree" && record.state !== "reclaimed"),
+          "INVALIDATED_PUBLIC_ALLOCATION_LEAVES_NO_ROOT").toEqual([]);
+      } finally { await worktrees.close(); await f.close(); }
+    });
 
   for (const initialPrivate of [true, false])
   for (const wait of ["coverage", "native-grant", "grant-write", "held-refresh", "held-write"] as const)

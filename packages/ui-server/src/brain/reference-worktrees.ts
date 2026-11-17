@@ -28,6 +28,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import { parseNativeBrainDelta, type createNativeBrainManagerClient, type NativePoolCheckpoint, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
 import { ReferenceSourceError, type ReferenceSources } from "./reference-source.js";
+import { ReferenceTransportError } from "./reference-transport.js";
 import type { ReferenceAcquisitionContext } from "./reference-acquisition.js";
 
 /**
@@ -231,7 +232,7 @@ export function createReferenceWorktrees(options: {
         // A public starting snapshot cannot bypass the private authority the
         // current source check required. A private starting snapshot keeps its
         // original grant requirement even if the repository is public now.
-        return { ...row, domain: row.domain !== "public" || source.domain !== "public" ? "private" : "public" };
+        return { ...row, domain: row.domain !== "public" || source.domain !== "public" ? "private" : "public", assertAuthority: source.assertAuthority };
       } finally { source.release(); }
     }
     catch (error) {
@@ -437,8 +438,14 @@ export function createReferenceWorktrees(options: {
     input.signal?.throwIfAborted();
     if (input.acquisition && !input.acquisition.current()) throw new ReferenceWorktreeError("unavailable", "The acquiring turn is no longer available.");
   }
-  function acquiringAuthority(input: { signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }, row: Pick<WorktreeRow, "principal_id" | "repository" | "domain">): void {
+  function acquiringAuthority(input: { signal?: AbortSignal; acquisition?: ReferenceAcquisitionContext }, row: Pick<WorktreeRow, "principal_id" | "repository" | "domain"> & { assertAuthority(): void }): void {
     acquiringTurn(input);
+    try { row.assertAuthority(); }
+    catch (error) {
+      if (error instanceof ReferenceSourceError) throw new ReferenceWorktreeError(error.code === "cancelled" || error.code === "busy" ? "unavailable" : error.code, error.message);
+      if (error instanceof ReferenceTransportError) throw new ReferenceWorktreeError(error.reason === "denied" ? "unauthorized" : "unavailable", error.message);
+      throw error;
+    }
     covered(row);
   }
 
@@ -451,7 +458,7 @@ export function createReferenceWorktrees(options: {
       throw error;
     }
     const id = randomUUID(), at = now();
-    const authority = { principal_id: input.principalId, domain: lease.domain, repository: lease.repository };
+    const authority = { principal_id: input.principalId, domain: lease.domain, repository: lease.repository, assertAuthority: lease.assertAuthority };
     try {
       acquiringAuthority(input, authority);
       const allowance = (await pool.poolStatus(input.signal)).limits.operationBytes;

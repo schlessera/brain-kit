@@ -90,10 +90,11 @@ export function createGitHubReferenceAccess(options: {
         const identity: GitHubReferenceIdentity = parseGitHubReferenceMetadata(location.canonical, result.value);
         if (!grant && identity.private) throw new ReferenceTransportError("denied", "anonymous metadata cannot establish public source access");
         openingMetadata = false;
-        const assertCurrent = () => {
-          wire.signal.throwIfAborted();
+        // Source/worktree effects outlive wire shutdown, but not this authority.
+        const assertAuthority = () => {
           authorize("git", credential !== null); authorize("metadata", credential !== null);
         };
+        const assertCurrent = () => { wire.signal.throwIfAborted(); assertAuthority(); };
         let resolved: Extract<ReferenceCheck, { ok: true }> | undefined;
         assertCurrent();
         return Object.freeze({
@@ -103,7 +104,7 @@ export function createGitHubReferenceAccess(options: {
           revision,
           signal: wire.signal,
           bytes: wire.bytes,
-          assertCurrent,
+          assertCurrent, assertAuthority,
           async resolve() {
             assertCurrent();
             const result = await options.transport.resolve({ repository, revision, token: credential, wire, signal: wire.signal });
