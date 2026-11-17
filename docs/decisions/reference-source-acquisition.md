@@ -57,7 +57,7 @@ exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:315-364`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:316-365`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -98,6 +98,13 @@ default to five minutes and are configured separately
   row exists. Final metadata failures are contained before staging cleanup;
   ending the turn during cleanup cannot undo that observation. A later valid
   metadata check may restore the withheld cache.
+  Suspension also expires the stored validation clock, so restart cannot
+  republish uncertain authority into a newly bound view without fresh
+  validation. Post-publication authority loss hides native exposure before
+  storage cleanup begins. Managed failure containment runs once per request;
+  its later cleanup cannot unpublish a newer validated source. Refusal before
+  any metadata attempt, such as exhausted turn allowance, does not invalidate
+  another turn's cached authority.
 - A public check that gets no answer proves nothing. Only a principal with a
   covering grant goes on to the private path; anyone else is refused as
   `unavailable`.
@@ -106,7 +113,7 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:472-526`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:465-519`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
@@ -205,9 +212,9 @@ remain required before repository trust can be enabled.
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
-(`admit`, `packages/ui-server/src/brain/reference-source.ts:255-270`). Requests
+(`admit`, `packages/ui-server/src/brain/reference-source.ts:256-271`). Requests
 for the same legacy source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:273-298`).
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:274-299`).
 Each principal's private source is its own domain, so two principals requesting
 the same private repository at once run two operations, each with its own
 credential and view. Admitted operations finish independently: a stalled one
@@ -229,7 +236,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:389-405`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:390-406`).
 There is no idle expiry.
 
 ## Revocation and recovery

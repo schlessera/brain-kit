@@ -280,7 +280,7 @@ existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:712-728`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:711-728`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.

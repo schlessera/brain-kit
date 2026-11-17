@@ -123,8 +123,6 @@ export function createReferenceSources(options: {
   const withdrawn = new Set<string>();
   /** A newer authority observation invalidates older managed requests, including before domain selection. */
   const authorityFences = new Map<string, number>();
-  /** One failed metadata observation is fenced once, before any staging cleanup. */
-  const metadataFences = new WeakMap<GitHubReferenceMetadataError, Promise<void>>();
   /** In-flight withdrawals; an acquisition of the same source waits for its withdrawal to finish. */
   const withdrawals = new Map<string, Promise<void>>();
   /**
@@ -230,6 +228,9 @@ export function createReferenceSources(options: {
 
   function warn(body: string, error: unknown) {
     options.log?.emit({ severityText: "WARN", body: `${body}: ${error instanceof Error ? error.message : String(error)}` });
+  }
+  function failureReason(error: unknown): string | null {
+    return error instanceof ReferenceTransportError ? error.reason : error instanceof ReferenceSourceError ? error.code : null;
   }
 
   /** Release superseded and withdrawn roots once no reader protects them; forget a withdrawn source once nothing acts on it. */
@@ -352,7 +353,7 @@ export function createReferenceSources(options: {
       if (signal.aborted) throw error;
       const detail = error instanceof Error ? error.message : String(error);
       // A denied fetch is lost authority, never an outage: no stale copy survives it.
-      if (error instanceof ReferenceTransportError && error.reason === "denied") {
+      if (failureReason(error) === "denied" || failureReason(error) === "unauthorized") {
         await withdraw(domain, repository.canonical, revision);
         if (domain === PUBLIC) { notPublic.set(`${repository.canonical}\u0000${revision}`, now() + limits.validationMs); return { kind: "not-public", reason: "denied", detail }; }
         throw new ReferenceSourceError("unauthorized", detail);
@@ -460,18 +461,10 @@ export function createReferenceSources(options: {
     for (const key of keys) fenceSource(key);
     return Promise.all(keys.map(key => suspendSource(...splitKey(key))));
   }
-  function fenceMetadataFailure(error: GitHubReferenceMetadataError, principalId: string, repository: string, revision: string): Promise<void> {
-    const pending = metadataFences.get(error);
-    if (pending) return pending;
-    const work = Promise.all([PUBLIC, privateDomain(principalId)].map(domain => error.reason === "denied"
-      ? withdrawRepository(domain, repository, revision) : suspendRepository(domain, repository, revision))).then(() => {});
-    metadataFences.set(error, work);
-    return work;
-  }
 
   async function acquire(signal: AbortSignal, input: { domain: string; principalId: string | null; repository: ReferenceRepository; revision: string; grant: ReferenceGrant | null;
     credential: string | null; ref: string; expectedCommit: string; previous: SourceRow | null;
-    managed?: { access: GitHubAccess; context: ReferenceAcquisitionContext; id: string; assertCurrent(): void } }) {
+    managed?: { access: GitHubAccess; context: ReferenceAcquisitionContext; id: string; assertCurrent(): void; containFailure(error: unknown, publishing: boolean): Promise<void> } }) {
     const { domain, repository, revision } = input, key = sourceKey(domain, repository.canonical, revision);
     const name = referenceSourceName(repository, revision), view = await viewFor(domain);
     const staging = { id: randomUUID() };
@@ -535,8 +528,10 @@ export function createReferenceSources(options: {
       }
       });
     } catch (error) {
-      if (error instanceof GitHubReferenceMetadataError) await fenceMetadataFailure(error, input.principalId!, repository.canonical, revision)
-        .catch(cleanup => warn("metadata authority withdrawal is incomplete; bind preparation retries it", cleanup));
+      if (input.managed) await input.managed.containFailure(error, publishing)
+        .catch(cleanup => warn("reference authority containment is incomplete; bind preparation retries it", cleanup));
+      else if (publishing && (failureReason(error) === "denied" || failureReason(error) === "unauthorized"))
+        await withdraw(domain, repository.canonical, revision).catch(cleanup => warn("revoked reference publication could not be hidden", cleanup));
       // Staging is never published; its reservation is released through the pool only now that the workers stopped.
       const id = staging.id;
       const state = (db.query("SELECT state FROM reference_roots WHERE id = ?").get(id) as { state: string } | null)?.state;
@@ -544,14 +539,13 @@ export function createReferenceSources(options: {
       // A publication whose reply was lost may have moved the name to the released root.
       // Point it back only to a previous root that is exposed under live validation;
       // a suspended or lapsed one stays hidden and its name goes. Otherwise fence the source.
-      if (publishing && previousRoot) {
+      if (publishing && previousRoot && !input.managed) {
         const previous = row(domain, repository.canonical, revision);
         const exposed = !input.managed && !suspended.has(key) && previous?.root_id === previousRoot && validationLive(previous);
         await exclusive(key, async () => { if (exposed) await pool.poolPublish(previousRoot, view.id, name); else await pool.poolUnpublish(view.id, name); }).catch(async () => {
           await withdraw(domain, repository.canonical, revision).catch(cleanup => warn("reference source could not be fenced after a lost publication", cleanup));
         });
       }
-      if (publishing && input.managed) await withdraw(domain, repository.canonical, revision).catch(cleanup => warn("managed source withdrawal failed", cleanup));
       throw error;
     }
   }
@@ -572,6 +566,25 @@ export function createReferenceSources(options: {
       grantId: null, controller, joiners: 1, promise: Promise.resolve(undefined as never) };
     const assertTurn = () => { signal.throwIfAborted(); if (closed || !context.current()) throw new ReferenceSourceError("cancelled", "The acquiring turn is no longer available."); };
     let result: ReferenceSourceLease | undefined;
+    let accessOpened = false, openAttempted = false, containment: Promise<void> | undefined;
+    const containFailure = (error: unknown, publishing: boolean): Promise<void> => {
+      if (containment) return containment;
+      const reason = failureReason(error), domains = [PUBLIC, privateDomain(input.principalId)];
+      let work: Promise<unknown> = Promise.resolve();
+      if (error instanceof GitHubReferenceMetadataError) {
+        work = Promise.all(domains.map(domain => reason === "denied" ? withdrawRepository(domain, repository.canonical, revision)
+          : suspendRepository(domain, repository.canonical, revision)));
+      } else if (!signal.aborted && context.current() && (reason === "denied" || reason === "unauthorized" || reason === "missing")) {
+        work = Promise.all(domains.map(domain => reason === "missing" ? withdraw(domain, repository.canonical, revision)
+          : withdrawRepository(domain, repository.canonical, revision)));
+      } else if (publishing) {
+        work = withdraw(operation.domain, repository.canonical, revision);
+      } else if (!signal.aborted && context.current() && openAttempted && !accessOpened) {
+        work = Promise.all(domains.map(domain => suspendRepository(domain, repository.canonical, revision)));
+      }
+      containment = work.then(() => {});
+      return containment;
+    };
     operation.promise = (async () => {
       const done = await admit(signal);
       let access: GitHubAccess | undefined;
@@ -579,8 +592,10 @@ export function createReferenceSources(options: {
         assertTurn();
         const maxBytes = Math.min(64 * 1048576, context.egress.remainingBytes());
         if (maxBytes < 1) throw new ReferenceSourceError("capacity", "The acquiring turn has no network allowance left.");
+        openAttempted = true;
         access = await options.github!.open({ principalId: input.principalId, repository: repository.url, revision, egress: context.egress, maxBytes, signal,
           current: () => !closed && context.current() });
+        accessOpened = true;
         const currentAccess = access;
         const assertCurrent = () => {
           assertFence(currentAccess.domain === "public" ? PUBLIC : privateDomain(input.principalId));
@@ -616,7 +631,7 @@ export function createReferenceSources(options: {
         }
         if (!reused) await acquire(signal, { domain, principalId: input.principalId, repository, revision,
           grant: domain === PUBLIC ? null : authorize(domain, input.principalId, repository), credential: null,
-          ref: check.ref, expectedCommit: check.commit, previous, managed: { access, context, id, assertCurrent } });
+          ref: check.ref, expectedCommit: check.commit, previous, managed: { access, context, id, assertCurrent, containFailure } });
         assertCurrent();
         const current = row(domain, repository.canonical, revision);
         if (!usable(current)) throw new ReferenceSourceError("unavailable", "Managed source publication is unavailable.");
@@ -625,23 +640,7 @@ export function createReferenceSources(options: {
         return { kind: "source", row: current, stale: false, error: null };
       } catch (error) {
         result?.release(); result = undefined;
-        const refusal = error instanceof ReferenceTransportError ? error.reason : error instanceof ReferenceSourceError ? error.code : null;
-        if (error instanceof GitHubReferenceMetadataError) {
-          // A known observation still fences cache authority if its turn ends
-          // while wire shutdown or staging cleanup is settling.
-          await fenceMetadataFailure(error, input.principalId, repository.canonical, revision);
-        } else if (!signal.aborted && context.current() && (refusal === "denied" || refusal === "unauthorized" || refusal === "missing")) {
-          // Opening metadata may fail before it selects a domain. Fence both
-          // known copies; neither the public cache nor this principal's cache
-          // may outlive an explicit authority refusal.
-          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => refusal === "missing"
-            ? withdraw(domain, repository.canonical, revision) : withdrawRepository(domain, repository.canonical, revision)));
-        } else if (!signal.aborted && context.current() && !access) {
-          // An incomplete metadata check may already have refused anonymous
-          // access. Preserve the cached roots, but withhold them until a live
-          // acquisition establishes authority again.
-          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => suspendRepository(domain, repository.canonical, revision)));
-        }
+        await containFailure(error, false);
         if (error instanceof ReferenceTransportError) throw new ReferenceSourceError(error.reason === "denied" ? "unauthorized" : error.reason, error.message);
         throw error;
       } finally { try { await access?.close(); } finally { done(); } }
@@ -659,7 +658,7 @@ export function createReferenceSources(options: {
     } catch (error) {
       const held = result;
       held?.release();
-      if (held && !controller.signal.aborted && error instanceof ReferenceSourceError && error.code === "unauthorized") await withdraw(operation.domain, repository.canonical, revision);
+      if (held) await containFailure(error, false);
       throw error;
     }
     finally { operations.delete(id); void settle(...splitKey(operation.key)).catch(error => warn("managed source settle failed", error)); }
@@ -717,6 +716,7 @@ export function createReferenceSources(options: {
       const pending = [...pendingPublications].filter(([, publication]) => publication.key === key);
       if ((!source?.root_id && !roots.length && !pending.length) || (suspended.has(key) && !unsettled.has(key) && !pending.length)) return;
       suspended.add(key); unsettled.add(key);
+      await write("sourceSuspend", domain, repository, revision);
       if (source) await pool.poolUnpublish((await viewFor(domain)).id, source.name);
       for (const root of roots) await hideRoot(root.id);
       for (const [id, publication] of pending) {

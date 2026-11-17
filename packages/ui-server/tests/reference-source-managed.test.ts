@@ -56,7 +56,7 @@ async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
   const github = access();
   const sourceOptions = { db, pool, transport, brain, credentials: { GITHUB_TOKEN: "odysseus-fixture-token" }, github, now: () => state.clock };
   const sources = createReferenceSources(sourceOptions);
-  const grant = () => createReferenceGrant(db, { brain, principalId: owner.id, createdBy: owner.id, repositoryPrefix: repository,
+  const grant = (repositoryPrefix = repository) => createReferenceGrant(db, { brain, principalId: owner.id, createdBy: owner.id, repositoryPrefix,
     credential: "GITHUB_TOKEN", metadataCredentialRecipient: "https://api.github.com", now: Date.now() });
   const request = (principalId = owner.id, turnId = "odysseus-turn", proxy = egress) => {
     const input = { repository, revision: "main", principalId, acquisition: { turnId, egress: proxy, current: () => state.current } };
@@ -271,6 +271,86 @@ for (const wait of ["coverage", "native-grant"] as const)
     } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
   });
 describe("live managed authority", () => {
+  test("older failed publication cleanup cannot unpublish a newly validated source", async () => {
+    const f = await fixture(), releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>();
+    let held: Awaited<ReturnType<typeof f.request>> | undefined, current: typeof held, failedId = "", failed = false, pending: Promise<unknown> | undefined;
+    const publish = f.pool.poolPublish, release = f.pool.poolRelease;
+    try {
+      held = await f.request();
+      const nextCommit = "c".repeat(40), fetch = f.transport.fetch;
+      f.transport.resolve = async () => ({ ok: true, commit: nextCommit, ref: "refs/heads/main" });
+      f.transport.fetch = async input => { await fetch(input); return { commit: nextCommit }; };
+      f.pool.poolPublish = async (...args) => { const result = await publish(...args); if (!failed) { failed = true; failedId = args[0]; f.state.current = false; } return result; };
+      f.pool.poolRelease = async (...args) => { if (args[0] === failedId) { releaseStarted.resolve(); await resumeRelease.promise; } return release(...args); };
+      pending = f.request().then(lease => { lease.release(); return null; }, error => error);
+      await releaseStarted.promise;
+      current = await f.sources.request({ principalId: f.owner.id, repository, revision: "main", acquisition: { turnId: "odysseus-new-valid-source", egress: f.secondEgress, current: () => true } });
+      expect(readFileSync(join(current.viewPath, current.name, "README.md"), "utf8")).toContain("Odysseus");
+      resumeRelease.resolve(); expect(await pending).toBeInstanceOf(Error);
+      expect(existsSync(join(current.viewPath, current.name, "README.md")), "OLDER_FAILED_PUBLICATION_CANNOT_UNPUBLISH_NEW_VALID_SOURCE").toBe(true);
+    } finally { resumeRelease.resolve(); await pending; current?.release(); held?.release(); await f.close(); }
+  });
+
+  for (const prefix of ["https://github.com/Odysseus", "https://github.com/Odysseus/Ithaca.GIT"])
+  for (const retained of [false, true])
+    test(`a ${retained ? "retained" : "new"} mixed-case GitHub grant covers ${prefix}`, async () => {
+      const f = await fixture({ private: true }), issued = f.grant(prefix);
+      try {
+        if (retained) f.db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run(prefix, issued.id);
+        expect(f.sources.covers({ principalId: f.owner.id, repository }), "MIXED_CASE_GITHUB_GRANT_COVERS_TRANSPORT_IDENTITY").toBe(true);
+        const lease = await f.request();
+        try { expect(lease.domain).toBe("private"); expect(readFileSync(join(lease.viewPath, lease.name, "README.md"), "utf8")).toContain("Odysseus"); }
+        finally { lease.release(); }
+        expect(f.sources.covers({ principalId: f.owner.id, repository: "https://github.com/odysseus-crew/ithaca" })).toBe(false);
+      } finally { await f.close(); }
+    });
+
+  for (const managed of [true, false])
+    test(`${managed ? "managed" : "legacy"} publication authority loss hides files before staging release`, async () => {
+      const f = await fixture({ private: true }), issued = f.grant(), releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>();
+      if (!managed) f.transport.resolve = async input => input.token ? { ok: true, commit, ref: "refs/heads/main" } : { ok: false, reason: "denied", detail: "A live private grant is required." };
+      const sources = managed ? f.sources : createReferenceSources({ ...f.sourceOptions, github: undefined });
+      const publish = f.pool.poolPublish, release = f.pool.poolRelease;
+      let path = "";
+      f.pool.poolPublish = async (...args) => { const result = await publish(...args); path = join(result.path!, "README.md"); revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() }); return result; };
+      f.pool.poolRelease = async (...args) => { releaseStarted.resolve(); await resumeRelease.promise; return release(...args); };
+      const pending = sources.request({ principalId: f.owner.id, repository, revision: "main", acquisition: { turnId: "odysseus-post-publication-denial", egress: f.egress, current: () => f.state.current } }).then(lease => { lease.release(); return null; }, error => error);
+      try {
+        await releaseStarted.promise;
+        expect(existsSync(path), "PUBLICATION_DENIAL_HIDES_ROOT_BEFORE_STORAGE_CLEANUP").toBe(false);
+        resumeRelease.resolve(); expect(await pending).toMatchObject({ code: "unauthorized" });
+      } finally { resumeRelease.resolve(); await pending; if (!managed) await sources.close(); await f.close(); }
+    });
+
+  for (const final of [false, true])
+    test(`suspension from ${final ? "final" : "initial"} incomplete metadata survives restart`, async () => {
+      const f = await fixture({ worker: final }); let held: Awaited<ReturnType<typeof f.request>> | undefined, restarted: typeof f.sources | undefined;
+      try {
+        held = await f.request(); held.release();
+        f.state.invalidAt = f.metadata.length + (final ? 2 : 1);
+        await expect(f.request()).rejects.toThrow();
+        expect(existsSync(join(held.viewPath, held.name, "README.md"))).toBe(false);
+        await f.sources.close(); restarted = f.restart(f.db); await restarted.recover();
+        const count = f.metadata.length, views = await restarted.bindable(f.other.id);
+        expect(existsSync(join(views.public, held.name, "README.md")), "RESTART_CANNOT_REEXPOSE_UNCERTAIN_SOURCE_AUTHORITY").toBe(false);
+        expect(f.metadata.length, "RESTART_BIND_DOES_NOT_BORROW_NETWORK_BUDGET").toBe(count);
+        f.state.invalidAt = 0;
+        const restored = await restarted.request({ principalId: f.owner.id, repository, revision: "main", acquisition: { turnId: "odysseus-restarted-validation", egress: f.egress, current: () => f.state.current } });
+        try { expect(readFileSync(join(restored.viewPath, restored.name, "README.md"), "utf8")).toContain("Odysseus"); } finally { restored.release(); }
+      } finally { held?.release(); await restarted?.close(); await f.close(); }
+    });
+
+  test("a request without network allowance cannot invalidate another turn's cached authority", async () => {
+    const f = await fixture(), remaining = f.secondEgress.remainingBytes; let held: Awaited<ReturnType<typeof f.request>> | undefined;
+    try {
+      held = await f.request(); const observations = f.metadata.length;
+      f.secondEgress.remainingBytes = () => 0;
+      await expect(f.request(f.other.id, "odysseus-budget-refusal", f.secondEgress)).rejects.toMatchObject({ code: "capacity" });
+      expect(f.metadata.length).toBe(observations);
+      expect(existsSync(join(held.viewPath, held.name, "README.md")), "BUDGET_REFUSAL_IS_NOT_A_REPOSITORY_AUTHORITY_OBSERVATION").toBe(true);
+    } finally { f.secondEgress.remainingBytes = remaining; held?.release(); await f.close(); }
+  });
+
   test("a malformed refresh hides the previous source before staging cleanup or turn cancellation", async () => {
     const f = await fixture(), releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>(), release = f.pool.poolRelease;
     let held: Awaited<ReturnType<typeof f.request>> | undefined, request: Promise<unknown> | undefined;
