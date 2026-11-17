@@ -442,6 +442,40 @@ The semantic `IconName` gains `pen`, `arrow`, `ellipse`, `text`, `undo`,
 zoom controls. No existing key, glyph or component changes. This ships in a
 minor.
 
+## UI-kit GitHub components and untrusted text (additive, 0.45.0, #3800)
+
+`@schlessera/brain-ui-kit` exports the presentational GitHub components and a
+safe renderer for text written outside Brain. They take props and callbacks
+only: no client, fetch or store, and they never build a URL. #3795 binds the
+GitHub tool payloads to them; no tool, wire or payload contract changes here.
+
+- `UntrustedText` (`text`, `source`, optional `sourcePhrase`, `author`,
+  `frame` `"box" | "rule" | "none"`, `caption`, `lines`, `linesNarrow`,
+  `expandLabel`, `maxChars`, `truncated`, `truncatedNote`) renders a safe
+  markdown subset. HTML and images stay text; an `https:` link is a button
+  that opens a full-address interstitial, and only its Open action navigates
+  (new tab, `noopener noreferrer nofollow`). `registrableDomain(host)` returns
+  the public-suffix registrable domain it names.
+- Components: `GitHubPullRequest`, `GitHubIssue` (with `posting`
+  `"preview" | "posted"`), `GitHubWriteNotice` (`outcome`
+  `"declined" | "changed" | "unknown"`), `GitHubThread` (`GitHubThreadItem`),
+  `GitHubComment`, `GitHubReview` (`GitHubReviewState`), `GitHubCommitRow`,
+  `GitHubMergeEvent`, `GitHubResultList` (`GitHubResult`),
+  `GitHubDetailSection` (`GitHubDetailState`: `"idle" | "loading" | "loaded" |
+  "empty" | "error" | "rate-limited" | "no-credential" | "gone"`),
+  `GitHubStateChip` (`GitHubState`), `GitHubRef`, `GitHubIdentity` and
+  `GitHubParticipants`, each with its `…Props` type, plus `GitHubPerson`.
+- `githubHref(raw)` returns a direct link's address only for `https:` on host
+  exactly `github.com` with no userinfo or port, else `null`; every direct
+  `GitHub ↗` slot renders through it. `avatarSrc` loads only from the page's
+  own origin.
+
+`Overlay` gains optional `describedBy` (`aria-describedby`). The semantic
+`IconName` gains `pr-open`, `pr-merged`, `pr-closed`, `issue-open`,
+`issue-closed`, `not-planned`, `draft`, `commit`, `changes-requested` and
+`review-pending`. The package gains the `tldts` runtime dependency. No
+existing export, key, glyph or prop changes. This ships in a minor.
+
 ## Image markup tool (additive, 0.45.0, #3975)
 
 `request_image_markup` is described in

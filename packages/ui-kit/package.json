@@ -76,8 +76,9 @@
     "brand:generate": "bun tools/brand/generate.ts"
   },
   "dependencies": {
+    "@schlessera/brain-render-template": "workspace:*",
     "lucide-react": "^0.460",
-    "@schlessera/brain-render-template": "workspace:*"
+    "tldts": "^7.5.4"
   },
   "peerDependencies": {
     "react": ">=18",

@@ -103,6 +103,16 @@ import * as rankedQuestion from "../../stories/decisions/AskUserRankCard.stories
 import * as questionAndMask from "../../stories/decisions/QuestionAndMask.stories.js";
 import * as barList from "../../stories/evidence/BarList.stories.js";
 import * as traceSteps from "../../stories/evidence/TraceSteps.stories.js";
+import * as untrustedText from "../../stories/evidence/UntrustedText.stories.js";
+import * as ghState from "../../stories/github/GitHubStateChip.stories.js";
+import * as ghIdentity from "../../stories/github/GitHubIdentity.stories.js";
+import * as ghPullRequest from "../../stories/github/GitHubPullRequest.stories.js";
+import * as ghIssue from "../../stories/github/GitHubIssue.stories.js";
+import * as ghThread from "../../stories/github/GitHubThread.stories.js";
+import * as ghCommit from "../../stories/github/GitHubCommitRow.stories.js";
+import * as ghResults from "../../stories/github/GitHubResultList.stories.js";
+import * as ghDetail from "../../stories/github/GitHubDetailSection.stories.js";
+import * as ghWrite from "../../stories/github/GitHubWrite.stories.js";
 import * as commandPalette from "../../stories/desktop/CommandPalette.stories.js";
 import * as sideRail from "../../stories/desktop/SideRail.stories.js";
 import * as iconButton from "../../stories/primitives/IconButton.stories.js";
@@ -548,6 +558,58 @@ for (const light of [false, true]) {
   for (const [story, name] of [[iconButton.TonesBySize, "primitives-icon-button"], [textButton.TonesBySize, "primitives-text-button"]] as const) {
     test(`${name}${light ? ", light" : ""}`, async () => {
       await inViewport(320, 320, () => light ? looksRightOnPaper(story, name) : looksRight(story, name));
+    });
+  }
+}
+
+// The GitHub family (#3800, design #3795): each component's defining states
+// at the design's two widths, 320px and the 680px desktop card, in both
+// themes. Untrusted text, its interstitial as a dialog and as a sheet, every
+// state chip, identity, the PR, issue, thread, commit, result list, the
+// detail section's S0-S7 and the write views W1-W4. Security and reach are
+// asserted in `github-untrusted.visual.tsx`; these catch a lost provenance
+// border, a collapsed fact grid or a chip that changed colour.
+const GITHUB: [story: unknown, name: string, width: 320 | 760 | 1280, height: number][] = [
+  [untrustedText.Subset, "github-untrusted-subset", 760, 300],
+  [untrustedText.LinksNarrow, "github-untrusted-links-phone", 320, 220],
+  [untrustedText.InterstitialOpen, "github-interstitial-dialog", 1280, 720],
+  [untrustedText.InterstitialOpenNarrow, "github-interstitial-sheet", 320, 720],
+  [ghState.EveryState, "github-states", 760, 640],
+  [ghIdentity.StatesNarrow, "github-identity-phone", 320, 320],
+  [ghIdentity.Participants, "github-participants", 760, 120],
+  [ghPullRequest.ChangesRequested, "github-pr-changes-requested", 760, 1100],
+  [ghPullRequest.MergedNarrow, "github-pr-merged-phone", 320, 1500],
+  [ghPullRequest.CommitsTabNarrow, "github-pr-commits-phone", 320, 1500],
+  [ghIssue.OpenNarrow, "github-issue-phone", 320, 1500],
+  [ghThread.WithLinks, "github-thread", 760, 560],
+  [ghCommit.MergeBanner, "github-merge", 760, 140],
+  [ghCommit.LongSubjectUnknownAuthorNarrow, "github-commit-long-phone", 320, 140],
+  [ghResults.Mixed, "github-results", 760, 700],
+  [ghResults.RowExpandedNarrow, "github-results-expanded-phone", 320, 1000],
+  [ghDetail.EveryState, "github-detail-states-phone", 320, 1100],
+  [ghWrite.W1IssueApprovalNarrow, "github-write-issue-phone", 320, 640],
+  [ghWrite.W3NotPosted, "github-write-not-posted", 760, 240],
+  [ghWrite.W4CommentApproval, "github-write-comment", 760, 360],
+];
+/** Like `inViewport`, with the outer window grown to fit, so a tall card is captured at 1:1 rather than scaled down. */
+async function inTallViewport(width: number, height: number, body: () => Promise<void>) {
+  const frameBefore = { width: window.innerWidth, height: window.innerHeight };
+  const outerBefore = await commands.formViewport(width, height);
+  try {
+    await page.viewport(width, height);
+    await body();
+  } finally {
+    await page.viewport(frameBefore.width, frameBefore.height);
+    await commands.formViewport(outerBefore.width - 100, outerBefore.height - 120);
+  }
+}
+for (const light of [false, true]) {
+  for (const [story, name, width, height] of GITHUB) {
+    test(`${name}${light ? ", on paper" : ""}`, async () => {
+      await inTallViewport(width, height, async () => {
+        await (light ? looksRightOnPaper(story, name) : looksRight(story, name));
+        expect(document.body.getBoundingClientRect().width, `${name}: captured at its viewport width`).toBe(width);
+      });
     });
   }
 }
