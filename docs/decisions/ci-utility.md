@@ -1399,7 +1399,8 @@ glob.
 - **Off-main qualification** ([#3271](https://github.com/schlessera/brain-kit/issues/3271),
   answer 3). The PR body needs an `Off-main qualification` heading whose
   section, outside HTML comments, links a GitHub Actions run of this
-  repository whose head SHA is the candidate head, or an ancestor of it whose
+  repository that completed with conclusion `success` and whose head SHA is
+  the candidate head, or an ancestor of it whose
   diff to the head is not a proof-system change. At most five linked runs are
   read. Whether the evidence is sufficient stays a review question.
 - **Exemption.** A declared red-main fix skips both gates: one merged with
