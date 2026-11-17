@@ -5,7 +5,9 @@
  * result, a per-session busy refusal with no frames, and only the loser stopped.
  * #3488: the refusal settles only after the loser's worker has exited, its turn
  * temp is closed and its stdio release is awaited; a refused close is reported
- * without replacing the refusal and stays retryable.
+ * without replacing the refusal and stays retryable. Its reconciler retry is
+ * handed over only after the teardown's last wait, so a retry that comes due
+ * while the stdio release is still in flight cannot add a second close.
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -55,6 +57,12 @@ for (const refused of [false, true]) test.skipIf(!native)(`a concurrent duplicat
   const log = (level: string, message: string) => { if (level === "warn") warnings.push(message); };
   const cleanupRefusal = Object.assign(new Error("worker_identity_cleanup_unconfirmed: Odysseus fixture"), { cleanupUnconfirmed: true });
   const baseline = worker.processStateLedger().turnTempHeld;
+  // The process reconciler's first retry comes due after a real second. Here a
+  // test-controlled schedule makes "it came due during the release" exact.
+  const retries: Array<() => void> = [];
+  const reconciler = worker.createCleanupReconciler({ schedule: run => { retries.push(run); return () => {}; }, log() {} });
+  const owner = spyOn(worker, "processCleanupReconciler").mockReturnValue(reconciler);
+  cleanup.push(() => { reconciler.close(); owner.mockRestore(); });
 
   const workers: Launched[] = [];
   const realLaunch = worker.launchAgentWorkerAsync;
@@ -65,7 +73,12 @@ for (const refused of [false, true]) test.skipIf(!native)(`a concurrent duplicat
     workers.push(record);
     const kill = child.kill.bind(child), release = child.released.bind(child), turnTemp = child.turnTemp;
     child.kill = signal => { record.kills++; return kill(signal); };
-    child.released = async () => { record.releases++; await release(); record.released++; };
+    child.released = async () => {
+      record.releases++;
+      // Every retry already due fires while this release is in flight.
+      if (record.refuseClose) for (const run of retries.splice(0)) run();
+      await release(); record.released++;
+    };
     if (turnTemp) child.turnTemp = Object.assign(Object.create(Object.getPrototypeOf(turnTemp)), turnTemp,
       { closeAsync: async () => { record.closes++; if (record.refuseClose) throw cleanupRefusal; return turnTemp.closeAsync(); } });
     return child;
@@ -139,6 +152,8 @@ for (const refused of [false, true]) test.skipIf(!native)(`a concurrent duplicat
   if (refused) {
     expect(held, "PI_DUPLICATE_RESUME_REFUSED_LOSER_KEEPS_RESERVATION").toBe(bothHeld);
     expect(warnings.filter(message => message.includes(cleanupRefusal.message)), "PI_DUPLICATE_RESUME_REFUSED_LOSER_CLEANUP_REPORTED").toHaveLength(1);
+    expect(reconciler.held, "PI_DUPLICATE_RESUME_REFUSED_LOSER_HAS_RETRY_OWNER").toBe(1);
+    expect(retries, "PI_DUPLICATE_RESUME_REFUSED_LOSER_RETRY_SCHEDULED_AFTER_TEARDOWN").toHaveLength(1);
   } else {
     expect(held, "PI_DUPLICATE_RESUME_LEDGER_CHARGES_ONLY_WINNER").toBe(bothHeld / 2);
     expect(warnings, "PI_DUPLICATE_RESUME_CONFIRMED_LOSER_NO_WARNING").toEqual([]);

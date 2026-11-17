@@ -1586,7 +1586,7 @@ model-directed code runs. The host accepts a count of zero as extension-free
 and any other count as unproven, whatever the configuration said; a worker
 that sends no count keeps the configuration's answer
 (`function createExecutionProof`,
-`packages/ui-backend-pi/src/worker-session.ts:253-259`). An installed or
+`packages/ui-backend-pi/src/worker-session.ts:257-263`). An installed or
 repo-local extension is counted, and the managed worker then refuses the turn
 anyway (`function unqualifiedResources`,
 `packages/ui-backend-pi/src/native-session-runtime.ts:143-145`).
@@ -4040,11 +4040,11 @@ the path's existing cancellation or failure outcome.
 to pi cancellation before `prompt()`. The pool owns a late new or resumed
 acquisition until its awaited abort finishes, then disposes it and preserves
 the accepted cancellation (`cancelAcquiredSession`,
-`packages/ui-backend-pi/src/session-pool.ts:176-183`). After acquisition the
+`packages/ui-backend-pi/src/session-pool.ts:177-184`). After acquisition the
 runner awaits abort when cancellation prevents prompting. The signal handler
 may already have requested it, so the worker session shares one abort promise:
 `ended` revokes work but does not confirm teardown (`abort()`,
-`packages/ui-backend-pi/src/worker-session.ts:212-228`). Its inactive path
+`packages/ui-backend-pi/src/worker-session.ts:218-236`). Its inactive path
 awaits exit and protocol consumption, the awaited turn-temp close above, then
 stdio release even if exit or cleanup refuses. Failed cleanup keeps the
 reservation charged and remains retryable. Disposal and Stop signalling keep
@@ -4055,9 +4055,13 @@ rule to the loser of two concurrent resumes of one session. The pool decides
 busy or reuse, and claims a reused entry, before it waits. It then awaits the
 losing worker's shared inactive abort, disposes it and re-raises the original
 outcome (`releaseLosingSession`,
-`packages/ui-backend-pi/src/session-pool.ts:150-157`). A refused cleanup is
+`packages/ui-backend-pi/src/session-pool.ts:151-158`). A refused cleanup is
 logged as a warning and cannot replace the busy refusal; the reservation stays
-charged and the abort stays retryable.
+charged and the abort stays retryable. That inactive abort, like a prompted
+turn's teardown, still waits for stdio release after its turn-temp close, so the
+supervision hands a refused close to the reconciler only once that teardown ends
+(`const teardown`, `packages/ui-backend-pi/src/worker-launch.ts:343-350`). The
+reconciler's timed retry cannot make a second attempt inside it.
 
 ### Outward actions (G5)
 

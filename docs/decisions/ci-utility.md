@@ -1346,6 +1346,50 @@ Each implementation task is tracked separately:
   ([fields](../process/ci-throughput.md#proof-policy-epochs));
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
 
+#### Lane and qualification gates
+
+`bun scripts/integrate.ts confirm` and `merge` classify the candidate from
+its merge base with the exact base to its exact head, using `classify` from
+`scripts/proof-system.ts`, and hold only a proof-system candidate. Both gates
+and `lane --json` live in `scripts/proof-system-lane.ts`; neither lists a
+glob.
+
+- **Stability window** ([#3269](https://github.com/schlessera/brain-kit/issues/3269),
+  answers 1 and 2, as
+  [amended to a single run](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6580707195)).
+  The last proof-system squash is the newest first-parent main commit, within
+  200, whose diff to its parent classifies as one. Each squash's run is the
+  newest main-push `ci.yml` run at that SHA. A run has settled once it has
+  completed, and a squash with no run has settled once a later squash exists,
+  because it never gets one; a queued or in-progress run, or no run yet at the
+  newest squash, has not. The squash's own run must settle first. The lane is
+  then open when the newest settled run from that squash on is green, and
+  closed when it failed, was cancelled or timed out, or never existed. So the
+  own green run opens the lane without waiting for later runs, and after any
+  failure the next green main run reopens it. That includes a failed own run:
+  a rerun at a squash that broke main would stay red, and the decision is
+  "if a main run fails, the lane reopens at the next green main run". No
+  rerun or revoke is needed. The check reads the own run, then later squashes
+  newest first, and stops at the first settled one: at most ten main runs. If
+  all nine later runs it reads are unsettled and older squashes were not read,
+  the lane is `unknown` and refused. The refusal names the blocking squash and
+  the run found at each squash it read, and says `1 more green main run
+  required`. `bun scripts/integrate.ts lane --json` prints the same decision
+  (`state`, `ownGreen`, `required`, `window`, `decisive`) with that refusal,
+  or `null` when the lane is open. `confirm` checks before it takes the
+  reservation or requests candidate CI, and the merge checks again, because a
+  main run may fail while the candidate is proved.
+- **Off-main qualification** ([#3271](https://github.com/schlessera/brain-kit/issues/3271),
+  answer 3). The PR body needs an `Off-main qualification` heading whose
+  section, outside HTML comments, links a GitHub Actions run of this
+  repository whose head SHA is the candidate head, or an ancestor of it whose
+  diff to the head is not a proof-system change. At most five linked runs are
+  read. Whether the evidence is sufficient stays a review question.
+- **Exemption.** A declared red-main fix skips both gates: one merged with
+  `--fixes-main-run`, and one declared on the open record and confirmed
+  ordinarily because its failures are category-level. A fix that had to
+  wait for the window it repairs could never land.
+
 ### Red-main record and coordinator
 
 The [2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614)
