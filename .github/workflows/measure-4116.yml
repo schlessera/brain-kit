@@ -1,8 +1,8 @@
 # Measurement only (#4116). Lives on an unmerged branch; never merged.
 name: measure-4116
+# The push trigger that produced runs 44049769708 and 44051630821 is removed: the measurements are done.
 on:
-  push:
-    branches: ["spike/4116-browser-repeat-measure"]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -20,4 +20,4 @@ jobs:
       - name: Build
         run: time bun run build --jobs=2
       - name: Measure
-        run: bash scripts/measure-4116/hosted-race.sh
+        run: bash scripts/measure-4116/hosted.sh && bash scripts/measure-4116/hosted-race.sh
