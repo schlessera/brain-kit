@@ -223,26 +223,43 @@ export function stubAnswer(_id: string, state: ReturnType<typeof judgeState>): {
   return { model: EXTRACTION_JUDGE_MODEL, answer: carried < 40 ? { choice: "benign", confidence: 0.9 } : { choice: "suspicious", confidence: 0.6 } };
 }
 
-export interface Ledger { maxUsd: number; calls: number; inputTokens: number; reservedUsd: number; spendUsd: number; models: string[]; latencyMs: number[] }
+export interface Ledger {
+  maxUsd: number; calls: number; inputTokens: number; reservedUsd: number; spendUsd: number;
+  /** Reservations of requests that were sent but whose billed usage is unknown: counted against the cap as spent. */
+  unbilledUsd: number;
+  models: string[]; latencyMs: number[];
+}
 
 /**
  * The live production judge: the production client at TypeSafe, with a spend
  * cap enforced through the judge's own admission hook. Each request reserves
  * one token per byte of its body before it is sent; spend is what TypeSafe
  * reports. The answering model is read from each response, never inferred.
+ *
+ * A request that was sent but whose billed usage is unknown (a timeout, a
+ * network error, an error status, a body without a valid token count) keeps
+ * its reservation as spent, and the run stops: nothing else is sent while the
+ * cost of an earlier request cannot be accounted for.
  */
 export function liveJudge(apiKey: string, ledger: Ledger, record: Recorded["answers"], rep: number, send: FetchLike = (url, init) => globalThis.fetch(url, init)): JudgeFn {
   let lastModel: string | null = null;
+  // Per request: whether it left, and the input tokens TypeSafe billed for it (null while unknown).
+  let dispatched = false;
+  let billed: number | null = null;
   const fetch: FetchLike = async (url, init) => {
+    dispatched = true;
     const started = performance.now();
     const res = await send(url, init);
     ledger.latencyMs.push(Math.round(performance.now() - started));
     const body = await res.clone().json().catch(() => null) as { model?: unknown; usage?: { input_tokens?: unknown } } | null;
     lastModel = typeof body?.model === "string" ? body.model : null;
     if (lastModel && !ledger.models.includes(lastModel)) ledger.models.push(lastModel);
-    const tokens = typeof body?.usage?.input_tokens === "number" ? body.usage.input_tokens : 0;
-    ledger.inputTokens += tokens;
-    ledger.spendUsd = ledger.inputTokens * USD_PER_MTOK / 1e6;
+    const tokens = body?.usage?.input_tokens;
+    if (res.ok && typeof tokens === "number" && Number.isSafeInteger(tokens) && tokens >= 0) {
+      billed = tokens;
+      ledger.inputTokens += tokens;
+      ledger.spendUsd = ledger.inputTokens * USD_PER_MTOK / 1e6;
+    }
     return res;
   };
   const client = createJevClient({ apiKey, fetch, production: true });
@@ -250,7 +267,8 @@ export function liveJudge(apiKey: string, ledger: Ledger, record: Recorded["answ
   const judge = createExtractionJudge({
     client, floor: FLOOR, observe: () => {},
     async admit() {
-      if (ledger.spendUsd + ledger.reservedUsd + reserve > ledger.maxUsd) return "spend cap";
+      if (ledger.unbilledUsd > 0) return "unbilled request";
+      if (ledger.spendUsd + ledger.unbilledUsd + ledger.reservedUsd + reserve > ledger.maxUsd) return "spend cap";
       ledger.reservedUsd += reserve;
       ledger.calls++;
       return null;
@@ -261,9 +279,15 @@ export function liveJudge(apiKey: string, ledger: Ledger, record: Recorded["answ
     // One token per byte of the state plus the question, as a conservative bound.
     reserve = (JSON.stringify(state).length + 2000) * USD_PER_MTOK / 1e6;
     lastModel = null;
+    dispatched = false;
+    billed = null;
     const result = await judge(state);
-    ledger.reservedUsd = Math.max(0, ledger.reservedUsd - reserve);
     if (result.outcome === "refused") throw new Error(`spend cap reached before ${key}`);
+    ledger.reservedUsd = Math.max(0, ledger.reservedUsd - reserve);
+    if (dispatched && billed === null) {
+      ledger.unbilledUsd += reserve;
+      throw new Error(`billed usage unknown for ${key} (${result.outcome}); its reservation is kept as spent and the live run stops`);
+    }
     record[key] = { model: lastModel, answer: result.answer, outcome: result.outcome };
     return { band: result.band, outcome: result.outcome, answer: result.answer };
   };
@@ -336,7 +360,7 @@ export async function main(argv: string[]) {
     if (!(maxUsd > 0 && maxUsd <= 10)) throw new Error("--max-usd must be above 0 and at most the authorized 10");
     const reps = Number(arg("--reps") ?? "3");
     if (!out) throw new Error("--run needs --out <file>");
-    const ledger: Ledger = { maxUsd, calls: 0, inputTokens: 0, reservedUsd: 0, spendUsd: 0, models: [], latencyMs: [] };
+    const ledger: Ledger = { maxUsd, calls: 0, inputTokens: 0, reservedUsd: 0, spendUsd: 0, unbilledUsd: 0, models: [], latencyMs: [] };
     const record: Recorded["answers"] = {};
     const judges = Array.from({ length: reps }, (_, rep) => liveJudge(apiKey, ledger, record, rep));
     const { report } = await evaluate(cases, files, judges);

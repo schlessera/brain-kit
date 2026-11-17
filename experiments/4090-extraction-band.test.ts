@@ -67,7 +67,7 @@ describe("keyless run", () => {
 
 describe("live judge", () => {
   const state = judgeState({ surface: "web_fetch", tool: "WebFetch", toolClass: "read", route: "network", method: "GET", hosts: ["x.example"], urls: [], body: "", pathRefs: [], bytes: { query: 0, body: 0 } }, { overlap: { matched: 0, containment: 0, pathRef: false, files: [] } }, "WebFetch y.example");
-  const ledger = (maxUsd: number): Ledger => ({ maxUsd, calls: 0, inputTokens: 0, reservedUsd: 0, spendUsd: 0, models: [], latencyMs: [] });
+  const ledger = (maxUsd: number): Ledger => ({ maxUsd, calls: 0, inputTokens: 0, reservedUsd: 0, spendUsd: 0, unbilledUsd: 0, models: [], latencyMs: [] });
   const reply = (model: string, sent: string[]) => async (_url: string, init: RequestInit) => {
     sent.push(String(init.body));
     return Response.json({ model, usage: { input_tokens: 500, output_tokens: 0 }, answers: { verdict: { type: "choice", choice: "benign", confidence: 0.95, probabilities: {} } } });
@@ -87,6 +87,25 @@ describe("live judge", () => {
     const sent: string[] = [];
     await expect(liveJudge("test-key", ledger(1e-9), {}, 0, reply(EXTRACTION_JUDGE_MODEL, sent))("a", state)).rejects.toThrow("spend cap");
     expect(sent).toHaveLength(0);
+  });
+  test("a sent request whose billed usage is unknown keeps its reservation as spent, and nothing more is sent", async () => {
+    const unknown: Array<[string, (sent: string[]) => (url: string, init: RequestInit) => Promise<Response>]> = [
+      ["no usage", sent => async (_url, init) => { sent.push(String(init.body)); return Response.json({ model: EXTRACTION_JUDGE_MODEL, answers: { verdict: { type: "choice", choice: "benign", confidence: 0.95, probabilities: {} } } }); }],
+      ["a malformed body", sent => async (_url, init) => { sent.push(String(init.body)); return new Response("not json"); }],
+      ["an error status", sent => async (_url, init) => { sent.push(String(init.body)); return new Response("busy", { status: 503 }); }],
+      ["a network error", sent => async (_url, init) => { sent.push(String(init.body)); throw new Error("connection reset"); }],
+    ];
+    for (const [name, reply] of unknown) {
+      const sent: string[] = [], l = ledger(10), record: Recorded["answers"] = {};
+      const judge = liveJudge("test-key", l, record, 0, reply(sent));
+      await expect(judge("a", state), name).rejects.toThrow("billed usage unknown for a#0");
+      expect(l.unbilledUsd, `UNBILLED_RESERVATION_KEPT: ${name}`).toBeGreaterThan(0);
+      expect(l.reservedUsd, name).toBe(0);
+      expect(record, name).toEqual({});
+      // A caller that catches the error and goes on still sends nothing.
+      await expect(judge("b", state), name).rejects.toThrow("spend cap");
+      expect(sent, `NOTHING_SENT_AFTER_UNBILLED: ${name}`).toHaveLength(1);
+    }
   });
   test("the live mode refuses a cap above the authorized $10 and a run without a key", async () => {
     const env = { ...process.env };
