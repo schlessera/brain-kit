@@ -5,7 +5,7 @@ import { createUiDb } from "../packages/ui-server/src/db/client";
 import { createPrincipal } from "../packages/ui-server/src/db/principals";
 import { createReferenceGrant, referenceRepository, revokeReferenceGrant } from "../packages/ui-server/src/db/reference-grants";
 import { createReferenceSources } from "../packages/ui-server/src/brain/reference-source";
-import { createReferenceTransport, referenceRevision } from "../packages/ui-server/src/brain/reference-transport";
+import { createReferenceTransport, referenceRevision, ReferenceTransportError } from "../packages/ui-server/src/brain/reference-transport";
 import { referencePoolDouble } from "../packages/ui-server/tests/helpers/reference-pool-double";
 import { candidateRelay, checked, git, immutableBlob, localRunner, matches, origin, receipts, scratch } from "./git-read-qualification";
 import type { MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
@@ -144,7 +144,10 @@ test("production branch/tag resolver refuses direct PR and object selection; red
   expect(await transport.resolve({ repository, revision: referenceRevision("main"), token: null })).toMatchObject({ ok: true, ref: "refs/heads/main" });
   expect(await transport.resolve({ repository, revision: referenceRevision("voyage"), token: null })).toMatchObject({ ok: true, ref: "refs/tags/voyage" });
   expect(() => referenceRevision(foreign)).toThrow();
-  expect(await transport.resolve({ repository: referenceRepository(`${upstream.server.url}penelope/loom.git`), revision: referenceRevision("refs/pull/7/head"), token: TOKEN })).toMatchObject({ ok: false, reason: "missing" });
+  let refusal: unknown;
+  try { referenceRevision("refs/pull/7/head"); } catch (error) { refusal = error; }
+  expect(refusal, "DIRECT_PR_REVISION_REFUSED_SYNCHRONOUSLY").toBeInstanceOf(ReferenceTransportError);
+  expect(refusal).toMatchObject({ reason: "invalid" });
   for (const input of ["git@ithaca.invalid:odysseus/navigation", "ssh://ithaca.invalid/odysseus/navigation", "ext::sentinel", "https://ithaca.invalid/a%2fb", "https://ithaca.invalid/a/../b"]) expect(() => referenceRepository(input)).toThrow();
   const before = upstream.facts.length;
   const redirect = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { return Response.redirect(`${upstream.server.url}penelope/loom.git/info/refs?service=git-upload-pack`, 302); } });
