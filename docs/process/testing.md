@@ -319,6 +319,8 @@ bun scripts/test-determinism.ts --base origin/main --json   # the report on stdo
   exits; each is stopped by PID and exits by itself if the command is killed.
 - **The bound.** Five repetitions, reduced uniformly to no fewer than two when
   the reviewed weights in `scripts/test-shard-costs.json` exceed 600 seconds.
+  Ready confirmation runs two, because the merge lease is held while it runs
+  ([ruling](../decisions/ci-utility.md#changed-tests-repeat-under-load-before-merge)).
   The report lists every selected file with the repetitions it got, and says
   when the selection is over budget at the floor.
 - **A failure** names the file, the repetition and the case. Repetitions of a

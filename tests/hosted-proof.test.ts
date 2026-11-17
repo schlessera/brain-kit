@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
 import { planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
+import { planRepetitions } from "../scripts/test-determinism";
 import { localChecks } from "../scripts/check-pr";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -291,4 +292,17 @@ test("emitted aggregate refuses skipped or missing selected native host job", as
       });
     }
   }
+});
+
+test("ready confirmation repeats changed tests at the floor; every other cadence keeps the full count (#4137)", () => {
+  const selected = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), determinism: ["tests/ci-plan.test.ts"] };
+  const argv = (cadence: ProofCadence) => categoryCommands("determinism", { ...selected, cadence }, ROOT)[0]!.argv;
+  // The lease is held while confirmation runs, and the draft head already ran the full count.
+  expect(argv("confirmation"), "CONFIRMATION_RUNS_THE_FLOOR").toContain("--repetitions=2");
+  for (const cadence of ["draft", "feedback", "feedback-heavy"] as const) {
+    expect(argv(cadence).filter(arg => arg.startsWith("--repetitions")), `FULL_COUNT:${cadence}`).toEqual([]);
+  }
+  // The floor the command enforces and the count confirmation asks for are one number.
+  expect(planRepetitions(["tests/ci-plan.test.ts"], { repetitions: 2 }).repetitions).toBe(2);
+  expect(() => planRepetitions(["tests/ci-plan.test.ts"], { repetitions: 1 })).toThrow("at least 2");
 });
