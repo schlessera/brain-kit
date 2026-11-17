@@ -539,8 +539,11 @@ itself.
   HTTPS URL without user info, query or fragment, a loopback `http://` URL, or an
   absolute `file:///` path; it may be a bare HTTPS origin. Empty, `.` and `..`
   segments, whitespace, control characters, backslashes and percent-encoding
-  are 400. Hosted prefixes are stored lowercase-origin without a trailing slash
-  or `.git`; a prefix covers itself and paths below it at a segment boundary.
+  are 400. Hosted inputs lose one trailing `.git` clone suffix and a trailing
+  slash; the stored canonical key retains any remaining literal `.git`.
+  GitHub path casing is normalized, while other hosts and file paths keep
+  their case. Lookup never removes another suffix from a stored key. A prefix
+  covers itself and paths below it at a segment boundary.
   `credential` defaults to null. Otherwise it is exactly
   `BRAIN_UI_SYNC_GITHUB_TOKEN`, `BRAIN_UI_SKILLS_GITHUB_TOKEN` or
   `GITHUB_TOKEN`, and the prefix origin must be `https://github.com` or a

@@ -116,7 +116,8 @@ test("acquisition publishes a complete thousand-file checkout and keeps the cred
   }) as typeof Bun.spawn);
   try {
     const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
-    const sources = createReferenceSources({ db, pool, transport: createReferenceTransport({ brainPath: brain }), brain: "ithaca", credentials: { BRAIN_UI_SYNC_GITHUB_TOKEN: TOKEN } });
+    const transport = createReferenceTransport({ brainPath: brain });
+    const sources = createReferenceSources({ db, pool, transport, brain: "ithaca", credentials: { BRAIN_UI_SYNC_GITHUB_TOKEN: TOKEN } });
     const shared = await sources.request({ principalId: penelope.id, repository: url("public", "ithaca"), revision: "main" });
     const tree = join(shared.viewPath, shared.name);
     expect(shared.domain).toBe("public");
@@ -125,6 +126,11 @@ test("acquisition publishes a complete thousand-file checkout and keeps the cred
     expect(readFileSync(join(tree, ".git/config"), "utf8"), "REFERENCE_SOURCE_HOST_GIT_CONFIG").toBe(REFERENCE_GIT_CONFIG);
     expect(readFileSync(join(tree, "README.md"), "utf8"), "REFERENCE_SOURCE_UNDEFINED_FILTER_INERT").toBe("Ithaca public chart\n");
     expect(shared.commit).toBe(git(join(fixture, "srv", "ithaca.git"), "rev-parse", "main"));
+    const acquired = await pool.poolSeal(shared.rootId);
+    const blob = await transport.readBlob!({ root: acquired.path!, commit: shared.commit,
+      tree: git(join(fixture, "srv", "ithaca.git"), "rev-parse", "main^{tree}"), path: "README.md", offset: 7, maximum: 6 });
+    expect(Buffer.from(blob.bytes).toString(), "REFERENCE_SOURCE_ACTUAL_MAINTENANCE_BLOB_READ").toBe("public");
+    expect(blob).toMatchObject({ mode: "100644", offset: 7, length: 6, totalBytes: 20 });
 
     await expect(sources.request({ principalId: penelope.id, repository: url("private", "loom"), revision: "main" }), "REFERENCE_SOURCE_PRIVATE_NEEDS_GRANT")
       .rejects.toMatchObject({ code: "unauthorized" });

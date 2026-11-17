@@ -88,10 +88,15 @@ export function Overlay(p: OverlayProps) {
     openingFocus.current ??= { opener: doc.activeElement as HTMLElement | null };
     const { opener } = openingFocus.current;
     let active = true;
-    const request = (reason: OverlayCloseReason) => {
+    /** Returns whether the overlay was asked to close; `closedBy="none"` and a covered overlay stay. */
+    const request = (reason: OverlayCloseReason): boolean => {
       cancelSwipe();
-      if (active && isTopmost(doc, id.current) && latest.current.closedBy !== "none") latest.current.onClose(reason);
+      if (!active || !isTopmost(doc, id.current) || latest.current.closedBy === "none") return false;
+      latest.current.onClose(reason);
+      return true;
     };
+    // A non-modal overlay's close request is its watcher's (#2577): Escape or
+    // Android back alike, reported with Escape's reason.
     const unregister = registerOverlay(doc, { id: id.current, modal, escape: () => request("escape") });
     const focusInitial = () => {
       const body = surface.current?.querySelector<HTMLElement>(".bk-overlay-body");

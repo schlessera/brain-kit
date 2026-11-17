@@ -28,7 +28,7 @@ The maintainer selected **owner-managed grant records** on 2026-10-22
 ## The record
 
 A grant is one row of the UI database's `reference_grants` table
-(`createReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:122-149`).
+(`createReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:135-163`).
 The table holds the served brain's identity, the principal, the canonical
 repository prefix, the credential name or null, the granting owner and the
 revocation time. It stores no credential value. A grant is **live** while it
@@ -47,13 +47,27 @@ owner session ends when that session does.
 
 A repository location is HTTPS without user info, query or fragment; loopback
 `http://`; or an absolute `file:///` path
-(`referenceRepository`, `packages/ui-server/src/db/reference-grants.ts:52-76`).
+(`referenceRepository`, `packages/ui-server/src/db/reference-grants.ts:52-77`).
 SSH is refused: no grantable credential is an SSH key. The canonical form
-lowercases the origin and drops a trailing slash and a hosted `.git` suffix. A
-prefix covers itself and every path below it at a segment boundary, so
+lowercases the origin and drops a trailing slash and one hosted `.git` clone
+suffix. A prefix covers itself and every path below it at a segment boundary, so
 `…/odysseus` never covers `…/odysseus-crew`. The longest covering live prefix
 wins, read at the moment of use
-(`coveringReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:169-175`).
+(`coveringReferenceGrant`, `packages/ui-server/src/db/reference-grants.ts:183-194`).
+
+GitHub HTTPS paths are normalized to lowercase, matching the qualified
+transport. Retained mixed-case prefixes are normalized for matching and
+duplicate detection without rewriting their receipts. Specificity uses the
+canonical prefix length, so an older spelling cannot select a broader API
+credential permission. Other hosts and local paths remain case-sensitive.
+
+Raw hosted input removes one clone `.git` suffix when its canonical key is
+created. Stored prefixes already hold that key: later validation and GitHub
+case normalization preserve any remaining `.git` as literal path content.
+Reapplying clone-suffix removal would let a grant for `ithaca.git.git` cover
+the distinct `ithaca` repository and defeat duplicate/specificity checks.
+Retained mixed-case fixtures therefore store canonical keys, not raw clone
+URLs; mixed-case literal suffixes stay literal. File paths remain exact.
 
 A grant names its credential from a fixed list of existing host selectors,
 each with the one origin it may be sent to

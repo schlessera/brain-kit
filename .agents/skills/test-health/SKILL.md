@@ -170,7 +170,11 @@ rewriting a test; rewriting beats removing it.
 - **Test code only.** A product defect is filed as a `type: fix` issue and the
   finding is `filed`. The batch gate refuses any other path.
 - **Never hide a test.** No `skip`, `todo`, `only`, `retry` or conditional
-  skip, and no raised or added timeout or deadline. The gate refuses each.
+  skip, and no added, lowered or removed timeout or deadline. The gate refuses
+  each, and a budget raised to a minute or more. A watchdog that only detects
+  a hang may be raised when it trips on a slow run; a product timing is never
+  loosened
+  ([the difference](../../../docs/process/testing.md#watchdogs-and-product-timings)).
 - **Never weaken an assertion to get green**, and never delete a test because
   it fails.
 - **Take assertions away only with an obligation map**: every assertion of the
@@ -188,7 +192,8 @@ rewriting a test; rewriting beats removing it.
   `git status --short` before each commit and commit only test files.
 - **Stay inside your cluster.** Member files only. A helper shared with other
   tests is changed only when every user of it is a member.
-- **Never rerun a failed CI job**, and never raise a deadline to absorb load.
+- **Never rerun a failed CI job**, and never loosen a product timing to
+  absorb load.
 - **Fixtures use the Odysseus world** and the pinned date `2026-07-12`; no real
   names anywhere.
 

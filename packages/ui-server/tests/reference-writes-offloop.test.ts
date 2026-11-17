@@ -16,7 +16,6 @@ import { referenceWorktreeJournalManager } from "../src/brain/reference-worktree
 import { createReferenceWorktreeHygiene } from "../src/brain/reference-worktree-hygiene.js";
 import { referencePoolDouble } from "./helpers/reference-pool-double.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
-import { createReferenceGrant } from "../src/db/reference-grants.js";
 import { watchWriteSites } from "./helpers/write-sites.js";
 import * as probe from "./fixtures/write-worker-probe.js";
 
@@ -30,8 +29,10 @@ async function fixture() {
   const path = join(root, "ui.db"), db = createUiDb(path);
   db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES (?, 'owner', 'password', 'Penelope', ?, ?)")
     .run(PRINCIPAL, AT, AT + 86_400_000);
-  createReferenceGrant(db, { brain: "ithaca-brain", principalId: PRINCIPAL, repositoryPrefix: "https://github.com/odysseus",
-    credential: "BRAIN_UI_SYNC_GITHUB_TOKEN", createdBy: PRINCIPAL, now: AT });
+  // This world runs on the pinned clock, so its grant is recorded data, not a request: creating
+  // one checks the owner against the real clock (#4169), and this login expired a day after AT.
+  db.query(`INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at)
+    VALUES ('ithaca-grant', 'ithaca-brain', ?, 'https://github.com/odysseus', 'BRAIN_UI_SYNC_GITHUB_TOKEN', ?, ?)`).run(PRINCIPAL, PRINCIPAL, AT);
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(path) }] });
   registerReferenceWrites(db, writer);
   const sites = await watchWriteSites(db, writer, TABLES);
@@ -290,6 +291,7 @@ test("source refresh, failed-refresh bookkeeping, bind-time revalidation and sup
 
 test("revocation sees a first private publication submitted before it and withdraws it after its commit", async () => {
   const f = await fixture();
+  const fences = await watchWriteSites(f.db, f.writer, ["reference_authority_fences"]);
   try {
     f.state.private = true;
     const publish = f.pool.poolPublish;
@@ -311,6 +313,7 @@ test("revocation sees a first private publication submitted before it and withdr
     expect(f.db.query("SELECT root_id FROM reference_sources WHERE root_id IS NOT NULL").all(), "REFERENCE_REVOCATION_WITHDRAWS_FIRST_PUBLICATION").toEqual([]);
     expect(f.db.query("SELECT id FROM reference_roots").all(), "REFERENCE_REVOKED_ROOT_RELEASE_COMMITTED").toEqual([]);
     expect(f.pool.events.map(event => event.operation), "REFERENCE_REVOKED_SOURCE_UNPUBLISHED").toContain("unpublish");
+    expect(await fences.log(), "REFERENCE_AUTHORITY_FENCES_COMMIT_ON_FULL_WORKER").toContain("reference_authority_fences");
   } finally { await f.close(); }
 });
 

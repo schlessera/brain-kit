@@ -146,7 +146,7 @@ describe("off-main qualification (#3271)", () => {
   const url = (id: number, repo = repository) => `https://github.com/${repo}/actions/runs/${id}`;
   const body = (section: string) => `Odysseus re-rigs the shards.\n\n## Off-main qualification\n\n${section}\n\n## Anything left open\n\n${url(999)}\n`;
   const check = (text: string | null, runsById: Record<number, string>) => checkQualification({ body: text, repository, head: sha.chart!, cwd: dir,
-    async readRun(id): Promise<QualificationRun | null> { return runsById[id] ? { id, headSha: runsById[id]!, repository } : null; } });
+    async readRun(id): Promise<QualificationRun | null> { return runsById[id] ? { id, headSha: runsById[id]!, repository, status: "completed", conclusion: "success" } : null; } });
 
   test("reads only the qualification section, without comments, and only this repository's runs", () => {
     const text = body(`<!-- e.g. ${url(1)} -->\nReplay ${url(2)} and ${url(3, "circe/brain-kit")} and ${url(2)}/attempts/1`);
@@ -164,6 +164,29 @@ describe("off-main qualification (#3271)", () => {
   test("a run on the head, or on an ancestor with no proof-system change after it, qualifies", async () => {
     expect(await check(body(`Replay ${url(41)} on the head.`), { 41: sha.chart! })).toEqual({ evidence: { run: 41, headSha: sha.chart!, via: "head" } });
     expect(await check(body(`Dispatch ${url(42)}.`), { 42: sha.shards! })).toEqual({ evidence: { run: 42, headSha: sha.shards!, via: "ancestor" } });
+  });
+
+  test.each([
+    ["completed", "failure"], ["completed", "cancelled"], ["completed", "skipped"],
+    ["completed", "timed_out"], ["completed", null], ["in_progress", null], ["queued", null],
+    ["in_progress", "success"], ["queued", "success"],
+  ])("refuses qualification run state %s / %s", async (status, conclusion) => {
+    const result = await checkQualification({ body: body(url(45)), repository, head: sha.chart!, cwd: dir,
+      async readRun() { return { id: 45, headSha: sha.chart!, repository, status: status!, conclusion }; } });
+    expect(result).toEqual({ refusal: expect.stringContaining(`run 45 is ${status} with conclusion ${conclusion ?? "none"}`) });
+  });
+
+  test("a refused run leaves later successful evidence usable within the five-run bound", async () => {
+    const reads: number[] = [];
+    const input = { body: body([1, 2, 3, 4, 5, 6].map(id => url(id)).join("\n")), repository, head: sha.chart!, cwd: dir };
+    const readRun = async (id: number): Promise<QualificationRun> => {
+      reads.push(id);
+      return { id, headSha: sha.chart!, repository, status: "completed", conclusion: id === 6 ? "success" : "failure" };
+    };
+    expect(await checkQualification({ ...input, readRun })).toHaveProperty("refusal");
+    expect(reads).toEqual([1, 2, 3, 4, 5]);
+    expect(await checkQualification({ ...input, readRun: async id => ({ ...await readRun(id), conclusion: id === 2 ? "success" : "failure" }) }))
+      .toEqual({ evidence: { run: 2, headSha: sha.chart!, via: "head" } });
   });
 
   test("a run whose head SHA has proof-system changes after it is refused", async () => {

@@ -82,6 +82,43 @@ header selects it. The internal entry also exports the existing
 DNS address before connecting to a checked IP. These are implementation
 sharing, with no supported public transport extension seam (#3613).
 
+Production GitHub source requests use that wire through the actual admitted
+turn's proxy, including cached-source revalidation and source acquisition for
+managed worktrees. They do not join another turn's operation or use another
+turn's allowance. A request without that host context refuses. The operation
+ceiling is 64 MiB, further bounded by the remaining turn allowance; the finite
+wire deadline and ordinary G6 recipient rules remain. Bind preparation happens
+before the proxy exists, so expired GitHub source is withheld without network
+until an explicit turn request validates it. Other legacy repository transports
+remain unqualified for repository trust.
+
+Migration 089 records a retained source acquisition's host-issued identity,
+brain/principal/turn, stable repository and owner identities, resolved ref,
+commit/tree, sealed native root ID/UUID/creation generation, selected grant and
+charged wire bytes. Publication commits these facts with the source catalog;
+restart refuses contradictory root identities. They describe acquisition,
+never actual model-content reads or an independently approved owner boundary.
+File-tool reads under the reference/worktree worker roots continue to produce
+ordinary workspace restriction signals. No repository trust capability is
+enabled. Tool names, descriptions, input/result schemas and provider history
+are unchanged; actual model-delivery-bound immutable blob/range/digest evidence
+remains required.
+
+The internal reference transport now has an optional `readBlob` operation
+for a host-selected sealed acquisition root, exact commit and tree, literal
+Git path, byte offset and maximum range. Its caller must attest the root and
+recheck live turn/principal/grant authority after waits. It reads regular Git
+blobs (`100644` or `100755`) from the immutable object database, checks the
+complete object's Git hash and returns exact bytes, blob ID/mode, tree,
+total byte size, offset, returned length and the range's SHA-256 digest.
+The full blob is bounded to 4194304 bytes; a returned range is at most 65536
+bytes. An offset at EOF returns the empty range; an offset beyond EOF refuses.
+Symlinks, gitlinks, directories, traversal, malformed UTF-8 paths, a different
+tree, corrupt objects and malformed byte evidence refuse. The fixed worker
+has neither credentials nor network, and cancellation withholds a late result.
+This primitive is host-only and creates no model-delivery receipt, new agent
+tool, repository trust capability or backend read-equivalence claim.
+
 ## Prepared ordinary inference transport (internal #1665)
 
 The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
@@ -4505,7 +4542,46 @@ directories, and a sealed root's top directory becomes `0755 root:root`. The
 mechanism is recorded in the
 [pool decision](../decisions/reference-pool-accounting.md#publication-views-2429).
 
+Managed acquisition (#3613) opts a new source root into permanent withdrawal
+with `poolCreate(id, purpose, from, allowanceBytes, signal?, true)` (the native
+control request adds `permanentWithdrawal?: true`). Only `source` roots accept
+the option. Their records include `publicationRevoked: false` initially;
+`poolWithdraw` durably changes it to `true` under the publication mutation
+lock before hiding the root. Every later `poolPublish` of that identity
+refuses with `released`, even across restart. Interrupted withdrawal finishes
+before the keeper serves requests. Retained sealed bytes stay charged and
+may seed a newly authorized root with a different identity. An identity's
+withdrawal mode cannot change on a create retry. Legacy calls and version-1
+roots retain reversible withdrawal. Opted-in roots use version-2 durable
+intents, which older keepers refuse rather than ignoring the guard; older
+strict control schemas also reject the new option before creating a root.
+The managed host refuses missing support, without an unguarded fallback.
+
+The client also accepts `poolPublish(id, view, name, signal?, expectedRoots?)`.
+The optional native `expectedRoots` is a list of one or two generated root
+identities or `null` for an absent name. Under its mutation lock, the keeper
+refuses with `unavailable` unless the current alias target is in that list,
+before moving a root or replacing the alias. Managed publication binds this
+native comparison and an atomic catalog comparison to the publication it
+observed before acquisition. A concurrent newer revision cannot be replaced
+by a delayed request. Live cache/recovery repair accepts only its own root or
+an absent alias; it cannot overwrite another root. An older strict keeper
+refuses this optional field and the host never retries it unconditionally.
+
 ### Reference source acquisition (additive, #2429)
+
+Bind preparation skips an invalidated source only while its exact catalog root
+and validation timestamp still match confirmed native hiding. A replacement or
+renewal expires independently, and incomplete hiding is retried before binding.
+Only permanent native withdrawal can retain hiding confirmation across binds;
+reversible roots and catalog orphans are confirmed again for each bind.
+Native-confirmed unpublished staging stays outside worker views without losing
+publication authority; staging already exposed in a view is still contained.
+Startup recovery preserves validation another owner renewed after its scan.
+Expiry compares the observed root, validation timestamp and freshness atomically;
+a newer renewal survives. Managed expiry retires that publication while a
+separate authorized acquisition can finish. Retired roots cannot renew validation,
+and retired staging cannot commit a delayed publication after native hiding.
 
 `ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.
 The host edge resolves it from `BRAIN_UI_REFERENCE_VALIDATION_SECONDS` and
@@ -4533,9 +4609,25 @@ checkpoint through the fixed worker-UID reader, with the bounds of
 caller-generated UUID naming one worker generation. `NativePoolRecord.purpose`
 gains `checkpoint`, and records gain `access`, the generation holding a
 writable worktree, else `null`; earlier records read as `access: null`.
+Host worktree records retain `repository_url` separately from their canonical
+repository key, populated from the actual source endpoint at allocation.
+Migration 092 backfills retained catalog endpoints. Revalidation binds that
+URL to the stored key before dispatch, including after grant revocation has
+removed the source catalog row. Historical legacy records with neither a
+retained URL nor a catalog endpoint refuse with `unavailable` until the source
+is explicitly requested; they never guess an endpoint by adding `.git`.
 `poolCreate` refuses the `checkpoint` purpose and a checkpoint as its source.
 `poolRelease` refuses a writable worktree whose record names an access
 generation with `invalid`, deleting nothing; park it first (#2729).
+The host client also accepts `poolPark(id, signal?, expectedAccess?)` (#3613).
+With a generated `expectedAccess` UUID, the manager parks only while its native
+record still names that generation, under the same mutation lock as grants.
+A mismatch returns the unchanged record, including its current `access`, and
+never moves the root. Omitting the argument retains unconditional parking.
+This optional internal control field is additive; an older strict manager
+refuses it, so failed cleanup stays explicit rather than falling back to an
+unconditional park.
+
 The lease owner checkpoints only a held worktree, reads and diffs only held
 checkpoints, and moves only held worktrees; its lease table migrates in place.
 No call accepts a host path, UID or mount. Worker masks now include the pool's

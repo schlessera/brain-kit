@@ -7,6 +7,7 @@ import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { receiptBlock, type CheckReceipt } from "../scripts/check-receipt";
 import { reviewComment, type ReviewFinding } from "../scripts/review-receipt";
 import { invocationChild } from "../scripts/test-invocation-child";
+import { watchdogMs } from "../scripts/test-deadlines";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
@@ -17,13 +18,15 @@ const scenarios = new Set<Scenario>();
 let deadline: ReturnType<typeof setTimeout>, overdue = false, deadlineCleanup: Promise<void> | undefined;
 beforeEach(() => {
   overdue = false; deadlineCleanup = undefined;
-  // Bun kills dangling children before afterEach on timeout. Reserve three
-  // seconds inside its unchanged 30-second cap for the owned group/output join.
+  // Bun kills dangling children before afterEach on timeout. Reserve a tenth
+  // of its per-test cap, three of 30 seconds, for the owned group/output join.
+  // This is a watchdog for a hung child, not a budget for the work: a run that
+  // applies load on purpose scales it with the cap (#4191).
   deadline = setTimeout(() => {
     overdue = true;
     deadlineCleanup = stopScenarios();
     void deadlineCleanup.catch(() => {}); // afterEach observes cleanup errors.
-  }, 27_000);
+  }, watchdogMs(27_000));
 });
 async function stopScenarios() {
   const active = [...scenarios];
@@ -54,7 +57,7 @@ function startScenario(mode: string, beforeRead?: () => Promise<void>) {
 }
 function scenario(mode: string) { return startScenario(mode).work; }
 async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResult> {
-  if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
+  if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the per-test cap");
   const dir = mkdtempSync(join(tmpdir(), "odysseus-integration-command-")); dirs.push(dir);
   owner.dir = dir;
   const root = join(dir, "client"), remote = join(dir, "remote.git"), bin = join(dir, "bin");
@@ -98,14 +101,14 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   setup(root, "push", "origin", `${base}:refs/heads/main`, `${synthetic}:refs/heads/proof-fixture`, `${squash}:refs/heads/squash-fixture`);
   const candidate = { repository: "https://github.com/odysseus/brain-kit", pr: 7, head, base };
   const id = "1".repeat(32), store = new GitReservationStore(root), snapshot = store.read();
-  const state = mode === "missing" || mode === "acquire" || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id, ...(mode.startsWith("legacy-") ? {} : { token: TOKEN }) }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
+  const state = mode === "missing" || mode.startsWith("acquire") || mode.startsWith("confirm-") ? emptyReservation() : reservationTransition(emptyReservation(), { kind: "acquire", candidate, id, ...(mode.startsWith("legacy-") ? {} : { token: TOKEN }) }, mode === "wrong-owner" ? 202 : 101, mode === "expired" ? NOW - 300_000 : NOW);
   expect(store.publish(snapshot, state)).toBe(true);
-  if (mode.startsWith("red-main") || mode.startsWith("expedite-")) {
+  if (mode.includes("red-main") || mode.startsWith("expedite-")) {
     const failure = { test: mode === "expedite-category" ? null : "tests/raft.test.ts", category: mode === "expedite-category" ? "browser" as const : "unit" as const,
       verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
     // A sibling squash of the base is red on another line: the candidate's merge ref does not contain it.
     const red = openRed(emptyRedMain(), { firstBad: mode === "red-main-unrelated" ? squash : base, run: 11, failures: [failure] }, NOW);
-    expect(store.publishRedMain(store.read(), mode.startsWith("red-main-fix") ? declareFix(red, 7, NOW) : red)).toBe(true);
+    expect(store.publishRedMain(store.read(), mode.includes("red-main-fix") ? declareFix(red, 7, NOW) : red)).toBe(true);
   }
   const sentinel = join(dir, "merged"), apiState = join(dir, "api.json");
   writeFileSync(apiState, JSON.stringify({ mode, revoked: false, merged: false, now: NOW, requested: false, draft: false }));
@@ -205,7 +208,7 @@ fi`); chmodSync(shim, 0o755);
       else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"||(s.mode==="confirm-changed"&&s.requested&&s.now>${NOW})?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
       else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:Object.entries(mainRuns).filter(([sha])=>path.includes("head_sha="+sha)).map(([sha,run])=>({...run,head_sha:sha}))};
-      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],repository:{full_name:repo}};
+      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],status:"completed",conclusion:"success",repository:{full_name:repo}};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
       else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:s.mode.endsWith("contract-absent")?[]
         // A creation or push-and-edit burst: the newest run was cancelled while pending, an older one passed (#3573).
@@ -263,7 +266,7 @@ fi`);
   const lifecycle = /^(?:legacy-)?(renew|release)-(holder|none|wrong)$/.exec(mode);
   const presented = (kind: string) => kind === "holder" ? ["--token", TOKEN] : kind === "wrong" ? ["--token", OTHER] : [];
   if (mode === "renew-push-fail") writeFileSync(failPush, "1");
-  const command = mode.startsWith("lane-") && mode.endsWith("-read") ? ["lane", "--json"] : mode === "acquire" ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
+  const command = mode.startsWith("lane-") && mode.endsWith("-read") ? ["lane", "--json"] : mode.startsWith("acquire") ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
     : [mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id,
       ...presented(mode === "no-token" ? "none" : mode === "wrong-token" ? "wrong" : "holder")]), ...(delivered.length ? ["--issues", delivered.join(",")] : []),
     ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])];
@@ -276,7 +279,7 @@ fi`);
     await child.ready;
     const [code, out, err] = await output;
     await child.finish();
-    if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
+    if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the per-test cap");
     await owner.beforeRead?.();
     const eventDir = join(root, "tmp/ci-timings");
     const events = existsSync(eventDir) ? readdirSync(eventDir).filter(name => name.startsWith("event-")).map(name => JSON.parse(readFileSync(join(eventDir, name), "utf8"))) : [];
@@ -686,5 +689,28 @@ test("declared red-main fixes are exempt from the stability window and off-main 
     const fix = await scenario(mode);
     expect(fix.code, `DECLARED_FIX_EXEMPT:${mode}: ${fix.err}`).toBe(2);
     expect(fix.dispatched).toBe(true);
+  }
+});
+
+test("acquire enforces the proof-system lane before taking a reservation (#4178)", async () => {
+  for (const [mode, message] of [
+    ["acquire-lane-own-busy", "has no settled main run of its own yet"],
+    ["acquire-lane-open-unqualified", 'no "Off-main qualification" section'],
+  ] as const) {
+    const result = await scenario(mode);
+    expect(result.code, `ACQUIRE_REFUSES_PROOF_SYSTEM_CANDIDATE:${mode}: ${result.err}`).toBe(1);
+    expect(result.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
+    expect(result.err).toContain(message);
+    expect(result.state.last, `ACQUIRE_REFUSES_BEFORE_RESERVATION:${mode}`).toBeNull();
+    expect(result.requested).toBe(false);
+    expect(result.dispatched).toBe(false);
+  }
+  for (const mode of ["acquire-lane-open", "acquire-lane-own-red-unqualified-product", "acquire-red-main-fix-lane-own-red-unqualified"]) {
+    const result = await scenario(mode);
+    expect(result.code, `ACQUIRE_ACCEPTS:${mode}: ${result.err}`).toBe(0);
+    expect(result.state.active?.candidate.pr).toBe(7);
+    expect(JSON.parse(result.out).token).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.requested).toBe(false);
+    expect(result.dispatched).toBe(false);
   }
 });
