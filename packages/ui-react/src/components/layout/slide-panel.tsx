@@ -1,5 +1,6 @@
-import { useEffect, type ReactNode, type Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { openModal } from "../../lib/destination-start.js";
+import { useCloseRequest } from "../../lib/use-close-request.js";
 import { Overlay } from "@schlessera/brain-ui-kit";
 
 /** Drawers use Overlay; panes are fixed regions beside the rail. */
@@ -40,16 +41,13 @@ export function SlidePanel({
   returnFocus?: boolean;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    if (!open || mode !== "pane" || closedBy === "none") return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || openModal()) return;
-      event.preventDefault();
-      onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, mode, closedBy, onClose]);
+  // A pane is no dialog, so Escape and Android back reach it through the
+  // kit's close-request helper (#2577). A drawer is an Overlay, which has its own.
+  useCloseRequest(open && mode === "pane" && closedBy !== "none", () => {
+    if (openModal()) return false;
+    onClose();
+    return true;
+  });
 
   if (mode === "pane") {
     if (!open) return null;
