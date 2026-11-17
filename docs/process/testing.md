@@ -233,7 +233,7 @@ remainingButtonCases(() => "fine");
 ```
 
 Remove that temporary leaf after the diagnostic, including on failure. It is
-not part of ordinary layout discovery or the retained proof inventory.
+not part of ordinary layout discovery or the proof inventory.
 
 1. Save `packages/ui-kit/vitest.config.ts` outside the tree. Temporarily replace
    only the `ui-react-layout` project's discovery array with
@@ -655,17 +655,14 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   and live PR readiness/head plus the independent live base ref. Any base advance
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
-  receipt a new combined-tree pass. Under #1333, complete browser/layout
-  domains may retain validated equivalent successful automatic receipts.
-  Inclusion fingerprints recompute each immutable tree's complete supported
-  import/declaration closure and tracked path/blob/mode, build/discovery/partition
-  and runner identities. Unknown generated/runtime inputs execute fresh; a
-  graph-structure hash or unchanged imported files alone cannot authorize reuse.
+  receipt a new combined-tree pass. Every selected category runs fresh on that
+  checkout: browser proof retention and the source pins that qualified it are
+  [retired](../decisions/ci-utility.md#retaining-complete-browser-domains)
+  (#4107), so no job is skipped on the strength of an earlier run and no test
+  fails because a product file's hash moved.
   Before naming a source run as passing proof, verify its workflow name/path,
   event, head, conclusion and complete job inventory. Repository synchronization
-  jobs do not provide CI proof. Read the current retention ledger and aggregate;
-  original run/job/checkout
-  identity remains distinct. Other categories stay fresh. Verify actual squash
+  jobs do not provide CI proof. Read the aggregate. Verify actual squash
   parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
   agents still require passing candidate proof and must re-read head/base before
   matching-head merge. This change does not alter repository protection.
@@ -817,7 +814,7 @@ name any still-missing automatic failure screenshots. Passing cases, local
 files and upload patterns alone do not establish hosted retention.
 
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
-run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
+run/job/attempt IDs, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
 [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
 
@@ -831,18 +828,9 @@ Tailwind stylesheet is backed by the dependency manifests and lockfile, with
 `source(none)` disabling implicit scanning, and the kit token export names its
 source. An edited or duplicate statement invalidates its declaration. Missing
 inputs, symlinks, escaped paths, globs, remote URLs, dynamic sources and unknown
-build directives remain unresolved and require fresh proof. This discovery
-support does not itself establish a complete retainable browser domain.
-
-
-Retention's bounded browser-command audit must preserve imported top-level
-execution. Its tests import a real config in a Bun child and observe a transitive
-module input even while the registered callback remains dormant. Activating a
-command through a selected spec, inherited setup or configuration must force
-fresh execution; registration alone is not invocation. Registered dormant
-callbacks require the same complete call/escape audit, and a mutation of that
-activation guard must fail the named assertion.
-The exact audited configuration/source guard makes unsupported edits fresh.
+build directives remain unresolved, and the category then keeps the planner's
+broad selection rule. Discovery only selects categories: it never lets a
+selected job be skipped.
 
 ## Cross-PR timing collection
 

@@ -54,20 +54,20 @@ Draft runs report `draft gates`, not `proof`. A ready PR without a passing
 `proof` from its confirmation run is unconfirmed, even if `draft gates` passed
 or failed because its live read found the PR ready; request confirmation again.
 The candidate gate checks actual merge parents/tree against the live head/base.
-A changed base requires a fresh confirmation event even without a rebase;
-valid immutable browser/layout retention remains available. Read the actual
+A changed base requires a fresh confirmation event even without a rebase.
+Read the actual
 `refs/pull/<number>/merge` commit too: GitHub can retain its old base across a
 draft/ready transition. When that ref still has old parents, refresh the branch
 against live main before requesting confirmation; another same-head event alone
 does not establish a new combined tree. Endurance is fresh
 and separately mandatory whenever selected. Assess relevant base changes before redoing
-heavy work; a new base requires confirmation, with valid browser/layout retention avoiding unnecessary execution.
-Under #1333, a selected browser/layout domain may intentionally skip fresh
-execution after complete input equivalence and original successful run/attempt/
-job/check/checkout receipts are validated. Inspect the current retention ledger
-and independently validating aggregate. Preserve original identities; do not
-describe retained jobs as executions on the new SHA. Native/Git-dependent and
-unknown domains, main pushes and scheduled/manual coverage remain fresh.
+heavy work; a new base requires confirmation.
+Every selected category runs fresh, on ready confirmation, main pushes and
+scheduled/manual coverage alike. Browser proof retention is retired (#4107):
+a selected job that was skipped is missing proof, never a retained pass, and no
+test pins a source file's hash, so a product edit never needs a re-audit.
+Inspect the aggregate, and never describe an earlier run's jobs as executions
+on the new SHA.
 
 A draft-to-ready transition can retain GitHub's previous PR base and synthetic
 merge ref even after live main advances. Before requesting expensive confirmation,
