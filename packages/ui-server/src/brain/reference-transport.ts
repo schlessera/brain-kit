@@ -171,7 +171,7 @@ export function createReferenceTransport(options: {
     return result;
   }
   return {
-    async readBlob(input) {
+    async readBlob({ ...input }) {
       input.signal?.throwIfAborted();
       if (!validReferenceBlobInput(input)) throw new ReferenceTransportError("invalid", "Reference blob reads need an ordinary Git path and bounded byte range.");
       const result = await run({ ...command({ token: null, network: false, mirror: input.root, signal: input.signal,

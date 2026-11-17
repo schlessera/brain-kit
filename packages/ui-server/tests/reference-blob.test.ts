@@ -85,6 +85,7 @@ test("symlinks, directories, gitlinks and absent entries are never immutable reg
   const f = fixture();
   for (const path of ["alias", "alias/child", "notes", "absent.md"])
     await expect(f.read(path), `IMMUTABLE_REFERENCE_NON_BLOB_REFUSED:${path}`).rejects.toMatchObject({ reason: "invalid" });
+  expect(Buffer.from((await f.read("star*.md")).bytes).toString(), "IMMUTABLE_REFERENCE_OTHER_BLOB_REMAINS_USABLE").toBe("The Sirens sing.\n");
   f.git("update-index", "--add", "--cacheinfo", `160000,${f.commit},foreign`); f.git("commit", "--quiet", "-m", "Record a foreign submodule");
   await expect(f.transport.readBlob!({ root: f.root, commit: f.git("rev-parse", "HEAD"), tree: f.git("rev-parse", "HEAD^{tree}"), path: "foreign", offset: 0, maximum: 1024 }),
     "IMMUTABLE_REFERENCE_GITLINK_REFUSED").rejects.toMatchObject({ reason: "invalid" });
@@ -127,10 +128,11 @@ test("a cancelled read launches nothing, and malformed worker byte evidence is r
   await expect(f.transport.readBlob!({ root: f.root, commit: f.commit, tree: f.tree, path: "chart.bin", offset: 0, maximum: 1024, signal: controller.signal })).rejects.toBeDefined();
   expect(f.launches, "IMMUTABLE_REFERENCE_CANCELLED_NO_WORKER").toHaveLength(0);
   const late = new AbortController();
+  const pending = { root: f.root, commit: f.commit, tree: f.tree, path: "chart.bin", offset: 0, maximum: 1024, signal: late.signal };
   const cancelled = createReferenceTransport({ brainPath: f.root, run: async input => {
-    const result = await f.run(input); late.abort(); return result;
+    const result = await f.run(input); late.abort(); pending.signal = new AbortController().signal; return result;
   } });
-  await expect(cancelled.readBlob!({ root: f.root, commit: f.commit, tree: f.tree, path: "chart.bin", offset: 0, maximum: 1024, signal: late.signal }),
+  await expect(cancelled.readBlob!(pending),
     "IMMUTABLE_REFERENCE_CANCELLED_RESULT_WITHHELD").rejects.toBeDefined();
   const transport = createReferenceTransport({ brainPath: f.root, run: async input => {
     const result = await f.run(input), value = JSON.parse(result.stdout); value.digest = "0".repeat(64);
