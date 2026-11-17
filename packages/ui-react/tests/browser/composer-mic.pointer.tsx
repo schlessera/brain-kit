@@ -189,8 +189,9 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`leavin
     const s = await scene(ctx, width);
     const at = centre(s.mic()!);
     const before = s.traffic();
-    const pressed = performance.now();
     await press(kind, at);
+    // Read after the press has reached the page: the hold's timer started no later than this.
+    const pressed = performance.now();
     await expect.poll(() => s.mic()!.dataset.phase).toBe("holding");
     const away = { x: at.x - 120, y: at.y - 160 };
     await move(kind, away, 150);
@@ -204,8 +205,9 @@ for (const kind of KINDS) for (const width of [320, 1280] as const) test(`leavin
     await commands.sheetInput(kind, [{ type: "move", ...at, t: 250 }, { type: "up", ...at, t: 300 }]);
     await wait(300);
     expect(s.ui.stores.voice.getState().mode, `${kind}: a cancelled hold does not dictate`).toBe("idle");
-    // The cancelled hold never completes later either: wait past the hold's own
-    // duration from the press. Waiting longer only makes this stricter.
+    // The cancelled hold never completes later either. The hold lasts 600 ms from
+    // the press, which happened before `pressed` was read, so 900 ms after that
+    // reading is past it however slow the runner is.
     await wait(Math.max(0, pressed + 900 - performance.now()));
     expect(s.client.state.getState().disclosureOpen, `${kind}: a cancelled hold never opens Start`).toBe(false);
     expect(s.ui.stores.voice.getState().mode, `${kind}: a cancelled hold still does not dictate`).toBe("idle");
