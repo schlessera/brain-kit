@@ -1571,6 +1571,33 @@ any GitHub text returns, the session's taint is recorded with the new source
 `github_result` ([governance events](../http-api.md)); if that record cannot
 be written, the text is withheld.
 
+### Per-review line-comment counts (additive, 0.45.0, #4147)
+
+Each item of a pull request's `reviews` gains `line_comments`, a nonnegative
+integer or `null`:
+
+- A number is the exact total of line comments (review comments) on that
+  review, zero included. The host takes it from one request for the pull
+  request's review comments, at most `GITHUB_LIMITS.reviewComments` (100), and
+  groups them by GitHub's `pull_request_review_id`.
+- `null` means unknown. Every review's count is `null` when that page is not
+  the whole collection (GitHub names a next page), when any comment is
+  malformed or names no review, when the page disagrees with the pull
+  request's own `review_comments` total, or when the credential cannot read
+  review comments (`forbidden`, `not_found`). Other failures of that request
+  fail the read with their usual typed error. There is never a partial total,
+  and zero is reported only when the complete page has none.
+- A pull request with no reviews in its result makes no extra request, and an
+  issue read is unchanged.
+- A review in a `reviews` detail page ([#3796](../http-api.md#github-detail-pages-internal-0450-3796))
+  carries `null`: the page counts nothing.
+- The field is optional in `GITHUB_REVIEW_SCHEMA`, so a result recorded before
+  it existed still parses; a consumer reads its absence as `null`. Negative,
+  fractional or non-numeric values are refused.
+
+The count is metadata on new results only; it adds no tool, input or request
+the model can make.
+
 ### GitHub data routing (additive, 0.45.0, #4029)
 
 GitHub is the provider-policy recipient `github`

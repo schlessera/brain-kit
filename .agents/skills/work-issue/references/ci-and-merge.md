@@ -329,7 +329,7 @@ rewrites the reviewed commits and discards the record's coverage. A refresh
 that needed a conflict resolution also needs a new review.
 
 A proof-system candidate (`bun scripts/proof-system.ts classify --base <merge-base>
---head <head>`) waits its turn in the proof-system lane. `confirm` (before
+--head <head>`) waits its turn in the proof-system lane. `acquire`, `confirm` (both before
 acquiring) and `merge` refuse it until the last proof-system squash on main
 has a completed main-push run of its own and the newest completed main run
 from that squash on is green: its own green run opens the lane, and after a
@@ -381,6 +381,9 @@ the full lane, use `integrate.ts confirm` as above. Otherwise:
 3. Take the lease, so the merge cannot race another session's confirmation:
    `bun scripts/integrate.ts acquire <pr>` (it prints a lease id and a holder
    token). If another session holds it, wait. Never merge past a live lease.
+   For a proof-system candidate, `acquire` first enforces the stability window
+   and off-main qualification, with the same declared red-main fix exemption
+   as `confirm`; the fast lane skips neither gate.
    `acquire` needs the PR's recorded base to be main's current tip. If main has
    moved, merge `origin/main` into the branch, push, and repeat step 2 on the
    new head ("An open ordinary exact-main candidate is required" means this).

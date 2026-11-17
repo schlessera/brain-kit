@@ -22,14 +22,17 @@ import {
   ListRow,
   UntrustedText,
   type GitHubDetailState,
+  type GitHubReviewProps,
   type GitHubThreadItem,
 } from "@schlessera/brain-ui-kit";
+import { GITHUB_DETAIL_PAGE_SIZE, GITHUB_LIMITS } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type {
   GithubChangedFile,
   GithubCheckRun,
   GithubComment as GithubCommentPayload,
   GithubCommit,
   GithubDetailError,
+  GithubDetailPage,
   GithubDetailPart,
   GithubError,
   GithubIssue,
@@ -52,6 +55,8 @@ import {
   directLink,
   issueState,
   knownTotal,
+  lineCommentCount,
+  lineCommentCoverage,
   person,
   pullState,
   resultRow,
@@ -135,16 +140,40 @@ function detailErrorState(error: GithubDetailError | GithubError & { reset_at?: 
 }
 
 /**
+ * A part read for some of its items only: one review's line comments, say
+ * (#4147). Only kept items are held or drawn. A page that keeps none is
+ * followed within the same press, at most `pages` pages per press, so a
+ * press shows something or stops at a truthful "Load more"; nothing drains
+ * the part unasked.
+ */
+interface DetailFilter {
+  keep: (item: DetailItem) => boolean;
+  pages: number;
+  /** The exact number there are: paging stops once that many are kept, and "Load more" counts against it. */
+  total?: number;
+}
+
+/**
+ * Pages one press may read for line comments. A known count proves the pull
+ * request had at most `GITHUB_LIMITS.reviewComments` when it was read, which
+ * is this many detail pages; the section for comments no count covers keeps
+ * the same bound per press.
+ */
+const LINE_COMMENT_PAGES = Math.ceil(GITHUB_LIMITS.reviewComments / GITHUB_DETAIL_PAGE_SIZE);
+
+/**
  * One on-demand part of one object. Nothing is fetched until `load`; `more`
  * appends the next page; `retry` repeats the last request. The pages are
  * display-only state of this card: nothing here reaches the chat store, the
  * socket or the model.
  */
-function useDetail(repository: string, number: number, part: GithubDetailPart) {
+function useDetail(repository: string, number: number, part: GithubDetailPart, filter?: DetailFilter) {
   const root = useBrainUiRoot();
   const sessionId = useRootStore("chat", (s) => s.activeSessionId);
   const [detail, setDetail] = useState<Detail>({ state: "idle", items: [], next: null, total: null });
   const last = useRef<string | null>(null);
+  const filtered = useRef(filter);
+  filtered.current = filter;
 
   const fetchPage = useCallback(
     async (cursor: string | null, append: boolean) => {
@@ -156,17 +185,33 @@ function useDetail(repository: string, number: number, part: GithubDetailPart) {
       }
       // A new request starts clean: no earlier failure's status or reset time survives it.
       setDetail((d) => ({ ...d, state: "loading", refusal: undefined, errorStatus: undefined, resetAt: undefined, resetIn: undefined }));
-      const answer = await fetchGithubDetailPage(root, { sessionId, repository, number, part, cursor });
-      if (!answer.ok) {
-        setDetail((d) => ({ ...d, ...detailErrorState(answer.error) }));
-        return;
+      const filter = filtered.current;
+      const kept: DetailItem[] = [];
+      let at = cursor;
+      let read = 0;
+      let page: GithubDetailPage;
+      for (;;) {
+        const answer = await fetchGithubDetailPage(root, { sessionId, repository, number, part, cursor: at });
+        if (!answer.ok) {
+          // Only pages that kept nothing were followed, so no row is lost; a retry repeats this page.
+          last.current = at;
+          setDetail((d) => ({ ...d, ...detailErrorState(answer.error) }));
+          return;
+        }
+        page = answer.page;
+        read += 1;
+        const items = page.items as DetailItem[];
+        kept.push(...(filter ? items.filter(filter.keep) : items));
+        at = page.next_cursor;
+        if (!filter || kept.length > 0 || !at || read >= filter.pages) break;
       }
-      const page = answer.page;
+      const answered = page;
       setDetail((d) => {
-        const items = append ? [...d.items, ...(page.items as DetailItem[])] : (page.items as DetailItem[]);
+        const items = append ? [...d.items, ...kept] : kept;
+        const next = filter?.total !== undefined && items.length >= filter.total ? null : answered.next_cursor;
         // Empty only when nothing is left to load: a page with no items can
         // still point on (the checks part's runs end by pointing at statuses).
-        return { state: items.length === 0 && !page.next_cursor ? "empty" : "loaded", items, next: page.next_cursor, total: page.total_count, pages: (d.pages ?? 0) + 1 };
+        return { state: items.length === 0 && !next ? "empty" : "loaded", items, next, total: filter ? (filter.total ?? null) : answered.total_count, pages: (d.pages ?? 0) + read };
       });
     },
     [root, sessionId, repository, number, part],
@@ -202,7 +247,7 @@ function DetailPart(p: {
   repository: string;
   number: number;
   part: GithubDetailPart;
-  object: "issue" | "pull request";
+  object: "issue" | "pull request" | "review";
   idleLabel: string;
   row: (item: DetailItem, index: number) => ReactNode;
   /**
@@ -215,8 +260,10 @@ function DetailPart(p: {
   shownCount?: number;
   /** Load when the section first mounts (a tab's first open), not on a press. */
   autoLoad?: boolean;
+  /** Keep only some items; such a section follows its own pages, bounded per press. */
+  filter?: DetailFilter;
 }) {
-  const { detail, load, more, retry } = useDetail(p.repository, p.number, p.part);
+  const { detail, load, more, retry } = useDetail(p.repository, p.number, p.part, p.filter);
   const started = useRef(false);
   useEffect(() => {
     if (!p.autoLoad || started.current) return;
@@ -224,6 +271,8 @@ function DetailPart(p: {
     load();
   }, [p.autoLoad, load]);
   const rows = p.shown ? detail.items.filter((item) => !p.shown!(item)) : detail.items;
+  // A filtered section follows its own pages, bounded per press (`useDetail`).
+  const filtered = p.filter !== undefined;
   // A page that adds nothing on screen (empty, or only rows the result
   // already shows) is followed to the next, so one press always shows
   // something new or ends the list. The result carries at most one page of
@@ -232,8 +281,8 @@ function DetailPart(p: {
   useEffect(() => {
     const before = seen.current;
     seen.current = { pages: detail.pages ?? 0, rows: rows.length };
-    if (detail.state === "loaded" && detail.next && (detail.pages ?? 0) > before.pages && rows.length === before.rows) more();
-  }, [detail.pages, detail.state, detail.next, rows.length, more]);
+    if (!filtered && detail.state === "loaded" && detail.next && (detail.pages ?? 0) > before.pages && rows.length === before.rows) more();
+  }, [filtered, detail.pages, detail.state, detail.next, rows.length, more]);
   if (detail.refusal) {
     const refused = (
       <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }} data-github-detail="refused">
@@ -295,10 +344,17 @@ function outcomeUnknown(error: GithubError): boolean {
 // Read
 // ---------------------------------------------------------------------------
 
-function threadItems(comments: GithubCommentPayload[], reviews: GithubReview[], scope: ReturnType<typeof scopeOf>, fetchedAt: string, avatarFor: AvatarFor): GitHubThreadItem[] {
+function threadItems(
+  comments: GithubCommentPayload[],
+  reviews: GithubReview[],
+  scope: ReturnType<typeof scopeOf>,
+  fetchedAt: string,
+  avatarFor: AvatarFor,
+  lineComments?: (review: GithubReview) => Partial<GitHubReviewProps>,
+): GitHubThreadItem[] {
   const timed: { at: string; item: GitHubThreadItem }[] = [
     ...comments.map((c) => ({ at: c.created_at, item: { kind: "comment" as const, id: `c${c.id}`, ...commentProps(c, scope, fetchedAt, avatarFor) } })),
-    ...reviews.map((r) => ({ at: r.submitted_at ?? "", item: { kind: "review" as const, id: `r${r.id}`, ...reviewProps(r, scope, fetchedAt, avatarFor) } })),
+    ...reviews.map((r) => ({ at: r.submitted_at ?? "", item: { kind: "review" as const, id: `r${r.id}`, ...reviewProps(r, scope, fetchedAt, avatarFor), ...lineComments?.(r) } })),
   ];
   return timed.sort((a, b) => a.at.localeCompare(b.at)).map((t) => t.item);
 }
@@ -387,10 +443,37 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
   const earlier = commentTotal !== null ? commentTotal - pr.comments.items.length : null;
   const state = pullState(pr);
 
+  // Line comments load on demand (#3796's review-comments part), per review
+  // (#4147): "Show n line comments" on each review with a known count, which
+  // mounts that review's section, filtered to its own comments.
+  const [openedReviews, setOpenedReviews] = useState<ReadonlySet<number>>(() => new Set());
+  const lineCommentRow = (item: DetailItem, i: number) => <GitHubComment key={i} {...commentProps(item as GithubReviewComment, scope, pr.fetched_at, avatarFor)} />;
+  const reviewLineComments = (review: GithubReview): Partial<GitHubReviewProps> => {
+    const count = lineCommentCount(review);
+    if (count === null) return {};
+    return {
+      lineComments: count,
+      onShowLineComments: () => setOpenedReviews((o) => (o.has(review.id) ? o : new Set([...o, review.id]))),
+      children: openedReviews.has(review.id) ? (
+        <DetailPart
+          repository={pr.repository}
+          number={pr.number}
+          part="review-comments"
+          object="review"
+          idleLabel={`Show ${count} line ${count === 1 ? "comment" : "comments"}`}
+          autoLoad
+          filter={{ keep: (item) => (item as GithubReviewComment).review_id === review.id, pages: LINE_COMMENT_PAGES, total: count }}
+          row={lineCommentRow}
+        />
+      ) : undefined,
+    };
+  };
+  const coverage = lineCommentCoverage(pr);
+
   const conversation = (
     <GitHubThread
       items={[
-        ...threadItems(pr.comments.items, pr.reviews.items, scope, pr.fetched_at, avatarFor),
+        ...threadItems(pr.comments.items, pr.reviews.items, scope, pr.fetched_at, avatarFor, reviewLineComments),
         ...(state === "merged"
           ? [{ kind: "merge" as const, id: "merge", by: pr.merged_by ? person(pr.merged_by, avatarFor) : null, into: pr.base_ref, sha: pr.merge_commit_sha?.slice(0, 7) ?? null, time: ago(pr.merged_at, pr.fetched_at) }]
           : []),
@@ -508,19 +591,20 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
           </div>
         ) : null,
       )}
-      {/* Line comments load on demand (#3796's review-comments part). The
-          payload carries no per-review count, so this is one section for the
-          pull request rather than a "Show n line comments" per review. */}
-      {pr.reviews.items.length > 0 ? (
+      {/* Line comments no review's own control reaches (#4147): those of a
+          review whose count is unknown, or of reviews the result does not
+          carry. Absent when every review in a complete list has its count. */}
+      {coverage.remainder ? (
         <div hidden={tab !== 0}>
-        <DetailPart
-          repository={pr.repository}
-          number={pr.number}
-          part="review-comments"
-          object="pull request"
-          idleLabel="Show line comments"
-          row={(item, i) => <GitHubComment key={i} {...commentProps(item as GithubReviewComment, scope, pr.fetched_at, avatarFor)} />}
-        />
+          <DetailPart
+            repository={pr.repository}
+            number={pr.number}
+            part="review-comments"
+            object="pull request"
+            idleLabel={coverage.counted.size ? "Show line comments of other reviews" : "Show line comments"}
+            filter={{ keep: (item) => { const id = (item as GithubReviewComment).review_id; return id === null || !coverage.counted.has(id); }, pages: LINE_COMMENT_PAGES }}
+            row={lineCommentRow}
+          />
         </div>
       ) : null}
     </GitHubPullRequest>
