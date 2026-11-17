@@ -107,7 +107,8 @@ const REVIEW_STATE: Record<GithubReview["state"], GitHubReviewState> = {
   changes_requested: "changes-requested",
   commented: "commented",
   dismissed: "dismissed",
-  pending: "review-requested",
+  // An unsubmitted draft review is not a request for review: it reads as not reported.
+  pending: null,
 };
 
 function reviewState(state: GithubReview["state"] | null | undefined): GitHubReviewState {

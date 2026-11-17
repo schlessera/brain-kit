@@ -7,12 +7,13 @@ import { registerGithubToolsDom, unregisterGithubToolsDom } from "./github-tools
 registerGithubToolsDom();
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { act, cleanup, fireEvent, render as mount } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as mount, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { visibleToolName, type ToolCallView } from "@schlessera/brain-ui-sdk/client";
 import { GITHUB_TOOL_NAMES } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { resetToolRenderers, resolveToolRenderer } from "../../../ui-sdk/src/client/renderers.js";
 import { registerBuiltinRenderers } from "../../src/components/chat/renderers/index.js";
+import { ToolPermissionCard } from "../../src/components/chat/tool-permission-card.js";
 import { createBrainUiRoot } from "../../src/root.js";
 import { BrainUiProvider } from "../../src/root-context.js";
 import { HOSTILE_BODY, author, envelope, issue, pull, refusal, search } from "../github-fixtures.js";
@@ -164,8 +165,16 @@ describe("direct links pass #3797's validator or render nowhere", () => {
       });
       const pr = output("read", envelope("read", swapped));
       expect(links(pr.container), "no direct link in any slot").toEqual([]);
-      expect(pr.container.textContent).toContain("Restring the great bow before the contest");
-      fireEvent.click(pr.getByRole("tab", { name: /Commits/ }));
+      const reference = output("read", envelope("read", base));
+      const words = (el: HTMLElement) => (el.textContent ?? "").replaceAll("GitHub ↗", "");
+      expect(words(pr.container), "the rest of the component is unchanged").toBe(words(reference.container));
+      const searchUrl = search().search_url;
+      if (swap(searchUrl) !== searchUrl) {
+        // A search URL has no number, so the number swap leaves it valid.
+        const found = output("search", envelope("search", search({ search_url: swap(searchUrl), items: search().items.map((i) => ({ ...i, html_url: swap(i.html_url) })) })));
+        expect(links(found.container), "no search or result link").toEqual([]);
+      }
+      fireEvent.click(within(pr.container).getByRole("tab", { name: /Commits/ }));
       expect(links(pr.container), "no commit link").toEqual([]);
     });
   }
@@ -356,5 +365,34 @@ describe("write outcomes say what the host knows", () => {
       const { container } = render(<Input tool={call(name, undefined, { input: { repository: "ithaca/hall", title: "Key log" }, status })} />);
       expect(container.textContent, status).toBe("");
     }
+  });
+});
+
+describe("review states", () => {
+  test("an unsubmitted (pending) review reads as not reported, never as a review request", () => {
+    const pr = pull({ reviews: { items: [{ ...pull().reviews.items[0]!, state: "pending", body: null, body_length: 0 }], total_count: 1, has_more: false } });
+    const { container } = output("read", envelope("read", pr));
+    const review = container.querySelector("[data-github-review]")!;
+    expect(review.textContent).toContain("Not reported");
+    expect(review.textContent).not.toContain("Requested");
+  });
+});
+
+describe("the approval card", () => {
+  test("a GitHub write names its repository and the design's actions, never the draft as one JSON line", () => {
+    const toolCall = { id: "github-1", name: visibleToolName(GITHUB_TOOL_NAMES.create, "claude"), input: { repository: "ithaca/hall", title: "Cellar key log", body: "Two signatures per opening." }, status: "pending_approval" as const };
+    const { container, getByRole } = render(<ToolPermissionCard toolCall={toolCall as never} onApproval={() => true} backendId="claude" />);
+    expect(container.textContent).toContain("ithaca/hall");
+    expect(container.textContent).not.toContain('{"repository"');
+    expect(getByRole("button", { name: /Post issue/ })).toBeTruthy();
+    expect(getByRole("button", { name: /Don't post/ })).toBeTruthy();
+    expect(container.textContent).toContain("Not posted");
+  });
+
+  test("a comment names its issue", () => {
+    const toolCall = { id: "github-2", name: visibleToolName(GITHUB_TOOL_NAMES.comment, "pi"), input: { repository: "ithaca/hall", number: 388, body: "Filed #401." }, status: "pending_approval" as const };
+    const { container, getByRole } = render(<ToolPermissionCard toolCall={toolCall as never} onApproval={() => true} backendId="pi" />);
+    expect(container.textContent).toContain("ithaca/hall #388");
+    expect(getByRole("button", { name: /Post comment/ })).toBeTruthy();
   });
 });

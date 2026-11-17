@@ -88,3 +88,24 @@ export const githubToolPack: RendererPack = {
     }),
   ],
 };
+
+/** The bare GitHub tool name behind any backend's spelling, or null. */
+function githubToolName(name: string): string | null {
+  const bare = name.replace(/^mcp__brain[-_]ui__/, "");
+  return bare === GITHUB_TOOL_NAMES.create || bare === GITHUB_TOOL_NAMES.comment ? bare : null;
+}
+
+/**
+ * A GitHub write's approval header: where it goes, never the draft as one
+ * JSON line; the draft renders below as W1 or W4. The buttons say what
+ * happens, in the design's words.
+ */
+export function githubApproval(tool: Pick<ToolCallView, "name" | "input">): { target: string; allowLabel: string; denyLabel: string } | null {
+  const name = githubToolName(tool.name);
+  if (!name) return null;
+  const input = (tool.input ?? {}) as { repository?: unknown; number?: unknown };
+  const repository = typeof input.repository === "string" ? input.repository : "GitHub";
+  return name === GITHUB_TOOL_NAMES.create
+    ? { target: repository, allowLabel: "Post issue", denyLabel: "Don't post" }
+    : { target: typeof input.number === "number" ? `${repository} #${input.number}` : repository, allowLabel: "Post comment", denyLabel: "Don't post" };
+}
