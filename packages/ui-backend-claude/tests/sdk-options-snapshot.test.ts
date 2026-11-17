@@ -29,6 +29,8 @@ import { SNAPSHOT_MODES, sdkOptionsSnapshot } from "./helpers/sdk-options-snapsh
  * #3975 adds `request_image_markup` after the mask tool in those four modes'
  * stable roster (names, schema digest and its brief in the retained append);
  * allowlists and autonomous modes stay byte-identical.
+ * #3799 inserts the host GitHub tools' bullet in the retained append of those
+ * four modes, after the tool briefs; everything else stays byte-identical.
  * Regenerate it only for a reviewed, intended change to
  * the roster, allowlist or system prompt, and say so in the PR.
  */

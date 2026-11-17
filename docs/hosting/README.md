@@ -115,6 +115,40 @@ is set; the server passes the key through to the brain CLI. Without it the
 sync takes the conservative defaults. See
 [configuration.md](../configuration.md#sync).
 
+## GitHub tools
+
+A hosted turn reads and files GitHub issues and pull requests through four
+host tools: `brain_github_issue_read`, `brain_github_issue_search`,
+`brain_github_issue_create` and `brain_github_issue_comment`. The host holds
+the token. Workers never get a GitHub credential, so `gh` inside a turn stays
+unauthenticated.
+
+1. In GitHub's **Settings → Developer settings → Fine-grained tokens**,
+   create a token. Restrict it to the repositories a turn may use; choose
+   **Only select repositories**.
+2. Give it read access to **Issues**, **Pull requests**, **Checks** and
+   **Commit statuses**. GitHub adds **Metadata** read on its own. A pull
+   request's checks summary reads check runs and commit statuses. If one of
+   those permissions is missing, the summary comes back `null` (not
+   reported, which is different from zero), and GitHub's `X-Accepted-GitHub-Permissions` response header names the
+   missing permission.
+3. If turns should file issues or comment, add **Issues** write access as
+   well.
+4. Set it as `BRAIN_UI_GITHUB_TOOLS_TOKEN` in the server's environment and
+   recreate the container. No other token stands in for it: without this one
+   the tools answer `unavailable`.
+5. To allow writes, list the repositories under `outward.github.repositories`
+   in the brain's governance policy (`owner/repo`, or `owner/*` for every
+   repository of one owner). A write anywhere else is refused before any card
+   is shown. Every allowed write still asks for its own approval.
+
+Reads see only what the token can see. Their results count as untrusted
+input for the session. A command that calls GitHub's API directly, such as a
+script or a compound `curl` line, waits on a `Network` approval card rather
+than reaching GitHub. Without a credential it could not act as you anyway.
+See [the decision](../decisions/governed-writable-workers.md#outward-actions-g5)
+and [the tool contract](../integration-contract/mcp.md#host-github-tools-additive-0450-3797).
+
 ## Recovery and partial availability
 
 The UI server permits one HTTP sync at a time per canonical brain root.
