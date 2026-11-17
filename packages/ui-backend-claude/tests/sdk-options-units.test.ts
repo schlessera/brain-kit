@@ -92,6 +92,18 @@ describe("assemblePromptContext", () => {
     } finally { rmSync(brain, { recursive: true, force: true }); }
   });
 
+  test("the fixed append sends GitHub through the host tools under their visible names (#3799)", () => {
+    const brain = mkdtempSync(join(tmpdir(), "odysseus-prompt-context-"));
+    try {
+      const req = request({ sessionId: undefined });
+      const sandbox = { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] } as never;
+      const { append } = assemblePromptContext({ brainPath: brain }, req, computeToolRoster(req, []), sandbox, "SANDBOX NOTE");
+      expect(append, "CLAUDE_FIXED_APPEND_GITHUB_LINE").toContain("- **GitHub goes through the host tools.**");
+      for (const name of ["read", "search", "create", "comment"])
+        expect(append, `CLAUDE_FIXED_APPEND_NAMES ${name}`).toContain(`\`mcp__brain-ui__brain_github_issue_${name}\``);
+    } finally { rmSync(brain, { recursive: true, force: true }); }
+  });
+
   test("an autonomous turn has no prompt context and appends its brief to the sandbox note", () => {
     const brain = mkdtempSync(join(tmpdir(), "odysseus-prompt-context-"));
     try {

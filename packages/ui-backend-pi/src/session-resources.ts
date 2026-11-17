@@ -4,7 +4,7 @@ import {
   SettingsManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
+import { buildSystemPromptAppend, GITHUB_TOOL_NAMES } from "@schlessera/brain-ui-sdk/server";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -116,7 +116,7 @@ export function createSessionResources(options: {
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, web: true,
+        location: true, activity: true, inbox: true, mask: true, markup: true, turnTemp: true, reference: true, compute: true, web: true, github: true,
       } }, subagentTool, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
@@ -186,6 +186,9 @@ function buildAppend(
       // session: the brief says what they do not offer. The worker never
       // reads the host's web configuration.
       ...(env.caps.web ? { webTools: true } : {}),
+      // The host GitHub tools (#3797), listed in every interactive session.
+      ...(env.caps.github ? { githubTools: { read: GITHUB_TOOL_NAMES.read, search: GITHUB_TOOL_NAMES.search,
+        create: GITHUB_TOOL_NAMES.create, comment: GITHUB_TOOL_NAMES.comment } } : {}),
       // Named only when the bridge actually provides the handler — the toolkit
       // registers each tool on the same condition.
       tools: {
