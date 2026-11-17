@@ -1081,8 +1081,9 @@ mounts qualify the mount restriction.
 
 Only a successful, drained native process publishes its artifact identities into
 a fresh per-launch handoff directory. The browser validates the preparation
-session, checkout, source/installation/runtime identities and all three artifact
-hashes, writes those exact validated bytes into its private consumer view, then
+session, checkout and all three artifact hashes, and the source, installation
+and runtime identities when a caller supplies expected ones (since #4105 none
+does). It writes those exact validated bytes into its private consumer view, then
 retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
@@ -1108,8 +1109,12 @@ The binding (`scripts/native-diagram-inputs.ts`) and its self-test are
 removed, and the browser input closure no longer binds the producer's reads.
 The browser domain therefore always runs fresh. This supersedes the
 requalification rulings of 2026-11-02 (#2509/#3320) and 2026-11-11 (#3968).
-The container boundary above, the producer's own run-time identity checks and
-the browser's validation of the handoff are unchanged. If browser retention
+The container boundary above, the producer's own run-time checks and the
+browser's validation of the handoff session, checkout and artifact hashes are
+unchanged. The comparisons against an expected source, installation or
+runtime identity (`diagram-export-command.ts`, `prepare-diagram-export-source.mjs`,
+`ci-proof.ts`) take that identity from the retired binding, so they no longer
+run. If browser retention
 returns to ready confirmation, its qualification is designed afresh then.
 Local proof is not a hosted baseline, retention hit or permission to use a
 failed workflow.
