@@ -8,7 +8,7 @@ import {diagramInstallationIdentity} from "./diagram-export-installation.mjs";
 const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
 const archivePath=repo=>join(repo,"tmp/diagram-export-source.json");
 /** Development uses current tracked bytes; hosted passing proof requires HEAD bytes. */
-export function prepareDiagramExportSource(repo,immutable=false,expected){
+export function prepareDiagramExportSource(repo,immutable=false){
  const git=(...args)=>{const result=spawnSync("git",args,{cwd:repo,encoding:"utf8"});if(result.status!==0)throw Error(`Cannot prepare native diagram source: ${result.stderr}`);return result.stdout;};
  const entries=git("ls-files","--stage","-z").split("\0").filter(Boolean).map(row=>{const tab=row.indexOf("\t"),[mode,oid,stage]=row.slice(0,tab).split(" ");return{mode,oid,stage,path:row.slice(tab+1)};}).filter(entry=>isDiagramSource(entry.path));
  if(!entries.length||diagramSourceSetup.some(path=>!entries.some(entry=>entry.path===path)))throw Error("Missing native diagram source configuration");
@@ -20,7 +20,6 @@ export function prepareDiagramExportSource(repo,immutable=false,expected){
  });
  const installation=diagramInstallationIdentity(repo);
  const sourceIdentity=diagramSourceIdentity(inputs);
- if(expected&&(installation.sha256!==expected.installation||sourceIdentity!==expected.source))throw Error("NATIVE_EXPORT_FRESH_RECEIPT_INPUT_MISMATCH");
  const head=git("rev-parse","HEAD").trim(),record={version:2,installation,sourceIdentity,immutable,checkout:immutable?head:null,base:head,domains:diagramSourceDomains,inputs};
  mkdirSync(join(repo,"tmp"),{recursive:true});const state=mkdtempSync(join(repo,"tmp/diagram-source-"));
  try{const file=join(state,"archive.json");writeFileSync(file,JSON.stringify(record));renameSync(file,archivePath(repo));}finally{rmSync(state,{recursive:true,force:true});}

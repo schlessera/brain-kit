@@ -1055,9 +1055,8 @@ mounts qualify the mount restriction.
 
 Only a successful, drained native process publishes its artifact identities into
 a fresh per-launch handoff directory. The browser validates the preparation
-session, checkout and all three artifact hashes, and the source, installation
-and runtime identities when a caller supplies expected ones (since #4105 none
-does). It writes those exact validated bytes into its private consumer view, then
+session, checkout and all three artifact hashes. It writes those exact
+validated bytes into its private consumer view, then
 retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
@@ -1086,9 +1085,11 @@ requalification rulings of 2026-11-02 (#2509/#3320) and 2026-11-11 (#3968).
 The container boundary above, the producer's own run-time checks and the
 browser's validation of the handoff session, checkout and artifact hashes are
 unchanged. The comparisons against an expected source, installation or
-runtime identity (`diagram-export-command.ts`, `prepare-diagram-export-source.mjs`,
-`ci-proof.ts`) took that identity from the retired binding, so they no longer
-run. Local proof is not a hosted baseline or permission to use a failed
+runtime identity took that identity from the retired binding, so no caller
+could supply one. They are removed, together with the environment variable
+that carried the identity to the browser runner
+([#4119](https://github.com/schlessera/brain-kit/issues/4119)).
+Local proof is not a hosted baseline or permission to use a failed
 workflow.
 
 
