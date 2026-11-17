@@ -120,7 +120,7 @@ function github(options: FakeGithubOptions & { comments?: number } = {}): FakeGi
 /** What the real host's tools returned, as the session's history records it. */
 async function toolResults(fake: FakeGithub): Promise<GithubToolResult[]> {
   const host = createGithubToolsHost({ token: () => GITHUB_TOOLS_SENTINEL, fetch: standInFetch(fake), now: () => NOW, untrusted: async () => {} });
-  const turn = { turnId: "turn-ithaca", principalId: owner.id, sessionId: () => SESSION };
+  const turn = { turnId: "turn-ithaca", principalId: owner.id, sessionId: () => SESSION, routing: async () => null };
   const results = [
     await host.call(turn, { tool: "brain_github_issue_read", input: { repository: "odysseus/ithaca", number: 7 } }),
     await host.call(turn, { tool: "brain_github_issue_read", input: { repository: "odysseus/ithaca", number: 8 } }),

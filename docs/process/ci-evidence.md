@@ -14,12 +14,13 @@ unknown, never zero. A successful hourly workflow can contain partial data.
 ## Record kinds, schemas and retention
 
 The following names identify normalized kinds, independent of individual file
-IDs. Every existing versioned kind below has integer `version: 1`; no existing
-shape is changed here. The durable layout is `YYYY-MM/<record-kind>.json` on
-`refs/heads/brain-ci-metrics`, with per-record versions preserved. The daily
-writer/backfill is planned in [#2955](https://github.com/schlessera/brain-kit/issues/2955);
-this naming does not assert the ref has been populated. Unknown versions must
-be refused; future schemas append rather than rewrite history.
+IDs. Every versioned kind below has integer `version: 1`, except `run`, which
+is v1 or v2 ([runner-slot wait](ci-throughput.md#runner-slot-wait)). The durable
+layout is `YYYY-MM/<record-kind>.json` on `refs/heads/brain-ci-metrics`, with
+per-record versions preserved. The daily writer and backfill
+([#2955](https://github.com/schlessera/brain-kit/issues/2955)) are described in
+the [durable archive guide](ci-timings.md#durable-archive). Unknown versions
+are refused; future schemas append rather than rewrite history.
 
 | Kind (file) | Schema source and identity | Acquisition cadence | Raw-source retention |
 | --- | --- | --- | --- |
@@ -31,14 +32,17 @@ be refused; future schemas append rather than rewrite history.
 | `event` (`event-<id>.json`) v1 | `WorkEvent`, immutable opaque event ID, repository, timestamp and kind; work/wait pairs or evidence-linked classifications/incidents/reverts/expedited fixes. | Explicit local `record`; automatic host-admission wait pairs. Hosted publication planned in #2954. | Local ignored files have owner-controlled lifetime, no automatic hosted retention; published/compacted copies belong to #2954/#2955. |
 | `collection` (`collection.json`, `collections/<id>/collection.json`) v1 | Collection ID, requested window, discovered attempts, errors, budget and seed observations. | Every collect invocation, including partial acquisition. | API responses transient; manifests in hourly artifacts request 90 days. |
 | `enrichment` (`enrichment.json`) v1 | `LifecycleAcquisition`, repository, timestamp, expected PRs and acquisition errors. | Every lifecycle enrichment. | API responses transient; artifacts request 90 days. |
+| `source` (archive only) v1 | `ArchiveSource`, repository/artifact; collector run, artifact creation time, SHA-256 digest, archived and refused record counts. | Daily archive compaction, one per retained artifact. | Written to the data ref; the artifact it names expires after 90 days. |
 | `summary` (`summary.json`) v1 | `summarize` and report joins: derived timings, throughput, epochs, red-main and coverage sections. Markdown is a rendering, not another schema. | Local `report` and hourly collect; scheduled archive-based daily/weekly report planned in #2956. | Derived from retained inputs; artifacts request 90 days. |
 
-Schema anchors: (`TimingSnapshot`, `scripts/ci-timings.ts:39-51`),
+Schema anchors: (`TimingSnapshot`, `scripts/ci-timings.ts:40-52`),
 (`PullObservation`, `scripts/ci-throughput.ts:7-13`),
 (`WorkEvent`, `scripts/ci-throughput.ts:14-20`),
 (`ReservationArchive`, `scripts/ci-coordination.ts:7-10`),
 (`RedMainArchive`, `scripts/ci-red-main.ts:45-51`),
-(`CoordinatorObservation`, `scripts/ci-red-main.ts:52-56`).
+(`CoordinatorObservation`, `scripts/ci-red-main.ts:52-56`),
+(`ArchiveSource`, `scripts/ci-archive.ts:33-35`).
+`summary` is derived on reporting and is not archived.
 `analysis-window.json` and `scenario.json` are unversioned report inputs,
 not observed metrics or independently versioned archive kinds.
 
