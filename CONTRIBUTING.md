@@ -223,7 +223,9 @@ real Chrome and required namespaces may not silently skip. The final `proof`
 check requires every selected category to pass. Scheduled/manual exhaustive
 runs supplement affected PR proof; they do not replace it.
 
-Drafts stay on cheap gates. Opening/reopening a ready PR or marking it ready
+Drafts stay on cheap gates, plus one job: a PR that adds or modifies a Bun
+test file has those files repeated under CPU load
+([why](docs/process/testing.md#changed-tests-repeat-under-load)). Opening/reopening a ready PR or marking it ready
 requests affected candidate confirmation of the fast categories (types,
 packaging, unit/integration); heavy runtime, browser, layout, capture and
 endurance proof runs on the squash's own main run

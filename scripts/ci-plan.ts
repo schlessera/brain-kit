@@ -150,6 +150,8 @@ export interface CheckPlan {
   local: { fullTests: boolean; browser: boolean; layout: boolean; captures: boolean; runtime: boolean; endurance: boolean };
   /** Main pushes also prove the open red-main record's failures (#2942). */
   redMain?: IncludedRedSet;
+  /** Bun test files a pull request adds or modifies; each repeats under CPU load before merge (#4109). */
+  determinism?: string[];
 }
 
 export function workspaces(root: string): Workspace[] {
@@ -308,7 +310,22 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
   const explicitRoot = arguments.length >= 3;
   const plan = planBeforeBrowserClosures(changed, packages, root, enableConsumerSelection, explicitRoot);
-  return explicitRoot && !plan.global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+  const selected = explicitRoot && !plan.global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+  // Main pushes and their red-main replans pass enableConsumerSelection=false: repetition is pre-merge proof.
+  const determinism = explicitRoot && enableConsumerSelection ? determinismTests(root, changed) : [];
+  return determinism.length ? { ...selected, determinism } : selected;
+}
+
+/**
+ * The Bun test files among `changed` that exist in this checkout: what a
+ * change adds or modifies, never what it deletes (#4109). Same roots, name
+ * suffixes and directory exclusions as `discoverTests` (scripts/test-shards.ts).
+ */
+export function determinismTests(root: string, changed: readonly string[]): string[] {
+  return [...new Set(changed)].filter(path => /^(?:packages|tests)\//.test(path) &&
+    /(?:\.test|\.spec|_test|_spec)\.(?:[cm]?[jt]s|[jt]sx)$/i.test(basename(path)) &&
+    !path.split("/").slice(0, -1).some(part => part.startsWith(".") || part.toLowerCase() === "node_modules") &&
+    lstatSync(join(root, path), { throwIfNoEntry: false })?.isFile() === true).sort();
 }
 
 /**
@@ -425,11 +442,14 @@ export function proofSelections(plan: CheckPlan, draft = false): Record<string, 
   const feedback = plan.cadence === "feedback";
   const confirmation = plan.cadence === "confirmation";
   draft ||= plan.cadence === "draft";
-  return Object.fromEntries(Object.entries({
+  // Changed Bun tests repeat under load at every pull-request cadence, drafts
+  // included, and in draft heavy feedback; never on main (2026-11-16 ruling, #4109).
+  const determinism = !["integrated", "exhaustive"].includes(plan.cadence ?? "") && (plan.determinism?.length ?? 0) > 0;
+  return { ...Object.fromEntries(Object.entries({
     verify: plan.typecheck || ((feedback || !plan.local.fullTests) && plan.tests.length > 0), pack: !feedback && plan.pack,
     unit: !feedback && plan.local.fullTests, browser: !feedback && plan.local.browser, layout: !feedback && plan.local.layout,
     captures: !feedback && plan.local.captures, runtime: !feedback && plan.local.runtime, runtime_host: !feedback && plan.local.runtime, endurance: !feedback && plan.local.endurance,
-  }).map(([name, selected]) => [name, !draft && !(confirmation && isPostMerge(name as Category)) && selected]));
+  }).map(([name, selected]) => [name, !draft && !(confirmation && isPostMerge(name as Category)) && selected])), determinism };
 }
 
 function git(root: string, args: string[]): string {

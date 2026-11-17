@@ -1818,7 +1818,7 @@ stay pre-merge; heavy categories move to the squash's own main run.
   `unit` (complete affected unit/integration discovery, unchanged). It no
   longer runs `runtime`, `runtime_host`, `browser`, `layout`, `captures` or
   `endurance`. The exclusion lives in one place:
-  `proofSelections` (`scripts/ci-plan.ts:424-433`) applies
+  `proofSelections` (`scripts/ci-plan.ts:441-453`) applies
   `POST_MERGE_CATEGORIES` (`scripts/red-main.ts:20-25`). Candidate admission,
   the aggregate and the merge path validate that same selection, so none of
   them can require a post-merge category.
@@ -2036,6 +2036,79 @@ it does not automate the reviewer.
 Git and its configuration. A merge that another Git or another rename setting
 would have written differently reads as altered and costs one more review; it
 never passes unread.
+
+## Changed tests repeat under load before merge
+
+The maintainer ruled on 2026-11-16
+([#4109](https://github.com/schlessera/brain-kit/issues/4109)) that a Bun test
+file a pull request adds or modifies must pass repeated runs under CPU load
+before it merges.
+
+**Why.** Main went red 25 times between 2026-11-02 and 2026-11-16. About 18 of
+those incidents were cleared by changing only a test: a wait, a pinned clock,
+a readiness signal, a deadline a loaded shard could meet. About six were
+product defects. The first-main failure rate was about the same for PRs under
+100 lines (19%) as for PRs over 2,000 lines (22%). These are tests that pass
+once and fail later on someone else's merge, and nothing ran a new or changed
+test more than once before it merged.
+
+- **What runs.** `bun scripts/test-determinism.ts --base <ref>` selects the
+  Bun test files under `packages/` and `tests/` that the change adds or
+  modifies against its merge base (`determinismTests`,
+  `scripts/ci-plan.ts:323-328`). It runs them in one invocation of the offline
+  wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
+  `scripts/test-determinism.ts:84-87`), so the offline preload applies and
+  preparation builds once. One busy loop per CPU runs for the duration. Each
+  is killed by PID on every exit path, and exits by itself if its parent dies
+  (`startBurners`, `scripts/test-determinism.ts:136-151`). The first failing
+  repetition fails the command, which names the file, the repetition and the
+  case. A passing run must also show every repetition in Bun's test report.
+- **Bounded.** Five repetitions by default, within a budget of 600 seconds of
+  the reviewed weights in `scripts/test-shard-costs.json`. When five do not
+  fit, every file gets the same reduced count, down to a floor of two
+  (`planRepetitions`, `scripts/test-determinism.ts:62-81`). A selection too
+  heavy for the floor still runs every file twice and is reported over budget.
+  No selected file is skipped; the report lists each one with the repetitions
+  it got. Over 150 merges before the gate, 142 selections fit five
+  repetitions. A selection too heavy for the job's step limit is
+  [#4117](https://github.com/schlessera/brain-kit/issues/4117).
+- **Where it is required.** The hosted `determinism` job is selected whenever
+  the plan lists such a file, at every pull-request cadence: draft, ready
+  `synchronize` feedback and ready confirmation. Draft heavy feedback runs it
+  too (`proofSelections`, `scripts/ci-plan.ts:441-453`). This amends "drafts
+  run cheap gates only" for this one job, so the
+  [fast lane](#fast-lane-outside-the-core-packages)'s newest run includes it.
+  `draft gates`, `proof` and the merge path require it when selected and
+  require its intentional skip otherwise. It is a fast category under the
+  [hybrid split](#hybrid-post-merge-heavy-proof): it is not in
+  `POST_MERGE_CATEGORIES`. The job has the `unit` job's runtime prerequisites,
+  because a changed file may drive real Chrome.
+- **Not on main.** A main push never selects it. The squash's files were
+  repeated before they merged, and the main run already runs each of them once
+  in `unit`.
+- **Not local.** `check:pr` never runs it, because it occupies every CPU of a
+  shared host. `check:pr --plan` names the command when the change selects it.
+  A deliberate local run takes a
+  [host admission](../process/testing.md#host-admission-for-heavy-local-commands) slot.
+
+**What does not change.** No test deadline changes. No failure is retried
+into a pass: a failing repetition is a failed job, and the remedy is fixing
+the test or what it exposes. Unchanged tests are not repeated.
+
+**First hosted run.** The job's first run, on the PR that added it, repeated
+seven changed files five times and then failed in the gate's own test: under
+GitHub Actions Bun prints each run's header as a `::group::` annotation, which
+the failure parser did not read, so the failure was reported without its file
+and repetition. The parser reads both forms now. That run took 552 seconds
+for about 174 weighted seconds, a ratio of about 3.2 under four burners on
+four CPUs, so a selection at the 600-second budget needs about 32 minutes of
+the 40-minute step limit.
+
+**Known limits.** Repetitions of one file share a process. Bun 1.4.2 evaluates
+the module again for each run, but `globalThis` and process state persist, so a
+file that leaks state into its next run fails too. Vitest browser, layout,
+endurance and story specs run in the pinned container and are not covered
+([#4116](https://github.com/schlessera/brain-kit/issues/4116)).
 
 ## Historical measurement and upstream guidance
 

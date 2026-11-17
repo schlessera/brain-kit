@@ -39,7 +39,7 @@ follows is in [ci-utility.md](ci-utility.md) and
   enumerated fields.
 - **A batch stays inside one group and lands as one pull request.** Hosted
   proof for a test edit is priced by the workspaces it touches, not by the
-  number of files (`const packageCode`, `scripts/ci-plan.ts:356-357`): any path
+  number of files (`const packageCode`, `scripts/ci-plan.ts:373-374`): any path
   under a package's `tests/` selects that package and its reverse dependants.
   One changed test in a package costs the same confirmation as thirty, so
   small pull requests are the most expensive way to land this work. A large

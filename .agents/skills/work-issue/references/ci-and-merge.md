@@ -129,7 +129,11 @@ Forks use ordinary `pull_request` with a read-only token (`contents: read`,
 plus `actions: read` / `checks: read` for bounded proof lookup), no secrets
 and nonpersisted checkout credentials; an approval-held run has not passed.
 Drafts run cheap gates only, and tests-only changes may intentionally skip
-packaging while complete affected tests run. Read actual GitHub checks
+packaging while complete affected tests run. One job is the exception: when a
+PR adds or modifies a Bun test file, `determinism` repeats those files under
+CPU load at every cadence, drafts included, and `draft gates` and `proof`
+require it. A failing repetition is fixed in the test, never rerun
+([the gate](../../../../docs/process/testing.md#changed-tests-repeat-under-load)). Read actual GitHub checks
 and logs for the current head, never an old Depot receipt or latest-main run.
 GitHub checks/statuses may include additional gates. No rows,
 queued/running checks or cancelled runs are not green.

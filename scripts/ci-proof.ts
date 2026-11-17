@@ -16,8 +16,15 @@ import { diskSampler, floorProblem } from "./ci-disk";
 import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable, type Inputs } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
-export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"] as const;
-export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "runtime_host" | "endurance";
+export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism"] as const;
+export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "runtime_host" | "endurance" | "determinism";
+export const DETERMINISM_REPORT = "tmp/determinism-report.json";
+
+/** The planner's added or modified Bun test files; an empty selection is never a job (#4109). */
+export function determinismFiles(plan: CheckPlan): string[] {
+  if (!plan.determinism?.length) throw new Error("Repeated-run proof was not selected");
+  return [...plan.determinism];
+}
 
 /** Aggregate requires passed selected jobs; missing/false-looking output is not proof. */
 export function proofProblems(needs: Record<string, { result?: string; outputs?: Record<string, string> }>, retained: ReadonlySet<string> = new Set()): string[] {
@@ -56,7 +63,11 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
     : [process.execPath, "run", "test", ...unitFiles(plan, root, shard).map(file => join(root, file)),
       "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
     env: { BRAIN_REQUIRE_CHROME: "1" } }];
-  const names: Record<Exclude<ProofCategory, "unit">, string[]> = {
+  // The unit job's serial form, repeated: changed files may drive real Chrome too.
+  if (category === "determinism") return [{ name: "changed Bun test files repeated under CPU load",
+    argv: [process.execPath, join(root, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`, ...determinismFiles(plan)],
+    env: { BRAIN_REQUIRE_CHROME: "1" } }];
+  const names: Record<Exclude<ProofCategory, "unit" | "determinism">, string[]> = {
     browser: ["workspace build for real browser checks", "complete pinned visual/accessibility/pointer suite"],
     layout: ["workspace build for real browser checks", "complete pinned layout/offline suite"],
     endurance: ["workspace build for real browser checks", "complete pinned endurance suite"],
@@ -97,7 +108,7 @@ if (import.meta.main) {
     } else {
       const root = resolve(import.meta.dir, "..");
       const category = process.argv[2] as ProofCategory;
-      if (!["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"].includes(category)) throw new Error("Unknown proof category");
+      if (!["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism"].includes(category)) throw new Error("Unknown proof category");
       const args = process.argv.slice(3);
       const shardArg = args.find(arg => arg.startsWith("--shard="));
       const workersArg = args.find(arg => arg.startsWith("--workers="));
@@ -117,18 +128,18 @@ if (import.meta.main) {
       if (identity.exitCode !== 0) throw new Error("Cannot record actual proof checkout");
       const [sha, tree, ...parents] = new TextDecoder().decode(identity.stdout).trim().split(" ");
       await Bun.write(join(root, "tmp/proof-checkout.json"), JSON.stringify({ category, shard,
-        checkout: { sha, tree, parents }, plan, inputs, files: category === "unit" ? unitFiles(plan, root, shard) : undefined }, null, 2));
-      const native = category === "unit" || category === "runtime" || category === "runtime_host";
+        checkout: { sha, tree, parents }, plan, inputs, files: category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan) : undefined }, null, 2));
+      const native = category === "unit" || category === "runtime" || category === "runtime_host" || category === "determinism";
       const chrome = requireRuntimeTools({ ...plan, local: { ...plan.local, fullTests: native,
         browser: !native, layout: !native, captures: !native } });
-      if (chrome && category === "unit") await runCommands([{ name: "first real Chrome launch and render",
+      if (chrome && (category === "unit" || category === "determinism")) await runCommands([{ name: "first real Chrome launch and render",
         argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome] }], root);
       const commands = categoryCommands(category, plan, root, shard, unitWorkers).map(command => ({ ...command,
         env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env, ...(inputs?.nativeDiagram?{BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS:JSON.stringify(inputs.nativeDiagram)}:{}) } }));
       // The host/container lease regression deliberately uses --pull=never
       // under the offline test harness. Prepare its actual pinned image once,
       // only on the partition that discovers that test, before entering tests.
-      if (category === "unit" && unitFiles(plan, root, shard).includes("tests/workspace-lease.test.ts")) {
+      if ((category === "unit" ? unitFiles(plan, root, shard) : category === "determinism" ? determinismFiles(plan) : []).includes("tests/workspace-lease.test.ts")) {
         if (!Bun.which("docker")) throw new Error("The native workspace lease test requires Docker");
         const { image } = await resolveBrowserPin(root);
         commands.unshift({ name: "pinned offline workspace lease container prerequisite", argv: ["docker", "pull", image], env: {} });
