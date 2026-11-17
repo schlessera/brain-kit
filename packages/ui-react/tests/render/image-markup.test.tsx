@@ -1,7 +1,7 @@
 // `request_image_markup` in the app (#3975): the frame opens the editor, the
 // layer is uploaded rather than sent on the socket, closing declines, and the
 // transcript shows the receipt or the refusal in the result's own words.
-import { unregisterAskUserDom } from "./ask-user-dom.js";
+import { unregisterImageMarkupDom } from "./image-markup-dom.js";
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
@@ -20,7 +20,7 @@ import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
 import type { MarkupRequest } from "../../src/stores/markup-state.js";
 
 afterEach(cleanup);
-afterAll(unregisterAskUserDom);
+afterAll(unregisterImageMarkupDom);
 beforeAll(() => registerBuiltinRenderers());
 
 const payload = {

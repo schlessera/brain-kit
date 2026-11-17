@@ -84,30 +84,26 @@ Before instrumenting installed dependencies, follow
 [dependency diagnostic preparation](docs/process/diagnostic-installs.md):
 worktrees alone do not isolate Bun cache hardlinks.
 
-The frozen native diagram control also requires the independently qualified
-installation bytes and modes. An `installation-mismatch` with matching frozen
-source is an install problem: keep its source revision, 859-file inventory and
-qualification fingerprints unchanged. A frozen lockfile does not repair a
-modified shared package cache, and copying that cache copies the modifications
-([#1980](https://github.com/schlessera/brain-kit/issues/1980)). Recover only the
-owned checkout through a fresh private cache and independent file copies,
-**under umask `022`**. The installation identity includes file modes, and the
-installer's umask narrows them. The qualified install was made under `022`, so
-an install under any other umask, such as `0077`, never matches, even though its
-package, file and byte counts are identical. The preparation script sets its own umask so
-your own umask is unchanged:
+The native diagram producer has no frozen qualification pin
+([#4105](https://github.com/schlessera/brain-kit/issues/4105)): adding,
+removing or upgrading a dependency needs no requalification, and its proof
+runs fresh in the producer's Docker boundary. A frozen lockfile still does not
+repair a modified shared package cache, and copying that cache copies the
+modifications ([#1980](https://github.com/schlessera/brain-kit/issues/1980)).
+When a check fails on installed bytes, recover only the owned checkout through
+a fresh private cache and independent file copies, under umask `022`; the
+preparation script sets its own umask so yours is unchanged:
 
 ```sh
 # Preserve evidence and move aside this owned checkout's node_modules first.
 sh scripts/prepare-diagnostic-install.sh
-bun run test ./tests/native-diagram-inputs.test.ts
 ```
 
-Retain the failed and restored installation identities. Verify any suspected
-package edits against the lockfile's archive integrity; never normalize unknown
-bytes or modes to force qualification. Leave shared caches and other checkouts
-alone. Use the same preparation before future dependency instrumentation; retain the
-original failure evidence as described in the diagnostic guide.
+Verify any suspected package edits against the lockfile's archive integrity;
+never normalize unknown bytes or modes to force a pass. Leave shared caches and
+other checkouts alone. Use the same preparation before future dependency
+instrumentation; retain the original failure evidence as described in the
+diagnostic guide.
 
 The Linux backend nonpersistence tests require `bubblewrap` and permitted user
 namespaces. They launch the installed Claude and pi adapters with a loopback

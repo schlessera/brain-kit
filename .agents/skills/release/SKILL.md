@@ -202,8 +202,8 @@ harnesses refuse runtime bytes they do not own. Reinstall the same lock as
 copies using [dependency diagnostic preparation](../../../docs/process/diagnostic-installs.md):
 preserve evidence, move aside only the owned checkout's `node_modules`, then run
 `sh scripts/prepare-diagnostic-install.sh`. A fresh private cache avoids modified
-shared-cache bytes; copyfile alone does not verify provenance. Keep the lock and
-qualification pins unchanged, rebuild, and rerun. Retain the old failed receipt;
+shared-cache bytes; copyfile alone does not verify provenance. Keep the lock unchanged,
+rebuild, and rerun. Retain the old failed receipt;
 a changed installation requires fresh proof, even with an unchanged lock. Do not
 skip or edit the tests.
 
