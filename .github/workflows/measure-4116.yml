@@ -20,4 +20,4 @@ jobs:
       - name: Build
         run: time bun run build --jobs=2
       - name: Measure
-        run: bash scripts/measure-4116/hosted.sh
+        run: bash scripts/measure-4116/hosted-race.sh

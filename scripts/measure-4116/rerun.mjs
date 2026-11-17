@@ -13,13 +13,14 @@ const vitest = await createVitest("test", { watch: false, project: projects, bro
 lap("created");
 let failed = false;
 await vitest.start(filters);
-failed ||= vitest.state.getCountOfFailedTests() > 0 || vitest.state.getFiles().length === 0;
-lap("pass1");
+const failures = () => vitest.state.getCountOfFailedTests() + vitest.state.getFiles().filter(file => file.result?.state === "fail" && !file.tasks?.length).length;
+failed ||= failures() > 0 || vitest.state.getFiles().length === 0;
+lap(`pass1 failedTests=${failures()}`);
 const specs = await vitest.globTestSpecifications(filters);
 for (let pass = 2; pass <= Number(passes); pass++) {
   await vitest.rerunTestSpecifications(specs, true);
-  failed ||= vitest.state.getCountOfFailedTests() > 0;
-  lap(`pass${pass}`);
+  failed ||= failures() > 0;
+  lap(`pass${pass} failedTests=${failures()}`);
 }
 await vitest.close();
 lap("closed");
