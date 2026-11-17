@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
-import { planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
+import { determinismShards, planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
+import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 import { planRepetitions } from "../scripts/test-determinism";
 import { localChecks } from "../scripts/check-pr";
 
@@ -59,6 +60,8 @@ test("aggregate accepts actual selected passes and intentional exclusions only",
 test("emitted aggregate executable fails a cancelled or skipped selected job and accepts its corrected receipt", async () => {
   for (const result of ["cancelled", "skipped", "success"]) {
     const needs = receipt(); needs.layout.result = result;
+    // The metadata job's published partition sets reach the merge path through the receipt (#4108, #4117).
+    Object.assign(needs.changeset.outputs, { unit_shards: "[1,2,3]", determinism_shards: "[1,2]" });
     const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
       env: { ...process.env, GITHUB_ACTIONS: "false", GITHUB_EVENT_PATH: "", PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -70,7 +73,7 @@ test("emitted aggregate executable fails a cancelled or skipped selected job and
       expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
       expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
         selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
-        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null,
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: "[1,2,3]", determinismShards: "[1,2]",
       });
     }
   }
@@ -238,11 +241,15 @@ test("the aggregate requires repeated-run proof when selected and an intentional
 });
 
 test("the hosted repetition command runs the planner's files through the command with real Chrome required (#4109)", () => {
-  const plan = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), determinism: ["tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"] };
-  expect(determinismFiles(plan)).toEqual(["tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"]);
+  // The planner publishes the selection sorted (`determinismTests`), and the runner sorts what it is given.
+  const plan = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), determinism: ["packages/core/tests/briefing.test.ts", "tests/ci-plan.test.ts"] };
+  expect(determinismFiles(plan)).toEqual(["packages/core/tests/briefing.test.ts", "tests/ci-plan.test.ts"]);
   const [command, ...rest] = categoryCommands("determinism", plan, ROOT);
   expect(rest).toEqual([]);
-  expect(command!.argv.slice(1)).toEqual([join(ROOT, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`, "tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"]);
+  expect(command!.argv.slice(1)).toEqual([join(ROOT, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`, "packages/core/tests/briefing.test.ts", "tests/ci-plan.test.ts"]);
+  // One partition is the unsplit job: the workflow's `--shard=1/1` runs the same command (#4117).
+  expect(categoryCommands("determinism", plan, ROOT, "1/1"), "ONE_PARTITION_KEEPS_THE_COMMAND").toEqual([command!]);
+  expect(() => categoryCommands("determinism", plan, ROOT, "1/2"), "DIVISOR_MUST_BE_THE_PLANNED_COUNT").toThrow("Repeated-run partition 1/2 is not in the planned set of 1");
   expect(command!.env, "CHANGED_FILES_MAY_DRIVE_REAL_CHROME").toEqual({ BRAIN_REQUIRE_CHROME: "1" });
   for (const unselected of [{ ...plan, determinism: [] }, { ...plan, determinism: undefined }]) {
     expect(() => categoryCommands("determinism", unselected, ROOT), "EMPTY_SELECTION_IS_NEVER_A_JOB").toThrow("Repeated-run proof was not selected");
@@ -288,10 +295,40 @@ test("emitted aggregate refuses skipped or missing selected native host job", as
       expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
       expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
         selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
-        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null,
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null, determinismShards: null,
       });
     }
   }
+});
+
+test("an oversized selection runs as planned partitions: every file in exactly one, at the selection's count (#4117)", () => {
+  const { capacitySeconds, max } = DETERMINISM_PARTITIONS;
+  // Unweighted names, so the reviewed table cannot move this: 0.1 s each, 160 s per pass, 320 at the floor of two.
+  const fleet = Array.from({ length: 1600 }, (_, index) => `tests/fleet/ship-${String(index).padStart(4, "0")}.test.ts`);
+  const selected = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), determinism: fleet };
+  for (const cadence of ["draft", "confirmation", "feedback-heavy"] as const) {
+    const plan = { ...selected, cadence };
+    expect(determinismShards(plan), `PUBLISHED_SET:${cadence}`).toEqual([1, 2]);
+    const partitions = determinismShards(plan).map(shard => categoryCommands("determinism", plan, ROOT, `${shard}/2`));
+    const files = partitions.map(([command]) => command!.argv.slice(command!.argv.indexOf("--repetitions=2") + 1));
+    for (const [index, [command, ...rest]] of partitions.entries()) {
+      expect(rest).toEqual([]);
+      // A draft asks for five; the count for the whole selection is the floor, and each partition is told so.
+      expect(command!.argv.slice(1, 4), `COUNT_DECIDED_OVER_THE_SELECTION:${cadence}`).toEqual([join(ROOT, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`, "--repetitions=2"]);
+      expect(files[index]!.length * 0.1 * 2, "WITHIN_CAPACITY").toBeLessThanOrEqual(capacitySeconds);
+      expect(determinismFiles(plan, `${index + 1}/2`), "RECEIPT_NAMES_THE_PARTITION_FILES").toEqual(files[index]!);
+    }
+    expect(files.flat().sort(), `EVERY_FILE_EXACTLY_ONCE:${cadence}`).toEqual(fleet);
+    for (const shard of [undefined, "1/1", "1/3", "3/3"]) expect(() => categoryCommands("determinism", plan, ROOT, shard), `NOT_THE_PLANNED_SPLIT:${shard}`).toThrow("is not in the planned set of 2");
+  }
+  // Past the maximum nothing is planned, published or run: the metadata job and every partition refuse.
+  const armada = { ...selected, cadence: "confirmation" as const, determinism: Array.from({ length: (max * capacitySeconds / 2 + 1) * 10 }, (_, index) => `tests/armada/ship-${index}.test.ts`) };
+  const refusal = `weigh ${(armada.determinism.length * 0.1).toFixed(1)} weighted s per pass, ${(armada.determinism.length * 0.2).toFixed(1)} s at the floor of 2 repetitions. That needs more than the limit of ${max} partitions of ${capacitySeconds} weighted s each`;
+  expect(() => determinismShards(armada), "PLANNER_REFUSES").toThrow(refusal);
+  expect(() => categoryCommands("determinism", armada, ROOT, "1/10"), "PARTITION_REFUSES").toThrow(refusal);
+  // Unselected, and on main where repetition never runs, the matrix expression still has one value.
+  expect(determinismShards({ ...selected, determinism: undefined, cadence: "confirmation" })).toEqual([1]);
+  expect(determinismShards({ ...armada, cadence: "integrated" }), "MAIN_NEVER_REPEATS").toEqual([1]);
 });
 
 test("ready confirmation repeats changed tests at the floor; every other cadence keeps the full count (#4137)", () => {

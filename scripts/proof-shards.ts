@@ -30,3 +30,15 @@ export function unitPartitions(cadence: string | undefined, files?: number): num
   if (files !== undefined && !(Number.isSafeInteger(files) && files >= 1)) throw new Error("Empty selected unit inventory");
   return Array.from({ length: Math.min(limit, files ?? limit) }, (_, index) => index + 1);
 }
+
+/** `determinism` partitions (#4117): the one owner of one job's capacity, the
+ * most partitions a selection may use and the proof step's limit. Capacity is
+ * in reviewed-weight seconds at the selection's repetition count, and it is
+ * also the budget that reduces the count (`BUDGET_SECONDS`,
+ * scripts/determinism-plan.ts). `loadRatio` is the largest elapsed seconds per
+ * weighted second measured in a complete hosted run of at least 90 weighted
+ * seconds; capacity times that ratio must fit the step limit. The planner's
+ * `determinism_shards` output, each partition's command, both aggregates, the
+ * merge path and the workflow guard read this table. Measured basis:
+ * docs/decisions/ci-utility.md, "Changed tests repeat under load before merge". */
+export const DETERMINISM_PARTITIONS = { capacitySeconds: 300, max: 10, stepMinutes: 40, loadRatio: 6.84 } as const;
