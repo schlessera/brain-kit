@@ -6,9 +6,16 @@
 // honours it. Split verbatim from the turn-surface measurement test (#1386),
 // whose token-group arithmetic stays in experiments/turn-surface-capture.test.ts.
 // Keyless: the capture runs against a loopback fixture model.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { captureSurface } from "../scripts/capture-turn-surface";
 import { deferredToolNames } from "../scripts/turn-surface-token-groups";
+import { installTestHome } from "../scripts/test-home";
+
+// The host's prompt-context store is separate from the scripted CLI's home.
+// Own it per test, including repetitions after the preload's cleanup (#4244).
+let testHome: ReturnType<typeof installTestHome> | undefined;
+beforeEach(() => { testHome = installTestHome(); });
+afterEach(() => { testHome?.dispose(); testHome = undefined; });
 
 test("actual installed CLI request preserves shipped deferred core tools, eager bridge and emitted skills", async () => {
   const capture = await captureSurface();
