@@ -162,6 +162,12 @@ write one, and which kind of test proves which claim:
   mutation: break the guard, watch the named test fail on the expected
   assertion, restore, and record both in the PR. A failing-first receipt must
   fail for the reason claimed — a module-load error is not one.
+- A test watchdog (a timeout that stops a hang and cleans up) is a catch-all
+  for the worst case: size it well above normal duration, write an in-test one
+  as `watchdogMs(n)`, and raise it when it trips on a slow run. A product
+  timing (a time the product promises) is proof: assert it on measured or
+  controlled time and never loosen it to get green
+  ([how to tell them apart](docs/process/testing.md#watchdogs-and-product-timings)).
 - A review finding is one instance of a bug class: grep the diff and its file
   for every other instance before calling it closed.
 - Before opening or marking a PR ready, run `bun run check:pr --base
