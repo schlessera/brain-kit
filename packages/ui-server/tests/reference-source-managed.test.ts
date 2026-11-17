@@ -987,6 +987,42 @@ describe("live managed authority", () => {
     }
   });
 
+  for (const failure of ["catalog write", "native withdrawal"] as const)
+  test(`a bind retries ${failure} failure after another owner republishes a previously hidden legacy root`, async () => {
+    const f = await fixture(), issued = f.grant(), otherDb = createUiDb(f.databasePath), options = { ...f.sourceOptions, github: undefined };
+    const first = createReferenceSources(options), second = createReferenceSources({ ...options, db: otherDb });
+    const resolve = f.transport.resolve, withdraw = f.pool.poolWithdraw, input = { principalId: f.owner.id, repository, revision: "main" };
+    const authorized = async (value: Parameters<typeof resolve>[0]) => value.token ? resolve(value) : { ok: false as const, reason: "denied" as const, detail: "A private chart needs its grant." };
+    f.transport.resolve = authorized;
+    let old: Awaited<ReturnType<typeof first.request>> | undefined, fresh: typeof old, withdrawCalls = 0;
+    try {
+      old = await first.request(input); old.release(); f.state.clock += 400_000;
+      f.transport.resolve = async () => ({ ok: false, reason: "unavailable", detail: "The sea route is unavailable." });
+      await first.bindable(f.owner.id);
+      expect(existsSync(join(old.viewPath, old.rootId, "README.md"))).toBe(false);
+      f.transport.resolve = authorized; fresh = await second.request(input); await second.recover();
+      expect(fresh.rootId).toBe(old.rootId);
+      expect(existsSync(join(fresh.viewPath, fresh.rootId, "README.md"))).toBe(true);
+      revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() });
+      if (failure === "catalog write") f.db.exec("PRAGMA query_only = ON");
+      f.pool.poolWithdraw = async (...args) => {
+        withdrawCalls++;
+        if (failure === "native withdrawal" && withdrawCalls === 1) throw new Error("The keeper reply was unavailable.");
+        return withdraw(...args);
+      };
+      const fault = await first.revoke({ grantIds: [issued.id], principalIds: [] }).then(() => undefined, error => error);
+      expect(fault).toBeInstanceOf(Error); f.db.exec("PRAGMA query_only = OFF"); f.state.clock += 400_000;
+      const before = withdrawCalls;
+      await first.bindable(f.owner.id);
+      expect(existsSync(join(fresh.viewPath, fresh.rootId, "README.md")), "BIND_RETRIES_HIDING_AFTER_FOREIGN_LEGACY_REPUBLICATION").toBe(false);
+      expect(existsSync(join(fresh.viewPath, fresh.name, "README.md"))).toBe(false);
+      expect(withdrawCalls, "OLD_HIDING_CONFIRMATION_CANNOT_SKIP_THE_NEW_NATIVE_WITHDRAWAL").toBeGreaterThan(before);
+    } finally {
+      f.db.exec("PRAGMA query_only = OFF"); f.pool.poolWithdraw = withdraw;
+      fresh?.release(); old?.release(); await first.close(); await second.close(); otherDb.close(); await f.close();
+    }
+  });
+
   test("startup recovery keeps durably suspended metadata hidden from already-bound views", async () => {
     const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
     let held: Awaited<ReturnType<typeof f.request>> | undefined;

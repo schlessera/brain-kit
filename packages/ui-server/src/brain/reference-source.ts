@@ -144,8 +144,8 @@ export function createReferenceSources(options: {
    * bind preparation withholds uncertain authority before exposing its view.
    */
   const suspended = new Map<string, WithheldSource>(), unsettled = new Set<string>();
-  /** Root identities already moved out of their view: superseded, withdrawn or suspended. */
-  const hiddenRoots = new Set<string>();
+  /** Confirmed hiding; only permanent native withdrawal survives another bind. */
+  const hiddenRoots = new Map<string, boolean>();
   /** Native publication may have taken effect before its catalog receipt exists. */
   const pendingPublications = new Map<string, { key: string; view: string; name: string }>();
   /** Bind-time revalidations in flight, joined by concurrent binds. */
@@ -182,28 +182,33 @@ export function createReferenceSources(options: {
    * may have been lost, is settled instead.
    */
   async function hideRoot(id: string) {
-    try { await pool.poolWithdraw(id); }
+    let permanent = false;
+    try { permanent = (await pool.poolWithdraw(id)).publicationRevoked === true; }
     catch (error) {
       if ((error as { code?: string }).code !== "released") throw error;
       await releaseRoot(id);
+      permanent = true;
     }
-    hiddenRoots.add(id);
+    hiddenRoots.set(id, permanent);
     pendingPublications.delete(id);
   }
   /** Another owner can have native publication but only a staging catalog row. */
   async function hideRecordedRoot(root: { id: string; state: string }) {
     if (root.state !== "staging") return hideRoot(root.id);
+    let permanent = false;
     try {
       const record = await pool.poolWithdraw(root.id);
+      permanent = record.publicationRevoked === true;
       // A sealed staging root has no active writer. Retire its identity so a
       // delayed publication RPC cannot expose it after this owner returns.
-      if (record.state !== "writable" && record.state !== "reserved") await releaseRoot(root.id);
+      if (record.state !== "writable" && record.state !== "reserved") { const released = await releaseRoot(root.id); permanent ||= released; }
     } catch (error) {
       if (!["unknown", "released"].includes((error as { code?: string }).code ?? "")) throw error;
       // Release also fences a create that has not arrived at the manager yet.
-      await releaseRoot(root.id);
+      const released = await releaseRoot(root.id);
+      permanent = released || (error as { code?: string }).code === "released";
     }
-    hiddenRoots.add(root.id);
+    hiddenRoots.set(root.id, permanent);
     pendingPublications.delete(root.id);
   }
   /** One change at a time to a source's exposure: suspension, restoration, withdrawal and publication. */
@@ -302,10 +307,11 @@ export function createReferenceSources(options: {
   }
   /** A reservation is released only through the pool, after its writers stopped; a failure keeps the record for recovery. */
   async function releaseRoot(id: string) {
-    if (options.dependents?.(id)) return;
+    if (options.dependents?.(id)) return false;
     await pool.poolRelease(id);
     await write("sourceReleaseRoot", id);
     pendingPublications.delete(id);
+    return true;
   }
 
   async function admit(signal: AbortSignal): Promise<() => void> {
@@ -949,6 +955,11 @@ export function createReferenceSources(options: {
     }
   }
   async function settleView(domain: string, signal?: AbortSignal) {
+    // Another owner can republish a reversibly withdrawn root, including one
+    // whose catalog row a failed withdrawal already removed. Reconfirm hiding
+    // for this bind rather than inheriting an earlier preparation's receipt.
+    for (const { id } of db.query("SELECT id FROM reference_roots WHERE domain = ?").all(domain) as { id: string }[])
+      if (hiddenRoots.get(id) === false) hiddenRoots.delete(id);
     const lapsed: (SourceRow & { root_id: string })[] = [];
     for (const source of db.query("SELECT * FROM reference_sources WHERE domain = ? AND root_id IS NOT NULL").all(domain) as SourceRow[]) {
       const key = sourceKey(source.domain, source.repository, source.revision);

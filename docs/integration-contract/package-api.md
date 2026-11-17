@@ -4548,6 +4548,8 @@ refuses this optional field and the host never retries it unconditionally.
 Bind preparation skips an invalidated source only while its exact catalog root
 and validation timestamp still match confirmed native hiding. A replacement or
 renewal expires independently, and incomplete hiding is retried before binding.
+Only permanent native withdrawal can retain hiding confirmation across binds;
+reversible roots and catalog orphans are confirmed again for each bind.
 Startup recovery preserves validation another owner renewed after its scan.
 
 `ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.
