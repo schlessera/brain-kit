@@ -34,7 +34,7 @@ export const STABLE_BRIDGE_ROSTER = [
   "brain_github_issue_read", "brain_github_issue_search",
   "brain_read_base", "brain_update", "complete_share",
   "edit_file", "get_current_location", "inbox_add", "inbox_get", "inbox_list",
-  "propose_policy_change", "query_activity", "read_attachment", "reference_source", "reference_worktree",
+  "propose_policy_change", "query_activity", "read_attachment", "reference_read", "reference_source", "reference_worktree",
   "request_image_markup", "request_image_mask", "resolve_action", "show_block", "turn_temp", "write_file",
 ] as const;
 export function createFixture(control?: { corpus?: boolean }) {
