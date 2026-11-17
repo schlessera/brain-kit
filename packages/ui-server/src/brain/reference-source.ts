@@ -964,8 +964,10 @@ export function createReferenceSources(options: {
     // Wait for its receipt so even a source's first publication is withdrawn.
     await write.settled();
     for (const principalId of principals) {
-      const sources = db.query("SELECT * FROM reference_sources WHERE domain = ?").all(privateDomain(principalId)) as SourceRow[];
-      for (const source of sources) keys.add(sourceKey(source.domain, source.repository, source.revision));
+      const sources = db.query(`SELECT repository, revision FROM reference_sources WHERE domain = ?
+        UNION SELECT repository, revision FROM reference_roots WHERE domain = ?`)
+        .all(privateDomain(principalId), privateDomain(principalId)) as { repository: string; revision: string }[];
+      for (const source of sources) keys.add(sourceKey(privateDomain(principalId), source.repository, source.revision));
     }
     for (const key of keys) {
       const [domain, repository, revision] = splitKey(key), principalId = domain.slice("private:".length);

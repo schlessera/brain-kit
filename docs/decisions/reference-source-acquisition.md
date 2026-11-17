@@ -283,7 +283,7 @@ recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:979-1023`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:981-1025`).
 
 ## Evidence
 

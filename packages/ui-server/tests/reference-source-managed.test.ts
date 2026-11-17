@@ -810,6 +810,23 @@ describe("live managed authority", () => {
       }
     });
 
+  test("another source owner revokes the grant of a first private publication before its catalog receipt", async () => {
+    const f = await fixture({ private: true }), issued = f.grant(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+    const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), publish = f.pool.poolPublish;
+    let path = "";
+    f.pool.poolPublish = async (...args) => { const result = await publish(...args); path = join(result.path!, "README.md"); arrived.resolve(); await resume.promise; return result; };
+    const older = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+    try {
+      await arrived.promise;
+      expect(f.db.query("SELECT 1 FROM reference_sources").get()).toBeNull();
+      revokeReferenceGrant(otherDb, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() });
+      await otherSources.revoke({ grantIds: [issued.id], principalIds: [] });
+      expect(existsSync(path), "OTHER_OWNER_REVOCATION_HIDES_PENDING_PRIVATE_PUBLICATION").toBe(false);
+      resume.resolve();
+      expect((await older).error).toMatchObject({ code: "unauthorized" });
+    } finally { resume.resolve(); (await older).lease?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+  });
+
   test("another source owner retires a sealed staging identity before its delayed native publication", async () => {
     const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
     const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), publish = f.pool.poolPublish;
