@@ -1185,6 +1185,13 @@ transport or source-trust qualification and exposes no generic API relay.
 Changing recipient permission uses revoke/recreate; an existing grant with
 the same principal/prefix/credential remains a duplicate.
 
+GitHub HTTPS owner/repository prefixes use lowercase canonical paths. Existing
+mixed-case stored prefixes match the same canonical identity and count as
+duplicates; the longest canonical prefix still selects the grant and its
+independent API credential permission. Paths on other hosts and local file
+paths retain their case-sensitive comparison. Receipt fields and credential
+recipient permissions are unchanged.
+
 ## Content renderer bootstrap declarations (additive, #2087)
 
 Authenticated `GET /api/status` includes optional `contentRenderers`, an array of

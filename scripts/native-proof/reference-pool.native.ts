@@ -432,6 +432,46 @@ const shapes = await create("staging", 32 * MIB);
     "REFERENCE_VIEW_RELEASE_REMOVES_ITS_NAMES").toBe(false);
 }
 
+// Managed roots opt into irreversible withdrawal. Retained storage may seed
+// a fresh identity, but neither delayed RPCs nor restart can revive the old one.
+{
+  const VIEW = randomUUID(), id = randomUUID();
+  const first = await call<NativePoolRecord>({ operation: "poolCreate", id, purpose: "source", from: null, allowanceBytes: 4 * MIB, permanentWithdrawal: true });
+  expect(first.publicationRevoked, "REFERENCE_PERMANENT_WITHDRAWAL_OPT_IN").toBe(false);
+  writeFileSync(join(first.path!, "README.md"), "Odysseus charts Ithaca.\n");
+  await seal(id);
+  await call({ operation: "poolPublish", id, view: VIEW, name: "ithaca" });
+  // Crash after the durable revocation fence, before the root's move.
+  const path = join(POOL, ".reference-native/state", `${id}.json`);
+  const intent = JSON.parse(readFileSync(path, "utf8"));
+  writeFileSync(path, JSON.stringify({ ...intent, publicationRevoked: true }));
+  manager = await restart({});
+  expect(existsSync(join(POOL, "views", VIEW, id)), "REFERENCE_RESTART_COMPLETES_PERMANENT_WITHDRAWAL").toBe(false);
+  expect((await refusal({ operation: "poolPublish", id, view: VIEW, name: "ithaca" })).code,
+    "REFERENCE_NATIVE_REVOKED_ROOT_CANNOT_PUBLISH").toBe("released");
+  const freshId = randomUUID();
+  await call({ operation: "poolCreate", id: freshId, purpose: "source", from: id, allowanceBytes: 4 * MIB, permanentWithdrawal: true });
+  await seal(freshId);
+  await call({ operation: "poolPublish", id: freshId, view: VIEW, name: "ithaca" });
+  const delayedId = randomUUID();
+  await call({ operation: "poolCreate", id: delayedId, purpose: "source", from: id, allowanceBytes: 4 * MIB, permanentWithdrawal: true });
+  await seal(delayedId);
+  expect((await refusal({ operation: "poolPublish", id: delayedId, view: VIEW, name: "ithaca", expectedRoots: [id, null] })).code,
+    "REFERENCE_NATIVE_DELAYED_PUBLICATION_PRESERVES_NEWER_ROOT").toBe("unavailable");
+  expect(readlinkSync(join(POOL, "views", VIEW, "ithaca"))).toBe(freshId);
+  await call({ operation: "poolPublish", id: delayedId, view: VIEW, name: "ithaca", expectedRoots: [freshId, null] });
+  expect(readlinkSync(join(POOL, "views", VIEW, "ithaca")), "REFERENCE_NATIVE_MATCHING_PUBLICATION_CAN_ADVANCE").toBe(delayedId);
+  await call({ operation: "poolWithdraw", id });
+  expect(readFileSync(join(POOL, "views", VIEW, "ithaca", "README.md"), "utf8"), "OLD_WITHDRAWAL_PRESERVES_NEW_ROOT").toContain("Odysseus");
+  expect((await call<NativePoolRecord>({ operation: "poolWithdraw", id: freshId })).publicationRevoked).toBe(true);
+  expect((await refusal({ operation: "poolPublish", id: freshId, view: VIEW, name: "ithaca" })).code,
+    "REFERENCE_NATIVE_COMPLETED_WITHDRAWAL_IS_PERMANENT").toBe("released");
+  manager = await restart({});
+  expect((await call<NativePoolRecord>({ operation: "poolSeal", id: freshId })).publicationRevoked,
+    "REFERENCE_NATIVE_WITHDRAWAL_SURVIVES_RESTART").toBe(true);
+  await release(delayedId); await release(freshId); await release(id);
+}
+
 // 16. Acquisition (#2429): the real reference service and its real transport
 // workers fetch and check out a 1,200-file Odysseus repository into a
 // quota-limited pool root, publish it, and a sandbox bound to its view reads it.
@@ -580,8 +620,12 @@ const shapes = await create("staging", 32 * MIB);
   const heldAfter = await heldCharge();
   expect({ code: heldRefusal.code, state: heldRecord?.state, access: heldRecord?.access, read: await ask("read"), charged: heldAfter },
     "REFERENCE_ACCESS_HELD_NOT_RELEASED").toEqual({ code: "invalid", state: "writable", access: ACCESS, read: "Telemachus returns", charged: heldBefore });
-  // Parking returns the worktree to the masked roots: the next lookup misses it.
-  expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
+  // Competing cleanup must compare the actual native holder atomically.
+  const retained = await call<NativePoolRecord>({ operation: "poolPark", id: tree.id, expectedAccess: SECOND_ACCESS });
+  expect(retained.access, "REFERENCE_ACCESS_FOREIGN_CLEANUP_RETAINS_NATIVE_HOLDER").toBe(ACCESS);
+  expect(await ask("read"), "REFERENCE_ACCESS_FOREIGN_CLEANUP_RETAINS_WORKER_READ").toBe("Telemachus returns");
+  // Parking our own grant returns it to masked roots: the next lookup misses it.
+  expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id, expectedAccess: ACCESS })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
   expect(await ask("read"), "REFERENCE_ACCESS_PARKED_GONE").toBe("MISSING");
   // A grant interrupted after its rename, before its record: restart adopts the actual generation.
   renameSync(join(POOL, "roots", tree.id), join(opened.path, tree.id));
@@ -926,6 +970,17 @@ const shapes = await create("staging", 32 * MIB);
   manager = await createNativeBrainManager(config);
   for (const id of [worktree.id, grown.id, refresh.id, third.id, second.id, first.id]) expect((await release(id)).state, `REFERENCE_POOL_GROWTH_NATIVE_RELEASED ${id}`).toBe("reclaimed");
   rmSync(srv, { recursive: true, force: true });
+}
+
+// Managed GitHub production wire -> actual maintenance workers -> native
+// sealed publication. Its separate read-trust/backend limits stay explicit.
+{
+  const { proveManagedReferenceSource } = await import("./managed-reference-source.js");
+  await manager.close();
+  const served = await serveNativeBrainManager(config);
+  try { await proveManagedReferenceSource(createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 }), "/brain-fixture/brain", note); }
+  finally { await served.close(); }
+  manager = await createNativeBrainManager(config);
 }
 
 // 14. Restart reconstruction and the deterministic host projection.
