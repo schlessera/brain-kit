@@ -9,8 +9,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { GITHUB_RESULT_SCHEMAS, type GithubToolCall, type GithubToolResult } from "@schlessera/brain-ui-sdk/tool-contracts";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
-import { createGithubToolsHost, type GithubOutwardAction, type GithubToolsHostOptions, type GithubToolsTurn, type GithubWriteTurn } from "../src/github/host.js";
-import { GITHUB_TOOLS_SENTINEL, fakeGithub, standInFetch, type FakeGithub, type FakeGithubOptions } from "./fixtures/github-host-fixture.js";
+import { GITHUB_POSTER_RETRY_MS, GITHUB_POSTER_TTL_MS, createGithubToolsHost, type GithubOutwardAction, type GithubToolsHostOptions, type GithubToolsTurn, type GithubWriteTurn } from "../src/github/host.js";
+import { GITHUB_TOOLS_POSTER, GITHUB_TOOLS_SENTINEL, fakeGithub, standInFetch, type FakeGithub, type FakeGithubOptions } from "./fixtures/github-host-fixture.js";
 
 const stops: FakeGithub[] = [];
 afterEach(() => { for (const fake of stops.splice(0)) fake.stop(); });
@@ -24,10 +24,11 @@ interface Harness {
 }
 
 function harness(answer: (request: PermissionRequest) => PermissionDecision | Promise<PermissionDecision> = () => ({ behavior: "allow" }),
-  options: { repositories?: readonly string[] | null; host?: Partial<GithubToolsHostOptions>; github?: FakeGithubOptions } = {}): Harness {
+  options: { repositories?: readonly string[] | null; host?: Partial<GithubToolsHostOptions>; github?: FakeGithubOptions; wrap?: (base: typeof fetch) => typeof fetch } = {}): Harness {
   const fake = fakeGithub(options.github); stops.push(fake);
   const cards: PermissionRequest[] = [], recorded: GithubOutwardAction[] = [];
-  const github = createGithubToolsHost({ token: () => GITHUB_TOOLS_SENTINEL, fetch: standInFetch(fake), now: () => Date.parse("2026-07-12T12:00:00Z"),
+  const base = standInFetch(fake);
+  const github = createGithubToolsHost({ token: () => GITHUB_TOOLS_SENTINEL, fetch: options.wrap ? options.wrap(base) : base, now: () => Date.parse("2026-07-12T12:00:00Z"),
     untrusted: async () => {}, ...options.host });
   return { fake, cards, recorded, call: (call, overrides = {}, turnOverrides = {}) => {
     const write: GithubWriteTurn = {
@@ -213,7 +214,13 @@ describe("data routing (G2, #4029) does not gate writes", () => {
     expect(routed.cards.map(card => [card.toolName, card.input]), "GITHUB_WRITE_CARD_UNCHANGED_UNDER_ROUTING").toEqual(plain.cards.map(card => [card.toolName, card.input]));
     expect(routed.cards).toHaveLength(2);
     expect(writes(routed.fake).map(request => [request.path, request.body]), "GITHUB_WRITE_SENT_UNDER_ROUTING").toEqual(writes(plain.fake).map(request => [request.path, request.body]));
-    expect(asked, "GITHUB_WRITE_NEVER_ASKS_ROUTING").toEqual([]);
+    // The write's gate never asks: only the comment card's display lookup
+    // does, before it sends the repository and number (#4154), and a refusal
+    // leaves the target's kind unknown and sends GitHub no lookup for it.
+    expect(asked, "GITHUB_WRITE_ROUTING_ONLY_FOR_DISPLAY").toEqual(["github"]);
+    expect(routed.cards[1]!.display?.github?.target, "GITHUB_ROUTED_TARGET_UNKNOWN").toBeNull();
+    expect(routed.fake.seen.filter(request => request.method === "GET" && request.path === "/repos/odysseus/ithaca/issues/7"), "GITHUB_ROUTED_NO_TARGET_LOOKUP").toEqual([]);
+    expect(plain.cards[1]!.display?.github?.target, "positive control: an admitted turn verifies the target").toEqual({ kind: "issue", html_url: "https://github.com/odysseus/ithaca/issues/7" });
   });
 });
 
@@ -235,5 +242,163 @@ describe("postures that never approve", () => {
     }
     expect(h.cards).toEqual([]);
     expect(h.fake.seen).toEqual([]);
+  });
+});
+
+describe("a comment card's display facts (#4154)", () => {
+  const PULL = { ...COMMENT, input: { ...COMMENT.input, number: 8 } } as const satisfies GithubToolCall;
+  const lookups = (fake: FakeGithub, path: string) => fake.seen.filter(request => request.method === "GET" && request.path === path).length;
+  /** A fetch whose answer to `path` is `answer`, given the credential the request carried; everything else reaches the stand-in. */
+  const answering = (path: string, answer: (authorization: string | null, init?: RequestInit) => Response | Promise<Response>) => (base: typeof fetch) =>
+    ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      return url.pathname === path ? Promise.resolve(answer(new Headers(init?.headers).get("authorization"), init)) : base(input, init);
+    }) as typeof fetch;
+  /** Never answers; rejects only when its request is aborted, as fetch does. */
+  const silent = (_: string | null, init?: RequestInit) => new Promise<Response>((_, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+  });
+
+  test("the card names the verified poster and the target's kind, for an issue and for a pull request", async () => {
+    const h = harness();
+    await h.call(COMMENT);
+    await h.call(PULL);
+    expect(h.cards.map(card => card.display), "GITHUB_DISPLAY_VERIFIED").toEqual([
+      { github: { poster: { login: GITHUB_TOOLS_POSTER, is_bot: false }, target: { kind: "issue", html_url: "https://github.com/odysseus/ithaca/issues/7" } } },
+      { github: { poster: { login: GITHUB_TOOLS_POSTER, is_bot: false }, target: { kind: "pull_request", html_url: "https://github.com/odysseus/ithaca/pull/8" } } },
+    ]);
+    expect(lookups(h.fake, "/user"), "GITHUB_POSTER_CACHED_FOR_ITS_CREDENTIAL").toBe(1);
+    expect(h.fake.seen.filter(request => request.path === "/user").every(request => request.authorization === `Bearer ${GITHUB_TOOLS_SENTINEL}`), "looked up with the posting credential").toBe(true);
+  });
+
+  test("an issue card carries no display facts and looks nothing up", async () => {
+    const h = harness();
+    await h.call(CREATE);
+    expect(h.cards[0]!.display, "GITHUB_CREATE_NO_DISPLAY").toBeUndefined();
+    expect(h.fake.seen.filter(request => request.method === "GET"), "GITHUB_CREATE_NO_LOOKUP").toEqual([]);
+  });
+
+  test("display facts change nothing approved, recorded, sent or returned to the model", async () => {
+    const h = harness();
+    const result = await h.call(PULL);
+    const card = h.cards[0]!;
+    expect(card.display?.github?.poster?.login, "positive control: the card has the facts").toBe(GITHUB_TOOLS_POSTER);
+    expect(Object.keys(card.input).sort(), "GITHUB_DISPLAY_NOT_IN_INPUT").toEqual(["body", "number", "repository"]);
+    expect(JSON.parse(h.recorded[0]!.payload.input), "GITHUB_DISPLAY_NOT_RECORDED").toEqual(card.input);
+    expect(writes(h.fake).map(request => JSON.parse(request.body!)), "GITHUB_DISPLAY_NOT_SENT").toEqual([{ body: "The stores are counted again." }]);
+    const returned = JSON.stringify(result);
+    expect(returned.includes(GITHUB_TOOLS_POSTER) || returned.includes("pull_request") || returned.includes("display"), `GITHUB_DISPLAY_NOT_RETURNED ${returned}`).toBe(false);
+    expect(parsed(result), "the result envelope is the contract's").toEqual(result);
+  });
+
+  test("an approval that echoes the card is compared with its input alone, so display facts never make it 'edited'", async () => {
+    const h = harness(request => ({ behavior: "allow", updatedInput: { ...request.input } }));
+    expect((await h.call(COMMENT)).ok, "GITHUB_DISPLAY_NOT_COMPARED").toBe(true);
+    const smuggled = harness(request => ({ behavior: "allow", updatedInput: { ...request.input, display: request.display } }));
+    expect(await smuggled.call(COMMENT), "GITHUB_DISPLAY_IN_ANSWER_IS_AN_EDIT").toMatchObject({ ok: false, error: { reason: "edited" } });
+    expect(writes(smuggled.fake)).toEqual([]);
+  });
+
+  for (const [label, answer] of [
+    ["a rejected credential", () => Response.json({ message: "Bad credentials" }, { status: 401 })],
+    ["a credential that may not read its user", () => Response.json({ message: "Resource not accessible by integration" }, { status: 403 })],
+    ["a spent rate limit", () => Response.json({ message: "rate limited" }, { status: 403, headers: { "x-ratelimit-remaining": "0" } })],
+    ["a server error", () => new Response("no", { status: 502 })],
+    ["malformed JSON", () => new Response("{", { status: 200 })],
+    ["no login", () => Response.json({ type: "User" })],
+    ["an invalid login", () => Response.json({ login: "not a login", type: "User" })],
+    ["no answer before the deadline", silent],
+  ] as const) {
+    test(`${label} leaves the poster unknown, and the comment is still approved and sent once`, async () => {
+      const h = harness(undefined, { wrap: answering("/user", answer), host: { displayTimeoutMs: 50 } });
+      const result = await h.call(COMMENT);
+      expect(h.cards[0]!.display?.github, `GITHUB_POSTER_NEUTRAL ${label}`).toEqual({ poster: null, target: { kind: "issue", html_url: "https://github.com/odysseus/ithaca/issues/7" } });
+      expect(result.ok, `GITHUB_UNKNOWN_POSTER_STILL_WRITES ${label}`).toBe(true);
+      expect(writes(h.fake)).toHaveLength(1);
+    });
+  }
+
+  for (const [label, answer] of [
+    ["no such object", () => Response.json({ message: "Not Found" }, { status: 404 })],
+    ["a spent rate limit", () => Response.json({ message: "rate limited" }, { status: 429 })],
+    ["an object moved to another repository", () => Response.json({ number: 7, repository_url: "https://api.github.com/repos/circe/aiaia", html_url: "https://github.com/circe/aiaia/issues/7" })],
+    ["another number", () => Response.json({ number: 9, repository_url: "https://api.github.com/repos/odysseus/ithaca", html_url: "https://github.com/odysseus/ithaca/issues/9" })],
+    ["malformed JSON", () => new Response("[", { status: 200 })],
+    ["no answer before the deadline", silent],
+  ] as const) {
+    test(`${label} leaves the target's kind unknown, and the comment is still approved and sent once`, async () => {
+      const h = harness(undefined, { wrap: answering("/repos/odysseus/ithaca/issues/7", answer), host: { displayTimeoutMs: 50 } });
+      const result = await h.call(COMMENT);
+      expect(h.cards[0]!.display?.github, `GITHUB_TARGET_NEUTRAL ${label}`).toEqual({ poster: { login: GITHUB_TOOLS_POSTER, is_bot: false }, target: null });
+      expect(result.ok, `GITHUB_UNKNOWN_TARGET_STILL_WRITES ${label}`).toBe(true);
+      expect(writes(h.fake)).toHaveLength(1);
+    });
+  }
+
+  test("a lookup that never answers holds the card for the display deadline only", async () => {
+    const h = harness(undefined, { wrap: base => answering("/repos/odysseus/ithaca/issues/7", silent)(answering("/user", silent)(base)), host: { displayTimeoutMs: 50 } });
+    const started = performance.now();
+    await h.call(COMMENT);
+    expect(h.cards[0]!.display?.github, "GITHUB_SILENT_NEUTRAL").toEqual({ poster: null, target: null });
+    // A hang watchdog, not a timing claim: the lookups end at their own deadline, far below one request's 20 s.
+    expect(performance.now() - started, "GITHUB_DISPLAY_BOUNDED").toBeLessThan(10_000);
+  });
+
+  test("a rotated credential is never shown another credential's poster, and a failure for it reads unknown", async () => {
+    let token = "odysseus-credential-one";
+    const logins: Record<string, Response | undefined> = {
+      "Bearer odysseus-credential-one": Response.json({ login: "penelope", type: "User" }),
+      "Bearer odysseus-credential-two": Response.json({ login: "telemachus", type: "User" }),
+    };
+    const seen: (string | null)[] = [];
+    const h = harness(undefined, { host: { token: () => token }, wrap: answering("/user", authorization => {
+      seen.push(authorization);
+      return logins[authorization ?? ""]?.clone() ?? Response.json({ message: "Bad credentials" }, { status: 401 });
+    }) });
+    await h.call(COMMENT);
+    token = "odysseus-credential-two";
+    await h.call(COMMENT);
+    token = "odysseus-credential-three";
+    await h.call(COMMENT);
+    token = "odysseus-credential-one";
+    await h.call(COMMENT);
+    expect(h.cards.map(card => card.display?.github?.poster?.login ?? null), "GITHUB_POSTER_BOUND_TO_CREDENTIAL").toEqual(["penelope", "telemachus", null, "penelope"]);
+    expect(seen, "each credential is looked up with itself, and a replaced entry is looked up again").toEqual([
+      "Bearer odysseus-credential-one", "Bearer odysseus-credential-two", "Bearer odysseus-credential-three", "Bearer odysseus-credential-one"]);
+    expect(writes(h.fake).map(request => request.authorization), "each comment is posted with the credential its card was resolved for").toEqual([
+      "Bearer odysseus-credential-one", "Bearer odysseus-credential-two", "Bearer odysseus-credential-three", "Bearer odysseus-credential-one"]);
+  });
+
+  test("a failed lookup is not repeated until its retry time, and a verified poster is reused until its own", async () => {
+    let clock = Date.parse("2026-07-12T12:00:00Z");
+    let fail = true;
+    const h = harness(undefined, { host: { now: () => clock }, wrap: answering("/user", () => fail
+      ? Response.json({ message: "rate limited" }, { status: 429 })
+      : Response.json({ login: GITHUB_TOOLS_POSTER, type: "User" })) });
+    let asked = 0;
+    const poster = async () => { await h.call(COMMENT); asked++; return h.cards.at(-1)!.display?.github?.poster?.login ?? null; };
+    expect(await poster()).toBeNull();
+    fail = false;
+    expect(await poster(), "GITHUB_FAILED_LOOKUP_NOT_REPEATED").toBeNull();
+    clock += GITHUB_POSTER_RETRY_MS;
+    expect(await poster(), "GITHUB_FAILED_LOOKUP_RETRIED_AFTER_ITS_TIME").toBe(GITHUB_TOOLS_POSTER);
+    fail = true;
+    clock += GITHUB_POSTER_TTL_MS - 1;
+    expect(await poster(), "GITHUB_POSTER_REUSED_WITHIN_TTL").toBe(GITHUB_TOOLS_POSTER);
+    clock += 1;
+    expect(await poster(), "GITHUB_POSTER_EXPIRES").toBeNull();
+    expect(asked).toBe(5);
+  });
+
+  test("a credential GitHub rejects on the write keeps no identity for the next card", async () => {
+    let reject = false;
+    const h = harness(undefined, { wrap: base => ((input: RequestInfo | URL, init?: RequestInit) => reject && init?.method === "POST"
+      ? Promise.resolve(Response.json({ message: "Bad credentials" }, { status: 401 })) : base(input, init)) as typeof fetch });
+    await h.call(COMMENT);
+    reject = true;
+    expect(await h.call(COMMENT)).toMatchObject({ ok: false, error: { reason: "credential_rejected" } });
+    reject = false;
+    await h.call(COMMENT);
+    expect(lookups(h.fake, "/user"), "GITHUB_REJECTED_CREDENTIAL_FORGOTTEN").toBe(2);
   });
 });

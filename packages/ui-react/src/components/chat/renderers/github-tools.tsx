@@ -9,6 +9,7 @@
 // message) reaches the fallback.
 
 import type { RendererPack, ToolCallView } from "@schlessera/brain-ui-sdk/client";
+import type { ApprovalDisplay } from "@schlessera/brain-ui-sdk/protocol";
 import {
   GITHUB_ISSUE_COMMENT_CONTRACT,
   GITHUB_ISSUE_COMMENT_INPUT_SCHEMA,
@@ -43,8 +44,11 @@ const COMMENT = { ...GITHUB_ISSUE_COMMENT_CONTRACT, payload: GITHUB_RESULT_SCHEM
 /** Output that is not a result envelope: the words as they came. */
 const Fallback = ({ tool }: { tool: ToolCallView }) => (tool.output ? <ClampedPre text={tool.output} isError={tool.isError} /> : null);
 
-/** The card a write tool's approval row shows: exactly what will be posted (W1, W4). */
-function writeInput<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T } }, Preview: ComponentType<{ input: T }>) {
+/**
+ * The card a write tool's approval row shows: exactly what will be posted
+ * (W1, W4), with the host's display-only facts for it (#4154).
+ */
+function writeInput<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T } }, Preview: ComponentType<{ input: T; display?: ApprovalDisplay }>) {
   return function WriteInput({ tool }: { tool: ToolCallView }) {
     // Only while the approval waits. The approval row never receives an
     // output, so after a decision a draft would keep reading "not posted";
@@ -52,7 +56,8 @@ function writeInput<T>(schema: { safeParse: (v: unknown) => { success: boolean; 
     // A restored approval the host already closed (`readOnly`) waits for nothing.
     if (!awaitsDecision(tool as ToolCall)) return null;
     const parsed = schema.safeParse(tool.input);
-    return parsed.success && parsed.data ? <Preview input={parsed.data} /> : null;
+    const display = (tool as ToolCall).approvalDisplay;
+    return parsed.success && parsed.data ? <Preview input={parsed.data} {...(display ? { display } : {})} /> : null;
   };
 }
 

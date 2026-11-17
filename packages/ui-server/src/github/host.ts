@@ -24,7 +24,9 @@
  * are not routed: the per-use card, which shows the exact body, and the
  * allow-list are their gate (maintainer ruling, 2026-11-16).
  */
+import { createHash } from "node:crypto";
 import { githubWriteAllowance } from "@schlessera/brain-common/internal/governance-policy";
+import type { GithubApprovalDisplay } from "@schlessera/brain-ui-sdk/protocol";
 import type { PermissionDecision, PermissionRequest } from "@schlessera/brain-ui-sdk/server";
 import type { RecipientRoutingRefusal } from "../web-tools/routing.js";
 import {
@@ -101,6 +103,8 @@ export interface GithubToolsHostOptions {
   now?: () => number;
   /** One request's limit, milliseconds. */
   timeoutMs?: number;
+  /** The whole of one approval card's display lookup, milliseconds (#4154); never more than `timeoutMs`. */
+  displayTimeoutMs?: number;
   report?: (message: string) => void;
 }
 
@@ -264,10 +268,72 @@ export async function githubGet(transport: GithubTransport, token: string, path:
   throw new GithubRefusal("upstream_error", "redirect", "GitHub redirected too many times.");
 }
 
+/** How long a comment card waits for its display facts before showing the neutral state (#4154). */
+const GITHUB_DISPLAY_TIMEOUT_MS = 3_000;
+/** How long a verified poster is reused for the same credential. */
+export const GITHUB_POSTER_TTL_MS = 10 * 60_000;
+/** How long a failed poster lookup is not repeated for the same credential, so a failing credential costs one request a minute. */
+export const GITHUB_POSTER_RETRY_MS = 60_000;
+
 export function createGithubToolsHost(options: GithubToolsHostOptions): GithubToolsHost {
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? 20_000;
   const get = (token: string, path: string, signal: AbortSignal | undefined) => githubGet(options, token, path, signal);
+
+  // Display facts for a comment card (#4154). They are shown on the card
+  // only: never part of its input, never compared with the answer, never
+  // returned to the model. Every failure is `null`, the neutral state.
+  const displayTimeoutMs = Math.min(options.displayTimeoutMs ?? GITHUB_DISPLAY_TIMEOUT_MS, timeoutMs);
+  const display = { fetch: options.fetch, now: options.now, timeoutMs: displayTimeoutMs } satisfies GithubTransport;
+  /** The credential an entry was resolved for, as a digest: the token itself is never kept here. */
+  const credentialKey = (token: string) => createHash("sha256").update(token).digest("hex");
+  /**
+   * The one poster entry, for one credential. A lookup for any other
+   * credential replaces it and never reads it, so one credential's identity
+   * is never shown for another. Concurrent cards share its one request.
+   */
+  let poster: { key: string; at: number; ttl: number; value: Promise<GithubApprovalDisplay["poster"]> } | null = null;
+  function verifiedPoster(token: string): Promise<GithubApprovalDisplay["poster"]> {
+    const key = credentialKey(token), at = now();
+    if (poster && poster.key === key && at - poster.at < poster.ttl) return poster.value;
+    const entry: NonNullable<typeof poster> = { key, at, ttl: GITHUB_POSTER_TTL_MS, value: Promise.resolve(null) };
+    entry.value = githubGet(display, token, "/user", AbortSignal.timeout(displayTimeoutMs)).then(({ json }) => {
+      const found = user(json);
+      if (found.login) return { login: found.login, is_bot: found.is_bot };
+      entry.ttl = GITHUB_POSTER_RETRY_MS;
+      return null;
+    }, () => {
+      entry.ttl = GITHUB_POSTER_RETRY_MS;
+      return null;
+    });
+    poster = entry;
+    return entry.value;
+  }
+  /** A credential GitHub rejected keeps no identity. */
+  const forgetPoster = (token: string) => { if (poster?.key === credentialKey(token)) poster = null; };
+
+  /**
+   * The kind of the object at exactly this repository and number. The
+   * request sends model-chosen text before the card, so it asks the turn's
+   * data routing (G2) first, as a read does; a refusal leaves the kind
+   * unknown and changes nothing else about the write.
+   */
+  async function verifiedTarget(turn: GithubToolsTurn, token: string, repository: string, number: number): Promise<GithubApprovalDisplay["target"]> {
+    try {
+      if (await turn.routing(GITHUB_RECIPIENT) !== null) return null;
+      const { owner, repo } = parseGithubRepository(repository)!;
+      const name = `${owner}/${repo}`;
+      const deadline = AbortSignal.timeout(displayTimeoutMs);
+      const { json } = await githubGet(display, token, `/repos/${name}/issues/${number}`, turn.signal ? AbortSignal.any([turn.signal, deadline]) : deadline);
+      const found = record(json);
+      // Bound to the card's own repository and number: a transferred issue or another object is unknown.
+      if (!found || integer(found.number) !== number || String(found.repository_url).toLowerCase() !== `${GITHUB_API_ORIGIN}/repos/${name}`.toLowerCase()) return null;
+      const kind = record(found.pull_request) ? "pull_request" as const : "issue" as const;
+      return { kind, html_url: githubDirectUrl(found.html_url, { owner, repo, number }, { kind }) };
+    } catch {
+      return null;
+    }
+  }
 
   /** A path below the API origin from a `next` link, only when it stays there. */
   const relative = (link: string) => {
@@ -444,7 +510,7 @@ export function createGithubToolsHost(options: GithubToolsHostOptions): GithubTo
     }
     const input = GITHUB_ISSUE_COMMENT_INPUT_SCHEMA.parse(call.input);
     const payload: Json = { body: input.body };
-    return { repository: input.repository, path: `/repos/${input.repository}/issues/${input.number}/comments`, payload,
+    return { repository: input.repository, number: input.number, path: `/repos/${input.repository}/issues/${input.number}/comments`, payload,
       card: { repository: input.repository, number: input.number, ...payload } as Json, target: `${input.repository}#${input.number}`,
       describe: `Post this comment on ${input.repository}#${input.number} on GitHub` };
   }
@@ -487,7 +553,11 @@ export function createGithubToolsHost(options: GithubToolsHostOptions): GithubTo
     }
     const token = options.token();
     if (!token) return noCredential(tool);
+    // A comment card names who would post it and on what, when the host can verify both (#4154).
+    const shown = prepared.number !== undefined ? await Promise.all([verifiedPoster(token), verifiedTarget(turn, token, prepared.repository, prepared.number)])
+      .then(([posterFact, targetFact]) => ({ github: { poster: posterFact, target: targetFact } })) : undefined;
     const decision = await ctx.requestPermission({ toolUseId: `github-${crypto.randomUUID()}`, toolName: visible, kind: "command", input: prepared.card,
+      ...(shown ? { display: shown } : {}),
       description: `${prepared.describe}, exactly as shown. It is sent once, in your name, through the host's GitHub credential, and cannot be undone from here.`
         + (tainted ? " This conversation has read untrusted input; its content may have been shaped by it." : "") });
     // An edited card is a different write: it is refused, and the call must be made again as wanted, which rechecks it.
@@ -504,7 +574,13 @@ export function createGithubToolsHost(options: GithubToolsHostOptions): GithubTo
     }
     if (!await decide("approved")) return refusal(tool, "unavailable", "recording_unavailable", "The approval could not be recorded, so nothing was sent.");
     const { owner, repo } = parseGithubRepository(prepared.repository)!;
-    const created = record(await post(token, prepared.path, prepared.payload, turn.signal));
+    let answered: unknown;
+    try { answered = await post(token, prepared.path, prepared.payload, turn.signal); }
+    catch (error) {
+      if (error instanceof GithubRefusal && error.reason === "credential_rejected") forgetPoster(token);
+      throw error;
+    }
+    const created = record(answered);
     if (tool === GITHUB_TOOL_NAMES.create) {
       const number = integer(created?.number);
       if (!created || !number) throw new GithubRefusal("upstream_error", "malformed", "GitHub accepted the issue but returned an unexpected answer.");

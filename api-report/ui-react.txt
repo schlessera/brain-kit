@@ -908,6 +908,7 @@ signatures (every public export and the types it is made of)
         approvalKind?: "tool" | "command" | "policy" | "actor";
         approvalRememberable?: false;
         approvalDescription?: string;
+        approvalDisplay?: ApprovalDisplay;
         restored?: true;
         approvalTurnId?: string;
         readOnly?: RestoredApprovalClosure;

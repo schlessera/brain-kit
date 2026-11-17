@@ -5,11 +5,14 @@
  * combined status and issue search). It records every request with the
  * authorization it carried, and a write's body. Writes (#3798): an issue
  * filed in any repository, and a comment on any issue, answer 201 like
- * GitHub, so a refusal proves itself by what never arrived. Keyless: the
- * token is a synthetic sentinel.
+ * GitHub, so a refusal proves itself by what never arrived. `/user` names
+ * the account a credential posts as (#4154). Keyless: the token is a
+ * synthetic sentinel.
  */
 export const GITHUB_TOOLS_SENTINEL = "odysseus-github-tools-sentinel-token";
 export const GENERIC_GITHUB_SENTINEL = "odysseus-generic-github-sentinel-token";
+/** The login `/user` answers for any credential: the account the host's GitHub tools post as. */
+export const GITHUB_TOOLS_POSTER = "ithaca-brain";
 export const HEAD_SHA = "1111111111111111111111111111111111111111";
 export const MERGE_SHA = "2222222222222222222222222222222222222222";
 export const COMMIT_SHAS = ["3333333333333333333333333333333333333333", "4444444444444444444444444444444444444444"] as const;
@@ -107,6 +110,8 @@ export function fakeGithub(options: FakeGithubOptions = {}): FakeGithub {
           { status: "in_progress", conclusion: null }, { status: "completed", conclusion: "skipped" }] });
       case `/repos/odysseus/ithaca/commits/${HEAD_SHA}/status`:
         return json(options.checks === "none" ? { state: "pending", total_count: 0, statuses: [] } : { state: "success", total_count: 1, statuses: [{ state: "success" }] });
+      // The account the host credential posts as (#4154).
+      case "/user": return json({ login: GITHUB_TOOLS_POSTER, type: "User" });
       case "/search/issues": return json({ total_count: 57, incomplete_results: false, items: [
         { ...issue, body: "  The stores run low.  " },
         pullIssue,
