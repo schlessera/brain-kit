@@ -2,6 +2,7 @@
  * proof jobs and the merge path. */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { availableParallelism, loadavg } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 export interface Spec { project: string; file: string; }
@@ -101,8 +102,21 @@ export async function browserInventory(root: string, deadlineMs = 30000): Promis
   } catch (error) {
     stopDiscovery();
     await p.exited;
+    // The leader's CPU time against wall time names the starved phase (#4149):
+    // CPU near the deadline is slow discovery; far below it, the host withheld
+    // CPU or I/O. Involuntary switches and load average corroborate contention.
+    // Bun reports these as BigInt despite its `number` types; reading them never
+    // replaces the discovery failure this receipt explains.
+    let cpu: { userMs: number; systemMs: number; involuntarySwitches: number } | null = null;
+    try {
+      const usage = p.resourceUsage();
+      if (usage) cpu = { userMs: Math.round(Number(usage.cpuTime.user) / 1000), systemMs: Math.round(Number(usage.cpuTime.system) / 1000),
+        involuntarySwitches: Number(usage.contextSwitches.involuntary) };
+    } catch { cpu = null; }
     const receipt = { elapsedMs: Math.round(performance.now() - started), deadlineMs, timedOut,
-      exitCode: p.exitCode, signal: p.signalCode ?? null, ...(cleanupError ? { cleanupError } : {}), stdout, stderr, inventory: inventoryPublication(output) };
+      exitCode: p.exitCode, signal: p.signalCode ?? null, ...(cleanupError ? { cleanupError } : {}), cpu,
+      host: { parallelism: availableParallelism(), loadavg: loadavg().map(load => Math.round(load * 100) / 100) },
+      stdout, stderr, inventory: inventoryPublication(output) };
     throw new Error(`Vitest file discovery failed: ${JSON.stringify(receipt)}\n${error instanceof Error ? error.message : String(error)}`);
   } finally {
     clearTimeout(timer);
