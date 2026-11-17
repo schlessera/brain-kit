@@ -57,8 +57,10 @@ export function sourceWrites(db: Database) {
           .run(at, refreshedAt, ref, domain, repository, revision, rootId ?? null, rootId ?? null).changes === 1;
       }).immediate();
     },
-    sourceSuspend(domain: string, repository: string, revision: string) {
-      db.query("UPDATE reference_sources SET validated_at = 0 WHERE domain = ? AND repository = ? AND revision = ?").run(domain, repository, revision);
+    sourceSuspend(domain: string, repository: string, revision: string, rootId?: string, validatedAt?: number | null) {
+      return db.query(`UPDATE reference_sources SET validated_at = 0 WHERE domain = ? AND repository = ? AND revision = ?
+        AND (? IS NULL OR root_id = ?) AND (? = 0 OR validated_at IS ?)`)
+        .run(domain, repository, revision, rootId ?? null, rootId ?? null, validatedAt === undefined ? 0 : 1, validatedAt ?? null).changes === 1;
     },
     sourceFailed(detail: string, at: number, domain: string, repository: string, revision: string) {
       db.query("UPDATE reference_sources SET last_error = ?, last_failed_at = ? WHERE domain = ? AND repository = ? AND revision = ?").run(detail, at, domain, repository, revision);

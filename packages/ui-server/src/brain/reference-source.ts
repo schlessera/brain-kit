@@ -85,6 +85,7 @@ interface SourceRow {
 }
 interface Operation { key: string; domain: string; principalId: string | null; grantId: string | null; controller: AbortController; joiners: number; promise: Promise<Outcome> }
 interface InvalidatedRoot { id: string; state: string; repository: string; revision: string }
+interface WithheldSource { rootId: string | null; validatedAt: number | null }
 type Outcome = { kind: "source"; row: SourceRow; stale: boolean; error: string | null } | { kind: "not-public"; reason: "denied" | "unavailable"; detail: string };
 /** Only host callers reading the catalog use repositoryKey; tool inputs remain raw strings. */
 type RepositoryInput = { repository: unknown; repositoryKey?: never; repositoryUrl?: never }
@@ -129,7 +130,7 @@ export function createReferenceSources(options: {
     return isManaged(repository.canonical) ? referenceRepository(githubReferenceRepository(repository.url).cloneUrl) : repository;
   }
   const leases = new Map<string, number>();
-  const withdrawn = new Set<string>();
+  const withdrawn = new Map<string, WithheldSource>();
   /** A newer authority observation invalidates older managed requests, including before domain selection. */
   const authorityFences = new Map<string, number>();
   /** In-flight withdrawals; an acquisition of the same source waits for its withdrawal to finish. */
@@ -142,7 +143,7 @@ export function createReferenceSources(options: {
    * does. Suspension also expires durable validation, so a new service's
    * bind preparation withholds uncertain authority before exposing its view.
    */
-  const suspended = new Set<string>(), unsettled = new Set<string>();
+  const suspended = new Map<string, WithheldSource>(), unsettled = new Set<string>();
   /** Root identities already moved out of their view: superseded, withdrawn or suspended. */
   const hiddenRoots = new Set<string>();
   /** Native publication may have taken effect before its catalog receipt exists. */
@@ -229,6 +230,14 @@ export function createReferenceSources(options: {
   const usable = (source: SourceRow | null): source is SourceRow & { root_id: string; commit_id: string; refreshed_at: number; validated_at: number } =>
     Boolean(source?.root_id && source.commit_id && source.refreshed_at !== null && source.validated_at !== null);
   const validationLive = (source: SourceRow) => source.validated_at !== null && now() < source.validated_at + limits.validationMs;
+  const sourceStamp = (source: SourceRow | null): WithheldSource => ({ rootId: source?.root_id ?? null, validatedAt: source?.validated_at ?? null });
+  /** A key can name a different publication, or the same root validated anew by another owner. */
+  function withholding(source: SourceRow | null): "live" | "hidden" | "unknown" {
+    if (!source?.root_id) return "live";
+    const key = sourceKey(source.domain, source.repository, source.revision);
+    const matches = [suspended.get(key), withdrawn.get(key)].some(stamp => stamp?.rootId === source.root_id && stamp.validatedAt === source.validated_at);
+    return !matches ? "live" : hiddenRoots.has(source.root_id) ? "hidden" : "unknown";
+  }
 
   async function lease(source: SourceRow, stale: boolean, error: string | null, authority?: () => void): Promise<ReferenceSourceLease> {
     if (!usable(source)) throw new ReferenceSourceError("unavailable", "No usable authorized reference source exists.");
@@ -283,8 +292,12 @@ export function createReferenceSources(options: {
       .all(domain, repository, revision) as { id: string }[];
     for (const root of roots) await releaseRoot(root.id);
     if (withdrawn.has(key) && !operating(key) && !withdrawals.has(key)) {
+      // A failed withdrawal still needs retrying; a replacement keeps its own
+      // lifetime. Neither is forgotten just because older readers finished.
+      if (row(domain, repository, revision)?.root_id) return;
+      const stamp = withdrawn.get(key);
       await write("sourceForget", domain, repository, revision);
-      withdrawn.delete(key);
+      if (withdrawn.get(key) === stamp) withdrawn.delete(key);
     }
   }
   /** A reservation is released only through the pool, after its writers stopped; a failure keeps the record for recovery. */
@@ -449,22 +462,24 @@ export function createReferenceSources(options: {
   /** Remove a source's name now; release its roots once no reader protects them. */
   function withdraw(domain: string, repository: string, revision: string, captured?: InvalidatedRoot[]): Promise<void> {
     const key = sourceKey(domain, repository, revision);
+    const stamp = sourceStamp(row(domain, repository, revision));
     const fenced = captured ? Promise.resolve(captured) : fenceSource(key);
     // Fence before any await, even when the first publication has no catalog
     // row yet. A later acquisition waits for this withdrawal to finish.
-    withdrawn.add(key);
+    withdrawn.set(key, stamp);
     suspended.delete(key); unsettled.delete(key);
     // Observe the catalog after every already-dispatched publication settles,
     // including one whose native reply or database receipt was still pending.
     const work = exclusive(key, async () => {
       const invalidated = await fenced;
+      stamp.validatedAt = 0;
       if (isManaged(repository)) {
         for (const root of invalidated) {
           const recorded = await write<{ id: string; state: string } | null>("sourceDiscard", root.id);
           await hideRecordedRoot(recorded ?? root);
         }
         const current = row(domain, repository, revision);
-        if (current?.root_id && !invalidated.some(root => root.id === current.root_id)) withdrawn.delete(key);
+        if (current?.root_id && !invalidated.some(root => root.id === current.root_id) && withdrawn.get(key) === stamp) withdrawn.delete(key);
         return;
       }
       const source = row(domain, repository, revision);
@@ -845,6 +860,7 @@ export function createReferenceSources(options: {
     return exclusive(key, async () => {
       const source = row(domain, repository, revision);
       if (onlyExpired && (!source || validationLive(source))) return;
+      const priorWithdrawal = withdrawn.get(key);
       // Bind expiry is shared invalidation too, rather than a local flag that
       // another owner can renew while native withdrawal is still outstanding.
       const managed = isManaged(repository);
@@ -853,15 +869,16 @@ export function createReferenceSources(options: {
       if (managed) {
         const current = row(domain, repository, revision);
         const replaced = current?.root_id && !roots.some(root => root.id === current.root_id);
-        if (!replaced) { suspended.add(key); unsettled.add(key); }
+        if (!replaced) { suspended.set(key, { rootId: current?.root_id ?? null, validatedAt: 0 }); unsettled.add(key); }
         for (const root of roots) await hideRecordedRoot(root);
+        if (priorWithdrawal && withdrawn.get(key) === priorWithdrawal && roots.some(root => root.id === priorWithdrawal.rootId)) withdrawn.delete(key);
         if (replaced) suspended.delete(key);
         unsettled.delete(key);
         return;
       }
       const pending = [...pendingPublications].filter(([, publication]) => publication.key === key);
-      if ((!source?.root_id && !roots.length && !pending.length) || (suspended.has(key) && !unsettled.has(key) && !pending.length)) return;
-      suspended.add(key); unsettled.add(key);
+      if ((!source?.root_id && !roots.length && !pending.length) || (withholding(source) === "hidden" && !unsettled.has(key) && !pending.length)) return;
+      suspended.set(key, { rootId: source?.root_id ?? null, validatedAt: 0 }); unsettled.add(key);
       await write("sourceSuspend", domain, repository, revision);
       if (source) await pool.poolUnpublish((await viewFor(domain)).id, source.name);
       for (const root of roots) await hideRecordedRoot(root);
@@ -869,6 +886,9 @@ export function createReferenceSources(options: {
         await pool.poolUnpublish(publication.view, publication.name);
         await hideRoot(id);
       }
+      // A settled suspension supersedes that earlier failed withdrawal, not
+      // any newer observation recorded while native hiding awaited its reply.
+      if (priorWithdrawal && withdrawn.get(key) === priorWithdrawal && roots.some(root => root.id === priorWithdrawal.rootId)) withdrawn.delete(key);
       unsettled.delete(key);
     });
   }
@@ -937,9 +957,11 @@ export function createReferenceSources(options: {
       await abortable(Promise.allSettled([...operations.values()].filter(operation => operation.key === key).map(operation => operation.promise)), signal);
       await abortable(exposing.get(key), signal);
       const current = row(source.domain, source.repository, source.revision);
-      if (!usable(current) || withdrawn.has(key)) continue;
+      if (!usable(current)) continue;
       if (unsettled.has(key)) { await abortable(suspendSource(current.domain, current.repository, current.revision), signal, false); continue; }
-      if (suspended.has(key) || validFor(current) > BIND_MARGIN()) continue;
+      const exposure = withholding(current);
+      if (exposure === "unknown") { await abortable(suspendSource(current.domain, current.repository, current.revision), signal, false); continue; }
+      if (exposure === "hidden" || validFor(current) > BIND_MARGIN()) continue;
       lapsed.push(current);
     }
     // Every lapsed source is checked again, a few at a time; one that fails is withheld.
@@ -950,7 +972,7 @@ export function createReferenceSources(options: {
       batch.forEach((source, at) => { if (!outcomes?.[at]) failed.push(source); });
     }
     for (const source of failed) {
-      if (withdrawn.has(sourceKey(source.domain, source.repository, source.revision))) continue;
+      if (withholding(row(source.domain, source.repository, source.revision)) === "hidden") continue;
       await abortable(suspendSource(source.domain, source.repository, source.revision), signal, false);
     }
     // No root other than a source's current one stays in the view: superseded,
@@ -976,7 +998,9 @@ export function createReferenceSources(options: {
     for (const source of db.query("SELECT * FROM reference_sources WHERE domain = ? AND root_id IS NOT NULL").all(domain) as SourceRow[]) {
       const key = sourceKey(source.domain, source.repository, source.revision);
       if (unsettled.has(key)) return false;
-      if (withdrawn.has(key) || suspended.has(key)) continue;
+      const exposure = withholding(source);
+      if (exposure === "unknown") return false;
+      if (exposure === "hidden") continue;
       if (validFor(source) <= BIND_MARGIN()) return false;
     }
     return !(db.query(`SELECT r.id FROM reference_roots r WHERE r.domain = ? AND NOT EXISTS (SELECT 1 FROM reference_sources s WHERE s.root_id = r.id)`).all(domain) as { id: string }[])
@@ -1069,7 +1093,12 @@ export function createReferenceSources(options: {
     // Recovery never renews metadata authority. Invalidated roots stay masked
     // and charged until an explicit request obtains a new authorized root.
     const keep = new Set<string>();
-    for (const source of db.query("SELECT * FROM reference_sources WHERE root_id IS NOT NULL").all() as SourceRow[]) {
+    for (const snapshot of db.query("SELECT * FROM reference_sources WHERE root_id IS NOT NULL").all() as SourceRow[]) {
+      const source = row(snapshot.domain, snapshot.repository, snapshot.revision);
+      if (!source?.root_id) continue;
+      // Another owner can publish or renew validation after the catalog scan.
+      // Its publication belongs to a later recovery pass, not this snapshot.
+      if (source.root_id !== snapshot.root_id) { keep.add(source.root_id); continue; }
       const record = byId.get(source.root_id!);
       let usableRoot = record?.purpose === "source" && record.state === "sealed";
       if (usableRoot && isManaged(source.repository)) usableRoot = referenceAcquisitionMatches(db, source.root_id!, record!, {
@@ -1082,7 +1111,9 @@ export function createReferenceSources(options: {
       if (usableRoot) {
         if (!validationLive(source) || source.validated_at === 0 || (isManaged(source.repository) && record!.publicationRevoked !== false)) {
           const key = sourceKey(source.domain, source.repository, source.revision);
-          suspended.add(key); unsettled.add(key);
+          const expired = await write<boolean>("sourceSuspend", source.domain, source.repository, source.revision, source.root_id, source.validated_at);
+          if (!expired) { keep.add(source.root_id!); continue; }
+          suspended.set(key, { rootId: source.root_id, validatedAt: 0 }); unsettled.add(key);
           await hideRoot(source.root_id!);
           unsettled.delete(key);
           keep.add(source.root_id!);
@@ -1158,7 +1189,8 @@ export function createReferenceSources(options: {
         for (const domain of domains)
           for (const source of db.query("SELECT * FROM reference_sources WHERE domain = ? AND root_id IS NOT NULL").all(domain) as SourceRow[]) {
             const key = sourceKey(source.domain, source.repository, source.revision);
-            if (withdrawn.has(key) || (suspended.has(key) && !unsettled.has(key)) || validFor(source) > BIND_MARGIN()) continue;
+            const exposure = withholding(source);
+            if ((exposure === "hidden" && !unsettled.has(key)) || (exposure === "live" && validFor(source) > BIND_MARGIN())) continue;
             await abortable(suspendSource(source.domain, source.repository, source.revision), signal, false);
           }
         signal?.throwIfAborted();

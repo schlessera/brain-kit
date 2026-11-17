@@ -4545,6 +4545,11 @@ refuses this optional field and the host never retries it unconditionally.
 
 ### Reference source acquisition (additive, #2429)
 
+Bind preparation skips an invalidated source only while its exact catalog root
+and validation timestamp still match confirmed native hiding. A replacement or
+renewal expires independently, and incomplete hiding is retried before binding.
+Startup recovery preserves validation another owner renewed after its scan.
+
 `ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.
 The host edge resolves it from `BRAIN_UI_REFERENCE_VALIDATION_SECONDS` and
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS` (default 300 each, 1–86400) and from

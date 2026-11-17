@@ -17,6 +17,7 @@ import { createReferenceTools } from "../src/brain/reference-tools";
 import { openSqliteWriter } from "../src/db/write-worker";
 import { registerReferenceWrites } from "../src/brain/reference-writes";
 import { createReferenceWorktrees } from "../src/brain/reference-worktrees";
+import { sourceWrites } from "../src/brain/reference-source-writes";
 
 const repository = "https://github.com/odysseus/ithaca", commit = "a".repeat(40), tree = "b".repeat(40), brain = "ithaca-brain";
 let root: string, tls: ReturnType<typeof fixtureTls>;
@@ -877,6 +878,113 @@ describe("live managed authority", () => {
       expect(existsSync(join(current.viewPath, current.name, "README.md")), "FRESH_SHARED_CACHE_LEASE_HAS_PUBLISHED_BYTES").toBe(true);
       expect(current.rootId, "WITHDRAWN_ROOT_AUTHORITY_IS_NEVER_REUSED").not.toBe(held.rootId);
     } finally { current?.release(); held?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+  });
+
+  for (const invalidation of ["suspension", "withdrawal"] as const)
+    test(`a bind rechecks a replacement published by another owner after local ${invalidation}`, async () => {
+      const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+      let old: Awaited<ReturnType<typeof f.request>> | undefined, fresh: typeof old;
+      try {
+        old = await f.request();
+        if (invalidation === "suspension") { old.release(); f.state.clock += 400_000; await f.sources.bindable(f.owner.id); }
+        else { f.state.private = true; await expect(f.request()).rejects.toMatchObject({ code: "unauthorized" }); f.state.private = false; }
+        expect(existsSync(join(old.viewPath, old.rootId, "README.md"))).toBe(false);
+        fresh = await otherSources.request({ principalId: f.other.id, repository, revision: "main",
+          acquisition: { turnId: "telemachus-replacement-validation", egress: f.secondEgress, current: () => true } });
+        expect(fresh.rootId).not.toBe(old.rootId);
+        await f.sources.bindable(f.owner.id);
+        expect(existsSync(join(fresh.viewPath, fresh.name, "README.md"))).toBe(true);
+        f.state.clock += 400_000;
+        expect(() => fresh!.assertAuthority()).toThrow();
+        const metadata = f.metadata.length;
+        await f.sources.bindable(f.owner.id);
+        expect(existsSync(join(fresh.viewPath, fresh.name, "README.md")), "BIND_RECHECKS_REPLACEMENT_VALIDATION_AFTER_LOCAL_WITHHOLDING").toBe(false);
+        expect(existsSync(join(fresh.viewPath, fresh.rootId, "README.md"))).toBe(false);
+        expect(f.metadata.length, "BIND_REVALIDATION_SPENDS_NO_UNBOUND_NETWORK").toBe(metadata);
+      } finally { fresh?.release(); old?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+    });
+
+  test("a bind rechecks legacy validation renewed on the same root by another owner", async () => {
+    const f = await fixture(), otherDb = createUiDb(f.databasePath), options = { ...f.sourceOptions, github: undefined };
+    const first = createReferenceSources(options), second = createReferenceSources({ ...options, db: otherDb });
+    const resolve = f.transport.resolve, input = { principalId: f.owner.id, repository, revision: "main" };
+    let old: Awaited<ReturnType<typeof first.request>> | undefined, fresh: typeof old;
+    try {
+      old = await first.request(input); old.release(); f.state.clock += 400_000;
+      f.transport.resolve = async () => ({ ok: false, reason: "unavailable", detail: "The sea route is unavailable." });
+      await first.bindable(f.owner.id);
+      f.transport.resolve = resolve;
+      fresh = await second.request(input); await second.recover();
+      expect(fresh.rootId).toBe(old.rootId);
+      expect(existsSync(join(fresh.viewPath, fresh.name, "README.md"))).toBe(true);
+      await first.bindable(f.owner.id); f.state.clock += 400_000;
+      f.transport.resolve = async () => ({ ok: false, reason: "unavailable", detail: "The sea route is unavailable." });
+      await first.bindable(f.owner.id);
+      expect(existsSync(join(fresh.viewPath, fresh.name, "README.md")), "BIND_RECHECKS_RENEWED_VALIDATION_ON_THE_SAME_ROOT").toBe(false);
+    } finally { fresh?.release(); old?.release(); await first.close(); await second.close(); otherDb.close(); await f.close(); }
+  });
+
+  test("a settled suspension replaces a failed withdrawal mark before legacy validation is renewed", async () => {
+    const f = await fixture(), issued = f.grant(), otherDb = createUiDb(f.databasePath), options = { ...f.sourceOptions, github: undefined };
+    const first = createReferenceSources(options), second = createReferenceSources({ ...options, db: otherDb });
+    const resolve = f.transport.resolve, input = { principalId: f.owner.id, repository, revision: "main" };
+    f.transport.resolve = async value => value.token ? resolve(value) : { ok: false, reason: "denied", detail: "A private chart needs its grant." };
+    let old: Awaited<ReturnType<typeof first.request>> | undefined, fresh: typeof old;
+    try {
+      old = await first.request(input);
+      revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() });
+      f.db.exec("PRAGMA query_only = ON");
+      const fault = await first.revoke({ grantIds: [issued.id], principalIds: [] }).then(() => undefined, error => error);
+      expect(fault).toBeInstanceOf(Error);
+      f.db.exec("PRAGMA query_only = OFF"); f.grant();
+      await first.bindable(f.owner.id);
+      expect(existsSync(join(old.viewPath, old.name, "README.md")), "BIND_RETRIES_UNCONFIRMED_WITHDRAWAL_HIDING").toBe(false);
+      fresh = await second.request(input); await second.recover();
+      expect(fresh.rootId).toBe(old.rootId);
+      expect(existsSync(join(fresh.viewPath, fresh.name, "README.md"))).toBe(true);
+      f.state.clock += 400_000;
+      f.transport.resolve = async () => ({ ok: false, reason: "unavailable", detail: "The sea route is unavailable." });
+      await first.bindable(f.owner.id);
+      expect(existsSync(join(fresh.viewPath, fresh.name, "README.md")), "SETTLED_SUSPENSION_CONSUMES_THE_OLDER_WITHDRAWAL_MARK").toBe(false);
+    } finally { f.db.exec("PRAGMA query_only = OFF"); fresh?.release(); old?.release(); await first.close(); await second.close(); otherDb.close(); await f.close(); }
+  });
+
+  for (const phase of ["catalog snapshot", "suspension commit"] as const)
+  test(`recovery preserves validation committed by another owner before ${phase}`, async () => {
+    const f = await fixture(), otherDb = createUiDb(f.databasePath), first = createReferenceSources({ ...f.sourceOptions, github: undefined });
+    const descriptor = Object.getOwnPropertyDescriptor(f.db, "query"), query = f.db.query.bind(f.db);
+    let held: Awaited<ReturnType<typeof first.request>> | undefined, injected = false;
+    try {
+      held = await first.request({ principalId: f.owner.id, repository, revision: "main" }); held.release();
+      f.state.clock += 400_000;
+      const renew = () => {
+        injected = true;
+        expect(sourceWrites(otherDb).sourceValidate(f.state.clock, f.state.clock, "refs/heads/main", "public", repository, "main", undefined, held!.rootId)).toBe(true);
+      };
+      f.db.query = ((sql: string) => {
+        const statement = query(sql);
+        if (phase === "catalog snapshot" && sql === "SELECT * FROM reference_sources WHERE root_id IS NOT NULL") {
+          const all = statement.all.bind(statement);
+          statement.all = ((...args: unknown[]) => {
+            const snapshot = all(...args as []); statement.all = all;
+            renew();
+            return snapshot;
+          }) as typeof statement.all;
+        }
+        if (phase === "suspension commit" && sql.startsWith("UPDATE reference_sources SET validated_at = 0")) {
+          const run = statement.run.bind(statement);
+          statement.run = ((...args: unknown[]) => { statement.run = run; renew(); return run(...args as []); }) as typeof statement.run;
+        }
+        return statement;
+      }) as typeof f.db.query;
+      await first.recover();
+      expect(injected).toBe(true);
+      expect(existsSync(join(held.viewPath, held.name, "README.md")), "RECOVERY_PRESERVES_VALIDATION_COMMITTED_AFTER_ITS_SNAPSHOT").toBe(true);
+      expect(f.db.query("SELECT validated_at FROM reference_sources").get()).toEqual({ validated_at: f.state.clock });
+    } finally {
+      if (descriptor) Object.defineProperty(f.db, "query", descriptor); else Reflect.deleteProperty(f.db, "query");
+      held?.release(); await first.close(); otherDb.close(); await f.close();
+    }
   });
 
   test("startup recovery keeps durably suspended metadata hidden from already-bound views", async () => {

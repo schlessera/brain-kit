@@ -7,7 +7,7 @@ over the [reference pool](reference-pool-accounting.md). It uses the
 [owner-managed grants](reference-source-grants.md) as its only private
 authority. This record names the concrete choices the rulings left to
 implementation. The service is `createReferenceSources`
-(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:105-913`),
+(`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:106-914`),
 created at host start when the native manager reports a reference pool, and
 closed with the app. The agent tool that requests source arrived with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432)
@@ -57,7 +57,7 @@ exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:358-407`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:371-420`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -160,7 +160,7 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:521-575`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:536-590`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
@@ -232,6 +232,10 @@ access, owns its own authority check and budget; it never joins a foreign
 turn. The operation limit is 64 MiB or the remaining turn allowance, whichever
 is smaller. Lapsed GitHub source found during pre-proxy bind preparation is
 withheld without network, then restored only by an explicit admitted request.
+Bind preparation treats a local suspension or withdrawal as settled only for
+the exact catalog root and validation timestamp whose native hiding succeeded.
+A replacement root or renewed validation is checked again when it expires;
+failed catalog writes or native hiding never excuse that check.
 Maintenance admission may wait up to 30 seconds for each Git command, then
 returns `busy`. Cancellation stops that wait; the wire still checks the live
 turn and selected grant before dispatch, and the source service checks them
@@ -259,9 +263,9 @@ remain required before repository trust can be enabled.
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
-(`admit`, `packages/ui-server/src/brain/reference-source.ts:298-313`). Requests
+(`admit`, `packages/ui-server/src/brain/reference-source.ts:311-326`). Requests
 for the same legacy source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:316-341`).
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:329-354`).
 Each principal's private source is its own domain, so two principals requesting
 the same private repository at once run two operations, each with its own
 credential and view. Admitted operations finish independently: a stalled one
@@ -283,7 +287,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:432-448`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:438-454`).
 There is no idle expiry.
 
 ## Revocation and recovery
@@ -296,7 +300,7 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:1029-1054`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:1053-1078`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists and, when
@@ -304,9 +308,12 @@ private, a live grant still covers it. A source with live validation may have
 its name repaired after a lost publication reply. Expired, durably suspended
 or permanently withdrawn roots remain masked until a fresh authorized request;
 startup never renews their authority or exposes them to already-bound views.
+Recovery rereads each catalog entry and expires validation only if its root
+and validation timestamp still match, preserving another owner's renewal or
+replacement after the initial scan.
 Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:1059-1103`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:1083-1127`).
 
 ## Evidence
 
