@@ -165,7 +165,10 @@ export function createNativeFileGuards(options: PermissionWiringOptions) {
       let written: string | undefined;
       if (hookInput.tool_name === "Write" && typeof response?.content === "string") written = response.content;
       if (hookInput.tool_name === "Edit" && typeof response?.originalFile === "string" && typeof response.oldString === "string" && typeof response.newString === "string") {
-        if (response.originalFile.includes(response.oldString)) written = response.replaceAll ? response.originalFile.replaceAll(response.oldString, response.newString) : response.originalFile.replace(response.oldString, response.newString);
+        // Rebuilt literally, as the runtime applies an Edit: a string
+        // replacement would expand `$` sequences in newString (#2486).
+        const newString = response.newString;
+        if (response.originalFile.includes(response.oldString)) written = response.replaceAll ? response.originalFile.replaceAll(response.oldString, () => newString) : response.originalFile.replace(response.oldString, () => newString);
       }
       if (written !== undefined) await fileVersions.remember(current.key, createHash("sha256").update(written, "utf8").digest("hex"));
       else await fileVersions.finishWrite(current.key, current.version);
