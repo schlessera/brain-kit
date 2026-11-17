@@ -7,6 +7,16 @@ import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/
 
 const brain = "/srv/odysseus/brain";
 
+test("unqualified managed reference and worktree file reads retain ordinary workspace restrictions", () => {
+  for (const path of ["/tmp/brain-reference/public/ithaca/README.md", "/tmp/brain-reference/private/loom/README.md",
+    "/tmp/brain-worktrees/ithaca/README.md", "/tmp/brain-reference/public/ithaca/../loom/README.md"]) {
+    expect(inputTaintSource("Read", { file_path: path }, brain), "REFERENCE_PATH_IS_NOT_A_TRUST_EXEMPTION").toBe("workspace_read");
+    expect(inputTaintSource("read_file", { path }, brain)).toBe("workspace_read");
+    expect(outputTaintSource("Grep", `${path}:1: Odysseus`, brain)).toBe("workspace_read");
+  }
+  expect(inputTaintSource("Read", { file_path: "/tmp/brain-reference-other/README.md" }, brain)).toBeNull();
+});
+
 test("web, external MCP and untrusted-area reads are taint sources on both backends", () => {
   for (const [tool, input, source] of [
     ["WebFetch", { url: "https://ithaca.invalid" }, "web_fetch"], ["WebSearch", { query: "Ithaca" }, "web_search"],

@@ -55,6 +55,45 @@ async function fixture(options: {
     async close() { egress.stop(); server.stop(true); db.close(); } };
 }
 
+test("a missing suffix repository cannot dispatch metadata credentials to its neighbor", async () => {
+  const f = await fixture({ metadata: request => {
+    if (new URL(request.url).pathname === "/repos/odysseus/ithaca.git" || !request.headers.has("authorization")) return new Response(null, { status: 404 });
+    return Response.json(identity(true));
+  } });
+  f.grant({ repositoryPrefix: "https://github.com/odysseus/ithaca.git.git" });
+  try {
+    const pending = f.service().open({ ...f.bounds, principalId: f.agent.id, repository: "odysseus/ithaca.git.git", revision: "main" });
+    try { await expect(pending, "SUFFIX_GRANT_CANNOT_OPEN_NEIGHBOR_METADATA").rejects.toMatchObject({ reason: "denied" }); }
+    finally { await pending.then(value => value.close(), () => {}); }
+    expect(f.received, "SUFFIX_CREDENTIAL_DISPATCH_RETAINS_REQUESTED_REPOSITORY").toEqual([
+      { path: "/repos/odysseus/ithaca.git", authorization: null },
+      { path: "/repos/odysseus/ithaca.git", authorization: `Bearer ${token}` },
+    ]);
+    expect(f.git).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("a literal suffix stays bound across metadata, Git wiring and final validation", async () => {
+  const f = await fixture({ metadata: request => !request.headers.has("authorization") ? new Response(null, { status: 404 })
+    : Response.json({ ...identity(true), name: "Ithaca.git", full_name: "Odysseus/Ithaca.git",
+      clone_url: "https://github.com/Odysseus/Ithaca.git.git", url: "https://api.github.com/repos/Odysseus/Ithaca.git" }) });
+  f.grant({ repositoryPrefix: "https://github.com/odysseus/ithaca.git.git" });
+  try {
+    const pending = f.service().open({ ...f.bounds, principalId: f.agent.id, repository: "odysseus/ithaca.git.git", revision: "main" });
+    await expect(pending, "SUFFIX_ACQUISITION_RETAINS_LITERAL_IDENTITY").resolves.toMatchObject({ identity: { repository: "ithaca.git" } });
+    const access = await pending;
+    try {
+      await access.resolve(); await access.fetch("/unused");
+      await expect(access.revalidate(), "SUFFIX_FINAL_METADATA_RETAINS_LITERAL_IDENTITY").resolves.toBeUndefined();
+      expect(f.received.every(value => value.path === "/repos/odysseus/ithaca.git"), "SUFFIX_METADATA_NEVER_SELECTS_NEIGHBOR").toBe(true);
+      for (const input of f.git) expect(input, "SUFFIX_GIT_WIRE_MATCHES_REQUESTED_REPOSITORY").toMatchObject({
+        repository: { canonical: "https://github.com/odysseus/ithaca.git", url: "https://github.com/odysseus/ithaca.git.git" },
+        wire: { repository: "https://github.com/odysseus/ithaca.git" },
+      });
+    } finally { await access.close(); }
+  } finally { await f.close(); }
+});
+
 test("public identity and scripted Git binding stay anonymous even with a host token and covering private grant", async () => {
   const f = await fixture(); f.grant();
   try {

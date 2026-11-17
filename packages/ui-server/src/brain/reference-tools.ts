@@ -22,6 +22,7 @@ import {
 } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { ReferenceSourceError, type ReferenceSourceLease, type ReferenceSources } from "./reference-source.js";
 import { ReferenceWorktreeError, type ReferenceWorktree, type ReferenceWorktreeGeneration, type ReferenceWorktrees } from "./reference-worktrees.js";
+import type { ReferenceAcquisitionContext } from "./reference-acquisition.js";
 
 /** Distinct sources one turn keeps protected from capacity eviction while it reads them. */
 const TURN_LEASES = 32;
@@ -55,6 +56,7 @@ interface TurnAccess {
   views: { public: string; private: string } | null;
   generation: ReferenceWorktreeGeneration | null;
   leases: Map<string, ReferenceSourceLease>;
+  acquisition?: ReferenceAcquisitionContext;
 }
 
 export function createReferenceTools(options: {
@@ -122,6 +124,12 @@ export function createReferenceTools(options: {
   const current = (turnId: string, access: TurnAccess) => turns.get(turnId) === access;
 
   return {
+    /** The real turn proxy exists only after bind preparation. Never accept a proxy from tool input. */
+    attachEgress(turnId: string, principalId: string, input: Omit<ReferenceAcquisitionContext, "turnId">): void {
+      const access = turns.get(turnId);
+      if (!access || access.principalId !== principalId || access.acquisition) throw new ReferenceSourceError("unavailable", "Reference turn egress cannot be attached.");
+      access.acquisition = { turnId, egress: input.egress, current: () => current(turnId, access) && input.current() };
+    },
     /**
      * Record one turn's reference access before its workers start. Opens the
      * principal's views so the sandbox can bind them; a generation is passed
@@ -153,7 +161,7 @@ export function createReferenceTools(options: {
         if (call.tool === "reference_source") {
           const input = REFERENCE_SOURCE_INPUT_SCHEMA.parse(call.input);
           if (!access.views) return { ok: false, code: "unavailable", message: "Shared reference source cannot be bound into this turn's workers." };
-          const lease = await options.sources.request({ principalId: access.principalId, repository: input.repository, revision: input.revision, signal });
+          const lease = await options.sources.request({ principalId: access.principalId, repository: input.repository, revision: input.revision, signal, acquisition: access.acquisition });
           if (!current(turnId, access)) { lease.release(); return ended(); }
           if (!keep(access, lease)) return { ok: false, code: "busy", message: `This turn already reads ${TURN_LEASES} reference sources; use one of them, or request a worktree.` };
           return { ok: true, source: source(access, lease), guidance: SOURCE_GUIDANCE };
@@ -181,13 +189,13 @@ export function createReferenceTools(options: {
         const generation = access.generation;
         if (!generation) return { ok: false, code: "unavailable", message: "This turn's workers hold no worktree generation, so no worktree can be made available to them; its change journal may not be recording." };
         if (input.action === "access") {
-          const item = await worktrees.access({ worktreeId: input.worktreeId!, principalId: access.principalId, generation: generation.id, signal });
+          const item = await worktrees.access({ worktreeId: input.worktreeId!, principalId: access.principalId, generation: generation.id, signal, acquisition: access.acquisition });
           return { ok: true, action: "access", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.access };
         }
-        const allocated = await worktrees.allocate({ principalId: access.principalId, repository: input.repository, revision: input.revision, signal });
+        const allocated = await worktrees.allocate({ principalId: access.principalId, repository: input.repository, revision: input.revision, signal, acquisition: access.acquisition });
         try {
           if (!current(turnId, access)) throw new ReferenceWorktreeError("unavailable", "This turn ended before the worktree could be made available to it.");
-          const item = await worktrees.access({ worktreeId: allocated.id, principalId: access.principalId, generation: generation.id, signal });
+          const item = await worktrees.access({ worktreeId: allocated.id, principalId: access.principalId, generation: generation.id, signal, acquisition: access.acquisition });
           return { ok: true, action: "request", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.request };
         } catch (error) {
           // Nothing reached a worker: release the untouched worktree rather than leave it to expire.

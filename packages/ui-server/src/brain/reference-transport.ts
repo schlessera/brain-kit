@@ -59,6 +59,8 @@ export interface ReferenceTransport {
   fetch(input: { repository: ReferenceRepository; ref: string; token: string | null; root: string; signal?: AbortSignal; wire?: GitHubReferenceWire }): Promise<{ commit: string }>;
   /** Check out `commit` into `root` without any credential or network. */
   checkout(input: { root: string; commit: string; signal?: AbortSignal }): Promise<void>;
+  /** Host-only, offline tree identity; required by managed acquisition, never supplied by a caller. */
+  tree?(input: { root: string; commit: string; signal?: AbortSignal }): Promise<string>;
 }
 
 function assertWireRepository(repository: ReferenceRepository, wire?: GitHubReferenceWire): void {
@@ -165,6 +167,17 @@ export function createReferenceTransport(options: {
     return result;
   }
   return {
+    async tree({ root, commit, signal }) {
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new ReferenceTransportError("invalid", "tree inspection needs one commit id");
+      const result = await run(command({ token: null, network: false, mirror: root, signal,
+        argv: [git(), "--git-dir", join(root, ".git"), "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+          "--no-replace-objects", "rev-parse", "--verify", `${commit}^{tree}`] }));
+      signal?.throwIfAborted();
+      const tree = result.stdout.trim();
+      if (result.killed || result.exitCode !== 0 || tree.length !== commit.length || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(tree))
+        throw new ReferenceTransportError("unavailable", "acquired reference tree is unreadable");
+      return tree;
+    },
     async resolve({ repository, revision, token, signal, wire, admissionWaitMs: waitMs }) {
       revision = referenceRevision(revision);
       assertWireRepository(repository, wire);
