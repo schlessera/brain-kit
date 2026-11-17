@@ -9,7 +9,7 @@
  * feedback on draft heads".
  */
 import { FEEDBACK_WORKFLOW, requireLiveDraftHead } from "./heavy-feedback";
-import type { API } from "./proof-reuse";
+import type { API } from "./proof-api";
 
 /** One `gh` invocation: argv plus optional stdin, resolving stdout. */
 export type GH = (args: string[], input?: string) => Promise<string>;

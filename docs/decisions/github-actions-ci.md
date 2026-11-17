@@ -40,9 +40,10 @@ remain required; missing runtimes and unrelated failures cannot be called green.
 > cleared locally as in CI. Bun and Node still each load every package in one
 > process, now followed by one process per package. This decision still binds.
 
-Forks use `pull_request` with `contents: read` and CI's `actions: read` / `checks: read` for
-bounded immutable proof lookup under #1333, no secrets, no job-level
-permission escalation and no persisted token. Titles and labels reach the
+Forks use `pull_request` with `contents: read` and CI's `actions: read` for its
+bounded read-only run and job lookups, no secrets, no job-level
+permission escalation and no persisted token. `checks: read` went with proof
+retention (#4107), its only reader. Titles and labels reach the
 contract script as environment data. A first-time contributor's approval-held
 run has not passed. Project sync keeps its separate trusted token and event
 workflow; ordinary CI does not acquire that token.

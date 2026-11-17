@@ -9968,6 +9968,13 @@ signatures (every public export and the types it is made of)
         tool: GithubToolName;
         error: GithubError;
     };
+  GithubToolsBrief (packages/ui-sdk/src/server/system-prompt.ts)
+    export interface GithubToolsBrief {
+        read: string;
+        search: string;
+        create: string;
+        comment: string;
+    }
   GithubUser (packages/ui-sdk/src/tool-contracts/github.ts)
     export type GithubUser = z.infer<typeof GITHUB_USER_SCHEMA>;
   GithubWriteToolName (packages/ui-sdk/src/tool-contracts/github.ts)
@@ -15437,6 +15444,7 @@ signatures (every public export and the types it is made of)
         execution?: ExecutionBrief;
         webSearch?: WebSearchBrief;
         webTools?: boolean;
+        githubTools?: GithubToolsBrief;
     }): string;
   checkEditedApproval (packages/ui-sdk/src/server/permission-gate.ts)
     export function checkEditedApproval(options: EditedApprovalCheckInput): string | null;

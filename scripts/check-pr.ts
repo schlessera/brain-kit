@@ -68,6 +68,15 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
   return checks;
 }
 
+/**
+ * The repeated-run command for a plan that changes Bun test files (#4109).
+ * `check:pr` names it and never runs it: it occupies every CPU of a shared
+ * host, so the hosted `determinism` job is where it runs.
+ */
+export function determinismCommand(plan: CheckPlan, base: string): string | undefined {
+  return plan.determinism?.length ? `bun scripts/test-determinism.ts --base ${base}` : undefined;
+}
+
 class SandboxSetupTimeout extends Error {}
 
 /** The fastest of three sandbox setup probes must take less than this. */
@@ -266,7 +275,9 @@ if (import.meta.main) {
     const importGraphFeedback = full ? "skipped: --full/--all retain their existing suites" :
       importGraph ? "enabled with --import-graph" : "skipped by default; enable with --import-graph";
     console.log(JSON.stringify({ ...plan, commands: plannedCommands.map(command => command.name), commandDetails: plannedCommands,
-      importGraphFeedback, packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
+      importGraphFeedback, packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local,
+      ...(determinismCommand(plan, base) ? { determinismCommand: determinismCommand(plan, base),
+        determinismNote: "not run locally: it occupies every CPU; the hosted determinism job repeats these files under load" } : {}) }, null, 2));
     if (print) process.exit(0);
     const chromeStep: Command = { name: "first real Chrome launch and render", argv: [] };
     const steps: PreflightStep[] = [...commands.slice(0, 3).map(command => [command]), [contributionChangeset],

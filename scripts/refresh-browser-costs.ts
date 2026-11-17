@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { browserCostsFromLogs, browserTimingReports, type BrowserCosts } from "./browser-shards";
 import { PROOF_SHARDS, shardNumbers } from "./proof-shards";
 import { browserPinUsesProducer, parseBrowserPin, resolveBrowserPin } from "./captures/provenance";
-import type { API } from "./proof-reuse";
+import type { API } from "./proof-api";
 
 type Domain = "browser" | "layout";
 type CostTable = BrowserCosts & { measurement?: unknown; measurements?: Partial<Record<Domain, unknown>> };
@@ -11,7 +11,7 @@ const SHA = /^[a-f0-9]{40}$/;
 const layoutKey = (key: string) => key.startsWith("ui-react-layout::");
 const cleanLog = (log: string) => log.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
 
-/** Admit complete successful measurements only; retained proof is not a timing source. */
+/** Admit complete successful measurements only; a skipped or partial domain is not a timing source. */
 export async function refreshBrowserCosts(domain: Domain, run: number, attempt: number,
   previous: CostTable, image: string, api: API): Promise<CostTable> {
   const info = await api.json(`actions/runs/${run}/attempts/${attempt}`);

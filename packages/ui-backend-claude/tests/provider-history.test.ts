@@ -36,6 +36,15 @@ test("Claude stable system stays byte-identical on resume", () => {
 test("Claude ordinary messages retain every previous request and scripted answer", () => {
   for (const name of ["control", "repository", "facts", "posture", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
 });
+// The fixed system brief names the host GitHub tools on every request
+// (#3799); the identity guards above hold its bytes across turns.
+test("Claude fixed system names the host GitHub tools on every request", () => {
+  for (const name of ["control", "repository", "promotion", "datatree"]) for (const exchange of main(captures[name]!)) {
+    const text = JSON.stringify(system(exchange));
+    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("`mcp__brain-ui__brain_github_issue_read`");
+    expect(text, `GITHUB_TOOLS_NOTE_IN_SYSTEM ${name}`).toContain("GitHub goes through the host tools.");
+  }
+});
 test("Claude requests contain no internal budget notes at the backend boundary", () => {
   for (const [name, capture] of Object.entries(captures)) if (name !== "budget") noInternalNotes(capture);
 });

@@ -735,8 +735,8 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
   {
     name: "BRAIN_UI_GITHUB_TOOLS_TOKEN",
     description:
-      "GitHub token for the host GitHub tools (brain_github_issue_read, brain_github_issue_search), read only by the host. " +
-      "Reads are bounded by what the token can see, so give it read access to the repositories a turn may read. " +
+      "GitHub token for the host GitHub tools (brain_github_issue_read, brain_github_issue_search, brain_github_issue_create, brain_github_issue_comment), read only by the host. " +
+      "Use a fine-grained token limited to the repositories a turn may use, with Issues, Pull requests, Checks and Commit statuses read access, and Issues write only if outward.github.repositories admits writes. " +
       "No fallback: GITHUB_TOKEN and the other GitHub tokens are never used for these tools, and without this one they answer unavailable. " +
       "Never passed to any subprocess, worker, prompt, log or response.",
     default: null,
