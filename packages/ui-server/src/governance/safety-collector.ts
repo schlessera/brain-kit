@@ -73,8 +73,8 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   void work.finally(()=>{own.delete(work);if(!own.size&&records.get(options.turnId)===own)records.delete(options.turnId);}).catch(()=>{});
   return work;
  };
- const serial=(id:string,work:()=>Promise<void>,afterFailure=false):Promise<void>=>{
-  if(queued>=256)return fail(new Error("Safety collection queue capacity exceeded"));
+ const serial=(id:string,work:()=>Promise<void>,afterFailure=false,reject=fail):Promise<void>=>{
+  if(queued>=256)return reject(new Error("Safety collection queue capacity exceeded"));
   queued++;
   // A result runs even after its call's begin() failed: that refusal must not
   // become the result's, which would skip both its record and its gap.
@@ -122,7 +122,17 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
   // may skip both: a stopped turn still records it (stopping refuses new
   // tools, never a record; the turn's end waits for a record under way),
   // and any failure leaves its chat a permanent gap.
-  result(toolUseId,tool,output,finalized,segments){return recording(serial(toolUseId,async()=>{
+  result(toolUseId,tool,output,finalized,segments){
+   const reject=async(error:unknown)=>{
+    // Invalidate before failure containment can stop the record's owner. This
+    // includes rejection before observation and before queue admission.
+    try{
+     for(const name of new Set([tool,operations.get(toolUseId)?.tool]))if(name)
+      await options.referenceReads?.observeResult(options.turnId,toolUseId,name,"",false);
+    }catch(observation){return fail(new AggregateError([error,observation],"Reference result uncertainty could not commit"));}
+    return fail(error);
+   };
+   return recording(serial(toolUseId,async()=>{
    try{
     if(segments&&segments.length>256)throw new Error("Safety result segment capacity exceeded");
     const op=operations.get(toolUseId);if(!op||op.tool!==tool||!op.admitted)throw new Error("Safety result has no admitted operation");
@@ -154,8 +164,8 @@ export function createSafetyCollector(db:Database,writes:GovernanceWrites,option
     // discharge that cannot commit stays owed, which only gaps the chat; it
     // is no loss of this record.
     await discharge(op);
-   }catch(error){return fail(error);}
-  },true));},
+   }catch(error){return reject(error);}
+  },true,reject));},
   // The runtime asks to admit one call under this id, for this tool. Counted
   // at once, not queued: a refusal already queued for the id then sees the
   // new admission and proves nothing. An id the collector cannot track keeps

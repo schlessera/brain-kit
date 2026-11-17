@@ -18,6 +18,7 @@ import { createGovernanceWrites } from "../src/governance/event-writes";
 import { createSafetyCollector } from "../src/governance/safety-collector";
 import { safetyCatalogCreated, safetyRecords } from "../src/governance/safety-store";
 import { createReferenceTools } from "../src/brain/reference-tools";
+import { holdSafetyRecovery } from "./helpers/hold-safety-recovery";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -163,22 +164,63 @@ test("the writer rechecks a newer durable authority fence instead of trusting it
   expect(f.db.query("SELECT COUNT(*) AS n FROM reference_reads").get()).toEqual({ n: 0 });
 });
 
-for (const backend of ["claude", "pi"]) test(`the ${backend} collector observes exact read delivery and retains workspace taint`, async () => {
-  const f = await fixture(true), writes = createGovernanceWrites(f.db, f.writer), bindingId = crypto.randomUUID();
+async function collectedFixture(backend: string, worker = true) {
+  const f = await fixture(worker), writes = createGovernanceWrites(f.db, f.writer), bindingId = crypto.randomUUID();
+  holdSafetyRecovery(f.db);
+  const stopped: unknown[] = [];
   await writes.safetyBegin({ turnId: "reading-turn", bindingId, principalId: f.principal.id, sessionId: null, backendId: backend, at: 0 });
   f.db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,?)").run(backend);
   f.db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca',?,0)").run(f.principal.id);
   safetyCatalogCreated(f.db, "ithaca", f.principal.id, "reading-turn"); await writes.bind("reading-turn", "ithaca");
   const collector = createSafetyCollector(f.db, writes, { turnId: "reading-turn", bindingId, backendId: backend,
-    sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal, referenceReads: f.reads });
+    sessionId: () => "ithaca", shellProxied: () => true, signal: new AbortController().signal, referenceReads: f.reads,
+    stop: () => { stopped.push(f.db.query("SELECT tool_call_id, delivery FROM reference_reads ORDER BY tool_call_id").all()); } });
   await collector.ready(backend, 1);
   const tool = backend === "claude" ? "mcp__brain-ui__reference_read" : "reference_read";
+  return { ...f, collector, tool, stopped };
+}
+
+for (const backend of ["claude", "pi"]) test(`the ${backend} collector observes exact read delivery and retains workspace taint`, async () => {
+  const f = await collectedFixture(backend), { collector, tool } = f;
   await collector.begin("read-1", tool, { repository, revision: "main", path: "README.md" });
   const result = await f.call(), text = JSON.stringify(result);
   await collector.result("read-1", tool, text, true, [text]);
   expect(f.db.query("SELECT delivery FROM reference_reads").get(), "REAL_COLLECTOR_OBSERVES_THE_READ_RESULT").toEqual({ delivery: "observed" });
   expect(safetyRecords(f.db, "ithaca").filter(record => record.kind === "occurrence"), "READ_RESULT_NEVER_CLEARS_WORKSPACE_TAINT").toHaveLength(1);
 });
+
+for (const backend of ["claude", "pi"]) for (const conflict of ["altered", "mixed", "unfinished", "wrong-tool", "capacity", "queue-capacity"]) {
+  test(`the ${backend} collector makes ${conflict} duplicate read results sticky unknown`, async () => {
+    const f = await collectedFixture(backend), { collector, tool } = f;
+    const input = { repository, revision: "main", path: "README.md" };
+    await collector.begin("read-1", tool, input);
+    const text = JSON.stringify(await f.call());
+    await collector.result("read-1", tool, text, true, [text]);
+    // An identical final hook is idempotent, and another call's evidence is independent.
+    await collector.result("read-1", tool, text, true, [text]);
+    await collector.begin("read-2", tool, input);
+    const other = JSON.stringify(await f.call({ toolCallId: "read-2" }));
+    await collector.result("read-2", tool, other, true, [other]);
+    expect(f.db.query("SELECT delivery FROM reference_reads WHERE tool_call_id = 'read-1'").get()).toEqual({ delivery: "observed" });
+    const changed = conflict === "altered" ? text + " " : text;
+    const segments = conflict === "mixed" ? [text, "Circe changes the chart."] : conflict === "capacity" ? Array(257).fill(text) : [changed];
+    const queued = conflict === "queue-capacity" ? Array.from({ length: 256 }, () => collector.result("read-2", tool, other, true, [other])) : [];
+    const failure = await collector.result("read-1", conflict === "wrong-tool" ? "Bash" : tool, changed, conflict !== "unfinished", segments)
+      .then(() => null, error => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((await Promise.allSettled(queued)).every(result => result.status === "fulfilled")).toBe(true);
+    expect(f.db.query("SELECT delivery FROM reference_reads WHERE tool_call_id = 'read-1'").get(), "COLLECTOR_REJECTION_INVALIDATES_READ_OBSERVATION")
+      .toEqual({ delivery: "unknown" });
+    expect(f.stopped, "READ_UNCERTAINTY_COMMITS_BEFORE_CONTAINMENT_STOPS_ITS_OWNER").toEqual([
+      [{ tool_call_id: "read-1", delivery: "unknown" }, { tool_call_id: "read-2", delivery: "observed" }],
+    ]);
+    await collector.result("read-1", tool, text, true, [text]);
+    expect(f.db.query("SELECT delivery FROM reference_reads WHERE tool_call_id = 'read-1'").get(), "COLLECTOR_REPLAY_CANNOT_RESTORE_READ_OBSERVATION")
+      .toEqual({ delivery: "unknown" });
+    expect(f.db.query("SELECT delivery FROM reference_reads WHERE tool_call_id = 'read-2'").get(), "OTHER_READ_OBSERVATION_STAYS_USABLE")
+      .toEqual({ delivery: "observed" });
+  });
+}
 
 test("both managed read names remain workspace input; ordinary explicit marks remain independent", () => {
   for (const tool of ["reference_read", "mcp__brain-ui__reference_read"])
