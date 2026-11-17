@@ -463,6 +463,40 @@ The semantic `IconName` gains `pen`, `arrow`, `ellipse`, `text`, `undo`,
 zoom controls. No existing key, glyph or component changes. This ships in a
 minor.
 
+## UI-kit GitHub components and untrusted text (additive, 0.45.0, #3800)
+
+`@schlessera/brain-ui-kit` exports the presentational GitHub components and a
+safe renderer for text written outside Brain. They take props and callbacks
+only: no client, fetch or store, and they never build a URL. #3795 binds the
+GitHub tool payloads to them; no tool, wire or payload contract changes here.
+
+- `UntrustedText` (`text`, `source`, optional `sourcePhrase`, `author`,
+  `frame` `"box" | "rule" | "none"`, `caption`, `lines`, `linesNarrow`,
+  `expandLabel`, `maxChars`, `truncated`, `truncatedNote`) renders a safe
+  markdown subset. HTML and images stay text; an `https:` link is a button
+  that opens a full-address interstitial, and only its Open action navigates
+  (new tab, `noopener noreferrer nofollow`). `registrableDomain(host)` returns
+  the public-suffix registrable domain it names.
+- Components: `GitHubPullRequest`, `GitHubIssue` (with `posting`
+  `"preview" | "posted"`), `GitHubWriteNotice` (`outcome`
+  `"declined" | "changed" | "unknown"`), `GitHubThread` (`GitHubThreadItem`),
+  `GitHubComment`, `GitHubReview` (`GitHubReviewState`), `GitHubCommitRow`,
+  `GitHubMergeEvent`, `GitHubResultList` (`GitHubResult`),
+  `GitHubDetailSection` (`GitHubDetailState`: `"idle" | "loading" | "loaded" |
+  "empty" | "error" | "rate-limited" | "no-credential" | "gone"`),
+  `GitHubStateChip` (`GitHubState`), `GitHubRef`, `GitHubIdentity` and
+  `GitHubParticipants`, each with its `…Props` type, plus `GitHubPerson`.
+- `githubHref(raw)` returns a direct link's address only for `https:` on host
+  exactly `github.com` with no userinfo or port, else `null`; every direct
+  `GitHub ↗` slot renders through it. `avatarSrc` loads only from the page's
+  own origin.
+
+`Overlay` gains optional `describedBy` (`aria-describedby`). The semantic
+`IconName` gains `pr-open`, `pr-merged`, `pr-closed`, `issue-open`,
+`issue-closed`, `not-planned`, `draft`, `commit`, `changes-requested` and
+`review-pending`. The package gains the `tldts` runtime dependency. No
+existing export, key, glyph or prop changes. This ships in a minor.
+
 ## Image markup tool (additive, 0.45.0, #3975)
 
 `request_image_markup` is described in
@@ -5235,6 +5269,16 @@ meaning. No provider history-selection API is delivered by this slice.
 `DialogueJournal` gains `interruption()` and `ended()` for the host's existing
 write path. The [wire amendment](wire.md#retained-barge-in-and-conversation-end-additive-0450-3729)
 defines when each is written and how the client draws them.
+
+For account-owned retained history (#3963, additive in 0.45.0),
+`DialogueOwner` gains optional `principal_account`, the stored account beside
+`principal_id`; `SessionCatalog` gains optional `dialogueAudience(owner,
+principalId)`, whether that login may receive the owner's pages; and the
+`DialogueJournal` publish callback receives the owner as an optional third
+argument after the unchanged page and `principalId`. Existing catalogs and
+callbacks keep compiling and behave as before. The
+[wire amendment](wire.md#retained-voice-history-belongs-to-its-account-additive-0450-3963)
+defines who may use the history.
 
 Failed-write live text exposes optional `ServerConversationEvent.retention` and
 `ServerError.historyOwnerId`, plus the existing client projection's explicit

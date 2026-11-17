@@ -552,7 +552,7 @@ signatures (every public export and the types it is made of)
     }
   DialogueJournal (packages/ui-server/src/ws/dialogue.ts)
     export class DialogueJournal {
-        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string) => void, private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void);
+        constructor(private readonly catalog: SessionCatalog, private readonly publish: (page: DialoguePage, principalId: string, owner?: DialogueOwner) => void, private readonly failed: (owner: DialogueOwner, cause: "queue_pressure" | "storage_error" | "storage_indeterminate", kind?: DialogueEvidence["kind"]) => void);
         open(input: DialogueOpen): Promise<DialogueOwner | undefined>;
         bind(conversationId: string, principalId: string, sessionId: string): void;
         voice(conversationId: string, evidence: Extract<DialogueEvidence, {
@@ -586,6 +586,7 @@ signatures (every public export and the types it is made of)
     export interface DialogueOwner {
         id: string;
         principal_id: string;
+        principal_account?: string | null;
         session_id: string | null;
         generation: number;
         coverage: DialoguePage["coverage"];
@@ -2095,6 +2096,7 @@ signatures (every public export and the types it is made of)
         dialogueOwnerForConversation?(conversationId: string, principalId: string): DialogueOwner | null;
         dialogueOwnerForId?(ownerId: string, principalId: string): DialogueOwner | null;
         dialogueOwnerForSession?(sessionId: string): DialogueOwner | null;
+        dialogueAudience?(owner: DialogueOwner, principalId: string): boolean;
         dialogueClose?(conversationId: string, principalId: string, epoch: number, partial: boolean): Promise<void>;
         dialogueOpen?(input: DialogueOpen): Promise<DialogueOwner>;
         dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;

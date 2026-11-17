@@ -146,7 +146,7 @@ consent for a replacement identity. Existing [session principals](../decisions/s
 and [operational recovery](../inbox-recovery.md) remain binding.
 
 There is no general delete operation: `createSessionRoutes` only lists/reads
-(`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:9-157`).
+(`createSessionRoutes`, `packages/ui-server/src/routes/sessions.ts:27-175`).
 `AgentBackend` exposes native list/read and read-only storage roots, not deletion
 (`AgentBackend`, `packages/ui-sdk/src/server/backend.ts:826-882`). A storage root
 is not removal authority. Future supported package/HTTP/wire changes need their
@@ -191,7 +191,7 @@ must be tested through their installed runtime, not inferred from directory name
   Payloads include independent recognition/output evidence and backend range text;
   hashes/order/identity are not substitutes for erasing the payload. An owner can
   start unbound, bind to a backend session or merge into an existing owner through
-  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:176-222`).
+  aliases (`bindDialogue`, `packages/ui-server/src/ws/dialogue-storage.ts:220-266`).
   Resolve the complete alias/conversation set transactionally; do not delete only
   the current session key or confuse a provisional owner ID with a backend ID.
 - **Task recovery and facts.** `069_conversation_tasks.sql` and
@@ -213,7 +213,7 @@ must be tested through their installed runtime, not inferred from directory name
   readable projections according to the adopted extent. Retained digests can
   reveal guessed short text; discard unnecessary hashes, not just plaintext.
   Native history joins several of these owners
-  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:642-654`).
+  (`prepareHistory`, `packages/ui-server/src/ws/host.ts:685-697`).
 - **Independent session ledgers.** `retry_receipts`, `session_work`, `turn_boundaries`,
   draft send/save/upload receipts and revisions, handoff IDs/lineage, Claude usage
   deduplication, worker profiles, provider-exposure and born-masked lineage are
@@ -256,8 +256,8 @@ must be tested through their installed runtime, not inferred from directory name
   handoff preparation, classifier callbacks, DialogueJournal routing/pending writes,
   ConversationHost receipts/results/output and frozen startup envelopes can retain
   or publish text. Catalog optimistic maps precede worker acknowledgements
-  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:255-268`;
-  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:298-301`).
+  (`rowEffects`, `packages/ui-server/src/ws/session-catalog.ts:258-271`;
+  `activeDialogueEpochs`, `packages/ui-server/src/ws/session-catalog.ts:301-304`).
   Both submission and worker commit need a generation check.
 - **Browser state.** Chat buffers/history chunks, shared timeline, session
   title/list cache, dialogue pages/cursors, recognition/generated/unsaved tails,
@@ -300,7 +300,7 @@ The paired WS dispatcher is `packages/ui-server/src/ws/dispatch.ts`, with one
 handler per frame under `ws/handlers/`; gating its resume handler alone would leave HTTP, background readers and provider startup open.
 
 Existing ordinary history publication checks concurrent turn changes
-(`publishHistory`, `packages/ui-server/src/ws/host.ts:568-602`). Future deletion
+(`publishHistory`, `packages/ui-server/src/ws/host.ts:629-663`). Future deletion
 must additionally invalidate it even when no turn starts or ends. Startup reads
 native history, canonical evidence and completed facts, and freezes a snapshot
 (`readLiveHistory`, `packages/ui-server/src/ws/live-history.ts:9-74`). Recheck the

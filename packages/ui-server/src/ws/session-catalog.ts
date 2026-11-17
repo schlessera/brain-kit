@@ -1,4 +1,5 @@
-import { dialogueOwner, readDialogue, hasUnretainedVoice, type PendingDialogueEpoch, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
+import { dialogueOwner, ownerRecord, readDialogue, hasUnretainedVoice, type PendingDialogueEpoch, type ActiveDialogueEpoch, type DialogueOpen, type DialogueAppend, type DialogueOwner, type DialogueTarget } from "./dialogue-storage.js";
+import { sameAccount } from "../middleware/account-partition.js";
 import { createActivityStore, priceUsage, type ActivityStore, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
 import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
@@ -47,6 +48,8 @@ export interface SessionCatalog {
   dialogueOwnerForConversation?(conversationId:string,principalId:string): DialogueOwner | null;
   dialogueOwnerForId?(ownerId:string,principalId:string): DialogueOwner | null;
   dialogueOwnerForSession?(sessionId: string): DialogueOwner | null;
+  /** Whether `principalId` may receive this owner's retained history: a login of its account (#3963). */
+  dialogueAudience?(owner: DialogueOwner, principalId: string): boolean;
   dialogueClose?(conversationId:string,principalId:string,epoch:number,partial:boolean): Promise<void>;
   dialogueOpen?(input: DialogueOpen): Promise<DialogueOwner>;
   dialogueAppend?(input: DialogueAppend): Promise<import("@schlessera/brain-ui-sdk/protocol").DialogueRecord>;
@@ -306,6 +309,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       const row=db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null;
       return row ? live(dialogueOwner(db(),{ownerId:row.owner_id},principalId)) : null;
     },
+    dialogueAudience: (owner,principalId) => sameAccount(db(),ownerRecord(owner),principalId),
     dialogueOwnerForId: (ownerId,principalId) => isRetired(db(),"dialogue_owner",ownerId) ? null : live(dialogueOwner(db(),{ownerId},principalId)),
     dialogueOwnerForSession: sessionId => {
       if(isRetired(db(),"session",sessionId)) return null;
@@ -336,7 +340,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     dialogueClose: (conversationId,principalId,epoch,partial) => {
       for(const scope of pendingDialogueEpochs) if(scope.input.conversationId===conversationId && scope.input.principalId===principalId && scope.input.epoch===epoch) scope.closed=true;
       const active=activeDialogueEpochs.get(conversationId);
-      if(active?.epoch===epoch && active.owner.principal_id===principalId) activeDialogueEpochs.delete(conversationId);
+      // The epoch's own login, not the history owner's attribution (#3963).
+      if(active?.epoch===epoch && active.principalId===principalId) activeDialogueEpochs.delete(conversationId);
       return submit("dialogueClose",conversationId,principalId,epoch,partial);
     },
     dialogueOpen: async input => {
@@ -347,29 +352,35 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       // this one's acknowledgement registers its successful active identity.
       const pending=[...pendingDialogueEpochs].filter(scope=>!scope.closed).map(scope=>({input:scope.input,generation:scope.generation,ownerId:scope.ownerId,previousEpoch:scope.previousEpoch}));
       pendingDialogueEpochs.add(scope);
-      const live=new Map([...activeDialogueEpochs].map(([id,scope])=>[id,{epoch:scope.epoch,owner:{...scope.owner}}]));
+      const live=new Map([...activeDialogueEpochs].map(([id,scope])=>[id,{epoch:scope.epoch,principalId:scope.principalId,owner:{...scope.owner}}]));
       try {
         const owner=await submit<DialogueOwner>("dialogueOpen", input, live, pending);
-        if(!scope.closed && (activeDialogueEpochs.get(input.conversationId)?.epoch ?? 0)<=input.epoch) activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch});
+        if(!scope.closed && (activeDialogueEpochs.get(input.conversationId)?.epoch ?? 0)<=input.epoch) activeDialogueEpochs.set(input.conversationId,{owner,epoch:input.epoch,principalId:input.principalId});
         return owner;
       } finally { pendingDialogueEpochs.delete(scope); }
     },
     dialogueAppend: input => submit("dialogueAppend", input),
     dialogueBind: async (conversationId, principalId, sessionId) => {
+      // The owner the conversation names before adoption. Read it before the
+      // bind, which retires that owner's id behind an alias.
+      const previousId=activeDialogueEpochs.get(conversationId)?.owner.id
+        ?? (db().query("SELECT owner_id FROM dialogue_conversations WHERE id=?").get(conversationId) as {owner_id:string}|null)?.owner_id;
       const owner=await submit<DialogueOwner | null>("dialogueBind", conversationId, principalId, sessionId);
-      const active=activeDialogueEpochs.get(conversationId);
-      if(owner && active && active.owner.principal_id===principalId) {
-        // Pending callbacks still hold this object across adoption. Replacing
-        // it would hide their genuine failure behind a fresh healthy owner.
-        const previousId=active.owner.id;
-        for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId && scope.owner.principal_id===principalId){
-          const partial=scope.owner.coverage === "partial";
-          Object.assign(scope.owner,owner);
-          if(partial) scope.owner.coverage="partial";
-        }
-        return active.owner;
+      if(!owner || previousId===undefined) return owner;
+      // Pending callbacks still hold these objects across adoption. Replacing
+      // them would hide their genuine failure behind a fresh healthy owner.
+      // The adoption already moved every live scope of the previous owner, so
+      // each takes the canonical identity in place, whichever login opened it
+      // and whichever login bound it (#3963): its liveness is the durable
+      // owner's, and its epoch authority stays its own principal.
+      let shared:DialogueOwner|undefined;
+      for(const scope of activeDialogueEpochs.values()) if(scope.owner.id===previousId){
+        const partial=scope.owner.coverage === "partial";
+        Object.assign(scope.owner,owner);
+        if(partial) scope.owner.coverage="partial";
+        shared ??= scope.owner;
       }
-      return owner;
+      return activeDialogueEpochs.get(conversationId)?.owner ?? shared ?? owner;
     },
     async dialogueRead(principalId, target) {
       await tail;
