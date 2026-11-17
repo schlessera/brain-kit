@@ -153,7 +153,8 @@ test("the date field shows the parsed date and refuses an unparseable one", asyn
 
 A Bun test file that a pull request adds or modifies is checked against these
 rules before it merges: the hosted `determinism` job runs it five times in a
-row under CPU load and fails on the first failing repetition
+row under CPU load, and twice again at ready confirmation, and fails on the
+first failing repetition
 ([the gate](testing.md#changed-tests-repeat-under-load)). A test that waits for
 a while, reads the wall clock or keeps state from its previous run fails
 there, not on someone else's merge. Reproduce a failure with

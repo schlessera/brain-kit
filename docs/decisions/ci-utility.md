@@ -1346,6 +1346,50 @@ Each implementation task is tracked separately:
   ([fields](../process/ci-throughput.md#proof-policy-epochs));
 - off-main qualification evidence: [#3271](https://github.com/schlessera/brain-kit/issues/3271).
 
+#### Lane and qualification gates
+
+`bun scripts/integrate.ts confirm` and `merge` classify the candidate from
+its merge base with the exact base to its exact head, using `classify` from
+`scripts/proof-system.ts`, and hold only a proof-system candidate. Both gates
+and `lane --json` live in `scripts/proof-system-lane.ts`; neither lists a
+glob.
+
+- **Stability window** ([#3269](https://github.com/schlessera/brain-kit/issues/3269),
+  answers 1 and 2, as
+  [amended to a single run](https://github.com/schlessera/brain-kit/issues/2938#issuecomment-6580707195)).
+  The last proof-system squash is the newest first-parent main commit, within
+  200, whose diff to its parent classifies as one. Each squash's run is the
+  newest main-push `ci.yml` run at that SHA. A run has settled once it has
+  completed, and a squash with no run has settled once a later squash exists,
+  because it never gets one; a queued or in-progress run, or no run yet at the
+  newest squash, has not. The squash's own run must settle first. The lane is
+  then open when the newest settled run from that squash on is green, and
+  closed when it failed, was cancelled or timed out, or never existed. So the
+  own green run opens the lane without waiting for later runs, and after any
+  failure the next green main run reopens it. That includes a failed own run:
+  a rerun at a squash that broke main would stay red, and the decision is
+  "if a main run fails, the lane reopens at the next green main run". No
+  rerun or revoke is needed. The check reads the own run, then later squashes
+  newest first, and stops at the first settled one: at most ten main runs. If
+  all nine later runs it reads are unsettled and older squashes were not read,
+  the lane is `unknown` and refused. The refusal names the blocking squash and
+  the run found at each squash it read, and says `1 more green main run
+  required`. `bun scripts/integrate.ts lane --json` prints the same decision
+  (`state`, `ownGreen`, `required`, `window`, `decisive`) with that refusal,
+  or `null` when the lane is open. `confirm` checks before it takes the
+  reservation or requests candidate CI, and the merge checks again, because a
+  main run may fail while the candidate is proved.
+- **Off-main qualification** ([#3271](https://github.com/schlessera/brain-kit/issues/3271),
+  answer 3). The PR body needs an `Off-main qualification` heading whose
+  section, outside HTML comments, links a GitHub Actions run of this
+  repository whose head SHA is the candidate head, or an ancestor of it whose
+  diff to the head is not a proof-system change. At most five linked runs are
+  read. Whether the evidence is sufficient stays a review question.
+- **Exemption.** A declared red-main fix skips both gates: one merged with
+  `--fixes-main-run`, and one declared on the open record and confirmed
+  ordinarily because its failures are category-level. A fix that had to
+  wait for the window it repairs could never land.
+
 ### Red-main record and coordinator
 
 The [2026-10-25 red-main and coordination decisions](https://github.com/schlessera/brain-kit/issues/2934#issuecomment-6402400614)
@@ -1894,21 +1938,33 @@ test more than once before it merged.
   modifies against its merge base (`determinismTests`,
   `scripts/ci-plan.ts:323-328`). It runs them in one invocation of the offline
   wrapper with Bun's `--rerun-each=<n> --bail=1` (`repetitionArgv`,
-  `scripts/test-determinism.ts:84-87`), so the offline preload applies and
+  `scripts/test-determinism.ts:93-96`), so the offline preload applies and
   preparation builds once. One busy loop per CPU runs for the duration. Each
   is killed by PID on every exit path, and exits by itself if its parent dies
-  (`startBurners`, `scripts/test-determinism.ts:136-151`). The first failing
+  (`startBurners`, `scripts/test-determinism.ts:145-160`). The first failing
   repetition fails the command, which names the file, the repetition and the
   case. A passing run must also show every repetition in Bun's test report.
 - **Bounded.** Five repetitions by default, within a budget of 600 seconds of
   the reviewed weights in `scripts/test-shard-costs.json`. When five do not
   fit, every file gets the same reduced count, down to a floor of two
-  (`planRepetitions`, `scripts/test-determinism.ts:62-81`). A selection too
+  (`planRepetitions`, `scripts/test-determinism.ts:71-90`). A selection too
   heavy for the floor still runs every file twice and is reported over budget.
   No selected file is skipped; the report lists each one with the repetitions
   it got. Over 150 merges before the gate, 142 selections fit five
   repetitions. A selection too heavy for the job's step limit is
   [#4117](https://github.com/schlessera/brain-kit/issues/4117).
+- **Two repetitions at ready confirmation.** The maintainer ruled on
+  2026-11-17 ([#4137](https://github.com/schlessera/brain-kit/issues/4137))
+  that ready confirmation runs the floor of two, and every other cadence keeps
+  five (`repetitionsFor`, `scripts/test-determinism.ts:41-43`). The merge lease
+  is held while confirmation runs. In run 44017250694 the job took 1,236
+  seconds at five repetitions, against 979 for the slowest of eight `unit`
+  partitions, and the lease was held about 25 minutes. The draft head has
+  normally run the same files five times already, so confirmation re-checks the
+  tree that merges at lower cost. The accepted cost is a weaker check on the
+  exact head that merges. Splitting the selection across runners and reusing
+  the draft result were considered and declined: the first costs runners and
+  code, the second brings back an input-reuse rule of the kind #4107 retired.
 - **Where it is required.** The hosted `determinism` job is selected whenever
   the plan lists such a file, at every pull-request cadence: draft, ready
   `synchronize` feedback and ready confirmation. Draft heavy feedback runs it
