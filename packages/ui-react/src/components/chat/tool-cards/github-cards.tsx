@@ -5,7 +5,7 @@
 // trigger: on-demand detail pages through #3796's client, only after the
 // reader acts. What loads is display-only and never reaches the model.
 
-import { Fragment, useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Callout,
   GitHubComment,
@@ -62,11 +62,24 @@ import {
   type AvatarFor,
 } from "../renderers/github-mapping.js";
 
-/** Brain-origin avatar URLs for this session, or none (initials) without a session. */
-function useAvatarFor(): AvatarFor {
+/**
+ * Brain-origin avatar URLs for this session, and only for logins the tool
+ * result itself names (#3795). Anyone else, including authors of detail
+ * loaded later, keeps initials: the avatar route serves only logins the
+ * session has seen, and the card asks for no others.
+ */
+function useAvatarFor(logins: ReadonlySet<string>): AvatarFor {
   const root = useBrainUiRoot();
   const sessionId = useRootStore("chat", (s) => s.activeSessionId);
-  return useCallback((login: string) => (sessionId ? githubAvatarUrl(root.apiBase(), sessionId, login) : null), [root, sessionId]);
+  return useCallback(
+    (login: string) => (sessionId && logins.has(login) ? githubAvatarUrl(root.apiBase(), sessionId, login) : null),
+    [root, sessionId, logins],
+  );
+}
+
+type Named = { login: string | null } | null | undefined;
+function loginsOf(...people: Named[]): Set<string> {
+  return new Set(people.flatMap((p) => (p?.login ? [p.login] : [])));
 }
 
 // ---------------------------------------------------------------------------
@@ -137,9 +150,10 @@ function useDetail(repository: string, number: number, part: GithubDetailPart) {
     [root, sessionId, repository, number, part],
   );
 
+  const load = useCallback(() => void fetchPage(null, false), [fetchPage]);
   return {
     detail,
-    load: () => void fetchPage(null, false),
+    load,
     more: () => void fetchPage(detail.next, true),
     retry: () => void fetchPage(last.current, last.current !== null),
   };
@@ -168,8 +182,23 @@ function DetailPart(p: {
   object: "issue" | "pull request";
   idleLabel: string;
   row: (item: DetailItem, index: number) => ReactNode;
+  /**
+   * Items the card already shows from the tool result. The route pages from
+   * the oldest item, so its pages overlap what the result carried; these are
+   * left out rather than drawn twice.
+   */
+  shown?: (item: DetailItem) => boolean;
+  /** Load when the section first mounts (a tab's first open), not on a press. */
+  autoLoad?: boolean;
 }) {
   const { detail, load, more, retry } = useDetail(p.repository, p.number, p.part);
+  const started = useRef(false);
+  useEffect(() => {
+    if (!p.autoLoad || started.current) return;
+    started.current = true;
+    load();
+  }, [p.autoLoad, load]);
+  const rows = p.shown ? detail.items.filter((item) => !p.shown!(item)) : detail.items;
   return (
     <GitHubDetailSection
       state={detail.state}
@@ -184,7 +213,7 @@ function DetailPart(p: {
       onLoadMore={more}
       onRetry={retry}
     >
-      {detail.items.length ? detail.items.map((item, i) => p.row(item, i)) : undefined}
+      {rows.length ? rows.map((item, i) => p.row(item, i)) : undefined}
     </GitHubDetailSection>
   );
 }
@@ -200,7 +229,10 @@ function GithubRefusal({ error }: { error: GithubError }) {
 
 /** True for an upstream failure after which a write may still have happened. */
 function outcomeUnknown(error: GithubError): boolean {
-  return error.code === "upstream_error" && error.reason !== "malformed" && error.reason !== "redirect";
+  // `cancelled` is ambiguous: the host uses it both before sending ("nothing
+  // was sent") and mid-request ("may still have been made"), so the host's
+  // own words say which. `malformed` and `redirect` are their own refusals.
+  return error.code === "upstream_error" && (error.reason === "network" || error.reason === "timeout" || /^http_\d{3}$/.test(error.reason ?? ""));
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +252,9 @@ function commentRow(scope: ReturnType<typeof scopeOf>, fetchedAt: string, avatar
 }
 
 function IssueCard({ issue }: { issue: GithubIssue }) {
-  const avatarFor = useAvatarFor();
+  const logins = useMemo(() => loginsOf(issue.author, ...issue.comments.items.map((c) => c.author)), [issue]);
+  const avatarFor = useAvatarFor(logins);
+  const shownComments = useMemo(() => new Set(issue.comments.items.map((c) => c.id)), [issue]);
   const scope = scopeOf(issue.repository, issue.number);
   const total = knownTotal(issue.comments);
   const earlier = total !== null ? total - issue.comments.items.length : null;
@@ -252,6 +286,7 @@ function IssueCard({ issue }: { issue: GithubIssue }) {
               object="issue"
               idleLabel={earlier !== null && earlier > 0 ? `Load ${earlier} earlier comments` : "Load earlier comments"}
               row={commentRow(scope, issue.fetched_at, avatarFor)}
+              shown={(item) => shownComments.has((item as GithubCommentPayload).id)}
             />
           ) : undefined
         }
@@ -263,8 +298,31 @@ function IssueCard({ issue }: { issue: GithubIssue }) {
 const PR_TABS = ["Conversation", "Commits", "Files", "Checks"] as const;
 
 function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
-  const avatarFor = useAvatarFor();
+  const logins = useMemo(
+    () =>
+      loginsOf(
+        pr.author,
+        pr.merged_by,
+        ...pr.comments.items.map((c) => c.author),
+        ...pr.reviews.items.map((r) => r.author),
+        ...pr.review_decisions.map((d) => d.reviewer),
+        ...pr.requested_reviewers,
+        ...pr.commits.items.map((c) => c.author),
+      ),
+    [pr],
+  );
+  const avatarFor = useAvatarFor(logins);
+  const shownComments = useMemo(() => new Set(pr.comments.items.map((c) => c.id)), [pr]);
+  const shownCommits = useMemo(() => new Set(pr.commits.items.map((c) => c.sha)), [pr]);
   const [tab, setTab] = useState(0);
+  // A tab's section mounts on its first open and stays mounted, hidden, after:
+  // Files and Checks load on that first open (§7), and coming back to a tab
+  // keeps what it loaded.
+  const [visited, setVisited] = useState<ReadonlySet<number>>(() => new Set([0]));
+  const select = (index: number) => {
+    setTab(index);
+    setVisited((v) => (v.has(index) ? v : new Set([...v, index])));
+  };
   const scope = scopeOf(pr.repository, pr.number);
   const commentTotal = knownTotal(pr.comments);
   const commitTotal = knownTotal(pr.commits);
@@ -289,6 +347,7 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
             object="pull request"
             idleLabel={earlier !== null && earlier > 0 ? `Load ${earlier} earlier comments` : "Load earlier comments"}
             row={commentRow(scope, pr.fetched_at, avatarFor)}
+            shown={(item) => shownComments.has((item as GithubCommentPayload).id)}
           />
         ) : undefined
       }
@@ -307,6 +366,7 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
           part="commits"
           object="pull request"
           idleLabel={`Show all commits · ${pr.commits.items.length}${commitTotal !== null ? ` of ${commitTotal}` : ""} in result`}
+          shown={(item) => shownCommits.has((item as GithubCommit).sha)}
           row={(item, i) => <GitHubCommitRow key={i} {...commitProps(item as GithubCommit, scope, pr.fetched_at, avatarFor)} />}
         />
       ) : null}
@@ -320,6 +380,7 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
       part="files"
       object="pull request"
       idleLabel={`Show files · ${pr.changes.changed_files} changed`}
+      autoLoad
       row={(item, i) => {
         const file = item as GithubChangedFile;
         return <ListRow key={i} title={file.filename} subtitle={file.previous_filename ? `from ${file.previous_filename} · ${file.status}` : file.status} value={`+${file.additions} −${file.deletions}`} />;
@@ -334,12 +395,14 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
       part="checks"
       object="pull request"
       idleLabel={checkTotal !== undefined ? `Show checks · ${checkTotal}` : "Show checks"}
+      autoLoad
       row={(item, i) => {
         const run = item as GithubCheckRun;
         return (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <GitHubStateChip state={run.state === "skipped" ? "none-reported" : run.state === "failed" ? "failing" : run.state} variant="inline" />
-            <ListRow title={run.name} value={run.conclusion ?? undefined} />
+            {/* A skipped run is reported, not absent: no state chip, and its word. */}
+            {run.state === "skipped" ? null : <GitHubStateChip state={run.state === "failed" ? "failing" : run.state} variant="inline" />}
+            <ListRow title={run.name} value={run.state === "skipped" ? "skipped" : (run.conclusion ?? undefined)} />
           </div>
         );
       }}
@@ -376,17 +439,21 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
           { label: PR_TABS[3], ...(checkTotal !== undefined ? { count: checkTotal } : {}) },
         ],
         active: tab,
-        onSelect: setTab,
+        onSelect: select,
       }}
     >
-      {/* Files and Checks mount, and so load, only when their tab is opened.
-          Keyed by tab: the tabs' sections sit in the same place in the tree,
-          and without a key React would hand one tab's loaded rows to the next. */}
-      <Fragment key={tab}>{tab === 0 ? conversation : tab === 1 ? commits : tab === 2 ? files : checkRows}</Fragment>
+      {[conversation, commits, files, checkRows].map((content, index) =>
+        visited.has(index) ? (
+          <div key={index} hidden={tab !== index}>
+            {content}
+          </div>
+        ) : null,
+      )}
       {/* Line comments load on demand (#3796's review-comments part). The
           payload carries no per-review count, so this is one section for the
           pull request rather than a "Show n line comments" per review. */}
-      {tab === 0 && pr.reviews.items.length > 0 ? (
+      {pr.reviews.items.length > 0 ? (
+        <div hidden={tab !== 0}>
         <DetailPart
           repository={pr.repository}
           number={pr.number}
@@ -395,6 +462,7 @@ function PullRequestCard({ pr }: { pr: GithubPullRequest }) {
           idleLabel="Show line comments"
           row={(item, i) => <GitHubComment key={i} {...commentProps(item as GithubReviewComment, scope, pr.fetched_at, avatarFor)} />}
         />
+        </div>
       ) : null}
     </GitHubPullRequest>
   );

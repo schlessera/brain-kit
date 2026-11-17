@@ -6,7 +6,8 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 export function registerGithubToolsDom(): void {
   if (!GlobalRegistrator.isRegistered) {
-    GlobalRegistrator.register();
+    // A real origin, so the kit's same-origin avatar check can pass (#3795).
+    GlobalRegistrator.register({ url: "http://localhost/" });
   }
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 }

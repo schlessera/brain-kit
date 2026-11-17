@@ -25,6 +25,7 @@ afterEach(async () => {
     for (const root of roots.splice(0)) root.dispose();
   });
   requested.length = 0;
+  answer = () => new Response("{}", { status: 404 });
 });
 afterAll(async () => {
   await act(async () => cleanup());
@@ -32,15 +33,21 @@ afterAll(async () => {
   await unregisterGithubToolsDom();
 });
 
+/** What the next detail-route call answers; the default is a 404 with no body. */
+let answer: (url: string) => Response = () => new Response("{}", { status: 404 });
+
 function render(ui: ReactElement) {
   const root = createBrainUiRoot({
     storage: null,
     request: async (url) => {
       requested.push(String(url));
-      return new Response("{}", { status: 404 });
+      return answer(String(url));
     },
   });
   roots.push(root);
+  // A session, so avatars and detail pages are possible: a test that finds
+  // neither has proved the card did not ask, not that it could not.
+  root.stores.chat.setState({ activeSessionId: "session-odysseus" });
   return mount(<BrainUiProvider root={root}>{ui}</BrainUiProvider>);
 }
 
@@ -114,10 +121,14 @@ describe("absent is absent", () => {
     expect(output("read", envelope("read", pr)).container.querySelector("[data-github-fact='reviews']")!.textContent).toBe("Reviews—Not reported");
   });
 
-  test("a deleted author reads as @ghost and asks for no avatar", () => {
+  test("a deleted author reads as @ghost and asks for no avatar, while a named one does", () => {
     const { container } = output("read", envelope("read", issue({ author: author(null, null) })));
     expect(container.textContent).toContain("@ghost");
-    expect(container.querySelector("[data-github-issue] header img, [data-github-issue] img[src*='/avatars/null']")).toBeNull();
+    const ghost = container.querySelector("[data-avatar-state='ghost']")!;
+    expect(ghost.querySelector("img"), "no avatar request for a deleted account").toBeNull();
+    const sources = [...container.querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    expect(sources, "the comment author's avatar comes from the brain's route").toContain("http://localhost/api/sessions/session-odysseus/github/avatars/philoetius?size=64");
+    expect(sources.some((src) => src?.includes("null") || src?.includes("ghost"))).toBe(false);
   });
 });
 
@@ -244,20 +255,106 @@ describe("no fetch until the reader acts", () => {
 
 describe("on-demand sections keep their own state", () => {
   test("a section loaded on one tab does not leak into the next tab's section", async () => {
-    const page = { kind: "detail_page", repository: "ithaca/hall", number: 412, part: "files", items: [{ filename: "armoury/bow.md", previous_filename: null, status: "modified", additions: 12, deletions: 3, changes: 15 }], total_count: 1, next_cursor: null, fetched_at: "2026-07-12T09:00:00Z" };
-    registerBuiltinRenderers();
-    const name = visibleToolName(GITHUB_TOOL_NAMES.read, "pi");
-    const Output = resolveToolRenderer(call(name, undefined), "pi")!.Output!;
-    const root = createBrainUiRoot({ storage: null, request: async () => Response.json(page) });
-    roots.push(root);
-    root.stores.chat.setState({ activeSessionId: "session-odysseus" });
-    const view = mount(<BrainUiProvider root={root}><Output tool={call(name, envelope("read", pull()))} /></BrainUiProvider>);
-    fireEvent.click(view.getByRole("tab", { name: /Files/ }));
-    await act(async () => fireEvent.click(view.getByRole("button", { name: /Show files/ })));
+    answer = (url) =>
+      url.endsWith("/files")
+        ? page("files", [{ filename: "armoury/bow.md", previous_filename: null, status: "modified", additions: 12, deletions: 3, changes: 15 }])
+        : page("checks", [{ source: "check_run", name: "axe-line", state: "passed", conclusion: "success", started_at: null, completed_at: null }]);
+    const view = output("read", envelope("read", pull()));
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
     await act(async () => {});
     expect(view.container.textContent).toContain("armoury/bow.md");
-    fireEvent.click(view.getByRole("tab", { name: /Checks/ }));
-    expect(view.container.querySelector("[data-github-detail]")?.getAttribute("data-github-detail"), "the Checks section starts idle").toBe("idle");
-    expect(view.container.textContent).not.toContain("armoury/bow.md");
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Checks/ })));
+    await act(async () => {});
+    const visible = [...view.container.querySelectorAll("[role='tabpanel'] > div")].find((d) => !(d as HTMLElement).hidden)!;
+    expect(visible.textContent, "the Checks section shows checks").toContain("axe-line");
+    expect(visible.textContent, "and none of the Files rows").not.toContain("armoury/bow.md");
+  });
+});
+
+const page = (part: string, items: unknown[], next: string | null = null) =>
+  Response.json({ kind: "detail_page", repository: "ithaca/hall", number: part === "comments" ? 388 : 412, part, items, total_count: null, next_cursor: next, fetched_at: "2026-07-12T09:00:00Z" });
+
+describe("on-demand detail", () => {
+  test("earlier comments leave out the ones the result already shows, and their new authors get no avatar", async () => {
+    const shown = issue().comments.items[0]!;
+    answer = () => page("comments", [{ ...shown }, { ...shown, id: 5001, author: author("antinous", "NONE"), body: "Nobody is draining anything.", body_length: 28, html_url: "https://github.com/ithaca/hall/issues/388#issuecomment-5001" }]);
+    const view = output("read", envelope("read", issue()));
+    await act(async () => fireEvent.click(view.getByRole("button", { name: /Load 16 earlier comments/ })));
+    await act(async () => {});
+    expect(view.container.textContent?.split(shown.body!).length, "the shown comment appears once").toBe(2);
+    expect(view.container.textContent).toContain("Nobody is draining anything.");
+    const loaded = [...view.container.querySelectorAll("[data-github-comment]")].find((c) => c.textContent?.includes("@antinous"))!;
+    expect(loaded.querySelector("img"), "an author only loaded detail names gets initials").toBeNull();
+  });
+
+  test("all commits leave out the ones the result already shows", async () => {
+    const first = pull().commits.items[0]!;
+    answer = () => page("commits", [first, { ...first, sha: "5e02aa7a8f3e2d1c0b9a8f7e6d5c4b3a29180716", message: "Swap gut string for sinew", html_url: "https://github.com/ithaca/hall/commit/5e02aa7a8f3e2d1c0b9a8f7e6d5c4b3a29180716" }]);
+    const view = output("read", envelope("read", pull()));
+    fireEvent.click(view.getByRole("tab", { name: /Commits/ }));
+    await act(async () => fireEvent.click(view.getByRole("button", { name: /Show all commits/ })));
+    await act(async () => {});
+    expect(view.container.querySelectorAll("[data-github-commit]").length, "the result's commit, then the one new commit").toBe(2);
+    expect(view.container.textContent).toContain("Swap gut string for sinew");
+  });
+
+  test("Files load on the tab's first open, and keep what they loaded when the reader comes back", async () => {
+    answer = () => page("files", [{ filename: "armoury/bow.md", previous_filename: null, status: "modified", additions: 12, deletions: 3, changes: 15 }]);
+    const view = output("read", envelope("read", pull()));
+    expect(requested.filter((u) => u.endsWith("/files")), "nothing before the tab opens").toEqual([]);
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+    await act(async () => {});
+    expect(requested.filter((u) => u.endsWith("/files"))).toEqual(["/api/sessions/session-odysseus/github/ithaca/hall/412/files"]);
+    expect(view.container.textContent).toContain("armoury/bow.md");
+    fireEvent.click(view.getByRole("tab", { name: /Conversation/ }));
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+    expect(requested.filter((u) => u.endsWith("/files")), "coming back does not fetch again").toHaveLength(1);
+  });
+
+  for (const [status, error, state, text] of [
+    [503, { code: "unavailable", reason: "no_credential", message: "No credential." }, "no-credential", "no GitHub access set up"],
+    [404, { code: "not_found", reason: "github", message: "Gone." }, "gone", "no longer shows this pull request"],
+    [403, { code: "forbidden", reason: "not_owner", message: "Not yours." }, "gone", "no longer shows this pull request"],
+    [502, { code: "upstream_error", reason: "http_502", message: "GitHub answered 502." }, "error", "GitHub answered 502"],
+    [429, { code: "rate_limited", reason: "github", message: "Limited." }, "rate-limited", "request limit is used up"],
+  ] as const) {
+    test(`a ${status} ${error.code} from the route reads as ${state}`, async () => {
+      answer = () => Response.json({ error: { ...error, reset_at: null } }, { status });
+      const view = output("read", envelope("read", pull()));
+      await act(async () => fireEvent.click(view.getByRole("tab", { name: /Files/ })));
+      await act(async () => {});
+      const section = view.container.querySelector("[data-github-detail]:not([hidden] *)");
+      expect([...view.container.querySelectorAll("[data-github-detail]")].map((n) => n.getAttribute("data-github-detail"))).toContain(state);
+      expect(view.container.textContent).toContain(text);
+      void section;
+    });
+  }
+
+  test("a skipped check run reads as skipped, not as an absent report", async () => {
+    answer = () => page("checks", [{ source: "check_run", name: "nightly-armoury", state: "skipped", conclusion: "skipped", started_at: null, completed_at: null }]);
+    const view = output("read", envelope("read", pull()));
+    await act(async () => fireEvent.click(view.getByRole("tab", { name: /Checks/ })));
+    await act(async () => {});
+    expect(view.container.textContent).toContain("nightly-armoury");
+    expect(view.container.textContent).toContain("skipped");
+    expect(view.container.textContent).not.toContain("None reported");
+  });
+});
+
+describe("write outcomes say what the host knows", () => {
+  test("a write cancelled before sending says so in the host's words, not 'outcome unknown'", () => {
+    const { container } = output("create", refusal("create", "upstream_error", "cancelled", "The turn ended before the write was sent; nothing was sent."));
+    expect(container.querySelector("[data-github-write='unknown']")).toBeNull();
+    expect(container.textContent).toContain("nothing was sent");
+  });
+
+  test("after approval, the approval row no longer shows the draft as not posted", () => {
+    registerBuiltinRenderers();
+    const name = visibleToolName(GITHUB_TOOL_NAMES.create, "claude");
+    const Input = resolveToolRenderer(call(name, undefined), "claude")!.Input!;
+    for (const status of ["approved", "denied"] as const) {
+      const { container } = render(<Input tool={call(name, undefined, { input: { repository: "ithaca/hall", title: "Key log" }, status })} />);
+      expect(container.textContent, status).toBe("");
+    }
   });
 });

@@ -57,14 +57,17 @@ const FILES_PAGE = {
 };
 const RESET = new Date(Date.now() + 12 * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
 
+const methods: string[] = [];
 /** Mounts a PR read result; returns the detail-route calls the root's `request` saw. */
 function mountPullRequest() {
   const calls: string[] = [];
+  methods.length = 0;
   root = createBrainUiRoot({
     storage: null,
-    request: async (url) => {
+    request: async (url, init) => {
       const path = String(url);
       calls.push(path);
+      methods.push(init?.method ?? "GET");
       if (path.endsWith("/files")) return Response.json(FILES_PAGE);
       if (path.endsWith("/checks"))
         return Response.json({ error: { code: "rate_limited", reason: "github", message: "GitHub's request limit is used up.", reset_at: RESET } }, { status: 429 });
@@ -85,7 +88,6 @@ function mountPullRequest() {
 }
 
 const tabNamed = (name: string) => [...host!.querySelectorAll<HTMLElement>("[role='tab']")].find((t) => t.textContent?.startsWith(name))!;
-const buttonStarting = (text: string) => [...host!.querySelectorAll<HTMLElement>("button, [role='button']")].find((b) => b.textContent?.trim().includes(text));
 const detailCalls = (calls: string[]) => calls.filter((url) => /\/github\/ithaca\/hall\/412\//.test(url));
 const foreign = (urls: string[]) => urls.filter((url) => !url.startsWith(location.origin) && !url.startsWith("data:"));
 
@@ -122,24 +124,24 @@ test("nothing leaves the brain's origin, links ask first, and detail loads only 
     document.removeEventListener("click", stop, true);
   }
 
-  // Files: the tab mounts its section idle; the reader's press loads it.
+  // Files: the tab's first open is the reader's act, and loads its section (§7).
   await userEvent.click(tabNamed("Files"));
-  await expect.poll(() => tabNamed("Files").getAttribute("aria-selected")).toBe("true");
-  expect(detailCalls(calls), "opening the tab shows the section, it does not fetch").toEqual([]);
-  await expect.poll(() => buttonStarting("Show files"), { message: host!.querySelector("[role='tabpanel']")?.textContent ?? "" }).toBeTruthy();
-  await userEvent.click(buttonStarting("Show files")!);
   await expect.poll(() => host!.textContent).toContain("armoury/bow.md");
   expect(detailCalls(calls)).toEqual(["/api/sessions/session-odysseus/github/ithaca/hall/412/files"]);
 
   // Checks: a typed rate-limit error reads as S5, with its reset time.
   await userEvent.click(tabNamed("Checks"));
-  await expect.poll(() => buttonStarting("Show checks")).toBeTruthy();
-  await userEvent.click(buttonStarting("Show checks")!);
-  await expect.poll(() => host!.querySelector("[data-github-detail]")?.getAttribute("data-github-detail")).toBe("rate-limited");
+  await expect.poll(() => [...host!.querySelectorAll("[data-github-detail]")].map((n) => n.getAttribute("data-github-detail"))).toContain("rate-limited");
   expect(host!.textContent).toMatch(/It resets at \d{2}:\d{2} \(in 1[12] min\)/);
 
-  // Loaded detail is display-only: the chat state the model's history comes from is unchanged.
-  expect(JSON.stringify(root!.stores.chat.getState()), "loading detail sends nothing to the model").toBe(history);
+  // Loaded detail is display-only. Every request the card made is a GET to
+  // #3796's read-only detail route, which the server proves leaves the
+  // session's provider history unchanged (GITHUB_DETAIL_HISTORY_UNCHANGED,
+  // packages/ui-server/tests/ws-github-details.test.ts); and the client's chat
+  // state, the turn's source on this side, is byte-identical.
+  expect(calls.every((url) => /^\/api\/sessions\/session-odysseus\/github\/ithaca\/hall\/412\/(files|checks)$/.test(url)), `only detail-route calls: ${calls.join(", ")}`).toBe(true);
+  expect(methods.every((m) => m === "GET"), "only reads").toBe(true);
+  expect(JSON.stringify(root!.stores.chat.getState()), "loading detail changes nothing the model's turn is built from").toBe(history);
   // The page's only network requests are the avatar images (the detail route
   // answers through the root's request): once every image has settled, the
   // log is complete.

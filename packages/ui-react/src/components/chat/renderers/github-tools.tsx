@@ -45,8 +45,10 @@ const Fallback = ({ tool }: { tool: ToolCallView }) => (tool.output ? <ClampedPr
 /** The card a write tool's approval row shows: exactly what will be posted (W1, W4). */
 function writeInput<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T } }, Preview: ComponentType<{ input: T }>) {
   return function WriteInput({ tool }: { tool: ToolCallView }) {
-    // Only the approval row: the original call's row shows its result instead.
-    if (tool.status !== "pending_approval" && tool.status !== "approved" && tool.status !== "denied") return null;
+    // Only while the approval waits. The approval row never receives an
+    // output, so after a decision a draft would keep reading "not posted";
+    // the original call's row shows what happened instead.
+    if (tool.status !== "pending_approval") return null;
     const parsed = schema.safeParse(tool.input);
     return parsed.success && parsed.data ? <Preview input={parsed.data} /> : null;
   };
