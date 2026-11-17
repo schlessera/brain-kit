@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CI_WORKFLOWS, checkCIWorkflows, publicationWorkflowProblems, workflowProblems } from "../scripts/check-ci-workflows.ts";
 import { ACTION_PINS, actionPinProblems, annotateActionPins, pinned } from "../scripts/action-pins.ts";
+import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards.ts";
 const ROOT = resolve(import.meta.dir, "..");
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Obj = { [key: string]: Json };
@@ -133,7 +134,7 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.on.pull_request).toEqual({ types: ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"] });
     expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "proof"]);
     // The planner step is the only source of a metadata output: no later step can deselect a category (#4107).
-    expect(ci.jobs.changeset!.outputs).toEqual(Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "cadence", "unit_shards", "red_main_oid"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])));
+    expect(ci.jobs.changeset!.outputs).toEqual(Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "cadence", "unit_shards", "determinism_shards", "red_main_oid"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])));
     const metadata = ci.jobs.changeset!.steps.filter(s => s.run).map(s => s.run);
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
     expect(metadata).toContain("bun scripts/env-docs.ts --check"); expect(metadata).toContain("bun scripts/check-changeset-packages.ts");
@@ -586,24 +587,56 @@ test("all unit partitions upload incremental memory diagnostics even after proof
 test("the determinism job has the unit job's prerequisites and both aggregates observe it (#4109)", () => {
   const original = read("ci.yml");
   const job = ci.jobs.determinism!, unit = ci.jobs.unit!;
+  const REPEAT = 'bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"';
   const runs = (steps: typeof job.steps) => steps.filter(step => step.run).map(step => step.run);
   // Changed files may drive real Chrome: the same install, plan and runtime setup as unit.
   for (const command of ["bun install --frozen-lockfile --backend=copyfile", "bun scripts/ci-plan.ts", "bash scripts/ci-runtime-setup.sh"]) {
     expect(runs(unit.steps), command).toContain(command);
     expect(runs(job.steps), `UNIT_PREREQUISITE:${command}`).toContain(command);
   }
-  expect(runs(job.steps).indexOf("bash scripts/ci-runtime-setup.sh"), "SETUP_BEFORE_REPETITION").toBeLessThan(runs(job.steps).indexOf("bun scripts/ci-proof.ts determinism"));
+  expect(runs(job.steps).indexOf("bash scripts/ci-runtime-setup.sh"), "SETUP_BEFORE_REPETITION").toBeLessThan(runs(job.steps).indexOf(REPEAT));
+  expect(runs(job.steps), "THE_PARTITION_COMMAND").toContain(REPEAT);
   expect(job.if).toBe("${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.determinism == 'true' }}");
   expect((ci.jobs.changeset!.outputs as Obj).determinism).toBe("${{ steps.plan.outputs.determinism }}");
   const feedback = Bun.YAML.parse(read("heavy-feedback.yml")) as Workflow;
-  expect(runs(feedback.jobs.determinism!.steps), "DRAFT_HEAVY_FEEDBACK_REPEATS_TOO").toContain("bun scripts/ci-proof.ts determinism");
+  expect(runs(feedback.jobs.determinism!.steps), "DRAFT_HEAVY_FEEDBACK_REPEATS_TOO").toContain(REPEAT);
+  expect(feedback.jobs.determinism!.strategy, "DRAFT_HEAVY_FEEDBACK_SPLITS_TOO").toEqual(job.strategy);
   expect(feedback.jobs.aggregate!.needs).toContain("determinism");
   expect(workflowProblems(original, "ci.yml")).toEqual([]);
   expect(workflowProblems(original.replace("captures, endurance, determinism]", "captures, endurance]"), "ci.yml"), "PROOF_MUST_OBSERVE_IT").toContain("ci.yml: proof: aggregate must observe every selected category");
-  expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts determinism\n", "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: determinism: complete proof command is missing");
+  expect(workflowProblems(original.replace(`run: ${REPEAT}\n`, "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: determinism: complete proof command is missing");
   expect(workflowProblems(original.replace("needs.changeset.outputs.determinism == 'true' }}", "needs.changeset.outputs.unit == 'true' }}"), "ci.yml")).toContain("ci.yml: determinism: proof must run on its explicit planner selection alone");
   const withoutSetup = original.slice(0, original.indexOf("  determinism:\n")) + original.slice(original.indexOf("  determinism:\n")).replace("run: bash scripts/ci-runtime-setup.sh\n", "run: bash scripts/ci-runtime-setup.sh --native\n");
   expect(workflowProblems(withoutSetup, "ci.yml"), "UNIT_SETUP_REQUIRED").toContain("ci.yml: determinism: environment setup must have its separate 12-minute limit");
+});
+
+test("the determinism matrix, divisor and step limit come from the planner and its one owner (#4117)", () => {
+  const text = read("ci.yml"), job = ci.jobs.determinism!;
+  expect(job.strategy).toEqual({ "fail-fast": false, matrix: { shard: "${{ fromJSON(needs.changeset.outputs.determinism_shards) }}" } });
+  const step = job.steps.find(s => s.name === "Repeat changed Bun test files under CPU load")!;
+  expect(step.env?.DETERMINISM_SHARDS).toBe("${{ strategy.job-total }}");
+  expect(step.run).toBe('bun scripts/ci-proof.ts determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"');
+  expect(step["timeout-minutes"], "STEP_LIMIT_HAS_ONE_OWNER").toBe(DETERMINISM_PARTITIONS.stepMinutes);
+  expect(job.steps.find(s => s.uses === pinned("actions/upload-artifact@v7"))!.with!.name, "ONE_ARTIFACT_PER_PARTITION").toBe("determinism-proof-${{ matrix.shard }}");
+  expect(workflowProblems(text, "ci.yml")).toEqual([]);
+  const problem = "determinism: matrix and shard divisor must come from the planner's determinism_shards output";
+  const matrix = "        shard: ${{ fromJSON(needs.changeset.outputs.determinism_shards) }}\n";
+  for (const [label, from, to, refusal] of [
+    ["LITERAL_ONE_MATRIX", matrix, "        shard: [1]\n", problem],
+    ["LITERAL_MAXIMUM_MATRIX", matrix, "        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n", problem],
+    ["UNIT_PARTITIONS_AS_MATRIX", matrix, "        shard: ${{ fromJSON(needs.changeset.outputs.unit_shards) }}\n", problem],
+    ["SECOND_MATRIX_DIMENSION", matrix, matrix + "        worker: [1, 2]\n", problem],
+    ["NO_MATRIX", "    strategy:\n      fail-fast: false\n      matrix:\n" + matrix, "", problem],
+    ["UNPARTITIONED_COMMAND", 'determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"', "determinism", problem],
+    ["LITERAL_DIVISOR", 'determinism --shard=${{ matrix.shard }}/"$DETERMINISM_SHARDS"', "determinism --shard=${{ matrix.shard }}/2", problem],
+    ["LITERAL_DIVISOR_VALUE", "DETERMINISM_SHARDS: ${{ strategy.job-total }}", "DETERMINISM_SHARDS: 2", problem],
+    ["OUTPUT_NOT_FROM_PLANNER", "determinism_shards: ${{ steps.plan.outputs.determinism_shards }}", 'determinism_shards: "[1]"', problem],
+    ["SHARED_ARTIFACT_NAME", "name: determinism-proof-${{ matrix.shard }}", "name: determinism-proof", "determinism: each partition must upload its own receipts"],
+    ["STEP_LIMIT_NOT_THE_OWNERS", "        timeout-minutes: 40\n        env:\n          DETERMINISM_SHARDS:", "        timeout-minutes: 60\n        env:\n          DETERMINISM_SHARDS:", "determinism: proof must retain its 40-minute limit"],
+  ] as const) {
+    expect(text.split(from), `ONE_SITE: ${label}`).toHaveLength(2);
+    expect(workflowProblems(text.replace(from, to), "ci.yml"), label).toContain(`ci.yml: ${refusal}`);
+  }
 });
 
 test("runtime categories have distinct complete commands and strict aggregate dependencies", () => {
