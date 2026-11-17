@@ -126,9 +126,11 @@ test("a cached shared root still uses the requesting principal and turn's own me
 });
 
 for (const phase of ["fetch", "seal"] as const)
-for (const owner of ["same service", "another service"] as const)
-test(`a concurrent bind from ${owner} preserves an unpublished managed source during ${phase}`, async () => {
+for (const { owner, refresh } of [{ owner: "same service", refresh: false }, { owner: "another service", refresh: false }, { owner: "another service", refresh: true }] as const)
+test(`a concurrent bind from ${owner} preserves an unpublished managed source during ${phase}${refresh ? " with an expired source" : ""}`, async () => {
   const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+  let previousRoot: string | undefined;
+  if (refresh) { const previous = await f.request(); previousRoot = previous.rootId; previous.release(); f.state.clock += 400_000; f.state.commit = "c".repeat(40); }
   const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), fetch = f.transport.fetch, seal = f.pool.poolSeal;
   const pause = async () => { arrived.resolve(); await resume.promise; };
   if (phase === "fetch") f.transport.fetch = async input => { const result = await fetch(input); await pause(); return result; };
@@ -136,7 +138,7 @@ test(`a concurrent bind from ${owner} preserves an unpublished managed source du
   const pending = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
   try {
     await arrived.promise;
-    const staging = [...f.pool.records.values()].find(record => record.purpose === "source")!;
+    const staging = [...f.pool.records.values()].find(record => record.purpose === "source" && record.id !== previousRoot)!;
     expect(staging.view).toBeNull(); expect(staging.publicationRevoked).toBe(false);
     const view = await (owner === "same service" ? f.sources : otherSources).bindable(f.other.id);
     expect(existsSync(join(view.public, staging.id, "README.md"))).toBe(false);
@@ -168,6 +170,24 @@ test("a bind withdraws staging already exposed without a source catalog receipt"
     expect(existsSync(join(held.viewPath, held.name, "README.md"))).toBe(false);
     expect(f.pool.records.get(held.rootId)!.publicationRevoked).toBe(true);
   } finally { held?.release(); await f.close(); }
+});
+
+test("a publisher cannot commit a fresh lease after another service retires its exposed staging root", async () => {
+  const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+  const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), publish = f.pool.poolPublish;
+  f.pool.poolPublish = async (...args) => { const record = structuredClone(await publish(...args)); arrived.resolve(); await resume.promise; return record; };
+  const pending = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+  try {
+    await arrived.promise;
+    await otherSources.bindable(f.other.id);
+    resume.resolve(); const result = await pending;
+    expect(result.lease, "RETIRED_STAGING_CANNOT_COMMIT_AN_AUTHORITATIVE_LEASE").toBeUndefined();
+    expect(result.error).toMatchObject({ code: "unavailable" });
+    expect(f.db.query("SELECT root_id FROM reference_sources").get()).toBeNull();
+  } finally {
+    resume.resolve(); const result = await pending; result.lease?.release(); f.pool.poolPublish = publish;
+    await otherSources.close(); otherDb.close(); await f.close();
+  }
 });
 
 for (const wait of ["seal", "native-publication"] as const)
@@ -1030,6 +1050,50 @@ describe("live managed authority", () => {
       if (descriptor) Object.defineProperty(f.db, "query", descriptor); else Reflect.deleteProperty(f.db, "query");
       held?.release(); await first.close(); otherDb.close(); await f.close();
     }
+  });
+
+  for (const phase of ["failed scan", "expiry transaction"] as const)
+  test(`bind expiry preserves another owner's renewal committed after ${phase}`, async () => {
+    const f = await fixture(), otherDb = createUiDb(f.databasePath);
+    const queryDescriptor = Object.getOwnPropertyDescriptor(f.db, "query"), transactionDescriptor = Object.getOwnPropertyDescriptor(f.db, "transaction");
+    const query = f.db.query.bind(f.db), transaction = f.db.transaction.bind(f.db);
+    let held: Awaited<ReturnType<typeof f.request>> | undefined, injected = false;
+    const renew = () => { injected = true; sourceWrites(otherDb).sourceValidate(f.state.clock, f.state.clock, "refs/heads/main", "public", repository, "main", undefined, held!.rootId); };
+    try {
+      held = await f.request(); f.state.clock += 400_000;
+      if (phase === "failed scan") f.db.query = ((sql: string) => {
+        const statement = query(sql);
+        if (!injected && sql === "SELECT * FROM reference_sources WHERE domain = ? AND repository = ? AND revision = ?") {
+          const get = statement.get.bind(statement);
+          statement.get = ((...args: unknown[]) => { const snapshot = get(...args as []); statement.get = get; if (!injected) queueMicrotask(renew); return snapshot; }) as typeof statement.get;
+        }
+        return statement;
+      }) as typeof f.db.query;
+      else f.db.transaction = ((fn: (...args: unknown[]) => unknown) => { if (!injected) renew(); return transaction(fn); }) as typeof f.db.transaction;
+      await f.sources.bindable(f.other.id);
+      expect(injected).toBe(true);
+      expect(f.db.query("SELECT validated_at FROM reference_sources").get(), "EXPIRY_TRANSACTION_PRESERVES_NEWER_VALIDATION").toEqual({ validated_at: f.state.clock });
+      expect(f.pool.records.get(held.rootId)!.publicationRevoked).toBe(false);
+      expect(existsSync(join(held.viewPath, held.rootId, "README.md"))).toBe(true);
+    } finally {
+      if (queryDescriptor) Object.defineProperty(f.db, "query", queryDescriptor); else Reflect.deleteProperty(f.db, "query");
+      if (transactionDescriptor) Object.defineProperty(f.db, "transaction", transactionDescriptor); else Reflect.deleteProperty(f.db, "transaction");
+      held?.release(); otherDb.close(); await f.close();
+    }
+  });
+
+  test("recovery preserves a retired managed publication until fresh acquisition replaces it", async () => {
+    const f = await fixture();
+    let old: Awaited<ReturnType<typeof f.request>> | undefined, fresh: typeof old;
+    try {
+      old = await f.request(); f.state.clock += 400_000;
+      await f.sources.bindable(f.other.id); await f.sources.recover();
+      expect(sourceWrites(f.db).sourceValidate(f.state.clock, f.state.clock, "refs/heads/main", "public", repository, "main", undefined, old.rootId),
+        "RECOVERY_CANNOT_REVIVE_RETIRED_VALIDATION").toBe(false);
+      old.release(); fresh = await f.request();
+      expect(fresh.rootId).not.toBe(old.rootId);
+      expect(existsSync(join(fresh.viewPath, fresh.name, "README.md"))).toBe(true);
+    } finally { fresh?.release(); old?.release(); await f.close(); }
   });
 
   for (const failure of ["catalog write", "native withdrawal"] as const)

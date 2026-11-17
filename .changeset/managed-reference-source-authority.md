@@ -8,3 +8,5 @@ Bind managed GitHub source acquisition and cached-source revalidation to the req
 Keep stored worktree repository keys separate from raw clone input so revocation cannot borrow a neighboring repository's grant. Managed roots opt into durable, permanent native publication withdrawal: delayed publication cannot revive a revoked identity, while fresh authorized acquisition uses a new root and legacy withdrawal stays reversible. Recovery keeps invalidated roots masked, and committing a shared invalidation atomically expires matching cached validation.
 
 Condition native publication and catalog updates on the previously observed root so concurrent acquisitions cannot roll a source back to an older revision. Worktrees retain their original acquisition URL after source-catalog cleanup, preserving authorized legacy endpoints without guessing clone suffixes.
+
+Compare expiry against the current root and validation inside the catalog transaction. Preserve independent authorized acquisitions while retiring expired roots, and refuse late publication or validation of retired identities.

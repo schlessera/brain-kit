@@ -77,3 +77,23 @@ test("publication commit cannot replace a newer root while authority versions re
     "PUBLICATION_TRANSACTION_PRESERVES_NEWER_ROOT").toBe(false);
   expect(db.query("SELECT root_id, commit_id FROM reference_sources").get()).toEqual({ root_id: "telemachus-new-root", commit_id: "c".repeat(40) });
 });
+
+test("a discarded staging identity cannot commit publication after native withdrawal", () => {
+  const id = "odysseus-retired-staging";
+  writes.sourceStage(id, "public", repository, "main", at);
+  writes.sourceDiscard(id);
+  expect(writes.sourcePublish("/srv/fixtures/view", "public", repository, "main", repository, "ithaca", id, "a".repeat(40), "refs/heads/main", null, at),
+    "RETIRED_STAGING_TRANSACTION_CANNOT_RESURRECT_PUBLICATION").toBe(false);
+  expect(db.query("SELECT 1 FROM reference_sources").get()).toBeNull();
+});
+
+test("managed expiry retires its root without cancelling an independent acquisition", () => {
+  const expected = sourceAuthority(db, "public", repository, "main");
+  for (const id of ["odysseus-expired-root", "telemachus-staging"]) writes.sourceStage(id, "public", repository, "main", at);
+  writes.sourcePublish("/srv/fixtures/view", "public", repository, "main", repository, "ithaca", "odysseus-expired-root", "a".repeat(40), "refs/heads/main", null, at);
+  const roots = writes.sourceFenceCurrent("public", repository, "main", "odysseus-expiry", "odysseus-expired-root", at, at, true);
+  expect(roots?.map(root => root.id)).toEqual(["odysseus-expired-root"]);
+  expect(sourceAuthorityCurrent(db, expected)).toBe(true);
+  expect(writes.sourceValidate(at + 1, at + 1, "refs/heads/main", "public", repository, "main", expected, "odysseus-expired-root"), "RETIRED_EXPIRY_CANNOT_RENEW_OLD_ROOT").toBe(false);
+  expect(writes.sourcePublish("/srv/fixtures/view", "public", repository, "main", repository, "ithaca", "telemachus-staging", "c".repeat(40), "refs/heads/main", null, at + 1, undefined, expected, { rootId: "odysseus-expired-root" })).toBe(true);
+});

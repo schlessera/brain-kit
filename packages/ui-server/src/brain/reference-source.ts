@@ -301,7 +301,8 @@ export function createReferenceSources(options: {
   async function settle(domain: string, repository: string, revision: string) {
     const key = sourceKey(domain, repository, revision);
     if (leases.get(key)) return;
-    const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state = 'superseded'")
+    const roots = db.query(`SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state = 'superseded'
+      AND NOT EXISTS (SELECT 1 FROM reference_sources s WHERE s.root_id = reference_roots.id)`)
       .all(domain, repository, revision) as { id: string }[];
     for (const root of roots) await releaseRoot(root.id);
     if (withdrawn.has(key) && !operating(key) && !withdrawals.has(key)) {
@@ -681,7 +682,7 @@ export function createReferenceSources(options: {
       } else if (result && reason === "unavailable") {
         // Wire shutdown may outlive the lease's validation. A newer live
         // validation wins when this expiry cleanup reaches the exposure lock.
-        work = suspendSource(operation.domain, repository.canonical, revision, true);
+        work = suspendSource(operation.domain, repository.canonical, revision, "source");
       } else if (publishing && publicationId) {
         // Cleanup is not a new metadata observation. Discard just this
         // attempt; another owner may already have published a valid root.
@@ -869,16 +870,26 @@ export function createReferenceSources(options: {
    * unsettled until the pool confirms, so a bind retries it and refuses until
    * it does.
    */
-  function suspendSource(domain: string, repository: string, revision: string, onlyExpired = false, captured?: InvalidatedRoot[]): Promise<void> {
+  function suspendSource(domain: string, repository: string, revision: string, expiry: false | "source" | "bind" = false, captured?: InvalidatedRoot[], observed?: SourceRow): Promise<void> {
     const key = sourceKey(domain, repository, revision);
     return exclusive(key, async () => {
       const source = row(domain, repository, revision);
-      if (onlyExpired && (!source || validationLive(source))) return;
+      const expected = observed ?? (expiry ? source : undefined);
+      const before = expiry === "bind" ? now() + BIND_MARGIN() - limits.validationMs : expiry === "source" ? now() - limits.validationMs : undefined;
+      if (expiry && !source) return;
+      if (expected && (!source || source.root_id !== expected.root_id || source.validated_at !== expected.validated_at
+        || (before !== undefined && source.validated_at !== null && source.validated_at > before))) return;
       const priorWithdrawal = withdrawn.get(key);
-      // Bind expiry is shared invalidation too, rather than a local flag that
-      // another owner can renew while native withdrawal is still outstanding.
+      // Retire the observed publication in the shared catalog; cache validation
+      // cannot revive it while native withdrawal is still outstanding.
       const managed = isManaged(repository);
-      const roots = managed ? captured ?? await fenceSource(key)
+      let roots: { id: string; state: string }[];
+      if (expected) {
+        const expired = await write<InvalidatedRoot[] | null>("sourceFenceCurrent", domain, repository, revision, randomUUID(), expected.root_id, expected.validated_at, before, managed);
+        if (!expired) return;
+        if (!managed) authorityFences.set(key, (authorityFences.get(key) ?? 0) + 1);
+        roots = expired;
+      } else roots = managed ? captured ?? await fenceSource(key)
         : db.query("SELECT id, state FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ?").all(domain, repository, revision) as { id: string; state: string }[];
       if (managed) {
         const current = row(domain, repository, revision);
@@ -893,8 +904,8 @@ export function createReferenceSources(options: {
       const pending = [...pendingPublications].filter(([, publication]) => publication.key === key);
       if ((!source?.root_id && !roots.length && !pending.length) || (withholding(source) === "hidden" && !unsettled.has(key) && !pending.length)) return;
       suspended.set(key, { rootId: source?.root_id ?? null, validatedAt: 0 }); unsettled.add(key);
-      await write("sourceSuspend", domain, repository, revision);
-      if (source) await pool.poolUnpublish((await viewFor(domain)).id, source.name);
+      if (!expected) await write("sourceSuspend", domain, repository, revision);
+      if (source && !expected) await pool.poolUnpublish((await viewFor(domain)).id, source.name);
       for (const root of roots) await hideRecordedRoot(root);
       for (const [id, publication] of pending) {
         await pool.poolUnpublish(publication.view, publication.name);
@@ -977,9 +988,9 @@ export function createReferenceSources(options: {
       await abortable(exposing.get(key), signal);
       const current = row(source.domain, source.repository, source.revision);
       if (!usable(current)) continue;
-      if (unsettled.has(key)) { await abortable(suspendSource(current.domain, current.repository, current.revision), signal, false); continue; }
+      if (unsettled.has(key)) { await abortable(suspendSource(current.domain, current.repository, current.revision, false, undefined, current), signal, false); continue; }
       const exposure = withholding(current);
-      if (exposure === "unknown") { await abortable(suspendSource(current.domain, current.repository, current.revision), signal, false); continue; }
+      if (exposure === "unknown") { await abortable(suspendSource(current.domain, current.repository, current.revision, false, undefined, current), signal, false); continue; }
       if (exposure === "hidden" || validFor(current) > BIND_MARGIN()) continue;
       lapsed.push(current);
     }
@@ -992,7 +1003,7 @@ export function createReferenceSources(options: {
     }
     for (const source of failed) {
       if (withholding(row(source.domain, source.repository, source.revision)) === "hidden") continue;
-      await abortable(suspendSource(source.domain, source.repository, source.revision), signal, false);
+      await abortable(suspendSource(source.domain, source.repository, source.revision, "bind", undefined, source), signal, false);
     }
     // No root other than a source's current one stays in the view: superseded,
     // withdrawn, retained for a worktree, or staging whose publication reply was lost.
@@ -1007,10 +1018,12 @@ export function createReferenceSources(options: {
           // Unpublished staging is outside the worker's views already. Taking
           // its publication authority would cancel a valid concurrent fetch.
           if (record?.purpose === "source" && record.view === null && ["reserved", "writable", "sealed"].includes(record.state)) {
+            if (record.publicationRevoked === true) await write("sourceDiscard", id);
             hiddenRoots.set(id, record.publicationRevoked === true);
             return;
           }
         }
+        if (state === "staging" && !await write<boolean>("sourceRetireStaging", id)) return;
         await hideRoot(id);
       }), signal, false);
     }
@@ -1164,7 +1177,7 @@ export function createReferenceSources(options: {
     }
     for (const { id } of db.query("SELECT id FROM reference_roots").all() as { id: string }[])
       if (byId.has(id) && !keep.has(id) && !retained.includes(id)) db.query("DELETE FROM reference_roots WHERE id = ?").run(id);
-    db.query("UPDATE reference_roots SET state = 'published' WHERE id IN (SELECT root_id FROM reference_sources WHERE root_id IS NOT NULL)").run();
+    db.query("UPDATE reference_roots SET state = 'published' WHERE state != 'superseded' AND id IN (SELECT root_id FROM reference_sources WHERE root_id IS NOT NULL)").run();
     db.query("DELETE FROM reference_sources WHERE root_id IS NULL").run();
     // A root kept only for a worktree is never left where a bound view reaches it.
     for (const id of retained) await hideRoot(id).catch(error => warn("retained reference root stays in its view until the next bind hides it", error));
@@ -1219,7 +1232,7 @@ export function createReferenceSources(options: {
             const key = sourceKey(source.domain, source.repository, source.revision);
             const exposure = withholding(source);
             if ((exposure === "hidden" && !unsettled.has(key)) || (exposure === "live" && validFor(source) > BIND_MARGIN())) continue;
-            await abortable(suspendSource(source.domain, source.repository, source.revision), signal, false);
+            await abortable(suspendSource(source.domain, source.repository, source.revision, exposure === "live" ? "bind" : false, undefined, source), signal, false);
           }
         signal?.throwIfAborted();
         if (domains.every(admissible)) return paths;

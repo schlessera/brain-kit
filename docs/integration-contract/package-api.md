@@ -4553,6 +4553,10 @@ reversible roots and catalog orphans are confirmed again for each bind.
 Native-confirmed unpublished staging stays outside worker views without losing
 publication authority; staging already exposed in a view is still contained.
 Startup recovery preserves validation another owner renewed after its scan.
+Expiry compares the observed root, validation timestamp and freshness atomically;
+a newer renewal survives. Managed expiry retires that publication while a
+separate authorized acquisition can finish. Retired roots cannot renew validation,
+and retired staging cannot commit a delayed publication after native hiding.
 
 `ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.
 The host edge resolves it from `BRAIN_UI_REFERENCE_VALIDATION_SECONDS` and

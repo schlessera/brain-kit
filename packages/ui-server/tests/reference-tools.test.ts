@@ -377,9 +377,9 @@ describe("exposure changes are serialized (#2432 review)", () => {
     tools.end(first.turnId);
     clock += 301_000;
     state.failResolves = 2;
-    const unpublish = pool.poolUnpublish;
+    const withdraw = pool.poolWithdraw;
     let failures = 1;
-    pool.poolUnpublish = async (view, entry, signal) => { if (failures-- > 0) throw new Error("manager reply lost"); return unpublish(view, entry, signal); };
+    pool.poolWithdraw = async (id, signal) => { if (failures-- > 0) throw new Error("manager reply lost"); return withdraw(id, signal); };
     await expect(sources.bindable(telemachus.id), "REFERENCE_TOOLS_FAILED_SUSPENSION_FAILS_CLOSED").rejects.toMatchObject({ code: "unavailable" });
     expect(publicEntries(await sources.bindable(telemachus.id)), "REFERENCE_TOOLS_FAILED_SUSPENSION_RETRIED").toEqual([]);
   });

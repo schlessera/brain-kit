@@ -10,26 +10,42 @@ export function sourceWrites(db: Database) {
     db.query("INSERT INTO reference_views (domain, view_id) VALUES (?, ?)").run(domain, id);
     return { id, hostPath: null };
   }
+  function fence(domain: string, repository: string, revision: string, generation: string) {
+    db.query(`INSERT INTO reference_authority_fences (domain, repository, revision, generation) VALUES (?, ?, ?, ?)
+      ON CONFLICT (domain, repository, revision) DO UPDATE SET generation = excluded.generation`).run(domain, repository, revision, generation);
+    // A crash after this commit must not leave old positive validation
+    // available to startup recovery, including legacy GitHub casing aliases.
+    const matches = (source: { repository: string; revision: string }) => {
+      try { return (revision === "" || source.revision === revision) && authorityRepository(source.repository) === repository; }
+      catch { return false; }
+    };
+    for (const source of db.query("SELECT repository, revision FROM reference_sources WHERE domain = ?").all(domain) as { repository: string; revision: string }[]) {
+      if (matches(source))
+        db.query("UPDATE reference_sources SET validated_at = 0 WHERE domain = ? AND repository = ? AND revision = ?").run(domain, source.repository, source.revision);
+    }
+    // Cleanup affects exactly the identities invalidated at this commit,
+    // never a fresh acquisition that publishes while native hiding waits.
+    return (db.query("SELECT id, state, repository, revision FROM reference_roots WHERE domain = ?").all(domain) as
+      { id: string; state: string; repository: string; revision: string }[]).filter(matches);
+  }
   return {
     sourceView,
     sourceFence(domain: string, repository: string, revision: string, generation: string) {
+      return db.transaction(() => fence(domain, repository, revision, generation)).immediate();
+    },
+    sourceFenceCurrent(domain: string, repository: string, revision: string, generation: string, rootId: string | null, validatedAt: number | null, before?: number, permanent = false) {
       return db.transaction(() => {
-        db.query(`INSERT INTO reference_authority_fences (domain, repository, revision, generation) VALUES (?, ?, ?, ?)
-          ON CONFLICT (domain, repository, revision) DO UPDATE SET generation = excluded.generation`).run(domain, repository, revision, generation);
-        // A crash after this commit must not leave old positive validation
-        // available to startup recovery, including legacy GitHub casing aliases.
-        const matches = (source: { repository: string; revision: string }) => {
-          try { return (revision === "" || source.revision === revision) && authorityRepository(source.repository) === repository; }
-          catch { return false; }
-        };
-        for (const source of db.query("SELECT repository, revision FROM reference_sources WHERE domain = ?").all(domain) as { repository: string; revision: string }[]) {
-          if (matches(source))
-            db.query("UPDATE reference_sources SET validated_at = 0 WHERE domain = ? AND repository = ? AND revision = ?").run(domain, source.repository, source.revision);
-        }
-        // Cleanup affects exactly the identities invalidated at this commit,
-        // never a fresh acquisition that publishes while native hiding waits.
-        return (db.query("SELECT id, state, repository, revision FROM reference_roots WHERE domain = ?").all(domain) as
-          { id: string; state: string; repository: string; revision: string }[]).filter(matches);
+        const current = db.query("SELECT root_id, validated_at FROM reference_sources WHERE domain = ? AND repository = ? AND revision = ?")
+          .get(domain, repository, revision) as { root_id: string | null; validated_at: number | null } | null;
+        if (!current || current.root_id !== rootId || current.validated_at !== validatedAt || (before !== undefined && current.validated_at !== null && current.validated_at > before)) return null;
+        if (!permanent) return fence(domain, authorityRepository(repository), revision, generation);
+        // Expiry retires this publication, not another turn's independently
+        // authorized staging root. Cache validation can never revive it.
+        const roots = db.query("SELECT id, state, repository, revision FROM reference_roots WHERE id = ?").all(rootId) as
+          { id: string; state: string; repository: string; revision: string }[];
+        db.query("UPDATE reference_sources SET validated_at = 0 WHERE domain = ? AND repository = ? AND revision = ?").run(domain, repository, revision);
+        db.query("UPDATE reference_roots SET state = 'superseded' WHERE id = ? AND state = 'published'").run(rootId);
+        return roots;
       }).immediate();
     },
     sourceTouch(at: number, domain: string, repository: string, revision: string) {
@@ -41,11 +57,18 @@ export function sourceWrites(db: Database) {
     sourceReleaseRoot(id: string) {
       db.query("DELETE FROM reference_roots WHERE id = ?").run(id);
     },
+    sourceRetireStaging(id: string) {
+      return db.transaction(() => {
+        if (db.query("SELECT 1 FROM reference_sources WHERE root_id = ?").get(id)) return false;
+        db.query("UPDATE reference_roots SET state = 'superseded' WHERE id = ? AND state = 'staging'").run(id);
+        return true;
+      }).immediate();
+    },
     sourceDiscard(id: string) {
       return db.transaction(() => {
         const root = db.query("SELECT id, state FROM reference_roots WHERE id = ?").get(id) as { id: string; state: string } | null;
         db.query("UPDATE reference_sources SET root_id = NULL WHERE root_id = ?").run(id);
-        db.query("UPDATE reference_roots SET state = 'superseded' WHERE id = ? AND state = 'published'").run(id);
+        db.query("UPDATE reference_roots SET state = 'superseded' WHERE id = ? AND state IN ('staging', 'published')").run(id);
         return root;
       }).immediate();
     },
@@ -53,7 +76,8 @@ export function sourceWrites(db: Database) {
       return db.transaction(() => {
         if (expected && !sourceAuthorityCurrent(db, expected)) return false;
         return db.query(`UPDATE reference_sources SET validated_at = ?, refreshed_at = ?, last_error = NULL, ref = ?
-          WHERE domain = ? AND repository = ? AND revision = ? AND (? IS NULL OR root_id = ?)`)
+          WHERE domain = ? AND repository = ? AND revision = ? AND (? IS NULL OR root_id = ?)
+          AND root_id IN (SELECT id FROM reference_roots WHERE state = 'published')`)
           .run(at, refreshedAt, ref, domain, repository, revision, rootId ?? null, rootId ?? null).changes === 1;
       }).immediate();
     },
@@ -84,6 +108,8 @@ export function sourceWrites(db: Database) {
     sourcePublish(path: string, domain: string, repository: string, revision: string, url: string, name: string, id: string, commit: string, ref: string, grantId: string | null, at: number, acquisition?: ReferenceAcquisition, expected?: SourceAuthority, publication?: { rootId: string | null }) {
       return db.transaction(() => {
         if (expected && !sourceAuthorityCurrent(db, expected)) return false;
+        const staging = db.query("SELECT state FROM reference_roots WHERE id = ?").get(id) as { state: string } | null;
+        if (staging?.state !== "staging") return false;
         const current = db.query("SELECT root_id FROM reference_sources WHERE domain = ? AND repository = ? AND revision = ?").get(domain, repository, revision) as { root_id: string | null } | null;
         if (publication && (current?.root_id ?? null) !== publication.rootId) return false;
         if (acquisition) db.query(`INSERT INTO reference_acquisitions
