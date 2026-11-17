@@ -148,7 +148,9 @@ function PasskeyRow({
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") commit();
-                if (e.key === "Escape") setEditing(false);
+                // Escape cancels the rename only: prevented, so the Settings
+                // panel's close request does not also fire (#2577).
+                if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setEditing(false); }
               }}
               className="w-full rounded border border-border-subtle bg-background px-2 py-0.5 text-sm text-foreground outline-none focus:border-primary"
             />

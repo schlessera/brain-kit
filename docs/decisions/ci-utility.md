@@ -1365,8 +1365,8 @@ Each implementation task is tracked separately:
 
 #### Lane and qualification gates
 
-`bun scripts/integrate.ts confirm` and `merge` classify the candidate from
-its merge base with the exact base to its exact head, using `classify` from
+`bun scripts/integrate.ts acquire`, `confirm` and `merge` classify the
+candidate from its merge base with the exact base to its exact head, using `classify` from
 `scripts/proof-system.ts`, and hold only a proof-system candidate. Both gates
 and `lane --json` live in `scripts/proof-system-lane.ts`; neither lists a
 glob.
@@ -1393,13 +1393,14 @@ glob.
   the run found at each squash it read, and says `1 more green main run
   required`. `bun scripts/integrate.ts lane --json` prints the same decision
   (`state`, `ownGreen`, `required`, `window`, `decisive`) with that refusal,
-  or `null` when the lane is open. `confirm` checks before it takes the
-  reservation or requests candidate CI, and the merge checks again, because a
+  or `null` when the lane is open. `acquire` and `confirm` check before taking the
+  reservation or requesting candidate CI, and the merge checks again, because a
   main run may fail while the candidate is proved.
 - **Off-main qualification** ([#3271](https://github.com/schlessera/brain-kit/issues/3271),
   answer 3). The PR body needs an `Off-main qualification` heading whose
   section, outside HTML comments, links a GitHub Actions run of this
-  repository whose head SHA is the candidate head, or an ancestor of it whose
+  repository that completed with conclusion `success` and whose head SHA is
+  the candidate head, or an ancestor of it whose
   diff to the head is not a proof-system change. At most five linked runs are
   read. Whether the evidence is sufficient stays a review question.
 - **Exemption.** A declared red-main fix skips both gates: one merged with
@@ -1861,6 +1862,9 @@ PRs below.
     changesets and affected fast invariants);
   - main is not red;
   - it holds the merge lease, so that it does not race a confirmation.
+    `integrate.ts acquire` enforces the proof-system stability window and
+    off-main qualification before taking that lease, with the same declared
+    red-main fix exemption as `confirm`. The fast lane skips neither gate.
 - **What it relies on.** Draft CI runs only the metadata gates, so a
   fast-lane PR reaches main with no hosted unit run before the merge. Its
   local receipt and the squash's own main run, which proves every affected

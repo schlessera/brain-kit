@@ -16,7 +16,6 @@ import { referenceWorktreeJournalManager } from "../src/brain/reference-worktree
 import { createReferenceWorktreeHygiene } from "../src/brain/reference-worktree-hygiene.js";
 import { referencePoolDouble } from "./helpers/reference-pool-double.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
-import { createReferenceGrant } from "../src/db/reference-grants.js";
 import { watchWriteSites } from "./helpers/write-sites.js";
 import * as probe from "./fixtures/write-worker-probe.js";
 
@@ -30,8 +29,10 @@ async function fixture() {
   const path = join(root, "ui.db"), db = createUiDb(path);
   db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES (?, 'owner', 'password', 'Penelope', ?, ?)")
     .run(PRINCIPAL, AT, AT + 86_400_000);
-  createReferenceGrant(db, { brain: "ithaca-brain", principalId: PRINCIPAL, repositoryPrefix: "https://github.com/odysseus",
-    credential: "BRAIN_UI_SYNC_GITHUB_TOKEN", createdBy: PRINCIPAL, now: AT });
+  // This world runs on the pinned clock, so its grant is recorded data, not a request: creating
+  // one checks the owner against the real clock (#4169), and this login expired a day after AT.
+  db.query(`INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at)
+    VALUES ('ithaca-grant', 'ithaca-brain', ?, 'https://github.com/odysseus', 'BRAIN_UI_SYNC_GITHUB_TOKEN', ?, ?)`).run(PRINCIPAL, PRINCIPAL, AT);
   const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(path) }] });
   registerReferenceWrites(db, writer);
   const sites = await watchWriteSites(db, writer, TABLES);

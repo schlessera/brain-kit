@@ -1,8 +1,9 @@
 import { VoiceControlButton, VoiceField, VoiceNotice, VoiceText } from "@schlessera/brain-ui-kit";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { dictationNoticeForm } from "../../voice/dictation-failure.js";
 import { providerAudioPolicy, providerMeta, providerRecipient, savedServiceName } from "../../voice/dictation-providers.js";
 import { useVoiceStore } from "../../voice/voice-store.js";
+import { useCloseRequest } from "../../lib/use-close-request.js";
 
 /*
  * Dictation in the voice field (#3694, epic #3690), drawn from the kit's
@@ -56,18 +57,14 @@ export function DictationCapture({ onFinish, onCancel }: { onFinish: () => void;
     ref.current?.querySelector<HTMLElement>("button:not([disabled])")?.focus({ preventScroll: true });
   }, [form]);
 
-  // Esc cancels the take, as it did before the voice field; a take that is
-  // finishing (D5) is already handing its words to the draft, so it refuses.
-  useEffect(() => {
-    if (form === "D5") return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [form, onCancel]);
+  // Esc, or Android back, cancels the take, as Esc did before the voice
+  // field (#2577). A take that is finishing (D5) is already handing its words
+  // to the draft, so it refuses and the close request re-arms for later.
+  useCloseRequest(true, () => {
+    if (form === "D5") return false;
+    onCancel();
+    return true;
+  });
 
   const finish = (busy: boolean) => (
     <VoiceControlButton name={busy ? "Finishing dictation" : "Finish dictation"} icon="confirm" tone="you" busy={busy} onClick={busy ? undefined : onFinish} />
@@ -126,16 +123,12 @@ export function DictationNotices({ onConfirm, onCancel, onOpenSettings, onRetry,
     else if (form === "Dx0") focusButton(ref.current, "OK");
   }, [form]);
 
-  useEffect(() => {
-    if (!form) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [form, onCancel]);
+  // Esc, or Android back, is Cancel on a gate notice (#2577), as it was on
+  // the dictation sheet these notices replaced.
+  useCloseRequest(form !== null, () => {
+    onCancel();
+    return true;
+  });
 
   if (gate?.kind === "consent") {
     return (

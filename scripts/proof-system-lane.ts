@@ -181,13 +181,14 @@ export function qualificationRunIds(text: string, repository: string): number[] 
   return ids;
 }
 
-export interface QualificationRun { id: number; headSha: string | null; repository: string | null }
+export interface QualificationRun { id: number; headSha: string | null; repository: string | null; status: string | null; conclusion: string | null }
 export interface QualificationEvidence { run: number; headSha: string; via: "head" | "ancestor" }
 
-/** Whether a run's head SHA qualifies `head`: it is the head, or an ancestor
+/** Whether a completed, successful run's head SHA qualifies `head`: it is the head, or an ancestor
  * whose diff to the head is not a proof-system change. Returns why not. */
 export function qualifies(run: QualificationRun, repository: string, head: string, options: ClassifyOptions = {}): "head" | "ancestor" | string {
   if (run.repository?.toLowerCase() !== repository.toLowerCase()) return `run ${run.id} is not a run in ${repository}`;
+  if (run.status !== "completed" || run.conclusion !== "success") return `run ${run.id} is ${run.status ?? "unknown"} with conclusion ${run.conclusion ?? "none"}; only completed runs with conclusion success qualify`;
   if (!run.headSha || !/^[a-f0-9]{40}$/.test(run.headSha)) return `run ${run.id} has no head SHA`;
   if (run.headSha === head) return "head";
   const cwd = options.cwd ?? process.cwd();

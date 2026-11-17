@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { Hono } from "hono";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,18 +8,23 @@ import { generateSignedCookie } from "hono/cookie";
 
 import type { AppEnv } from "../src/app-env";
 import { resolveServerConfig } from "../src/config/env";
+import { accountWrites, registerAccountWrites } from "../src/db/account-writes";
 import { createUiDb } from "../src/db/client";
+import { openSqliteWriter } from "../src/db/write-worker";
 import { createPrincipal, revokePrincipal, type Principal } from "../src/db/principals";
 import {
   coveringReferenceGrant,
   createReferenceGrant,
   isLiveReferenceGrant,
   MAX_LIVE_REFERENCE_GRANTS,
+  REFERENCE_GRANT_RETENTION_MS,
+  ReferenceGrantPrincipalError,
   referenceRepository,
   revokeReferenceGrant,
 } from "../src/db/reference-grants";
 import { authGuard, type AuthRuntime } from "../src/middleware/auth";
 import { principalManagementRoutes } from "../src/middleware/principals";
+import * as controls from "./helpers/dialogue-test-writes";
 
 const SECRET = "test-cookie-secret-0123456789abcdef";
 const BRAIN = "ithaca-brain";
@@ -226,6 +232,94 @@ describe("reference grant records", () => {
     expect(() => grant(penelope.id, penelope.id, "file:///srv/fixtures")).toThrow("identical live reference grant");
     for (let index = 1; index < MAX_LIVE_REFERENCE_GRANTS; index++) grant(penelope.id, penelope.id, `file:///srv/fixtures/${index}`);
     expect(() => grant(penelope.id, penelope.id, "file:///srv/overflow")).toThrow("limit");
+  });
+});
+
+describe("reference grant creation behind a held writer", () => {
+  const restores: (() => void)[] = [];
+  afterEach(() => { for (const restore of restores.splice(0)) restore(); });
+
+  /** Resolves once `name` has been posted to the real write worker, where it queues behind the hold. */
+  function posted(name: string): Promise<void> {
+    const descriptor = Object.getOwnPropertyDescriptor(Worker.prototype, "postMessage")!, send = Worker.prototype.postMessage;
+    let seen!: () => void;
+    const sent = new Promise<void>(resolve => { seen = resolve; });
+    const spy = spyOn(Worker.prototype, "postMessage").mockImplementation(function (this: Worker, ...args: [message: unknown, options?: StructuredSerializeOptions | Transferable[]]) {
+      const message = args[0] as { kind?: string; name?: string };
+      if (message.kind === "call" && message.name === name) seen();
+      return Reflect.apply(send, this, args);
+    });
+    restores.push(() => { spy.mockRestore(); Object.defineProperty(Worker.prototype, "postMessage", descriptor); });
+    return sent;
+  }
+
+  async function hosted() {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-grant-writer-")), path = join(root, "ui.db");
+    const disk = createUiDb(path), writer = openSqliteWriter(disk);
+    registerAccountWrites(disk, writer);
+    const control = writer.channel({ url: controls.url, setup: controls.setup }, {});
+    const gate = new Int32Array(new SharedArrayBuffer(8));
+    let held: Promise<unknown> | undefined;
+    const release = () => { Atomics.store(gate, 0, 1); Atomics.notify(gate, 0); };
+    const penelope = createPrincipal(disk, { authMethod: "password", label: "Penelope's loom", ttlSeconds: DAY });
+    const telemachus = createPrincipal(disk, { authMethod: "delegated", label: "Telemachus", createdBy: penelope.id, ttlSeconds: DAY });
+    return { path, disk, penelope, telemachus, release,
+      async hold() {
+        held = control.call("holdUntilReleased", gate);
+        const deadline = Date.now() + 2000;
+        while (!Atomics.load(gate, 1)) { if (Date.now() > deadline) throw Error("Ithaca writer did not hold"); await Bun.sleep(1); }
+      },
+      /** Change a principal from another connection while the writer is held, as a concurrent request would. */
+      elsewhere(change: (other: Database) => void) {
+        const other = new Database(path); other.exec("PRAGMA busy_timeout = 5000");
+        try { change(other); } finally { other.close(); }
+      },
+      async close() {
+        release(); await held; await control.close(); await writer.close(); disk.close();
+        rmSync(root, { recursive: true, force: true });
+      },
+    };
+  }
+
+  for (const login of ["target", "creator"] as const) test(`a ${login} login that expires while the request waits for the writer is refused by the current time`, async () => {
+    const f = await hosted();
+    try {
+      await f.hold();
+      const submitted = posted("createGrant");
+      // Stamped as the route stamps it, before the wait for the writer.
+      const now = Date.now();
+      const pending = accountWrites(f.disk).createGrant({ brain: BRAIN, principalId: f.telemachus.id, createdBy: f.penelope.id,
+        repositoryPrefix: "file:///srv/fixtures/ithaca", credential: null, now });
+      await submitted;
+      // Usable at the request's stamp, expired before the writer takes its turn.
+      const id = login === "target" ? f.telemachus.id : f.penelope.id;
+      f.elsewhere(other => other.query("UPDATE principals SET expires_at = ? WHERE id = ?").run(now + 1, id));
+      await Bun.sleep(5);
+      f.release();
+      const outcome = await pending.then(() => "created", (error: unknown) => error);
+      expect(outcome, `REFERENCE_GRANT_${login.toUpperCase()}_EXPIRY_CHECKED_AT_COMMIT`).toBeInstanceOf(ReferenceGrantPrincipalError);
+      expect(f.disk.query("SELECT COUNT(*) AS n FROM reference_grants").get(), "NO_GRANT_RECORDED").toEqual({ n: 0 });
+    } finally { await f.close(); }
+  });
+
+  test("the stamped time still records the grant and drives retention after the wait", async () => {
+    const f = await hosted();
+    try {
+      // An older stamp than the commit: a revoked grant inside retention by the stamp, outside it by the clock.
+      const now = Date.now() - 60_000, kept = now - REFERENCE_GRANT_RETENTION_MS + 30_000;
+      f.disk.query("INSERT INTO reference_grants (id, brain, principal_id, repository_prefix, credential, created_by, created_at, revoked_at) VALUES ('argos', ?, ?, 'file:///srv/fixtures/argos', NULL, ?, ?, ?)")
+        .run(BRAIN, f.telemachus.id, f.penelope.id, kept - 1, kept);
+      await f.hold();
+      const submitted = posted("createGrant");
+      const pending = accountWrites(f.disk).createGrant({ brain: BRAIN, principalId: f.telemachus.id, createdBy: f.penelope.id,
+        repositoryPrefix: "file:///srv/fixtures/ithaca", credential: null, now });
+      await submitted;
+      f.release();
+      const created = await pending;
+      expect(created.createdAt, "REFERENCE_GRANT_CREATED_AT_IS_THE_STAMP").toBe(now);
+      expect(f.disk.query("SELECT created_at AS at FROM reference_grants WHERE id = ?").get(created.id)).toEqual({ at: now });
+      expect(f.disk.query("SELECT id FROM reference_grants WHERE id = 'argos'").get(), "REFERENCE_GRANT_RETENTION_USES_THE_STAMP").toEqual({ id: "argos" });
+    } finally { await f.close(); }
   });
 });
 

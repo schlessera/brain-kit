@@ -167,11 +167,11 @@ the previous root, so a refresh fetches only new objects. Then
 2. The **network transport** fetches one ref into it. It is the only worker
    that may hold a credential: the granted host variable, delivered through a
    fixed credential helper, with one allowed protocol and no redirects
-   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:211-232`).
+   (`async fetch({ repository, ref, token, root, signal, wire })`, `packages/ui-server/src/brain/reference-transport.ts:231-252`).
 3. A separate **checkout worker** has no credential and no network. It checks
    out the commit and evaluates the repository's attributes. No filter or
    hook is configured, so none runs
-   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:233-242`).
+   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:253-263`).
 4. The live grant is read again, the root is sealed, the grant is read
    again, and only then is the root published.
 
@@ -269,9 +269,30 @@ to the current native sealed root, refusing a different root/generation or
 contradictory brain/ref/commit. These host facts are outside repository content
 and provider history and are not read receipts. Normal source/worktree file
 tools remain workspace restriction signals; shell-local-read coverage retains
-its documented limitation. Actual immutable regular-blob/range/digest evidence,
+its documented limitation. Model-delivery-bound immutable regular-blob/range/digest evidence,
 approved-owner matching and complete managed-path native/backend qualification
 remain required before repository trust can be enabled.
+
+### Bounded immutable object reads
+
+The transport's host-only `readBlob` primitive reads from the attested sealed
+acquisition's Git object database, rather than its checkout. A caller supplies
+the recorded commit/tree and a literal normalized Git path. Only regular blob
+modes qualify. The credential-free offline maintenance worker bounds the full
+blob to 4 MiB, verifies its complete Git object hash, then returns at most
+64 KiB with the actual byte range and SHA-256 digest. The host validates that
+envelope and exact base64 bytes again; cancellation after the worker returns
+still withholds the result
+(`readBlob`, `packages/ui-server/src/brain/reference-transport.ts:174-189`).
+
+Git pathspec syntax is disabled, so punctuation in a filename remains literal.
+Symlinks, gitlinks and directories never become blob reads. Checkout edits or
+an altered `origin` cannot replace the selected object bytes. The caller still
+owns native root attestation and live authority checks across waits. This
+primitive does not itself connect a read to a backend's actual model delivery;
+that durable acquisition/read correlation and approved-owner matching remain
+necessary for a source-trust decision. Ordinary file reads keep their existing
+workspace restrictions, and no directory, credential or hostname grants trust.
 
 ## Admission
 

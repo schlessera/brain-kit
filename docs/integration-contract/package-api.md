@@ -101,7 +101,23 @@ never actual model-content reads or an independently approved owner boundary.
 File-tool reads under the reference/worktree worker roots continue to produce
 ordinary workspace restriction signals. No repository trust capability is
 enabled. Tool names, descriptions, input/result schemas and provider history
-are unchanged; actual immutable blob/range/digest evidence remains required.
+are unchanged; actual model-delivery-bound immutable blob/range/digest evidence
+remains required.
+
+The internal reference transport now has an optional `readBlob` operation
+for a host-selected sealed acquisition root, exact commit and tree, literal
+Git path, byte offset and maximum range. Its caller must attest the root and
+recheck live turn/principal/grant authority after waits. It reads regular Git
+blobs (`100644` or `100755`) from the immutable object database, checks the
+complete object's Git hash and returns exact bytes, blob ID/mode, tree,
+total byte size, offset, returned length and the range's SHA-256 digest.
+The full blob is bounded to 4194304 bytes; a returned range is at most 65536
+bytes. An offset at EOF returns the empty range; an offset beyond EOF refuses.
+Symlinks, gitlinks, directories, traversal, malformed UTF-8 paths, a different
+tree, corrupt objects and malformed byte evidence refuse. The fixed worker
+has neither credentials nor network, and cancellation withholds a late result.
+This primitive is host-only and creates no model-delivery receipt, new agent
+tool, repository trust capability or backend read-equivalence claim.
 
 ## Prepared ordinary inference transport (internal #1665)
 
@@ -721,6 +737,15 @@ input and forwards `{ tool, input }` to the optional new
 (`no_host`). Shapes are documented in
 [the MCP component](mcp.md#host-github-tools-additive-0450-3797). No existing
 export changes.
+
+## Per-review line-comment counts (additive, 0.45.0, #4147)
+
+`@schlessera/brain-ui-sdk/tool-contracts` adds the optional, nullable
+`line_comments` field to `GITHUB_REVIEW_SCHEMA` (and so to `GithubReview` and
+every payload and detail page that holds a review), and
+`GITHUB_LIMITS.reviewComments` (100). Shapes and the counting rules are in
+[the MCP component](mcp.md#per-review-line-comment-counts-additive-0450-4147).
+No existing export changes.
 
 ## GitHub detail-page types (additive, 0.45.0, #3796)
 

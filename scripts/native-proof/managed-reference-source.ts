@@ -104,6 +104,14 @@ export async function proveManagedReferenceSource(client: ReturnType<typeof crea
       const mapping = db.query("SELECT * FROM reference_acquisitions WHERE root_id = ?").get(lease.rootId);
       expect(mapping, "MANAGED_NATIVE_ACQUISITION_BINDS_KERNEL_ROOT").toMatchObject({ commit_id: commit, tree_id: tree,
         native_root_id: record.root!.rootId, native_uuid: record.root!.uuid, native_generation: record.root!.otransid });
+      lease.assertAuthority();
+      const blob = await transport.readBlob!({ root: record.path!, commit, tree, path: "README.md", offset: 9, maximum: 13 });
+      lease.assertAuthority();
+      expect(Buffer.from(blob.bytes).toString(), "MANAGED_NATIVE_IMMUTABLE_OBJECT_RANGE").toBe("charts Ithaca");
+      expect(blob).toMatchObject({ tree, mode: "100644", offset: 9, length: 13, totalBytes: 38 });
+      note("managed-source-native-blob", { commit, tree, root: record.root, path: "README.md", blob: blob.blob, mode: blob.mode, offset: blob.offset,
+        length: blob.length, totalBytes: blob.totalBytes, digest: blob.digest, actualMaintenanceWorker: true,
+        backendEquivalence: false, readTrustExemption: false });
       expect(requests.every(value => value.authorization === null), "MANAGED_NATIVE_PUBLIC_ANONYMOUS").toBe(true);
       expect(egress.usedBytes(), "MANAGED_NATIVE_ACTUAL_TURN_NETWORK_CHARGED").toBeGreaterThan(0);
       note("managed-source-native", { commit, tree, root: record.root, mapping, usedBytes: egress.usedBytes(), kernelWriteRefusal: refusal,
