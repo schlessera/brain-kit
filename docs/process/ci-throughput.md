@@ -81,6 +81,14 @@ candidates as well as actual defects. Mixed policy epochs, sizes, dependency
 graphs and runners confound comparisons; the report includes changed-line
 cohorts and proof-policy epochs but does not establish causality.
 
+A ready confirmation runs its unit tier in up to eight partitions and a main
+push in up to four
+([ruling](../decisions/ci-utility.md#eight-unit-partitions-for-ready-confirmation)).
+Per-job `unit` durations, job counts and runner-minutes therefore differ
+between the `pull_request_ready` and `push_main` cohorts by design, and
+between epochs on either side of that change. Compare the slowest `unit` job
+of a run, or the reservation hold, not the per-job median.
+
 ## Proof-policy epochs
 
 Each merged proof-system change opens a new proof-policy epoch

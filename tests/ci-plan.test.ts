@@ -31,6 +31,15 @@ function fixture() {
   return { dir, write, git, base: git("rev-parse", "HEAD") };
 }
 
+/** The real planner executable inside a fixture repository whose HEAD changes one core source file. */
+function plannerFixture() {
+  const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
+  for (const name of ["browser-input-closure", "unit-test-consumers", "integration-reservation", "red-main", "proof-shards"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
+  f.write("packages/core/src/note.ts", "export const note = 2;\n");
+  f.git("add", "."); f.git("commit", "-qm", "planner fixture");
+  return f;
+}
+
 describe("affected CI checks", () => {
   test("file-read dispatch audits follow reviewed consumers and handler sources", () => {
     for (const path of ["packages/ui-react/src/connection.ts", "packages/ui-react/src/hooks/use-websocket.ts",
@@ -75,6 +84,22 @@ describe("affected CI checks", () => {
       expect(unitShards(plan), "NONEMPTY_LEAF_PARTITIONS").toEqual(Array.from({length: Math.min(4, count)}, (_, i) => i + 1));
     }
     plan.unitTests = []; expect(() => unitShards(plan)).toThrow("Empty selected unit inventory");
+  });
+
+  test("ready confirmation and draft heavy feedback plan eight unit partitions; main and exhaustive runs keep four (#4108)", () => {
+    const numbers = (length: number) => Array.from({ length }, (_, i) => i + 1);
+    for (const [cadence, cap] of [["confirmation", 8], ["feedback-heavy", 8], ["integrated", 4], ["exhaustive", 4],
+      ["draft", 4], ["feedback", 4], [undefined, 4]] as const) {
+      // Complete discovery names no inventory and takes the cadence's cap.
+      const plan = { ...planChecks(["package.json"], []), cadence };
+      expect(unitShards(plan), `COMPLETE_DISCOVERY_${cadence}`).toEqual(numbers(cap));
+      // Fewer files than partitions: one partition per file, never an empty one.
+      for (let count = 1; count <= 10; count++) {
+        plan.unitTests = Array.from({ length: count }, (_, i) => `tests/leaf-${i}.test.ts`);
+        expect(unitShards(plan), `NONEMPTY_${cadence}_${count}`).toEqual(numbers(Math.min(cap, count)));
+      }
+      plan.unitTests = []; expect(() => unitShards(plan), `EMPTY_${cadence}`).toThrow("Empty selected unit inventory");
+    }
   });
 
   test("an existing build glob consumes a test and refuses leaf selection", () => {
@@ -209,12 +234,7 @@ describe("affected CI checks", () => {
   });
 
   test("the executable writes affected job outputs and keeps drafts on cheap gates", async () => {
-    const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
-    f.write("scripts/browser-input-closure.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/browser-input-closure.ts"))};\n`);
-    f.write("scripts/unit-test-consumers.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/unit-test-consumers.ts"))};\n`);
-    for (const name of ["integration-reservation", "red-main"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
-    f.write("packages/core/src/note.ts", "export const note = 2;\n");
-    f.git("add", "."); f.git("commit", "-qm", "planner fixture");
+    const f = plannerFixture();
     for (const draft of ["true", "false"]) {
       const output = join(f.dir, `outputs-${draft}`); const plan = join(f.dir, `plan-${draft}.json`);
       const eventPath = join(f.dir, "event.json");
@@ -225,11 +245,34 @@ describe("affected CI checks", () => {
       const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
       expect(code, err).toBe(0);
       const expected = proofSelections(JSON.parse(readFileSync(plan, "utf8")), draft === "true");
-      expect(readFileSync(output, "utf8")).toBe(`unit_shards=[1,2,3,4]\ncadence=${draft === "true" ? "draft" : "confirmation"}\nred_main_oid=\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
+      expect(readFileSync(output, "utf8")).toBe(`unit_shards=${draft === "true" ? "[1,2,3,4]" : "[1,2,3,4,5,6,7,8]"}\ncadence=${draft === "true" ? "draft" : "confirmation"}\nred_main_oid=\n` + Object.entries(expected).map(([name, value]) => `${name}=${value}\n`).join(""));
       expect(expected.unit).toBe(draft === "false");
       // Ready confirmation leaves heavy runtime proof to the squash's main run (hybrid ruling).
       expect(expected.runtime, "CONFIRMATION_DEFERS_RUNTIME").toBe(false);
       expect(JSON.parse(readFileSync(plan, "utf8")).tests.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("the executable plans eight unit partitions for ready confirmation and draft heavy feedback, four for main and exhaustive runs (#4108)", async () => {
+    const f = plannerFixture();
+    for (const [label, name, event, extra, cadence, shards] of [
+      ["ready confirmation", "pull_request", { action: "ready_for_review", pull_request: { draft: false } }, { BASE_SHA: f.base }, "confirmation", "[1,2,3,4,5,6,7,8]"],
+      ["draft heavy feedback", "workflow_dispatch", { inputs: { pr: "7", head_sha: "a".repeat(40) } }, { BASE_SHA: f.base, FEEDBACK_PR: "7" }, "feedback-heavy", "[1,2,3,4,5,6,7,8]"],
+      ["main push", "push", { before: f.base }, { BEFORE_SHA: f.base, RED_MAIN_OID: "none" }, "integrated", "[1,2,3,4]"],
+      ["manual exhaustive run", "workflow_dispatch", { inputs: null }, {}, "exhaustive", "[1,2,3,4]"],
+      ["scheduled exhaustive run", "schedule", { schedule: "17 3 * * *" }, {}, "exhaustive", "[1,2,3,4]"],
+    ] as const) {
+      const output = join(f.dir, `outputs-${label}`), eventPath = join(f.dir, "event.json");
+      writeFileSync(eventPath, JSON.stringify(event));
+      const child = Bun.spawn([process.execPath, join(f.dir, "scripts/ci-plan.ts")], { cwd: f.dir, stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, BASE_SHA: "", BEFORE_SHA: "", FEEDBACK_PR: "", RED_MAIN_OID: "", PR_DRAFT: "", ...extra, GITHUB_EVENT_NAME: name,
+          HEAD_SHA: "HEAD", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: output, CI_PLAN_PATH: join(f.dir, `plan-${label}.json`) } });
+      const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect(code, `${label}: ${err}`).toBe(0);
+      const outputs = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=")));
+      expect(outputs.cadence, label).toBe(cadence);
+      expect(outputs.unit, `UNIT_SELECTED: ${label}`).toBe("true");
+      expect(outputs.unit_shards, `PARTITIONS: ${label}`).toBe(shards);
     }
   });
 
@@ -505,5 +548,32 @@ describe("main aggregate re-plans with the metadata job's red-main set (#3541)",
     expect(() => validateSelections(f.dir, event, env, outputs, () => null)).toThrow("browser: required candidate selection differs from actual inputs");
     const { red_main_oid: _omitted, ...withoutSnapshot } = outputs;
     expect(() => validateSelections(f.dir, event, env, withoutSnapshot, () => record)).toThrow("missing its red-main coordination snapshot");
+  });
+});
+
+describe("hosted aggregate binds the published unit partitions to the plan (#4108)", () => {
+  test("a confirmation whose unit partition set is not exactly the planned one is refused", async () => {
+    const { validateSelections } = await import("../scripts/candidate-proof");
+    const f = fixture(); f.write("packages/core/src/note.ts", "export const note = 2;\n"); f.git("add", "."); f.git("commit", "-qm", "core change");
+    const head = f.git("rev-parse", "HEAD");
+    const published = (cadence: "confirmation" | "integrated", env: Record<string, string>, shards: string | undefined) => {
+      const plan = planFromEnvironment(f.dir, env); plan.cadence = cadence;
+      const selections = proofSelections(plan);
+      expect(selections.unit, "UNIT_SELECTED").toBe(true);
+      return { cadence, red_main_oid: "a".repeat(40), ...Object.fromEntries(Object.entries(selections).map(([k, v]) => [k, String(v)])),
+        ...(shards === undefined ? {} : { unit_shards: shards }) };
+    };
+    const refusal = "unit: published partition set differs from the planned one";
+    const confirmation = { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: head, BASE_SHA: f.base, HEAD_SHA: head };
+    const ready = { action: "ready_for_review", pull_request: { draft: false, base: { sha: f.base }, head: { sha: head } } };
+    expect(() => validateSelections(f.dir, ready, confirmation, published("confirmation", confirmation, "[1,2,3,4,5,6,7,8]")), "PLANNED_EIGHT").not.toThrow();
+    for (const [label, shards] of [["DROPPED_PARTITION", "[1,2,3,4,5,6,7]"], ["MAIN_COUNT", "[1,2,3,4]"], ["EXTRA_PARTITION", "[1,2,3,4,5,6,7,8,9]"],
+      ["REORDERED", "[2,1,3,4,5,6,7,8]"], ["MISSING_OUTPUT", undefined]] as const) {
+      expect(() => validateSelections(f.dir, ready, confirmation, published("confirmation", confirmation, shards)), label).toThrow(refusal);
+    }
+    // A main push of the same change plans four; eight published there is refused too.
+    const push = { GITHUB_EVENT_NAME: "push", GITHUB_SHA: head, BEFORE_SHA: f.base, HEAD_SHA: head }, pushed = { before: f.base };
+    expect(() => validateSelections(f.dir, pushed, push, published("integrated", push, "[1,2,3,4]"), () => null), "MAIN_KEEPS_FOUR").not.toThrow();
+    expect(() => validateSelections(f.dir, pushed, push, published("integrated", push, "[1,2,3,4,5,6,7,8]"), () => null), "MAIN_REFUSES_EIGHT").toThrow(refusal);
   });
 });

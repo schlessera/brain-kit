@@ -553,6 +553,23 @@ test("small exact inventories wire bounded planner partitions into actual unit e
   expect(step.run).toBe('bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"');
 });
 
+test("a unit matrix or divisor that disagrees with the planner's partition set is refused (#4108)", () => {
+  const text = read("ci.yml"), problem = "unit: matrix and shard divisor must come from the planner's unit_shards output";
+  expect(workflowProblems(text, "ci.yml")).toEqual([]);
+  const matrix = "        shard: ${{ fromJSON(needs.changeset.outputs.unit_shards) }}\n";
+  for (const [label, from, to] of [
+    ["LITERAL_FOUR_MATRIX", matrix, "        shard: [1, 2, 3, 4]\n"],
+    ["LITERAL_EIGHT_MATRIX", matrix, "        shard: [1, 2, 3, 4, 5, 6, 7, 8]\n"],
+    ["SECOND_MATRIX_DIMENSION", matrix, matrix + "        worker: [1, 2]\n"],
+    ["LITERAL_DIVISOR", 'unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"', "unit --shard=${{ matrix.shard }}/4"],
+    ["LITERAL_DIVISOR_VALUE", "UNIT_SHARDS: ${{ strategy.job-total }}", "UNIT_SHARDS: 4"],
+    ["OUTPUT_NOT_FROM_PLANNER", "unit_shards: ${{ steps.plan.outputs.unit_shards }}", 'unit_shards: "[1,2,3,4]"'],
+  ] as const) {
+    expect(text.split(from), `ONE_SITE: ${label}`).toHaveLength(2);
+    expect(workflowProblems(text.replace(from, to), "ci.yml"), label).toContain(`ci.yml: ${problem}`);
+  }
+});
+
 test("all unit partitions upload incremental memory diagnostics even after proof failure", () => {
   const upload = ci.jobs.unit!.steps.find(s => s.uses === pinned("actions/upload-artifact@v7"))!;
   expect(upload.if).toBe("always()");

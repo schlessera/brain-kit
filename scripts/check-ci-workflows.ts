@@ -95,6 +95,15 @@ export function workflowProblems(text: string, file: string): string[] {
       if (JSON.stringify(job?.strategy?.matrix?.shard) !== JSON.stringify(shardNumbers(domain)) ||
           !job?.steps?.some((step: any) => step.run === `bun scripts/ci-proof.ts ${domain} --shard=\${{ matrix.shard }}/${PROOF_SHARDS[domain]}`)) fail(`${domain}: matrix and shard divisor must match PROOF_SHARDS`);
     }
+    // The unit partition count has one owner, UNIT_PARTITIONS, read by the planner per cadence (#4108).
+    // A literal matrix, a second matrix dimension or a literal divisor would disagree with it.
+    const unit = workflow.jobs?.unit as any, changeset = workflow.jobs?.changeset as any;
+    const unitProof = unit?.steps?.find((step: Step) => step.run?.startsWith("bun scripts/ci-proof.ts unit"));
+    if (changeset?.outputs?.unit_shards !== "${{ steps.plan.outputs.unit_shards }}" ||
+        changeset?.steps?.find((step: Step) => step.id === "plan")?.run !== "bun scripts/ci-plan.ts" ||
+        JSON.stringify(unit?.strategy?.matrix) !== JSON.stringify({ shard: "${{ fromJSON(needs.changeset.outputs.unit_shards) }}" }) ||
+        unitProof?.run !== 'bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"' ||
+        unitProof?.env?.UNIT_SHARDS !== "${{ strategy.job-total }}") fail("unit: matrix and shard divisor must come from the planner's unit_shards output");
     const proof = workflow.jobs?.proof;
     if (proof?.name !== "${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}") fail("proof: draft, manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
