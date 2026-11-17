@@ -387,10 +387,14 @@ shape of the commonest benign follow-up, and Jev's answers do not tell them
 apart. Its gain is real but smaller than #3434 measured: on the held-out band
 it clears 5 of 7 benign cards. No floor recovers that gain without a leak.
 
-Default activation of `taint.judge.mode: jev` remains pending a maintainer
-ruling on [#4089](https://github.com/schlessera/brain-kit/issues/4089). This
-investigation does not approve or change production defaults. The judge stays
-off unless a brain turns it on.
+**Maintainer ruling (2026-11-17):** keep `taint.judge.mode: jev` off by default
+([decision on #4089](https://github.com/schlessera/brain-kit/issues/4089#issuecomment-6943997302)).
+Based on the [#4090 evidence](#requalifying-the-band-4090), the judge does not
+separate benign calls from extraction calls in the band.
+[#4161](https://github.com/schlessera/brain-kit/issues/4161) will investigate a
+judge configuration that can separate them before activation is reconsidered;
+changing the default needs a new maintainer ruling. The judge stays off unless
+a brain turns it on.
 
 ## Recommendation
 

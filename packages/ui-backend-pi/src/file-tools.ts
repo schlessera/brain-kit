@@ -139,8 +139,11 @@ export function editFileTool(kit: BrainToolKit): ToolDefinition {
             `old_string is not unique in ${params.path} (${occurrences} matches); add more context.`
           );
         }
-        writeFileSync(abs, raw.replace(params.old_string, params.new_string), "utf-8");
-        rememberBase(params.path, raw.replace(params.old_string, params.new_string));
+        // A function replacement writes new_string literally: a string one
+        // would expand `$$`, `$&`, `$'` and `` $` `` in it (#2486).
+        const next = raw.replace(params.old_string, () => params.new_string);
+        writeFileSync(abs, next, "utf-8");
+        rememberBase(params.path, next);
         await deps.nativeFileObservation?.("write_end", params.path, _id);
         return textResult(`Edited ${params.path}.`, { path: params.path });
       });

@@ -10,6 +10,7 @@ import type { ToolRenderer } from "@schlessera/brain-ui-sdk/client";
 import { effectOf, getToolLabel } from "./tool-views.js";
 import { riskHints } from "./risk-hints.js";
 import { APIFY_APPROVAL_TOOLS, apifyApprovalTarget } from "./renderers/apify-tools.js";
+import { githubApproval } from "./renderers/github-tools.js";
 
 export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: forced }: {
   toolCall: ToolCall;
@@ -33,7 +34,9 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
   const input = toolCall.input ?? {};
   // An Apify card names its Actor or query; its review renders below, never as one JSON line (#3163).
   const apifyRun = toolCall.name === APIFY_APPROVAL_TOOLS.run;
-  const target = apifyApprovalTarget(toolCall) ?? [input.command, input.cmd, input.file_path, input.notebook_path, input.path, input.url, input.target]
+  // A GitHub write names its repository (and issue); its draft renders below as W1/W4 (#3795).
+  const github = githubApproval(toolCall);
+  const target = apifyApprovalTarget(toolCall) ?? github?.target ?? [input.command, input.cmd, input.file_path, input.notebook_path, input.path, input.url, input.target]
     .find((value): value is string => typeof value === "string" && value.length > 0)
     ?? JSON.stringify(input);
   function decide(approved: boolean, always?: boolean) {
@@ -57,6 +60,7 @@ export function ToolPermissionCard({ toolCall, onApproval, backendId, renderer: 
     <ApprovalCard tool={toolCall.name} target={target} toolIcon="approval"
       badge={`Approval needed${apifyRun ? " · paid run" : ""}${toolCall.restored ? " · restored" : ""}`}
       {...(apifyApprovalTarget(toolCall) !== null ? { allowLabel: "Allow once" } : {})}
+      {...(github ? { allowLabel: github.allowLabel, denyLabel: github.denyLabel } : {})}
       wrapHeader diff="" risk={riskHints(toolCall, renderer.semantics).join(" · ")}
       shortcuts={printKeys ? { allow: "a", deny: "d" } : undefined}
       onAllow={onApproval ? () => decide(true) : undefined} onDeny={onApproval ? () => decide(false) : undefined}
