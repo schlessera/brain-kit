@@ -28,6 +28,7 @@ async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
   const other = createPrincipal(db, { authMethod: "password", label: "Telemachus", ttlSeconds: 3600 });
   const writer = options.worker ? openSqliteWriter(db) : undefined;
   if (writer) registerReferenceWrites(db, writer);
+  const credentials: Record<string, string | undefined> = { GITHUB_TOKEN: "odysseus-fixture-token" };
   const metadata: string[] = [], git: unknown[] = [];
   const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200 };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: tls.cert, key: tls.key }, fetch(request) {
@@ -41,13 +42,13 @@ async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
   const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 4 * 1048576, observe(value) { records.push(value); } });
   const secondEgress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 4 * 1048576, observe() {} });
   const transport: ReferenceTransport = {
-    async resolve(input) { git.push(input); return { ok: true, commit, ref: "refs/heads/main" }; },
+    async resolve(input) { git.push(input); return { ok: true, commit, ref: `refs/heads/${input.revision}` }; },
     async fetch(input) { git.push(input); state.fetches++; writeFileSync(join(input.root, "README.md"), "Odysseus charts Ithaca on 2026-07-12.\n"); return { commit }; },
     async checkout() {},
     async tree() { return tree; },
   };
   const pool = referencePoolDouble(join(directory, "pool"));
-  const access = (database = db) => createGitHubReferenceAccess({ db: database, brain, credentials: { GITHUB_TOKEN: "odysseus-fixture-token" }, transport,
+  const access = (database = db) => createGitHubReferenceAccess({ db: database, brain, credentials, transport,
     wireTransport: { ca: readFileSync(tls.ca, "utf8"), lookup: async () => [{ address: "93.184.216.34", family: 4 }],
       connect: (() => connect({ host: "127.0.0.1", port: server.port! })) as typeof connect } });
   const github = access();
@@ -59,7 +60,7 @@ async function fixture(options: { private?: boolean; worker?: boolean } = {}) {
     const input = { repository, revision: "main", principalId, acquisition: { turnId, egress: proxy, current: () => state.current } };
     return sources.request(input);
   };
-  return { sources, sourceOptions, request, db, pool, transport, github, owner, other, grant, state, egress, secondEgress, metadata, git, records,
+  return { sources, sourceOptions, request, db, pool, transport, github, credentials, owner, other, grant, state, egress, secondEgress, metadata, git, records,
     restart(database: ReturnType<typeof createUiDb>) { return createReferenceSources({ ...sourceOptions, db: database, github: access(database) }); },
     databasePath: join(directory, "ui.db"),
     async close() { await sources.close(); await writer?.close(); egress.stop(); secondEgress.stop(); server.stop(true); db.close(); } };
@@ -268,6 +269,122 @@ for (const wait of ["coverage", "native-grant"] as const)
     } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await f.close(); }
   });
 describe("live managed authority", () => {
+  test("private revocation waits for an in-flight first publication with no catalog row", async () => {
+    const f = await fixture({ private: true }), issued = f.grant(), arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>();
+    const publish = f.pool.poolPublish, release = f.pool.poolRelease, releaseStarted = Promise.withResolvers<void>(), resumeRelease = Promise.withResolvers<void>();
+    let publishedPath = "", publishedId = "", releasePaused = false, revocation: Promise<void> | undefined;
+    f.pool.poolPublish = async (...args) => {
+      const result = await publish(...args); publishedPath = join(result.path!, "README.md"); publishedId = args[0];
+      arrived.resolve(); await resume.promise; return result;
+    };
+    f.pool.poolRelease = async (...args) => {
+      if (args[0] === publishedId && !releasePaused) { releasePaused = true; releaseStarted.resolve(); await resumeRelease.promise; }
+      return release(...args);
+    };
+    const request = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+    try {
+      await arrived.promise;
+      expect(readFileSync(publishedPath, "utf8")).toContain("Odysseus");
+      expect(f.db.query("SELECT 1 FROM reference_sources").get()).toBeNull();
+      revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() });
+      let finished = false;
+      revocation = f.sources.revoke({ grantIds: [issued.id], principalIds: [] }).then(() => { finished = true; });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(finished, "PRIVATE_REVOCATION_WAITS_FOR_DISPATCHED_PUBLICATION").toBe(false);
+      resume.resolve(); await releaseStarted.promise; await revocation;
+      expect(existsSync(publishedPath), "PRIVATE_REVOCATION_HIDES_FIRST_PUBLICATION_BEFORE_RETURNING").toBe(false);
+      resumeRelease.resolve();
+      const result = await request;
+      expect(result.error).toMatchObject({ code: "unauthorized" }); result.lease?.release();
+    } finally { resume.resolve(); resumeRelease.resolve(); await revocation; (await request).lease?.release(); await f.close(); }
+  });
+
+  test("concurrent private requests do not inherit another request's public fence", async () => {
+    const f = await fixture({ private: true }); f.grant();
+    const secondOpened = Promise.withResolvers<void>(), resumeSecond = Promise.withResolvers<void>(), open = f.github.open;
+    let openings = 0, first: Awaited<ReturnType<typeof f.request>> | undefined, second: typeof first;
+    f.github.open = async input => {
+      const index = ++openings, access = await open(input);
+      if (index === 2) { secondOpened.resolve(); await resumeSecond.promise; }
+      return access;
+    };
+    const earlier = f.request(), later = f.request(f.owner.id, "odysseus-second-private-turn", f.secondEgress);
+    void later.catch(() => {});
+    try {
+      await secondOpened.promise;
+      first = await earlier;
+      resumeSecond.resolve(); second = await later;
+      expect(first.domain).toBe("private"); expect(second.domain).toBe("private");
+      expect(f.egress.usedBytes()).toBeGreaterThan(0); expect(f.secondEgress.usedBytes()).toBeGreaterThan(0);
+    } finally {
+      resumeSecond.resolve();
+      first ??= await earlier.catch(() => undefined); second ??= await later.catch(() => undefined);
+      second?.release(); first?.release(); await f.close();
+    }
+  });
+
+  for (const olderRevision of ["main", "return-home"])
+  for (const outcome of ["private", "denied", "unavailable"] as const)
+    test(`an older first public publication of ${olderRevision} cannot survive newer ${outcome} metadata authority`, async () => {
+      const f = await fixture(), arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), observed = Promise.withResolvers<void>();
+      const publish = f.pool.poolPublish, open = f.github.open;
+      let paused = false, publicName = "", publicRootId = "", first: Awaited<ReturnType<typeof f.request>> | undefined, second: Awaited<ReturnType<typeof f.request>> | undefined;
+      f.pool.poolPublish = async (...args) => {
+        const result = await publish(...args);
+        if (!paused) {
+          paused = true; publicName = args[2]; publicRootId = args[0];
+          expect(readFileSync(join(result.path!, "README.md"), "utf8"), "OLDER_PUBLIC_NATIVE_PUBLICATION_HAS_READABLE_FILES").toContain("Odysseus");
+          arrived.resolve(); await resume.promise;
+        }
+        return result;
+      };
+      let earlier: Promise<{ lease?: Awaited<ReturnType<typeof f.request>>; error?: unknown }> | undefined;
+      try {
+        earlier = f.sources.request({ principalId: f.owner.id, repository, revision: olderRevision,
+          acquisition: { turnId: "odysseus-earlier-public-turn", egress: f.egress, current: () => f.state.current } })
+          .then(lease => ({ lease }), error => ({ error }));
+        await arrived.promise;
+        expect(f.db.query("SELECT 1 FROM reference_sources").get(), "FIRST_PUBLIC_PUBLICATION_HAS_NO_CATALOG_ROW_YET").toBeNull();
+        f.state.private = true;
+        if (outcome !== "denied") f.grant();
+        if (outcome === "unavailable") f.credentials.GITHUB_TOKEN = undefined;
+        f.github.open = async input => { try { return await open(input); } finally { observed.resolve(); } };
+        const later = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+        await observed.promise;
+        // Let the source service process the completed metadata result before
+        // the older native reply arrives; no wall-clock race or external I/O.
+        await new Promise<void>(resolve => setImmediate(resolve));
+        resume.resolve();
+        const old = await earlier, current = await later;
+        first = old.lease; second = current.lease;
+        if (outcome === "private") expect(second?.domain).toBe("private");
+        else expect(current.error).toMatchObject({ code: outcome === "denied" ? "unauthorized" : "unavailable" });
+        const views = await f.sources.bindable(f.other.id);
+        expect(existsSync(join(views.public, publicName, "README.md")), "LATE_PUBLIC_PUBLICATION_CANNOT_REEXPOSE_SOURCE").toBe(false);
+        expect(existsSync(join(views.public, publicRootId, "README.md")), "LATE_PUBLIC_PUBLICATION_CANNOT_EXPOSE_ROOT_IDENTITY").toBe(false);
+        expect(f.db.query("SELECT 1 FROM reference_sources WHERE domain = 'public' AND root_id IS NOT NULL").get(), "LATE_PUBLIC_PUBLICATION_CANNOT_RECREATE_PUBLIC_CATALOG").toBeNull();
+        expect(old.error, "OLDER_PUBLIC_PUBLICATION_IS_FENCED_BY_NEWER_AUTHORITY").toMatchObject({ code: "unauthorized" });
+      } finally {
+        resume.resolve();
+        first ??= (await earlier)?.lease;
+        second?.release(); first?.release(); await f.close();
+      }
+    });
+
+  test("a private metadata observation withdraws every cached public revision of that repository", async () => {
+    const f = await fixture();
+    let first: Awaited<ReturnType<typeof f.request>> | undefined, other: typeof first, current: typeof first;
+    try {
+      first = await f.request();
+      other = await f.sources.request({ principalId: f.owner.id, repository, revision: "return-home", acquisition: { turnId: "odysseus-other-revision", egress: f.egress, current: () => f.state.current } });
+      expect(readFileSync(join(other.viewPath, other.name, "README.md"), "utf8")).toContain("Odysseus");
+      f.state.private = true; f.grant(); current = await f.request();
+      const views = await f.sources.bindable(f.other.id);
+      expect(existsSync(join(views.public, first.name, "README.md")), "PRIVATE_METADATA_FENCES_REQUESTED_PUBLIC_REVISION").toBe(false);
+      expect(existsSync(join(views.public, other.name, "README.md")), "PRIVATE_METADATA_FENCES_OTHER_PUBLIC_REVISIONS").toBe(false);
+    } finally { current?.release(); other?.release(); first?.release(); await f.close(); }
+  });
+
   for (const refusal of ["metadata", "git-denial", "missing-ref"] as const)
     test(`a known public source is hidden from another principal after ${refusal} refuses it`, async () => {
       const f = await fixture();

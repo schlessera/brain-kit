@@ -115,6 +115,8 @@ export function createReferenceSources(options: {
   const isManaged = (repository: string) => Boolean(options.github && new URL(repository).hostname.toLowerCase() === "github.com");
   const leases = new Map<string, number>();
   const withdrawn = new Set<string>();
+  /** A newer authority observation invalidates older managed requests, including before domain selection. */
+  const authorityFences = new Map<string, number>();
   /** In-flight withdrawals; an acquisition of the same source waits for its withdrawal to finish. */
   const withdrawals = new Map<string, Promise<void>>();
   /**
@@ -128,6 +130,8 @@ export function createReferenceSources(options: {
   const suspended = new Set<string>(), unsettled = new Set<string>();
   /** Root identities already moved out of their view: superseded, withdrawn or suspended. */
   const hiddenRoots = new Set<string>();
+  /** Native publication may have taken effect before its catalog receipt exists. */
+  const pendingPublications = new Map<string, { key: string; view: string; name: string }>();
   /** Bind-time revalidations in flight, joined by concurrent binds. */
   const revalidations = new Map<string, Promise<boolean>>();
   /** Lapsed sources a bind checks at once. */
@@ -168,6 +172,7 @@ export function createReferenceSources(options: {
       await releaseRoot(id);
     }
     hiddenRoots.add(id);
+    pendingPublications.delete(id);
   }
   /** One change at a time to a source's exposure: suspension, restoration, withdrawal and publication. */
   const exposing = new Map<string, Promise<unknown>>();
@@ -236,6 +241,7 @@ export function createReferenceSources(options: {
     if (options.dependents?.(id)) return;
     await pool.poolRelease(id);
     await write("sourceReleaseRoot", id);
+    pendingPublications.delete(id);
   }
 
   async function admit(signal: AbortSignal): Promise<() => void> {
@@ -392,25 +398,55 @@ export function createReferenceSources(options: {
   /** Remove a source's name now; release its roots once no reader protects them. */
   function withdraw(domain: string, repository: string, revision: string): Promise<void> {
     const key = sourceKey(domain, repository, revision);
+    fenceSource(key);
     const running = withdrawals.get(key);
     if (running) return running;
-    const source = row(domain, repository, revision);
-    if (!source) return Promise.resolve();
-    // Fence in this turn, before any await: no new reader may lease the source,
-    // and only the roots it holds now are withdrawn, never a later acquisition's.
+    // Fence before any await, even when the first publication has no catalog
+    // row yet. A later acquisition waits for this withdrawal to finish.
     withdrawn.add(key);
     suspended.delete(key); unsettled.delete(key);
-    const recorded = write<{ roots: { id: string }[]; view: { id: string } }>("sourceWithdraw", domain, repository, revision, randomUUID());
-    void recorded.catch(() => {});
-    // After any publication in progress, so a restoration can never land after it.
+    // Observe the catalog after every already-dispatched publication settles,
+    // including one whose native reply or database receipt was still pending.
     const work = exclusive(key, async () => {
-      const { roots, view } = await recorded;
-      await pool.poolUnpublish(view.id, source.name);
-      // Every root leaves the view at once, so no reader reaches it by identity; storage waits for readers.
-      for (const root of roots) await hideRoot(root.id);
+      const source = row(domain, repository, revision);
+      if (source) {
+        const { roots, view } = await write<{ roots: { id: string }[]; view: { id: string } }>("sourceWithdraw", domain, repository, revision, randomUUID());
+        await pool.poolUnpublish(view.id, source.name);
+        // Every root leaves the view at once, so no reader reaches it by identity; storage waits for readers.
+        for (const root of roots) await hideRoot(root.id);
+      }
+      // A first publication can have native exposure but still be staging in
+      // SQLite. Hide it here too, without waiting for storage reclamation.
+      for (const [id, publication] of pendingPublications) if (publication.key === key) {
+        await pool.poolUnpublish(publication.view, publication.name);
+        await hideRoot(id);
+      }
     }).finally(() => { withdrawals.delete(key); });
     withdrawals.set(key, work);
     return work.then(() => settle(domain, repository, revision));
+  }
+  function fenceSource(key: string): void {
+    authorityFences.set(key, (authorityFences.get(key) ?? 0) + 1);
+  }
+  /** Repository metadata governs every cached or in-flight revision, not only the requested one. */
+  function repositoryRevisions(domain: string, repository: string, revision: string): string[] {
+    const revisions = new Set([revision]);
+    for (const row of db.query(`SELECT revision FROM reference_sources WHERE domain = ? AND repository = ?
+      UNION SELECT revision FROM reference_roots WHERE domain = ? AND repository = ?`).all(domain, repository, domain, repository) as { revision: string }[])
+      revisions.add(row.revision);
+    for (const operation of operations.values()) {
+      const [heldDomain, heldRepository, heldRevision] = splitKey(operation.key);
+      if (heldRepository === repository && (heldDomain === domain || (operation.principalId !== null && domain === privateDomain(operation.principalId)))) revisions.add(heldRevision);
+    }
+    return [...revisions];
+  }
+  function withdrawRepository(domain: string, repository: string, revision: string): Promise<void[]> {
+    return Promise.all(repositoryRevisions(domain, repository, revision).map(revision => withdraw(domain, repository, revision)));
+  }
+  function suspendRepository(domain: string, repository: string, revision: string): Promise<void[]> {
+    const revisions = repositoryRevisions(domain, repository, revision);
+    for (const revision of revisions) fenceSource(sourceKey(domain, repository, revision));
+    return Promise.all(revisions.map(revision => suspendSource(domain, repository, revision)));
   }
 
   async function acquire(signal: AbortSignal, input: { domain: string; principalId: string | null; repository: ReferenceRepository; revision: string; grant: ReferenceGrant | null;
@@ -452,6 +488,7 @@ export function createReferenceSources(options: {
       if (input.managed) await input.managed.access.revalidate();
       recheck();
       publishing = true;
+      pendingPublications.set(staging.id, { key, view: view.id, name });
       hiddenRoots.delete(staging.id);
       const published = await pool.poolPublish(staging.id, view.id, name, signal);
       recheck();
@@ -467,6 +504,7 @@ export function createReferenceSources(options: {
       const at = now(), grantId = domain === PUBLIC ? null : (input.grant && isLiveReferenceGrant(db, input.grant.id, at) ? input.grant.id : authorize(domain, input.principalId, repository)!.id);
       await write("sourcePublish", dirname(published.path!), domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at, acquisition);
       recheck();
+      pendingPublications.delete(staging.id);
       withdrawn.delete(key);
       // A newly validated commit is exposed; the superseded roots leave the view at
       // once, so a later bind reaches only the commit this request validated.
@@ -502,6 +540,12 @@ export function createReferenceSources(options: {
     if (!context || !context.turnId || !context.current()) throw new ReferenceSourceError("unavailable", "Managed GitHub acquisition needs a live admitted turn and its network budget.");
     const controller = new AbortController(), signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     const id = randomUUID();
+    const publicFence = authorityFences.get(sourceKey(PUBLIC, repository.canonical, revision)) ?? 0;
+    const privateFence = authorityFences.get(sourceKey(privateDomain(input.principalId), repository.canonical, revision)) ?? 0;
+    const assertFence = (domain: string) => {
+      if ((authorityFences.get(sourceKey(domain, repository.canonical, revision)) ?? 0) !== (domain === PUBLIC ? publicFence : privateFence))
+        controller.abort(new ReferenceSourceError("unauthorized", "A newer authority observation fenced this reference source."));
+    };
     const operation: Operation = { key: sourceKey(PUBLIC, repository.canonical, revision), domain: PUBLIC, principalId: input.principalId,
       grantId: null, controller, joiners: 1, promise: Promise.resolve(undefined as never) };
     const assertTurn = () => { signal.throwIfAborted(); if (closed || !context.current()) throw new ReferenceSourceError("cancelled", "The acquiring turn is no longer available."); };
@@ -516,12 +560,15 @@ export function createReferenceSources(options: {
         access = await options.github!.open({ principalId: input.principalId, repository: repository.url, revision, egress: context.egress, maxBytes, signal,
           current: () => !closed && context.current() });
         const currentAccess = access;
-        const assertCurrent = () => { assertTurn(); currentAccess.assertCurrent(); };
+        const assertCurrent = () => {
+          assertFence(currentAccess.domain === "public" ? PUBLIC : privateDomain(input.principalId));
+          assertTurn(); currentAccess.assertCurrent();
+        };
         assertCurrent();
         const domain = access.domain === "public" ? PUBLIC : privateDomain(input.principalId);
         Object.assign(operation, { domain, grantId: access.grantId, key: sourceKey(domain, repository.canonical, revision) });
         // Private metadata cannot renew a previously shared public copy.
-        if (domain !== PUBLIC) await withdraw(PUBLIC, repository.canonical, revision);
+        if (domain !== PUBLIC) await withdrawRepository(PUBLIC, repository.canonical, revision);
         await withdrawals.get(operation.key);
         assertCurrent();
         const check = await access.resolve();
@@ -557,16 +604,17 @@ export function createReferenceSources(options: {
       } catch (error) {
         result?.release(); result = undefined;
         const refusal = error instanceof ReferenceTransportError ? error.reason : error instanceof ReferenceSourceError ? error.code : null;
-        if (refusal === "denied" || refusal === "unauthorized" || refusal === "missing") {
+        if (!signal.aborted && context.current() && (refusal === "denied" || refusal === "unauthorized" || refusal === "missing")) {
           // Opening metadata may fail before it selects a domain. Fence both
           // known copies; neither the public cache nor this principal's cache
           // may outlive an explicit authority refusal.
-          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => withdraw(domain, repository.canonical, revision)));
-        } else if (!access) {
+          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => refusal === "missing"
+            ? withdraw(domain, repository.canonical, revision) : withdrawRepository(domain, repository.canonical, revision)));
+        } else if (!signal.aborted && context.current() && !access) {
           // An incomplete metadata check may already have refused anonymous
           // access. Preserve the cached roots, but withhold them until a live
           // acquisition establishes authority again.
-          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => suspendSource(domain, repository.canonical, revision)));
+          await Promise.all([PUBLIC, privateDomain(input.principalId)].map(domain => suspendRepository(domain, repository.canonical, revision)));
         }
         if (error instanceof ReferenceTransportError) throw new ReferenceSourceError(error.reason === "denied" ? "unauthorized" : error.reason, error.message);
         throw error;
@@ -575,6 +623,7 @@ export function createReferenceSources(options: {
     operations.set(id, operation);
     try {
       await operation.promise;
+      assertFence(operation.domain);
       assertTurn();
       // Closing the wire also awaits: its original private grant must still
       // authorize the lease after shutdown, without inheriting a new grant.
@@ -584,7 +633,7 @@ export function createReferenceSources(options: {
     } catch (error) {
       const held = result;
       held?.release();
-      if (held && error instanceof ReferenceSourceError && error.code === "unauthorized") await withdraw(operation.domain, repository.canonical, revision);
+      if (held && !controller.signal.aborted && error instanceof ReferenceSourceError && error.code === "unauthorized") await withdraw(operation.domain, repository.canonical, revision);
       throw error;
     }
     finally { operations.delete(id); void settle(...splitKey(operation.key)).catch(error => warn("managed source settle failed", error)); }
@@ -802,23 +851,28 @@ export function createReferenceSources(options: {
    */
   async function revoke(input: { grantIds: readonly string[]; principalIds: readonly string[] }) {
     const principals = new Set(input.principalIds);
+    const keys = new Set<string>();
     for (const id of input.grantIds) {
       const owner = db.query("SELECT principal_id FROM reference_grants WHERE id = ?").get(id) as { principal_id: string } | null;
       if (owner) principals.add(owner.principal_id);
     }
     for (const operation of operations.values())
-      if (operation.domain !== PUBLIC && (principals.has(operation.principalId!) || input.grantIds.includes(operation.grantId!)))
+      if (operation.domain !== PUBLIC && (principals.has(operation.principalId!) || input.grantIds.includes(operation.grantId!))) {
+        keys.add(operation.key);
         operation.controller.abort(new ReferenceSourceError("unauthorized", "Reference authority was revoked."));
+      }
     // A publication submitted before revocation used to be visible here at once.
     // Wait for its receipt so even a source's first publication is withdrawn.
     await write.settled();
     for (const principalId of principals) {
       const sources = db.query("SELECT * FROM reference_sources WHERE domain = ?").all(privateDomain(principalId)) as SourceRow[];
-      for (const source of sources) {
-        let covered = false;
-        try { covered = Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId, repository: referenceRepository(source.repository), now: now() })); } catch { covered = false; }
-        if (!covered) await withdraw(source.domain, source.repository, source.revision);
-      }
+      for (const source of sources) keys.add(sourceKey(source.domain, source.repository, source.revision));
+    }
+    for (const key of keys) {
+      const [domain, repository, revision] = splitKey(key), principalId = domain.slice("private:".length);
+      let covered = false;
+      try { covered = Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId, repository: referenceRepository(repository), now: now() })); } catch { covered = false; }
+      if (!covered) await withdraw(domain, repository, revision);
     }
   }
 
