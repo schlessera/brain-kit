@@ -29,7 +29,7 @@ const pullRequest = (headRepo: string | null, extra: Obj = {}): Obj => ({
 });
 function runs(workflow: Workflow, job: Job, context: Obj): boolean {
   return String(context.event_name) in workflow.on && (job.if === undefined || evaluate(job.if, {
-    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", runtime_host: "true", browser: "true", layout: "true", captures: "true", endurance: "true", run_browser: "true", run_layout: "true" } }, pack: { result: "success" } },
+    github: context, needs: { changeset: { result: "success", outputs: { verify: "true", pack: "true", unit: "true", runtime: "true", runtime_host: "true", browser: "true", layout: "true", captures: "true", endurance: "true", determinism: "true" } }, pack: { result: "success" } },
   }) === true);
 }
 function evaluate(expression: string, context: Obj): Json {
@@ -131,9 +131,9 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.name).toBe("CI");
     expect(ci.on.push).toEqual({ branches: ["main"] });
     expect(ci.on.pull_request).toEqual({ types: ["opened", "synchronize", "reopened", "ready_for_review", "converted_to_draft"] });
-    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "proof"]);
-    expect(ci.jobs.changeset!.outputs).toEqual({ ...Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "cadence", "unit_shards", "red_main_oid"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])),
-      ...Object.fromEntries(["run_browser", "run_layout", "reuse"].map(name => [name, `\${{ steps.reuse.outputs.${name} }}`])) });
+    expect(Object.keys(ci.jobs)).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism", "proof"]);
+    // The planner step is the only source of a metadata output: no later step can deselect a category (#4107).
+    expect(ci.jobs.changeset!.outputs).toEqual(Object.fromEntries(["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance", "determinism", "cadence", "unit_shards", "red_main_oid"].map(name => [name, `\${{ steps.plan.outputs.${name} }}`])));
     const metadata = ci.jobs.changeset!.steps.filter(s => s.run).map(s => s.run);
     expect(metadata).toContain("bun scripts/ci-plan.ts"); expect(metadata).toContain("bun run lint");
     expect(metadata).toContain("bun scripts/env-docs.ts --check"); expect(metadata).toContain("bun scripts/check-changeset-packages.ts");
@@ -141,7 +141,7 @@ describe("the authoritative jobs retain their important phases", () => {
     for (const [name,job] of Object.entries(ci.jobs)) {
       const bun = job.steps.find(s => s.uses === pinned("oven-sh/setup-bun@v2"));
       expect(bun?.with?.["bun-version"]).toBe("1.4.2");
-      const install=name==="unit"?"bun install --frozen-lockfile --backend=copyfile":"bun install --frozen-lockfile";
+      const install=name==="unit"||name==="determinism"?"bun install --frozen-lockfile --backend=copyfile":"bun install --frozen-lockfile";
       expect(job.steps.some(s => s.run === install)).toBe(true);
     }
     expect(ci.jobs.changeset!["timeout-minutes"]).toBe(3);
@@ -167,9 +167,10 @@ describe("the authoritative jobs retain their important phases", () => {
 });
 
 describe("runtime environment setup and proof budgets", () => {
-  for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15]] as const) {
+  for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15], ["determinism", 40]] as const) {
     const job = ci.jobs[name]!;
-    const setup = job.steps.find(s => s.run === `bash scripts/ci-runtime-setup.sh${name === "unit" ? "" : " --native"}`)!;
+    // Repeated changed tests share the unit job's prerequisites, not the native ones (#4109).
+    const setup = job.steps.find(s => s.run === `bash scripts/ci-runtime-setup.sh${name === "unit" || name === "determinism" ? "" : " --native"}`)!;
     const proof = job.steps.find(s => s.run === `bun scripts/ci-proof.ts ${name}` || s.run?.startsWith(`bun scripts/ci-proof.ts ${name} `))!;
     test(`${name} retains a full proof budget after bounded environment setup`, () => {
       expect(setup["timeout-minutes"]).toBe(12);
@@ -250,16 +251,16 @@ describe("CI concurrency configuration (live scheduler proof remains separate)",
 });
 
 describe("independent hosted proof after cheap gates", () => {
-  const context = (selected = "true", result = "success", execute = "true") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, runtime_host: selected, browser: selected, layout: selected, captures: selected, endurance: selected, run_browser: execute, run_layout: execute } } } });
+  const context = (selected = "true", result = "success") => ({ needs: { changeset: { result, outputs: { verify: selected, pack: selected, unit: selected, runtime: selected, runtime_host: selected, browser: selected, layout: selected, captures: selected, endurance: selected, determinism: selected } } } });
   test("all independent categories depend only on metadata", () => {
-    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {
+    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) {
       expect(ci.jobs[name]!.needs).toBe("changeset");
       expect(evaluate(ci.jobs[name]!.if!, context())).toBe(true);
       expect(evaluate(ci.jobs[name]!.if!, context("false"))).toBe(false);
     }
   });
   test("the aggregate observes every category even after an intentional skip or failed prerequisite", () => {
-    expect(ci.jobs.proof!.needs).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]);
+    expect(ci.jobs.proof!.needs).toEqual(["changeset", "verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]);
     expect(ci.jobs.proof!.if).toContain("always()");
     expect(evaluate(ci.jobs.proof!.if!, { cancelled: false })).toBe(true);
     expect(evaluate(ci.jobs.proof!.if!, { cancelled: true })).toBe(false);
@@ -268,12 +269,17 @@ describe("independent hosted proof after cheap gates", () => {
     for (const repo of [REPO, "odysseus/brain-kit"]) {
       const c = { github: pullRequest(repo), ...context("false") };
       expect(ci.jobs.changeset!.if).toBeUndefined();
-      for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
+      for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) expect(evaluate(ci.jobs[name]!.if!, c)).toBe(false);
     }
   });
-  test("retention skips only admitted browser categories; other selected proof remains fresh", () => {
-    for (const name of ["browser", "layout"]) expect(evaluate(ci.jobs[name]!.if!, context("true", "success", "false"))).toBe(false);
-    for (const name of ["unit", "verify", "pack", "runtime", "runtime_host", "captures"]) expect(evaluate(ci.jobs[name]!.if!, context("true", "success", "false"))).toBe(true);
+  test("a selected category runs on the planner's selection alone; no other output can skip it (#4107)", () => {
+    for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) {
+      expect(ci.jobs[name]!.if, `SELECTION_ALONE:${name}`).toBe(`\${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.${name} == 'true' }}`);
+      // The outputs retention used to set are gone; their absence must not skip a selected job.
+      const selected = context();
+      Object.assign(selected.needs.changeset.outputs, { run_browser: "false", run_layout: "false" });
+      expect(evaluate(ci.jobs[name]!.if!, selected), `RETIRED_OUTPUT_IGNORED:${name}`).toBe(true);
+    }
   });
 });
 
@@ -281,7 +287,7 @@ describe("contributions execute without privileged credentials", () => {
   for (const { file, workflow } of workflows) {
     test(`${file}: no secret, write permission or privileged trigger`, () => {
       expect(read(file)).not.toMatch(/\bsecrets\.|pull_request_target|workflow_run|id-token|: write\b/);
-      expect(workflow.permissions).toEqual(file === "ci.yml" ? { contents: "read", actions: "read", checks: "read" } : { contents: "read" });
+      expect(workflow.permissions).toEqual(file === "ci.yml" ? { contents: "read", actions: "read" } : { contents: "read" });
       for (const job of Object.values(workflow.jobs)) {
         expect(job.permissions).toBeUndefined(); expect(job["runs-on"]).toBe("ubuntu-24.04");
         const checkouts = job.steps.filter(s => s.uses?.startsWith("actions/checkout@"));
@@ -577,6 +583,29 @@ test("all unit partitions upload incremental memory diagnostics even after proof
 });
 
 
+test("the determinism job has the unit job's prerequisites and both aggregates observe it (#4109)", () => {
+  const original = read("ci.yml");
+  const job = ci.jobs.determinism!, unit = ci.jobs.unit!;
+  const runs = (steps: typeof job.steps) => steps.filter(step => step.run).map(step => step.run);
+  // Changed files may drive real Chrome: the same install, plan and runtime setup as unit.
+  for (const command of ["bun install --frozen-lockfile --backend=copyfile", "bun scripts/ci-plan.ts", "bash scripts/ci-runtime-setup.sh"]) {
+    expect(runs(unit.steps), command).toContain(command);
+    expect(runs(job.steps), `UNIT_PREREQUISITE:${command}`).toContain(command);
+  }
+  expect(runs(job.steps).indexOf("bash scripts/ci-runtime-setup.sh"), "SETUP_BEFORE_REPETITION").toBeLessThan(runs(job.steps).indexOf("bun scripts/ci-proof.ts determinism"));
+  expect(job.if).toBe("${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.determinism == 'true' }}");
+  expect((ci.jobs.changeset!.outputs as Obj).determinism).toBe("${{ steps.plan.outputs.determinism }}");
+  const feedback = Bun.YAML.parse(read("heavy-feedback.yml")) as Workflow;
+  expect(runs(feedback.jobs.determinism!.steps), "DRAFT_HEAVY_FEEDBACK_REPEATS_TOO").toContain("bun scripts/ci-proof.ts determinism");
+  expect(feedback.jobs.aggregate!.needs).toContain("determinism");
+  expect(workflowProblems(original, "ci.yml")).toEqual([]);
+  expect(workflowProblems(original.replace("captures, endurance, determinism]", "captures, endurance]"), "ci.yml"), "PROOF_MUST_OBSERVE_IT").toContain("ci.yml: proof: aggregate must observe every selected category");
+  expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts determinism\n", "run: echo omitted\n"), "ci.yml")).toContain("ci.yml: determinism: complete proof command is missing");
+  expect(workflowProblems(original.replace("needs.changeset.outputs.determinism == 'true' }}", "needs.changeset.outputs.unit == 'true' }}"), "ci.yml")).toContain("ci.yml: determinism: proof must run on its explicit planner selection alone");
+  const withoutSetup = original.slice(0, original.indexOf("  determinism:\n")) + original.slice(original.indexOf("  determinism:\n")).replace("run: bash scripts/ci-runtime-setup.sh\n", "run: bash scripts/ci-runtime-setup.sh --native\n");
+  expect(workflowProblems(withoutSetup, "ci.yml"), "UNIT_SETUP_REQUIRED").toContain("ci.yml: determinism: environment setup must have its separate 12-minute limit");
+});
+
 test("runtime categories have distinct complete commands and strict aggregate dependencies", () => {
   const original = read("ci.yml");
   expect(workflowProblems(original.replace("run: bun scripts/ci-proof.ts runtime\n", "run: bun scripts/ci-proof.ts runtime_host\n"), "ci.yml")).toContain("ci.yml: runtime: complete proof command is missing");
@@ -683,17 +712,17 @@ test("verify successful step requires final marker and zero unsignalled finishes
 
 test("a main push whose metadata job fails still runs its selected proof (#2942)", () => {
   const ci = Bun.YAML.parse(readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8")) as { jobs: Record<string, { if?: string; steps?: { name?: string; id?: string }[] }> };
-  for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {
+  for (const name of ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"]) {
     const condition = ci.jobs[name]!.if ?? "";
     // No implicit success(): a status function plus an explicit push alternative.
     expect(condition, `PUSH_PROOF_SURVIVES_METADATA_FAILURE:${name}`).toContain("!cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push')");
   }
   const steps = ci.jobs.changeset!.steps!.map(step => step.id ?? step.name ?? "");
-  const gate = steps.indexOf("Refuse doomed proof while main is red"), plan = steps.indexOf("plan"), reuse = steps.indexOf("reuse");
+  const gate = steps.indexOf("Refuse doomed proof while main is red"), plan = steps.indexOf("plan");
   expect(gate, "RED_MAIN_GATE_RUNS_FIRST").toBeGreaterThan(-1); expect(gate).toBeLessThan(plan);
-  // Every output-producing step precedes every metadata gate that can fail.
+  // The planner is the only output-producing step, and it precedes every metadata gate that can fail.
   for (const gateStep of ["Lint, leakage and contribution workflow guards", "Env documentation matches its descriptors", "Validate all pending changeset package names", "Require a changeset for shipped package changes"])
-    expect(steps.indexOf(gateStep), `OUTPUTS_BEFORE_${gateStep}`).toBeGreaterThan(reuse);
+    expect(steps.indexOf(gateStep), `OUTPUTS_BEFORE_${gateStep}`).toBeGreaterThan(plan);
 });
 
 describe("workflow actions are pinned by commit (#4111)", () => {

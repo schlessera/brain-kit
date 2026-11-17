@@ -233,7 +233,7 @@ remainingButtonCases(() => "fine");
 ```
 
 Remove that temporary leaf after the diagnostic, including on failure. It is
-not part of ordinary layout discovery or the retained proof inventory.
+not part of ordinary layout discovery or the proof inventory.
 
 1. Save `packages/ui-kit/vitest.config.ts` outside the tree. Temporarily replace
    only the `ui-react-layout` project's discovery array with
@@ -296,6 +296,41 @@ event loop that does not deliver the worker's reply, so the test times out.
 Await it and assert on the result, or use `expectRejection`
 (`packages/ui-server/tests/helpers/expect-rejection.ts`)
 ([why](../decisions/sqlite-write-worker.md#testing-note)).
+
+## Changed tests repeat under load
+
+A Bun test file that a pull request adds or modifies runs several times under
+CPU load before it merges
+([the 2026-11-16 ruling](../decisions/ci-utility.md#changed-tests-repeat-under-load-before-merge)).
+Most red-main incidents in the two weeks before it were cleared by changing
+only a test that had passed once.
+
+```sh
+bun scripts/test-determinism.ts --base origin/main          # what the hosted job runs
+bun scripts/test-determinism.ts --base origin/main --json   # the report on stdout
+```
+
+- **Selection.** Files that `bun test` discovers under `packages/` and
+  `tests/`, added or modified against the merge base. Deleted files, the
+  experiment tier and Vitest specs are not selected.
+- **The run.** One invocation of `bun run test` with `--rerun-each` and
+  `--bail=1`, so the offline preload is active and a non-loopback connection
+  fails as it does in any test. One busy loop per CPU runs until the command
+  exits; each is stopped by PID and exits by itself if the command is killed.
+- **The bound.** Five repetitions, reduced uniformly to no fewer than two when
+  the reviewed weights in `scripts/test-shard-costs.json` exceed 600 seconds.
+  The report lists every selected file with the repetitions it got, and says
+  when the selection is over budget at the floor.
+- **A failure** names the file, the repetition and the case. Repetitions of a
+  file share one process, so state left on `globalThis`, in the environment or
+  on disk reaches the next run. Fix the test; do not raise its deadline.
+- **Where it runs.** The hosted `determinism` job, at every pull-request
+  cadence including draft, and in draft heavy feedback. `draft gates` and
+  `proof` require it when the change selects it. `check:pr` never runs it: it
+  occupies every CPU, and the host is shared. `check:pr --plan` prints the
+  command when it applies. A local run waits for
+  [host admission](#host-admission-for-heavy-local-commands);
+  `--burners <n>` lowers the load for a diagnosis.
 
 ## Tests that cannot fail
 
@@ -647,7 +682,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   release preparation runs instead of PR proof. Scheduled
   exhaustive CI is additional coverage, not a replacement for selected
   pre-merge proof.
-- Drafts run cheap gates. Ready `opened`, `reopened` and `ready_for_review`
+- Drafts run cheap gates, plus the `determinism` job when the change adds or
+  modifies a Bun test file
+  ([changed tests repeat under load](#changed-tests-repeat-under-load)).
+  Ready `opened`, `reopened` and `ready_for_review`
   events request full affected confirmation. Ready `synchronize` runs affected
   fast invariants and types only; `proof` remains nonpassing until the author
   converts to draft and marks ready after the final push. A push invalidates
@@ -666,17 +704,14 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   and live PR readiness/head plus the independent live base ref. Any base advance
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
-  receipt a new combined-tree pass. Under #1333, complete browser/layout
-  domains may retain validated equivalent successful automatic receipts.
-  Inclusion fingerprints recompute each immutable tree's complete supported
-  import/declaration closure and tracked path/blob/mode, build/discovery/partition
-  and runner identities. Unknown generated/runtime inputs execute fresh; a
-  graph-structure hash or unchanged imported files alone cannot authorize reuse.
+  receipt a new combined-tree pass. Every selected category runs fresh on that
+  checkout: browser proof retention and the source pins that qualified it are
+  [retired](../decisions/ci-utility.md#retaining-complete-browser-domains)
+  (#4107), so no job is skipped on the strength of an earlier run and no test
+  fails because a product file's hash moved.
   Before naming a source run as passing proof, verify its workflow name/path,
   event, head, conclusion and complete job inventory. Repository synchronization
-  jobs do not provide CI proof. Read the current retention ledger and aggregate;
-  original run/job/checkout
-  identity remains distinct. Other categories stay fresh. Verify actual squash
+  jobs do not provide CI proof. Read the aggregate. Verify actual squash
   parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
   agents still require passing candidate proof and must re-read head/base before
   matching-head merge. This change does not alter repository protection.
@@ -724,7 +759,9 @@ action/runtime versions, pinned offline browser image and diagnostic
 artifacts. Independent selected categories run after metadata; the final proof
 aggregate rejects failures, cancellations, missing outputs and unexpected
 skips. Tests-only changes may intentionally skip packaging while complete
-affected tests run. Drafts run cheap gates only. Forks use ordinary
+affected tests run. Drafts run cheap gates only, with one exception: the
+`determinism` job repeats a change's added or modified Bun test files under
+CPU load at every pull-request cadence. Forks use ordinary
 `pull_request`, a read-only token (`contents: read`, plus `actions: read` /
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
@@ -753,7 +790,7 @@ Workflows reference each action by commit, with its release tag as a comment:
    tag and commit.
 
 Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
-step limit in `unit`, `runtime` and `runtime_host`. Proof retains a separate
+step limit in `unit`, `runtime`, `runtime_host` and `determinism`. Proof retains a separate
 30-minute unit allowance or 15-minute runtime allowance. The job caps are
 45 and 30 minutes respectively, including three minutes for the remaining
 steps. The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
@@ -860,7 +897,7 @@ name any still-missing automatic failure screenshots. Passing cases, local
 files and upload patterns alone do not establish hosted retention.
 
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
-run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
+run/job/attempt IDs, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
 [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
 
@@ -874,18 +911,9 @@ Tailwind stylesheet is backed by the dependency manifests and lockfile, with
 `source(none)` disabling implicit scanning, and the kit token export names its
 source. An edited or duplicate statement invalidates its declaration. Missing
 inputs, symlinks, escaped paths, globs, remote URLs, dynamic sources and unknown
-build directives remain unresolved and require fresh proof. This discovery
-support does not itself establish a complete retainable browser domain.
-
-
-Retention's bounded browser-command audit must preserve imported top-level
-execution. Its tests import a real config in a Bun child and observe a transitive
-module input even while the registered callback remains dormant. Activating a
-command through a selected spec, inherited setup or configuration must force
-fresh execution; registration alone is not invocation. Registered dormant
-callbacks require the same complete call/escape audit, and a mutation of that
-activation guard must fail the named assertion.
-The exact audited configuration/source guard makes unsupported edits fresh.
+build directives remain unresolved, and the category then keeps the planner's
+broad selection rule. Discovery only selects categories: it never lets a
+selected job be skipped.
 
 ## Cross-PR timing collection
 

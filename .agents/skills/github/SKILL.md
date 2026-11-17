@@ -401,7 +401,7 @@ Complete repeatable proof is authoritative in affected hosted jobs under #1326;
 cancelled checks and unexpected skips cannot pass. Keep drafts cheap and batch
 pushes. Independent selected jobs run after metadata, with per-PR cancellation.
 Assess new base commits before refreshing: revalidate affected inputs, preserve
-the actual tested head/base. Any base advance needs a new candidate-confirmation event; equivalent browser/layout domains may retain verified receipts.
+the actual tested head/base. Any base advance needs a new candidate-confirmation event, and every selected category runs fresh on it.
 Inspect selected job checkouts and the proof aggregate before matching-head
 merge; verify the actual squash and automatic main push afterward.
 

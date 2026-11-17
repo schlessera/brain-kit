@@ -13,7 +13,7 @@
 import { appendFileSync } from "node:fs";
 import { proofProblems } from "./ci-proof";
 import { liveLease, parseReservation, RESERVATION_REF } from "./integration-reservation";
-import { GitHubProofAPI, type API } from "./proof-reuse";
+import { GitHubProofAPI, type API } from "./proof-api";
 
 export const FEEDBACK_WORKFLOW = "heavy-feedback.yml";
 export const FEEDBACK_AGGREGATE = "draft heavy feedback";
