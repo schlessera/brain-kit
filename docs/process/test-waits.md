@@ -16,7 +16,7 @@ policy and changes how tests advance it.
 | Animation/media progress | The browser has actually produced the frame/chunk/commit that the assertion observes | Animation lifecycle and decoded/persisted media events. JavaScript fake time does not advance audio capture or browser compositor/process time. |
 | Negative observation | An asynchronous forbidden action had a real opportunity to occur and did not | Advance every relevant timer or await a causal completion barrier. Immediate absence, intermediate DOM state, or a held promise alone is insufficient. |
 | Condition polling | A named event or state appeared | Exit on the condition; record actual iterations and elapsed time. The polling interval is latency granularity, not the whole test cost. |
-| Failure maximum | An operation did not hang forever | Preserve the failure deadline. A losing timeout branch contributes no awaited deadline duration; clear it on completion. |
+| Failure maximum | An operation did not hang forever | Keep a failure deadline, sized for the worst case: it is a [watchdog](testing.md#watchdogs-and-product-timings), raised when it trips on a slow run. A losing timeout branch contributes no awaited deadline duration; clear it on completion. |
 | Fixture hold | A native worker remains alive until released/cancelled | Count actual hold time and termination, not the advertised sleep. Retain process-boundary cancellation and cleanup. |
 
 Keep real IO and event processing between clock advances. A fake clock must not

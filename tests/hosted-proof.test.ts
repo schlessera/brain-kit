@@ -2,12 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
-import { determinismShards, planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
+import { BROWSER_DETERMINISM_REPORT, browserDeterminismPairs, categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
+import { browserDeterminismShards, determinismShards, planChecks, proofSelections, unitShards, workspaces, type ProofCadence, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
-import { DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
+import { BROWSER_DETERMINISM_PARTITIONS, DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 import { planRepetitions } from "../scripts/test-determinism";
 import { localChecks } from "../scripts/check-pr";
+import { POST_MERGE_CATEGORIES } from "../scripts/red-main";
 
 const ROOT = resolve(import.meta.dir, "..");
 const directories: string[] = [];
@@ -31,7 +32,7 @@ function receipt(selected = true): { changeset: { result: string; outputs: Recor
 }
 
 test("aggregate accepts actual selected passes and intentional exclusions only", () => {
-  expect(PROOF_JOBS.length).toBe(10);
+  expect(PROOF_JOBS.length).toBe(11);
   expect(proofProblems(receipt())).toEqual([]);
   expect(proofProblems(receipt(false))).toEqual([]);
   for (const name of PROOF_JOBS) for (const result of ["failure", "cancelled", "skipped", "queued", ""]) {
@@ -60,8 +61,8 @@ test("aggregate accepts actual selected passes and intentional exclusions only",
 test("emitted aggregate executable fails a cancelled or skipped selected job and accepts its corrected receipt", async () => {
   for (const result of ["cancelled", "skipped", "success"]) {
     const needs = receipt(); needs.layout.result = result;
-    // The metadata job's published partition sets reach the merge path through the receipt (#4108, #4117).
-    Object.assign(needs.changeset.outputs, { unit_shards: "[1,2,3]", determinism_shards: "[1,2]" });
+    // The metadata job's published partition sets reach the merge path through the receipt (#4108, #4117, #4163).
+    Object.assign(needs.changeset.outputs, { unit_shards: "[1,2,3]", determinism_shards: "[1,2]", browser_determinism_shards: "[1,2,3,4]" });
     const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
       env: { ...process.env, GITHUB_ACTIONS: "false", GITHUB_EVENT_PATH: "", PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -73,7 +74,7 @@ test("emitted aggregate executable fails a cancelled or skipped selected job and
       expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
       expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
         selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
-        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: "[1,2,3]", determinismShards: "[1,2]",
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: "[1,2,3]", determinismShards: "[1,2]", browserDeterminismShards: "[1,2,3,4]",
       });
     }
   }
@@ -145,9 +146,10 @@ test("eight confirmation partitions run the files four main partitions run, each
 
 test("hosted global commands retain the full local inventory and real offline namespaces", () => {
   const plan = planChecks(["package.json"], workspaces(ROOT));
-  // A global change touches no Bun test file, so nothing is repeated under load (#4109).
-  const { determinism, ...selections } = proofSelections(plan);
+  // A global change touches no Bun test file and no browser spec, so nothing is repeated under load (#4109, #4163).
+  const { determinism, browser_determinism, ...selections } = proofSelections(plan);
   expect(determinism, "NO_CHANGED_TEST_NO_REPETITION").toBe(false);
+  expect(browser_determinism, "NO_CHANGED_SPEC_NO_REPETITION").toBe(false);
   expect(Object.values(selections).every(Boolean)).toBe(true);
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
   const cmds = ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
@@ -295,7 +297,7 @@ test("emitted aggregate refuses skipped or missing selected native host job", as
       expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
       expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
         selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
-        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null, determinismShards: null,
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null, determinismShards: null, browserDeterminismShards: null,
       });
     }
   }
@@ -342,4 +344,81 @@ test("ready confirmation repeats changed tests at the floor; every other cadence
   // The floor the command enforces and the count confirmation asks for are one number.
   expect(planRepetitions(["tests/ci-plan.test.ts"], { repetitions: 2 }).repetitions).toBe(2);
   expect(() => planRepetitions(["tests/ci-plan.test.ts"], { repetitions: 1 })).toThrow("at least 2");
+});
+
+// Names the reviewed table does not hold, so a weight refresh cannot move these: each pair costs the stated default.
+const story = (name: string) => [{ project: "storybook", file: `packages/ui-kit/stories/${name}.stories.tsx` }, { project: "storybook-light", file: `packages/ui-kit/stories/${name}.stories.tsx` }];
+const keys = (pairs: readonly { project: string; file: string }[]) => pairs.map(pair => `${pair.project}::${pair.file}`).sort();
+
+test("a plan with changed browser specs repeats exactly its project/file pairs in the pinned container (#4163)", () => {
+  const pairs = story("Argo"), plan = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), browserDeterminism: pairs };
+  expect(browserDeterminismPairs(plan)).toEqual(["storybook-light::packages/ui-kit/stories/Argo.stories.tsx", "storybook::packages/ui-kit/stories/Argo.stories.tsx"]);
+  const [build, repeat, ...rest] = categoryCommands("browser_determinism", plan, ROOT);
+  expect(rest).toEqual([]);
+  // The container resolves the packages' built output, as the browser and layout jobs do.
+  expect([build!.name, build!.argv.slice(1)]).toEqual(["workspace build for real browser checks", ["run", "build", "--jobs=2"]]);
+  expect(repeat!.argv.slice(1), "EXACT_PAIRS_NO_FILTER").toEqual([join(ROOT, "scripts/browser-determinism.ts"), `--report=${BROWSER_DETERMINISM_REPORT}`, ...keys(pairs)]);
+  expect(categoryCommands("browser_determinism", plan, ROOT, "1/1"), "ONE_PARTITION_KEEPS_THE_COMMAND").toEqual([build!, repeat!]);
+  expect(() => categoryCommands("browser_determinism", plan, ROOT, "1/2"), "DIVISOR_MUST_BE_THE_PLANNED_COUNT").toThrow("Repeated-run partition 1/2 is not in the planned set of 1");
+  for (const unselected of [{ ...plan, browserDeterminism: [] }, { ...plan, browserDeterminism: undefined }]) {
+    expect(() => categoryCommands("browser_determinism", unselected, ROOT), "EMPTY_SELECTION_IS_NEVER_A_JOB").toThrow("Repeated browser proof was not selected");
+  }
+  // The aggregate requires the job exactly when the plan selects it.
+  const selected = receipt(false); selected.changeset.outputs.browser_determinism = "true";
+  for (const state of ["skipped", "failure", "cancelled", undefined]) {
+    if (state === undefined) delete selected.browser_determinism; else selected.browser_determinism = { result: state };
+    expect(proofProblems(selected), "SELECTED_REPETITION_MUST_PASS").toEqual([`browser_determinism: selected proof did not pass (${state ?? "missing"})`]);
+  }
+  selected.browser_determinism = { result: "success" };
+  expect(proofProblems(selected)).toEqual([]);
+  const unselected = receipt(false); unselected.browser_determinism = { result: "success" };
+  expect(proofProblems(unselected)).toEqual(["browser_determinism: unselected job must be intentionally skipped (success)"]);
+});
+
+test("ready confirmation repeats changed browser specs twice; every other pull-request cadence asks for five (#4163)", () => {
+  const selected = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), browserDeterminism: story("Argo") };
+  const argv = (cadence: ProofCadence) => categoryCommands("browser_determinism", { ...selected, cadence }, ROOT)[1]!.argv;
+  expect(argv("confirmation"), "CONFIRMATION_RUNS_THE_FLOOR").toContain("--repetitions=2");
+  for (const cadence of ["draft", "feedback", "feedback-heavy"] as const) {
+    // No count on the command is the command's default of five.
+    expect(argv(cadence).filter(arg => arg.startsWith("--repetitions")), `FULL_COUNT:${cadence}`).toEqual([]);
+    expect(proofSelections({ ...selected, cadence }).browser_determinism, `SELECTED:${cadence}`).toBe(true);
+  }
+  for (const cadence of ["integrated", "exhaustive"] as const) expect(proofSelections({ ...selected, cadence }).browser_determinism, `NEVER_ON_MAIN:${cadence}`).toBe(false);
+  // A fast category under the hybrid split: confirmation selects it, where it leaves the complete browser suites to main.
+  expect(POST_MERGE_CATEGORIES, "NOT_A_POST_MERGE_CATEGORY").toEqual(["runtime", "runtime_host", "browser", "layout", "captures", "endurance"]);
+  expect([proofSelections({ ...selected, cadence: "confirmation" }).browser_determinism, proofSelections({ ...selected, cadence: "confirmation", local: { ...selected.local, browser: true } }).browser])
+    .toEqual([true, false]);
+});
+
+test("an oversized browser selection runs as planned partitions: every pair in exactly one, at the selection's count (#4163)", () => {
+  const { capacitySeconds, max, unweightedSeconds } = BROWSER_DETERMINISM_PARTITIONS;
+  // Sixteen unweighted pairs: 160 weighted s per pass, 320 at the floor of two, one more than one job holds.
+  const fleet = Array.from({ length: 8 }, (_, index) => story(`Fleet${index}`)).flat();
+  const selected = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), browserDeterminism: fleet };
+  for (const cadence of ["draft", "confirmation", "feedback-heavy"] as const) {
+    const plan = { ...selected, cadence };
+    expect(browserDeterminismShards(plan), `PUBLISHED_SET:${cadence}`).toEqual([1, 2]);
+    const partitions = browserDeterminismShards(plan).map(shard => categoryCommands("browser_determinism", plan, ROOT, `${shard}/2`)[1]!);
+    const ran = partitions.map(command => command.argv.slice(command.argv.indexOf("--repetitions=2") + 1));
+    for (const [index, command] of partitions.entries()) {
+      // A draft asks for five; the count for the whole selection is the floor, and each partition is told so.
+      expect(command.argv.slice(1, 4), `COUNT_DECIDED_OVER_THE_SELECTION:${cadence}`).toEqual([join(ROOT, "scripts/browser-determinism.ts"), `--report=${BROWSER_DETERMINISM_REPORT}`, "--repetitions=2"]);
+      expect(ran[index]!.length * unweightedSeconds * 2, "WITHIN_CAPACITY").toBeLessThanOrEqual(capacitySeconds);
+      expect(browserDeterminismPairs(plan, `${index + 1}/2`), "RECEIPT_NAMES_THE_PARTITION_PAIRS").toEqual(ran[index]!);
+    }
+    expect(ran.flat().sort(), `EVERY_PAIR_EXACTLY_ONCE:${cadence}`).toEqual(keys(fleet));
+    for (const shard of [undefined, "1/1", "1/3", "3/3"]) expect(() => categoryCommands("browser_determinism", plan, ROOT, shard), `NOT_THE_PLANNED_SPLIT:${shard}`).toThrow("is not in the planned set of 2");
+  }
+  // Past the maximum nothing is planned, published or run: the metadata job and every partition refuse.
+  const count = max * capacitySeconds / (2 * unweightedSeconds) + 1;
+  const armada = { ...selected, cadence: "confirmation" as const, browserDeterminism: Array.from({ length: count }, (_, index) => ({ project: "visual", file: `packages/ui-kit/tests/visual/armada-${index}.visual.tsx` })) };
+  const refusal = `Repeated browser proof refused before it ran: ${count} changed project/file pair(s) weigh ${(count * unweightedSeconds).toFixed(1)} weighted s per pass, ` +
+    `${(count * unweightedSeconds * 2).toFixed(1)} s at the floor of 2 repetitions. That needs more than the limit of ${max} partitions of ${capacitySeconds} weighted s each (BROWSER_DETERMINISM_PARTITIONS, scripts/proof-shards.ts)`;
+  expect(() => browserDeterminismShards(armada), "PLANNER_REFUSES").toThrow(refusal);
+  expect(() => categoryCommands("browser_determinism", armada, ROOT, `1/${max}`), "PARTITION_REFUSES").toThrow(refusal);
+  expect(browserDeterminismShards({ ...armada, browserDeterminism: armada.browserDeterminism.slice(1) }), "ONE_PAIR_FEWER_IS_THE_MAXIMUM").toHaveLength(max);
+  // Unselected, and on main where repetition never runs, the matrix expression still has one value.
+  expect(browserDeterminismShards({ ...selected, browserDeterminism: undefined, cadence: "confirmation" })).toEqual([1]);
+  expect(browserDeterminismShards({ ...armada, cadence: "integrated" }), "MAIN_NEVER_REPEATS").toEqual([1]);
 });

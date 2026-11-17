@@ -24,6 +24,8 @@ import * as probe from "./fixtures/write-worker-probe.js";
 import { registerInboxWrites } from "../src/inbox/write-runtime.js";
 import { watchWriteSites } from "./helpers/write-sites.js";
 import { expectRejection } from "./helpers/expect-rejection.js";
+import { heldWriter } from "./helpers/held-writer.js";
+import { HygieneAuthorityError } from "../src/inbox/hygiene-writes.js";
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "inbox-writes-odysseus-"));
@@ -180,6 +182,23 @@ test("hygiene review admission preview and completion commit on the write worker
     expect(review.read().review, "INBOX_HYGIENE_COMPLETED_BEFORE_REPLY").toMatchObject({ status: "complete", fixed: 1 });
     expect(new Set(await sites.log()), "INBOX_HYGIENE_WRITES_ON_WORKER_AT_FULL").toEqual(new Set(["hygiene_review", "hygiene_effect_attempts", "hygiene_action_revisions", "inbox_items", "inbox_changes", "inbox_thread_sequences", "inbox_resolutions"]));
   } finally { await f.close(); }
+});
+
+test("a reviewer login that expires while a hygiene command waits for the writer is refused by the current time (#4176)", async () => {
+  const f = fixture(), held = await heldWriter(f.writer, join(f.root, "ui.db"));
+  try {
+    const brain = { hygiene: async () => ({ finding: null, counts: { eligibleRemaining: 0, fixed: 0, dismissed: 0, snoozed: 0, nextSnoozeDueAt: null, informationalNotShown: 0 } }) } as unknown as BrainClient;
+    const review = createHygieneReview(f.db, { brain });
+    await held.hold();
+    const submitted = held.posted("command");
+    // The review stamps the command's time before the wait; the reviewer is usable at that stamp.
+    const pending = review.command(f.principal.id, "pause");
+    await submitted;
+    await held.expireWhileQueued(f.principal.id);
+    held.release();
+    await expectRejection(pending, HygieneAuthorityError, "HYGIENE_AUTHORITY_EXPIRY_CHECKED_AT_COMMIT");
+    expect(review.read().review.status, "HYGIENE_PAUSE_NOT_RECORDED").not.toBe("paused");
+  } finally { await held.close(); await f.close(); }
 });
 
 test("concurrent inbox submissions keep gap-free sequences and commit order through a rollback", async () => {

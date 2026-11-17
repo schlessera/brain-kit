@@ -39,9 +39,9 @@ export function worktreeWrites(db: Database) {
     recoverHolder(id: string, holder: string | null) {
       db.query("UPDATE reference_worktrees SET holder = NULL WHERE id = ? AND holder = ?").run(id, holder);
     },
-    allocate(id: string, principalId: string, domain: string, repository: string, revision: string, commit: string, sourceRoot: string, allowance: number, at: number, accessedAt: number) {
-      db.query(`INSERT INTO reference_worktrees (id, principal_id, domain, repository, revision, base_commit, source_root, baseline, allowance, state, created_at, accessed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'creating', ?, ?)`).run(id, principalId, domain, repository, revision, commit, sourceRoot, allowance, at, accessedAt);
+    allocate(id: string, principalId: string, domain: string, repository: string, revision: string, commit: string, sourceRoot: string, allowance: number, at: number, accessedAt: number, repositoryUrl?: string) {
+      db.query(`INSERT INTO reference_worktrees (id, principal_id, domain, repository, revision, base_commit, source_root, baseline, allowance, state, created_at, accessed_at, repository_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'creating', ?, ?, ?)`).run(id, principalId, domain, repository, revision, commit, sourceRoot, allowance, at, accessedAt, repositoryUrl ?? null);
     },
     recordRoot(uuid: string | null, id: string) {
       db.query("UPDATE reference_worktrees SET root_uuid = ? WHERE id = ?").run(uuid, id);
@@ -52,8 +52,8 @@ export function worktreeWrites(db: Database) {
     activate(at: number, id: string) {
       db.query("UPDATE reference_worktrees SET state = 'active', accessed_at = ? WHERE id = ?").run(at, id);
     },
-    discard(id: string) {
-      db.query("DELETE FROM reference_worktrees WHERE id = ? AND state = 'creating'").run(id);
+    discard(id: string, activating = false) {
+      db.query("DELETE FROM reference_worktrees WHERE id = ? AND (state = 'creating' OR (? AND state = 'active' AND holder IS NULL))").run(id, activating);
     },
     openGeneration(id: string, principalId: string, turnId: string, profile: string, path: string, pid: number, start: string, boot: string, pidNamespace: string, at: number) {
       db.query(`INSERT INTO reference_worktree_generations (id, principal_id, turn_id, profile, path, owner_pid, owner_start, owner_boot, owner_pid_namespace, opened_at)

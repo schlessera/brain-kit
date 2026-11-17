@@ -32,9 +32,14 @@ const BACKEND_SPECIFIER = /@schlessera\/brain-backend-(claude|pi)/;
 
 function emitDeclarations(): Map<string, string> {
   const configPath = join(PKG, "tsconfig.build.json");
+  // `noCheck` keeps the real declaration emit and skips only the full
+  // semantic check of every function body, which `bun run typecheck` owns.
+  // Measured on 1,570 program files: emit 9.5 s with the check, 2.0 s without,
+  // with the same 414 files and the same import specifiers in each (#4142);
+  // with the check, a contended CI worker passed the 30 s deadline.
   const parsed = ts.getParsedCommandLineOfConfigFile(
     configPath,
-    { noEmit: false, declaration: true, emitDeclarationOnly: true },
+    { noEmit: false, declaration: true, emitDeclarationOnly: true, noCheck: true },
     {
       ...ts.sys,
       onUnRecoverableConfigFileDiagnostic: (diagnostic) => {

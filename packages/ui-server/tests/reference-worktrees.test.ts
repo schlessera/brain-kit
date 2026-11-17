@@ -93,6 +93,36 @@ describe("allocation", () => {
 });
 
 describe("access", () => {
+  test("a restored grant revalidates the original unsuffixed endpoint after source catalog removal", async () => {
+    const repository = "http://127.0.0.1:8418/odysseus/ithaca", penelope = owner(), calls: string[] = [];
+    const pool = referencePoolDouble(join(root, "legacy-pool"));
+    const transport: ReferenceTransport = {
+      async resolve(input) { calls.push(input.repository.url); return input.repository.url === repository && input.token === TOKEN
+        ? { ok: true, commit: "a".repeat(40), ref: "refs/heads/main" } : { ok: false, reason: "denied", detail: "Only the original endpoint is authorized." }; },
+      async fetch(input) { writeFileSync(join(input.root, "odyssey.md"), "Odysseus charts Ithaca.\n"); return { commit: "a".repeat(40) }; },
+      async checkout() {},
+    };
+    let worktrees: ReturnType<typeof createReferenceWorktrees> | undefined;
+    const sources = createReferenceSources({ db, pool, transport, brain: BRAIN, credentials: { GITHUB_TOKEN: TOKEN },
+      dependents: id => Boolean(worktrees && referenceWorktreeDependents(db, id)) });
+    worktrees = createReferenceWorktrees({ db, pool, sources, coverage: async () => {} });
+    const issueGrant = () => createReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, createdBy: penelope.id,
+      repositoryPrefix: repository, credential: "GITHUB_TOKEN", now: Date.now() });
+    const issued = issueGrant();
+    let generation: Awaited<ReturnType<typeof worktrees.openGeneration>> | undefined;
+    try {
+      const item = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
+      revokeReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, id: issued.id, now: Date.now() });
+      await sources.revoke({ grantIds: [issued.id], principalIds: [] });
+      expect(db.query("SELECT 1 FROM reference_sources").get()).toBeNull();
+      issueGrant(); generation = await worktrees.openGeneration({ principalId: penelope.id, turnId: "penelope-restored-source", profile: "governed" });
+      const outcome = await worktrees.access({ worktreeId: item.id, principalId: penelope.id, generation: generation.id }).then(value => ({ value, error: undefined }), error => ({ value: undefined, error }));
+      expect(outcome.error, "RESTORED_GRANT_USES_ORIGINAL_ENDPOINT").toBeUndefined();
+      expect(calls.every(url => url === repository), "STORED_KEY_IS_NEVER_GUESSED_AS_A_CLONE_URL").toBe(true);
+      expect(readFileSync(join(generation.path, item.id, "odyssey.md"), "utf8")).toContain("Odysseus");
+    } finally { if (generation) await worktrees.closeGeneration(generation.id); await worktrees.close(); await sources.close(); }
+  });
+
   test("only an open generation of the owning principal receives a grant, after journal coverage", async () => {
     const { worktrees, order, pool } = service();
     const penelope = owner(), telemachus = owner("Telemachus");

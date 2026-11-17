@@ -25,12 +25,12 @@ public design or its fixtures. Fictional examples use the Odysseus world.
 - Taint recording retains every independently observed signal and reads a
   durable revisioned aggregate, including pending/failure and explicit unknown
   coverage (`safetyProjection`,
-  `packages/ui-server/src/governance/safety-store.ts:415-420`). Legacy rows prove
+  `packages/ui-server/src/governance/safety-store.ts:418-423`). Legacy rows prove
   their own event, never a complete history. Owner review transport and its
   mutation capability remain disabled by this foundation.
 - Tool ingestion collects input and output signals independently (`inputTaintSignals`,
-  `packages/ui-server/src/activity/ingestion-taint.ts:150`;
-  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:172`).
+  `packages/ui-server/src/activity/ingestion-taint.ts:154`;
+  `outputTaintSignals`, `packages/ui-server/src/activity/ingestion-taint.ts:176`).
   Workspace paths taint regardless of repository ownership. Awaited backend
   hooks commit before tool dispatch/result delivery; display frames alone
   never prove finalized delivery or complete coverage.
@@ -42,12 +42,12 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   `packages/ui-server/src/ws/bridge-session-binding.ts:14-28`), without excluding
   independent pending input. A raw CONNECT reveals
   only an authority and opaque bytes, not a repository path or inner protocol
-  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:124-359`).
+  (`startEgressProxy`, `packages/ui-sdk/src/server/egress-proxy.ts:200-435`).
 - Outward decisions read session taint at admission (`prepareOutwardPlan`,
   `packages/ui-sdk/src/server/outward-policy.ts:47-94`). Existing historical
   steering attribution must remain attribution at the time of a write.
 - Governance policy is protected Markdown, validated by a strict schema
-  (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:101-130`).
+  (`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:132-161`).
   The privileged proposal writer already provides exact-base review,
   descriptor-bound publication, authority rechecks and crash receipts
   (`createPolicyProposals`, `packages/ui-server/src/brain/policy-proposal.ts:100-275`).
@@ -56,7 +56,7 @@ public design or its fixtures. Fictional examples use the Odysseus world.
   ([reference-source grants](../decisions/reference-source-grants.md)). Its
   fixed Git transport separates network acquisition from credential-free,
   network-free checkout (`createReferenceTransport`,
-  `packages/ui-server/src/brain/reference-transport.ts:116-213`).
+  `packages/ui-server/src/brain/reference-transport.ts:118-215`).
 - The Security and Devices & agents surfaces already exist; policy facts are
   currently read-only (`AgentPolicyGroup`,
   `packages/ui-react/src/components/settings/agent-policy-group.tsx:8-51`).
@@ -323,7 +323,7 @@ Attach to the exact tool/message entry only with authoritative correlation;
 otherwise use a separate turn-scoped network event, without blaming the nearest
 message. Examples of accessible names are **Safety restrictions: 2 unresolved
 triggers** and **Marked safe by you: show details**. Reuse the kit's icon map
-(`ICONS`, `packages/ui-kit/src/primitives/Icon.tsx:131-193`).
+(`ICONS`, `packages/ui-kit/src/primitives/Icon.tsx:145-207`).
 
 The transcript uses a compact safety notice, not an assistant-generated message
 or modal interruption. It records every new trigger even when another trigger

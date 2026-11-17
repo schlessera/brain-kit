@@ -243,7 +243,7 @@ export function SceneBody() {
       {/* Accessible / mobile-friendly node list — the canvas itself is aria-hidden */}
       <button /* raw-button: canvas — Floating graph canvas node-list control. */
         ref={listButton}
-        onKeyDown={event => { if (event.key === "Escape" && listOpen) { event.stopPropagation(); closeList(); } }}
+        onKeyDown={event => { if (event.key === "Escape" && listOpen) { event.preventDefault(); event.stopPropagation(); closeList(); } }}
         onClick={() => setListOpen((v) => !v)}
         className="absolute bottom-3 right-3 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-overlay text-foreground shadow-lg"
         title="Node list"
@@ -679,7 +679,7 @@ function NodeList({ onClose }: { onClose: () => void }) {
   return (
     <nav
       aria-label="Graph nodes"
-      onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}
+      onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); } }}
       className="absolute bottom-16 right-3 z-10 flex max-h-[55dvh] w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-border bg-surface-overlay/95 shadow-2xl backdrop-blur"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">

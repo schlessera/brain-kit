@@ -7,6 +7,9 @@
  */
 import { describe, expect, spyOn, test } from "bun:test";
 import { Hono } from "hono";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createActivityStore } from "../src/activity/store";
@@ -16,11 +19,13 @@ import { createActivityStream } from "../src/activity/stream";
 import type { AppEnv } from "../src/app-env";
 import { createPushRoutes } from "../src/routes/push";
 import { createUiDb } from "../src/db/client";
+import { openSqliteWriter } from "../src/db/write-worker";
 import { createPrincipal, revokePrincipal, type Principal } from "../src/db/principals";
 import { applyPrincipalRevocation } from "../src/middleware/auth";
 import { WsHost } from "../src/ws/host";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { heldWriter } from "./helpers/held-writer";
 
 function setup(sendImpl?: (sub: any, payload?: any) => Promise<unknown>) {
   const db = createUiDb(":memory:");
@@ -340,5 +345,48 @@ describe("push routes", () => {
       headers: { "content-type": "application/json" },
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("push subscription behind a held writer", () => {
+  async function hosted() {
+    const root = mkdtempSync(join(tmpdir(), "odysseus-push-writer-")), path = join(root, "ui.db");
+    const db = createUiDb(path), writer = openSqliteWriter(db), held = await heldWriter(writer, path);
+    const sender = createPushSender(db, { writer, send: async () => {} });
+    const principal = createOwner(db, "Telemachus' phone");
+    return { db, sender, principal, held, async close() { await held.close(); await sender.close(); await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
+  }
+  const device = { endpoint: "https://push.example.test/ithaca", keys: { p256dh: "opaque-key", auth: "opaque-auth" } };
+
+  test("a login that expires while the subscription waits for the writer binds nothing (#4176)", async () => {
+    const f = await hosted();
+    try {
+      await f.held.hold();
+      const submitted = f.held.posted("subscribe");
+      // The sender stamps the request's time before the wait; the login is usable at that stamp.
+      const pending = f.sender.subscribe(device, f.principal.id, "Telemachus");
+      await submitted;
+      await f.held.expireWhileQueued(f.principal.id);
+      f.held.release();
+      expect(await pending, "PUSH_SUBSCRIBE_EXPIRY_CHECKED_AT_COMMIT").toBe(false);
+      expect(f.db.query("SELECT COUNT(*) AS n FROM push_subscriptions").get(), "NO_DEVICE_BOUND").toEqual({ n: 0 });
+    } finally { await f.close(); }
+  });
+
+  test("a subscription behind a held writer still records the stamped time (#4176)", async () => {
+    const f = await hosted();
+    try {
+      await f.held.hold();
+      const submitted = f.held.posted("subscribe");
+      const pending = f.sender.subscribe(device, f.principal.id, "Telemachus");
+      await submitted;
+      const stamped = Date.now();
+      while (Date.now() <= stamped) await Bun.sleep(1);
+      f.held.release();
+      expect(await pending).toBe(true);
+      const row = f.db.query("SELECT created_at AS at, principal_id AS principal FROM push_subscriptions").get() as { at: number; principal: string };
+      expect(row.principal).toBe(f.principal.id);
+      expect(row.at, "PUSH_SUBSCRIBE_CREATED_AT_IS_THE_STAMP").toBeLessThanOrEqual(stamped);
+    } finally { await f.close(); }
   });
 });

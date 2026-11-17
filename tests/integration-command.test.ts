@@ -7,6 +7,7 @@ import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { receiptBlock, type CheckReceipt } from "../scripts/check-receipt";
 import { reviewComment, type ReviewFinding } from "../scripts/review-receipt";
 import { invocationChild } from "../scripts/test-invocation-child";
+import { watchdogMs } from "../scripts/test-deadlines";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
@@ -17,13 +18,15 @@ const scenarios = new Set<Scenario>();
 let deadline: ReturnType<typeof setTimeout>, overdue = false, deadlineCleanup: Promise<void> | undefined;
 beforeEach(() => {
   overdue = false; deadlineCleanup = undefined;
-  // Bun kills dangling children before afterEach on timeout. Reserve three
-  // seconds inside its unchanged 30-second cap for the owned group/output join.
+  // Bun kills dangling children before afterEach on timeout. Reserve a tenth
+  // of its per-test cap, three of 30 seconds, for the owned group/output join.
+  // This is a watchdog for a hung child, not a budget for the work: a run that
+  // applies load on purpose scales it with the cap (#4191).
   deadline = setTimeout(() => {
     overdue = true;
     deadlineCleanup = stopScenarios();
     void deadlineCleanup.catch(() => {}); // afterEach observes cleanup errors.
-  }, 27_000);
+  }, watchdogMs(27_000));
 });
 async function stopScenarios() {
   const active = [...scenarios];
@@ -54,7 +57,7 @@ function startScenario(mode: string, beforeRead?: () => Promise<void>) {
 }
 function scenario(mode: string) { return startScenario(mode).work; }
 async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResult> {
-  if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
+  if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the per-test cap");
   const dir = mkdtempSync(join(tmpdir(), "odysseus-integration-command-")); dirs.push(dir);
   owner.dir = dir;
   const root = join(dir, "client"), remote = join(dir, "remote.git"), bin = join(dir, "bin");
@@ -169,7 +172,7 @@ fi`); chmodSync(shim, 0o755);
     const refs=${JSON.stringify(refs)}, body=${JSON.stringify(body)}, probes=${JSON.stringify({ 401: probeLog(401), 402: probeLog(402) })};s.reads??=[];
     const mainRuns=${JSON.stringify(mainRuns)}, qualificationRuns=${JSON.stringify(qualificationRuns)};
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
-    const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance","determinism"];
+    const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance","determinism","browser_determinism"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
     if(s.mode.startsWith("browser-")){selected.selections.browser="true";selected.results.browser="success";}
     if(s.mode==="receipt-uncovered"){selected.selections.unit="false";}
@@ -205,7 +208,7 @@ fi`); chmodSync(shim, 0o755);
       else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"||(s.mode==="confirm-changed"&&s.requested&&s.now>${NOW})?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
       else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:Object.entries(mainRuns).filter(([sha])=>path.includes("head_sha="+sha)).map(([sha,run])=>({...run,head_sha:sha}))};
-      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],repository:{full_name:repo}};
+      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],status:"completed",conclusion:"success",repository:{full_name:repo}};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
       else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:s.mode.endsWith("contract-absent")?[]
         // A creation or push-and-edit burst: the newest run was cancelled while pending, an older one passed (#3573).
@@ -276,7 +279,7 @@ fi`);
     await child.ready;
     const [code, out, err] = await output;
     await child.finish();
-    if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the 30-second test cap");
+    if (overdue) throw new Error("Integration fixture work deadline exceeded; owned cleanup joined inside the per-test cap");
     await owner.beforeRead?.();
     const eventDir = join(root, "tmp/ci-timings");
     const events = existsSync(eventDir) ? readdirSync(eventDir).filter(name => name.startsWith("event-")).map(name => JSON.parse(readFileSync(join(eventDir, name), "utf8"))) : [];
@@ -617,32 +620,36 @@ test("the merge path refuses an undisposed finding, rereads the record at the me
   expect(expedited.commentReads).toBe(0);
 });
 
-test("a proof-system candidate waits for its predecessor's own main run, then one green run after a failure; a product candidate does not (#3269)", async () => {
-  for (const [mode, message] of [
-    ["lane-own-busy", "has no settled main run of its own yet"],
-    ["confirm-lane-own-busy", "has no settled main run of its own yet"],
-    ["lane-own-red", "its own main run is not green"],
-    ["lane-recovering", "the newest settled main run after it is not green"],
-    ["confirm-lane-recovering", "the newest settled main run after it is not green"],
-    ["lane-cancelled", "run 2 after it at"],
-  ] as const) {
-    const refused = await scenario(mode);
-    expect(refused.dispatched, `NO_PROOF_SYSTEM_MERGE_INSIDE_THE_WINDOW:${mode}`).toBe(false);
-    expect(refused.code, refused.err).toBe(1);
-    expect(refused.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
-    expect(refused.err).toContain("1 more green main run required");
-    expect(refused.err).toContain(message);
-    expect(refused.err).not.toContain("Off-main qualification missing");
-    expect(refused.requested, `NO_CANDIDATE_CI_FOR_A_HELD_CANDIDATE:${mode}`).toBe(false);
-    expect(refused.state.active, `REFUSED_BEFORE_OWNERSHIP_OR_RELEASED:${mode}`).toBeNull();
-  }
-  // The own green run opens the lane without later runs; after a failure, one later green run reopens it.
-  for (const mode of ["lane-own-red-product", "lane-recovering-product", "lane-open", "lane-pending", "lane-recovered", "lane-own-red-recovered"]) {
+// One scenario per test: each starts its own child process, and twelve of them under one
+// 27-second work deadline overran it on a loaded runner (run 44104941268, 27.2 s).
+for (const [mode, message] of [
+  ["lane-own-busy", "has no settled main run of its own yet"],
+  ["confirm-lane-own-busy", "has no settled main run of its own yet"],
+  ["lane-own-red", "its own main run is not green"],
+  ["lane-recovering", "the newest settled main run after it is not green"],
+  ["confirm-lane-recovering", "the newest settled main run after it is not green"],
+  ["lane-cancelled", "run 2 after it at"],
+] as const) test(`a proof-system candidate waits for its predecessor's own main run, then one green run after a failure: ${mode} (#3269)`, async () => {
+  const refused = await scenario(mode);
+  expect(refused.dispatched, `NO_PROOF_SYSTEM_MERGE_INSIDE_THE_WINDOW:${mode}`).toBe(false);
+  expect(refused.code, refused.err).toBe(1);
+  expect(refused.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
+  expect(refused.err).toContain("1 more green main run required");
+  expect(refused.err).toContain(message);
+  expect(refused.err).not.toContain("Off-main qualification missing");
+  expect(refused.requested, `NO_CANDIDATE_CI_FOR_A_HELD_CANDIDATE:${mode}`).toBe(false);
+  expect(refused.state.active, `REFUSED_BEFORE_OWNERSHIP_OR_RELEASED:${mode}`).toBeNull();
+});
+
+// The own green run opens the lane without later runs; after a failure, one later green run reopens it.
+// A product candidate does not wait at all.
+for (const mode of ["lane-own-red-product", "lane-recovering-product", "lane-open", "lane-pending", "lane-recovered", "lane-own-red-recovered"]) {
+  test(`the lane admits a candidate it no longer holds: ${mode} (#3269)`, async () => {
     const accepted = await scenario(mode);
     expect(accepted.code, `LANE_ACCEPTS:${mode}: ${accepted.err}`).toBe(2);
     expect(accepted.dispatched).toBe(true);
-  }
-});
+  });
+}
 
 test("lane --json reports the refusal's decision from the same function (#3269)", async () => {
   const read = await scenario("lane-recovering-read");

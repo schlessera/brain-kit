@@ -186,6 +186,11 @@ export async function prepareRelayedEgress(run: TurnRun, bridge: BackendBridge, 
   // command classifier (#3429).
   recorder?.setEgressProxied();
   const egress = held.turnEgress, hold = governedHold;
+  if (held.referenceTurn) host.referenceTools?.attachEgress(turn.turnId, turn.principalId!, { egress, current: () => {
+    if (abortController.signal.aborted || governanceWrites && !governanceWrites.recordingAvailable(turn.turnId, turn.sessionId ?? null)) return false;
+    try { const safety = bridge.admissionSafety?.read(); return !safety || safety.authorityCurrent && safety.recordingAvailable; }
+    catch { return false; }
+  } });
   held.providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),
     admit: async () => {
       if(abortController.signal.aborted||governanceWrites&&!governanceWrites.recordingAvailable(turn.turnId,turn.sessionId??null))return {allowed:false,message:"Input recording is unavailable; the turn was stopped."};

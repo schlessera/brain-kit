@@ -138,7 +138,7 @@ if (import.meta.main) {
     const qualification = await checkQualification({ body: (await api.json(`pulls/${desired.pr}`)).body, repository, head: desired.head, cwd: store!.root, ensure: ensureCommit,
       async readRun(id) {
         const run = await api.json(`actions/runs/${id}`).catch(() => null);
-        return run ? { id, headSha: run.head_sha ?? null, repository: run.repository?.full_name ?? null } : null;
+        return run ? { id, headSha: run.head_sha ?? null, repository: run.repository?.full_name ?? null, status: run.status ?? null, conclusion: run.conclusion ?? null } : null;
       } });
     if ("refusal" in qualification) problems.push(qualification.refusal);
     const lane = laneRefusal(await readLane(desired.base, mainRunAt, { cwd: store!.root }));

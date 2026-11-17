@@ -1,5 +1,5 @@
 /** Exact merge-candidate validation; feedback never authorizes merging. */
-import { determinismShards, planFromEnvironment, proofCadence, proofSelections, redMainSnapshot, unitShards } from "./ci-plan";
+import { browserDeterminismShards, determinismShards, planFromEnvironment, proofCadence, proofSelections, redMainSnapshot, unitShards } from "./ci-plan";
 import type { RedMainRecord } from "./red-main";
 import { checkout, type Checkout } from "./proof-inputs";
 import { GitHubProofAPI, type API } from "./proof-api";
@@ -68,6 +68,8 @@ export function validateSelections(root: string, event: any, env: NodeJS.Process
   if (selections.unit && outputs?.unit_shards !== JSON.stringify(unitShards(plan))) throw new Error("unit: published partition set differs from the planned one");
   // A dropped or added partition would leave a selected file unrepeated, or repeat one the plan put elsewhere (#4117).
   if (selections.determinism && outputs?.determinism_shards !== JSON.stringify(determinismShards(plan))) throw new Error("determinism: published partition set differs from the planned one");
+  // The same for changed browser specs: every pair runs in exactly one published partition (#4163).
+  if (selections.browser_determinism && outputs?.browser_determinism_shards !== JSON.stringify(browserDeterminismShards(plan))) throw new Error("browser_determinism: published partition set differs from the planned one");
 }
 
 export async function requireCandidate(root: string, event: any, env: NodeJS.ProcessEnv): Promise<void> {

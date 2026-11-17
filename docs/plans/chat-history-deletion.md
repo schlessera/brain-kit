@@ -8,7 +8,7 @@ Approval supplies no automatic expiry, routine live cutoff or implementation
 release commitment.
 
 **Built (#3228):** the internal, content-free retirement ledger and gate
-(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:169-202`;
+(`retireChat`, `packages/ui-server/src/ws/chat-lifecycle.ts:204-244`;
 migration `073_chat_lifecycle.sql`). It re-reads owner authority in the
 serialized writer, resolves the exact identity set from recorded dialogue
 owners, aliases and voice epochs, refuses unknown/foreign/stale/unsupported/busy
@@ -60,10 +60,10 @@ The bridge offers the creator only on a new, non-host-work turn whose
 authorization is current
 (`const creator`, `packages/ui-server/src/ws/bridge-capabilities/emission.ts:143`). The write worker
 binds the creator only in the transaction that creates the session's row
-(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:169-178`).
+(`upsertSession(row: SessionRow)`, `packages/ui-server/src/ws/session-catalog-writes.ts:170-182`).
 `resolveChat` counts the binding as one more ownership record beside dialogue
 owners and voice epochs, so a disagreement among them still refuses as ambiguous
-(`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:91-92`). A typed
+(`const creator`, `packages/ui-server/src/ws/chat-lifecycle.ts:102-103`). A typed
 chat's owner can now delete it through `POST /api/chat-deletions`. A chat whose
 session existed before the binding still refuses as `unavailable`, and so does a
 native-only session the host first sees on a resume. A foreign principal gets
@@ -94,7 +94,10 @@ for native layout and removal; browser clients invalidate their projections.
 There is no generic storage plugin, second dialogue store or replacement timeline.
 
 Only an authenticated owner may delete its own chat, with exact principal
-ownership and current authorization at admission and asynchronous boundaries.
+ownership and current authorization at admission and asynchronous boundaries
+(narrowed by the [same-account amendment](../decisions/chat-history-deletion.md#same-account-deletion--2026-11-17-4138):
+another login of the same owner account deletes a chat whose every ownership
+record proves that account).
 Agent principals cannot delete history. Ambient authentication requires an
 explicit owner mapping; without one deletion is unavailable. Neither labels,
 history-read access nor speech grants authority. No cross-principal deletion
@@ -198,9 +201,9 @@ must be tested through their installed runtime, not inferred from directory name
   `070_conversation_result_facts.sql` retain epochs, detailed JSON receipts
   (including submitted context), bounded result facts and independently consumed
   native/task/request identities. Content retention and identity retention differ
-  (`saveConversationTask`, `packages/ui-server/src/ws/conversation-storage.ts:37-77`).
+  (`saveConversationTask`, `packages/ui-server/src/ws/conversation-storage.ts:40-80`).
   Loading may return receipts/results even without a current provider session
-  (`loadConversation`, `packages/ui-server/src/ws/conversation-storage.ts:78-105`).
+  (`loadConversation`, `packages/ui-server/src/ws/conversation-storage.ts:81-108`).
   Clear receipt/result content while preserving replay refusal under a new lifecycle
   fence; do not cascade away consumed identities and then allow their reuse.
 - **Session projections.** `sessions` title and `034_session_labels.sql` label/source;
@@ -334,10 +337,10 @@ Preserve the existing bounded-wait ownership distinction during that drain.
 writers; rejection retains the original cleanup continuation, writer and reader
 until genuine settlement, rather than authorizing their replacement
 (`guardSqliteCleanup`, `packages/ui-server/src/db/write-worker.ts:206-234`;
-`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1375-1425`).
+`close: () => closing ??= guardSqliteCleanup`, `packages/ui-server/src/app.ts:1474-1524`).
 The native lease manager retains its own pending operations and durable unknown
 root outcomes through close (`return { client, writer, recoverDeadOwners`,
-`packages/ui-server/src/brain/native-brain-leases.ts:319-332`). A caller deadline
+`packages/ui-server/src/brain/native-brain-leases.ts:320-333`). A caller deadline
 is not proof that native I/O stopped, cleanup succeeded or deletion completed.
 Keep the proposed partial/unknown outcome and identity fence while that cleanup
 remains owned; follow the existing [shutdown ownership contract](../decisions/sqlite-write-worker.md#bounded-caller-waits-retain-real-cleanup-ownership-3185).
