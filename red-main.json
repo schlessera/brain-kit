@@ -1,1 +1,1 @@
-{"version":1,"updated":1794883575000,"open":null,"suspects":[],"last":{"action":"clear","at":1794883575000,"run":44001979141}}
+{"version":1,"updated":1794909350000,"open":{"firstBad":"ddb5b5c846b01e3933d8346283e21a6a5844118b","run":44056470471,"opened":1794909350000,"failures":[{"test":null,"category":"browser","verdict":"real","reasons":["closure-unknown"],"run":44056470471,"sha":"1805f7e19b67d0b17d3a888c42163cba529b69a8"}],"incident":null,"fixes":[],"reported":[]},"suspects":[],"last":{"action":"open","at":1794909350000,"run":44056470471}}
