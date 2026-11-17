@@ -67,3 +67,13 @@ test("a committed fence atomically expires matching validation across aliases an
   for (const row of rows) expect(row.validated_at, "FENCE_COMMIT_CANNOT_LEAVE_OLD_POSITIVE_VALIDATION")
     .toBe(row.domain === "public" && row.repository !== `${repository}.git` ? 0 : at);
 });
+
+test("publication commit cannot replace a newer root while authority versions remain valid", () => {
+  const expected = sourceAuthority(db, "public", repository, "main");
+  for (const id of ["odysseus-old-root", "telemachus-new-root"]) writes.sourceStage(id, "public", repository, "main", at);
+  writes.sourcePublish("/srv/fixtures/view", "public", repository, "main", repository, "ithaca", "telemachus-new-root", "c".repeat(40), "refs/heads/main", null, at);
+  expect(sourceAuthorityCurrent(db, expected)).toBe(true);
+  expect(writes.sourcePublish("/srv/fixtures/view", "public", repository, "main", repository, "ithaca", "odysseus-old-root", "a".repeat(40), "refs/heads/main", null, at, undefined, expected, { rootId: null }),
+    "PUBLICATION_TRANSACTION_PRESERVES_NEWER_ROOT").toBe(false);
+  expect(db.query("SELECT root_id, commit_id FROM reference_sources").get()).toEqual({ root_id: "telemachus-new-root", commit_id: "c".repeat(40) });
+});

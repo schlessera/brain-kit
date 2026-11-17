@@ -4532,6 +4532,17 @@ intents, which older keepers refuse rather than ignoring the guard; older
 strict control schemas also reject the new option before creating a root.
 The managed host refuses missing support, without an unguarded fallback.
 
+The client also accepts `poolPublish(id, view, name, signal?, expectedRoots?)`.
+The optional native `expectedRoots` is a list of one or two generated root
+identities or `null` for an absent name. Under its mutation lock, the keeper
+refuses with `unavailable` unless the current alias target is in that list,
+before moving a root or replacing the alias. Managed publication binds this
+native comparison and an atomic catalog comparison to the publication it
+observed before acquisition. A concurrent newer revision cannot be replaced
+by a delayed request. Live cache/recovery repair accepts only its own root or
+an absent alias; it cannot overwrite another root. An older strict keeper
+refuses this optional field and the host never retries it unconditionally.
+
 ### Reference source acquisition (additive, #2429)
 
 `ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.
@@ -4560,6 +4571,13 @@ checkpoint through the fixed worker-UID reader, with the bounds of
 caller-generated UUID naming one worker generation. `NativePoolRecord.purpose`
 gains `checkpoint`, and records gain `access`, the generation holding a
 writable worktree, else `null`; earlier records read as `access: null`.
+Host worktree records retain `repository_url` separately from their canonical
+repository key, populated from the actual source endpoint at allocation.
+Migration 092 backfills retained catalog endpoints. Revalidation binds that
+URL to the stored key before dispatch, including after grant revocation has
+removed the source catalog row. Historical legacy records with neither a
+retained URL nor a catalog endpoint refuse with `unavailable` until the source
+is explicitly requested; they never guess an endpoint by adding `.git`.
 `poolCreate` refuses the `checkpoint` purpose and a checkpoint as its source.
 `poolRelease` refuses a writable worktree whose record names an access
 generation with `invalid`, deleting nothing; park it first (#2729).

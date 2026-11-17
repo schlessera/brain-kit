@@ -64,12 +64,16 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       record!.state = "sealed";
       return record!;
     },
-    async poolPublish(id, view, name) {
+    async poolPublish(id, view, name, _signal, expectedRoots) {
       const record = records.get(id);
       if (!record || record.purpose !== "source") fail("unknown", "Only a recorded reference source root can be published.");
       if (record!.publicationRevoked) fail("released", "This source root's publication authority was permanently withdrawn.");
       if (record!.state !== "sealed") fail("invalid", "Only a sealed reference source root can be published.");
       if (record!.view && record!.view !== view) fail("invalid", "A published reference root belongs to exactly one view.");
+      const entry = join(views, view, name);
+      let current: string | null = null;
+      try { current = readlinkSync(entry); } catch { /* no published alias */ }
+      if (expectedRoots && !expectedRoots.includes(current)) fail("unavailable", "The reference publication changed; request it again.");
       mkdirSync(join(views, view), { recursive: true });
       if (!record!.view) { renameSync(join(roots, id), join(views, view, id)); record!.view = view; record!.path = location(record!); }
       const temporary = join(views, view, `.${name}.${id}`);

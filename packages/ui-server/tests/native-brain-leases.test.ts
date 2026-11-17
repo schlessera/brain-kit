@@ -189,6 +189,11 @@ test("source leases forward permanent withdrawal and refuse a keeper without its
     await expectRejection(f.owner.client.poolCreate(ID, "source", null, 4096, undefined, true), "durable lease identity");
     supported = true;
     expect(await f.owner.client.poolCreate(ID, "source", null, 4096, undefined, true)).toMatchObject({ publicationRevoked: false });
+    f.native.client.poolPublish = async (id, view, _name, _signal, expectedRoots) => {
+      expect(expectedRoots, "LEASE_OWNER_FORWARDS_PUBLICATION_EXPECTATIONS").toEqual([ID, null]);
+      return { id, purpose: "source", from: null, allowanceBytes: 4096, state: "sealed", root: null, path: null, ownerBytes: null, reason: null, view, access: null };
+    };
+    await f.owner.client.poolPublish(ID, OTHER, "ithaca", undefined, [ID, null]);
   } finally { await f.close(); }
 });
 

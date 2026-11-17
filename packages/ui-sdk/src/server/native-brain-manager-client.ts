@@ -301,7 +301,8 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     poolRelease: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolRelease", id }, signal),
     listPoolRecovery: async (after: string | null = null, signal?: AbortSignal): Promise<{ records: NativePoolRecord[]; next: string | null }> =>
       control({ operation: "listPoolRecovery", after }, signal),
-    poolPublish: async (id: string, view: string, name: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolPublish", id, view, name }, signal),
+    poolPublish: async (id: string, view: string, name: string, signal?: AbortSignal, expectedRoots?: readonly (string | null)[]): Promise<NativePoolRecord> =>
+      control({ operation: "poolPublish", id, view, name, ...(expectedRoots ? { expectedRoots: [...expectedRoots] } : {}) }, signal),
     poolUnpublish: async (view: string, name: string, signal?: AbortSignal): Promise<{ view: string; name: string; removed: boolean }> =>
       control({ operation: "poolUnpublish", view, name }, signal),
     poolWithdraw: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolWithdraw", id }, signal),

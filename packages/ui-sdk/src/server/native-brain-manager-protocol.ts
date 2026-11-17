@@ -42,7 +42,8 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("listPoolRecovery"), after: nativeCheckpointId.nullable() }).strict(),
   // Reference publication (#2429). A view is one caller-generated sharing
   // domain; the manager owns its directory and swaps one name atomically.
-  z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName }).strict(),
+  z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName,
+    expectedRoots: z.array(nativeCheckpointId.nullable()).min(1).max(2).optional() }).strict(),
   z.object({ operation: z.literal("poolUnpublish"), view: nativeCheckpointId, name: nativePoolName }).strict(),
   // A view's directory, opened before its first publication so a worker can bind it (#2432).
   z.object({ operation: z.literal("poolView"), view: nativeCheckpointId }).strict(),

@@ -923,13 +923,22 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
    * single rename, so a reader that binds the view resolves either the whole
    * previous root or the whole new one, never staging.
    */
-  async function publish(request: { id: string; view: string; name: string }, signal?: AbortSignal): Promise<NativePoolRecord> {
+  async function publish(request: { id: string; view: string; name: string; expectedRoots?: readonly (string | null)[] }, signal?: AbortSignal): Promise<NativePoolRecord> {
     nativePoolName.parse(request.name);
     let intent = intents.get(request.id);
     if (!intent || intent.purpose !== "source") throw new NativeBrainManagerError("unknown", "Only a recorded reference source root can be published.");
     if (intent.publicationRevoked) throw new NativeBrainManagerError("released", "This source root's publication authority was permanently withdrawn.");
     if (intent.state !== "sealed") throw new NativeBrainManagerError(["deleting", "deleted", "reclaimed"].includes(intent.state) ? "released" : "invalid", "Only a sealed reference source root can be published.");
     if (intent.view && intent.view !== request.view) throw new NativeBrainManagerError("invalid", "A published reference root belongs to exactly one view.");
+    const name = join(viewPath(request.view), request.name);
+    if (request.expectedRoots) {
+      // Serialized with every publisher, before any root move or name swap.
+      // A delayed acquisition cannot replace another owner's newer revision.
+      if ((existsSync(name) && !isLink(name)) || (isLink(name) && !nativeCheckpointId.safeParse(readlinkSync(name)).success))
+        throw new NativeBrainManagerError("unknown", "The current reference publication is not a recorded root name.");
+      const current = isLink(name) ? readlinkSync(name) : null;
+      if (!request.expectedRoots.includes(current)) throw new NativeBrainManagerError("unavailable", "The reference publication changed; request it again.");
+    }
     await verifyRoot(intent, signal);
     ensureView(request.view);
     if (!intent.view) intent = await move(intent, request.view, signal);
@@ -938,7 +947,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       await helper(["seal", location(intent)], signal);
       if (!(await verifyRoot(intent, signal)).readOnly) throw new NativeBrainManagerError("unknown", "A published reference root did not reseal.");
     }
-    const name = join(viewPath(request.view), request.name), temporary = join(viewPath(request.view), `.${request.name}.${randomUUID()}`);
+    const temporary = join(viewPath(request.view), `.${request.name}.${randomUUID()}`);
     if (existsSync(name) && !lstatSync(name).isSymbolicLink()) throw new NativeBrainManagerError("unknown", "A reference view name is occupied by something other than a published name.");
     symlinkSync(intent.id, temporary);
     try { renameSync(temporary, name); } catch (error) { unlinkSync(temporary); throw error; }

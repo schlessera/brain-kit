@@ -79,9 +79,11 @@ export function sourceWrites(db: Database) {
       const view = sourceView(domain, viewId);
       return { roots, view };
     },
-    sourcePublish(path: string, domain: string, repository: string, revision: string, url: string, name: string, id: string, commit: string, ref: string, grantId: string | null, at: number, acquisition?: ReferenceAcquisition, expected?: SourceAuthority) {
+    sourcePublish(path: string, domain: string, repository: string, revision: string, url: string, name: string, id: string, commit: string, ref: string, grantId: string | null, at: number, acquisition?: ReferenceAcquisition, expected?: SourceAuthority, publication?: { rootId: string | null }) {
       return db.transaction(() => {
         if (expected && !sourceAuthorityCurrent(db, expected)) return false;
+        const current = db.query("SELECT root_id FROM reference_sources WHERE domain = ? AND repository = ? AND revision = ?").get(domain, repository, revision) as { root_id: string | null } | null;
+        if (publication && (current?.root_id ?? null) !== publication.rootId) return false;
         if (acquisition) db.query(`INSERT INTO reference_acquisitions
           (root_id, acquisition_id, brain, principal_id, turn_id, repository_id, owner_id, owner, repository_name, ref, commit_id, tree_id,
             native_root_id, native_uuid, native_generation, grant_id, network_bytes, acquired_at)

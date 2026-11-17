@@ -144,12 +144,17 @@ test("Unix source creation explicitly opts into permanent withdrawal without cha
   const client = createNativeBrainManagerClient({ socketPath, timeoutMs: 1000, maxDeltaBytes: 64 });
   expect(await client.poolCreate(ID, "source", null, 4096, undefined, true), "PERMANENT_WITHDRAWAL_RECEIPT_REACHES_CALLER").toMatchObject({ publicationRevoked: false });
   await client.poolCreate(SECOND, "source", null, 4096);
+  await client.poolPublish(ID, SECOND, "ithaca", undefined, [ID, null]);
   expect(requests, "PERMANENT_WITHDRAWAL_OPTION_REACHES_NATIVE_KEEPER").toEqual([
     { operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal: true },
     { operation: "poolCreate", id: SECOND, purpose: "source", from: null, allowanceBytes: 4096 },
+    { operation: "poolPublish", id: ID, view: SECOND, name: "ithaca", expectedRoots: [ID, null] },
   ]);
   for (const permanentWithdrawal of [false, null, 1, "true"])
     expect(nativeManagerRequest.safeParse({ operation: "poolCreate", id: ID, purpose: "source", from: null, allowanceBytes: 4096, permanentWithdrawal }).success).toBe(false);
+  for (const expectedRoots of [[], [ID, null, SECOND], ["../ithaca"], [1]])
+    expect(nativeManagerRequest.safeParse({ operation: "poolPublish", id: ID, view: SECOND, name: "ithaca", expectedRoots }).success,
+      "NATIVE_PUBLICATION_EXPECTATION_IS_BOUNDED_ROOT_IDENTITIES").toBe(false);
 });
 
 test("lost Unix response is unknown and never an inferred absence or automatic retry", async () => {

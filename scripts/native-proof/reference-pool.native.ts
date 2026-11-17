@@ -453,6 +453,14 @@ const shapes = await create("staging", 32 * MIB);
   await call({ operation: "poolCreate", id: freshId, purpose: "source", from: id, allowanceBytes: 4 * MIB, permanentWithdrawal: true });
   await seal(freshId);
   await call({ operation: "poolPublish", id: freshId, view: VIEW, name: "ithaca" });
+  const delayedId = randomUUID();
+  await call({ operation: "poolCreate", id: delayedId, purpose: "source", from: id, allowanceBytes: 4 * MIB, permanentWithdrawal: true });
+  await seal(delayedId);
+  expect((await refusal({ operation: "poolPublish", id: delayedId, view: VIEW, name: "ithaca", expectedRoots: [id, null] })).code,
+    "REFERENCE_NATIVE_DELAYED_PUBLICATION_PRESERVES_NEWER_ROOT").toBe("unavailable");
+  expect(readlinkSync(join(POOL, "views", VIEW, "ithaca"))).toBe(freshId);
+  await call({ operation: "poolPublish", id: delayedId, view: VIEW, name: "ithaca", expectedRoots: [freshId, null] });
+  expect(readlinkSync(join(POOL, "views", VIEW, "ithaca")), "REFERENCE_NATIVE_MATCHING_PUBLICATION_CAN_ADVANCE").toBe(delayedId);
   await call({ operation: "poolWithdraw", id });
   expect(readFileSync(join(POOL, "views", VIEW, "ithaca", "README.md"), "utf8"), "OLD_WITHDRAWAL_PRESERVES_NEW_ROOT").toContain("Odysseus");
   expect((await call<NativePoolRecord>({ operation: "poolWithdraw", id: freshId })).publicationRevoked).toBe(true);
@@ -461,7 +469,7 @@ const shapes = await create("staging", 32 * MIB);
   manager = await restart({});
   expect((await call<NativePoolRecord>({ operation: "poolSeal", id: freshId })).publicationRevoked,
     "REFERENCE_NATIVE_WITHDRAWAL_SURVIVES_RESTART").toBe(true);
-  await release(freshId); await release(id);
+  await release(delayedId); await release(freshId); await release(id);
 }
 
 // 16. Acquisition (#2429): the real reference service and its real transport

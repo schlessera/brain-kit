@@ -32,7 +32,7 @@ async function fixture(options: { private?: boolean; worker?: boolean; repositor
   if (writer) registerReferenceWrites(db, writer);
   const credentials: Record<string, string | undefined> = { GITHUB_TOKEN: "odysseus-fixture-token" };
   const metadata: string[] = [], metadataPaths: string[] = [], git: unknown[] = [];
-  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200, invalidAt: 0, invalidJsonAt: 0, endOnPrivateMetadata: false };
+  const state = { current: true, ownerId: 201, clock: Date.now(), fetches: 0, private: options.private ?? false, status: 200, invalidAt: 0, invalidJsonAt: 0, endOnPrivateMetadata: false, commit };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { cert: tls.cert, key: tls.key }, fetch(request) {
     metadata.push(request.headers.get("authorization") ?? "anonymous");
     metadataPaths.push(new URL(request.url).pathname);
@@ -49,8 +49,8 @@ async function fixture(options: { private?: boolean; worker?: boolean; repositor
   const egress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 4 * 1048576, observe(value) { records.push(value); } });
   const secondEgress = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 4 * 1048576, observe() {} });
   const transport: ReferenceTransport = {
-    async resolve(input) { git.push(input); return { ok: true, commit, ref: `refs/heads/${input.revision}` }; },
-    async fetch(input) { git.push(input); state.fetches++; writeFileSync(join(input.root, "README.md"), "Odysseus charts Ithaca on 2026-07-12.\n"); return { commit }; },
+    async resolve(input) { git.push(input); return { ok: true, commit: state.commit, ref: `refs/heads/${input.revision}` }; },
+    async fetch(input) { git.push(input); state.fetches++; writeFileSync(join(input.root, "README.md"), "Odysseus charts Ithaca on 2026-07-12.\n"); writeFileSync(join(input.root, ".reference-commit"), state.commit); return { commit: state.commit }; },
     async checkout() {},
     async tree() { return tree; },
   };
@@ -121,6 +121,58 @@ test("a cached shared root still uses the requesting principal and turn's own me
       expect(f.secondEgress.usedBytes(), "REFERENCE_SOURCE_CACHE_CANNOT_BORROW_TURN_BUDGET").toBeGreaterThan(0);
       expect(f.metadata).toHaveLength(4);
     } finally { first.release(); second.release(); }
+  } finally { await f.close(); }
+});
+
+for (const wait of ["seal", "native-publication"] as const)
+test(`an older managed acquisition cannot replace a newer revision after ${wait}`, async () => {
+  const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+  const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), seal = f.pool.poolSeal, publish = f.pool.poolPublish;
+  let paused = false, fresh: Awaited<ReturnType<typeof f.request>> | undefined, exposedOlder = false;
+  const pause = async () => { if (!paused) { paused = true; arrived.resolve(); await resume.promise; } };
+  if (wait === "seal") f.pool.poolSeal = async (...args) => { const record = await seal(...args); await pause(); return record; };
+  else f.pool.poolPublish = async (...args) => { const older = !paused; await pause(); const record = await publish(...args); if (older) exposedOlder = true; return record; };
+  const older = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+  try {
+    await arrived.promise; f.state.commit = "c".repeat(40);
+    fresh = await otherSources.request({ principalId: f.other.id, repository, revision: "main",
+      acquisition: { turnId: "telemachus-newer-source-revision", egress: f.secondEgress, current: () => true } });
+    expect(fresh.commit).toBe(f.state.commit);
+    resume.resolve(); const result = await older;
+    expect((f.db.query("SELECT commit_id FROM reference_sources WHERE domain = 'public'").get() as { commit_id: string }).commit_id,
+      "OLDER_ACQUISITION_CANNOT_ROLL_BACK_NEWER_COMMIT").toBe(f.state.commit);
+    expect(result.lease, "SUPERSEDED_ACQUISITION_RETURNS_NO_FRESH_LEASE").toBeUndefined();
+    expect(exposedOlder, "DELAYED_NATIVE_PUBLICATION_CANNOT_REPLACE_NEWER_ROOT").toBe(false);
+    expect(readFileSync(join(fresh.viewPath, fresh.name, ".reference-commit"), "utf8")).toBe(f.state.commit);
+  } finally { resume.resolve(); (await older).lease?.release(); fresh?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+});
+
+test("recovering a same-commit publication conflict still contains a later private grant loss", async () => {
+  const f = await fixture({ private: true }), issued = f.grant(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+  const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), seal = f.pool.poolSeal, publish = f.pool.poolPublish;
+  let paused = false, fresh: Awaited<ReturnType<typeof f.request>> | undefined;
+  f.pool.poolSeal = async (...args) => { const record = await seal(...args); if (!paused) { paused = true; arrived.resolve(); await resume.promise; } return record; };
+  const older = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+  try {
+    await arrived.promise;
+    fresh = await otherSources.request({ principalId: f.owner.id, repository, revision: "main",
+      acquisition: { turnId: "penelope-same-commit-publication", egress: f.secondEgress, current: () => true } });
+    f.pool.poolPublish = async (...args) => { const record = await publish(...args); if (args[0] === fresh!.rootId)
+      revokeReferenceGrant(f.db, { brain, principalId: f.owner.id, id: issued.id, now: Date.now() }); return record; };
+    resume.resolve(); const outcome = await older;
+    expect(outcome.lease).toBeUndefined();
+    expect(existsSync(join(fresh.viewPath, fresh.rootId, "README.md")), "RECOVERED_CONFLICT_STILL_CONTAINS_LATER_GRANT_REVOCATION").toBe(false);
+    expect(() => fresh!.assertAuthority()).toThrow();
+  } finally { resume.resolve(); (await older).lease?.release(); fresh?.release(); await otherSources.close(); otherDb.close(); await f.close(); }
+});
+
+test("a retained worktree endpoint must still name its canonical authority key before dispatch", async () => {
+  const f = await fixture();
+  try {
+    await expect(f.sources.request({ principalId: f.owner.id, repositoryKey: repository, repositoryUrl: "https://github.com/odysseus/return-home", revision: "main",
+      acquisition: { turnId: "odysseus-mismatched-retained-endpoint", egress: f.egress, current: () => true } }),
+      "RETAINED_ENDPOINT_MUST_MATCH_AUTHORITY_KEY").rejects.toMatchObject({ code: "invalid" });
+    expect(f.metadata).toEqual([]); expect(f.git).toEqual([]);
   } finally { await f.close(); }
 });
 
@@ -895,7 +947,7 @@ describe("live managed authority", () => {
       try {
         old = await f.request();
         f.pool.poolUnpublish = async (...args) => { await pause(); return unpublish(...args); };
-        f.pool.poolWithdraw = async (...args) => { await pause(); return withdraw(...args); };
+        f.pool.poolWithdraw = async (...args) => { const record = await withdraw(...args); await pause(); return record; };
         if (observation === "private") f.state.private = true; else f.state.status = 503;
         invalidating = f.request().then(lease => { lease.release(); return undefined; }, error => error);
         await arrived.promise; f.state.private = false; f.state.status = 200;

@@ -115,6 +115,7 @@ export interface ReferenceWorktreeRow {
   id: string; principal_id: string; domain: string; repository: string; revision: string; base_commit: string | null; source_root: string; baseline: string | null;
   allowance: number; state: "creating" | "active" | "released" | "expired"; created_at: number; accessed_at: number; released_at: number | null; holder: string | null; cleanup: string | null;
   root_uuid: string | null;
+  repository_url: string | null;
 }
 type WorktreeRow = ReferenceWorktreeRow;
 /** A removal's durable receipt (#2431). */
@@ -224,10 +225,11 @@ export function createReferenceWorktrees(options: {
    * its repository, whatever the revision's current visibility; the
    * repository's revision is then validated under the source's own clocks.
    */
-  async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "revision" | "domain">, signal?: AbortSignal, acquisition?: ReferenceAcquisitionContext) {
+  async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "repository_url" | "revision" | "domain">, signal?: AbortSignal, acquisition?: ReferenceAcquisitionContext) {
     covered(row);
     try {
-      const source = await options.sources.request({ principalId: row.principal_id, repositoryKey: row.repository, revision: row.revision, signal, acquisition });
+      const location = { repositoryKey: row.repository, ...(row.repository_url ? { repositoryUrl: row.repository_url } : {}) };
+      const source = await options.sources.request({ principalId: row.principal_id, ...location, revision: row.revision, signal, acquisition });
       try {
         // A public starting snapshot cannot bypass the private authority the
         // current source check required. A private starting snapshot keeps its
@@ -468,7 +470,7 @@ export function createReferenceWorktrees(options: {
       const allowance = (await pool.poolStatus(input.signal)).limits.operationBytes;
       acquiringAuthority(input, authority);
       // Recorded before the pool sees it: recovery and eviction protection both start here.
-      await write("allocate", id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at);
+      await write("allocate", id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at, lease.repositoryUrl);
       let activating = false;
       try {
         acquiringAuthority(input, authority);

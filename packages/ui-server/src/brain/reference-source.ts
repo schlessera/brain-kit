@@ -61,6 +61,8 @@ export interface ReferenceSourceLease {
   /** Entry inside the view that resolves to the current complete revision. */
   name: string;
   repository: string;
+  /** Actual fetched endpoint, retained independently of the canonical authority key. Host-only. */
+  repositoryUrl: string;
   revision: string;
   commit: string;
   /** Sealed pool root holding `commit`; a managed worktree (#2430) snapshots it. */
@@ -85,7 +87,8 @@ interface Operation { key: string; domain: string; principalId: string | null; g
 interface InvalidatedRoot { id: string; state: string; repository: string; revision: string }
 type Outcome = { kind: "source"; row: SourceRow; stale: boolean; error: string | null } | { kind: "not-public"; reason: "denied" | "unavailable"; detail: string };
 /** Only host callers reading the catalog use repositoryKey; tool inputs remain raw strings. */
-type RepositoryInput = { repository: unknown; repositoryKey?: never } | { repository?: never; repositoryKey: string };
+type RepositoryInput = { repository: unknown; repositoryKey?: never; repositoryUrl?: never }
+  | { repository?: never; repositoryKey: string; repositoryUrl?: string };
 
 const PUBLIC = "public";
 const privateDomain = (principalId: string) => `private:${principalId}`;
@@ -259,7 +262,7 @@ export function createReferenceSources(options: {
     try {
       const view = await viewFor(source.domain);
       await write("sourceTouch", now(), source.domain, source.repository, source.revision);
-      return { domain: source.domain === PUBLIC ? "public" : "private", view: view.id, viewPath: view.hostPath!, name: source.name, repository: source.repository,
+      return { domain: source.domain === PUBLIC ? "public" : "private", view: view.id, viewPath: view.hostPath!, name: source.name, repository: source.repository, repositoryUrl: source.url,
         revision: source.revision, commit: source.commit_id, rootId: source.root_id, refreshedAt: source.refreshed_at, validatedAt: source.validated_at, stale, error,
         assertAuthority, release };
     } catch (error) { release(); throw error; }
@@ -555,10 +558,12 @@ export function createReferenceSources(options: {
       recheck();
       if (input.managed) await input.managed.access.revalidate();
       recheck();
+      if (input.managed && (row(domain, repository.canonical, revision)?.root_id ?? null) !== previousRoot)
+        throw new ReferenceSourceError("unavailable", "A newer source was published while this acquisition waited; request it again.");
       publishing = true;
       pendingPublications.set(staging.id, { key, view: view.id, name });
       hiddenRoots.delete(staging.id);
-      const published = await pool.poolPublish(staging.id, view.id, name, signal);
+      const published = await pool.poolPublish(staging.id, view.id, name, signal, input.managed ? [previousRoot, null] : undefined);
       recheck();
       let acquisition: ReferenceAcquisition | undefined;
       if (input.managed) {
@@ -570,8 +575,11 @@ export function createReferenceSources(options: {
           grantId: input.managed.access.grantId, networkBytes: input.managed.access.bytes().chargedBytes, at: now() };
       }
       const at = now(), grantId = domain === PUBLIC ? null : (input.grant && isLiveReferenceGrant(db, input.grant.id, at) ? input.grant.id : authorize(domain, input.principalId, repository)!.id);
-      if (!await write<boolean>("sourcePublish", dirname(published.path!), domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at, acquisition, input.managed?.authority))
-        throw new ReferenceSourceError("unauthorized", "A newer durable authority observation refused this publication.");
+      if (!await write<boolean>("sourcePublish", dirname(published.path!), domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at, acquisition, input.managed?.authority,
+        input.managed ? { rootId: previousRoot } : undefined)) {
+        recheck();
+        throw new ReferenceSourceError("unavailable", "A newer source or authority observation refused this publication; request it again.");
+      }
       recheck();
       pendingPublications.delete(staging.id);
       withdrawn.delete(key);
@@ -583,6 +591,7 @@ export function createReferenceSources(options: {
         try { await hideRoot(id); } catch (error) { warn("superseded reference root stays in its view until the next bind hides it", error); }
       }
       });
+      return staging.id;
     } catch (error) {
       if (input.managed) await input.managed.containFailure(error, publishing, staging.id)
         .catch(cleanup => warn("reference authority containment is incomplete; bind preparation retries it", cleanup));
@@ -633,7 +642,7 @@ export function createReferenceSources(options: {
     const containFailure = (error: unknown, publishing: boolean, publicationId?: string): Promise<void> => {
       if (containment) return containment;
       const reason = failureReason(error), domains = [PUBLIC, privateDomain(input.principalId)];
-      let work: Promise<unknown> = Promise.resolve();
+      let work: Promise<unknown> | undefined;
       if (error instanceof GitHubReferenceMetadataError) {
         work = Promise.all(domains.map(domain => reason === "denied" ? withdrawRepository(domain, repository.canonical, revision)
           : suspendRepository(domain, repository.canonical, revision)));
@@ -647,13 +656,14 @@ export function createReferenceSources(options: {
       } else if (publishing && publicationId) {
         // Cleanup is not a new metadata observation. Discard just this
         // attempt; another owner may already have published a valid root.
-        work = (async () => {
+        return (async () => {
           const root = await write<{ id: string; state: string } | null>("sourceDiscard", publicationId);
           await hideRecordedRoot(root ?? { id: publicationId, state: "staging" });
         })();
       } else if (!signal.aborted && context.current() && openAttempted && !accessOpened) {
         work = Promise.all(domains.map(domain => domain === PUBLIC && publicWithdrawal ? publicWithdrawal : suspendRepository(domain, repository.canonical, revision)));
       }
+      if (!work) return Promise.resolve();
       containment = work.then(() => {});
       return containment;
     };
@@ -685,12 +695,12 @@ export function createReferenceSources(options: {
         assertCurrent();
         if (!check.ok) throw new ReferenceSourceError(check.reason === "missing" ? "missing" : check.reason === "denied" ? "unauthorized" : "unavailable", check.detail);
         const previous = row(domain, repository.canonical, revision);
-        let reused = false;
-        if (usable(previous) && previous.validated_at !== 0 && previous.commit_id === check.commit && previous.ref === check.ref) {
-          await exclusive(operation.key, async () => {
+        const validateCached = async (candidate: SourceRow | null): Promise<string | undefined> => {
+          if (!usable(candidate) || candidate.validated_at === 0 || candidate.commit_id !== check.commit || candidate.ref !== check.ref) return;
+          return exclusive(operation.key, async () => {
             assertCurrent();
             const current = row(domain, repository.canonical, revision);
-            if (!usable(current) || current.root_id !== previous.root_id || withdrawn.has(operation.key)) return;
+            if (!usable(current) || current.root_id !== candidate.root_id || withdrawn.has(operation.key)) return;
             const record = await pool.poolSeal(current.root_id, signal);
             assertCurrent();
             // Hidden/revoked roots never regain publication authority. Fresh
@@ -700,23 +710,41 @@ export function createReferenceSources(options: {
             if (!referenceAcquisitionMatches(db, current.root_id, record, { brain: options.brain, commit: check.commit, ref: check.ref, identity: access!.identity })) return;
             await access!.revalidate();
             assertCurrent();
+            if (row(domain, repository.canonical, revision)?.root_id !== current.root_id)
+              throw new ReferenceSourceError("unavailable", "A newer source replaced this cached publication; request it again.");
+            // Repair a lost alias only while it is absent or still names this
+            // root. The native lock preserves a concurrent newer publication.
+            await pool.poolPublish(current.root_id, (await viewFor(domain)).id, current.name, signal, [current.root_id, null]);
+            assertCurrent();
             const at = now();
             if (!await write<boolean>("sourceValidate", at, at, check.ref, domain, repository.canonical, revision,
-              domain === PUBLIC ? publicAuthority : privateAuthority, current.root_id))
-              throw new ReferenceSourceError("unauthorized", "A newer durable authority observation refused this validation.");
+              domain === PUBLIC ? publicAuthority : privateAuthority, current.root_id)) {
+              assertCurrent();
+              throw new ReferenceSourceError("unavailable", "A newer source or authority observation refused this validation; request it again.");
+            }
             assertCurrent();
-            reused = true;
+            return current.root_id;
           });
-        }
-        if (!reused) await acquire(signal, { domain, principalId: input.principalId, repository, revision,
+        };
+        let selectedRoot = await validateCached(previous);
+        if (!selectedRoot) try { selectedRoot = await acquire(signal, { domain, principalId: input.principalId, repository, revision,
           grant: domain === PUBLIC ? null : authorize(domain, input.principalId, repository), credential: null,
           ref: check.ref, expectedCommit: check.commit, previous, managed: { access, context, id,
             authority: domain === PUBLIC ? publicAuthority : privateAuthority, assertCurrent, containFailure } });
+        } catch (error) {
+          // A concurrent request may have supplied this exact independently
+          // resolved target. Validate it on this turn's wire; never join its
+          // operation or return a different commit as a fresh result.
+          const replacement = row(domain, repository.canonical, revision);
+          if (signal.aborted || !context.current() || (failureReason(error) !== "unavailable" && (error as { code?: string }).code !== "unavailable")
+            || replacement?.root_id === previous?.root_id) throw error;
+          selectedRoot = await validateCached(replacement);
+          if (!selectedRoot) throw error;
+        }
         assertCurrent();
         const current = row(domain, repository.canonical, revision);
-        if (!usable(current)) throw new ReferenceSourceError("unavailable", "Managed source publication is unavailable.");
-        // Managed roots are published exactly once. Restoring an old identity
-        // would race a completed native withdrawal; only acquire() publishes.
+        if (!usable(current) || current.root_id !== selectedRoot) throw new ReferenceSourceError("unavailable", "Managed source publication changed; request it again.");
+        // A withdrawn identity is never restored; live cache repair is conditional.
         suspended.delete(operation.key); unsettled.delete(operation.key);
         result = await lease(current, false, null, () => {
           assertTurn(); currentAccess.assertAuthority();
@@ -765,14 +793,15 @@ export function createReferenceSources(options: {
         repository = referenceRepositoryFromKey(input.repositoryKey);
         // Keep the actual retained endpoint spelling for other Git hosts too.
         const known = row(privateDomain(input.principalId), repository.canonical, revision) ?? row(PUBLIC, repository.canonical, revision);
-        if (known) {
-          const location = repositoryLocation(known.url);
+        const retainedUrl = input.repositoryUrl ?? known?.url;
+        if (retainedUrl) {
+          const location = repositoryLocation(retainedUrl);
           if (location.canonical !== repository.canonical) throw new Error("The retained URL does not match its repository key.");
           repository = location;
-        }
+        } else if (!isManaged(repository.canonical)) throw new ReferenceSourceError("unavailable", "The original repository endpoint is no longer retained; request it explicitly before accessing this worktree.");
       } else repository = repositoryLocation(input.repository);
     }
-    catch (error) { throw new ReferenceSourceError("invalid", (error as Error).message); }
+    catch (error) { if (error instanceof ReferenceSourceError) throw error; throw new ReferenceSourceError("invalid", (error as Error).message); }
     if (isManaged(repository.canonical)) return managedRequest(input, repository, revision);
     const probeKey = `${repository.canonical}\u0000${revision}`;
     const fresh = (source: SourceRow | null) => usable(source) && validationLive(source) && now() < source.refreshed_at + limits.refreshMs;
@@ -1059,7 +1088,8 @@ export function createReferenceSources(options: {
           keep.add(source.root_id!);
           continue;
         }
-        try { await pool.poolPublish(source.root_id!, sourceWrites(db).sourceView(source.domain, randomUUID()).id, source.name); keep.add(source.root_id!); continue; }
+        try { await pool.poolPublish(source.root_id!, sourceWrites(db).sourceView(source.domain, randomUUID()).id, source.name, undefined,
+          isManaged(source.repository) ? [source.root_id!, null] : undefined); keep.add(source.root_id!); continue; }
         catch (error) { warn("reference source publication could not be restored", error); }
       }
       db.query("UPDATE reference_sources SET root_id = NULL WHERE domain = ? AND repository = ? AND revision = ? AND root_id = ?").run(source.domain, source.repository, source.revision, source.root_id);

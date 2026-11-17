@@ -39,9 +39,9 @@ export function worktreeWrites(db: Database) {
     recoverHolder(id: string, holder: string | null) {
       db.query("UPDATE reference_worktrees SET holder = NULL WHERE id = ? AND holder = ?").run(id, holder);
     },
-    allocate(id: string, principalId: string, domain: string, repository: string, revision: string, commit: string, sourceRoot: string, allowance: number, at: number, accessedAt: number) {
-      db.query(`INSERT INTO reference_worktrees (id, principal_id, domain, repository, revision, base_commit, source_root, baseline, allowance, state, created_at, accessed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'creating', ?, ?)`).run(id, principalId, domain, repository, revision, commit, sourceRoot, allowance, at, accessedAt);
+    allocate(id: string, principalId: string, domain: string, repository: string, revision: string, commit: string, sourceRoot: string, allowance: number, at: number, accessedAt: number, repositoryUrl?: string) {
+      db.query(`INSERT INTO reference_worktrees (id, principal_id, domain, repository, revision, base_commit, source_root, baseline, allowance, state, created_at, accessed_at, repository_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'creating', ?, ?, ?)`).run(id, principalId, domain, repository, revision, commit, sourceRoot, allowance, at, accessedAt, repositoryUrl ?? null);
     },
     recordRoot(uuid: string | null, id: string) {
       db.query("UPDATE reference_worktrees SET root_uuid = ? WHERE id = ?").run(uuid, id);
