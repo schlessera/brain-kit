@@ -57,6 +57,74 @@ describe("reference repository locations", () => {
 });
 
 describe("reference grant records", () => {
+  test("GitHub grant prefixes normalize case while other repository paths stay exact", () => {
+    const penelope = owner();
+    const github = grant(penelope.id, penelope.id, "https://github.com/Odysseus/Ithaca.GIT", "GITHUB_TOKEN");
+    expect(github.repositoryPrefix, "GITHUB_GRANT_PREFIX_CANONICAL_CASE").toBe("https://github.com/odysseus/ithaca");
+    expect(covering(penelope.id, "https://github.com/ODYSSEUS/ITHACA")?.id).toBe(github.id);
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca-crew")).toBeNull();
+    const local = grant(penelope.id, penelope.id, "file:///srv/fixtures/Ithaca");
+    expect(covering(penelope.id, "file:///srv/fixtures/Ithaca/records")?.id).toBe(local.id);
+    expect(covering(penelope.id, "file:///srv/fixtures/ithaca/records"), "FILE_GRANT_PATH_CASE_REMAINS_SIGNIFICANT").toBeNull();
+    const other = grant(penelope.id, penelope.id, "https://forge.example/Odysseus");
+    expect(covering(penelope.id, "https://forge.example/odysseus/ithaca"), "OTHER_HOST_GRANT_PATH_CASE_REMAINS_SIGNIFICANT").toBeNull();
+    expect(covering(penelope.id, "https://forge.example/Odysseus/ithaca")?.id).toBe(other.id);
+  });
+
+  test("retained GitHub prefix aliases match and cannot create duplicate live grants", () => {
+    const penelope = owner(), existing = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca", "GITHUB_TOKEN");
+    db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run("https://github.com/Odysseus/Ithaca", existing.id);
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca")?.id, "RETAINED_GITHUB_PREFIX_ALIAS_MATCHES").toBe(existing.id);
+    expect(() => grant(penelope.id, penelope.id, "https://github.com/ODYSSEUS/ITHACA", "GITHUB_TOKEN"), "RETAINED_GITHUB_ALIAS_PREVENTS_DUPLICATE_GRANTS").toThrow("identical live reference grant");
+  });
+
+  test("canonical prefix specificity preserves the narrower API permission boundary", () => {
+    const penelope = owner(), narrow = grant(penelope.id, penelope.id, "https://github.com/odysseus/x", "GITHUB_TOKEN");
+    const broad = createReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, createdBy: penelope.id,
+      repositoryPrefix: "https://github.com/odysseus", credential: "GITHUB_TOKEN", now: narrow.createdAt + 1,
+      metadataCredentialRecipient: "https://api.github.com" });
+    db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run("https://github.com/Odysseus", broad.id);
+    const selected = covering(penelope.id, "https://github.com/odysseus/x");
+    expect(selected?.id, "NORMALIZED_LONGEST_PREFIX_RETAINS_PERMISSION_BOUNDARY").toBe(narrow.id);
+    expect(selected?.metadataCredentialRecipient).toBeUndefined();
+  });
+
+  for (const prefix of ["http://127.0.0.1:8418/odysseus/ithaca.git.git", "https://github.com/Odysseus/Ithaca.git.git", "https://forge.example/Odysseus/Ithaca.git.git"])
+    test(`stored grant suffix preserves the intended repository boundary for ${prefix}`, () => {
+      const penelope = owner(), credential = prefix.startsWith("https://forge.example") ? null : "GITHUB_TOKEN";
+      const record = grant(penelope.id, penelope.id, prefix, credential), neighbor = prefix.slice(0, -8);
+      expect(covering(penelope.id, neighbor), "STORED_PREFIX_CANNOT_STRIP_ANOTHER_CLONE_SUFFIX").toBeNull();
+      expect(covering(penelope.id, prefix)?.id, "CANONICAL_SUFFIX_GRANT_COVERS_INTENDED_REPOSITORY").toBe(record.id);
+      const distinct = grant(penelope.id, penelope.id, neighbor, credential);
+      expect(distinct.id).not.toBe(record.id);
+      expect(covering(penelope.id, neighbor)?.id).toBe(distinct.id);
+      expect(covering(penelope.id, prefix)?.id).toBe(record.id);
+    });
+
+  for (const prefix of ["http://127.0.0.1:8418/odysseus/ithaca.git.git", "https://github.com/Odysseus/Ithaca.git.git", "https://forge.example/Odysseus/Ithaca.git.git"])
+    test(`a stored canonical suffix still rejects an identical grant for ${prefix}`, () => {
+      const penelope = owner(), credential = prefix.startsWith("https://forge.example") ? null : "GITHUB_TOKEN";
+      grant(penelope.id, penelope.id, prefix, credential);
+      expect(() => grant(penelope.id, penelope.id, prefix, credential), "CANONICAL_SUFFIX_CANNOT_BYPASS_DUPLICATE_GRANT_CHECK").toThrow("identical live reference grant");
+    });
+
+  test("a retained mixed-case literal GitHub suffix cannot authorize its neighbor", () => {
+    const penelope = owner(), record = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca.git.git", "GITHUB_TOKEN");
+    db.query("UPDATE reference_grants SET repository_prefix = ? WHERE id = ?").run("https://github.com/Odysseus/Ithaca.GIT", record.id);
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca"), "RETAINED_CANONICAL_SUFFIX_STAYS_LITERAL").toBeNull();
+    expect(covering(penelope.id, "https://github.com/odysseus/ithaca.git.git")?.id).toBe(record.id);
+  });
+
+  test("a canonical suffix keeps the narrower API permission boundary", () => {
+    const penelope = owner();
+    createReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, createdBy: penelope.id,
+      repositoryPrefix: "https://github.com/odysseus", credential: "GITHUB_TOKEN", now: Date.now(), metadataCredentialRecipient: "https://api.github.com" });
+    const narrow = grant(penelope.id, penelope.id, "https://github.com/odysseus/ithaca.git.git", "GITHUB_TOKEN");
+    const selected = covering(penelope.id, "https://github.com/odysseus/ithaca.git.git");
+    expect(selected?.id, "CANONICAL_SUFFIX_RETAINS_NARROW_API_PERMISSION_SCOPE").toBe(narrow.id);
+    expect(selected?.metadataCredentialRecipient).toBeUndefined();
+  });
+
   test("a live covering grant authorizes only its own brain, principal and path-segment prefix", () => {
     const penelope = owner(), telemachus = agent(penelope.id);
     const record = grant(telemachus.id, penelope.id, "https://github.com/odysseus", "BRAIN_UI_SYNC_GITHUB_TOKEN");
@@ -179,7 +247,7 @@ describe("owner-only reference grant routes", () => {
   test("an owner creates, lists and revokes a principal's grants", async () => {
     const penelope = owner(), telemachus = agent(penelope.id), header = await cookie(penelope.id), instance = app();
     const created = await instance.request(`/api/auth/principals/${telemachus.id}/reference-grants`, json("POST", header,
-      { repositoryPrefix: "https://github.com/odysseus/ithaca.git", credential: "BRAIN_UI_SYNC_GITHUB_TOKEN" }));
+      { repositoryPrefix: "https://github.com/Odysseus/Ithaca.GIT", credential: "BRAIN_UI_SYNC_GITHUB_TOKEN" }));
     expect(created.status).toBe(201);
     const body = await created.json() as { id: string };
     expect(body).toMatchObject({ principal_id: telemachus.id, repository_prefix: "https://github.com/odysseus/ithaca", credential: "BRAIN_UI_SYNC_GITHUB_TOKEN", created_by: penelope.id });

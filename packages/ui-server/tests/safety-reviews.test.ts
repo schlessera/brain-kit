@@ -30,7 +30,7 @@ async function fixture() {
   const bindingId = crypto.randomUUID();
   await writes.safetyBegin({ turnId: "voyage", bindingId, sessionId: null, principalId: principal.id, backendId: "claude", at: 0 });
   db.query("INSERT INTO sessions(id,created_at,last_active_at,backend_id) VALUES('ithaca',0,0,'claude')").run();
-  db.query("INSERT INTO chat_session_owners VALUES('ithaca',?,0)").run(principal.id);
+  db.query("INSERT INTO chat_session_owners(session_id,principal_id,created_at) VALUES('ithaca',?,0)").run(principal.id);
   safetyCatalogCreated(db, "ithaca", principal.id, "voyage"); await writes.bind("voyage", "ithaca");
   const collector = createSafetyCollector(db, writes, { turnId: "voyage", bindingId, sessionId: () => "ithaca", backendId: "claude",
     signal: new AbortController().signal, shellProxied: () => true, brainPath: root });
