@@ -229,6 +229,32 @@ test("Pi releases a turn's turn-temp reservation only once its awaited close con
   expect(worker.processStateLedger().turnTempHeld, "PI_CONFIRMED_RETRY_RELEASES_RESERVATION").toBe(baseline);
   expect(closes).toBe(2);
 });
+test("a prompted Pi turn hands its refused turn-temp close to the reconciler only after its stdio release (#3488)", async () => {
+  const base = launch.getMockImplementation()!;
+  // The reconciler's first retry comes due after a real second; this schedule
+  // fires it exactly while the turn's stdio release is in flight.
+  const retries: Array<() => void> = [];
+  const cleanup = worker.createCleanupReconciler({ schedule: run => { retries.push(run); return () => {}; }, log() {} });
+  const owner = spyOn(worker, "processCleanupReconciler").mockReturnValue(cleanup);
+  const baseline = worker.processStateLedger().turnTempHeld;
+  let closes = 0;
+  launch.mockImplementation(async (...args: unknown[]) => ({ ...await base(...args),
+    released: async () => { for (const run of retries.splice(0)) run(); },
+    turnTemp: { root, space: () => ({ total: 0, free: 0 }),
+      async closeAsync() { if (++closes <= 2) throw Object.assign(new Error("worker_identity_cleanup_unconfirmed: fixture"), { cleanupUnconfirmed: true }); } } }));
+  try {
+    await turn(null);
+    // promote's close and the teardown's own retry; no reconciler attempt inside the turn.
+    expect(closes, "PI_PROMPTED_TEARDOWN_CLOSES_ONLY_IN_FOREGROUND").toBe(2);
+    expect(cleanup.held, "PI_PROMPTED_REFUSAL_HAS_RETRY_OWNER").toBe(1);
+    expect(retries, "PI_PROMPTED_RETRY_SCHEDULED_AFTER_TEARDOWN").toHaveLength(1);
+    expect(worker.processStateLedger().turnTempHeld, "PI_PROMPTED_REFUSAL_KEEPS_RESERVATION").toBeGreaterThan(baseline);
+    retries.shift()!(); await Bun.sleep(0);
+    expect(closes).toBe(3);
+    expect(cleanup.held).toBe(0);
+    expect(worker.processStateLedger().turnTempHeld, "PI_PROMPTED_RECONCILED_CLOSE_RELEASES_RESERVATION").toBe(baseline);
+  } finally { cleanup.close(); owner.mockRestore(); }
+});
 for (const ending of ["inactive abort", "initialization failure"] as const) test(`a Pi worker that never ran a turn awaits its turn-temp close on ${ending} (#2854)`, async () => {
   const base = launch.getMockImplementation()!;
   const gate = Promise.withResolvers<void>();

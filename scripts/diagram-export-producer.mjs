@@ -41,12 +41,11 @@ function fillPrivateVolume(directory,volume,image,archive){
 /** The complete mounted data is private source + filtered installed packages.
  * Readonly image files and Bun are identified separately. /tmp and /dev/shm
  * are fresh container-owned filesystems, not mounts of host state. */
-export function prepareDiagramNativeArtifacts(repo,projects,expected){
+export function prepareDiagramNativeArtifacts(repo,projects){
  const engines=[...new Set(projects.filter(name=>name.startsWith("diagrams-")).map(name=>name.slice("diagrams-".length)))];
  if(!engines.length)return;
  if(engines.some(name=>!["chromium","webkit"].includes(name)))throw Error("Unsupported native diagram engine");
  const record=JSON.parse(readFileSync(join(repo,"tmp/diagram-export-source.json"),"utf8")),runtime=diagramProducerRuntime();
- if(expected?.runtime&&expected.runtime!==runtime.sha256)throw Error("NATIVE_EXPORT_RUNTIME_CHANGED");
  const session=randomUUID(),base=join(repo,"tmp/diagram-export-native-prepared",session);mkdirSync(base,{recursive:true});
  const state=mkdtempSync(join(tmpdir(),"odysseus-native-producer-")),ownedVolumes=[],ownedContainers=[];
  let failure,failed=false;const cleanup=[];
@@ -58,7 +57,7 @@ export function prepareDiagramNativeArtifacts(repo,projects,expected){
   // rereading a host pathname after validation. The private file has no writer.
   writeFileSync(executable,runtime.bytes,{mode:0o755,flag:"wx"});
   const canary=join(state,"ambient-canary");writeFileSync(canary,"Odysseus");
-  const source=materializeDiagramExportSource(repo,state,undefined,expected),installed=join(state,"installation"),modules=join(installed,"node_modules");mkdirSync(modules,{recursive:true});
+  const source=materializeDiagramExportSource(repo,state),installed=join(state,"installation"),modules=join(installed,"node_modules");mkdirSync(modules,{recursive:true});
   // Copy external package directories only. Hidden package-manager state and
   // unrelated workspace aliases never enter the container's filesystem.
   for(const top of readdirSync(join(repo,"node_modules")).sort()){

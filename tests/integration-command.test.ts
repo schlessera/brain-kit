@@ -68,15 +68,31 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   setup(dir, "init", "--bare", remote); setup(root, "init"); setup(root, "remote", "add", "origin", remote);
   writeFileSync(join(root, "README.md"), "Odysseus sails.\n"); mkdirSync(join(root, "tests"));
   writeFileSync(join(root, "tests/raft.test.ts"), "// The raft breaks.\n"); setup(root, "add", ".");
-  const base = setup(root, "commit-tree", setup(root, "write-tree"), "-m", "base");
+  // Proof-system lane modes (#3269, #3271): main is ithaca, a proof-system squash
+  // (sails), one product squash (oars), then base. Unless "-product", the
+  // candidate first changes the proof system (shards), then adds raft.md.
+  const lane = mode.includes("lane-"), history: Record<string, string> = {};
+  const commitAll = (name: string, parents: string[]) => { setup(root, "add", "."); return setup(root, "commit-tree", setup(root, "write-tree"), ...parents.flatMap(parent => ["-p", parent]), "-m", name); };
+  if (lane) {
+    history.ithaca = commitAll("ithaca", []);
+    mkdirSync(join(root, ".github/workflows"), { recursive: true }); writeFileSync(join(root, ".github/workflows/ci.yml"), "name: ci\n");
+    history.sails = commitAll("sails", [history.ithaca]);
+    writeFileSync(join(root, "oars.md"), "Oars.\n"); history.oars = commitAll("oars", [history.sails]);
+  }
+  const base = commitAll("base", lane ? [history.oars!] : []);
   setup(root, "update-ref", "HEAD", base);
+  let headParent = base;
+  if (lane && !mode.includes("-product")) {
+    mkdirSync(join(root, "scripts")); writeFileSync(join(root, "scripts/ci-shards.ts"), "export const shards = 3;\n");
+    headParent = history.shards = commitAll("shards", [base]);
+  }
   writeFileSync(join(root, "raft.md"), "The crossing.\n");
   // A `review-` candidate also changes a core package, so it needs a recorded independent review (#4110).
   if (mode.includes("review-")) { mkdirSync(join(root, "packages/core/src"), { recursive: true }); writeFileSync(join(root, "packages/core/src/raft.ts"), "export const raft = 1;\n"); }
   setup(root, "add", ".");
   // A targeted revert deletes the failing test file its reverted commit added.
   if (mode === "expedite-revert") setup(root, "rm", "-q", "--cached", "tests/raft.test.ts");
-  const tree = setup(root, "write-tree"), head = setup(root, "commit-tree", tree, "-p", base, "-m", "head");
+  const tree = setup(root, "write-tree"), head = setup(root, "commit-tree", tree, "-p", headParent, "-m", "head");
   const synthetic = setup(root, "commit-tree", tree, "-p", base, "-p", head, "-m", "tested merge");
   const squash = setup(root, "commit-tree", tree, "-p", base, "-m", "actual squash");
   setup(root, "push", "origin", `${base}:refs/heads/main`, `${synthetic}:refs/heads/proof-fixture`, `${squash}:refs/heads/squash-fixture`);
@@ -89,7 +105,7 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
       verdict: "real" as const, reasons: ["in-affected-closure"], run: 11, sha: base };
     // A sibling squash of the base is red on another line: the candidate's merge ref does not contain it.
     const red = openRed(emptyRedMain(), { firstBad: mode === "red-main-unrelated" ? squash : base, run: 11, failures: [failure] }, NOW);
-    expect(store.publishRedMain(store.read(), mode === "red-main-fix" ? declareFix(red, 7, NOW) : red)).toBe(true);
+    expect(store.publishRedMain(store.read(), mode.startsWith("red-main-fix") ? declareFix(red, 7, NOW) : red)).toBe(true);
   }
   const sentinel = join(dir, "merged"), apiState = join(dir, "api.json");
   writeFileSync(apiState, JSON.stringify({ mode, revoked: false, merged: false, now: NOW, requested: false, draft: false }));
@@ -117,7 +133,22 @@ fi`); chmodSync(shim, 0o755);
     finishedAt: "2026-07-12T00:05:00.000Z", checks: [check("all lint and leakage gates", ["changeset"]), check("affected fast invariants", ["verify", "unit"]),
       ...(mode === "receipt-uncovered" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "timed-out"), check("complete unit and integration suite", ["unit"], "preempted")] : []),
       ...(mode === "browser-receipt-skipped" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "skipped")] : [])] };
-  const body = mode === "receipt-absent" || mode.startsWith("expedite-") ? "Odysseus builds a raft.\n" : `Odysseus builds a raft.\n\n${receiptBlock(receipt)}\n`;
+  const qualification = lane && !mode.includes("unqualified") && !mode.startsWith("expedite-") ? `## Off-main qualification\n\nReplay https://github.com/odysseus/brain-kit/actions/runs/555 compares three shards with two.\n\n` : "";
+  const body = mode === "receipt-absent" || mode.startsWith("expedite-") ? "Odysseus builds a raft.\n" : `Odysseus builds a raft.\n\n${qualification}${receiptBlock(receipt)}\n`;
+  const qualificationRuns = { 555: mode.includes("stale-run") ? base : mode.includes("ancestor-run") ? history.shards : head };
+  // Main-push CI runs at sails (own run), oars and base, by lane mode: a
+  // conclusion, "busy" for in progress, or absent for no run yet. Every other
+  // lane mode has all three green.
+  const windows: Record<string, [string | undefined, string | undefined, string | undefined]> = {
+    "own-busy": ["busy", "success", "success"], "own-red": ["failure", "busy", undefined], "own-red-recovered": ["failure", "busy", "success"],
+    recovering: ["success", "failure", "busy"], recovered: ["success", "failure", "success"], cancelled: ["success", "success", "cancelled"],
+    pending: ["success", "busy", undefined] };
+  const shape = Object.entries(windows).filter(([key]) => mode.includes(`lane-${key}`)).sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? ["success", "success", "success"];
+  const mainRuns: Record<string, { id: number; status: string; conclusion: string | null }> = {};
+  if (lane) for (const [index, sha] of [history.sails!, history.oars!, base].entries()) {
+    const outcome = shape[index];
+    if (outcome) mainRuns[sha] = { id: 81 + index, status: outcome === "busy" ? "in_progress" : "completed", conclusion: outcome === "busy" ? null : outcome };
+  }
   const review = (findings: ReviewFinding[] = []) => reviewComment({ version: 1, kind: "brain-review-receipt", pr: 7, head, base, reviewer: "agent",
     outcome: findings.length ? "findings" : "no-findings", findings });
   const openReview = review([{ summary: "The mast is not lashed." }]);
@@ -136,6 +167,7 @@ fi`); chmodSync(shim, 0o755);
     const args=process.argv.slice(2), file=${JSON.stringify(apiState)}, s=JSON.parse(readFileSync(file,"utf8"));
     const candidate=${JSON.stringify(candidate)}, actual=${JSON.stringify(actual)}, root=${JSON.stringify(root)}, remote=${JSON.stringify(remote)};
     const refs=${JSON.stringify(refs)}, body=${JSON.stringify(body)}, probes=${JSON.stringify({ 401: probeLog(401), 402: probeLog(402) })};s.reads??=[];
+    const mainRuns=${JSON.stringify(mainRuns)}, qualificationRuns=${JSON.stringify(qualificationRuns)};
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
     const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance","determinism"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
@@ -172,7 +204,8 @@ fi`); chmodSync(shim, 0o755);
       else if(path.endsWith("actions/jobs/401/logs")||path.endsWith("actions/jobs/402/logs"))value="2026-07-12T00:00:00Z BRAIN_RED_MAIN_PROBE "+JSON.stringify({purpose:"fix",...probes[path.includes("/401/")?401:402]});
       else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"||(s.mode==="confirm-changed"&&s.requested&&s.now>${NOW})?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
-      else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:[]};
+      else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:Object.entries(mainRuns).filter(([sha])=>path.includes("head_sha="+sha)).map(([sha,run])=>({...run,head_sha:sha}))};
+      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],repository:{full_name:repo}};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
       else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:s.mode.endsWith("contract-absent")?[]
         // A creation or push-and-edit burst: the newest run was cancelled while pending, an older one passed (#3573).
@@ -230,7 +263,7 @@ fi`);
   const lifecycle = /^(?:legacy-)?(renew|release)-(holder|none|wrong)$/.exec(mode);
   const presented = (kind: string) => kind === "holder" ? ["--token", TOKEN] : kind === "wrong" ? ["--token", OTHER] : [];
   if (mode === "renew-push-fail") writeFileSync(failPush, "1");
-  const command = mode === "acquire" ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
+  const command = mode.startsWith("lane-") && mode.endsWith("-read") ? ["lane", "--json"] : mode === "acquire" ? ["acquire", "7"] : mode === "renew-push-fail" ? ["renew", id, "--token", TOKEN] : lifecycle ? [lifecycle[1]!, id, ...presented(lifecycle[2]!)]
     : [mode.startsWith("confirm-") ? "confirm" : "merge", "7", ...(mode.startsWith("confirm-") ? [] : ["--lease", mode === "wrong-id" ? "2".repeat(32) : id,
       ...presented(mode === "no-token" ? "none" : mode === "wrong-token" ? "wrong" : "holder")]), ...(delivered.length ? ["--issues", delivered.join(",")] : []),
     ...(mode.startsWith("expedite-") ? ["--fixes-main-run", "11"] : [])];
@@ -582,4 +615,72 @@ test("the merge path refuses an undisposed finding, rereads the record at the me
   expect(expedited.code, `EXPEDITED_FIX_EXEMPT_FROM_REVIEW: ${expedited.err}`).toBe(2);
   expect(expedited.dispatched).toBe(true);
   expect(expedited.commentReads).toBe(0);
+});
+
+test("a proof-system candidate waits for its predecessor's own main run, then one green run after a failure; a product candidate does not (#3269)", async () => {
+  for (const [mode, message] of [
+    ["lane-own-busy", "has no settled main run of its own yet"],
+    ["confirm-lane-own-busy", "has no settled main run of its own yet"],
+    ["lane-own-red", "its own main run is not green"],
+    ["lane-recovering", "the newest settled main run after it is not green"],
+    ["confirm-lane-recovering", "the newest settled main run after it is not green"],
+    ["lane-cancelled", "run 2 after it at"],
+  ] as const) {
+    const refused = await scenario(mode);
+    expect(refused.dispatched, `NO_PROOF_SYSTEM_MERGE_INSIDE_THE_WINDOW:${mode}`).toBe(false);
+    expect(refused.code, refused.err).toBe(1);
+    expect(refused.err).toContain("Proof-system candidate refused (scripts/ci-shards.ts)");
+    expect(refused.err).toContain("1 more green main run required");
+    expect(refused.err).toContain(message);
+    expect(refused.err).not.toContain("Off-main qualification missing");
+    expect(refused.requested, `NO_CANDIDATE_CI_FOR_A_HELD_CANDIDATE:${mode}`).toBe(false);
+    expect(refused.state.active, `REFUSED_BEFORE_OWNERSHIP_OR_RELEASED:${mode}`).toBeNull();
+  }
+  // The own green run opens the lane without later runs; after a failure, one later green run reopens it.
+  for (const mode of ["lane-own-red-product", "lane-recovering-product", "lane-open", "lane-pending", "lane-recovered", "lane-own-red-recovered"]) {
+    const accepted = await scenario(mode);
+    expect(accepted.code, `LANE_ACCEPTS:${mode}: ${accepted.err}`).toBe(2);
+    expect(accepted.dispatched).toBe(true);
+  }
+});
+
+test("lane --json reports the refusal's decision from the same function (#3269)", async () => {
+  const read = await scenario("lane-recovering-read");
+  expect(read.code, read.err).toBe(0);
+  const decision = JSON.parse(read.out);
+  expect(decision).toMatchObject({ schemaVersion: 1, state: "closed", open: false, ownGreen: true, required: 1, next: null,
+    window: [{ position: 0, green: true, settled: true, run: { id: 81 } }, { position: 2, green: false, settled: false, run: { id: 83 } }, { position: 1, green: false, settled: true, run: { id: 82, conclusion: "failure" } }],
+    decisive: { position: 1, run: { id: 82 } } });
+  expect(decision.refusal).toContain("1 more green main run required");
+  expect(decision.refusal).toContain(`the last proof-system squash ${decision.proofSystemSquash}`);
+  const open = await scenario("lane-pending-read");
+  expect(JSON.parse(open.out), open.err).toMatchObject({ state: "open", open: true, required: 0, refusal: null, decisive: { position: 0 } });
+});
+
+test("a proof-system candidate needs off-main qualification on its head or a proof-system-free ancestor (#3271)", async () => {
+  for (const [mode, message] of [
+    ["lane-open-unqualified", 'no "Off-main qualification" section'],
+    ["confirm-lane-open-unqualified", 'no "Off-main qualification" section'],
+    ["lane-open-stale-run", "the diff from there to the head is a proof-system change (scripts/ci-shards.ts)"],
+  ] as const) {
+    const refused = await scenario(mode);
+    expect(refused.dispatched, `NO_UNQUALIFIED_PROOF_SYSTEM_MERGE:${mode}`).toBe(false);
+    expect(refused.code, refused.err).toBe(1);
+    expect(refused.err).toContain("Off-main qualification missing");
+    expect(refused.err).toContain(message);
+    expect(refused.err).not.toContain("Proof-system lane");
+  }
+  const ancestor = await scenario("lane-open-ancestor-run");
+  expect(ancestor.code, `QUALIFIED_BY_A_PROOF_SYSTEM_FREE_ANCESTOR: ${ancestor.err}`).toBe(2);
+  expect(ancestor.dispatched).toBe(true);
+  const product = await scenario("lane-open-unqualified-product");
+  expect(product.code, `PRODUCT_NEEDS_NO_QUALIFICATION: ${product.err}`).toBe(2);
+});
+
+test("declared red-main fixes are exempt from the stability window and off-main qualification (#3269, #3271)", async () => {
+  for (const mode of ["expedite-lane-own-red", "red-main-fix-lane-own-red-unqualified"]) {
+    const fix = await scenario(mode);
+    expect(fix.code, `DECLARED_FIX_EXEMPT:${mode}: ${fix.err}`).toBe(2);
+    expect(fix.dispatched).toBe(true);
+  }
 });

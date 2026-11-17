@@ -32,6 +32,15 @@ import { discoverTests, FILE_COST_SECONDS } from "./test-shards";
 
 export const DEFAULT_REPETITIONS = 5;
 export const FLOOR_REPETITIONS = 2;
+/**
+ * Ready confirmation runs the floor (#4137, maintainer ruling 2026-11-17). The
+ * merge lease is held while it runs, and the draft head already ran the full
+ * count; the floor re-checks the tree that merges without making this job the
+ * confirmation's longest. Undefined keeps the command's default.
+ */
+export function repetitionsFor(cadence: string | undefined): number | undefined {
+  return cadence === "confirmation" ? FLOOR_REPETITIONS : undefined;
+}
 /** Total reviewed-weight seconds the repetitions may cost before they are reduced. */
 export const BUDGET_SECONDS = 600;
 /** A file without a reviewed weight costs the small-file default (scripts/test-shards.ts). */

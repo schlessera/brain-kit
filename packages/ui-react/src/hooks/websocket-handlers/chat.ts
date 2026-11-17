@@ -197,7 +197,7 @@ function reconstructAskUserExchanges(
  * (`{answers, skipped, notes?}`), so the input is the one place the items and
  * the scale survive a reload.
  */
-export function listSpecFromInput(input: Record<string, unknown> | undefined): AskUserListSpec {
+function listSpecFromInput(input: Record<string, unknown> | undefined): AskUserListSpec {
   const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   const scale = (Array.isArray(input?.scale) ? input.scale : []).filter(record).flatMap((o) => {
@@ -248,7 +248,7 @@ function reconstructListExchange(tc: SessionHistoryMessage["toolCalls"][number])
   return exchange;
 }
 
-export function formSpecFromInput(input: Record<string, unknown> | undefined): AskUserFormSpec {
+function formSpecFromInput(input: Record<string, unknown> | undefined): AskUserFormSpec {
   const parsed = ASK_USER_FORM_INPUT_SCHEMA.parse(input);
   // A historical request already passed its host configuration. Check structure
   // without imposing this client's defaults on a host's larger valid form.
@@ -269,7 +269,7 @@ function reconstructFormExchange(tc: SessionHistoryMessage["toolCalls"][number])
   return exchange;
 }
 
-export function rankSpecFromInput(input: Record<string, unknown> | undefined): AskUserRankSpec {
+function rankSpecFromInput(input: Record<string, unknown> | undefined): AskUserRankSpec {
   const list = listSpecFromInput(input);
   const cutoff = typeof input?.cutoff === "number" ? input.cutoff : undefined;
   return { prompt: list.prompt, items: list.items, ...(cutoff !== undefined ? { cutoff } : {}) };
