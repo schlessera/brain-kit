@@ -1,8 +1,8 @@
 import { MarkdownRangeContext, rehypeMarkdownRange } from "./markdown-range.js";
 import { useBrainUiRoot } from "../../root-context.js";
-import React, { memo, useContext, useDeferredValue, useEffect, useMemo } from "react";
+import React, { memo, useContext, useDeferredValue, useEffect, useMemo, useRef } from "react";
 import Markdown from "react-markdown";
-import { splitMarkdownBlocks } from "./markdown-blocks.js";
+import { splitMarkdownBlocks, tailText } from "./markdown-blocks.js";
 
 import {
   classifyRepoPath,
@@ -216,8 +216,13 @@ function StreamedBlock({ text, last, ...rest }: BlockProps & { last: boolean }) 
   // definition arrived and the text now parses whole) has none of its own,
   // and replaced content (another file, a new briefing) does not extend it,
   // so both show their current text at once instead of a stale one.
+  // A deferred tail that has lagged too long renders its current text
+  // urgently (`tailText`), so a slow parse under fast deltas still updates.
   const deferred = useDeferredValue(last ? text : null);
-  const shown = last && deferred !== null && text.startsWith(deferred) ? deferred : text;
+  const lagSince = useRef<number | null>(null);
+  const tail = last ? tailText(text, deferred, lagSince.current, performance.now()) : { shown: text, lagSince: null };
+  lagSince.current = tail.lagSince;
+  const shown = tail.shown;
   return <>
     <MarkdownBlock text={shown} {...rest} />
     {/* react-markdown separates top-level blocks with a newline; keep it between ours. */}

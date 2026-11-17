@@ -34,8 +34,12 @@
  * text parses whole.
  */
 const DEFINITION = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*\[(?:[^\]\\]|\\[\s\S])+\]:/m;
-/** A line that starts with HTML, after any indentation and blockquote or list-item prefixes. */
-const HTML_LINE = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*<[A-Za-z/!?]/m;
+/**
+ * A line that starts with HTML (a tag, open or closing, a comment, a
+ * declaration or a processing instruction), after any indentation and
+ * blockquote or list-item prefixes. An autolink (`<https://…>`) is not HTML.
+ */
+const HTML_LINE = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])*<(?:\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|[!?])/m;
 /** A fence marker that is indented or follows a blockquote or list-item prefix. */
 const NESTED_FENCE = /^(?:[ \t]|>|[-*+][ \t]|\d{1,9}[.)][ \t])+(?:`{3,}|~{3,})/m;
 /** A top-level fence opener or closer: three or more backticks or tildes at column 0. */
@@ -81,4 +85,21 @@ export function splitMarkdownBlocks(text: string): string[] {
   }
   blocks.push(lines.slice(start).join("\n"));
   return blocks;
+}
+
+/** How long the growing tail may show deferred text before its current text renders urgently. */
+export const MAX_TAIL_LAG_MS = 200;
+
+/**
+ * Which text the growing last block shows. Its deferred text, while that is
+ * what the current text extends and has not lagged behind for longer than
+ * `MAX_TAIL_LAG_MS`: React restarts a deferred render on every new delta, so
+ * when the tail's parse outlasts the gap between deltas it would otherwise
+ * not update until the stream paused. Past the bound the current text
+ * renders urgently, and the lag starts again from there.
+ */
+export function tailText(text: string, deferred: string | null, lagSince: number | null, now: number): { shown: string; lagSince: number | null } {
+  if (deferred === null || deferred === text || !text.startsWith(deferred)) return { shown: text, lagSince: null };
+  if (lagSince === null) return { shown: deferred, lagSince: now };
+  return now - lagSince > MAX_TAIL_LAG_MS ? { shown: text, lagSince: null } : { shown: deferred, lagSince };
 }

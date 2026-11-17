@@ -9,6 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
 import { REMARK_PLUGINS } from "../src/components/chat/use-markdown-highlight.js";
 import * as blocks from "../src/components/chat/markdown-blocks.js";
+import { MAX_TAIL_LAG_MS, tailText } from "../src/components/chat/markdown-blocks.js";
 import { BrainMarkdown } from "../src/components/chat/brain-markdown.js";
 import { BrainUiProvider } from "../src/root-context.js";
 import { createBrainUiRoot } from "../src/root.js";
@@ -78,6 +79,7 @@ const CORPUS: Record<string, { text: string; splits: boolean; props?: { fileLink
   "an HTML block before a separate fence": { text: "<div>\nraw\n</div>\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\nAfter.", splits: false },
   "an HTML line continuing a list item": { text: " \n* item\n</pre>\n\n```\n\n```js\n\n", splits: false },
   "a fence opened after a bare carriage return": { text: "Para\r```\ncode\n\nmore code\n```\n\nAfter.", splits: false },
+  "an autolink at the start of a line": { text: "Sources:\n\n<https://ithaca.example/log>\n\nAnd more.", splits: true },
   "links, inline code and emphasis": { text: "Read **the [log](https://ithaca.example/log)** and `notes/raft.md`.\n\n_Then_ sail.", splits: true },
 };
 
@@ -127,3 +129,18 @@ test("generated documents parse the same split and whole", () => {
   expect(split, "the generator produces documents that split").toBeGreaterThan(1000);
   expect(differing).toEqual([]);
 }, 60_000);
+
+describe("tailText", () => {
+  test("shows the deferred tail while it is what the text extends, within the lag bound", () => {
+    expect(tailText("abc", "ab", null, 1000)).toEqual({ shown: "ab", lagSince: 1000 });
+    expect(tailText("abcd", "ab", 1000, 1000 + MAX_TAIL_LAG_MS)).toEqual({ shown: "ab", lagSince: 1000 });
+  });
+  test("renders the current tail once the deferred one has lagged past the bound", () => {
+    expect(tailText("abcde", "ab", 1000, 1001 + MAX_TAIL_LAG_MS)).toEqual({ shown: "abcde", lagSince: null });
+  });
+  test("caught up, replaced or with no deferred text, shows the current text", () => {
+    expect(tailText("abc", "abc", 1000, 5000)).toEqual({ shown: "abc", lagSince: null });
+    expect(tailText("xyz", "ab", 1000, 1001)).toEqual({ shown: "xyz", lagSince: null });
+    expect(tailText("abc", null, null, 1000)).toEqual({ shown: "abc", lagSince: null });
+  });
+});
