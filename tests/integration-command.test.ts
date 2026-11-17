@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { GitReservationStore, emptyReservation, holderDigest, reservationTransition, MAX_MS } from "../scripts/integration-reservation";
 import { declareFix, emptyRedMain, openRed } from "../scripts/red-main";
 import { receiptBlock, type CheckReceipt } from "../scripts/check-receipt";
+import { reviewComment, type ReviewFinding } from "../scripts/review-receipt";
 import { invocationChild } from "../scripts/test-invocation-child";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
 
 const dirs: string[] = [];
-type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; requested: boolean; reads: string[]; state: ReturnType<GitReservationStore["read"]>["state"];
+type ScenarioResult = { code: number; out: string; err: string; dispatched: boolean; requested: boolean; reads: string[]; commentReads: number; state: ReturnType<GitReservationStore["read"]>["state"];
   redMain: ReturnType<GitReservationStore["read"]>["redMain"]; events: any[] };
 type Scenario = { dir?: string; child?: ReturnType<typeof invocationChild>; work?: Promise<ScenarioResult>; settled: boolean; beforeRead?: () => Promise<void> };
 const scenarios = new Set<Scenario>();
@@ -69,7 +70,10 @@ async function runScenario(mode: string, owner: Scenario): Promise<ScenarioResul
   writeFileSync(join(root, "tests/raft.test.ts"), "// The raft breaks.\n"); setup(root, "add", ".");
   const base = setup(root, "commit-tree", setup(root, "write-tree"), "-m", "base");
   setup(root, "update-ref", "HEAD", base);
-  writeFileSync(join(root, "raft.md"), "The crossing.\n"); setup(root, "add", ".");
+  writeFileSync(join(root, "raft.md"), "The crossing.\n");
+  // A `review-` candidate also changes a core package, so it needs a recorded independent review (#4110).
+  if (mode.includes("review-")) { mkdirSync(join(root, "packages/core/src"), { recursive: true }); writeFileSync(join(root, "packages/core/src/raft.ts"), "export const raft = 1;\n"); }
+  setup(root, "add", ".");
   // A targeted revert deletes the failing test file its reverted commit added.
   if (mode === "expedite-revert") setup(root, "rm", "-q", "--cached", "tests/raft.test.ts");
   const tree = setup(root, "write-tree"), head = setup(root, "commit-tree", tree, "-p", base, "-m", "head");
@@ -114,6 +118,12 @@ fi`); chmodSync(shim, 0o755);
       ...(mode === "receipt-uncovered" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "timed-out"), check("complete unit and integration suite", ["unit"], "preempted")] : []),
       ...(mode === "browser-receipt-skipped" ? [check("complete pinned visual/accessibility/pointer suite", ["browser"], "skipped")] : [])] };
   const body = mode === "receipt-absent" || mode.startsWith("expedite-") ? "Odysseus builds a raft.\n" : `Odysseus builds a raft.\n\n${receiptBlock(receipt)}\n`;
+  const review = (findings: ReviewFinding[] = []) => reviewComment({ version: 1, kind: "brain-review-receipt", pr: 7, head, base, reviewer: "agent",
+    outcome: findings.length ? "findings" : "no-findings", findings });
+  const openReview = review([{ summary: "The mast is not lashed." }]);
+  // The PR's comments at each successive read; the last entry repeats. `superseded` gains an unanswered review after the first read.
+  const reviews = mode.endsWith("review-absent") ? [["Odysseus builds a raft."]] : mode.endsWith("review-undisposed") ? [[review(), openReview]]
+    : mode.endsWith("review-superseded") ? [[review()], [review(), openReview]] : [[review()]];
   const probeLog = (id: number) => (id === 401 ? { sha: base, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-base-green" ? 0 : 1 }
     : mode === "expedite-revert" ? { sha: head, tests: [], absent: ["tests/raft.test.ts"], exitCode: 0 }
     : { sha: head, tests: ["tests/raft.test.ts"], absent: [], exitCode: mode === "expedite-head-red" ? 1 : 0 });
@@ -176,6 +186,7 @@ fi`); chmodSync(shim, 0o755);
       else if(/actions\\/jobs\\/2[123]\\/logs$/.test(path))value=checkout;
       else if(path.endsWith("git/commits/"+actual.sha))value={sha:actual.sha,tree:{sha:actual.tree},parents:actual.parents.map(sha=>({sha}))};
       else if(path.endsWith("git/commits/"+squash))value={sha:squash,tree:{sha:actual.tree},parents:[{sha:base}]};
+      else if(/issues\\/7\\/comments\\?/.test(path)){const reviews=${JSON.stringify(reviews)};s.commentReads=(s.commentReads??0)+1;value=reviews[Math.min(s.commentReads,reviews.length)-1].map(body=>({body}));}
       else if(/issues\\/\\d+$/.test(path)){s.reads.push(path);value={milestone:{title:s.mode==="wrong-milestone"||s.mode==="confirm-wrong-milestone"||(s.mode.endsWith("-mismatch")&&path.endsWith("issues/30"))?"0.43.1":"0.44.0"}};}
       else throw new Error("Unexpected offline API "+path);
     } else throw new Error("Unexpected offline gh "+JSON.stringify(args));
@@ -235,7 +246,7 @@ fi`);
     const eventDir = join(root, "tmp/ci-timings");
     const events = existsSync(eventDir) ? readdirSync(eventDir).filter(name => name.startsWith("event-")).map(name => JSON.parse(readFileSync(join(eventDir, name), "utf8"))) : [];
     const api = JSON.parse(readFileSync(apiState, "utf8"));
-    return { code, out, err, dispatched: existsSync(sentinel), requested: api.requested, reads: api.reads ?? [], state: store.read().state, redMain: store.read().redMain, events };
+    return { code, out, err, dispatched: existsSync(sentinel), requested: api.requested, reads: api.reads ?? [], commentReads: api.commentReads ?? 0, state: store.read().state, redMain: store.read().redMain, events };
   } finally {
     await child.stop("SIGTERM");
     await Promise.allSettled([output]);
@@ -258,6 +269,8 @@ test("shared merge executable preserves actual proof and squash identities and r
   const result = await scenario("valid");
   expect(result.code, result.err).toBe(2); expect(result.dispatched).toBe(true);
   expect(result.out).toContain('"merged":true'); expect(result.out).toContain("pending; inspect actual main jobs");
+  // The fixture changes no core package: it is never asked for a review, and its comments are never read (#4110).
+  expect(result.commentReads, "NON_CORE_CANDIDATE_NEVER_ASKED_FOR_REVIEW").toBe(0);
   expect(result.state.active).toBeNull(); expect(result.state.last?.action).toBe("release");
 });
 
@@ -526,4 +539,40 @@ test("expedited fix merges only with red-on-base and green-on-head evidence, and
     expect(fix.redMain.open?.expedited).toMatchObject([{ pr: 7, baseProbe: 301, headProbe: 302, feedbackRun: 91, actor: 101 }]);
     expect(fix.events).toMatchObject([{ kind: "expedited-fix", pr: 7, run: 11, repository: "odysseus/brain-kit", evidence: "https://github.com/odysseus/brain-kit/actions/runs/302" }]);
   }
+});
+
+test("confirm refuses a core-package PR with no review record before it takes the reservation, naming the command (#4110)", async () => {
+  const result = await scenario("confirm-review-absent");
+  expect(result.err, "CORE_PR_WITHOUT_REVIEW_REFUSED_BEFORE_LEASE").toContain("No review record on PR #7");
+  expect(result.err).toContain("bun scripts/review-receipt.ts post 7 --reviewer <agent|human> --head <reviewed-sha> (--no-findings | --findings <file>)");
+  expect(result.code, result.err).toBe(1);
+  expect(result.out, "NOTHING_ACQUIRED").not.toContain('"acquired":');
+  expect(result.state.last, "NO_RESERVATION_TAKEN").toBeNull();
+  expect(result.requested, "NO_CANDIDATE_CI_SPENT").toBe(false);
+  expect(result.dispatched).toBe(false);
+  // With a record at its head the same candidate confirms and merges; the record is read before the lease and again at the merge.
+  const reviewed = await scenario("confirm-review-valid");
+  expect(reviewed.code, `REVIEWED_CORE_PR_CONFIRMS: ${reviewed.err}`).toBe(2);
+  expect(reviewed.dispatched).toBe(true);
+  expect(reviewed.commentReads).toBe(2);
+});
+
+test("the merge path refuses an undisposed finding, rereads the record at the merge, and exempts an expedited red-main fix (#4110)", async () => {
+  const undisposed = await scenario("review-undisposed");
+  expect(undisposed.err, "UNDISPOSED_FINDING_REFUSES_MERGE").toContain('leaves 1 finding without a disposition: "The mast is not lashed."');
+  expect(undisposed.code, undisposed.err).toBe(1);
+  expect(undisposed.dispatched).toBe(false);
+  // A review posted while the candidate was being proved is read by the merge itself, not only before the lease.
+  expect(undisposed.commentReads).toBe(1);
+  const superseded = await scenario("confirm-review-superseded");
+  expect(superseded.err, "MERGE_REREADS_THE_NEWEST_RECORD").toContain("without a disposition");
+  expect(superseded.commentReads).toBe(2);
+  expect(superseded.requested, "FIRST_READ_ADMITTED_THE_CANDIDATE").toBe(true);
+  expect(superseded.dispatched, "NO_MERGE_WITH_SUPERSEDED_REVIEW").toBe(false);
+  expect(superseded.state.active, "REFUSAL_RELEASES_THE_LEASE").toBeNull();
+  // An expedited fix for red main is exempt, as it is from the check receipt: the next main run is the backstop.
+  const expedited = await scenario("expedite-review-absent");
+  expect(expedited.code, `EXPEDITED_FIX_EXEMPT_FROM_REVIEW: ${expedited.err}`).toBe(2);
+  expect(expedited.dispatched).toBe(true);
+  expect(expedited.commentReads).toBe(0);
 });
