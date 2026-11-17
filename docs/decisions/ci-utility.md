@@ -1048,6 +1048,23 @@ Only a reviewed re-audit moves the audited revision
   re-audit moves that owner and refreshes the reader's pins in both maps
   together.
 
+The verify-budget producer re-audit requested by
+[#3233](https://github.com/schlessera/brain-kit/issues/3233) was delivered with
+the shared reader-owner re-audit in
+[#4057](https://github.com/schlessera/brain-kit/pull/4057), merged as
+`2182752399a584370f0b6bf10cbcf3f2f960341f`. That audit moved the frozen owner
+from `736a3445e82aee509e10f3c8d00b95fc77749202` to delivered main
+`a9bcdbd6734c1733390570e2a68c10afde3b00a9` (tree
+`5221359a249376353f6fd4939f4076596517c87f`). It reviewed all twelve producers;
+the five changed sources were `scripts/ci-proof.ts`, `scripts/check-pr.ts`,
+`scripts/ci-runner.ts`, `.github/workflows/ci.yml` and `package.json`.
+The PR records their old/new digests, the combined clean-output, locked-tool,
+execution-order, checked-exit and fresh-receipt guarantees, including coordinator
+diagnostics and command cleanup, and the restored producer-bypass and corrupt-owner
+mutation receipts. Production pins and independently owned fixture provenance
+moved together. This evidence qualifies the recorded owner only; subsequent
+producer or reader drift still requires fresh proof under the procedure above.
+
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
