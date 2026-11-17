@@ -539,8 +539,8 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   records the reviewed head and every finding with one disposition (`fixed`,
   `filed` or `rejected`) as a PR comment. A clean merge of the base into the
   branch keeps the record valid; a new commit, a rebase, an amend or a merge
-  that resolved a conflict needs a new review. `bun scripts/review-receipt.ts check <pr>` prints the merge path's
-  decision. The review is proof that someone else read the change, not a
+  that resolved a conflict needs a new review.
+  `bun scripts/review-receipt.ts check <pr>` prints the merge path's decision. The review is proof that someone else read the change, not a
   substitute for any check above. An expedited red-main fix is exempt.
 - Run `bun run check:pr --base origin/main` before opening or marking ready,
   and paste the receipt block it prints into the PR body. Record a check you
