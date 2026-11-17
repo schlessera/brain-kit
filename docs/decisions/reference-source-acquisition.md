@@ -57,7 +57,7 @@ exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:377-426`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:385-434`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -160,7 +160,7 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:542-596`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:550-604`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
@@ -239,6 +239,10 @@ failed catalog writes or native hiding never excuse that check.
 Only a root's confirmed permanent native withdrawal can be reused across
 binds. Reversible roots, including catalog orphans, need fresh hiding
 confirmation for each bind because another owner may have republished them.
+An unpublished staging root remains outside those views while a concurrent
+acquisition writes or seals it. Bind preparation reads the native catalog to
+confirm that absence without permanently withdrawing its publication authority.
+A staging root already in a view still needs settlement or hiding.
 Maintenance admission may wait up to 30 seconds for each Git command, then
 returns `busy`. Cancellation stops that wait; the wire still checks the live
 turn and selected grant before dispatch, and the source service checks them
@@ -266,9 +270,9 @@ remain required before repository trust can be enabled.
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
-(`admit`, `packages/ui-server/src/brain/reference-source.ts:317-332`). Requests
+(`admit`, `packages/ui-server/src/brain/reference-source.ts:325-340`). Requests
 for the same legacy source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:335-360`).
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:343-368`).
 Each principal's private source is its own domain, so two principals requesting
 the same private repository at once run two operations, each with its own
 credential and view. Admitted operations finish independently: a stalled one
@@ -290,7 +294,7 @@ superseded root is released when the last reader of that source releases.
 When the pool refuses a reservation for capacity, the service withdraws the
 least recently used source that has no reader, no running operation and no
 worktree dependency, then retries. If nothing is eligible it refuses with
-`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:444-460`).
+`capacity` (`evictOne`, `packages/ui-server/src/brain/reference-source.ts:452-468`).
 There is no idle expiry.
 
 ## Revocation and recovery
@@ -303,7 +307,7 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:1064-1089`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:1081-1106`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists and, when
@@ -316,7 +320,7 @@ and validation timestamp still match, preserving another owner's renewal or
 replacement after the initial scan.
 Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:1094-1138`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:1111-1155`).
 
 ## Evidence
 

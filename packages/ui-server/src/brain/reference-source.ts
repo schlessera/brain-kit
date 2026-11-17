@@ -144,7 +144,7 @@ export function createReferenceSources(options: {
    * bind preparation withholds uncertain authority before exposing its view.
    */
   const suspended = new Map<string, WithheldSource>(), unsettled = new Set<string>();
-  /** Confirmed hiding; only permanent native withdrawal survives another bind. */
+  /** Confirmed absence from views; only permanent native withdrawal survives another bind. */
   const hiddenRoots = new Map<string, boolean>();
   /** Native publication may have taken effect before its catalog receipt exists. */
   const pendingPublications = new Map<string, { key: string; view: string; name: string }>();
@@ -210,6 +210,14 @@ export function createReferenceSources(options: {
     }
     hiddenRoots.set(root.id, permanent);
     pendingPublications.delete(root.id);
+  }
+  async function nativeRoot(id: string): Promise<NativePoolRecord | undefined> {
+    for (let after: string | null = null; ;) {
+      const page = await pool.listPoolRecovery(after);
+      const record = page.records.find(record => record.id === id);
+      if (record || !page.next) return record;
+      after = page.next;
+    }
   }
   /** One change at a time to a source's exposure: suspension, restoration, withdrawal and publication. */
   const exposing = new Map<string, Promise<unknown>>();
@@ -988,12 +996,21 @@ export function createReferenceSources(options: {
     }
     // No root other than a source's current one stays in the view: superseded,
     // withdrawn, retained for a worktree, or staging whose publication reply was lost.
-    for (const { id, repository, revision } of db.query(`SELECT r.id, r.repository, r.revision FROM reference_roots r WHERE r.domain = ?
-      AND NOT EXISTS (SELECT 1 FROM reference_sources s WHERE s.root_id = r.id)`).all(domain) as { id: string; repository: string; revision: string }[]) {
+    for (const { id, repository, revision, state } of db.query(`SELECT r.id, r.repository, r.revision, r.state FROM reference_roots r WHERE r.domain = ?
+      AND NOT EXISTS (SELECT 1 FROM reference_sources s WHERE s.root_id = r.id)`).all(domain) as { id: string; repository: string; revision: string; state: string }[]) {
       if (hiddenRoots.has(id)) continue;
       await abortable(exclusive(sourceKey(domain, repository, revision), async () => {
         // An acquisition may have published it meanwhile as the current root.
         if (db.query("SELECT 1 FROM reference_sources WHERE root_id = ?").get(id)) return;
+        if (state === "staging") {
+          const record = await nativeRoot(id);
+          // Unpublished staging is outside the worker's views already. Taking
+          // its publication authority would cancel a valid concurrent fetch.
+          if (record?.purpose === "source" && record.view === null && ["reserved", "writable", "sealed"].includes(record.state)) {
+            hiddenRoots.set(id, record.publicationRevoked === true);
+            return;
+          }
+        }
         await hideRoot(id);
       }), signal, false);
     }

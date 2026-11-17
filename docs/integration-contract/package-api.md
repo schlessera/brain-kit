@@ -4550,6 +4550,8 @@ and validation timestamp still match confirmed native hiding. A replacement or
 renewal expires independently, and incomplete hiding is retried before binding.
 Only permanent native withdrawal can retain hiding confirmation across binds;
 reversible roots and catalog orphans are confirmed again for each bind.
+Native-confirmed unpublished staging stays outside worker views without losing
+publication authority; staging already exposed in a view is still contained.
 Startup recovery preserves validation another owner renewed after its scan.
 
 `ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.

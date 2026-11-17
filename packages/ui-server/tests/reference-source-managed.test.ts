@@ -125,6 +125,51 @@ test("a cached shared root still uses the requesting principal and turn's own me
   } finally { await f.close(); }
 });
 
+for (const phase of ["fetch", "seal"] as const)
+for (const owner of ["same service", "another service"] as const)
+test(`a concurrent bind from ${owner} preserves an unpublished managed source during ${phase}`, async () => {
+  const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
+  const arrived = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>(), fetch = f.transport.fetch, seal = f.pool.poolSeal;
+  const pause = async () => { arrived.resolve(); await resume.promise; };
+  if (phase === "fetch") f.transport.fetch = async input => { const result = await fetch(input); await pause(); return result; };
+  else f.pool.poolSeal = async (...args) => { const result = await seal(...args); await pause(); return result; };
+  const pending = f.request().then(lease => ({ lease, error: undefined }), error => ({ lease: undefined, error }));
+  try {
+    await arrived.promise;
+    const staging = [...f.pool.records.values()].find(record => record.purpose === "source")!;
+    expect(staging.view).toBeNull(); expect(staging.publicationRevoked).toBe(false);
+    const view = await (owner === "same service" ? f.sources : otherSources).bindable(f.other.id);
+    expect(existsSync(join(view.public, staging.id, "README.md"))).toBe(false);
+    expect(staging.publicationRevoked, "BIND_PRESERVES_UNPUBLISHED_SOURCE_AUTHORITY").toBe(false);
+    resume.resolve(); const result = await pending;
+    expect(result.error, "CONCURRENT_BIND_DOES_NOT_CANCEL_VALID_SOURCE_PUBLICATION").toBeUndefined();
+    expect(result.lease!.rootId).toBe(staging.id);
+    expect(existsSync(join(view.public, result.lease!.name, "README.md"))).toBe(true);
+  } finally {
+    resume.resolve(); const result = await pending; result.lease?.release();
+    f.transport.fetch = fetch; f.pool.poolSeal = seal;
+    await otherSources.close(); otherDb.close(); await f.close();
+  }
+});
+
+test("a bind withdraws staging already exposed without a source catalog receipt", async () => {
+  const f = await fixture();
+  let held: Awaited<ReturnType<typeof f.request>> | undefined;
+  try {
+    held = await f.request();
+    // Reconstruct the durable state after native publication but before its
+    // catalog receipt: the sealed root is in a view and its row is staging.
+    f.db.query("DELETE FROM reference_sources WHERE root_id = ?").run(held.rootId);
+    f.db.query("DELETE FROM reference_acquisitions WHERE root_id = ?").run(held.rootId);
+    f.db.query("UPDATE reference_roots SET state = 'staging' WHERE id = ?").run(held.rootId);
+    expect(existsSync(join(held.viewPath, held.rootId, "README.md"))).toBe(true);
+    await f.sources.bindable(f.other.id);
+    expect(existsSync(join(held.viewPath, held.rootId, "README.md")), "PUBLISHED_STAGING_ROOT_MUST_BE_HIDDEN_BEFORE_BIND").toBe(false);
+    expect(existsSync(join(held.viewPath, held.name, "README.md"))).toBe(false);
+    expect(f.pool.records.get(held.rootId)!.publicationRevoked).toBe(true);
+  } finally { held?.release(); await f.close(); }
+});
+
 for (const wait of ["seal", "native-publication"] as const)
 test(`an older managed acquisition cannot replace a newer revision after ${wait}`, async () => {
   const f = await fixture(), otherDb = createUiDb(f.databasePath), otherSources = f.restart(otherDb);
