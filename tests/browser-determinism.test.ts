@@ -11,7 +11,7 @@ import {
   pairKey, parsePairKey, planBrowserPartitions, planBrowserRepetitions, selectBrowserPartition, type SpecPair,
 } from "../scripts/browser-determinism-plan";
 import { CONFIG_ROOT, REPORT_KIND, judge, launcherArgv, parseArguments, passPlan, runBrowserDeterminism, summaryMarkdown } from "../scripts/browser-determinism";
-import { RESULT_KIND, burnerSource, passCollector, readPassPlan, runPasses, startBurners } from "../scripts/browser-determinism-inside.mjs";
+import { RESULT_KIND, burnerSource, passCollector, readPassPlan, runPasses, scaleVitestDeadlines, startBurners } from "../scripts/browser-determinism-inside.mjs";
 import { readBrowserCosts } from "../scripts/browser-shards";
 import { BROWSER_DETERMINISM_PARTITIONS } from "../scripts/proof-shards";
 
@@ -78,8 +78,13 @@ describe("repetition count and budget", () => {
   const costs = Object.fromEntries(oars.map((spec, index) => [pairKey(spec), 10 + index * 10]));
 
   test("the numbers have one owner: five repetitions, a floor of two, 300 weighted seconds, and capacity fits the step limit at the measured load ratio", () => {
-    expect(BROWSER_DETERMINISM_PARTITIONS).toEqual({ capacitySeconds: 300, max: 15, stepMinutes: 20, loadRatio: 1.8, unweightedSeconds: 10 });
+    expect(BROWSER_DETERMINISM_PARTITIONS).toEqual({ capacitySeconds: 300, max: 15, stepMinutes: 20, loadRatio: 1.8, unweightedSeconds: 10, deadlineFactor: 3 });
     expect([DEFAULT_REPETITIONS, FLOOR_REPETITIONS, BROWSER_BUDGET_SECONDS, UNWEIGHTED_PAIR_SECONDS]).toEqual([5, 2, 300, 10]);
+    const { deadlineFactor, loadRatio, capacitySeconds, stepMinutes } = BROWSER_DETERMINISM_PARTITIONS;
+    expect(Number(deadlineFactor), "BROWSER_DEADLINE_COVERS_LOAD_WITH_MARGIN").toBe(Math.ceil(loadRatio * 1.15));
+    // Vitest 4.1.11: 15 s browser tests and 30 s browser hooks. One default hang after a full capacity,
+    // plus the measured setup/start-up, still fits the unchanged step limit.
+    expect(capacitySeconds * loadRatio + 30 * deadlineFactor + 135, "BROWSER_HANG_FITS_STEP_LIMIT").toBeLessThan(stepMinutes * 60);
     // Passes at the measured ratio, plus the measured 2 min 15 s of build, image pull and start-up, inside the proof step.
     expect(BROWSER_DETERMINISM_PARTITIONS.capacitySeconds * BROWSER_DETERMINISM_PARTITIONS.loadRatio + 135, "CAPACITY_FITS_THE_STEP_LIMIT").toBeLessThanOrEqual(BROWSER_DETERMINISM_PARTITIONS.stepMinutes * 60);
   });
@@ -285,13 +290,14 @@ describe("further passes in one Vitest process", () => {
   });
 
   test("the container's plan is validated: a kind, repository paths, at least two repetitions and a bounded load", () => {
-    const plan = { kind: RESULT_KIND, version: 1, root: "packages/ui-kit", result: "tmp/browser-determinism/passes.json", pairs: [harbour], repetitions: 2, burners: null, cpuList: null };
-    expect(readPassPlan(plan)).toEqual({ root: "packages/ui-kit", result: "tmp/browser-determinism/passes.json", pairs: [harbour], repetitions: 2, burners: null, cpuList: null });
+    const plan = { kind: RESULT_KIND, version: 1, root: "packages/ui-kit", result: "tmp/browser-determinism/passes.json", pairs: [harbour], repetitions: 2, deadlineFactor: 3, burners: null, cpuList: null };
+    expect(readPassPlan(plan)).toEqual({ root: "packages/ui-kit", result: "tmp/browser-determinism/passes.json", pairs: [harbour], repetitions: 2, deadlineFactor: 3, burners: null, cpuList: null });
     expect(readPassPlan({ ...plan, burners: 0, cpuList: "12-15" })).toMatchObject({ burners: 0, cpuList: "12-15" });
     for (const [label, change, refusal] of [
       ["ONE_PASS_PROVES_NOTHING", { repetitions: 1 }, "at least two"], ["NO_PAIR", { pairs: [] }, "at least one project/file pair"],
       ["DUPLICATE_PAIR", { pairs: [harbour, harbour] }, "selected twice"], ["ESCAPING_SPEC", { pairs: [pair("harbour", "../etc/passwd")] }, "at least one project/file pair"],
       ["ESCAPING_ROOT", { root: "../elsewhere" }, "repository paths"], ["RESULT_OUTSIDE_TMP", { result: "packages/passes.json" }, "repository paths"],
+      ["BAD_FACTOR", { deadlineFactor: 0 }, "whole number from 1 to 100"], ["MISSING_FACTOR", { deadlineFactor: undefined }, "whole number from 1 to 100"],
       ["NEGATIVE_LOAD", { burners: -1 }, "non-negative integer"], ["NOT_A_CPU_LIST", { cpuList: "12-15; rm" }, "CPU list"], ["ANOTHER_KIND", { kind: "brain-test-determinism" }, "Not a browser repetition plan"],
     ] as const) expect(() => readPassPlan({ ...plan, ...change }), label).toThrow(refusal);
   });
@@ -359,11 +365,11 @@ describe("the command", () => {
     const seen: { argv?: string[]; plan?: ReturnType<typeof passPlan> } = {}, lines: string[] = [];
     const report = await runBrowserDeterminism({ root: checkout(), pairs: selection, costs, configRoot: "tests/fixtures/browser-determinism", cpuList: "12-15", launch: container(green, 0, seen), log: line => lines.push(line) });
     expect(seen.argv, "THE_BROWSER_SUITES_LAUNCHER").toEqual(["node", "scripts/visual.mjs", "--project=harbour", "--project=strait", "--repeat-plan=tmp/browser-determinism/plan.json"]);
-    expect(seen.plan).toEqual({ kind: RESULT_KIND, version: 1, root: "tests/fixtures/browser-determinism", result: "tmp/browser-determinism/passes.json", pairs: selection, repetitions: 5, burners: null, cpuList: "12-15" });
+    expect(seen.plan).toEqual({ kind: RESULT_KIND, version: 1, root: "tests/fixtures/browser-determinism", result: "tmp/browser-determinism/passes.json", pairs: selection, repetitions: 5, deadlineFactor: 3, burners: null, cpuList: "12-15" });
     expect(report).toMatchObject({ kind: REPORT_KIND, version: 1, outcome: "passed", failure: null, exitCode: 0, repetitions: 5, requested: 5, weightSeconds: 14, load: { burners: 4, cpus: 4, inside: "pinned container" } });
     expect(report.pairs.map(entry => [entry.project, entry.weighted, entry.weightSeconds]), "UNWEIGHTED_PAIR_NAMED_IN_THE_REPORT").toEqual([["harbour", true, 4], ["strait", false, 10]]);
     expect(lines.find(line => line.includes("strait")), "AND_IN_THE_LOG").toContain("no reviewed weight: costed at the 10s default");
-    expect(passPlan(report), "THE_GATES_OWN_CONFIGURATION_BY_DEFAULT").toMatchObject({ root: CONFIG_ROOT, burners: null, cpuList: null });
+    expect(passPlan(report), "THE_GATES_OWN_CONFIGURATION_BY_DEFAULT").toMatchObject({ root: CONFIG_ROOT, deadlineFactor: 3, burners: null, cpuList: null });
     expect(launcherArgv([pair("rail-fine", `${browser}/a.pointer.tsx`), pair("rail-fine", `${browser}/b.pointer.tsx`), pair("ui-react-layout", `${browser}/c.layout.tsx`)]).slice(2, 4), "ONE_FLAG_PER_PROJECT").toEqual(["--project=rail-fine", "--project=ui-react-layout"]);
   });
 
@@ -421,4 +427,26 @@ describe("the command", () => {
       expect(() => parseArguments(args), args.join(" ")).toThrow("usage:");
     }
   });
+});
+
+test("resolved Vitest projects scale their own default caps and expose the factor to browser watchdogs", () => {
+  const projects: { name: string; config: { testTimeout: number; hookTimeout: number; env: Record<string, string> } }[] = [
+    { name: "harbour", config: { testTimeout: 15000, hookTimeout: 10000, env: { TIDE: "high" } } },
+    { name: "strait", config: { testTimeout: 1700, hookTimeout: 900, env: {} } },
+    { name: "unbounded", config: { testTimeout: 0, hookTimeout: 0, env: {} } },
+  ];
+  scaleVitestDeadlines({ projects }, 3);
+  expect(projects.map(project => project.config), "PROJECT_DEFAULTS_AND_BROWSER_ENV_SCALE").toEqual([
+    { testTimeout: 45000, hookTimeout: 30000, env: { TIDE: "high", BRAIN_TEST_DEADLINE_FACTOR: "3" } },
+    { testTimeout: 5100, hookTimeout: 2700, env: { BRAIN_TEST_DEADLINE_FACTOR: "3" } },
+    { testTimeout: 0, hookTimeout: 0, env: { BRAIN_TEST_DEADLINE_FACTOR: "3" } },
+  ]);
+});
+
+
+test("a diagnostic deadline factor is validated, reported and handed unchanged to the container", async () => {
+  expect(parseArguments(["--deadline-factor", "1", "harbour::tests/fixtures/browser-deadlines/deadline-work.repeat.js"]).deadlineFactor).toBe(1);
+  for (const value of ["0", "101", "3.5", "", "three"])
+    expect(() => parseArguments(["--deadline-factor", value, "harbour::tests/fixtures/browser-deadlines/deadline-work.repeat.js"])).toThrow("whole number from 1 to 100");
+  expect(passPlan(planBrowserRepetitions([pair("harbour", "tests/fixtures/browser-deadlines/deadline-work.repeat.js")], { costs: {} }), { deadlineFactor: 1 }).deadlineFactor).toBe(1);
 });
