@@ -84,10 +84,12 @@ Before instrumenting installed dependencies, follow
 [dependency diagnostic preparation](docs/process/diagnostic-installs.md):
 worktrees alone do not isolate Bun cache hardlinks.
 
-The native diagram producer has no frozen qualification pin
-([#4105](https://github.com/schlessera/brain-kit/issues/4105)): adding,
-removing or upgrading a dependency needs no requalification, and its proof
-runs fresh in the producer's Docker boundary. A frozen lockfile still does not
+No test pins the hash of a source file or of the installation
+([#4105](https://github.com/schlessera/brain-kit/issues/4105),
+[#4107](https://github.com/schlessera/brain-kit/issues/4107)): editing product
+source, or adding, removing or upgrading a dependency, needs no re-audit or
+requalification. Browser proof runs fresh whenever it is selected, and the
+native diagram producer runs in its Docker boundary. A frozen lockfile still does not
 repair a modified shared package cache, and copying that cache copies the
 modifications ([#1980](https://github.com/schlessera/brain-kit/issues/1980)).
 When a check fails on installed bytes, recover only the owned checkout through
@@ -219,7 +221,9 @@ real Chrome and required namespaces may not silently skip. The final `proof`
 check requires every selected category to pass. Scheduled/manual exhaustive
 runs supplement affected PR proof; they do not replace it.
 
-Drafts stay on cheap gates. Opening/reopening a ready PR or marking it ready
+Drafts stay on cheap gates, plus one job: a PR that adds or modifies a Bun
+test file has those files repeated under CPU load
+([why](docs/process/testing.md#changed-tests-repeat-under-load)). Opening/reopening a ready PR or marking it ready
 requests affected candidate confirmation of the fast categories (types,
 packaging, unit/integration); heavy runtime, browser, layout, capture and
 endurance proof runs on the squash's own main run
@@ -237,7 +241,7 @@ Record actual head/base, job/attempt IDs, checkout logs and focused local
 receipts in the PR. Missing tools, failed/cancelled jobs and unexpected skips
 leave proof incomplete. The candidate gate requires the live head/base to match the tested merge
 checkout; a base advance requires a new confirmation request, without inherently
-requiring a rebase. Admitted immutable browser-domain retention remains available. Preserve
+requiring a rebase. Preserve
 the earlier tested tree rather than attributing it to a new base. Relevant
 input/dependency/harness changes require fresh proof; unknown changes expand
 conservatively. There is no generic cache of passing tests. Respect branch rules
@@ -292,7 +296,7 @@ invalid tables fail visibly. Refresh explicitly from one successful CI run
 attempt in which every shard of the domain, as configured in `PROOF_SHARDS`
 (`scripts/proof-shards.ts`), ran fresh and succeeded:
 `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
-(browser by default). Cancelled, partial or retained-only proof supplies no
+(browser by default). Cancelled or partial proof supplies no
 measurements. Review the source head/checkout/tree, job IDs and seconds/median
 metadata alongside the table.
 Unsharded discovery is unchanged and existing browser file concurrency is kept.

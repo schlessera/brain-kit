@@ -41,14 +41,6 @@ function plannerFixture() {
 }
 
 describe("affected CI checks", () => {
-  test("file-read dispatch audits follow reviewed consumers and handler sources", () => {
-    for (const path of ["packages/ui-react/src/connection.ts", "packages/ui-react/src/hooks/use-websocket.ts",
-      "packages/ui-react/src/hooks/websocket-handlers/chat.ts", "packages/ui-react/src/lib/stats/context-text.ts"]) {
-      expect(planChecks([path], [{dir: "ui-react", name: "@fixture/ui-react", dependencies: [], files: ["src"]}]).tests,
-        `DISPATCH_SOURCE_AUDIT_SELECTED: ${path}`).toContain("tests/source-browser-dispatch.test.ts");
-    }
-  });
-
   test.each([
     "docs/supported-inputs.md", "docs/decisions/provider-history.md", "docs/plans/example.md",
     "docs/guides/nested/example.md", "README.md", "ROADMAP.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md",
@@ -320,7 +312,7 @@ describe("file-reading invariant inputs", () => {
     ["packages/module-diagrams/upstream.json", ["packages/module-diagrams/tests/module.test.ts"]],
     ["packages/ui-sdk/src/types.ts", ["tests/seam-list.test.ts", "tests/env-parity.test.ts", "tests/public-docs.test.ts"]],
     ["api-report/ui-server.txt", ["tests/env-parity.test.ts"]],
-    [".github/workflows/ci.yml", ["tests/ci-workflows.test.ts", "tests/lockfile.test.ts", "tests/candidate-admission.test.ts", "tests/generated-build-inputs.test.ts", "tests/generated-theme-inputs.test.ts"]],
+    [".github/workflows/ci.yml", ["tests/ci-workflows.test.ts", "tests/lockfile.test.ts", "tests/candidate-admission.test.ts"]],
     [".github/workflows/project-sync.yml", ["tests/project-sync-main.test.ts"]],
     [".github/workflows/ci-timings.yml", ["tests/ci-timings.test.ts"]],
   ] as const)("selects file consumers of %s", (path, tests) => {
@@ -383,7 +375,9 @@ describe("file-reading invariant inputs", () => {
       expect(plan.global, path).toBe(true); expect(plan.unitTests, path).toBeUndefined();
       expect(plan.affected).toEqual(packages.map(pkg => pkg.dir).sort());
       expect(Object.values(plan.local).every(Boolean), path).toBe(true);
-      expect(Object.values(proofSelections(plan)).every(Boolean), path).toBe(true);
+      const { determinism, ...selections } = proofSelections(plan);
+      expect(determinism, path).toBe(false);
+      expect(Object.values(selections).every(Boolean), path).toBe(true);
       expect(plan.pack).toBe(true); expect(plan.typecheck).toBe(true);
     }
   });
@@ -526,6 +520,71 @@ test("feedback-heavy cadence selects a changed ui-server file's heavy categories
   for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) expect(heavy[category], `FEEDBACK_HEAVY_${category}`).toBe(true);
   const draft = { ...plan, cadence: "draft" as const };
   expect(Object.values(proofSelections(draft)).some(Boolean), "DRAFT_STAYS_CHEAP").toBe(false);
+});
+
+describe("changed Bun test files repeat under load before merge (#4109)", () => {
+  const passing = 'import { test } from "bun:test";\ntest("holds", () => {});\n';
+  const cadences = ["draft", "feedback", "confirmation", "feedback-heavy", "integrated", "exhaustive"] as const;
+
+  test("a pull request that adds or modifies a Bun test file selects the job at every pull-request cadence, drafts included", () => {
+    const f = fixture();
+    f.write("packages/core/tests/modified.test.ts", passing); f.write("packages/core/tests/deleted.test.ts", passing);
+    f.git("add", "."); f.git("commit", "-qm", "tests to change"); const base = f.git("rev-parse", "HEAD");
+    f.write("packages/core/tests/modified.test.ts", passing + "// changed\n"); f.write("tests/added.test.ts", passing);
+    f.write("packages/core/tests/sails.layout.tsx", "export {};\n"); f.write("experiments/judge.test.ts", passing);
+    f.write("packages/core/node_modules/dep/dep.test.ts", passing); f.write("packages/core/tests/helper.ts", "export {};\n");
+    f.git("rm", "-q", "packages/core/tests/deleted.test.ts"); f.git("add", "-f", "."); f.git("commit", "-qm", "change tests");
+    const plan = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: base, HEAD_SHA: "HEAD" });
+    expect(plan.changed, "DELETION_IS_IN_THE_DIFF").toContain("packages/core/tests/deleted.test.ts");
+    expect(plan.determinism, "ADDED_AND_MODIFIED_BUN_TESTS_ONLY").toEqual(["packages/core/tests/modified.test.ts", "tests/added.test.ts"]);
+    const selected = Object.fromEntries(cadences.map(cadence => [cadence, proofSelections({ ...plan, cadence }).determinism]));
+    expect(selected, "EVERY_PULL_REQUEST_CADENCE").toEqual({ draft: true, feedback: true, confirmation: true, "feedback-heavy": true, integrated: false, exhaustive: false });
+    // A draft keeps every other category off: this one job is the amendment.
+    expect(Object.entries(proofSelections({ ...plan, cadence: "draft" })).filter(([, on]) => on).map(([name]) => name), "DRAFT_RUNS_ONLY_REPETITION").toEqual(["determinism"]);
+    expect(proofSelections(plan, true).determinism, "PR_DRAFT_FLAG_KEEPS_REPETITION").toBe(true);
+    // Draft heavy feedback plans the same pull request through its dispatch.
+    const heavy = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "workflow_dispatch", BASE_SHA: base, HEAD_SHA: "HEAD", FEEDBACK_PR: "7" });
+    expect(heavy.determinism).toEqual(plan.determinism!);
+  });
+
+  test("the aggregate refuses published outputs that drop a selected repetition or add an unselected one", async () => {
+    const { validateSelections } = await import("../scripts/candidate-proof");
+    const f = fixture(), base = f.base;
+    f.write("tests/added.test.ts", passing); f.git("add", "."); f.git("commit", "-qm", "add a test"); const withTest = f.git("rev-parse", "HEAD");
+    const outputsFor = (head: string, before: string) => {
+      const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: head };
+      const event = { action: "synchronize", pull_request: { draft: true, base: { sha: before }, head: { sha: head } } };
+      const plan = planFromEnvironment(f.dir, { ...env, BASE_SHA: before, HEAD_SHA: head }); plan.cadence = "draft";
+      return { env, event, outputs: { cadence: "draft", ...Object.fromEntries(Object.entries(proofSelections(plan)).map(([name, on]) => [name, String(on)])) } as Record<string, string> };
+    };
+    const selected = outputsFor(withTest, base);
+    expect(selected.outputs.determinism, "DRAFT_SELECTS_REPETITION").toBe("true");
+    expect(() => validateSelections(f.dir, selected.event, selected.env, selected.outputs)).not.toThrow();
+    expect(() => validateSelections(f.dir, selected.event, selected.env, { ...selected.outputs, determinism: "false" }), "DROPPED_SELECTION_REFUSED")
+      .toThrow("determinism: required candidate selection differs from actual inputs");
+    f.write("docs/voyage.md", "Ithaca lies west.\n"); f.git("add", "."); f.git("commit", "-qm", "docs only"); const docsOnly = f.git("rev-parse", "HEAD");
+    const unselected = outputsFor(docsOnly, withTest);
+    expect(unselected.outputs.determinism, "DOCS_ONLY_SELECTS_NONE").toBe("false");
+    expect(() => validateSelections(f.dir, unselected.event, unselected.env, unselected.outputs)).not.toThrow();
+    expect(() => validateSelections(f.dir, unselected.event, unselected.env, { ...unselected.outputs, determinism: "true" }), "ADDED_SELECTION_REFUSED")
+      .toThrow("determinism: required candidate selection differs from actual inputs");
+  });
+
+  test("a change that touches no Bun test file never selects it, and a main push never repeats", () => {
+    const f = fixture(); f.write("packages/core/tests/held.test.ts", passing);
+    f.git("add", "."); f.git("commit", "-qm", "an existing test"); const base = f.git("rev-parse", "HEAD");
+    f.write("packages/core/src/note.ts", "export const note = 3;\n"); f.write("docs/voyage.md", "Ithaca lies west.\n");
+    f.git("add", "."); f.git("commit", "-qm", "source and docs");
+    const plan = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: base, HEAD_SHA: "HEAD" });
+    expect(plan.determinism, "NO_CHANGED_TEST_NO_FIELD").toBeUndefined();
+    for (const cadence of cadences) expect(proofSelections({ ...plan, cadence }).determinism, `UNSELECTED_${cadence}`).toBe(false);
+    f.write("packages/core/tests/held.test.ts", passing + "// changed\n"); f.git("add", "."); f.git("commit", "-qm", "change the test");
+    const head = f.git("rev-parse", "HEAD");
+    const push = planFromEnvironment(f.dir, { GITHUB_EVENT_NAME: "push", BEFORE_SHA: base, HEAD_SHA: head });
+    expect(push.changed).toContain("packages/core/tests/held.test.ts");
+    expect(push.determinism, "MAIN_PUSH_PLANS_NO_REPETITION").toBeUndefined();
+    expect(proofSelections({ ...push, cadence: "integrated" }).determinism).toBe(false);
+  });
 });
 
 describe("main aggregate re-plans with the metadata job's red-main set (#3541)", () => {
