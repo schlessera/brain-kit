@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { FEEDBACK_AGGREGATE } from "./heavy-feedback";
 
-export const CATEGORY_JOBS = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"] as const;
+export const CATEGORY_JOBS = ["verify", "pack", "unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance", "determinism"] as const;
 export const FEEDBACK_GROUP = "heavy-feedback-${{ github.event.pull_request.number || inputs.pr }}";
 const HEAD = "${{ inputs.head_sha }}";
 const DISPATCH = "github.event_name == 'workflow_dispatch'";

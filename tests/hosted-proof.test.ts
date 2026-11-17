@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { categoryCommands, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
+import { categoryCommands, DETERMINISM_REPORT, determinismFiles, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
 import { planChecks, proofSelections, workspaces, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
 import { localChecks } from "../scripts/check-pr";
@@ -30,7 +30,7 @@ function receipt(selected = true): { changeset: { result: string; outputs: Recor
 }
 
 test("aggregate accepts actual selected passes and intentional exclusions only", () => {
-  expect(PROOF_JOBS.length).toBe(9);
+  expect(PROOF_JOBS.length).toBe(10);
   expect(proofProblems(receipt())).toEqual([]);
   expect(proofProblems(receipt(false))).toEqual([]);
   for (const name of PROOF_JOBS) for (const result of ["failure", "cancelled", "skipped", "queued", ""]) {
@@ -111,7 +111,9 @@ test("affected complete discovery admits new files and reverse dependencies with
 
 test("hosted global commands retain the full local inventory and real offline namespaces", () => {
   const plan = planChecks(["package.json"], workspaces(ROOT));
-  const selections = proofSelections(plan);
+  // A global change touches no Bun test file, so nothing is repeated under load (#4109).
+  const { determinism, ...selections } = proofSelections(plan);
+  expect(determinism, "NO_CHANGED_TEST_NO_REPETITION").toBe(false);
   expect(Object.values(selections).every(Boolean)).toBe(true);
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
   const cmds = ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
@@ -187,6 +189,34 @@ test("explicit leaf inventory is exact, validated and preserves aggregate obliga
   expect(() => unitFiles(plan, ROOT)).toThrow("Invalid selected unit inventory");
 });
 
+
+test("the aggregate requires repeated-run proof when selected and an intentional skip otherwise (#4109)", () => {
+  const selected = receipt(false); selected.changeset.outputs.determinism = "true";
+  for (const state of ["skipped", "failure", "cancelled", undefined]) {
+    if (state === undefined) delete selected.determinism; else selected.determinism = { result: state };
+    expect(proofProblems(selected), "SELECTED_REPETITION_MUST_PASS").toEqual([`determinism: selected proof did not pass (${state ?? "missing"})`]);
+  }
+  selected.determinism = { result: "success" };
+  expect(proofProblems(selected), "SELECTED_AND_PASSED").toEqual([]);
+  const unselected = receipt(false);
+  expect(proofProblems(unselected), "UNSELECTED_NOT_REQUIRED").toEqual([]);
+  unselected.determinism = { result: "success" };
+  expect(proofProblems(unselected)).toEqual(["determinism: unselected job must be intentionally skipped (success)"]);
+  const absent = receipt(false); delete absent.changeset.outputs.determinism;
+  expect(proofProblems(absent), "MISSING_SELECTION_IS_NOT_A_SKIP").toEqual(["determinism: selection output is missing or invalid"]);
+});
+
+test("the hosted repetition command runs the planner's files through the command with real Chrome required (#4109)", () => {
+  const plan = { ...planChecks(["docs/voyage.md"], workspaces(ROOT)), determinism: ["tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"] };
+  expect(determinismFiles(plan)).toEqual(["tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"]);
+  const [command, ...rest] = categoryCommands("determinism", plan, ROOT);
+  expect(rest).toEqual([]);
+  expect(command!.argv.slice(1)).toEqual([join(ROOT, "scripts/test-determinism.ts"), `--report=${DETERMINISM_REPORT}`, "tests/ci-plan.test.ts", "packages/core/tests/briefing.test.ts"]);
+  expect(command!.env, "CHANGED_FILES_MAY_DRIVE_REAL_CHROME").toEqual({ BRAIN_REQUIRE_CHROME: "1" });
+  for (const unselected of [{ ...plan, determinism: [] }, { ...plan, determinism: undefined }]) {
+    expect(() => categoryCommands("determinism", unselected, ROOT), "EMPTY_SELECTION_IS_NEVER_A_JOB").toThrow("Repeated-run proof was not selected");
+  }
+});
 
 test("native runtime split requires both selected jobs and preserves all six phases exactly once", () => {
   const plan = planChecks(["package.json"], workspaces(ROOT));
