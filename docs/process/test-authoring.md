@@ -161,6 +161,17 @@ there, not on someone else's merge. Reproduce a failure with
 `bun scripts/test-determinism.ts --base origin/main`, and fix the test under
 the rule it broke. A longer deadline or a retry is not a fix.
 
+A story, a visual baseline, or a pointer, layout or offline spec is checked
+the same way: the hosted `browser_determinism` job repeats each added or
+modified spec in the pinned container under CPU load, in every Vitest project
+that includes it, five times on a draft and twice at ready confirmation
+([the gate](testing.md#changed-browser-specs-repeat-under-load)). A spec that
+reads a status once instead of waiting for it, or that leaves something in
+`localStorage` for its own next pass, fails there. Reproduce a failure with
+`bun scripts/browser-determinism.ts --base origin/main`. Changing a helper
+repeats nothing, so a wait added to a shared helper is proved by the specs
+that are changed with it.
+
 ## Cost
 
 - **C1. Know the budget of the tier.** Most unit files finish in under a

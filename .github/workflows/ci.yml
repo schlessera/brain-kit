@@ -20,9 +20,11 @@ concurrency:
 
 # Drafts run cheap gates; synchronize gives fast feedback. Open/ready/reopen
 # requests final affected confirmation. The proof gate refuses intermediate feedback.
-# One job is selected at every pull-request cadence, drafts included: `determinism`
-# repeats the Bun test files a change adds or modifies under CPU load (#4109),
-# in as many partitions as the planner publishes (#4117).
+# Two jobs are selected at every pull-request cadence, drafts included: `determinism`
+# repeats the Bun test files a change adds or modifies under CPU load (#4109), and
+# `browser_determinism` repeats its Vitest browser, layout and story specs in the
+# pinned container (#4163). Each runs in as many partitions as the planner
+# publishes (#4117).
 # Independent jobs start together; each PR owns its cancellation group (#1326).
 jobs:
   changeset:
@@ -42,6 +44,8 @@ jobs:
       pack: ${{ steps.plan.outputs.pack }}
       determinism: ${{ steps.plan.outputs.determinism }}
       determinism_shards: ${{ steps.plan.outputs.determinism_shards }}
+      browser_determinism: ${{ steps.plan.outputs.browser_determinism }}
+      browser_determinism_shards: ${{ steps.plan.outputs.browser_determinism_shards }}
       red_main_oid: ${{ steps.plan.outputs.red_main_oid }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -708,10 +712,68 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  browser_determinism:
+    # A changed browser, layout or story spec that passes once can still fail on someone else's merge (#4163).
+    needs: changeset
+    if: ${{ !cancelled() && (needs.changeset.result == 'success' || github.event_name == 'push') && needs.changeset.outputs.browser_determinism == 'true' }}
+    runs-on: ubuntu-24.04
+    # 20 minutes proof (build, image and repeated passes) + 5 minutes for other steps.
+    timeout-minutes: 25
+    # One partition while the selection fits one job's capacity; an oversized
+    # selection is split by reviewed weight (scripts/proof-shards.ts).
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.changeset.outputs.browser_determinism_shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+      - name: Recompute affected proof on the actual checkout
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RED_MAIN_OID: ${{ needs.changeset.outputs.red_main_oid }}
+        run: bun scripts/ci-plan.ts
+      - name: Repeat changed browser, layout and story specs under CPU load
+        timeout-minutes: 20
+        env:
+          BROWSER_REPEAT_SHARDS: ${{ strategy.job-total }}
+        run: bun scripts/ci-proof.ts browser_determinism --shard=${{ matrix.shard }}/"$BROWSER_REPEAT_SHARDS"
+      - name: Proof receipts and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: browser-determinism-proof-${{ matrix.shard }}
+          path: |
+            tmp/browser-determinism-report.json
+            tmp/browser-determinism/
+            tmp/proof-checkout.json
+            tmp/proof-resources.json
+            packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/hygiene-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
   proof:
     name: ${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}
     # Evaluate even after failures or skips; never interpret missing selected proof as green.
-    needs: [changeset, verify, pack, unit, runtime, runtime_host, browser, layout, captures, endurance, determinism]
+    needs: [changeset, verify, pack, unit, runtime, runtime_host, browser, layout, captures, endurance, determinism, browser_determinism]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
