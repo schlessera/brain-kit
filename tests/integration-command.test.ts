@@ -205,7 +205,7 @@ fi`); chmodSync(shim, 0o755);
       else if(path.endsWith("/pulls/7"))value={number:7,state:s.merged?"closed":"open",draft:s.draft,merged:s.merged,merge_commit_sha:squash,head:{sha:s.mode==="changed-head"||(s.mode==="confirm-changed"&&s.requested&&s.now>${NOW})?"e".repeat(40):head,repo:{full_name:repo}},base:{ref:"main",sha:base,repo:{full_name:repo}},milestone:{title:"0.44.0"},body};
       else if(path.endsWith("git/ref/heads/main"))value={object:{sha:s.mode==="changed-base"?"d".repeat(40):base}};
       else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:Object.entries(mainRuns).filter(([sha])=>path.includes("head_sha="+sha)).map(([sha,run])=>({...run,head_sha:sha}))};
-      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],repository:{full_name:repo}};
+      else if(/actions\\/runs\\/555$/.test(path))value={id:555,head_sha:qualificationRuns[555],status:"completed",conclusion:"success",repository:{full_name:repo}};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
       else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:s.mode.endsWith("contract-absent")?[]
         // A creation or push-and-edit burst: the newest run was cancelled while pending, an older one passed (#3573).
