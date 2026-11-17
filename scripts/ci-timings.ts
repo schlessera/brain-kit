@@ -433,7 +433,8 @@ function newestPulls(pulls: PullObservation[]): PullObservation[] {
 }
 /**
  * Report inputs from the durable data ref on `remote` (#2955). With an explicit
- * window, months from one before `since` through one after `until` are read, so
+ * Legacy monthly and daily run partitions share the reader's deterministic
+ * run/attempt join. With an explicit window, months from one before `since` through one after `until` are read, so
  * a cohort's earlier PR attempts and later main proof stay in view.
  */
 export async function archiveInputs(remote: string, repository: string, since?: string, until?: string, root = process.cwd()): Promise<ReportInputs & { head: string | null }> {
